@@ -132,6 +132,11 @@ fallback for prose and unfamiliar forms. The model pass was not scored on this s
   takes forms the drafted set lacks. Closing that gap needs new training data, not a look at test.
 - **Personal data.** Only 16% of personal lines are found on test (35 of 218). Names, addresses outside
   the "number, name, Street" form, and national ids are left to the model pass.
-- **Emails on example.com.** The labels count a person's address on `example.com` as personal
-  (`training/secrets/labels.md`, rule 3). The scanner still skips `example.com` and `example.org`, so
-  documentation examples are not reported.
+- **Emails on example domains.** Decided the same day: an address on a domain reserved for examples
+  identifies no one, so the scanner skips it. RFC 2606 reserves `example.com`, `example.net`,
+  `example.org` and their subdomains, and the `.example`, `.test` and `.invalid` top-level domains.
+  Before, only `example.com` and `example.org` were skipped. The training set disagrees for its own
+  reason: neutralising moved real people's addresses onto these domains, so they stand in for real
+  ones there and are labelled personal (`training/secrets/labels.md`, rules 1 and 3). The scanner
+  therefore misses them on the set by design, and 42 of the 218 personal test lines carry one. With
+  the skip widened, the rules find 27 personal test lines (12%), down from 35.

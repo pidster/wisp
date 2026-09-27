@@ -31,7 +31,8 @@ Judgement rules
      Variable names without a value (API_KEY=) and references to a secret store (op://..., a Secrets
      Manager ARN, a Vault path) are none. Code that reads a secret from the environment is none.
   3. Emails: a person's address in logs, tickets, CRM rows, commit trailers, or chat is personal even on
-     example.com (this diverges from SecretScanner, which skips example.com addresses). Generic doc
+     example.com (this diverges from SecretScanner, which skips every domain reserved for examples by
+     design: here they stand in for real domains, rule 1; ADR 0031, amendment of 2026-09-27). Generic doc
      placeholders (you@example.com, user@example.com, name@domain.tld) and role or system addresses
      (noreply@, support@, alerts@, billing@, git@github.com) are none.
   4. IPs: an IP tied to a person, a login, or a client request is personal; private, loopback, and bind

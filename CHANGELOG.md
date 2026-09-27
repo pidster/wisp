@@ -16,7 +16,10 @@ Changed:
   - password hashes, PGP key blocks, and signed URLs;
   - more provider tokens (GitLab, PyPI, Docker, npm, Vault, Google OAuth, and others).
 
-  A password in a URL is now reported as a secret, not as an email address. On the secrets test set the
+  A password in a URL is now reported as a secret, not as an email address. Email addresses on any
+  domain reserved for examples (`example.com`, `example.net`, `example.org`, their subdomains, and
+  `.test`, `.example`, `.invalid`) are no longer reported as personal data; before, only
+  `example.com` and `example.org` were skipped. On the secrets test set the
   rules find 32% of secrets, up from 13%, with no more false alarms.
 
 ## 0.13.2

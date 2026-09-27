@@ -88,6 +88,14 @@ import Testing
         }
     }
 
+    @Test func emailOnADomainReservedForExamplesIdentifiesNoOne() {
+        let reserved = ["dev@example.com", "ops@mail.example.net", "a.b@example.org", "x@host.test", "y@z.invalid"]
+        for address in reserved { #expect(SecretScanner.scan("mail \(address)").isEmpty, "\(address)") }
+        for address in ["jo@example.co", "jo@notexample.com", "jo@example.com.au"] {
+            #expect(SecretScanner.scan("mail \(address)").map(\.kind) == ["email"], "\(address)")
+        }
+    }
+
     @Test func aURLPasswordIsASecretNotAnEmailAddress() {
         let matches = SecretScanner.scan("mongodb://backup:" + "dumpIt88@mongo.example.com:27017")
         #expect(matches.map(\.kind) == ["url-password"] && matches.first?.value == "dumpIt88")
@@ -110,8 +118,8 @@ import Testing
 
     @Test func aTrainingLineIsLabelledByItsMostSevereMatchWithTheScannerMarkRemoved() {
         let marked = String(Self.github.prefix(4)) + "\u{200B}" + Self.github.dropFirst(4)
-        #expect(SecretScanner.label(of: "token: \(marked) for jo@example.net") == "secret")
-        #expect(SecretScanner.label(of: "reply to jo@example.net") == "personal")
+        #expect(SecretScanner.label(of: "token: \(marked) for jo@acme.co") == "secret")
+        #expect(SecretScanner.label(of: "reply to jo@acme.co") == "personal")
         #expect(SecretScanner.label(of: "build finished in 3.2 s") == "none")
     }
 

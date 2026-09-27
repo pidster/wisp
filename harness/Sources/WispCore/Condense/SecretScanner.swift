@@ -160,7 +160,7 @@ public enum SecretScanner {
         Rule("wifi-password", .secret, #"\bWIFI:[^\s]*?\bP:([^;\s]+);"#, group: 1),
         Rule(
             "email", .personal, #"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"#,
-            accepts: { !$0.lowercased().hasSuffix("@example.com") && !$0.lowercased().hasSuffix("@example.org") }),
+            accepts: { !isReservedDomain($0) }),
         Rule("phone", .personal, #"(?<![\w+])\+[1-9]\d{0,2}(?:[ \-]?\(?\d{1,4}\)?){2,5}\b"#),
         Rule("card-number", .personal, #"\b(?:\d[ \-]?){12,18}\d\b"#, accepts: { passesLuhn($0) }),
         Rule(
@@ -386,6 +386,17 @@ public enum SecretScanner {
             #"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"#, #"^[\w.\-]+(?:/[\w.\-]+)+\.[a-z]{1,5}$"#,
         ]
         return patterns.contains { value.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    /// Whether an email address is on a domain reserved for examples (RFC 2606): `example.com`,
+    /// `example.net`, `example.org`, their subdomains, or the `.example`, `.test`, and `.invalid`
+    /// top-level domains. No one can own an address there, so it identifies no one.
+    static func isReservedDomain(_ address: String) -> Bool {
+        let domain = address.lowercased().split(separator: "@").last.map(String.init) ?? ""
+        let labels = domain.split(separator: ".")
+        if let top = labels.last, ["example", "test", "invalid"].contains(top) { return true }
+        guard labels.count >= 2, let top = labels.last else { return false }
+        return labels[labels.count - 2] == "example" && ["com", "net", "org"].contains(top)
     }
 
     /// Whether a run of digits, spaces, and dashes passes the Luhn check card numbers carry.
