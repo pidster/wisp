@@ -125,7 +125,13 @@ contract 2, and latency in every classifier measurement. Next, in order:
   real test commands, the shipped default, trained from drafted and real commands, rates 817 exactly
   beside the rules (`system-model`: 664) at under a millisecond a command, and became
   `approval.classifier`'s default. It rates four of the 25 dangerous commands safe (`system-model`:
-  one), three of them undecidable from the text; a dangerous-only test slice is next.
+  one), three of them undecidable from the text.
+- Done 2026-09-26: dangerous commands measured closely. Instead of a new dangerous-only test slice,
+  five-fold cross-validation over train and dev scores all 403 labelled dangerous commands with the
+  gate's combination; after closing the rule gaps it found, 6 are rated safe (1.5%, at most 2.9% at 95%
+  confidence), all credential reads a regex cannot tell from safe look-alikes (ADR 0038, amendment).
+  Open: the frozen test set still holds only 25 dangerous commands; growing it from dangerous commands
+  the gate sees in real use, confirmed before they join, or from a source the operator picks.
 - **Other providers.** Embedding nearest-neighbour over labelled examples (`NLEmbedding` or an Ollama
   embedding model), and an external process speaking JSON Lines, like the binaries in `tools/`.
 - **Other tasks.** Secret and personal-data detection for `redact`, log-line categories for
