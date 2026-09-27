@@ -67,6 +67,54 @@ import Testing
         #expect(SecretScanner.isPublicIPv4("8.8.8.8"))
     }
 
+    @Test func credentialsNamedByTheirHeaderFlagOrKeyAreFound() {
+        let hash = "$2b$12$" + String(repeating: "Ab9.", count: 13) + "x"
+        let lines = [
+            ("Authorization: Basic " + "ZGVwbG95OmNvcm4tZmllbGQtOQ==", "auth-header"),
+            ("curl -H \"Authorization: Bearer " + String(repeating: "Fq7Lm2", count: 4) + "\"", "auth-header"),
+            ("Cookie: PHPSESSID=" + "r4v9t3b8y2c6h1d5", "session-cookie"),
+            ("db_pass: " + "kX9mQ2vL", "assigned-secret"),
+            ("spring.datasource.password=" + "Orion#2026", "assigned-secret"),
+            ("X-Api-Key: " + "live_4569a774f8a6", "assigned-secret"),
+            ("mysql -u root -p" + "S3cretRoot shop", "cli-password"),
+            ("curl -u admin:" + "Sup3rS3cret https://ci.example.com/api", "cli-password"),
+            ("docker login -u ci -p " + "Pat-7731-lark ghcr.example.com", "cli-password"),
+            ("password_hash = \"" + hash + "\"", "password-hash"),
+            ("https://acct.blob.core.windows.net/q3.csv?sv=2024&sig=" + "CXXBK56qXT7zZfWZbmMm", "url-secret"),
+            ("-----BEGIN PGP PRIVATE KEY BLOCK-----", "private-key"),
+        ]
+        for (line, kind) in lines {
+            #expect(SecretScanner.scan(line, categories: [.secret]).map(\.kind) == [kind], "\(line)")
+        }
+    }
+
+    @Test func aURLPasswordIsASecretNotAnEmailAddress() {
+        let matches = SecretScanner.scan("mongodb://backup:" + "dumpIt88@mongo.example.com:27017")
+        #expect(matches.map(\.kind) == ["url-password"] && matches.first?.value == "dumpIt88")
+        #expect(SecretScanner.scan("redis://:" + "hush-hush@cache.example.com:6379").map(\.kind) == ["url-password"])
+    }
+
+    @Test func lookAlikesOfNamedCredentialsAreLeftAlone() {
+        let lines = [
+            #"print("\(ok ? "pass" : "FAIL")")"#, "--- PASS: TestGo (0.00s)", "the model's pass: names and numbers",
+            "echo ${TOKEN:+yes}", "token_count = 42", "password: String", "let secret = await store.read()",
+            #"let token = "ghp_" + String(repeating: "a", count: 36)"#, "password = os.environ.get(\"DB\")",
+            "arn:aws:secretsmanager:us-east-1:000000000000:secret:prod/db-AbCdEf", "PUBLIC_KEY_PATH=/etc/wisp/pub.pem",
+            #"export OPENAI_API_KEY="sk-...""#, "-e POSTGRES_PASSWORD=postgres", "token: ghp_****abcd",
+            "docker run -p 5432:5432 postgres:16", "git push --token-file ~/.token", #"mock_api_key = "test-key""#,
+        ]
+        for line in lines {
+            #expect(SecretScanner.scan(line, categories: [.secret]).isEmpty, "\(line)")
+        }
+    }
+
+    @Test func aTrainingLineIsLabelledByItsMostSevereMatchWithTheScannerMarkRemoved() {
+        let marked = String(Self.github.prefix(4)) + "\u{200B}" + Self.github.dropFirst(4)
+        #expect(SecretScanner.label(of: "token: \(marked) for jo@example.net") == "secret")
+        #expect(SecretScanner.label(of: "reply to jo@example.net") == "personal")
+        #expect(SecretScanner.label(of: "build finished in 3.2 s") == "none")
+    }
+
     @Test func aDiffIsScannedByItsAddedLinesAtTheirNewFileLines() {
         let diff = """
             diff --git a/Config.swift b/Config.swift

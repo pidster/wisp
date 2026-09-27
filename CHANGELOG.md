@@ -4,6 +4,21 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Changed:
+
+- `wisp scan`, `wisp redact`, `scan_secrets`, and `redact` find more credentials by rule, without the
+  model:
+  - `Authorization` headers and session cookies;
+  - unquoted assignments to credential names (`db_pass: …`, `X-Api-Key: …`);
+  - passwords given to `mysql -p`, `curl -u`, `docker login -p`, `sshpass`, and `--password` flags;
+  - password hashes, PGP key blocks, and signed URLs;
+  - more provider tokens (GitLab, PyPI, Docker, npm, Vault, Google OAuth, and others).
+
+  A password in a URL is now reported as a secret, not as an email address. On the secrets test set the
+  rules find 32% of secrets, up from 13%, with no more false alarms.
+
 ## 0.13.2
 
 Changed:

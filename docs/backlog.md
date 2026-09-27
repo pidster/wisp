@@ -137,7 +137,10 @@ contract 2, and latency in every classifier measurement. Next, in order:
 - **Other tasks.** Secret and personal-data detection for `redact`, log-line categories for
   `condense_log`, failure kinds for `triage`, and the bulk classification chosen for later. Their
   training sets exist (above); on test a trained failures classifier beats `KnownFailures`, and
-  `LogDigest`'s keywords beat a trained log-severity classifier. None is wired in yet.
+  `LogDigest`'s keywords beat a trained log-severity classifier. None is wired in yet. For secrets,
+  done 2026-09-27: the rules were measured and widened instead
+  ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md), amendment). Open there: the gap
+  between train (85% of secrets found) and third-party test data (32%), and personal data (16%).
 
 ## Model backends, deferred
 

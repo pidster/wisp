@@ -21,10 +21,10 @@ or the same words for lines under three words. `wisp classifier split` deals who
 families into parts, each label in proportion, the same way every time for a given seed, and
 `TrainingSetsTests` fails if any two parts of a task, or the shipped risk examples and the risk dev set,
 share an example exactly, after normalising, by family, or by near match. No overlap is allowed.
-`wisp classifier baseline --task risk|failures|log-severity --examples <file>` prints the label today's
-rules give each line (the risk rules, `none` where no rule matches; `KnownFailures` for failures;
-`LogDigest`'s keywords for log severity), so a trained classifier can be compared with what it would
-replace.
+`wisp classifier baseline --task risk|failures|log-severity|secrets --examples <file>` prints the label
+today's rules give each line (the risk rules, `none` where no rule matches; `KnownFailures` for
+failures; `LogDigest`'s keywords for log severity; `SecretScanner` for secrets, the most severe
+category it finds), so a trained classifier can be compared with what it would replace.
 
 | Task | train | dev | test | Labels |
 | --- | --- | --- | --- | --- |
@@ -117,3 +117,7 @@ its dev figure on test, so the next training data comes from real use, not more 
 It did: with 1,075 real commands added to `risk/train.tsv`, the shipped default rates 817 of the 996
 test commands exactly beside the rules, and four of the 25 dangerous ones safe (ADR 0038, amendment
 "trained on real commands, and the rules follow the labels").
+For secrets, a trained classifier beside `SecretScanner` found more secrets on test but flagged
+ordinary lines as secret too often (precision 0.53), so the rules were widened instead. They find
+67 of 211 test secrets, up from 27, with 9 false alarms, down from 10
+([ADR 0031](../docs/decisions/0031-secret-scanning-and-redaction.md), amendment of 2026-09-27).
