@@ -121,3 +121,6 @@ For secrets, a trained classifier beside `SecretScanner` found more secrets on t
 ordinary lines as secret too often (precision 0.53), so the rules were widened instead. They find
 67 of 211 test secrets, up from 27, with 9 false alarms, down from 10
 ([ADR 0031](../docs/decisions/0031-secret-scanning-and-redaction.md), amendment of 2026-09-27).
+The rules together with the on-device model's thorough pass find 132 of the 211 test secrets and 144 of
+the 218 personal lines (macro-F1 0.67). With `ollama:granite4.1:8b` for the pass they reach 0.56 (ADR 0031, second
+amendment of 2026-09-27).

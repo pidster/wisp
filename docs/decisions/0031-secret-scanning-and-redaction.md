@@ -140,3 +140,38 @@ fallback for prose and unfamiliar forms. The model pass was not scored on this s
   ones there and are labelled personal (`training/secrets/labels.md`, rules 1 and 3). The scanner
   therefore misses them on the set by design, and 42 of the 218 personal test lines carry one. With
   the skip widened, the rules find 27 personal test lines (12%), down from 35.
+
+## Amendment, 2026-09-27: the model pass measured, and a failed chunk no longer fails the call
+
+**Measured.** `wisp scan --thorough --personal` ran over the frozen secrets test set: 645 lines in 33
+files of 20 lines, one 4 KiB chunk each. Each finding was mapped back to its line, and each line took
+its most severe category.
+
+| On 645 test lines | Secrets found (of 211) | Personal found (of 218) | `none` lines flagged | Macro-F1 | Per chunk |
+| --- | --- | --- | --- | --- | --- |
+| rules alone | 67 (32%) | 27 (12%) | 21 | 0.40 | instant |
+| on-device model's pass alone | 68 (32%) | 124 (57%) | 40 | 0.56 | |
+| **rules + on-device model** | **132 (63%)** | **144 (66%)** | **59** | **0.67** | about 10 s |
+| rules + `ollama:granite4.1:8b` | 120 (57%) | 93 (43%) | 66 | 0.56 | about 8 s |
+| rules + trained classifier (above) | 145 (69%) | 117 (54%) | 97 | 0.59 | 12 ms a line |
+
+The rules and the model find different secrets, so the rules' count doubles when the two are
+combined. The design holds: rules first, the model over what they leave. The on-device model is the
+better model for the pass, and granite was worse on every count. Most of the on-device model's false
+alarms fall in the test set's final slice of lines chosen because they look like secrets.
+
+**A refused chunk failed the whole call.** In the first run the on-device model's guardrails refused
+chunk 25 of 33, and `wisp scan` exited on the error with nothing reported for the chunks after it. The
+refusal was intermittent, and the same chunk passed when scanned again. `ModelSweep` threw whatever a
+turn threw, so `scan_secrets` and `redact` behaved the same way: one refusal cost every finding, the
+rules' included, and a caller asking for redacted text got an error instead. A caller might then send
+the raw text on anyway.
+
+**Decision.**
+- **Retry once, then skip.** A turn that fails is asked once more. If it fails again, the chunk keeps
+  what earlier turns found and is reported failed, and the sweep goes on. Cancellation still stops it.
+- **Reported, not hidden.** The failed chunks' numbers go in `failedChunks`, in both tools' results and
+  in the `secrets.scan` and `redaction` audit events. The headline or summary says which chunks were
+  checked by rule only.
+- **Triage is unchanged.** It keeps failing on a failed chunk: it only condenses, so failing there
+  costs the caller no protection.

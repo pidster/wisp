@@ -177,24 +177,30 @@ public struct ModelSweep: Sendable {
     }
 
     /// Judges every chunk of `text`, each up to `passes` times, and returns the distinct values found, in
-    /// order.
+    /// order. A turn that fails, a guardrail refusal or a runtime error, is asked once more; if it fails
+    /// again the chunk keeps what earlier turns found and is reported failed, and the sweep goes on, so
+    /// one refused chunk never costs the rest of the text or the rules' findings.
     ///
     /// - Parameters:
     ///   - text: Text already redacted by rule.
     ///   - label: What it is, for the prompt.
-    /// - Returns: The values and the number of chunks judged.
-    /// - Throws: Whatever the judge throws.
+    /// - Returns: The values, the number of chunks, and the 1-based numbers of the chunks that failed.
+    /// - Throws: `CancellationError` when the task is cancelled; nothing else.
     public func run(
         _ text: String, label: String
-    ) async throws -> (values: [(value: String, kind: String)], chunks: Int) {
+    ) async throws -> (values: [(value: String, kind: String)], chunks: Int, failed: [Int]) {
         let pieces = Triage.chunks(text, maxBytes: chunkBytes)
         var seen: Set<String> = []
         var values: [(value: String, kind: String)] = []
+        var failed: [Int] = []
         for (index, piece) in pieces.enumerated() {
             var shown = piece
             for _ in 0..<passes {
-                let answer = try await judge(
-                    Self.prompt(chunk: shown, index: index + 1, count: pieces.count, label: label))
+                let prompt = Self.prompt(chunk: shown, index: index + 1, count: pieces.count, label: label)
+                guard let answer = try await answer(prompt) else {
+                    failed.append(index + 1)
+                    break
+                }
                 let new = Self.values(in: answer, chunk: shown).filter { seen.insert($0.value).inserted }
                 guard !new.isEmpty else { break }
                 values += new
@@ -205,6 +211,23 @@ public struct ModelSweep: Sendable {
                 }
             }
         }
-        return (values, pieces.count)
+        return (values, pieces.count, failed)
+    }
+
+    /// The judge's answer to `prompt`, asked a second time if the first attempt fails; nil when both do.
+    ///
+    /// - Throws: `CancellationError` when the task is cancelled.
+    private func answer(_ prompt: String) async throws -> String? {
+        for _ in 0..<2 {
+            try Task.checkCancellation()
+            do {
+                return try await judge(prompt)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
+            }
+        }
+        return nil
     }
 }

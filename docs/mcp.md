@@ -370,7 +370,7 @@ Result content is a headline and one `location  kind  preview` line per finding;
 ```json
 {
   "source": { "command": "git diff --cached", "workingDirectory": "/repo" }, "bytes": 2210, "diff": true,
-  "thorough": false, "chunks": null, "more": false,
+  "thorough": false, "chunks": null, "more": false, "failedChunks": [],
   "findings": [{ "kind": "github-token", "category": "secret", "location": "Sources/Client.swift:14",
                  "preview": "ghp_…(40 chars)", "detector": "rule" }]
 }
@@ -378,6 +378,10 @@ Result content is a headline and one `location  kind  preview` line per finding;
 
 `detector` is `rule` or `model`. The value itself is in neither the result nor the `secrets.scan` audit
 event. Each scan is its own audited session (`scan-<id>`).
+
+A model turn that fails, a guardrail refusal or a runtime error, is asked once more. If it fails
+again, that chunk was checked by rule only: its number goes in `failedChunks`, the headline says so,
+and the scan goes on. A failed turn never fails the call or costs the rule findings.
 
 ### `redact`
 
@@ -398,7 +402,8 @@ the model ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md)).
 | `max_bytes` | integer | no | Bytes of redacted text to return at most (default 32768); `truncated` is true when it was cut. |
 
 Result content is a summary line, a blank line, and the redacted text; `structuredContent` has `source`,
-`bytes`, `text`, `truncated`, `thorough`, `chunks`, and `replaced` (occurrences per kind). Each
+`bytes`, `text`, `truncated`, `thorough`, `chunks`, `failedChunks` (chunks only the rules redacted,
+as for `scan_secrets`), and `replaced` (occurrences per kind). Each
 redaction is its own audited session (`redact-<id>`); the `redaction` event records the counts only.
 The measured result of the thorough pass is in [measurements.md](measurements.md).
 

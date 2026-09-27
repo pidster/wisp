@@ -221,6 +221,43 @@ import Testing
         #expect(capped.more && capped.findings.count == 1 && capped.rendered.hasPrefix("1+ finding"))
     }
 
+    @Test func aChunkTheModelFailsOnTwiceIsReportedAndTheSweepGoesOn() async throws {
+        // Chunk 1 fails once and is asked again; chunk 2 always fails; chunk 3 answers.
+        let prompts = PromptLog()
+        let sweep = ModelSweep(chunkBytes: 14, passes: 1) { prompt in
+            prompts.append(prompt)
+            if prompt.contains("part 1 of"), prompts.all.count == 1 { throw TurnFailure() }
+            if prompt.contains("part 2 of") { throw TurnFailure() }
+            if prompt.contains("part 1 of") { return #"{"items":[{"text":"Jane Doe","kind":"name"}]}"# }
+            return #"{"items":[{"text":"Sam Park","kind":"name"}]}"#
+        }
+        let result = try await sweep.run("Jane Doe here\nMia Lund here\nSam Park here", label: "a note")
+        #expect(result.chunks == 3 && result.failed == [2], "\(result.failed)")
+        #expect(result.values.map(\.value) == ["Jane Doe", "Sam Park"])
+        #expect(prompts.all.count == 5)
+        let cancelled = Task {
+            try await ModelSweep { _ in throw CancellationError() }.run("Jane Doe", label: "x")
+        }
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+    }
+
+    @Test func aScanOrRedactionTheModelFailsOnKeepsTheRulesFindingsAndSaysSo() async throws {
+        let text = "user Jane Doe\nkey \(Self.github)\n"
+        let scan = try await SecretScan(options: .init(thorough: true), judge: { _ in throw TurnFailure() }).run(
+            text, from: nil)
+        #expect(scan.findings.map(\.kind) == ["github-token"] && scan.chunks == 1 && scan.failedChunks == [1])
+        #expect(scan.rendered.contains("the model failed on chunk 1, checked by rule only"), "\(scan.rendered)")
+        #expect(scan.json.objectValue?["failedChunks"] == [1])
+        #expect(AuditEvent.Details.secretScan(scan)["failedChunks"] == [1])
+        let redaction = try await Redaction(options: .init(thorough: true), judge: { _ in throw TurnFailure() }).run(
+            text, from: nil)
+        #expect(redaction.text.contains("[REDACTED:github-token#1]") && redaction.failedChunks == [1])
+        #expect(redaction.summary.hasSuffix("the model failed on chunk 1, checked by rule only"))
+        #expect(AuditEvent.Details.redaction(redaction)["failedChunks"] == [1])
+        let clean = try await SecretScan().run(text, from: nil)
+        #expect(clean.failedChunks.isEmpty && !clean.rendered.contains("failed"))
+    }
+
     @Test func aThoroughDiffScanLocatesModelFindingsOnAddedLinesOnly() async throws {
         let diff = """
             diff --git a/notes.md b/notes.md
@@ -264,6 +301,9 @@ import Testing
 }
 
 /// Prompts a scripted judge received.
+/// A model turn that fails, as a guardrail refusal does.
+struct TurnFailure: Error {}
+
 final class PromptLog: Sendable {
     private let prompts = Mutex<[String]>([])
     func append(_ prompt: String) { prompts.withLock { $0.append(prompt) } }

@@ -151,6 +151,7 @@ extension AuditEvent {
                 "source": Condensing.json(report.source), "bytes": .int(report.bytes), "diff": .bool(report.diff),
                 "thorough": .bool(report.chunks != nil), "findings": .int(report.findings.count),
                 "kinds": .object(report.kinds.mapValues { .int($0) }),
+                "failedChunks": .array(report.failedChunks.map { .int($0) }),
             ]
         }
 
@@ -204,6 +205,7 @@ extension AuditEvent {
                 "source": Condensing.json(report.source), "bytes": .int(report.bytes),
                 "bytesOut": .int(report.text.utf8.count), "truncated": .bool(report.truncated),
                 "thorough": .bool(report.chunks != nil), "replaced": .object(report.counts.mapValues { .int($0) }),
+                "failedChunks": .array(report.failedChunks.map { .int($0) }),
             ]
         }
 

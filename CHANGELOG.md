@@ -22,6 +22,14 @@ Changed:
   `example.com` and `example.org` were skipped. On the secrets test set the
   rules find 32% of secrets, up from 13%, with no more false alarms.
 
+Fixed:
+
+- A thorough `scan_secrets`, `redact`, `wisp scan`, or `wisp redact` no longer fails as a whole when
+  the model refuses or fails on one chunk, which the on-device model's guardrails sometimes do on text
+  full of credentials. The turn is asked once more; if it fails again, that chunk is checked by rule
+  only, its number is reported in `failedChunks`, and the rest of the text and every rule finding are
+  kept.
+
 ## 0.13.2
 
 Changed:

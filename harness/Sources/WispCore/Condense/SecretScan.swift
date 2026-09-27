@@ -33,6 +33,8 @@ public struct SecretScan: Sendable {
         public var diff: Bool
         /// Whether the model swept it too, and over how many chunks.
         public var chunks: Int?
+        /// The 1-based chunks the model failed on, twice, where only the rules looked.
+        public var failedChunks: [Int] = []
         /// What was found, in order.
         public var findings: [SecretScanner.Finding]
         /// Whether findings beyond the cap were dropped.
@@ -43,7 +45,7 @@ public struct SecretScan: Sendable {
             [
                 "source": Condensing.json(source), "bytes": .int(bytes), "diff": .bool(diff),
                 "thorough": .bool(chunks != nil), "chunks": chunks.map { .int($0) } ?? .null, "more": .bool(more),
-                "findings": .array(findings.map(\.json)),
+                "failedChunks": .array(failedChunks.map { .int($0) }), "findings": .array(findings.map(\.json)),
             ]
         }
 
@@ -52,6 +54,7 @@ public struct SecretScan: Sendable {
             let count = "\(findings.count)\(more ? "+" : "") finding\(findings.count == 1 ? "" : "s")"
             var head = "\(count) in \(bytes) bytes\(diff ? " of diff" : "")"
             if let chunks { head += "; model pass over \(chunks) chunk\(chunks == 1 ? "" : "s")" }
+            head += SecretScan.failureNote(failedChunks)
             let rows = findings.map { [$0.location, $0.kind, $0.preview, $0.detector == "model" ? "(model)" : ""] }
             return ([head] + TextTable.render(header: ["LOCATION", "KIND", "PREVIEW", ""], rows: rows).dropFirst())
                 .joined(separator: "\n")
@@ -84,7 +87,8 @@ public struct SecretScan: Sendable {
     ///   - text: What to scan.
     ///   - source: Where it came from, for the report and the prompt.
     /// - Returns: The report.
-    /// - Throws: Whatever the judge throws in the model pass.
+    /// - Throws: `CancellationError` when cancelled during the model pass; a chunk the model fails on is
+    ///   reported in `failedChunks`, not thrown.
     public func run(_ text: String, from source: Triage.Source?) async throws -> Report {
         let diff = SecretScanner.looksLikeDiff(text)
         var findings: [SecretScanner.Finding]
@@ -101,11 +105,13 @@ public struct SecretScan: Sendable {
             scanned = text
         }
         var chunks: Int?
+        var failed: [Int] = []
         if options.thorough, let judge {
             var redactor = Redactor()
             let redacted = redactor.apply(SecretScanner.scan(scanned), to: scanned)
             let sweep = try await ModelSweep(judge: judge).run(redacted, label: Condensing.label(source))
             chunks = sweep.chunks
+            failed = sweep.failed
             for found in sweep.values {
                 guard let category = ModelSweep.kinds[found.kind], options.categories.contains(category),
                     let location = Self.locate(found.value, in: text, diff: diff, source: source)
@@ -118,8 +124,15 @@ public struct SecretScan: Sendable {
         }
         let more = findings.count > options.maxFindings
         return Report(
-            source: source, bytes: text.utf8.count, diff: diff, chunks: chunks,
+            source: source, bytes: text.utf8.count, diff: diff, chunks: chunks, failedChunks: failed,
             findings: Array(findings.prefix(options.maxFindings)), more: more)
+    }
+
+    /// What a report says about chunks the model failed on: nothing when there were none.
+    static func failureNote(_ failed: [Int]) -> String {
+        guard !failed.isEmpty else { return "" }
+        let numbers = failed.map(String.init).joined(separator: ", ")
+        return "; the model failed on chunk\(failed.count == 1 ? "" : "s") \(numbers), checked by rule only"
     }
 
     /// Where a value first appears: `path:line` among a diff's added lines, else as `place` says; nil
@@ -177,13 +190,15 @@ public struct Redaction: Sendable {
         public var counts: [String: Int]
         /// Chunks the model swept, or nil when the redaction was rules only.
         public var chunks: Int?
+        /// The 1-based chunks the model failed on, twice, where only the rules redacted.
+        public var failedChunks: [Int] = []
 
         /// The report as JSON, the shape the MCP tool returns (`docs/mcp.md`).
         public var json: JSONValue {
             [
                 "source": Condensing.json(source), "bytes": .int(bytes), "text": .string(text),
                 "truncated": .bool(truncated), "thorough": .bool(chunks != nil),
-                "chunks": chunks.map { .int($0) } ?? .null,
+                "chunks": chunks.map { .int($0) } ?? .null, "failedChunks": .array(failedChunks.map { .int($0) }),
                 "replaced": .object(counts.mapValues { .int($0) }),
             ]
         }
@@ -194,6 +209,7 @@ public struct Redaction: Sendable {
             let kinds = counts.keys.sorted().map { "\($0) \(counts[$0] ?? 0)" }.joined(separator: ", ")
             var line = "redacted \(total) value\(total == 1 ? "" : "s")\(kinds.isEmpty ? "" : " (\(kinds))")"
             if let chunks { line += "; model pass over \(chunks) chunk\(chunks == 1 ? "" : "s")" }
+            line += SecretScan.failureNote(failedChunks)
             if truncated { line += "; output cut to \(text.utf8.count) bytes" }
             return line
         }
@@ -220,14 +236,17 @@ public struct Redaction: Sendable {
     ///   - text: What to redact.
     ///   - source: Where it came from, for the report and the prompt.
     /// - Returns: The report.
-    /// - Throws: Whatever the judge throws in the model pass.
+    /// - Throws: `CancellationError` when cancelled during the model pass; a chunk the model fails on is
+    ///   reported in `failedChunks`, not thrown.
     public func run(_ text: String, from source: Triage.Source?) async throws -> Report {
         var redactor = Redactor()
         var redacted = redactor.apply(SecretScanner.scan(text, categories: options.categories), to: text)
         var chunks: Int?
+        var failed: [Int] = []
         if options.thorough, let judge {
             let sweep = try await ModelSweep(judge: judge).run(redacted, label: Condensing.label(source))
             chunks = sweep.chunks
+            failed = sweep.failed
             let wanted = sweep.values.filter { ModelSweep.kinds[$0.kind].map(options.categories.contains) ?? false }
             redacted = redactor.apply(literals: wanted, to: redacted)
         }
@@ -235,7 +254,7 @@ public struct Redaction: Sendable {
         let kept = truncated ? String(decoding: redacted.utf8.prefix(options.maxOutputBytes), as: UTF8.self) : redacted
         return Report(
             source: source, bytes: text.utf8.count, text: kept, truncated: truncated, counts: redactor.counts,
-            chunks: chunks)
+            chunks: chunks, failedChunks: failed)
     }
 }
 
