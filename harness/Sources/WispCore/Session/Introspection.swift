@@ -78,7 +78,10 @@ public struct Introspection: Sendable {
                         ])
                     }),
             ]),
-            "routing": .object(["ladder": .array(config.routingLadder.map { .string($0.description) })]),
+            "routing": .object([
+                "ladder": .array(config.routingLadder.map { .string($0.description) }),
+                "tasks": .object(config.taskModels.mapValues { .string($0.description) }),
+            ]),
             "backends": .object(
                 Dictionary(
                     uniqueKeysWithValues: ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) })),

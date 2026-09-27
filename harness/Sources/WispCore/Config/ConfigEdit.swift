@@ -59,6 +59,9 @@ public enum ConfigSettings {
         Setting(
             path: "routing.ladder", summary: "models to route to by input size, least capable first", kind: .models),
         Setting(
+            path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
+            kind: .model),
+        Setting(
             path: "commandTimeoutSeconds", summary: "seconds a command may run; 0 waits forever",
             kind: .integer(0...86_400)),
         Setting(
@@ -93,6 +96,7 @@ public enum ConfigSettings {
         case "approval.timeoutSeconds": return .int(Int(d.approvalTimeout?.components.seconds ?? 0))
         case "approval.persistDays": return .int(Int(d.approvalLifetime.components.seconds / 86_400))
         case "routing.ladder": return .array(d.routingLadder.map { .string($0.description) })
+        case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
         case "commandMaxOutputBytes": return .int(d.runner.maxOutputBytes)
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })

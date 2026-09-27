@@ -361,6 +361,10 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let text = redacted.structuredContent?.objectValue?["text"]?.stringValue ?? ""
         #expect(text == "[REDACTED:name#1] <[REDACTED:email#1]>\ntoken=[REDACTED:github-token#1]\n", "\(text)")
         #expect(redacted.structuredContent?.objectValue?["chunks"] == .int(1))
+        // The thorough pass ran on the secrets task's measured default; the rules-only scan routed nothing.
+        let routed = pair.sink.events.filter { $0.kind == .modelRouted }
+        #expect(routed.count == 1 && routed.first?.session.hasPrefix("redact-") == true)
+        #expect(routed.first?.details["task"] == "secrets" && routed.first?.details["model"] == "system")
         // Neither the results nor the audit records of either call carry the token.
         let events = pair.sink.events.filter { $0.session.hasPrefix("scan-") || $0.session.hasPrefix("redact-") }
         #expect(

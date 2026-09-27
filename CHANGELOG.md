@@ -21,6 +21,11 @@ Changed:
   `.test`, `.example`, `.invalid`) are no longer reported as personal data; before, only
   `example.com` and `example.org` were skipped. On the secrets test set the
   rules find 32% of secrets, up from 13%, with no more false alarms.
+- The thorough pass of `scan`, `redact`, `scan_secrets`, and `redact` runs on the on-device model
+  unless you name another, whatever `config.json`'s `model` is. On the secrets test set it did better
+  there than `ollama:granite4.1:8b` (macro-F1 0.67 against 0.56). `routing.tasks.secrets` sets a
+  different default (`wisp config set routing.tasks.secrets <model>`), and each routed pass is audited
+  as `model.routed`.
 
 Fixed:
 

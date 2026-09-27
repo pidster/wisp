@@ -299,6 +299,7 @@ sets one and `wisp config unset KEY` removes one so its default applies
 wisp config set approval.classifier coreml
 wisp config set approval.coremlModel risk@0.13.0-default
 wisp config set routing.ladder system ollama:qwen3.8:27b     # or a JSON array
+wisp config set routing.tasks.secrets ollama:qwen3.8:27b
 wisp config unset approval.timeoutSeconds
 ```
 
@@ -312,6 +313,7 @@ wisp config unset approval.timeoutSeconds
 | `approval.timeoutSeconds` | Seconds, 0 to 86,400; 0 waits forever. |
 | `approval.persistDays` | Days, 1 to 365. |
 | `routing.ladder` | Models, least capable first. |
+| `routing.tasks.secrets` | A model for the thorough pass of `scan`, `redact`, `scan_secrets`, and `redact`; unset, `system`. |
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400. |
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576. |
 | `tools.disabled` | Built-in tool names. |
@@ -358,7 +360,7 @@ are a best effort, not a guarantee.
 | --- | --- |
 | `--personal` | Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, user names. |
 | `--thorough` | Add the model's pass over the rule-redacted text, for names, customer numbers, and unusual credentials. Up to three turns per 4 KiB. |
-| `-m, --model <model>` | The model for `--thorough`. Defaults to `config.json`. |
+| `-m, --model <model>` | The model for `--thorough`. Defaults to `routing.tasks.secrets`: `system` unless set, the model measured best for this pass. |
 | `--json` | One JSON object per input, the shape `scan_secrets` returns ([mcp.md](mcp.md)). |
 
 ```
@@ -378,7 +380,7 @@ its way to an issue, a chat, or a cloud model.
 | --- | --- |
 | `--secrets-only` | Replace credentials only and keep personal data. |
 | `--thorough` | Add the model's pass for names, addresses, and identifiers the rules cannot see. |
-| `-m, --model <model>` | The model for `--thorough`. Defaults to `config.json`. |
+| `-m, --model <model>` | The model for `--thorough`. Defaults to `routing.tasks.secrets`: `system` unless set, the model measured best for this pass. |
 
 ```
 wisp redact crash.log | pbcopy
@@ -499,7 +501,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `model` | `system` | `system`, `private-cloud`, or `ollama:<name>`. See [ADR 0013](decisions/0013-model-selection.md) and [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md). |
 | `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120, "contextLength": 8192 }` | Where Ollama serves `ollama:<name>` models, how long one generation request may take, and the context window asked of the server on every request (`num_ctx`), which wisp condenses against. See [backends.md](backends.md). |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
-| `routing` | `{ "ladder": [] }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
+| `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `scan`, `redact`, `scan_secrets`, and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5 }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process; see [tools/notify.md](tools/notify.md). |
 | `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {} }` | Where MLX model directories live for `mlx:<name>` models, and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). Needs a build with `--traits MLX`. See [backends.md](backends.md). |

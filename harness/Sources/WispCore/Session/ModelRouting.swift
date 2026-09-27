@@ -8,6 +8,32 @@ public enum ModelRouting {
     /// The pass rate a band must reach to count.
     public static let passRate = 0.8
 
+    /// The model measured best for each task's model pass, used when neither the caller nor
+    /// `routing.tasks` names one. `secrets`, the thorough pass of `scan_secrets` and `redact`: on the
+    /// secrets test set the on-device model with the rules reached macro-F1 0.67, `ollama:granite4.1:8b`
+    /// 0.56 ([ADR 0031](../../../../docs/decisions/0031-secret-scanning-and-redaction.md)).
+    public static let taskDefaults: [String: ModelSelection] = ["secrets": .system]
+
+    /// The model for `task`'s model pass: nil when the caller named one, which always wins, or when
+    /// the task has no default; otherwise the configured or measured default, with the reason.
+    ///
+    /// - Parameters:
+    ///   - task: The task, such as `secrets`.
+    ///   - explicit: The model the caller named, if any.
+    ///   - models: The resolved task models (`Config.Resolved.taskModels`).
+    /// - Returns: The model and the reason, or nil.
+    public static func forTask(
+        _ task: String, explicit: ModelSelection?, models: [String: ModelSelection]
+    ) -> Decision? {
+        guard explicit == nil, let model = models[task] else { return nil }
+        let measured = taskDefaults[task] == model
+        return Decision(
+            model: model,
+            reason: measured
+                ? "\(model) is the measured default for \(task); routing.tasks.\(task) changes it"
+                : "routing.tasks.\(task) is \(model)")
+    }
+
     /// A choice and why it was made.
     public struct Decision: Equatable, Sendable {
         /// The model to use.

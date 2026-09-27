@@ -20,7 +20,7 @@ import Testing
             complete("/config set approval.c").candidates == [
                 "approval.classifier", "approval.coremlMinimumConfidence", "approval.coremlModel",
             ])
-        #expect(complete("/config unset rout").candidates == ["routing.ladder"])
+        #expect(complete("/config unset rout").candidates == ["routing.ladder", "routing.tasks.secrets"])
         #expect(complete("/config set approval.classifier ").candidates == ["coreml", "rules", "system-model"])
         #expect(complete("/config set audit.enabled t").candidates == ["true"])
         #expect(complete("/config set tools.disabled no").candidates == ["notify"])

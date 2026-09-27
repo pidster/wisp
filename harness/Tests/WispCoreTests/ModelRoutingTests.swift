@@ -79,6 +79,20 @@ import Testing
         #expect(Set(details.keys) == AuditEvent.fields(for: .modelRouted) && details["model"] == "system")
     }
 
+    @Test func aTaskUsesItsMeasuredDefaultUnlessTheConfigOrTheCallerNamesAModel() throws {
+        let defaults = Config().resolved.taskModels
+        #expect(defaults == ["secrets": .system])
+        let measured = try #require(ModelRouting.forTask("secrets", explicit: nil, models: defaults))
+        #expect(measured.model == .system && measured.reason.contains("measured default for secrets"))
+        #expect(ModelRouting.forTask("secrets", explicit: Self.big, models: defaults) == nil)
+        #expect(ModelRouting.forTask("triage", explicit: nil, models: defaults) == nil)
+        let json = #"{"routing":{"tasks":{"secrets":"ollama:qwen3.8:27b"}}}"#
+        let configured = try JSONDecoder().decode(Config.self, from: Data(json.utf8)).resolved.taskModels
+        let chosen = try #require(ModelRouting.forTask("secrets", explicit: nil, models: configured))
+        #expect(chosen.model == Self.big && chosen.reason == "routing.tasks.secrets is ollama:qwen3.8:27b")
+        #expect(ConfigSettings.defaultValue("routing.tasks.secrets") == "system")
+    }
+
     @Test func theShippedMeasurementsGiveTheSystemModelNoDraftingEnvelope() {
         // Recorded 2026-09-24: the system model passed 7 of 10 small diffs, below the 80% bar.
         #expect(ModelRouting.envelope(task: Self.task, model: .system, measurements: Measurements.embedded) == 0)

@@ -183,13 +183,37 @@ extension Wisp {
     /// A judge for a condensing command's model pass: each chunk in a fresh tool-less turn on a
     /// conversation `<prefix>-<id>` of `session`, shaped by the model sweep's schema.
     ///
+    /// - Parameters:
+    ///   - session: The command's session.
+    ///   - prefix: The conversation id's prefix.
+    ///   - model: The model for the pass; the session's when nil.
+    /// - Returns: The judge.
     /// - Throws: `Session.Failure` if the conversation cannot be set up.
-    static func judge(session: Session, prefix: String) throws -> Triage.Judge {
+    static func judge(session: Session, prefix: String, model: ModelSelection? = nil) throws -> Triage.Judge {
         let conversation = try session.conversation(
             id: "\(prefix)-" + ShortID.make(), approver: DenyingApprover(reason: "no commands run here"),
-            tools: .none)
+            tools: .none, model: model)
         let schema = try OutputSchema(json: ModelSweep.schemaJSON)
         return { prompt in try await conversation.openAgent().respond(to: prompt, schema: schema).text }
+    }
+
+    /// A judge for the thorough pass of `wisp scan` and `wisp redact`: on the model named with
+    /// `--model`, else the `secrets` task's model, recorded as `model.routed`.
+    ///
+    /// - Throws: `Session.Failure` if the conversation cannot be set up.
+    static func secretsJudge(
+        session: Session, prefix: String, explicit: String?, inputBytes: Int
+    ) throws
+        -> Triage.Judge
+    {
+        let routed = ModelRouting.forTask(
+            "secrets", explicit: try explicit.map(parseModel), models: session.config.taskModels)
+        if let routed {
+            session.audit.record(
+                .modelRouted,
+                details: AuditEvent.Details.modelRouted(task: "secrets", inputBytes: inputBytes, decision: routed))
+        }
+        return try judge(session: session, prefix: prefix, model: routed?.model)
     }
 
     /// A line for the user on stderr.
@@ -713,7 +737,9 @@ struct Scan: AsyncParsableCommand {
     @Flag(name: .long, help: "Also have the model look for what rules cannot recognise. About 2 s per 4 KiB.")
     var thorough = false
 
-    @Option(name: [.short, .customLong("model")], help: "Model for --thorough. Defaults to config.json.")
+    @Option(
+        name: [.short, .customLong("model")],
+        help: "Model for --thorough. Defaults to routing.tasks.secrets, else the measured default (system).")
     var model: String?
 
     @Flag(name: .long, help: "Print the reports as JSON, one per line.")
@@ -725,7 +751,10 @@ struct Scan: AsyncParsableCommand {
         let options = SecretScan.Options(categories: personal ? [.secret, .personal] : [.secret], thorough: thorough)
         var found = false
         for input in try Wisp.inputs(paths) {
-            let judge = thorough ? try Wisp.judge(session: session, prefix: "scan") : nil
+            let judge =
+                thorough
+                ? try Wisp.secretsJudge(
+                    session: session, prefix: "scan", explicit: model, inputBytes: input.text.utf8.count) : nil
             let report = try await SecretScan(options: options, judge: judge).run(input.text, from: input.source)
             session.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
             print(json ? ChatProtocol.encode("scan", report.json.objectValue ?? [:]) : report.rendered)
@@ -752,7 +781,9 @@ struct Redact: AsyncParsableCommand {
     @Flag(name: .long, help: "Also have the model find names, addresses, and identifiers. About 2 s per 4 KiB.")
     var thorough = false
 
-    @Option(name: [.short, .customLong("model")], help: "Model for --thorough. Defaults to config.json.")
+    @Option(
+        name: [.short, .customLong("model")],
+        help: "Model for --thorough. Defaults to routing.tasks.secrets, else the measured default (system).")
     var model: String?
 
     func run() async throws {
@@ -761,7 +792,10 @@ struct Redact: AsyncParsableCommand {
         guard let input = try Wisp.inputs(path.map { [$0] } ?? []).first else { return }
         let options = Redaction.Options(
             categories: secretsOnly ? [.secret] : [.secret, .personal], thorough: thorough, maxOutputBytes: .max)
-        let judge = thorough ? try Wisp.judge(session: session, prefix: "redact") : nil
+        let judge =
+            thorough
+            ? try Wisp.secretsJudge(
+                session: session, prefix: "redact", explicit: model, inputBytes: input.text.utf8.count) : nil
         let report = try await Redaction(options: options, judge: judge).run(input.text, from: input.source)
         session.audit.record(.redaction, details: AuditEvent.Details.redaction(report))
         print(report.text, terminator: "")

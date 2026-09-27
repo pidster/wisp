@@ -51,3 +51,24 @@ and what the eval already records is how each model did.
 - Tests without the model: the envelope rule including a failing small band, the ladder choice and its
   fallbacks, an explicit model, an unopenable rung, merging by size, the config, the audit record, and
   the shipped measurements' envelopes.
+
+## Amendment, 2026-09-27: a default model per task
+
+The thorough pass of `scan_secrets` and `redact` was measured on the secrets test set
+([ADR 0031](0031-secret-scanning-and-redaction.md), second amendment of 2026-09-27). With the rules
+beside it, the on-device model reached macro-F1 0.67 and `ollama:granite4.1:8b` 0.56. Without a
+model named, the pass ran on `config.json`'s `model`. On this Mac that is granite, so the pass ran on
+the worse of the two. Input size says nothing here, since every chunk is 4 KiB, so the ladder does not
+apply.
+
+**Decision.**
+- **`routing.tasks` maps a task to the model for its model pass.** It applies when the caller names no
+  model; an explicit `--model` or `model` still wins.
+- **Wisp ships a measured default per task** (`ModelRouting.taskDefaults`), and `routing.tasks` overrides
+  it. The one task today is `secrets`, the thorough pass of `scan`, `redact`, `scan_secrets`, and
+  `redact`, and its default is `system`.
+- **The choice is recorded.** Each routed pass writes a `model.routed` audit event with the reason:
+  the measured default, or the configured model.
+- **Only a thorough call routes.** A rules-only call never opens a model, so its model is left alone.
+- **Settable from the CLI and chat.** `wisp config set routing.tasks.secrets <model>` and chat's `/config`
+  set it.

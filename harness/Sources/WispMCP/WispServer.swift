@@ -334,8 +334,16 @@ public struct WispServer: Sendable {
     /// Captures the output on a conversation of its own, scans it, and returns the findings masked; the
     /// conversation records `secrets.scan` with the kinds found and never a value.
     private func scanSecrets(_ request: ScanSecretsRequest) async -> CallTool.Result {
-        await condense(prefix: "scan", source: request.source, model: request.model) { conversation, captured in
+        let routed = request.options.thorough ? secretsModel(explicit: request.model) : nil
+        return await condense(prefix: "scan", source: request.source, model: routed?.model ?? request.model) {
+            conversation, captured in
             let text = captured.text
+            if let routed {
+                conversation.audit.record(
+                    .modelRouted,
+                    details: AuditEvent.Details.modelRouted(
+                        task: "secrets", inputBytes: text.utf8.count, decision: routed))
+            }
             let judge = request.options.thorough ? self.judge(on: conversation, schema: ModelSweep.schemaJSON) : nil
             let report = try await SecretScan(options: request.options, judge: judge).run(text, from: request.source)
             conversation.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
@@ -346,13 +354,27 @@ public struct WispServer: Sendable {
     /// Captures the output on a conversation of its own and returns it redacted; the conversation records
     /// `redaction` with the counts replaced.
     private func redact(_ request: RedactRequest) async -> CallTool.Result {
-        await condense(prefix: "redact", source: request.source, model: request.model) { conversation, captured in
+        let routed = request.options.thorough ? secretsModel(explicit: request.model) : nil
+        return await condense(prefix: "redact", source: request.source, model: routed?.model ?? request.model) {
+            conversation, captured in
             let text = captured.text
+            if let routed {
+                conversation.audit.record(
+                    .modelRouted,
+                    details: AuditEvent.Details.modelRouted(
+                        task: "secrets", inputBytes: text.utf8.count, decision: routed))
+            }
             let judge = request.options.thorough ? self.judge(on: conversation, schema: ModelSweep.schemaJSON) : nil
             let report = try await Redaction(options: request.options, judge: judge).run(text, from: request.source)
             conversation.audit.record(.redaction, details: AuditEvent.Details.redaction(report))
             return (report.summary + "\n\n" + report.text, report.json)
         }
+    }
+
+    /// The model for a thorough scan or redaction when the caller named none: the `secrets` task
+    /// default; nil when the caller named one.
+    private func secretsModel(explicit: ModelSelection?) -> ModelRouting.Decision? {
+        ModelRouting.forTask("secrets", explicit: explicit, models: config.taskModels)
     }
 
     /// Summarises the diff per file, then drafts from the summary, on one conversation `draft-<id>`.

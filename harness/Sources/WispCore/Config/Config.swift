@@ -40,10 +40,14 @@ public struct Config: Codable, Equatable, Sendable {
     public struct RoutingConfig: Codable, Equatable, Sendable {
         /// Models from least to most capable; empty or absent turns routing off.
         public var ladder: [ModelSelection]?
+        /// The model for a task's model pass when the caller names none, by task (`secrets`); a task
+        /// left out keeps wisp's measured default (`ModelRouting.taskDefaults`).
+        public var tasks: [String: ModelSelection]?
 
         /// Creates settings.
-        public init(ladder: [ModelSelection]? = nil) {
+        public init(ladder: [ModelSelection]? = nil, tasks: [String: ModelSelection]? = nil) {
             self.ladder = ladder
+            self.tasks = tasks
         }
     }
 
@@ -269,7 +273,8 @@ public struct Config: Codable, Equatable, Sendable {
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
-            routingLadder: routing?.ladder ?? []
+            routingLadder: routing?.ladder ?? [],
+            taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured }
         )
     }
 
@@ -320,5 +325,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var customTools: [CustomTool.Definition] = []
         /// Models to route among by input size, least capable first; empty means no routing.
         public var routingLadder: [ModelSelection] = []
+        /// The model for each task's model pass when the caller names none: wisp's measured defaults,
+        /// overridden by `routing.tasks`.
+        public var taskModels: [String: ModelSelection] = ModelRouting.taskDefaults
     }
 }

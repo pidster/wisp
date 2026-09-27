@@ -362,7 +362,7 @@ commit before it is made. A best effort, not a guarantee.
 | `path` | string | one of | Absolute path of a file on this Mac; the read clears the gate as `read_file` does. |
 | `personal` | boolean | no | Report personal data too (emails, phone and card numbers, public IPs, addresses, private hostnames, user names). Default false. |
 | `thorough` | boolean | no | Add the model's pass: names, customer numbers, unusual credentials. Up to three turns per 4 KiB, about 2 s each. Default false. |
-| `model` | string | no | The model for the thorough pass, as for `respond`. |
+| `model` | string | no | The model for the thorough pass, as for `respond`. Default: `routing.tasks.secrets`, else `system`, the model measured best for it; the choice is audited as `model.routed`. |
 | `max_findings` | integer | no | Findings to return at most (default 50); `more` is true when some were dropped. |
 
 Result content is a headline and one `location  kind  preview` line per finding; `structuredContent`:
@@ -398,7 +398,7 @@ the model ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md)).
 | `path` | string | one of | Absolute path of a file on this Mac; the read clears the gate as `read_file` does. |
 | `secrets_only` | boolean | no | Replace credentials and keep personal data. Default false. |
 | `thorough` | boolean | no | Add the model's pass for names, addresses, and identifiers. Default false. |
-| `model` | string | no | The model for the thorough pass, as for `respond`. |
+| `model` | string | no | The model for the thorough pass, as for `respond`. Default: `routing.tasks.secrets`, else `system`, the model measured best for it; the choice is audited as `model.routed`. |
 | `max_bytes` | integer | no | Bytes of redacted text to return at most (default 32768); `truncated` is true when it was cut. |
 
 Result content is a summary line, a blank line, and the redacted text; `structuredContent` has `source`,
