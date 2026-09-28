@@ -3,10 +3,22 @@
 Labelled examples for the fast, specialised classifiers of
 [ADR 0038](../docs/decisions/0038-fast-specialised-classifiers.md), one `label<TAB>text` per line, `#`
 for comments. Each file's header states its labels and every judgement rule applied, so a reviewer can
-check the labels against them. Only one is built into the binary: `risk/train.tsv`, which
-`scripts/check classifier-default` copies to `harness/Sources/WispCore/Resources/risk-examples.tsv`, the
-bundled examples the shipped risk classifier is trained from (`TrainingSetsTests` fails if the copy
-differs).
+check the labels against them. Two classifiers are built into the binary:
+- **Risk.** `scripts/check classifier-default` copies `risk/train.tsv` to
+  `harness/Sources/WispCore/Resources/risk-examples.tsv`, the bundled examples the shipped risk classifier
+  is trained from at each release (`TrainingSetsTests` fails if the copy differs).
+- **Personal data.** The personal-data classifier is trained from `secrets/train.tsv`, with `secrets/dev.tsv`
+  deciding when training stops:
+
+  ```
+  wisp classifier ship --task personal --examples training/secrets/train.tsv \
+      --validation training/secrets/dev.tsv --version <n> \
+      --resource harness/Sources/WispCore/Resources/personal-default.json
+  ```
+
+  This runs by hand, only when the secrets set changes. Two trainings differ slightly, so the committed
+  file is the classifier. Measure a new one on test before it replaces the old
+  ([ADR 0042](../docs/decisions/0042-personal-data-classifier.md)).
 
 Each task has its own directory with three parts, kept apart by family: `train.tsv` to learn from,
 `dev.tsv` to choose between options (algorithms, tokenisation, training sets), and `test.tsv`, frozen,
@@ -81,8 +93,10 @@ flowchart TD
     split --> train["train.tsv"]
     split --> dev["dev.tsv: for choosing, and the evals"]
     split --> test["test.tsv: frozen, scored once"]
-    train -->|"risk only: scripts/check classifier-default"| bundle["risk-examples.tsv and risk-default.json"]
+    train -->|"risk: scripts/check classifier-default"| bundle["risk-examples.tsv and risk-default.json"]
+    train -->|"secrets, by hand: wisp classifier ship --task personal"| personal["personal-default.json"]
     bundle --> binary["Embedded in the release binary"]
+    personal --> binary
 ```
 
 
@@ -124,3 +138,6 @@ ordinary lines as secret too often (precision 0.53), so the rules were widened i
 The rules together with the on-device model's thorough pass find 132 of the 211 test secrets and 144 of
 the 218 personal lines (macro-F1 0.67). With `ollama:granite4.1:8b` for the pass they reach 0.56 (ADR 0031, second
 amendment of 2026-09-27).
+The shipped personal-data classifier, `personal@1`, beside the rules finds 135 of the 218 personal test
+lines, against 27 for the rules alone (macro-F1 0.57 against 0.40). With the model too it finds 175
+(macro-F1 0.68) ([ADR 0042](../docs/decisions/0042-personal-data-classifier.md)).

@@ -27,6 +27,14 @@ Changed:
   different default (`wisp config set routing.tasks.secrets <model>`), and each routed pass is audited
   as `model.routed`.
 
+Added:
+
+- `wisp scan --personal` and `scan_secrets` with `personal` find far more personal data, without the
+  model. A small classifier shipped in the binary flags lines holding names, account holders, and
+  addresses that the rules cannot recognise, shown as `personal-data (classifier)`. On the secrets test
+  set it finds 62% of personal lines, against 12% for the rules alone, at about 2 ms a line. With
+  `--thorough` too, 80% are found. `redact` does not use it yet.
+
 Fixed:
 
 - A thorough `scan_secrets`, `redact`, `wisp scan`, or `wisp redact` no longer fails as a whole when

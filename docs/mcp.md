@@ -360,7 +360,7 @@ commit before it is made. A best effort, not a guarantee.
 | `command` | string | one of | Shell command line whose output to scan, run as for `triage`. |
 | `working_directory` | string | no | Absolute directory for the command. Default: wisp's. |
 | `path` | string | one of | Absolute path of a file on this Mac; the read clears the gate as `read_file` does. |
-| `personal` | boolean | no | Report personal data too (emails, phone and card numbers, public IPs, addresses, private hostnames, user names). Default false. |
+| `personal` | boolean | no | Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, and user names by rule, and lines the personal-data classifier flags. Default false. |
 | `thorough` | boolean | no | Add the model's pass: names, customer numbers, unusual credentials. Up to three turns per 4 KiB, about 2 s each. Default false. |
 | `model` | string | no | The model for the thorough pass, as for `respond`. Default: `routing.tasks.secrets`, else `system`, the model measured best for it; the choice is audited as `model.routed`. |
 | `max_findings` | integer | no | Findings to return at most (default 50); `more` is true when some were dropped. |
@@ -370,13 +370,17 @@ Result content is a headline and one `location  kind  preview` line per finding;
 ```json
 {
   "source": { "command": "git diff --cached", "workingDirectory": "/repo" }, "bytes": 2210, "diff": true,
-  "thorough": false, "chunks": null, "more": false, "failedChunks": [],
+  "thorough": false, "chunks": null, "more": false, "failedChunks": [], "classifier": null,
   "findings": [{ "kind": "github-token", "category": "secret", "location": "Sources/Client.swift:14",
                  "preview": "ghp_…(40 chars)", "detector": "rule" }]
 }
 ```
 
-`detector` is `rule` or `model`. The value itself is in neither the result nor the `secrets.scan` audit
+`detector` is `rule`, `model`, or `classifier`. With `personal`, the personal-data classifier judges each
+line where neither the rules nor the model found anything, in about 2 ms a line. A line it flags is
+reported as `personal-data` with the line masked as the preview: it says where, not what. `classifier`
+names it (`personal@1`), or says why it was unavailable, and is null without `personal`
+([ADR 0042](decisions/0042-personal-data-classifier.md)). The value itself is in neither the result nor the `secrets.scan` audit
 event. Each scan is its own audited session (`scan-<id>`).
 
 A model turn that fails, a guardrail refusal or a runtime error, is asked once more. If it fails

@@ -140,7 +140,11 @@ contract 2, and latency in every classifier measurement. Next, in order:
   `LogDigest`'s keywords beat a trained log-severity classifier. None is wired in yet. For secrets,
   done 2026-09-27: the rules were measured and widened instead
   ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md), amendment). Open there: the gap
-  between train (85% of secrets found) and third-party test data (32%), and personal data (16%).
+  between train (85% of secrets found) and third-party test data (32%). Personal data, done
+  2026-09-28: a personal-only classifier beside the rules in `scan_secrets` finds 62% of personal test
+  lines, against 12% for the rules alone ([ADR 0042](decisions/0042-personal-data-classifier.md)).
+  Open: using it in `redact`, where it would have to point the model at the flagged lines, since it
+  cannot name a value.
 
 ## Model backends, deferred
 

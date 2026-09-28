@@ -224,6 +224,18 @@ import Testing
                     command: "c", pattern: "c *", line: "a && c", decision: "approved", scope: .session, reason: nil,
                     approvalID: "id", expiresAt: Date(), downgradedFrom: .project, persistError: "disk")
             ),
+            (
+                .secretScan,
+                D.secretScan(
+                    .init(
+                        source: nil, bytes: 1, diff: false, chunks: 1, failedChunks: [1], findings: [], more: false,
+                        classifier: "personal@1"))
+            ),
+            (
+                .redaction,
+                D.redaction(
+                    .init(source: nil, bytes: 1, text: "", truncated: false, counts: [:], chunks: 1, failedChunks: [1]))
+            ),
         ]
         for (kind, details) in samples {
             let extra = Set(details.keys).subtracting(AuditEvent.fields(for: kind))

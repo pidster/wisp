@@ -152,6 +152,7 @@ extension AuditEvent {
                 "thorough": .bool(report.chunks != nil), "findings": .int(report.findings.count),
                 "kinds": .object(report.kinds.mapValues { .int($0) }),
                 "failedChunks": .array(report.failedChunks.map { .int($0) }),
+                "classifier": report.classifier.map { .string($0) } ?? .null,
             ]
         }
 
@@ -301,8 +302,8 @@ extension AuditEvent {
         case .commandOutcome: ["command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds"]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]
         case .notification: ["title", "body", "source", "outcome", "reason"]
-        case .secretScan: ["source", "bytes", "diff", "thorough", "findings", "kinds"]
-        case .redaction: ["source", "bytes", "bytesOut", "truncated", "thorough", "replaced"]
+        case .secretScan: ["source", "bytes", "diff", "thorough", "findings", "kinds", "failedChunks", "classifier"]
+        case .redaction: ["source", "bytes", "bytesOut", "truncated", "thorough", "replaced", "failedChunks"]
         case .modelRouted: ["task", "inputBytes", "model", "reason"]
         case .watchRun:
             [

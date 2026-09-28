@@ -358,7 +358,7 @@ are a best effort, not a guarantee.
 
 | Flag | Meaning |
 | --- | --- |
-| `--personal` | Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, user names. |
+| `--personal` | Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, user names, and lines the personal-data classifier flags, shown `(classifier)` ([ADR 0042](decisions/0042-personal-data-classifier.md)). |
 | `--thorough` | Add the model's pass over the rule-redacted text, for names, customer numbers, and unusual credentials. Up to three turns per 4 KiB. |
 | `-m, --model <model>` | The model for `--thorough`. Defaults to `routing.tasks.secrets`: `system` unless set, the model measured best for this pass. |
 | `--json` | One JSON object per input, the shape `scan_secrets` returns ([mcp.md](mcp.md)). |

@@ -4,6 +4,8 @@ import Foundation
 /// MCP tool and `wisp scan`. A diff is scanned by its added lines and located by `path:line`, so it
 /// suits a pre-commit check of `git diff --cached`. Rules always run; `thorough` adds the model's pass
 /// over the rule-redacted text ([ADR 0031](../../../../docs/decisions/0031-secret-scanning-and-redaction.md)).
+/// With personal data asked for, the personal-data classifier then flags the lines neither found anything
+/// on ([ADR 0042](../../../../docs/decisions/0042-personal-data-classifier.md)).
 public struct SecretScan: Sendable {
     /// Knobs for one scan.
     public struct Options: Equatable, Sendable {
@@ -39,13 +41,18 @@ public struct SecretScan: Sendable {
         public var findings: [SecretScanner.Finding]
         /// Whether findings beyond the cap were dropped.
         public var more: Bool
+        /// The personal-data classifier that judged the lines, `personal@<version>`, or why it could not;
+        /// nil when personal data was not asked for.
+        public var classifier: String? = nil
 
         /// The report as JSON, the shape the MCP tool returns (`docs/mcp.md`).
         public var json: JSONValue {
             [
                 "source": Condensing.json(source), "bytes": .int(bytes), "diff": .bool(diff),
                 "thorough": .bool(chunks != nil), "chunks": chunks.map { .int($0) } ?? .null, "more": .bool(more),
-                "failedChunks": .array(failedChunks.map { .int($0) }), "findings": .array(findings.map(\.json)),
+                "failedChunks": .array(failedChunks.map { .int($0) }),
+                "classifier": classifier.map { .string($0) } ?? .null,
+                "findings": .array(findings.map(\.json)),
             ]
         }
 
@@ -55,7 +62,12 @@ public struct SecretScan: Sendable {
             var head = "\(count) in \(bytes) bytes\(diff ? " of diff" : "")"
             if let chunks { head += "; model pass over \(chunks) chunk\(chunks == 1 ? "" : "s")" }
             head += SecretScan.failureNote(failedChunks)
-            let rows = findings.map { [$0.location, $0.kind, $0.preview, $0.detector == "model" ? "(model)" : ""] }
+            if let classifier, classifier.hasPrefix("unavailable") {
+                head += "; personal-data classifier \(classifier)"
+            }
+            let rows = findings.map {
+                [$0.location, $0.kind, $0.preview, $0.detector == "rule" ? "" : "(\($0.detector))"]
+            }
             return ([head] + TextTable.render(header: ["LOCATION", "KIND", "PREVIEW", ""], rows: rows).dropFirst())
                 .joined(separator: "\n")
         }
@@ -70,15 +82,22 @@ public struct SecretScan: Sendable {
     public let options: Options
     /// Judges a chunk for the model pass; nil when the scan is rules only.
     private let judge: Triage.Judge?
+    /// Flags lines holding personal data, or why it cannot; used only when personal data is asked for.
+    private let classifier: Result<PersonalDataClassifier, PersonalDataClassifier.Failure>?
 
     /// Creates a scan.
     ///
     /// - Parameters:
     ///   - options: Categories, the model pass, the cap.
     ///   - judge: A fresh model turn per chunk; required when `options.thorough`.
-    public init(options: Options = Options(), judge: Triage.Judge? = nil) {
+    ///   - classifier: The personal-data classifier (`PersonalDataClassifier.shipped`), or nil for none.
+    public init(
+        options: Options = Options(), judge: Triage.Judge? = nil,
+        classifier: Result<PersonalDataClassifier, PersonalDataClassifier.Failure>? = nil
+    ) {
         self.options = options
         self.judge = judge
+        self.classifier = classifier
     }
 
     /// Scans `text`.
@@ -122,10 +141,41 @@ public struct SecretScan: Sendable {
                         preview: SecretScanner.mask(found.value), detector: "model"))
             }
         }
+        var used: String?
+        if options.categories.contains(.personal), let classifier {
+            switch classifier {
+            case .success(let model):
+                used = model.reference
+                findings += Self.classified(
+                    text, diff: diff, source: source, by: model, skipping: Set(findings.map(\.location)))
+            case .failure(let failure):
+                used = "unavailable: \(failure)"
+            }
+        }
         let more = findings.count > options.maxFindings
         return Report(
             source: source, bytes: text.utf8.count, diff: diff, chunks: chunks, failedChunks: failed,
-            findings: Array(findings.prefix(options.maxFindings)), more: more)
+            findings: Array(findings.prefix(options.maxFindings)), more: more, classifier: used)
+    }
+
+    /// The lines of `text` (a diff's added lines) the classifier flags as personal data, apart from those
+    /// at `skipping`, where a rule or the model already found something. A finding names the line, not a
+    /// value: its preview is the masked line.
+    static func classified(
+        _ text: String, diff: Bool, source: Triage.Source?, by model: PersonalDataClassifier,
+        skipping: Set<String>
+    ) -> [SecretScanner.Finding] {
+        let lines: [(location: String, text: String)] =
+            diff
+            ? SecretScanner.added(in: text).map { ("\($0.path):\($0.number)", $0.text) }
+            : text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map {
+                (place(line: $0.offset + 1, in: source), String($0.element))
+            }
+        return lines.filter { !skipping.contains($0.location) && model.flags($0.text) }.map {
+            SecretScanner.Finding(
+                kind: "personal-data", category: .personal, location: $0.location,
+                preview: SecretScanner.mask($0.text.trimmingCharacters(in: .whitespaces)), detector: "classifier")
+        }
     }
 
     /// What a report says about chunks the model failed on: nothing when there were none.

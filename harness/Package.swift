@@ -33,7 +33,7 @@ let package = Package(
             name: "WispCore",
             exclude: [
                 "Resources/system-prompt.md", "Resources/measurements.json", "Resources/multiplexers.txt",
-                "Resources/risk-examples.tsv", "Resources/risk-default.json",
+                "Resources/risk-examples.tsv", "Resources/risk-default.json", "Resources/personal-default.json",
             ],
             linkerSettings: [.linkedFramework("FoundationModels")],
             plugins: ["EmbedSystemPrompt"]

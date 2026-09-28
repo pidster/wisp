@@ -45,6 +45,7 @@
 | [decisions/0039-exact-condensers.md](decisions/0039-exact-condensers.md) | Triage reads known failure formats exactly first; `dependency_audit`, `flaky_tests`, and `hot_paths` without a model |
 | [decisions/0040-config-from-chat.md](decisions/0040-config-from-chat.md) | Change the configuration from chat or `wisp config set`, checked, audited, and only by a person |
 | [decisions/0041-shipped-classifier-is-the-default.md](decisions/0041-shipped-classifier-is-the-default.md) | The fast Core ML classifier each release ships is the default risk classifier, not the on-device model |
+| [decisions/0042-personal-data-classifier.md](decisions/0042-personal-data-classifier.md) | A personal-data classifier flags lines beside the rules in `scan_secrets`; the trained file, not the training, ships |
 | [decisions/0029-tui-front-end.md](decisions/0029-tui-front-end.md) | The terminal chat is a Rust front end (`wisp-tui`, ratatui) over a headless `wisp chat --json`; one palette for both faces |
 | [decisions/0028-rename-to-wisp.md](decisions/0028-rename-to-wisp.md) | The project is wisp; one mechanical rename, no compatibility layer, a new Homebrew tap |
 | [decisions/0027-verb-patterns.md](decisions/0027-verb-patterns.md) | Approval patterns include the verb for programs like git and cargo, from an embedded list; old patterns still count |

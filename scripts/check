@@ -170,9 +170,17 @@ hygiene() {
                 echo "trailing whitespace: $f"; status=1
             fi
         esac
-        if [ -f "$f" ] && [ "$(wc -c <"$f")" -gt 1048576 ]; then
-            echo "file over 1 MiB: $f"; status=1
-        fi
+        # Files may not exceed 1 MiB, so nothing large is committed by accident. The one exception is the
+        # personal-data classifier (ADR 0042): its weights do not compress, and it is retrained only when
+        # training/secrets changes. Add to this list only with an ADR that says why.
+        case "$f" in
+            harness/Sources/WispCore/Resources/personal-default.json) ;;
+            *)
+                if [ -f "$f" ] && [ "$(wc -c <"$f")" -gt 1048576 ]; then
+                    echo "file over 1 MiB: $f"; status=1
+                fi
+                ;;
+        esac
     done
 
     if printf '%s\n' "$staged" | grep -qE '^(harness/Sources|tools/)' \

@@ -258,6 +258,44 @@ import Testing
         #expect(clean.failedChunks.isEmpty && !clean.rendered.contains("failed"))
     }
 
+    @Test func theShippedPersonalDataClassifierLoadsAndFlagsLinesNotValues() throws {
+        let model = try PersonalDataClassifier.shipped.get()
+        #expect(model.reference == "personal@\(PersonalDataClassifier.shippedManifest?.version ?? "?")")
+        #expect(PersonalDataClassifier.shippedManifest?.examplesSource == "training/secrets/train.tsv")
+        #expect(model.flags("The account holder is Mrs. Philippa Dunmore"))
+        #expect(!model.flags("build finished in 3.2 s") && !model.flags("   "))
+        #expect(PersonalDataClassifier.Contract.preprocess(" a\u{200B}b \t c ") == "ab c")
+        #expect(PersonalDataClassifier.Contract.preprocess(String(repeating: "x", count: 900)).count == 500)
+        guard case .failure(.notEmbedded) = PersonalDataClassifier.load("{}") else {
+            Issue.record("an empty resource should be reported as not embedded")
+            return
+        }
+    }
+
+    @Test func personalDataScansAddTheClassifiersLinesWhereNothingElseFoundAny() async throws {
+        let text = "The account holder is Mrs. Philippa Dunmore\nbuild finished in 3.2 s\nmail jo@acme.co\n"
+        let shipped = PersonalDataClassifier.shipped
+        let personal = try await SecretScan(options: .init(categories: [.secret, .personal]), classifier: shipped)
+            .run(text, from: .path("/tmp/t.log"))
+        // Line 1 by the classifier; line 3 by the email rule, so the classifier leaves it alone.
+        #expect(personal.findings.map(\.location) == ["/tmp/t.log:3", "/tmp/t.log:1"], "\(personal.findings)")
+        #expect(personal.findings.last?.detector == "classifier" && personal.findings.last?.kind == "personal-data")
+        #expect(personal.findings.last?.preview == "The …(43 chars)" && personal.rendered.contains("(classifier)"))
+        #expect(
+            personal.classifier?.hasPrefix("personal@") == true && personal.json.objectValue?["classifier"] != .null)
+        let secretsOnly = try await SecretScan(classifier: shipped).run(text, from: nil)
+        #expect(secretsOnly.findings.isEmpty && secretsOnly.classifier == nil)
+        let diff =
+            "+++ b/notes.md\n@@ -1,1 +4,2 @@\n The account holder is Mrs. Philippa Dunmore\n+Owner: Mrs. Philippa Dunmore\n"
+        let located = try await SecretScan(options: .init(categories: [.personal]), classifier: shipped).run(
+            diff, from: nil)
+        #expect(located.findings.map(\.location) == ["notes.md:5"], "\(located.findings)")
+        let missing = try await SecretScan(options: .init(categories: [.personal]), classifier: .failure(.notEmbedded))
+            .run(text, from: nil)
+        #expect(missing.classifier == "unavailable: this build embeds no personal-data classifier")
+        #expect(missing.rendered.contains("personal-data classifier unavailable"))
+    }
+
     @Test func aThoroughDiffScanLocatesModelFindingsOnAddedLinesOnly() async throws {
         let diff = """
             diff --git a/notes.md b/notes.md

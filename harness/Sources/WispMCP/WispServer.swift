@@ -345,7 +345,9 @@ public struct WispServer: Sendable {
                         task: "secrets", inputBytes: text.utf8.count, decision: routed))
             }
             let judge = request.options.thorough ? self.judge(on: conversation, schema: ModelSweep.schemaJSON) : nil
-            let report = try await SecretScan(options: request.options, judge: judge).run(text, from: request.source)
+            let report = try await SecretScan(
+                options: request.options, judge: judge, classifier: PersonalDataClassifier.shipped
+            ).run(text, from: request.source)
             conversation.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
             return (report.rendered, report.json)
         }

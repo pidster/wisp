@@ -755,7 +755,10 @@ struct Scan: AsyncParsableCommand {
                 thorough
                 ? try Wisp.secretsJudge(
                     session: session, prefix: "scan", explicit: model, inputBytes: input.text.utf8.count) : nil
-            let report = try await SecretScan(options: options, judge: judge).run(input.text, from: input.source)
+            let report = try await SecretScan(
+                options: options, judge: judge, classifier: PersonalDataClassifier.shipped
+            )
+            .run(input.text, from: input.source)
             session.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
             print(json ? ChatProtocol.encode("scan", report.json.objectValue ?? [:]) : report.rendered)
             found = found || !report.findings.isEmpty
@@ -1262,6 +1265,9 @@ struct ClassifierCommand: AsyncParsableCommand {
         @Flag(name: .long, help: "For risk, add the matching rules' reasons after the line.")
         var reasons = false
 
+        @Flag(name: .long, help: "For secrets, add the shipped personal-data classifier, as wisp scan --personal does.")
+        var classifier = false
+
         func run() async throws {
             for example in TrainingSplit.parse(try String(contentsOfFile: examples, encoding: .utf8)) {
                 let label: String
@@ -1276,7 +1282,13 @@ struct ClassifierCommand: AsyncParsableCommand {
                     }
                 case "failures": label = KnownFailures.scan(example.text).findings.first?.kind ?? "none"
                 case "log-severity": label = LogDigest.severity(of: example.text).rawValue
-                case "secrets": label = SecretScanner.label(of: example.text)
+                case "secrets":
+                    let rules = SecretScanner.label(of: example.text)
+                    let flagged =
+                        if classifier, rules == "none", case .success(let model) = PersonalDataClassifier.shipped {
+                            model.flags(example.text)
+                        } else { false }
+                    label = flagged ? "personal" : rules
                 default: throw ValidationError("no baseline for \(task)")
                 }
                 print("\(label)\t\(example.text)")
@@ -1353,10 +1365,53 @@ struct ClassifierCommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Train the default classifier a release ships into a resource file.", shouldDisplay: false)
 
-        @Option(name: .long, help: "The resource to write: harness/Sources/WispCore/Resources/risk-default.json.")
+        @Option(
+            name: .long, help: "The resource to write, such as harness/Sources/WispCore/Resources/risk-default.json.")
         var resource: String
 
+        @Option(name: .long, help: "risk (the default, retrained each release) or personal (trained by hand).")
+        var task = "risk"
+
+        @Option(name: .long, help: "For personal: the labelled lines, training/secrets/train.tsv.")
+        var examples: String?
+
+        @Option(name: .long, help: "For personal: the lines that decide when training stops, training/secrets/dev.tsv.")
+        var validation: String?
+
+        @Option(name: .long, help: "For personal: the version to give it, one more than the embedded one.")
+        var version: String?
+
         func run() async throws {
+            switch task {
+            case "risk": try shipRisk()
+            case "personal": try shipPersonal()
+            default: throw ValidationError("no shipped classifier for \(task)")
+            }
+        }
+
+        /// Trains the personal-data classifier into `resource`.
+        private func shipPersonal() throws {
+            guard let examples, let validation, let version else {
+                throw ValidationError("--task personal needs --examples, --validation, and --version")
+            }
+            let lines = TrainingSplit.parse(try String(contentsOfFile: examples, encoding: .utf8))
+            let held = TrainingSplit.parse(try String(contentsOfFile: validation, encoding: .utf8))
+            let staging = FileManager.default.temporaryDirectory.appending(
+                path: "wisp-ship-\(UUID().uuidString).mlmodel")
+            defer { try? FileManager.default.removeItem(at: staging) }
+            let manifest = try PersonalDataTraining.train(
+                lines, validation: held,
+                source: (examples as NSString).lastPathComponent == "train.tsv"
+                    ? "training/secrets/train.tsv" : examples,
+                writingTo: staging, version: version)
+            let model = try Data(contentsOf: staging)
+            let text = try PersonalDataClassifier.resource(manifest: manifest, model: model)
+            try Data(text.utf8).write(to: URL(filePath: resource), options: .atomic)
+            print("wrote personal@\(version) (\(model.count) bytes, \(manifest.examples) examples) to \(resource)")
+        }
+
+        /// Trains the risk default this release ships into `resource`.
+        private func shipRisk() throws {
             let version = ClassifierStore.defaultVersion()
             let staging = FileManager.default.temporaryDirectory.appending(path: "wisp-ship-\(UUID().uuidString)")
             let store = ClassifierStore(home: Home(root: staging))
