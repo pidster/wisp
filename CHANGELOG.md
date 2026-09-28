@@ -35,8 +35,14 @@ Added:
   set it finds 62% of personal lines, against 12% for the rules alone, at about 2 ms a line. With
   `--thorough` too, 80% are found. `redact` does not use it yet.
 
+- Watch what MCP clients have wisp do. In chat, `/audit sessions` lists the sessions in the audit log
+  and how each began, and `/audit <id>` shows one session's latest events, such as a `respond` thread;
+  Tab completes the ids. In a terminal, `wisp logs --follow` (`-f`) prints events as they are written,
+  and can be narrowed with `--session`, `--kind`, and `--tool`.
+
 Fixed:
 
+- Chat's help said `/audit` shows this session's events; it shows the latest of every session.
 - A thorough `scan_secrets`, `redact`, `wisp scan`, or `wisp redact` no longer fails as a whole when
   the model refuses or fails on one chunk, which the on-device model's guardrails sometimes do on text
   full of credentials. The turn is asked once more; if it fails again, that chunk is checked by rule

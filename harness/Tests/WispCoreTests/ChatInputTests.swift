@@ -10,6 +10,15 @@ import Testing
         #expect(ChatInput.helpText.contains("/models") && ChatInput.helpText.contains("/model [name]"))
     }
 
+    @Test func parsesAuditWithASessionOrTheSessionList() {
+        #expect(ChatInput(line: "/audit") == .inspect("audit"))
+        #expect(ChatInput(line: "/audit sessions") == .inspect("audit sessions"))
+        #expect(ChatInput(line: "/audit  git ") == .inspect("audit git"))
+        #expect(
+            ChatCompletion.complete("/audit s", sessionIDs: ["scan-1", "git"]).candidates == ["scan-1", "sessions"])
+        #expect(ChatCompletion.complete("/audit ", sessionIDs: ["git"]).candidates == ["git", "sessions"])
+    }
+
     @Test func parsesStatsAndHistory() {
         #expect(ChatInput(line: "/stats") == .stats)
         #expect(ChatInput(line: " /history ") == .history)

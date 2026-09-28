@@ -78,6 +78,63 @@ import Testing
         #expect(try empty.audit(AuditQuery()).isEmpty)
     }
 
+    @Test func sessionsAreSummarisedFromTheLogAndAuditTakesASessionFromChat() async throws {
+        let home = try scratchHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let sink = try FileAuditSink(url: home.auditFile)
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let chat = AuditLog(session: "c1", sink: sink)
+        chat.record(.sessionStart, details: ["entryPoint": "chat"])
+        sink.write(AuditEvent(session: "git", kind: .prompt, details: ["text": "status"], time: start))
+        sink.write(
+            AuditEvent(session: "git", kind: .response, details: ["text": "ok"], time: start.addingTimeInterval(5)))
+        let views = Introspection(home: home, config: Config().resolved)
+        let sessions = try views.sessions()
+        #expect(sessions.map(\.id) == ["git", "c1"] && sessions.map(\.events) == [2, 1])
+        #expect(sessions.first?.entryPoint == nil && sessions.last?.entryPoint == "chat")
+        #expect(sessions.first?.first == start && sessions.first?.latest == start.addingTimeInterval(5))
+        #expect(sessions.first?.line.hasSuffix("  git  -  2 events") == true, "\(sessions.first?.line ?? "")")
+        #expect(try views.sessions(last: 1).map(\.id) == ["c1"])
+        let tool = InspectTool(introspection: views)
+        let listed = await tool.show("audit sessions")
+        #expect(listed.contains("git  -  2 events") && listed.contains("c1  chat  1 event"), "\(listed)")
+        let one = await tool.show("audit git")
+        #expect(one.components(separatedBy: "\n").count == 2 && !one.contains("c1"), "\(one)")
+        #expect(await tool.show("audit nobody") == "no matching audit events")
+        let empty = InspectTool(
+            introspection: Introspection(home: Home(root: home.root.appending(path: "none")), config: Config().resolved)
+        )
+        #expect(await empty.show("audit sessions") == "no sessions in the audit log")
+    }
+
+    @Test func aTailReturnsWhatWasAppendedKeepsAHalfWrittenLineAndSurvivesRotation() throws {
+        let home = try scratchHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let url = home.auditFile
+        var missing = AuditTail(url: url)
+        #expect(try missing.read().isEmpty)
+        let line = { (text: String) in
+            String(
+                decoding: try AuditEvent.encoder.encode(
+                    AuditEvent(session: "s", kind: .prompt, details: ["text": .string(text)])), as: UTF8.self)
+        }
+        try Data((try line("one") + "\n").utf8).write(to: url)
+        var tail = AuditTail.atEnd(of: url)
+        #expect(try tail.read().isEmpty)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        let two = try line("two")
+        try handle.write(contentsOf: Data((two + "\n" + two.prefix(10)).utf8))
+        #expect(try tail.read().map { $0.details["text"] } == ["two"])
+        try handle.write(contentsOf: Data((two.dropFirst(10) + "\n").utf8))
+        try handle.close()
+        #expect(try tail.read().map { $0.details["text"] } == ["two"])
+        #expect(try tail.read().isEmpty)
+        // Rotated: a new, shorter file is read from its start.
+        try Data((try line("three") + "\n").utf8).write(to: url)
+        #expect(try tail.read().map { $0.details["text"] } == ["three"])
+    }
+
     @Test func inspectToolRendersEveryViewAndBoundsOutput() async throws {
         let home = try scratchHome()
         defer { try? FileManager.default.removeItem(at: home.root) }

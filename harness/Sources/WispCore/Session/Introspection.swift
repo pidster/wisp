@@ -117,6 +117,49 @@ public struct Introspection: Sendable {
         return query.filter(events)
     }
 
+    /// One session as the audit log shows it: `/audit sessions`.
+    public struct SessionSummary: Equatable, Sendable {
+        /// The session id, as `/audit <session>` and `wisp logs --session` take it.
+        public var id: String
+        /// How it began (`chat`, `mcp`, `scan`, …) from its `session.start`, or nil for a session without
+        /// one, such as an MCP thread or a condensing call.
+        public var entryPoint: String?
+        /// When its first event was written.
+        public var first: Date
+        /// When its latest event was written.
+        public var latest: Date
+        /// Events it has written.
+        public var events: Int
+
+        /// One line: when it was last active, the id, how it began, and how much it wrote.
+        public var line: String {
+            let when = latest.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false))
+            return "\(when)  \(id)  \(entryPoint ?? "-")  \(events) event\(events == 1 ? "" : "s")"
+        }
+    }
+
+    /// The sessions in the audit log, the most recently active last, at most `last` of them.
+    ///
+    /// - Parameter last: How many to keep.
+    /// - Returns: The sessions.
+    /// - Throws: A file error reading the log.
+    public func sessions(last: Int = 20) throws -> [SessionSummary] {
+        var byID: [String: SessionSummary] = [:]
+        for event in try audit(AuditQuery()) {
+            var summary =
+                byID[event.session]
+                ?? SessionSummary(id: event.session, entryPoint: nil, first: event.time, latest: event.time, events: 0)
+            summary.events += 1
+            summary.latest = max(summary.latest, event.time)
+            summary.first = min(summary.first, event.time)
+            if event.kind == .sessionStart, let entry = event.details["entryPoint"]?.stringValue {
+                summary.entryPoint = entry
+            }
+            byID[event.session] = summary
+        }
+        return Array(byID.values.sorted { ($0.latest, $0.id) < ($1.latest, $1.id) }.suffix(last))
+    }
+
     /// Pretty JSON for a value.
     public static func render(_ value: JSONValue) -> String {
         let encoder = JSONEncoder()

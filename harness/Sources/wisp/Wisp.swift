@@ -418,8 +418,11 @@ struct Chat: AsyncParsableCommand {
             Task {
                 let known = await options.all()
                 let ids = await session.store.all.map(\.id)
+                // The log is read only when an /audit argument is being completed.
+                let sessions =
+                    text.hasPrefix("/audit ") ? (try? session.introspection.sessions().map(\.id)) ?? [] : []
                 let result = ChatCompletion.complete(
-                    text, cursor: cursor, options: { known[$0.path] ?? [] }, approvalIDs: ids)
+                    text, cursor: cursor, options: { known[$0.path] ?? [] }, approvalIDs: ids, sessionIDs: sessions)
                 send(ChatProtocol.encode("completions", ChatProtocol.completions(id: id, result)))
             }
         }
@@ -540,6 +543,13 @@ struct Logs: ParsableCommand {
     @Flag(name: .long, help: "Print raw JSON Lines instead of one-line summaries.")
     var json = false
 
+    @Flag(
+        name: [.short, .long],
+        help: ArgumentHelp(
+            "Keep printing matching events as they are written, MCP calls included, until Ctrl-C. Starts with the "
+                + "last 10 unless --last says otherwise."))
+    var follow = false
+
     func run() throws {
         var kinds: [AuditEvent.Kind] = []
         for raw in kind {
@@ -550,13 +560,24 @@ struct Logs: ParsableCommand {
             kinds.append(parsed)
         }
         let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
-        let query = AuditQuery(session: session, kinds: kinds, tool: tool, last: last)
-        for event in try Introspection(home: Wisp.home, config: config).audit(query) {
-            if json {
-                print(String(decoding: try AuditEvent.encoder.encode(event), as: UTF8.self))
-            } else {
-                print(event.summary)
-            }
+        let query = AuditQuery(session: session, kinds: kinds, tool: tool, last: last ?? (follow ? 10 : nil))
+        var tail = AuditTail.atEnd(of: Wisp.home.auditFile)
+        for event in try Introspection(home: Wisp.home, config: config).audit(query) { try show(event) }
+        guard follow else { return }
+        let matching = AuditQuery(session: session, kinds: kinds, tool: tool)
+        while true {
+            for event in matching.filter(try tail.read()) { try show(event) }
+            fflush(stdout)
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
+    /// Prints one event, as JSON or its summary.
+    private func show(_ event: AuditEvent) throws {
+        if json {
+            print(String(decoding: try AuditEvent.encoder.encode(event), as: UTF8.self))
+        } else {
+            print(event.summary)
         }
     }
 }

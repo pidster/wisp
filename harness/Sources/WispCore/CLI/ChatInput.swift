@@ -62,7 +62,7 @@ public enum ChatInput: Equatable, Sendable {
         case "tokens": self = .tokens
         case "inspect": self = .inspect(argument ?? "status")
         case "status": self = .inspect("status")
-        case "audit": self = .inspect("audit")
+        case "audit": self = .inspect(argument.map { "audit \($0)" } ?? "audit")
         case "approvals": self = .approvals(ApprovalsRequest(argument))
         case "last": self = .last
         case "models": self = .models
@@ -81,7 +81,8 @@ public enum ChatInput: Equatable, Sendable {
         /tokens          show how much of the context window the conversation uses
         /status          show wisp's own state: model, tools, policy, session
         /approvals       list standing approvals; /approvals revoke [ID] removes one
-        /audit           show the latest audit events of this session
+        /audit           show the latest audit events of every session, MCP calls included
+        /audit sessions  list the sessions in the audit log; /audit ID shows one session's events
         /last            show the last tool result in full
         /models          list the models this Mac can run for this conversation
         /model [name]    switch the conversation to a model, keeping the transcript; no name shows the current one

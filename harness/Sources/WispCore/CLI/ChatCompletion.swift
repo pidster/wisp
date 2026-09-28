@@ -28,10 +28,11 @@ public enum ChatCompletion {
     ///   - cursor: Where the cursor is, in characters; nil is the end.
     ///   - options: The values a setting offers beyond its kind's own, such as the models for `model`.
     ///   - approvalIDs: The standing approvals' ids, for `/approvals revoke`.
+    ///   - sessionIDs: The audit log's recent session ids, for `/audit`.
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
-        approvalIDs: [String] = []
+        approvalIDs: [String] = [], sessionIDs: [String] = []
     ) -> Result {
         let head = String(text.prefix(cursor ?? text.count))
         let from = head.lastIndex(of: " ").map { head.distance(from: head.startIndex, to: $0) + 1 } ?? 0
@@ -49,6 +50,7 @@ public enum ChatCompletion {
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
         case ["/model"]: pool = ConfigSettings.setting("model").map(options) ?? []
         case ["/inspect"]: pool = views
+        case ["/audit"]: pool = ["sessions"] + sessionIDs
         default: pool = []
         }
         return Result(from: from, candidates: Array(Set(pool.filter { $0.hasPrefix(word) })).sorted())

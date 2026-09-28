@@ -45,9 +45,23 @@ public struct InspectTool: WispTool {
         self.introspection = introspection
     }
 
-    /// `call` for a bare `what`, for the chat's `/inspect`.
+    /// `call` for the chat's `/inspect` and `/audit`: a bare view, or `audit` followed by `sessions` (the
+    /// sessions in the log) or a session id (that session's latest events).
     public func show(_ what: String) async -> String {
-        await call(arguments: .init(what: what, last: nil, kind: nil, session: nil))
+        let words = what.split(separator: " ", maxSplits: 1).map(String.init)
+        guard words.count == 2, words[0].lowercased() == "audit" else {
+            return await call(arguments: .init(what: what, last: nil, kind: nil, session: nil))
+        }
+        guard words[1] == "sessions" else {
+            return await call(arguments: .init(what: "audit", last: nil, kind: nil, session: words[1]))
+        }
+        do {
+            let sessions = try introspection.sessions()
+            guard !sessions.isEmpty else { return "no sessions in the audit log" }
+            return ToolOutput.bounded(sessions.map(\.line).joined(separator: "\n"), maxBytes: Self.maxBytes)
+        } catch {
+            return ToolOutput.error(error)
+        }
     }
 
     /// Renders the requested view, bounded.
