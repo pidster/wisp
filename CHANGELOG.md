@@ -18,6 +18,10 @@ Changed:
 
 Added:
 
+- `/save` writes a second file beside a saved transcript, `transcripts/<name>.store`, holding the links from
+  each conversation entry (dropped ones too) to the audit events that recorded it. `--resume` reads it, so a
+  resumed conversation stays connected to the log, and `session.start` gains `carriedFrom`, the sessions it
+  came from. Older saves, and a missing or unreadable file, resume as before.
 - `/inspect context` in chat saves the exact context the model will see next: instructions, prompts, tool
   calls, tool output, and replies, as Markdown and JSON in `~/.wisp/context/`. Every condensation also
   saves the context before and after it, so you can read exactly which turns were dropped.

@@ -306,7 +306,7 @@ public struct ChatLoop {
                     continue
                 }
                 do {
-                    try store.save(agent.transcript, as: name)
+                    try store.save(agent.store, as: name)
                     saveName = name
                     io.note("saved '\(name)'")
                 } catch {
@@ -345,7 +345,7 @@ public struct ChatLoop {
             }
         }
         if let saveName {
-            try store.save(agent.transcript, as: saveName)
+            try store.save(agent.store, as: saveName)
             io.note("saved '\(saveName)'")
         }
     }

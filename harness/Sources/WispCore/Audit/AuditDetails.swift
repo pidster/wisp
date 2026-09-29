@@ -9,7 +9,7 @@ extension AuditEvent {
         /// per event: it is fixed per `version`, which every event carries.
         public static func sessionStart(
             entryPoint: EntryPoint, prompting: Prompting, tools: [String], model: ModelSelection, unsafe: Bool,
-            autoApprove: Bool, resume: String?, parent: String? = nil
+            autoApprove: Bool, resume: String?, parent: String? = nil, carriedFrom: [String] = []
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "entryPoint": .string(entryPoint.rawValue),
@@ -20,6 +20,7 @@ extension AuditEvent {
                 "resume": resume.map { .string($0) } ?? .null,
             ]
             if let parent { details["parent"] = .string(parent) }
+            if !carriedFrom.isEmpty { details["carriedFrom"] = .array(carriedFrom.map { .string($0) }) }
             return details
         }
 
@@ -298,7 +299,7 @@ extension AuditEvent {
         case .sessionStart:
             [
                 "entryPoint", "systemPromptExtension", "instructions", "tools", "model", "unsafe", "autoApprove",
-                "resume", "parent", "reason",
+                "resume", "parent", "reason", "carriedFrom",
             ]
         case .sessionEnd: ["reason"]
         case .modelResolved:

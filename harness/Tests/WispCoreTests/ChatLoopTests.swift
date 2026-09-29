@@ -116,6 +116,9 @@ import WispTestSupport
         #expect(loop.saveName == "first")
         #expect(try store.list() == ["first"])
         #expect(try store.load("first").turnCount == 1)  // after /new only "again" remains
+        // `/save` also writes the store's links, whose sources name this chat's session.
+        let links = try #require(try store.loadConversation("first").links)
+        #expect(links.sessions == ["chat"])
         #expect(sink.events.contains { $0.kind == .sessionStart && $0.details["reason"] == "new" })
         #expect(sink.events.filter { $0.kind == .prompt }.count == 2)
     }

@@ -140,7 +140,7 @@ What a session shows, and where it goes:
 | `-i, --instructions <text>` | As for `respond`. |
 | `--tool <name>` (repeatable) | As for `respond`. |
 | `--no-tools` | Give the model no tools: a text-only conversation any model can run. |
-| `-r, --resume <name>` | Continue a transcript saved under `~/.wisp/transcripts/<name>.json`. |
+| `-r, --resume <name>` | Continue a transcript saved under `~/.wisp/transcripts/<name>.json`, with the entries' links to the audit log when `<name>.store` is beside it. |
 | `--save <name>` | Save the transcript under this name on exit. Defaults to the resumed name. |
 | `--list` | Print the names of saved transcripts and exit. |
 | `--unsafe` | Disable the `run_command` policy and sandbox. |
@@ -525,6 +525,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | --- | --- |
 | `config.json` | Optional settings, below. |
 | `transcripts/<name>.json` | Saved conversations. |
+| `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Optional: a resume without it, or with one that does not match, works as before. |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |

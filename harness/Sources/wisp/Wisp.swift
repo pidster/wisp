@@ -54,11 +54,13 @@ struct SessionOptions: ParsableArguments {
     /// The session request these flags describe.
     ///
     /// - Throws: `ValidationError` for an unknown model name.
-    func request(entryPoint: EntryPoint, autoApprove: Bool = false, resume: String? = nil) throws -> Session.Request {
+    func request(
+        entryPoint: EntryPoint, autoApprove: Bool = false, resume: String? = nil, carriedFrom: [String] = []
+    ) throws -> Session.Request {
         .init(
             entryPoint: entryPoint, instructions: instructions, model: try model.map(Wisp.parseModel),
             tools: noTools ? .none : ToolSelection(toolNames), unsafe: unsafe, autoApprove: autoApprove,
-            resume: resume)
+            resume: resume, carriedFrom: carriedFrom)
     }
 }
 
@@ -344,20 +346,24 @@ struct Chat: AsyncParsableCommand {
             Self.handOff(to: frontEnd, executable: executable)
             Self.note("could not start \(frontEnd.path); continuing with the plain chat")
         }
-        let session = try Wisp.begin(try options.request(entryPoint: .chat, autoApprove: yes, resume: resume))
+        // Read before the session starts, so `session.start` can name the sessions the transcript links to.
+        let saved = try resume.map { name in try Wisp.usage { try store.loadConversation(name) } }
+        let session = try Wisp.begin(
+            try options.request(
+                entryPoint: .chat, autoApprove: yes, resume: resume, carriedFrom: saved?.links?.sessions ?? []))
         defer { session.end() }
         try Wisp.home.ensure()
         if json {
-            try await runJSON(session: session, store: store)
+            try await runJSON(session: session, store: store, saved: saved)
             return
         }
         let style = Style.detect(isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
         let tap = ChatEvents.Tap()
         var agent: Agent
-        if let resume {
-            let transcript = try Wisp.usage { try store.load(resume) }
+        if let resume, let saved {
             agent = try session.openAgent(
-                approver: TerminalApprover(style: style), transcript: transcript, observer: tap)
+                approver: TerminalApprover(style: style), transcript: saved.transcript, links: saved.links,
+                observer: tap)
             Self.note("resumed '\(resume)' (\(agent.transcript.turnCount) turns)")
         } else {
             agent = try session.openAgent(approver: TerminalApprover(style: style), observer: tap)
@@ -464,7 +470,7 @@ struct Chat: AsyncParsableCommand {
     }
 
     /// The headless face: JSON Lines in and out, for `wisp-tui` and other front ends (`docs/wisp.md`).
-    private func runJSON(session: Session, store: TranscriptStore) async throws {
+    private func runJSON(session: Session, store: TranscriptStore, saved: TranscriptStore.Saved?) async throws {
         let router = LineRouter()
         let out = Mutex(FileHandle.standardOutput)
         let send: @Sendable (String) -> Void = { line in
@@ -493,9 +499,9 @@ struct Chat: AsyncParsableCommand {
         let tap = ChatEvents.Tap()
         let approver = JSONApprover(router: router, timeout: session.config.approvalTimeout, send: send)
         var agent: Agent
-        if let resume {
-            let transcript = try Wisp.usage { try store.load(resume) }
-            agent = try session.openAgent(approver: approver, transcript: transcript, observer: tap)
+        if let saved {
+            agent = try session.openAgent(
+                approver: approver, transcript: saved.transcript, links: saved.links, observer: tap)
         } else {
             agent = try session.openAgent(approver: approver, observer: tap)
         }

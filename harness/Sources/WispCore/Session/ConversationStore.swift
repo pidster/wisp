@@ -8,14 +8,15 @@ import FoundationModels
 /// recorded its content (`sources`) and adds what composing a request needs on top: its kind, where it came
 /// from, and whether it is still in the active view or was dropped, and by which condensation. The entry's
 /// framework value is kept as well, as an in-memory cache of the conversation's own entries, so composing a
-/// request never reads the audit files. Nothing here is written to disk: `TranscriptStore` saves the active
-/// view as before, and a resumed conversation rebuilds its store from that transcript.
+/// request never reads the audit files. `TranscriptStore` saves the active view as the transcript and the
+/// whole store, dropped entries included, as a `Snapshot` beside it; a resumed conversation rebuilds its
+/// store from the two, or from the transcript alone when there is no usable snapshot.
 ///
 /// Phase 2 of the proposal populates entries and their state only. Facts and summaries (phase 4) will cite
 /// entries by `Entry.ID`, and `recall` will read their content back from the audit log through `sources`.
 public struct ConversationStore: Sendable {
     /// What an entry is, as the framework's transcript names it.
-    public enum Kind: String, Sendable, Equatable {
+    public enum Kind: String, Codable, Sendable, Equatable {
         /// The instructions the session was created with, tool definitions included.
         case instructions
         /// A prompt, which starts a turn.
@@ -46,12 +47,17 @@ public struct ConversationStore: Sendable {
     }
 
     /// Where an entry came from.
-    public enum Origin: String, Sendable, Equatable {
+    public enum Origin: String, Codable, Sendable, Equatable {
         /// A turn of this conversation produced it, and `sources` names the audit events that recorded it.
         case turn
         /// It came with the conversation's start: the instructions a session was created with, or a saved
-        /// transcript being resumed. Its content was recorded elsewhere or not at all, so it has no sources.
+        /// transcript without store data being resumed. Its content was recorded elsewhere or not at all, so
+        /// it has no sources.
         case carried
+        /// A turn of an earlier conversation produced it, and a saved store brought it back
+        /// (`Snapshot`). `turn` and `sources` refer to the session that recorded it, which
+        /// `session.start`'s `carriedFrom` names on resume.
+        case resumed
     }
 
     /// Whether an entry is composed into requests.
@@ -92,11 +98,35 @@ public struct ConversationStore: Sendable {
     /// An empty store.
     public init() {}
 
+    /// A store of exactly `entries`, whose framework ids it takes as known.
+    init(entries: [Entry]) {
+        self.entries = entries
+        known = Set(entries.map(\.value.id))
+    }
+
     /// A store whose entries all come with the conversation's start, active.
     ///
     /// - Parameter transcript: The instructions a session was created with, or a saved conversation.
     public init(carrying transcript: Transcript) {
         for entry in transcript { record(entry, origin: .carried, turn: nil, sources: []) }
+    }
+
+    /// A store that continues a saved conversation: rebuilt from `snapshot` when it matches `transcript`
+    /// (see `Snapshot.restored(over:)`), else carrying `transcript` alone with no links, which is what a
+    /// save without store data does. A snapshot that does not match is logged, not raised.
+    ///
+    /// - Parameters:
+    ///   - transcript: The conversation's active view, as the session holds it.
+    ///   - snapshot: The links saved beside it, if any.
+    public init(carrying transcript: Transcript, restoring snapshot: Snapshot?) {
+        if let snapshot {
+            if let restored = snapshot.restored(over: transcript) {
+                self = restored
+                return
+            }
+            Diagnostics.agent.info("the saved store does not match the transcript; resuming without links")
+        }
+        self.init(carrying: transcript)
     }
 
     /// The active entries, in order: the transcript a literal composition sends.

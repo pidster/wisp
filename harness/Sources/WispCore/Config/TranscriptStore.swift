@@ -19,6 +19,15 @@ public struct TranscriptStore: Sendable {
         }
     }
 
+    /// A saved conversation: the transcript, and the store links saved beside it when there are usable ones.
+    public struct Saved: Sendable {
+        /// The transcript, as `load` returns it.
+        public let transcript: Transcript
+        /// The links to the audit log; nil for a save without them, or with ones that did not decode or
+        /// did not match the transcript (logged as a diagnostic).
+        public let links: ConversationStore.Snapshot?
+    }
+
     /// The directory holding `<name>.json` files.
     public let directory: URL
 
@@ -35,15 +44,64 @@ public struct TranscriptStore: Sendable {
         return directory.appending(path: "\(name).json")
     }
 
-    /// Writes `transcript` under `name`, replacing any existing file.
+    /// The file beside `<name>.json` that holds the store links: `<name>.store`. It has no `.json`
+    /// extension so `list` never shows it and a transcript named `x.store` (`x.store.json`) cannot collide
+    /// with the links of `x`.
+    ///
+    /// - Throws: `Failure.invalidName`.
+    public func linksURL(for name: String) throws -> URL {
+        try Self.validate(name)
+        return directory.appending(path: "\(name).store")
+    }
+
+    /// Writes `transcript` under `name`, replacing any existing file, and removes links a previous save of
+    /// that name left, which no longer describe it.
     ///
     /// - Throws: `Failure.invalidName` or file-system errors.
     public func save(_ transcript: Transcript, as name: String) throws {
+        let file = try url(for: name)
+        try write(transcript, to: file)
+        try? FileManager.default.removeItem(at: linksURL(for: name))
+    }
+
+    /// Writes the store's active view under `name` as `save(_:as:)` does, and the whole store's links
+    /// (dropped entries included) beside it, both readable by the user only.
+    ///
+    /// - Throws: `Failure.invalidName` or file-system errors.
+    public func save(_ store: ConversationStore, as name: String) throws {
+        let file = try url(for: name)
+        let links = try linksURL(for: name)
+        try write(store.active, to: file)
+        try write(store.snapshot, to: links)
+    }
+
+    /// Encodes `value` to `file` atomically, mode 0600.
+    private func write(_ value: some Encodable, to file: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let file = try url(for: name)
-        try encoder.encode(transcript).write(to: file, options: .atomic)
+        try encoder.encode(value).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    /// Reads the transcript saved under `name` and its store links. Links that are missing, do not decode,
+    /// or do not match the transcript are ignored (the latter two are logged), so a resume never fails
+    /// because of them.
+    ///
+    /// - Throws: As `load`.
+    public func loadConversation(_ name: String) throws -> Saved {
+        let transcript = try load(name)
+        let file = try linksURL(for: name)
+        guard let data = try? Data(contentsOf: file) else { return Saved(transcript: transcript, links: nil) }
+        guard let snapshot = try? JSONDecoder().decode(ConversationStore.Snapshot.self, from: data) else {
+            Diagnostics.chat.info("the store saved with '\(name)' cannot be read; resuming without links")
+            return Saved(transcript: transcript, links: nil)
+        }
+        guard snapshot.restored(over: transcript) != nil else {
+            Diagnostics.chat.info(
+                "the store saved with '\(name)' does not match its transcript; resuming without links")
+            return Saved(transcript: transcript, links: nil)
+        }
+        return Saved(transcript: transcript, links: snapshot)
     }
 
     /// Reads the transcript saved under `name`.

@@ -25,12 +25,15 @@ public struct Session: Sendable {
         public var autoApprove: Bool
         /// Transcript being resumed, for the audit record.
         public var resume: String?
+        /// The sessions the resumed transcript's store refers to (`ConversationStore.Snapshot.sessions`),
+        /// recorded on `session.start` as `carriedFrom`; empty when nothing was linked.
+        public var carriedFrom: [String]
 
         /// Creates a request.
         public init(
             entryPoint: EntryPoint, instructions: String? = nil, model: ModelSelection? = nil,
             tools: ToolSelection = .all,
-            unsafe: Bool = false, autoApprove: Bool = false, resume: String? = nil
+            unsafe: Bool = false, autoApprove: Bool = false, resume: String? = nil, carriedFrom: [String] = []
         ) {
             self.entryPoint = entryPoint
             self.instructions = instructions
@@ -39,6 +42,7 @@ public struct Session: Sendable {
             self.unsafe = unsafe
             self.autoApprove = autoApprove
             self.resume = resume
+            self.carriedFrom = carriedFrom
         }
     }
 
@@ -241,7 +245,7 @@ public struct Session: Sendable {
                 prompting: Prompting(
                     systemPromptExtension: config.systemPromptExtension, instructions: request.instructions),
                 tools: toolNames, model: config.model, unsafe: request.unsafe, autoApprove: request.autoApprove,
-                resume: request.resume))
+                resume: request.resume, carriedFrom: request.carriedFrom))
         return Session(
             request: request, home: home, config: config, audit: audit,
             store: ApprovalStore(url: home.approvalsFile, lifetime: config.approvalLifetime),
@@ -291,6 +295,7 @@ public struct Session: Sendable {
     /// - Parameters:
     ///   - approver: How the face asks a human; replaced by `AutoApprover` when the request said `--yes`.
     ///   - transcript: A saved conversation to resume, or nil to start fresh.
+    ///   - links: The store links saved with `transcript` (`TranscriptStore.Saved.links`), if any.
     ///   - store: The store of an agent being replaced, which the new agent continues; chat's `/model`
     ///     passes it. Takes precedence over `transcript`.
     ///   - observer: A sink that also sees every event of this conversation as it is recorded; chat
@@ -299,13 +304,13 @@ public struct Session: Sendable {
     /// - Returns: The agent over the session's tools, recording to the session's audit log.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
     public func openAgent(
-        approver: any Approver, transcript: Transcript? = nil, store: ConversationStore? = nil,
-        observer: (any AuditSink)? = nil, model: ModelSelection? = nil
+        approver: any Approver, transcript: Transcript? = nil, links: ConversationStore.Snapshot? = nil,
+        store: ConversationStore? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil
     ) throws -> Agent {
         let conversation = try Conversation.setUp(
             session: self, audit: audit, approver: approver, prompting: prompting, toolNames: toolNames,
             model: model ?? config.model, observer: observer)
-        return try conversation.openAgent(transcript: transcript, store: store)
+        return try conversation.openAgent(transcript: transcript, links: links, store: store)
     }
 
     /// Sets up a further conversation with its own audit session, gate, and tools, sharing the
@@ -403,16 +408,19 @@ public struct Conversation: Sendable {
     ///
     /// - Parameters:
     ///   - transcript: A saved conversation to resume, or nil to start from the instructions.
+    ///   - links: The store links saved with `transcript`, if any.
     ///   - store: The store of an agent being replaced, which the new agent continues; takes precedence over
     ///     `transcript`.
     ///   - override: A model other than the conversation's, as routing by input size chooses one.
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used or lacks a needed capability.
     public func openAgent(
-        transcript: Transcript? = nil, store: ConversationStore? = nil, model override: ModelSelection? = nil
+        transcript: Transcript? = nil, links: ConversationStore.Snapshot? = nil, store: ConversationStore? = nil,
+        model override: ModelSelection? = nil
     ) throws -> Agent {
         try openAgent(
-            on: try (override ?? model).resolve(config: config, home: home), transcript: transcript, store: store)
+            on: try (override ?? model).resolve(config: config, home: home), transcript: transcript, links: links,
+            store: store)
     }
 
     /// Creates the agent that runs this conversation on an already resolved model: refuses a request its
@@ -422,11 +430,13 @@ public struct Conversation: Sendable {
     /// - Parameters:
     ///   - resolved: The model.
     ///   - transcript: A saved conversation to resume, or nil to start from the instructions.
+    ///   - links: The store links saved with `transcript`, if any.
     ///   - store: The store of an agent being replaced; takes precedence over `transcript`.
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
     /// - Throws: `ModelSelection.Failure` if the model lacks a needed capability.
     func openAgent(
-        on resolved: ResolvedModel, transcript: Transcript? = nil, store: ConversationStore? = nil
+        on resolved: ResolvedModel, transcript: Transcript? = nil, links: ConversationStore.Snapshot? = nil,
+        store: ConversationStore? = nil
     ) throws -> Agent {
         try resolved.check(tools: tools)
         audit.record(
@@ -439,7 +449,7 @@ public struct Conversation: Sendable {
             if let store {
                 Agent(store: store, tools: tools, model: resolved, audit: audit)
             } else if let transcript {
-                Agent(transcript: transcript, tools: tools, model: resolved, audit: audit)
+                Agent(transcript: transcript, tools: tools, model: resolved, audit: audit, links: links)
             } else {
                 Agent(
                     instructions: prompting.rendered(toolsAvailable: !tools.isEmpty), tools: tools, model: resolved,

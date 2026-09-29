@@ -34,10 +34,26 @@ build on, reproducing the behaviour below exactly.
   the one verbatim record (the proposal's D8); the store adds each entry's kind, where it came from (a
   turn of this conversation, or carried in with the instructions or a resumed transcript), and whether it
   is active or was dropped, and by which `context.condensation` event.
-- **Only in memory.** The store also keeps the framework's value of each entry, as a cache of the
-  conversation's own entries, so composing a request never reads the audit files. Nothing new is written
-  to disk: `/save` and `--resume` save and load the active transcript as before, and a resumed
-  conversation rebuilds its store from it, with those entries carried and without sources.
+- **In memory, and saved with the transcript.** The store also keeps the framework's value of each entry,
+  as a cache of the conversation's own entries, so composing a request never reads the audit files.
+  `/save` (and the save on exit) writes the active transcript to `transcripts/<name>.json` as before and
+  the store's link data beside it, in `transcripts/<name>.store`, both readable by the user only. The
+  link data holds, for every entry, active or dropped: its position, framework entry id, kind, origin,
+  turn, whether it is active and, if not, the `context.condensation` event that dropped it, and its
+  `sources`. A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
+  sidecar, with no `.json` extension, so `TranscriptStore.load` still returns a plain `Transcript`, older
+  builds and other readers ignore it, `--list` does not show it, and a transcript named `x.store`
+  (`x.store.json`) cannot collide with the links of `x`. Saving a transcript alone (no store) removes a
+  stale sidecar of that name.
+- **Resuming.** `--resume` reads both files. When the link data decodes, is version 1, and matches the
+  transcript (its active entries are the transcript's entries, in order, by id and kind), the store is
+  rebuilt with every entry's sources, state, and dropped entries; an entry a turn produced comes back with
+  origin `resumed` (its `turn` and `sources` belong to the session that saved it), and one that was
+  carried stays `carried`. The active view, and so the first request, is exactly the saved transcript, as
+  without link data. A save without a sidecar, or one that does not decode or match, resumes as before:
+  every entry carried, no sources, and a diagnostic (`WISP_LOG=info`, category `chat` or `agent`), never
+  an error. `session.start` on a linked resume lists `carriedFrom`, the sessions whose audit events the
+  entries refer to, so the chain can be followed from the log alone.
 - **The composer**, for now, sends the store's active entries literally, in order, and decides the
   condensing below; the agent applies it. Dropped entries stay in the store, marked, and are no longer
   composed.

@@ -108,9 +108,13 @@ public final class Agent {
     ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
+    ///   - links: The store links saved with the transcript (`TranscriptStore.Saved.links`); the store keeps
+    ///     every entry's audit references and its dropped entries when they match, and carries the
+    ///     transcript alone otherwise.
     public init(
         transcript: Transcript, tools: [any Tool], model: ResolvedModel, contextPolicy: ContextPolicy = .default,
-        audit: AuditLog? = nil, turns: TurnClock? = nil
+        audit: AuditLog? = nil, turns: TurnClock? = nil,
+        links: ConversationStore.Snapshot? = nil
     ) {
         self.model = model
         self.tools = tools
@@ -119,7 +123,7 @@ public final class Agent {
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = model.contextSize
         session = model.session(tools: tools, transcript: transcript)
-        store = ConversationStore(carrying: session.transcript)
+        store = ConversationStore(carrying: session.transcript, restoring: links)
     }
 
     /// Creates an agent that continues a conversation's store on an already resolved model, as chat's
@@ -156,10 +160,12 @@ public final class Agent {
     ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
+    ///   - links: The store links saved with the transcript, as for the resolved-model initialiser.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
     public init(
         transcript: Transcript, tools: [any Tool], model: ModelSelection = .default,
-        contextPolicy: ContextPolicy = .default, audit: AuditLog? = nil, turns: TurnClock? = nil
+        contextPolicy: ContextPolicy = .default, audit: AuditLog? = nil, turns: TurnClock? = nil,
+        links: ConversationStore.Snapshot? = nil
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
@@ -168,7 +174,7 @@ public final class Agent {
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = self.model.contextSize
         session = self.model.session(tools: tools, transcript: transcript)
-        store = ConversationStore(carrying: session.transcript)
+        store = ConversationStore(carrying: session.transcript, restoring: links)
     }
 
     /// The transcript the next request carries: the store's active view, composed. Suitable for saving and
