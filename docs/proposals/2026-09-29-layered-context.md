@@ -744,7 +744,23 @@ here as they arise.
 1. The eval, run against today's dropping, as the baseline. Done 2026-09-29: `ContextEvalTests`, figures
    under "Evaluation" (on-device 0 of 6, granite at 8,192 1 of 6, granite with nothing dropped 6 of 6).
 2. The store and the composer, reproducing today's behaviour exactly (literal turns only), so the change
-   of structure is proven before behaviour changes.
+   of structure is proven before behaviour changes. Done 2026-09-29:
+   - `ConversationStore`: every entry once, in order, by a stable id, with its kind, origin, state
+     (active, or dropped by a named `context.condensation`), and references into the audit log.
+   - Audit events gained an `id` for the store to point to (D8), so the store holds no second copy on
+     disk. It keeps the framework's entries in memory as a cache of the conversation's own entries, so
+     composing never reads the audit files; it is not persisted yet, and a resume rebuilds it from the
+     saved transcript. Persisting it, and reading content back through the references, come with
+     `recall` in phase 4.
+   - `ContextComposer`: literal turns only, today's condensing (the 85% budget, the policy's four turns,
+     the overflow retry, the archive saves) as pure decisions that `Agent` applies. `Agent` asks it for
+     every request, continuing the session only when the composition is what the session holds.
+   - `/model` carries the store to the new model's agent (D10's path, still composing literally).
+   - `ContextEquivalenceTests` compares every request, audit event, reply, saved context, and chat's
+     output against snapshots recorded from the code before the change. `DroppingStrategy` is now the
+     composer's path; later designs add strategies whose agents compose differently.
+   - Facts, summaries, and D2's identities and versions are not modelled yet; they will cite store
+     entries by id.
 3. Output handling: routing and cutting presentational text.
 4. Facts and the summary, `/inspect facts`, and `recall`.
 5. The ADR, with the eval's figures.

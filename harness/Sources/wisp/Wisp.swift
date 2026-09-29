@@ -379,10 +379,9 @@ struct Chat: AsyncParsableCommand {
                 models: { current, tools in
                     await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
                 },
-                openModel: { selection, transcript in
+                openModel: { selection, store in
                     try session.openAgent(
-                        approver: TerminalApprover(style: style), transcript: transcript, observer: tap,
-                        model: selection)
+                        approver: TerminalApprover(style: style), store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity),
@@ -514,8 +513,8 @@ struct Chat: AsyncParsableCommand {
                 models: { current, tools in
                     await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
                 },
-                openModel: { selection, transcript in
-                    try session.openAgent(approver: approver, transcript: transcript, observer: tap, model: selection)
+                openModel: { selection, store in
+                    try session.openAgent(approver: approver, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity),

@@ -291,19 +291,21 @@ public struct Session: Sendable {
     /// - Parameters:
     ///   - approver: How the face asks a human; replaced by `AutoApprover` when the request said `--yes`.
     ///   - transcript: A saved conversation to resume, or nil to start fresh.
+    ///   - store: The store of an agent being replaced, which the new agent continues; chat's `/model`
+    ///     passes it. Takes precedence over `transcript`.
     ///   - observer: A sink that also sees every event of this conversation as it is recorded; chat
     ///     shows tool activity through it.
     ///   - model: A model other than the configured one; chat's `/model` switches this way.
     /// - Returns: The agent over the session's tools, recording to the session's audit log.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
     public func openAgent(
-        approver: any Approver, transcript: Transcript? = nil, observer: (any AuditSink)? = nil,
-        model: ModelSelection? = nil
+        approver: any Approver, transcript: Transcript? = nil, store: ConversationStore? = nil,
+        observer: (any AuditSink)? = nil, model: ModelSelection? = nil
     ) throws -> Agent {
         let conversation = try Conversation.setUp(
             session: self, audit: audit, approver: approver, prompting: prompting, toolNames: toolNames,
             model: model ?? config.model, observer: observer)
-        return try conversation.openAgent(transcript: transcript)
+        return try conversation.openAgent(transcript: transcript, store: store)
     }
 
     /// Sets up a further conversation with its own audit session, gate, and tools, sharing the
@@ -365,6 +367,8 @@ public struct Conversation: Sendable {
     let home: Home
     /// Where the agent records its turns: the session's store.
     let stats: CallStats
+    /// The conversation's tool events, which the agent links its store's tool entries to.
+    let toolEvents: ToolEventTrail
 
     /// Builds the gate and the tool registry for one conversation of `session`.
     ///
@@ -375,7 +379,8 @@ public struct Conversation: Sendable {
     ) throws -> Conversation {
         let receipts = ReceiptCollector()
         let relay = EventRelay()
-        var audit = audit.alsoRecording(to: receipts).alsoRecording(to: relay)
+        let toolEvents = ToolEventTrail()
+        var audit = audit.alsoRecording(to: receipts).alsoRecording(to: relay).alsoRecording(to: toolEvents)
         if let observer { audit = audit.alsoRecording(to: observer) }
         let gate = ApprovalGate(
             classifier: session.classifier, approver: session.request.autoApprove ? AutoApprover() : approver,
@@ -390,7 +395,7 @@ public struct Conversation: Sendable {
         return Conversation(
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
-            model: model, config: session.config, home: session.home, stats: session.stats)
+            model: model, config: session.config, home: session.home, stats: session.stats, toolEvents: toolEvents)
     }
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
@@ -398,11 +403,31 @@ public struct Conversation: Sendable {
     ///
     /// - Parameters:
     ///   - transcript: A saved conversation to resume, or nil to start from the instructions.
+    ///   - store: The store of an agent being replaced, which the new agent continues; takes precedence over
+    ///     `transcript`.
     ///   - override: A model other than the conversation's, as routing by input size chooses one.
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used or lacks a needed capability.
-    public func openAgent(transcript: Transcript? = nil, model override: ModelSelection? = nil) throws -> Agent {
-        let resolved = try (override ?? model).resolve(config: config, home: home)
+    public func openAgent(
+        transcript: Transcript? = nil, store: ConversationStore? = nil, model override: ModelSelection? = nil
+    ) throws -> Agent {
+        try openAgent(
+            on: try (override ?? model).resolve(config: config, home: home), transcript: transcript, store: store)
+    }
+
+    /// Creates the agent that runs this conversation on an already resolved model: refuses a request its
+    /// declared capabilities cannot serve, records `model.resolved`, and sets the agent's stats and archive.
+    /// Tests pass a scripted model here to drive the same path the faces take.
+    ///
+    /// - Parameters:
+    ///   - resolved: The model.
+    ///   - transcript: A saved conversation to resume, or nil to start from the instructions.
+    ///   - store: The store of an agent being replaced; takes precedence over `transcript`.
+    /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
+    /// - Throws: `ModelSelection.Failure` if the model lacks a needed capability.
+    func openAgent(
+        on resolved: ResolvedModel, transcript: Transcript? = nil, store: ConversationStore? = nil
+    ) throws -> Agent {
         try resolved.check(tools: tools)
         audit.record(
             .modelResolved,
@@ -411,7 +436,9 @@ public struct Conversation: Sendable {
                 capabilities: resolved.capabilityNames, capabilitySource: resolved.capabilitySource,
                 tools: tools.map(\.name), contextSize: resolved.contextSize, contextNote: resolved.contextNote))
         let agent =
-            if let transcript {
+            if let store {
+                Agent(store: store, tools: tools, model: resolved, audit: audit)
+            } else if let transcript {
                 Agent(transcript: transcript, tools: tools, model: resolved, audit: audit)
             } else {
                 Agent(
@@ -419,6 +446,7 @@ public struct Conversation: Sendable {
                     audit: audit)
             }
         agent.stats = stats
+        agent.toolEvents = toolEvents
         if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent
     }

@@ -3,32 +3,40 @@ import FoundationModels
 
 /// A tool-using agent over the on-device Apple Foundation Model.
 ///
-/// `Agent` owns a `LanguageModelSession`, which keeps the transcript and
-/// runs the tool-call loop: the model requests a tool, the framework invokes
-/// the matching `Tool`, and the result is fed back until the model replies.
-/// When the context window overflows, `contextPolicy` decides whether the
-/// session is rebuilt from a condensed transcript and the prompt retried.
+/// `Agent` keeps the conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
+/// each request carries. A `LanguageModelSession` over that transcript runs the tool-call loop: the model
+/// requests a tool, the framework invokes the matching `Tool`, and the result is fed back until the model
+/// replies; the turn's new entries then go into the store, linked to the audit events that recorded them.
+/// When the context window overflows, `contextPolicy` decides whether the active view is condensed and
+/// the prompt retried.
 public final class Agent {
     /// The model every session is created on; kept so sessions can be rebuilt.
     public let model: ResolvedModel
     /// Tools bound to every session, in registration order.
     /// The tools the model may call.
     public let tools: [any Tool]
-    /// The live session. Replaced, never mutated, when the conversation is condensed or reset.
+    /// Every entry of the conversation, active or dropped, with the audit events that recorded it.
+    public private(set) var store: ConversationStore
+    /// Builds each request's transcript from `store`.
+    private var composer: ContextComposer
+    /// The live session, over the last composed transcript. A request whose composition is what the session
+    /// already holds continues it, keeping the runtime's processed prefix and the session's token totals;
+    /// any other composition starts a new session. Replaced, never mutated.
     private var session: LanguageModelSession
 
     /// What happens when a prompt no longer fits the context window.
-    public let contextPolicy: ContextPolicy
+    public var contextPolicy: ContextPolicy { composer.policy }
     /// How many times the transcript has been condensed, to recover from overflow or ahead of it.
     public private(set) var condensations = 0
     /// The fraction of the context window a turn may start at before the transcript is condensed
     /// first. Runtimes such as Ollama truncate silently instead of failing, so the estimate is the
     /// only warning; the framework's models fail loudly and this merely saves the failed call.
-    public var contextBudget = 0.85
+    public var contextBudget: Double {
+        get { composer.budget }
+        set { composer.budget = newValue }
+    }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
-    /// Bytes of prompt per token assumed when estimating a new prompt's cost.
-    static let bytesPerToken = 4
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
     /// cannot bound; the cap turns a runaway into a prompt error instead of a full window (probed
     /// 2026-09-21: one chunk ran 8193 tokens and six minutes before this).
@@ -41,6 +49,9 @@ public final class Agent {
     public var archive: ContextArchive?
     /// Where each turn's time and outcome are recorded for `/stats`; nil records nothing.
     public var stats: CallStats?
+    /// The conversation's tool events, so the store can link tool calls and outputs to them; set by
+    /// `Conversation.openAgent`. Nil leaves tool entries without sources.
+    public var toolEvents: ToolEventTrail?
 
     /// Creates an agent on a model.
     ///
@@ -58,10 +69,11 @@ public final class Agent {
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
-        self.contextPolicy = contextPolicy
+        composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
         session = self.model.session(tools: tools, instructions: instructions)
+        store = ConversationStore(carrying: session.transcript)
     }
 
     /// Creates an agent on an already resolved model, such as a custom one; cannot fail.
@@ -79,11 +91,12 @@ public final class Agent {
     ) {
         self.model = model
         self.tools = tools
-        self.contextPolicy = contextPolicy
+        composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = model.contextSize
         session = model.session(tools: tools, instructions: instructions)
+        store = ConversationStore(carrying: session.transcript)
     }
 
     /// Creates an agent that continues a saved conversation on an already resolved model; cannot fail.
@@ -101,11 +114,37 @@ public final class Agent {
     ) {
         self.model = model
         self.tools = tools
-        self.contextPolicy = contextPolicy
+        composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = model.contextSize
         session = model.session(tools: tools, transcript: transcript)
+        store = ConversationStore(carrying: session.transcript)
+    }
+
+    /// Creates an agent that continues a conversation's store on an already resolved model, as chat's
+    /// `/model` does; cannot fail. The new model's first request carries what the store's active view
+    /// holds, and the store keeps every entry and its audit references.
+    ///
+    /// - Parameters:
+    ///   - store: The store of the agent being replaced (`Agent.store`).
+    ///   - tools: Tools the model may call; they must match the names the store's entries refer to.
+    ///   - model: The resolved model.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - audit: Where to record turns; nil records nothing.
+    ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
+    public init(
+        store: ConversationStore, tools: [any Tool], model: ResolvedModel, contextPolicy: ContextPolicy = .default,
+        audit: AuditLog? = nil, turns: TurnClock? = nil
+    ) {
+        self.model = model
+        self.tools = tools
+        composer = ContextComposer(policy: contextPolicy)
+        self.audit = audit
+        self.turns = turns ?? audit?.turns ?? TurnClock()
+        contextSize = model.contextSize
+        self.store = store
+        session = model.session(tools: tools, transcript: composer.compose(store))
     }
 
     /// Creates an agent that continues a saved conversation.
@@ -124,15 +163,17 @@ public final class Agent {
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
-        self.contextPolicy = contextPolicy
+        composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = self.model.contextSize
         session = self.model.session(tools: tools, transcript: transcript)
+        store = ConversationStore(carrying: session.transcript)
     }
 
-    /// The conversation so far, suitable for saving and resuming.
-    public var transcript: Transcript { session.transcript }
+    /// The transcript the next request carries: the store's active view, composed. Suitable for saving and
+    /// resuming, and what `/inspect context` saves.
+    public var transcript: Transcript { composer.compose(store) }
 
     /// Tokens the last request occupied, as the runtime reported them (`UsageReporting`); 0 for a
     /// model that does not report or before the first request. `LanguageModelSession.usage` cannot
@@ -151,7 +192,7 @@ public final class Agent {
     ///
     /// - Throws: Framework errors if counting fails.
     nonisolated(nonsending) public func contextTokens() async throws -> Int? {
-        if let counted = try await model.tokenCount(for: session.transcript) { return counted }
+        if let counted = try await model.tokenCount(for: transcript) { return counted }
         return lastInputTokens > 0 ? lastInputTokens : nil
     }
 
@@ -160,53 +201,90 @@ public final class Agent {
     /// transcript's size is the last request's reported usage, or, for a model that reports none (the
     /// on-device model), the model's own count of the transcript. Returns whether it did.
     nonisolated(nonsending) private func condenseAheadIfNeeded(for prompt: String) async -> Bool {
-        guard case .condense(let keepTurns) = contextPolicy, let contextSize else { return false }
-        let used = lastInputTokens > 0 ? lastInputTokens : ((try? await model.tokenCount(for: session.transcript)) ?? 0)
-        guard used > 0 else { return false }
-        let estimate = used + prompt.utf8.count / Self.bytesPerToken
-        guard Double(estimate) >= Double(contextSize) * contextBudget else { return false }
-        let before = session.transcript
-        let condensed = before.condensed(keepTurns: keepTurns)
-        guard condensed.turnCount < before.turnCount else { return false }
-        session = model.session(tools: tools, transcript: condensed)
-        condensations += 1
-        audit?.record(
-            .condensation,
-            details: AuditEvent.Details.condensation(
-                turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: contextSize,
-                tokenCount: estimate, reason: "budget", saved: saveCondensation(before, condensed)))
+        guard composer.condensesAhead, let contextSize else { return false }
+        let used = lastInputTokens > 0 ? lastInputTokens : ((try? await model.tokenCount(for: transcript)) ?? 0)
+        guard let condensation = composer.ahead(of: prompt, in: store, used: used, window: contextSize) else {
+            return false
+        }
+        let estimate = condensation.estimate ?? 0
+        apply(condensation, contextSize: contextSize, tokenCount: estimate, reason: "budget")
         Diagnostics.agent.info("condensed ahead of the window: \(estimate) of \(contextSize) tokens")
         return true
     }
 
-    /// Starts a fresh session with the same instructions and tools, discarding the conversation,
-    /// and records it as a `session.start` with reason `new`.
+    /// Starts a fresh session with the same instructions and tools, discarding the conversation and its
+    /// store, and records it as a `session.start` with reason `new`.
     public func reset() {
-        session = model.session(tools: tools, transcript: session.transcript.condensed(keepTurns: 0))
+        store = ConversationStore(carrying: transcript.condensed(keepTurns: 0))
+        materialise(fresh: true)
         audit?.record(
             .sessionStart, details: AuditEvent.Details.sessionRestart(tools: tools.map(\.name), model: model.selection))
     }
 
-    /// Runs `operation`; on context overflow under a `.condense` policy, rebuilds the
-    /// session from the pre-call transcript condensed to the policy's turn count and retries once.
+    /// Runs `operation`; on context overflow under a `.condense` policy, condenses the store's active view
+    /// as it was before the call to the policy's turn count, and retries once on a fresh session.
     nonisolated(nonsending) private func withOverflowRecovery<T>(_ operation: () async throws -> T) async throws -> T {
-        let before = session.transcript
         do {
             return try await operation()
         } catch {
             guard let overflow = Self.overflow(in: error) else { throw error }
             contextSize = overflow.contextSize
-            guard case .condense(let keepTurns) = contextPolicy else { throw error }
-            let condensed = before.condensed(keepTurns: keepTurns)
-            session = model.session(tools: tools, transcript: condensed)
-            condensations += 1
-            audit?.record(
-                .condensation,
-                details: AuditEvent.Details.condensation(
-                    turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: overflow.contextSize,
-                    tokenCount: overflow.tokenCount, reason: "overflow", saved: saveCondensation(before, condensed)))
-            Diagnostics.agent.info("condensed \(before.turnCount) -> \(condensed.turnCount) turns")
+            guard let condensation = composer.overflow(in: store) else { throw error }
+            apply(
+                condensation, contextSize: overflow.contextSize, tokenCount: overflow.tokenCount, reason: "overflow",
+                fresh: true)
+            Diagnostics.agent.info(
+                "condensed \(condensation.before.turnCount) -> \(condensation.after.turnCount) turns")
             return try await operation()
+        }
+    }
+
+    /// Applies a condensation: counts it, saves the transcript before and after, records the
+    /// `context.condensation` event, marks the dropped entries in the store with it, and moves the session
+    /// onto the condensed view.
+    ///
+    /// - Parameters:
+    ///   - condensation: What the composer decided.
+    ///   - contextSize: The window, for the event.
+    ///   - tokenCount: The estimate or the overflowing request's size, for the event.
+    ///   - reason: `budget` or `overflow`.
+    ///   - fresh: Whether to start a new session even when the view is what the session holds.
+    private func apply(
+        _ condensation: ContextComposer.Condensation, contextSize: Int, tokenCount: Int, reason: String,
+        fresh: Bool = false
+    ) {
+        condensations += 1
+        let event = audit?.record(
+            .condensation,
+            details: AuditEvent.Details.condensation(
+                turnsBefore: condensation.before.turnCount, turnsAfter: condensation.after.turnCount,
+                contextSize: contextSize, tokenCount: tokenCount, reason: reason,
+                saved: saveCondensation(condensation.before, condensation.after)))
+        store.retain(condensation.after, droppedBy: event)
+        materialise(fresh: fresh)
+    }
+
+    /// Puts the session over the composer's transcript: continues it when that is what it holds, entry
+    /// for entry, and starts a new one from the composition otherwise or when `fresh`.
+    private func materialise(fresh: Bool = false) {
+        let composed = transcript
+        guard fresh || composed.map(\.id) != session.transcript.map(\.id) else { return }
+        session = model.session(tools: tools, transcript: composed)
+    }
+
+    /// Stores the entries the session added this turn, whether it succeeded or failed, linked to the audit
+    /// events that recorded them.
+    ///
+    /// - Parameters:
+    ///   - prompt: The turn's `prompt` event.
+    ///   - response: The turn's `response` event; nil when the turn failed.
+    private func remember(prompt: AuditReference?, response: AuditReference?) {
+        let added = Array(session.transcript).filter { !store.contains($0) }
+        let turn = turns.current
+        let sources = ConversationStore.sources(
+            for: added, prompt: prompt, response: response, toolEvents: toolEvents?.take(turn: turn) ?? [])
+        for (entry, references) in zip(added, sources) {
+            store.record(entry, origin: .turn, turn: turn, sources: references)
         }
     }
 
@@ -316,23 +394,25 @@ public final class Agent {
         _ prompt: String, schema: JSONValue? = nil, _ operation: () async throws -> String
     ) async throws -> Reply {
         turns.advance()
-        audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
+        let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
-        _ = await condenseAheadIfNeeded(for: prompt)
+        if !(await condenseAheadIfNeeded(for: prompt)) { materialise() }
         do {
             let text = try await withOverflowRecovery(operation)
             let reply = Reply(text: text, condensed: condensations > before)
             recordStats(started: started, failure: nil)
-            audit?.record(
+            let responded = audit?.record(
                 .response,
                 details: AuditEvent.Details.response(
                     text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started)))
+            remember(prompt: prompted, response: responded)
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")
             audit?.error(error, context: "turn")
             Diagnostics.agent.error("turn failed: \(error)")
+            remember(prompt: prompted, response: nil)
             throw error
         }
     }

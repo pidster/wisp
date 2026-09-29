@@ -1,0 +1,35 @@
+{
+  "archives" : [
+
+  ],
+  "events" : [
+    "prompt session=count turn=1 call=- {\"text\":\"first\"}",
+    "response session=count turn=1 call=- {\"condensed\":false,\"text\":\"one\"}",
+    "prompt session=count turn=2 call=- {\"text\":\"second\"}",
+    "response session=count turn=2 call=- {\"condensed\":false,\"text\":\"two\"}",
+    "prompt session=count turn=3 call=- {\"text\":\"third\"}",
+    "response session=count turn=3 call=- {\"condensed\":false,\"text\":\"three\"}",
+    "prompt session=count turn=4 call=- {\"text\":\"fourth\"}",
+    "context.condensation session=count turn=4 call=- {\"contextSize\":100,\"reason\":\"budget\",\"tokenCount\":91,\"turnsAfter\":1,\"turnsBefore\":3}",
+    "response session=count turn=4 call=- {\"condensed\":true,\"text\":\"four\"}"
+  ],
+  "output" : [
+    "{\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"third\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id5>\",\"text\":\"three\",\"type\":\"text\"}],\"id\":\"<id6>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id7>\",\"text\":\"fourth\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id8>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id9>\",\"text\":\"four\",\"type\":\"text\"}],\"id\":\"<id10>\",\"role\":\"response\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}"
+  ],
+  "replies" : [
+    "one",
+    "tokens 30",
+    "two",
+    "tokens 60",
+    "three",
+    "tokens 90",
+    "condensed four",
+    "tokens 60"
+  ],
+  "requests" : [
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id11>\",\"text\":\"first\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id12>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id11>\",\"text\":\"first\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id12>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id13>\",\"text\":\"one\",\"type\":\"text\"}],\"id\":\"<id14>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id15>\",\"text\":\"second\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id16>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id11>\",\"text\":\"first\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id12>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id13>\",\"text\":\"one\",\"type\":\"text\"}],\"id\":\"<id14>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id15>\",\"text\":\"second\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id16>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id17>\",\"text\":\"two\",\"type\":\"text\"}],\"id\":\"<id18>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"third\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"third\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id5>\",\"text\":\"three\",\"type\":\"text\"}],\"id\":\"<id6>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id7>\",\"text\":\"fourth\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id8>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}"
+  ]
+}

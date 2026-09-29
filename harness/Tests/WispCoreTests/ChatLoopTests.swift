@@ -129,9 +129,9 @@ import WispTestSupport
         let context = ChatLoop.Context(
             directory: "/r", approval: "--yes",
             models: { current, _ in ["current \(current)", "  ollama:q\t3B"] },
-            openModel: { selection, transcript in
+            openModel: { selection, store in
                 Agent(
-                    transcript: transcript, tools: [],
+                    store: store, tools: [],
                     model: ResolvedModel(selection: selection, custom: ScriptedModel(steps: [.say("from ollama")])))
             })
         let capture = Capture(lines: [

@@ -20,12 +20,54 @@ the caller.
 
 ## What wisp does
 
+### The store and the composer
+
+`Agent` keeps each conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
+each request carries, rather than continuing one session and letting its transcript grow. This is phase 2
+of the [layered-context proposal](proposals/2026-09-29-layered-context.md): the structure the later phases
+build on, reproducing the behaviour below exactly.
+
+- **The store** holds every entry of the conversation once, in order, under a stable id: the instructions,
+  prompts, tool calls, tool output, and replies. Each entry refers to the audit events that recorded its
+  content (`sources`: a prompt's `prompt` event, a reply's `response` event, each tool call's `tool.call`
+  and each output's `tool.result`), by the events' `id` ([logging.md](logging.md)). The audit log stays
+  the one verbatim record (the proposal's D8); the store adds each entry's kind, where it came from (a
+  turn of this conversation, or carried in with the instructions or a resumed transcript), and whether it
+  is active or was dropped, and by which `context.condensation` event.
+- **Only in memory.** The store also keeps the framework's value of each entry, as a cache of the
+  conversation's own entries, so composing a request never reads the audit files. Nothing new is written
+  to disk: `/save` and `--resume` save and load the active transcript as before, and a resumed
+  conversation rebuilds its store from it, with those entries carried and without sources.
+- **The composer**, for now, sends the store's active entries literally, in order, and decides the
+  condensing below; the agent applies it. Dropped entries stay in the store, marked, and are no longer
+  composed.
+- **The session** is kept while each composition is what it already holds, which is every turn that does
+  not condense, so the runtime's processed prefix and the session's token totals carry over as before. A
+  condensation, an overflow retry, or `/new` starts a new session from the composition.
+- **Linking tool entries.** The tools record their own events, which the agent does not see, so every
+  `Conversation` also tees its audit log into a `ToolEventTrail`. After each turn, succeeded or failed, the
+  agent stores the entries the session added and links each tool call to the latest `tool.call` event of
+  the same tool and arguments, and each output to its call's `tool.result`. An agent built without a
+  conversation (tests, the context eval) links prompts and replies only.
+- **`/model`** opens the new model's agent over the old agent's store, so its first request carries the
+  same active view and the store keeps its history and references (the proposal's D10, which will
+  recompose for the new window once the composer does more than literal turns).
+- **`/new`** starts a new store over the instructions alone.
+
+Equivalence is tested: `ContextEquivalenceTests` drives scripted conversations (tools, condensing ahead
+and on overflow, a failed turn, fail-fast, a model that counts, reset and resume, a chat with `/model`,
+`/inspect context`, and `/save`, and an MCP thread through `Session.conversation`) and compares every
+request the model received, every audit event, every reply, every saved context file, and chat's output
+with a snapshot recorded from the code before the store existed.
+
+### Condensing
+
 `Agent` has a `ContextPolicy`:
 
 - `.failFast`: the error propagates.
-- `.condense(keepTurns:)` (default, four turns): on overflow, the session is rebuilt from the transcript as
-  it was before the failing prompt, condensed with `Transcript.condensed(keepTurns:)`, and the prompt is
-  retried once. If it fails again, the error propagates.
+- `.condense(keepTurns:)` (default, four turns): on overflow, the store's active view as it was before
+  the failing prompt is condensed with `Transcript.condensed(keepTurns:)`, the dropped entries are marked,
+  and the prompt is retried once on a new session. If it fails again, the error propagates.
 
 `condensed(keepTurns:)` keeps the leading `.instructions` entry and the last N turns, where a turn is a
 `.prompt` plus everything up to the next prompt, so tool calls and outputs stay with the prompt that caused
@@ -76,7 +118,9 @@ file, so a single tool result cannot fill the window.
    model can ask for more.
 2. Keep tool descriptions short: every registered tool's schema is in the prompt on every turn.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
-4. Prefer dropping whole turns to editing entries, so the transcript stays a faithful record.
+4. Prefer dropping whole turns to editing entries, so the transcript stays a faithful record. Since the
+   store, a dropped turn also stays in the conversation's store, marked with the condensation that
+   dropped it.
 
 ## On the on-device model, and what condensing costs
 

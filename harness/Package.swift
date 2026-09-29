@@ -80,7 +80,9 @@ let package = Package(
         ),
         .testTarget(
             name: "WispCoreTests",
-            dependencies: ["WispCore", "WispTestSupport"]
+            dependencies: ["WispCore", "WispTestSupport"],
+            // Snapshots read by path in ContextEquivalenceTests.
+            exclude: ["Fixtures"]
         ),
         .testTarget(
             name: "WispMCPTests",

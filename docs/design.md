@@ -15,7 +15,7 @@ flowchart TD
     server --> begin
     begin -->|"one per face, or per thread_id"| conv["Conversation: gate, tools, prompting"]
     conv --> agent["Agent"]
-    agent --> lms["LanguageModelSession"]
+    agent -->|"ContextComposer, from ConversationStore"| lms["LanguageModelSession"]
     lms -->|"tool call"| audited["AuditedTool"]
     audited --> tools["run_command, read_file, edit_file, and the rest"]
     tools -->|run_command| runner["CommandRunner"]
@@ -29,8 +29,8 @@ flowchart TD
 
 The framework owns the agent loop. When the model emits a tool call, `LanguageModelSession` decodes the
 arguments into the tool's `@Generable` `Arguments` type, invokes `call(arguments:)`, appends the result to the
-transcript, and continues generation. `Agent` therefore contains no loop of its own; it only guards
-availability and shapes the API. `read_file` and `edit_file` consult the gate without `CommandRunner`;
+transcript, and continues generation. `Agent` therefore contains no loop of its own; it guards
+availability, composes the transcript each request carries, and shapes the API. `read_file` and `edit_file` consult the gate without `CommandRunner`;
 `current_date`, `inspect`, `notify`, and `system_info` do not consult it (see "Tools" below).
 
 ## Repository layout
@@ -47,7 +47,7 @@ availability and shapes the API. `read_file` and `edit_file` consult the gate wi
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts, call statistics, the event relay, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, conversation store and context composer, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -79,9 +79,10 @@ makers and an optional token counter. See [ADR 0013](decisions/0013-model-select
 
 ### `Agent`
 
-Owns one `LanguageModelSession` at a time, created by a `ResolvedModel`, whose `resolve()` checks
+Keeps the conversation in a `ConversationStore` and asks a `ContextComposer` for each request's
+transcript, which a `LanguageModelSession` created by a `ResolvedModel` then runs; `resolve()` checks
 availability and throws `ModelSelection.Failure.unavailable` rather than letting the first request fail
-obscurely. An agent can also start from a saved `Transcript`.
+obscurely. An agent can also start from a saved `Transcript`, or from another agent's store (`/model`).
 
 - `respond(to:)` returns a `Reply`: the text and whether the turn was condensed.
 - `stream(_:onDelta:)` invokes a callback with each new fragment and returns the same `Reply`. Snapshots
@@ -92,7 +93,31 @@ obscurely. An agent can also start from a saved `Transcript`.
 - On context overflow the `ContextPolicy` (default: keep the last four turns) rebuilds the session from a
   condensed transcript and retries once; `condensations` counts recoveries. See
   [context-management.md](context-management.md) and [ADR 0008](decisions/0008-context-condensation.md).
-- `transcript`, `contextTokens()`, and `reset()` support saving, budgeting, and starting over.
+- `transcript` (the composed view the next request carries), `store`, `contextTokens()`, and `reset()`
+  support saving, budgeting, and starting over.
+
+### `ConversationStore` and `ContextComposer`
+
+The layered-context proposal separates the conversation as stored from the context each request carries
+([proposal](proposals/2026-09-29-layered-context.md); phase 2, the structure without the behaviour). One
+turn, as the agent runs it:
+
+1. The prompt is audited; the composer decides whether to condense ahead of the window, and the agent
+   applies it: saves the archive, records `context.condensation`, and marks the dropped entries in the
+   store with that event.
+2. The composer builds the request's transcript: for now, the store's active entries, literally.
+3. The agent puts the session over it, continuing the live session when it already holds exactly that,
+   and starting a new one otherwise. The framework runs the tool loop; an overflow condenses the active
+   view as it was before the prompt and retries once.
+4. The entries the session added, whether the turn succeeded or failed, go into the store, each with
+   references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
+   it. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every `Conversation`
+   tees its log into.
+
+The store is a value type the agent owns, in memory only: it caches each entry's framework value so
+composing never reads the audit files, and the audit log remains the only verbatim record on disk
+(decision D8). The composer is pure; it holds the `ContextPolicy` and the budget. Later phases add
+facts and summaries that cite store entries by id, and composers that compose more than literal turns.
 
 ### Risk classification and approval
 
@@ -123,9 +148,10 @@ classifier split` and `TrainingSetsTests`.
 `MemoryAuditSink` for tests). `AuditedTool` wraps every registered tool; `Agent`, `CommandRunner`, and
 `WispServer` record at their boundaries; the CLI records session start and end. `Diagnostics` wraps
 `os.Logger` per category with optional stderr mirroring. See [logging.md](logging.md) and
-[ADR 0010](decisions/0010-audit-and-diagnostic-logging.md). Every `Conversation` tees its audit into a
-`ReceiptCollector`, for the `respond` receipt, and an `EventRelay`, which passes events to whoever is
-listening at the moment. The MCP server listens while a call that carried a `progressToken` runs.
+[ADR 0010](decisions/0010-audit-and-diagnostic-logging.md). Every event has its own random `id`, which
+`AuditLog.record` returns as an `AuditReference`. Every `Conversation` tees its audit into a
+`ReceiptCollector`, for the `respond` receipt, an `EventRelay`, which passes events to whoever is
+listening at the moment, and a `ToolEventTrail`, which the agent links its store's tool entries to. The MCP server listens while a call that carried a `progressToken` runs.
 `AuditTail` follows the log file, across rotation, for `wisp logs --follow`.
 
 ### `Session` and `Conversation`
@@ -155,7 +181,7 @@ flag means the same everywhere. The three faces are overlays on this core:
 | Face | How it opens its conversation |
 | --- | --- |
 | `respond` | `session.openAgent(approver:)` with a denying approver that explains `--yes` and `chat` |
-| `chat` | `session.openAgent(approver:transcript:)` with the terminal approver, resumable |
+| `chat` | `session.openAgent(approver:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store |
 | `mcp` | `session.conversation(id:approver:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadStore`, so they are created and dropped together |
 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a

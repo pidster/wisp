@@ -1,0 +1,36 @@
+{
+  "archives" : [
+
+  ],
+  "events" : [
+    "prompt session=rr turn=1 call=- {\"text\":\"first\"}",
+    "response session=rr turn=1 call=- {\"condensed\":false,\"text\":\"one\"}",
+    "prompt session=rr turn=2 call=- {\"text\":\"second\"}",
+    "response session=rr turn=2 call=- {\"condensed\":false,\"text\":\"two\"}",
+    "session.start session=rr turn=2 call=- {\"model\":\"system\",\"reason\":\"new\",\"tools\":[]}",
+    "prompt session=rr turn=3 call=- {\"text\":\"after reset\"}",
+    "response session=rr turn=3 call=- {\"condensed\":false,\"text\":\"three\"}",
+    "prompt session=rr turn=4 call=- {\"text\":\"after resume\"}",
+    "response session=rr turn=4 call=- {\"condensed\":false,\"text\":\"resumed\"}",
+    "prompt session=rr turn=5 call=- {\"text\":\"a long prompt after resuming, long enough to pass the budget\"}",
+    "response session=rr turn=5 call=- {\"condensed\":false,\"text\":\"again\"}"
+  ],
+  "output" : [
+    "{\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "{\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"after reset\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id5>\",\"text\":\"three\",\"type\":\"text\"}],\"id\":\"<id6>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id7>\",\"text\":\"after resume\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id8>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id9>\",\"text\":\"resumed\",\"type\":\"text\"}],\"id\":\"<id10>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id11>\",\"text\":\"a long prompt after resuming, long enough to pass the budget\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id12>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id13>\",\"text\":\"again\",\"type\":\"text\"}],\"id\":\"<id14>\",\"role\":\"response\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}"
+  ],
+  "replies" : [
+    "one",
+    "two",
+    "three",
+    "resumed",
+    "again"
+  ],
+  "requests" : [
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id15>\",\"text\":\"first\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id16>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id15>\",\"text\":\"first\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id16>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id17>\",\"text\":\"one\",\"type\":\"text\"}],\"id\":\"<id18>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id19>\",\"text\":\"second\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id20>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"after reset\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"after reset\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id5>\",\"text\":\"three\",\"type\":\"text\"}],\"id\":\"<id6>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id7>\",\"text\":\"after resume\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id8>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}",
+    "tools=[] schema=false maxTokens=nil {\"transcript\":{\"entries\":[{\"contents\":[{\"id\":\"<id1>\",\"text\":\"x\",\"type\":\"text\"}],\"id\":\"<id2>\",\"role\":\"instructions\"},{\"contents\":[{\"id\":\"<id3>\",\"text\":\"after reset\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id4>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id5>\",\"text\":\"three\",\"type\":\"text\"}],\"id\":\"<id6>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id7>\",\"text\":\"after resume\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id8>\",\"options\":{},\"role\":\"user\"},{\"contents\":[{\"id\":\"<id9>\",\"text\":\"resumed\",\"type\":\"text\"}],\"id\":\"<id10>\",\"role\":\"response\"},{\"contents\":[{\"id\":\"<id11>\",\"text\":\"a long prompt after resuming, long enough to pass the budget\",\"type\":\"text\"}],\"contextOptions\":{},\"id\":\"<id12>\",\"options\":{},\"role\":\"user\"}]},\"type\":\"FoundationModels.Transcript\",\"version\":\"1.1\"}"
+  ]
+}

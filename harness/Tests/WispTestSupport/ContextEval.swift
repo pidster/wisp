@@ -10,7 +10,8 @@ import WispCore
 ///
 /// A `ContextStrategy` is the seam later designs plug into: each one opens a conversation over the same
 /// model, tools, and instructions, and the same scenario runs through it. `DroppingStrategy`, today's
-/// `Agent` unchanged, is the baseline.
+/// `Agent`, is the baseline: its `ContextComposer` composes literal turns only, as phase 2 of the proposal
+/// built it to reproduce what came before.
 public enum ContextEval {
     /// One scripted user turn before the questions.
     public struct Step: Sendable, Equatable {
@@ -287,8 +288,10 @@ public protocol ContextStrategy: Sendable {
         -> any ContextConversation
 }
 
-/// Today's behaviour, unchanged: an `Agent` with its default policy, which condenses to the last four
-/// turns ahead of an 85% budget or on overflow.
+/// Today's behaviour: an `Agent` with its default policy, whose composer sends the store's active turns
+/// literally and condenses to the last four ahead of an 85% budget or on overflow. Since phase 2 every
+/// `Agent` composes each request from its `ConversationStore`, so this is the composer's path; a later
+/// design adds a strategy that opens an agent with its own composer rather than a second copy of this one.
 public struct DroppingStrategy: ContextStrategy {
     /// `dropping`.
     public let name = "dropping"
