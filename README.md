@@ -186,6 +186,21 @@ cargo build --manifest-path tools/Cargo.toml       # wisp-tui, the terminal fron
 WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui
 ```
 
+To see every tool working together on your Mac, ask wisp to run the functional evaluation in
+`functionality-self-test.wisp`. It is a step-by-step guide to wisp's tools and checks, which wisp itself
+wrote during a self-test:
+
+```
+$ harness/.build/debug/wisp chat
+› Read functionality-self-test.wisp and carry out each step, then report pass or fail for each.
+```
+
+Expect it to ask before commands that change anything, and to refuse `sudo` by policy. Some probes exit
+non-zero when they find nothing: `lsof` on an unused port, and `du` or `find` on folders macOS will not
+let them read. One step appends a line to the guide itself to exercise `edit_file`, and the last posts
+a notification; `git checkout -- functionality-self-test.wisp` undoes the edit. It is a quick smoke
+check, not a measurement; `scripts/check eval` measures the model.
+
 | Path | What it is |
 | --- | --- |
 | `harness/` | The Swift package: the `wisp` binary, `WispCore`, `WispMCP`, and the model backends |
