@@ -235,6 +235,22 @@ public struct ChatLoop {
                     let name = tool.name.padding(toLength: width, withPad: " ", startingAt: 0)
                     io.print("\(style.bold(name))  \(ChatEvents.firstSentence(of: tool.description))")
                 }
+            case .context:
+                guard let archive = agent.archive else {
+                    io.note("the context is not saved here: audit.enabled is false")
+                    continue
+                }
+                do {
+                    let transcript = agent.transcript
+                    let file = try archive.save(transcript, label: "turn\(agent.turns.current)")
+                    let tokens =
+                        (try? await agent.contextTokens()).flatMap { $0 }.map { "\($0.formatted()) tokens, " } ?? ""
+                    io.note(
+                        "saved the context the next request carries: \(ChatStatus.abbreviated(file.path)) "
+                            + "(\(tokens)\(transcript.turnCount) turns), and the JSON beside it")
+                } catch {
+                    io.note(style.ember("error: \(error)"))
+                }
             case .inspect(let what):
                 await view(what)
             case .approvals(let request):

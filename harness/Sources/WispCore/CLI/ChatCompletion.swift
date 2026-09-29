@@ -14,7 +14,8 @@ public enum ChatCompletion {
 
     /// The slash commands, as typed.
     public static let commands = [
-        "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/models", "/model", "/stats",
+        "/help", "/tools", "/tokens", "/context", "/status", "/approvals", "/audit", "/last", "/models", "/model",
+        "/stats",
         "/history", "/config", "/save", "/new", "/quit", "/exit",
     ]
 

@@ -6,6 +6,12 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Added:
+
+- `/context` in chat saves the exact context the model will see next: instructions, prompts, tool
+  calls, tool output, and replies, as Markdown and JSON in `~/.wisp/context/`. Every condensation also
+  saves the context before and after it, so you can read exactly which turns were dropped.
+
 Fixed:
 
 - Long conversations on the on-device model are condensed again instead of failing with "Provided N

@@ -121,14 +121,20 @@ extension AuditEvent {
 
         /// `context.condensation`.
         public static func condensation(
-            turnsBefore: Int, turnsAfter: Int, contextSize: Int, tokenCount: Int, reason: String
+            turnsBefore: Int, turnsAfter: Int, contextSize: Int, tokenCount: Int, reason: String,
+            saved: (before: String, after: String)? = nil
         )
             -> [String: JSONValue]
         {
-            [
+            var details: [String: JSONValue] = [
                 "turnsBefore": .int(turnsBefore), "turnsAfter": .int(turnsAfter), "contextSize": .int(contextSize),
                 "tokenCount": .int(tokenCount), "reason": .string(reason),
             ]
+            if let saved {
+                details["savedBefore"] = .string(saved.before)
+                details["savedAfter"] = .string(saved.after)
+            }
+            return details
         }
 
         /// `mcp.request`; `arguments` is the call's JSON.
@@ -310,7 +316,8 @@ extension AuditEvent {
                 "command", "run", "trigger", "exitStatus", "timedOut", "state", "previous", "changed", "seconds",
                 "findings", "triageError", "notified",
             ]
-        case .condensation: ["turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason"]
+        case .condensation:
+            ["turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason", "savedBefore", "savedAfter"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

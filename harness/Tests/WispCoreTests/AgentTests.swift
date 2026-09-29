@@ -114,6 +114,33 @@ import WispTestSupport
         #expect(Agent.overflow(in: CancellationError()) == nil)
     }
 
+    @Test func condensationsSaveTheContextBeforeAndAfterAndChatSavesItOnRequest() async throws {
+        let sink = MemoryAuditSink()
+        let directory = FileManager.default.temporaryDirectory.appending(path: "wisp-context-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let agent = Agent(
+            instructions: "Be brief.", tools: [],
+            model: ResolvedModel(
+                selection: .system, custom: ScriptedModel(steps: [.say("one"), .say("two")]), contextSize: 50),
+            contextPolicy: .condense(keepTurns: 0), audit: AuditLog(session: "s", sink: sink))
+        agent.archive = ContextArchive(directory: directory, session: "s")
+        _ = try await agent.respond(to: "remember BLUE HERON")
+        _ = try await agent.respond(to: "second prompt that is long enough to count")
+        let event = try #require(sink.events.first { $0.kind == .condensation })
+        let before = try String(
+            contentsOfFile: try #require(event.details["savedBefore"]?.stringValue), encoding: .utf8)
+        let after = try String(contentsOfFile: try #require(event.details["savedAfter"]?.stringValue), encoding: .utf8)
+        #expect(before.hasPrefix("# Context: 1 turn\n") && before.contains("remember BLUE HERON"), "\(before)")
+        #expect(before.contains("## Instructions\n\nBe brief.") && before.contains("## Response\n\none"))
+        #expect(after.hasPrefix("# Context: 0 turns") && !after.contains("BLUE HERON"), "\(after)")
+        let json = event.details["savedBefore"]?.stringValue?.replacingOccurrences(of: ".md", with: ".json") ?? ""
+        let decoded = try JSONDecoder().decode(Transcript.self, from: Data(contentsOf: URL(filePath: json)))
+        #expect(decoded.turnCount == 1)
+        let mode = try FileManager.default.attributesOfItem(atPath: json)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        #expect(AuditEvent.fields(for: .condensation).isSuperset(of: Set(event.details.keys)))
+    }
+
     @Test func condensesAheadOfAKnownWindowFromReportedUsage() async throws {
         // The scripted model reports 40 input tokens per request. On a 50-token window at the default
         // 85% budget the second prompt (40 + a little) passes it, so the transcript is condensed first;

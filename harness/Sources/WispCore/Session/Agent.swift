@@ -37,6 +37,8 @@ public final class Agent {
     public let audit: AuditLog?
     /// The conversation's turn counter, advanced once per prompt; the approval gate reads it.
     public let turns: TurnClock
+    /// Where the transcript is saved before and after each condensation; nil saves nothing.
+    public var archive: ContextArchive?
     /// Where each turn's time and outcome are recorded for `/stats`; nil records nothing.
     public var stats: CallStats?
 
@@ -172,7 +174,7 @@ public final class Agent {
             .condensation,
             details: AuditEvent.Details.condensation(
                 turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: contextSize,
-                tokenCount: estimate, reason: "budget"))
+                tokenCount: estimate, reason: "budget", saved: saveCondensation(before, condensed)))
         Diagnostics.agent.info("condensed ahead of the window: \(estimate) of \(contextSize) tokens")
         return true
     }
@@ -202,9 +204,24 @@ public final class Agent {
                 .condensation,
                 details: AuditEvent.Details.condensation(
                     turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: overflow.contextSize,
-                    tokenCount: overflow.tokenCount, reason: "overflow"))
+                    tokenCount: overflow.tokenCount, reason: "overflow", saved: saveCondensation(before, condensed)))
             Diagnostics.agent.info("condensed \(before.turnCount) -> \(condensed.turnCount) turns")
             return try await operation()
+        }
+    }
+
+    /// Saves the transcript before and after a condensation to `archive`, returning both paths for the
+    /// audit record; nil when there is no archive or saving failed, which never stops the turn.
+    private func saveCondensation(_ before: Transcript, _ after: Transcript) -> (before: String, after: String)? {
+        guard let archive else { return nil }
+        let label = "turn\(turns.current)-condensed\(condensations)"
+        do {
+            let saved = try archive.save(before, label: label + "-before")
+            let kept = try archive.save(after, label: label + "-after")
+            return (saved.path, kept.path)
+        } catch {
+            Diagnostics.agent.error("could not save the condensed context: \(error)")
+            return nil
         }
     }
 

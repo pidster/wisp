@@ -76,7 +76,7 @@ file, so a single tool result cannot fill the window.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
 4. Prefer dropping whole turns to editing entries, so the transcript stays a faithful record.
 
-## On the on-device model
+## On the on-device model, and what condensing costs
 
 Measured on 2026-09-29 with the on-device model on macOS 27. Its window is now 8,192 tokens, not the
 4,096 this page first recorded. Its runtime reports no token usage, so the ahead check had nothing to go
@@ -88,6 +88,22 @@ Both are fixed:
 - **The ahead check counts.** For a model that reports no usage, it uses the model's own count of the
   transcript.
 - **The retry recognises the message form** as well as `contextSizeExceeded` (`Agent.overflow(in:)`).
+
+A scripted chat then showed what condensing costs. It planted a fact ("the codename is BLUE HERON")
+in turn 1, then asked the model to read and summarise six of these docs, about 1,400 tokens a turn:
+- Before turn 7 the transcript was condensed from six turns to four, and the planted fact went with the
+  first two.
+- Asked for the codename, the model said it did not know.
+- Asked which file it read first, it named the oldest file still in its window, confidently and
+  wrongly. Nothing tells a model that older turns were dropped.
+- Four turns of that size keep the transcript near the 85% budget, so from then on it condensed before
+  almost every turn, a turn at a time.
+
+To see this for yourself, `/context` in chat saves the exact context the next request carries:
+instructions, prompts, tool calls, tool output, and replies. It writes Markdown to read and JSON to
+rebuild a session from, in `~/.wisp/context/`. Every condensation also saves the transcript before and
+after it, and names both files in its `context.condensation` event (`savedBefore`, `savedAfter`), so
+the dropped turns can be read rather than guessed. Files are saved only while `audit.enabled` is true.
 
 ## Not done yet, and why
 

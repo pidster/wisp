@@ -419,6 +419,7 @@ public struct Conversation: Sendable {
                     audit: audit)
             }
         agent.stats = stats
+        if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent
     }
 }

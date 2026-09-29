@@ -12,6 +12,8 @@ public enum ChatInput: Equatable, Sendable {
     case new
     /// Report how many tokens the transcript occupies.
     case tokens
+    /// Save the exact context the next request carries, as Markdown and JSON.
+    case context
     /// Show wisp's own state (`config`, `status`, `approvals`, `audit`), as the model's `inspect` tool would.
     case inspect(String)
     /// Show the last tool result in full.
@@ -60,6 +62,7 @@ public enum ChatInput: Equatable, Sendable {
         case "save": self = .save(argument)
         case "new": self = .new
         case "tokens": self = .tokens
+        case "context": self = .context
         case "inspect": self = .inspect(argument ?? "status")
         case "status": self = .inspect("status")
         case "audit": self = .inspect(argument.map { "audit \($0)" } ?? "audit")
@@ -79,6 +82,7 @@ public enum ChatInput: Equatable, Sendable {
         /help            show this list
         /tools           list the tools the model can call
         /tokens          show how much of the context window the conversation uses
+        /context         save the exact context the model sees next to ~/.wisp/context, as Markdown and JSON
         /status          show wisp's own state: model, tools, policy, session
         /approvals       list standing approvals; /approvals revoke [ID] removes one
         /audit           show the latest audit events of every session, MCP calls included
