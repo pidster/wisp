@@ -304,7 +304,9 @@ import Testing
         let text = try PersonalDataClassifier.resource(manifest: manifest, model: try Data(contentsOf: url))
         let loaded = try PersonalDataClassifier.load(text).get()
         #expect(loaded.reference == "personal@9")
-        #expect(!loaded.flags("build finished in 3.2 s"))
+        // A thirteen-line model's verdict on any one line varies with its random start (ADR 0042), so only
+        // the round trip is checked here; the shipped model's behaviour is tested against its fixed file.
+        _ = loaded.flags("build finished in 3.2 s")
         #expect(throws: PersonalDataTraining.Failure.oneSided) {
             try PersonalDataTraining.train(
                 lines("none", other), validation: held, source: "test", writingTo: url, version: "9")
