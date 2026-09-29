@@ -1,7 +1,9 @@
 # wisp command reference
 
-`wisp` runs Apple's on-device Foundation Model with tools. It has six subcommands (`respond`, `chat`,
-`tools`, `logs`, `doctor`, `mcp`); `respond` is the default, so `wisp "<prompt>"` works.
+`wisp` runs Apple's on-device Foundation Model with tools. It has fifteen subcommands (`respond`,
+`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `notify`, `scan`, `redact`,
+`watch`, `draft`, `classifier`), plus hidden maintainer ones under `classifier`; `respond` is the
+default, so `wisp "<prompt>"` works.
 
 ## Subcommands
 
@@ -127,6 +129,7 @@ What a session shows, and where it goes:
 | --- | --- |
 | `-i, --instructions <text>` | As for `respond`. |
 | `--tool <name>` (repeatable) | As for `respond`. |
+| `--no-tools` | Give the model no tools: a text-only conversation any model can run. |
 | `-r, --resume <name>` | Continue a transcript saved under `~/.wisp/transcripts/<name>.json`. |
 | `--save <name>` | Save the transcript under this name on exit. Defaults to the resumed name. |
 | `--list` | Print the names of saved transcripts and exit. |
@@ -312,7 +315,7 @@ sets one and `wisp config unset KEY` removes one so its default applies
 
 ```
 wisp config set approval.classifier coreml
-wisp config set approval.coremlModel risk@0.13.0-default
+wisp config set approval.coremlModel risk@0.14.0-default
 wisp config set routing.ladder system ollama:qwen3.8:27b     # or a JSON array
 wisp config set routing.tasks.secrets ollama:qwen3.8:27b
 wisp config unset approval.timeoutSeconds
@@ -328,7 +331,7 @@ wisp config unset approval.timeoutSeconds
 | `approval.timeoutSeconds` | Seconds, 0 to 86,400; 0 waits forever. |
 | `approval.persistDays` | Days, 1 to 365. |
 | `routing.ladder` | Models, least capable first. |
-| `routing.tasks.secrets` | A model for the thorough pass of `scan`, `redact`, `scan_secrets`, and `redact`; unset, `system`. |
+| `routing.tasks.secrets` | A model for the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`; unset, `system`. |
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400. |
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576. |
 | `tools.disabled` | Built-in tool names. |
@@ -349,7 +352,8 @@ started with. The model cannot change the configuration; there is no tool for it
 
 Checks that this install can work and exits non-zero if anything fails: macOS 27 or later, the on-device
 model available, the configured model available when it is not `system` (for `ollama:<name>`, that the
-server answers and lists the model), `/usr/bin/sandbox-exec` present,
+server answers and lists the model), the Core ML risk classifier preparing when `approval.classifier` is
+`coreml` (the default), `/usr/bin/sandbox-exec` present,
 `config.json` parses, `~/.wisp` writable. Run it first
 when something is wrong. `wisp --version` prints the version.
 
@@ -470,10 +474,15 @@ under-ratings, misses, and latency per verdict, recording them in the version's 
 when a dangerous command is rated safe.
 Training is audited as `classifier.train`. See [approval.md](approval.md), "Training and measuring a
 classifier".
-Three hidden subcommands serve the repository rather than users: `ship` trains the default a release
-embeds (`scripts/check classifier-default`, [release.md](release.md)), `split` deals a labelled set into
-parts by family, and `baseline` prints the label today's rules give each line; the last two are
-described in `training/README.md`.
+Three hidden subcommands serve the repository rather than users:
+- `ship` trains the default risk classifier a release embeds (`scripts/check classifier-default`,
+  [release.md](release.md)). With `--task personal` it trains the personal-data classifier, by hand
+  ([ADR 0042](decisions/0042-personal-data-classifier.md)).
+- `split` deals a labelled set into parts by family.
+- `baseline` prints the label today's rules give each line; for secrets, `--classifier` adds the
+  personal-data classifier.
+
+`split` and `baseline` are described in `training/README.md`.
 
 ### `wisp approvals`
 
@@ -490,6 +499,7 @@ Serves the Model Context Protocol over stdio until the client closes the pipe. S
 | --- | --- |
 | `-i, --instructions <text>` | Conversation instructions for threads whose `respond` call supplies none. |
 | `--tool <name>` (repeatable) | Tools threads get unless a `respond` call names its own. Default: all. |
+| `--no-tools` | Threads get no tools unless a `respond` call names some: text-only, for any model. |
 | `--unsafe` | Disable the `run_command` policy and sandbox for every call. |
 | `-m, --model <model>` | Default model for new threads; callers may override per thread. |
 | `-y, --yes` | Approve risky commands without asking the client's user. |
@@ -516,7 +526,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `model` | `system` | `system`, `private-cloud`, or `ollama:<name>`. See [ADR 0013](decisions/0013-model-selection.md) and [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md). |
 | `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120, "contextLength": 8192 }` | Where Ollama serves `ollama:<name>` models, how long one generation request may take, and the context window asked of the server on every request (`num_ctx`), which wisp condenses against. See [backends.md](backends.md). |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
-| `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `scan`, `redact`, `scan_secrets`, and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
+| `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5 }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process; see [tools/notify.md](tools/notify.md). |
 | `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {} }` | Where MLX model directories live for `mlx:<name>` models, and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). Needs a build with `--traits MLX`. See [backends.md](backends.md). |

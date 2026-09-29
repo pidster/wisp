@@ -82,7 +82,7 @@ remembered as ([logging](logging.md)).
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
-| `~/.wisp/config.json` | your settings, written by you | yours |
+| `~/.wisp/config.json` | your settings, written by you or by `wisp config set` and chat's `/config set` | yours; user-only once wisp writes it |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/transcripts/*.json` | saved chats | user-only |

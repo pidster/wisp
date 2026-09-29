@@ -213,7 +213,7 @@ A classifier runs on every command, so it should be fast and specialised rather 
 wisp classifier list                         # the versions on this Mac, the one in use marked *
 wisp classifier train --from-audit --use     # a new version, in well under a second, used from the next session
 wisp classifier measure risk@0.13.0-local.1 --examples my-commands.tsv
-wisp classifier use risk@0.13.0-default      # back to the one the release ships
+wisp classifier use risk@0.14.0-default      # back to the one the release ships
 ```
 
 Versions live in `~/.wisp/classifiers/risk/<version>/`, each a read-only `model.mlmodel` beside a

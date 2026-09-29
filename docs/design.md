@@ -47,7 +47,7 @@ availability and shapes the API. `read_file` and `edit_file` consult the gate wi
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts, call statistics, the event relay, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -123,7 +123,10 @@ classifier split` and `TrainingSetsTests`.
 `MemoryAuditSink` for tests). `AuditedTool` wraps every registered tool; `Agent`, `CommandRunner`, and
 `WispServer` record at their boundaries; the CLI records session start and end. `Diagnostics` wraps
 `os.Logger` per category with optional stderr mirroring. See [logging.md](logging.md) and
-[ADR 0010](decisions/0010-audit-and-diagnostic-logging.md).
+[ADR 0010](decisions/0010-audit-and-diagnostic-logging.md). Every `Conversation` tees its audit into a
+`ReceiptCollector`, for the `respond` receipt, and an `EventRelay`, which passes events to whoever is
+listening at the moment. The MCP server listens while a call that carried a `progressToken` runs.
+`AuditTail` follows the log file, across rotation, for `wisp logs --follow`.
 
 ### `Session` and `Conversation`
 
@@ -170,7 +173,8 @@ uses. See [ADR 0018](decisions/0018-introspection.md).
 
 ### Home, config, transcripts
 
-`Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `logs/`, and `transcripts/`.
+`Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `approvals.json`, `logs/`,
+`transcripts/`, and `classifiers/`.
 `Config` is optional JSON (system prompt extension, model, `run_command` limits, MCP thread capacity) with defaults applied by
 `resolved`. `TranscriptStore` saves and loads transcripts as `<name>.json`. Commands that write (audit log,
 transcripts, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` never create the directory.
@@ -238,6 +242,11 @@ declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and
 `ModelSweep` (the opt-in model pass over rule-redacted text, keeping only values that occur exactly)
 with `wisp scan` and `wisp redact` ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md)).
+A chunk whose model turn fails twice is reported in `failedChunks` and keeps its rule findings. With
+personal data asked for, `SecretScan` also runs `PersonalDataClassifier` over the lines nothing else
+flagged. It is a Core ML model embedded from `Resources/personal-default.json`, trained by
+`PersonalDataTraining` through `wisp classifier ship --task personal`
+([ADR 0042](decisions/0042-personal-data-classifier.md)).
 `condense_log` (`LogDigest`, `CrashReport`) and `json_shape` (`JSONShape`) are deterministic: templates
 and ranking for logs, a parsed `.ips` for crashes, a merged outline for JSON
 ([ADR 0032](decisions/0032-log-and-json-condensers.md)). `dependency_audit` (`DependencyAudit`),
@@ -247,7 +256,11 @@ and ranking for logs, a parsed `.ips` for crashes, a merged outline for JSON
 tool its conversation, runner, gate, and capture.
 `ModelRouting` chooses a model by input size from `Measurements.embedded` and the config's ladder, before
 anything runs; `ChangeDraft.route` applies it, honouring an explicit model and passing over a rung that
-cannot open ([ADR 0037](decisions/0037-routing-by-input-size.md)).
+cannot open ([ADR 0037](decisions/0037-routing-by-input-size.md)). `ModelRouting.forTask` gives a task's
+model pass its default when the caller names none: `ModelRouting.taskDefaults` (`secrets: system`,
+measured best), overridden by `routing.tasks`. The choice is audited as `model.routed`.
+While a call runs, `WispServer.relaying` turns the conversation's events into
+`notifications/progress` for a caller that asked, using `ChatEvents.progress` for the text.
 `draft_change` and `wisp draft` are `ChangeDraft`: a `DiffSummary` report, then one schema-shaped turn,
 with the subject and body shape applied in code ([ADR 0035](decisions/0035-change-drafts.md)).
 A session's model classifier is wrapped as `CachingRiskClassifier(TimedRiskClassifier(…))`: verdicts are
@@ -294,7 +307,9 @@ in a terminal and in the TUI. `/stats` reads `CallStats`, a fixed-size ring (`Mu
 `Session.begin` creates and every `Conversation` hands to its `Agent`, which records each turn's time,
 outcome, and reported prompt tokens; the classifier is wrapped in `TimedRiskClassifier` unless it is the
 rules alone, and a classifier's fallback verdict carries `RiskAssessment.failureKey` so it counts as a
-failure. `ChatLoop.history` keeps the latest 100 typed lines for `/history`; `wisp-tui` keeps its own
+failure. `ChatActivity` follows a turn's events to say what it is doing now (waiting for the model,
+running a command, waiting for approval). The terminal chat redraws that as a working line; `--json`
+sends it as `activity` lines. `ChatLoop.history` keeps the latest 100 typed lines for `/history`; `wisp-tui` keeps its own
 list for Up and Down. `wisp chat --json` is the same loop with its IO mapped onto a JSON Lines protocol
 (`ChatProtocol`, `LineRouter`, `JSONApprover`), so a front end in another process, `tools/wisp-tui`,
 can own the screen while the session stays here. `/config` shows the configuration as YAML through
@@ -343,5 +358,5 @@ Everything else is internal; tests reach it through `@testable import`.
   use it.
 - New MCP tool: add a `Tool` to `ToolCatalog`, a request type, and a case in `WispServer.call`.
 - Thread persistence or context management: extend `ConversationThread`; record the choice in an ADR.
-- Session persistence (transcript save/resume, as `fm` does with `~/.fm/sessions/`) would live in `Agent`.
-- Structured output (`fm respond --schema`) would be a `respond(to:generating:)` overload on `Agent`.
+- Session persistence and structured output have shipped (`TranscriptStore`, `Agent.respond(to:schema:)`); a
+  new output shape goes through `OutputSchema`.

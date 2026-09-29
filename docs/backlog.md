@@ -68,7 +68,10 @@ and Markdown rendering of replies as they are committed, the same day. Done 2026
 chat with a picker for choices and Tab completion ([ADR 0040](decisions/0040-config-from-chat.md)).
 Done 2026-09-26 too: `/config` as YAML and `/config get`; `/status`, `/approvals` (with `revoke`), and
 `/audit` in place of `/inspect`, kept as an alias, with Tab completing them and approval ids; and sent
-lines styled in the scrollback like the input box. Nothing further is planned for the front end; tables and links in replies are shown as typed.
+lines styled in the scrollback like the input box. Done 2026-09-29, in both front ends: the gate's
+decision for each command, each turn's time and tokens, a live line for what the turn is doing, and
+`/audit sessions` and `/audit <id>`. Nothing further is planned for the front end; tables and links in
+replies are shown as typed.
 
 ## When wisp can be signed
 
@@ -91,6 +94,8 @@ Two things wait on a Developer ID or App Store signature rather than on code.
   configured `routing.ladder` trusted with an input that large; piloted on `draft_change`
   ([ADR 0037](decisions/0037-routing-by-input-size.md)). Next: size bands for `triage` and the redaction
   pass, and more cases per band.
+- Done 2026-09-28: a default model per task. `routing.tasks` names the model for a task's model pass;
+  `secrets` defaults to `system`, measured best for it (ADR 0037, amendment).
 
 - Done 2026-09-19: `ollama:<name>` models through a wisp-supplied executor
   ([ADR 0016](decisions/0016-local-runtimes-through-an-executor.md)).

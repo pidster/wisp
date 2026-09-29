@@ -18,14 +18,14 @@ Changed:
 
   A password in a URL is now reported as a secret, not as an email address. Email addresses on any
   domain reserved for examples (`example.com`, `example.net`, `example.org`, their subdomains, and
-  `.test`, `.example`, `.invalid`) are no longer reported as personal data; before, only
-  `example.com` and `example.org` were skipped. On the secrets test set the
-  rules find 32% of secrets, up from 13%, with no more false alarms.
-- The thorough pass of `scan`, `redact`, `scan_secrets`, and `redact` runs on the on-device model
-  unless you name another, whatever `config.json`'s `model` is. On the secrets test set it did better
-  there than `ollama:granite4.1:8b` (macro-F1 0.67 against 0.56). `routing.tasks.secrets` sets a
-  different default (`wisp config set routing.tasks.secrets <model>`), and each routed pass is audited
-  as `model.routed`.
+  `.test`, `.example`, `.invalid`) are no longer reported as personal data; before, only `example.com`
+  and `example.org` were skipped. On the secrets test set the rules find 32% of secrets, up from 13%,
+  with no more false alarms.
+- The thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact` runs on
+  the on-device model unless you name another, whatever `config.json`'s `model` is. On the secrets test
+  set it did better there than `ollama:granite4.1:8b` (macro-F1 0.67 against 0.56).
+  `wisp config set routing.tasks.secrets <model>` sets a different default, and each routed pass is
+  audited as `model.routed`.
 
 Added:
 
@@ -34,24 +34,22 @@ Added:
   addresses that the rules cannot recognise, shown as `personal-data (classifier)`. On the secrets test
   set it finds 62% of personal lines, against 12% for the rules alone, at about 2 ms a line. With
   `--thorough` too, 80% are found. `redact` does not use it yet.
-
 - Watch what MCP clients have wisp do. In chat, `/audit sessions` lists the sessions in the audit log
   and how each began, and `/audit <id>` shows one session's latest events, such as a `respond` thread;
   Tab completes the ids. In a terminal, `wisp logs --follow` (`-f`) prints events as they are written,
   and can be narrowed with `--session`, `--kind`, and `--tool`.
-
-- Chat shows what the approval gate decided for each command: its rating and why (`· safe by rules:
-  a known read-only command (0.2 ms)`), and whether a standing approval let it through, you approved
-  it, or it was denied or blocked by policy. Each reply ends with how long the turn took and the tokens
-  it used (`3.1 s · 4,009 tokens in, 79 out`), and `wisp-tui` shows the same in its status
-  line.
-
+- Chat shows what the approval gate decided for each command: its rating and why (`· safe by rules: a
+  known read-only command (0.2 ms)`), and whether a standing approval let it through, you approved it,
+  or it was denied or blocked by policy. Each reply ends with how long the turn took and the tokens it
+  used (`3.1 s · 4,009 tokens in, 79 out`); `wisp-tui` shows the same in its status line.
 - While a turn runs, chat shows what it is doing and for how long, redrawn each second:
   `… 12 s · running git status (8 s)`, or `waiting for the model`. `wisp-tui` shows the same in its
   status line.
 - MCP callers that ask for progress (a `progressToken`) are told what a `respond` call, or a tool that
   runs a command, is doing while it runs: each tool call, the gate's rating, a wait for approval, and
   each outcome.
+- For front ends over `wisp chat --json`: an `activity` line says what the turn is doing, and the
+  `turn` line's end carries `inputTokens` and `outputTokens`.
 
 Fixed:
 

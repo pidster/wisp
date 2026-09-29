@@ -7,14 +7,14 @@
 | [wisp.md](wisp.md) | Command reference: subcommands, flags, `~/.wisp`, `config.json`, exit codes |
 | [tools/](tools/README.md) | One page per model-facing tool: contract, result format, limits |
 | [measurements.md](measurements.md) | What the eval harness found each delegated task achieves, how it is recorded, and where it is published |
-| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond`, the condensing tools, structured output, receipts, errors |
+| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond`, the condensing tools, structured output, receipts, progress, errors |
 | [design.md](design.md) | Architecture: components, data flow, extension points |
 | [fm-cli.md](fm-cli.md) | What the Apple `fm` command family does and does not offer, as observed |
 | [local-model-evaluation.md](local-model-evaluation.md) | Local-model research, candidate shortlist, and agreed workload/delegation evaluation design |
 | [local-model-installation.md](local-model-installation.md) | Selected model revisions, local installation, offline smoke results, and remaining integration work |
 | [on-device-ai-todo.md](on-device-ai-todo.md) | Draft backlog for four on-device AI use cases, model routing, and prompt-linked transcript/audit records |
 | [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output |
-| [approval.md](approval.md) | Risk classification (rules plus the on-device model or a Core ML classifier), classifier versions, approval scopes and persistence, eval results |
+| [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, eval results |
 | [logging.md](logging.md) | The audit log (format, kinds, `wisp logs`) and diagnostics (`WISP_LOG`, unified logging) |
 | [context-management.md](context-management.md) | The small context window: framework APIs, what wisp does, design rules |
 | [policy-and-sandboxing.md](policy-and-sandboxing.md) | Survey of tool policy and sandboxing options and which layers are implemented |
