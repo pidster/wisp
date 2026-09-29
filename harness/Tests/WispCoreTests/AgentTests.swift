@@ -82,6 +82,38 @@ import WispTestSupport
         #expect(agent.transcript.turnCount == 1)
     }
 
+    @Test func aModelThatReportsNoUsageIsCondensedAheadFromItsOwnCount() async throws {
+        // The on-device model reports no usage but can count its transcript; on 2026-09-29 it reached 91% of
+        // its 8,192-token window without condensing, then overflowed.
+        let sink = MemoryAuditSink()
+        let counting = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(
+                selection: .system, custom: ScriptedModel(steps: [.say("one"), .say("two")], reportsUsage: false),
+                contextSize: 50, countTokens: { transcript in transcript.turnCount * 45 }),
+            contextPolicy: .condense(keepTurns: 0), audit: AuditLog(session: "a", sink: sink))
+        #expect(try await counting.respond(to: "first").text == "one")
+        #expect(counting.lastInputTokens == 0)
+        let reply = try await counting.respond(to: "second")
+        #expect(reply.condensed && counting.condensations == 1)
+        #expect(sink.events.first { $0.kind == .condensation }?.details["reason"] == "budget")
+    }
+
+    @Test func anOverflowIsRecognisedFromTheOnDeviceModelsMessageToo() {
+        struct Inference: Error, CustomStringConvertible {
+            var description: String {
+                "Provided 8,913 tokens, but the maximum allowed is 8,192.: The operation couldn’t be completed. "
+                    + "(TokenGenerationInference.DecoderModelError error 3.)::inferenceFailed"
+            }
+        }
+        let parsed = Agent.overflow(in: Inference())
+        #expect(parsed?.contextSize == 8192 && parsed?.tokenCount == 8913)
+        let framework = LanguageModelError.contextSizeExceeded(
+            .init(contextSize: 10, tokenCount: 11, debugDescription: "x", metadata: [:]))
+        #expect(Agent.overflow(in: framework)?.contextSize == 10)
+        #expect(Agent.overflow(in: CancellationError()) == nil)
+    }
+
     @Test func condensesAheadOfAKnownWindowFromReportedUsage() async throws {
         // The scripted model reports 40 input tokens per request. On a 50-token window at the default
         // 85% budget the second prompt (40 + a little) passes it, so the transcript is condensed first;

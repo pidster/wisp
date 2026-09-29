@@ -153,12 +153,15 @@ public final class Agent {
         return lastInputTokens > 0 ? lastInputTokens : nil
     }
 
-    /// Condenses before a prompt when the last request's reported usage plus a rough cost for the new
-    /// prompt would pass the budget of a known window, so a runtime that truncates silently never
-    /// gets the chance. Returns whether it did.
-    private func condenseAheadIfNeeded(for prompt: String) -> Bool {
-        guard case .condense(let keepTurns) = contextPolicy, let contextSize, lastInputTokens > 0 else { return false }
-        let estimate = lastInputTokens + prompt.utf8.count / Self.bytesPerToken
+    /// Condenses before a prompt when the transcript plus a rough cost for the new prompt would pass the
+    /// budget of a known window, so a runtime that truncates silently never gets the chance. The
+    /// transcript's size is the last request's reported usage, or, for a model that reports none (the
+    /// on-device model), the model's own count of the transcript. Returns whether it did.
+    nonisolated(nonsending) private func condenseAheadIfNeeded(for prompt: String) async -> Bool {
+        guard case .condense(let keepTurns) = contextPolicy, let contextSize else { return false }
+        let used = lastInputTokens > 0 ? lastInputTokens : ((try? await model.tokenCount(for: session.transcript)) ?? 0)
+        guard used > 0 else { return false }
+        let estimate = used + prompt.utf8.count / Self.bytesPerToken
         guard Double(estimate) >= Double(contextSize) * contextBudget else { return false }
         let before = session.transcript
         let condensed = before.condensed(keepTurns: keepTurns)
@@ -188,22 +191,37 @@ public final class Agent {
         let before = session.transcript
         do {
             return try await operation()
-        } catch LanguageModelError.contextSizeExceeded(let details) {
-            contextSize = details.contextSize
-            guard case .condense(let keepTurns) = contextPolicy else {
-                throw LanguageModelError.contextSizeExceeded(details)
-            }
+        } catch {
+            guard let overflow = Self.overflow(in: error) else { throw error }
+            contextSize = overflow.contextSize
+            guard case .condense(let keepTurns) = contextPolicy else { throw error }
             let condensed = before.condensed(keepTurns: keepTurns)
             session = model.session(tools: tools, transcript: condensed)
             condensations += 1
             audit?.record(
                 .condensation,
                 details: AuditEvent.Details.condensation(
-                    turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: details.contextSize,
-                    tokenCount: details.tokenCount, reason: "overflow"))
+                    turnsBefore: before.turnCount, turnsAfter: condensed.turnCount, contextSize: overflow.contextSize,
+                    tokenCount: overflow.tokenCount, reason: "overflow"))
             Diagnostics.agent.info("condensed \(before.turnCount) -> \(condensed.turnCount) turns")
             return try await operation()
         }
+    }
+
+    /// The window and the size of the request when `error` is a context overflow: the framework's
+    /// `contextSizeExceeded`, or, as the on-device model on macOS 27 reports it, an `inferenceFailed`
+    /// whose message reads "Provided 8,913 tokens, but the maximum allowed is 8,192". Nil otherwise.
+    static func overflow(in error: any Error) -> (contextSize: Int, tokenCount: Int)? {
+        if case LanguageModelError.contextSizeExceeded(let details) = error {
+            return (details.contextSize, details.tokenCount)
+        }
+        let text = String(describing: error)
+        guard
+            let match = text.firstMatch(
+                of: #/Provided ([\d,]+) tokens, but the maximum allowed is ([\d,]+)/#),
+            let provided = Int(match.1.filter(\.isNumber)), let allowed = Int(match.2.filter(\.isNumber))
+        else { return nil }
+        return (allowed, provided)
     }
 
     /// What one turn produced.
@@ -284,7 +302,7 @@ public final class Agent {
         audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
-        _ = condenseAheadIfNeeded(for: prompt)
+        _ = await condenseAheadIfNeeded(for: prompt)
         do {
             let text = try await withOverflowRecovery(operation)
             let reply = Reply(text: text, condensed: condensations > before)

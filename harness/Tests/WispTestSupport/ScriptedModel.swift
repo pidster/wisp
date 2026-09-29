@@ -30,11 +30,14 @@ public struct ScriptedModel: LanguageModel {
         public let partialBeforeOverflow: String
         /// Input tokens the last request reported; the model plays a runtime that reports usage.
         public let lastInputTokens = Mutex<Int?>(nil)
+        /// Whether requests report their input tokens; false plays the on-device model, which does not.
+        public let reportsUsage: Bool
 
-        init(steps: [Step], overflowOnce: Bool, partialBeforeOverflow: String) {
+        init(steps: [Step], overflowOnce: Bool, partialBeforeOverflow: String, reportsUsage: Bool) {
             self.steps = Mutex(steps)
             self.overflowOnce = Mutex(overflowOnce)
             self.partialBeforeOverflow = partialBeforeOverflow
+            self.reportsUsage = reportsUsage
         }
     }
 
@@ -91,7 +94,7 @@ public struct ScriptedModel: LanguageModel {
                     let fragment = index == 0 ? String(word) : " " + word
                     await channel.send(.response(action: .appendText(fragment, tokenCount: 1)))
                 }
-                script.lastInputTokens.withLock { $0 = 40 }
+                if script.reportsUsage { script.lastInputTokens.withLock { $0 = 40 } }
                 await channel.send(
                     .response(
                         action: .updateUsage(
@@ -114,9 +117,12 @@ public struct ScriptedModel: LanguageModel {
             .call(name: "current_date", arguments: #"{"timeZone":"Asia/Tokyo"}"#), .say("The date is {tool}"),
         ],
         overflowOnce: Bool = false, partialBeforeOverflow: String = "",
-        capabilities: [LanguageModelCapabilities.Capability] = [.toolCalling, .guidedGeneration]
+        capabilities: [LanguageModelCapabilities.Capability] = [.toolCalling, .guidedGeneration],
+        reportsUsage: Bool = true
     ) {
-        script = Script(steps: steps, overflowOnce: overflowOnce, partialBeforeOverflow: partialBeforeOverflow)
+        script = Script(
+            steps: steps, overflowOnce: overflowOnce, partialBeforeOverflow: partialBeforeOverflow,
+            reportsUsage: reportsUsage)
         self.capabilities = LanguageModelCapabilities(capabilities)
     }
     /// Nothing to configure.

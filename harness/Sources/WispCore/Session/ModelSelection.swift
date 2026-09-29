@@ -236,9 +236,11 @@ public struct ResolvedModel: Sendable {
     ///   - capabilitySource: Who declared them; `.runtime` by default.
     ///   - asset: The asset behind it, for the audit.
     ///   - contextSize: The window the runtime was asked for, when known.
+    ///   - countTokens: Counts a transcript's tokens, for a model that can; nil when it cannot.
     public init(
         selection: ModelSelection, custom model: some LanguageModel, capabilitySource: CapabilitySource = .runtime,
-        asset: String? = nil, contextSize: Int? = nil
+        asset: String? = nil, contextSize: Int? = nil,
+        countTokens: (@Sendable (Transcript) async throws -> Int)? = nil
     ) {
         self.selection = selection
         capabilities = model.capabilities
@@ -251,7 +253,7 @@ public struct ResolvedModel: Sendable {
         makeFromTranscript = { tools, transcript in
             LanguageModelSession(model: model, tools: tools, transcript: transcript)
         }
-        countTokens = nil
+        self.countTokens = countTokens
         if let reporting = model as? any UsageReporting {
             reportedInput = { reporting.lastInputTokens }
         } else {

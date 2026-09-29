@@ -44,3 +44,19 @@ not: a token count for a prompt that has not been sent, without a model call.
   carries `num_ctx` and the settings round-trip (`OllamaModelTests`).
 - Not done: counting the prompt exactly for models that can count (a model call per prompt), and
   summarising instead of dropping. Both remain in `docs/context-management.md`.
+
+## Amendment, 2026-09-29: counting when the runtime reports nothing, and overflow as a message
+
+On macOS 27 the on-device model reports no token usage, so `lastInputTokens` was always 0 and the ahead
+check never ran for it. It also reports an overflow as `inferenceFailed` with the message "Provided N
+tokens, but the maximum allowed is M", not as `contextSizeExceeded`, so the reactive retry never ran
+either. A scripted chat reached 7,460 of 8,192 tokens (91%) and then failed a turn outright.
+
+**Decision.**
+- **Count when nothing is reported.** When the model reports no usage but can count its transcript
+  (`ResolvedModel.tokenCount`), the ahead check counts before each prompt. That is the cost this ADR
+  avoided for runtimes that report; a model that reports none leaves no other way to see the window
+  filling. Across the six file-reading turns of the same chat, turn times with and without the count
+  differed by at most about 0.3 s, within run-to-run noise.
+- **Read the overflow message.** `Agent.overflow(in:)` recognises the message form as well as the
+  framework's error, taking the window and the request's size from the text.

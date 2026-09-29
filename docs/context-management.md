@@ -42,7 +42,8 @@ silently, and the instructions go first. The reactive path never fires. So `Agen
 of the window ([ADR 0025](decisions/0025-context-estimation.md)): a runtime reports the tokens a
 request used, wisp's executors keep the last request's figure on the model (`UsageReporting`;
 `LanguageModelSession.usage` accumulates across requests, so it cannot serve), and before each prompt
-the agent adds a rough cost for the new prompt (four bytes per token) to that figure. If that reaches `contextBudget` (85%) of a known window, the transcript is condensed to the
+the agent adds a rough cost for the new prompt (four bytes per token) to that figure. A model that reports no usage but can count its transcript (the on-device model) is
+counted instead. If that reaches `contextBudget` (85%) of a known window, the transcript is condensed to the
 policy's turns first and the condensation is audited with reason `budget`. The window is known when the
 model states it (`SystemLanguageModel.contextSize`; Ollama's configured `contextLength`, which wisp
 sends as `num_ctx` so the server's default cannot differ from what it condenses against) or once an
@@ -75,13 +76,26 @@ file, so a single tool result cannot fill the window.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
 4. Prefer dropping whole turns to editing entries, so the transcript stays a faithful record.
 
+## On the on-device model
+
+Measured on 2026-09-29 with the on-device model on macOS 27. Its window is now 8,192 tokens, not the
+4,096 this page first recorded. Its runtime reports no token usage, so the ahead check had nothing to go
+on. It also reports an overflow as a generic `inferenceFailed` whose message reads "Provided 8,913
+tokens, but the maximum allowed is 8,192", not as `contextSizeExceeded`, so the retry never ran either. A
+conversation that reached 91% of the window failed its next large turn instead of condensing.
+
+Both are fixed:
+- **The ahead check counts.** For a model that reports no usage, it uses the model's own count of the
+  transcript.
+- **The retry recognises the message form** as well as `contextSizeExceeded` (`Agent.overflow(in:)`).
+
 ## Not done yet, and why
 
 - **Summarisation instead of dropping.** Asking the model to summarise the dropped turns into a new
   instructions entry preserves more, at the cost of a model call and a transcript that no longer records what
   was said. Worth an experiment once there is a workload that suffers from plain dropping.
-- **Counting before each prompt.** Calling `tokenCount(for:)` before each prompt would be exact but
-  doubles model calls. The ahead-of-window check above uses the free usage report instead and accepts a
-  rough estimate for the new prompt.
+- **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact
+  but costs a model call. The ahead check uses the free usage report where a runtime gives one, and counts
+  only for a model that reports nothing (ADR 0025, amendment of 2026-09-29).
 - **Map-reduce for long documents.** Summarising a file longer than the window needs chunked sub-sessions
   and a merge step. That belongs in a dedicated tool (a Rust candidate), not in `Agent`.
