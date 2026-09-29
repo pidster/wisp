@@ -490,6 +490,13 @@ public enum ToolCatalog {
     public static let measurementsResourceURI = "wisp://measurements"
     /// Template for one session's or thread's audit events.
     public static let auditTemplate = "wisp://audit/{session}"
+    /// URI prefix of one tool call's output in a thread, as a `respond` result's `outputURI` names it.
+    public static let outputResourceURI = "wisp://output"
+    /// Template for one tool call's output in a thread, by the `id` a `respond` result's `calls` give it.
+    public static let outputTemplate = "wisp://output/{thread_id}/{id}"
+
+    /// The URI of the output with audit event `id` in `thread`.
+    public static func outputURI(thread: String, id: String) -> String { "\(outputResourceURI)/\(thread)/\(id)" }
 
     /// The resources wisp advertises.
     public static let resources: [Resource] = [
@@ -533,7 +540,14 @@ public enum ToolCatalog {
             uriTemplate: auditTemplate, name: "wisp audit for one session",
             title: "Audit events of one session or thread",
             description: "Every event of the given session or thread id (a respond thread_id), as JSON Lines.",
-            mimeType: "application/x-ndjson")
+            mimeType: "application/x-ndjson"),
+        Resource.Template(
+            uriTemplate: outputTemplate, name: "wisp tool output",
+            title: "One tool call's output in a respond thread",
+            description:
+                "The output a tool returned, verbatim from the audit log, by the id a respond result's calls give "
+                + "it; the result names this URI as outputURI when the output was too large to inline.",
+            mimeType: "text/plain"),
     ]
 }
 

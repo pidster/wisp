@@ -47,7 +47,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, conversation store and context composer, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, conversation store, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -99,13 +99,14 @@ obscurely. An agent can also start from a saved `Transcript`, or from another ag
 ### `ConversationStore` and `ContextComposer`
 
 The layered-context proposal separates the conversation as stored from the context each request carries
-([proposal](proposals/2026-09-29-layered-context.md); phase 2, the structure without the behaviour). One
-turn, as the agent runs it:
+([proposal](proposals/2026-09-29-layered-context.md); phase 2 built the structure, phase 3 output
+handling). One turn, as the agent runs it:
 
 1. The prompt is audited; the composer decides whether to condense ahead of the window, and the agent
    applies it: saves the archive, records `context.condensation`, and marks the dropped entries in the
    store with that event.
-2. The composer builds the request's transcript: for now, the store's active entries, literally.
+2. The composer builds the request's transcript: the store's active entries, with each reply's cut
+   presentational text replaced by its marker (step 5).
 3. The agent puts the session over it, continuing the live session when it already holds exactly that,
    and starting a new one otherwise. The framework runs the tool loop; an overflow condenses the active
    view as it was before the prompt and retries once.
@@ -113,11 +114,21 @@ turn, as the agent runs it:
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
    it. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every `Conversation`
    tees its log into.
+5. After a turn that succeeded, the composer looks in each of its replies for presentational text:
+   a stretch that reproduces one of the turn's tool outputs (`Presentation`, by word-sequence overlap).
+   The agent marks each stretch on the reply's store entry as a `Cut` (segment, byte range, the output's
+   store id) and records `context.cut`. The reply returned to the caller and the entry's value stay
+   whole; from the next request on, the composer sends the marker instead. Because the rewritten reply
+   keeps its id, the agent compares replies by content as well as ids when deciding whether the live
+   session still holds the composition.
 
 The store is a value type the agent owns, in memory only: it caches each entry's framework value so
 composing never reads the audit files, and the audit log remains the only verbatim record on disk
-(decision D8). The composer is pure; it holds the `ContextPolicy` and the budget. Later phases add
-facts and summaries that cite store entries by id, and composers that compose more than literal turns.
+(decision D8). The composer is pure; it holds the `ContextPolicy`, the budget, and whether it cuts
+presentational text (`cutsPresentation`, on by default; `ContextEquivalenceTests` runs with it off to
+prove phase 2's structure unchanged). Cuts are saved with the store's links (`transcripts/<name>.store`),
+so a resumed conversation composes them again; the saved transcript holds the replies whole. Later phases
+add facts and summaries that cite store entries by id.
 
 ### Risk classification and approval
 
@@ -262,7 +273,10 @@ concurrently. Results carry `structuredContent.thread_id`; see
 [ADR 0007](decisions/0007-conversation-threads.md). Each `Conversation` tees its audit log into a
 `ReceiptCollector`, a bounded in-memory sink; after a turn the server folds that turn's events into a
 `Receipt` for `structuredContent.receipt` ([ADR 0021](decisions/0021-receipts.md)), so the result and
-the log never disagree. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
+the log never disagree. The same events fold into `TurnCalls` for `structuredContent.calls` (the
+proposal's D9): each tool call with its output as the tool returned it, inline up to `inlineOutputBytes`
+and otherwise as a `wisp://output/{thread_id}/{id}` reference, which the server resolves from the audit
+log by the `tool.result` event's id, the reference the conversation's store keeps for that output. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
 `DynamicGenerationSchema`, `Agent.respond(to:schema:)` runs guided generation after checking the model
 declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and

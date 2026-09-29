@@ -65,6 +65,7 @@ public struct Introspection: Sendable {
                 "keepFiles": .int(config.auditLimits.keepFiles),
             ]),
             "maxThreads": .int(config.maxThreads),
+            "inlineOutputBytes": .int(config.inlineOutputBytes),
             "notifications": .object([
                 "enabled": .bool(config.notificationsEnabled), "perMinute": .int(config.notificationsPerMinute),
             ]),

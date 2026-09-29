@@ -259,6 +259,24 @@ public struct WispServer: Sendable {
             return json(await views.approvals())
         case ToolCatalog.auditResourceURI:
             return try lines(try views.audit(AuditQuery(last: 100)))
+        case let uri where uri.hasPrefix(ToolCatalog.outputResourceURI + "/"):
+            let parts = uri.dropFirst(ToolCatalog.outputResourceURI.count + 1).split(
+                separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 2, SafeName.isValid(String(parts[0])), Self.isEventID(parts[1]) else {
+                throw MCPError.invalidParams("expected wisp://output/{thread_id}/{id} with an id from a respond result")
+            }
+            let thread = String(parts[0])
+            let id = String(parts[1])
+            guard
+                let event = try views.audit(AuditQuery(session: thread, kinds: [.toolResult])).last(where: {
+                    $0.id == id
+                })
+            else {
+                throw MCPError.invalidParams(
+                    "no tool output \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
+            }
+            return .init(
+                contents: [.text(event.details["output"]?.stringValue ?? "", uri: params.uri, mimeType: "text/plain")])
         case let uri where uri.hasPrefix(ToolCatalog.auditResourceURI + "/"):
             let id = String(uri.dropFirst(ToolCatalog.auditResourceURI.count + 1))
             guard SafeName.isValid(id) else { throw MCPError.invalidParams("session id must be \(SafeName.rule)") }
@@ -266,6 +284,11 @@ public struct WispServer: Sendable {
         default:
             throw MCPError.invalidParams("Unknown resource: \(params.uri)")
         }
+    }
+
+    /// Whether `text` has the form of an audit event id: 16 lowercase hex characters.
+    static func isEventID(_ text: Substring) -> Bool {
+        text.count == 16 && text.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
 
     /// The reply's JSON as an MCP value, or the text itself if it does not parse (it always should:
@@ -283,7 +306,8 @@ public struct WispServer: Sendable {
     }
 
     /// Finds or creates the thread, runs the prompt, and reports the thread id, whether it was condensed,
-    /// the gate's refusals, and the turn's receipt.
+    /// the gate's refusals, the turn's receipt, and its tool calls with their output inline or by reference
+    /// (D9 of the layered-context proposal).
     private func respond(_ request: RespondRequest) async -> CallTool.Result {
         let id = request.threadID ?? UUID().uuidString.lowercased()
         let opened: ThreadStore<OpenThread>.Opened
@@ -313,7 +337,13 @@ public struct WispServer: Sendable {
                 try await opened.thread.thread.respond(to: request.prompt, schema: schema)
             }
             let refusals = await opened.thread.gate.takeRefusals()
-            let receipt = opened.thread.receipts.take(turn: opened.thread.audit.currentTurn)
+            let turn = opened.thread.audit.currentTurn
+            let events = opened.thread.receipts.takeEvents(turn: turn)
+            let receipt = Receipt(events: events, turn: turn)
+            let auditEnabled = config.auditEnabled
+            let calls = TurnCalls(events: events, turn: turn).json(inlineBytes: config.inlineOutputBytes) {
+                auditEnabled ? ToolCatalog.outputURI(thread: id, id: $0) : nil
+            }
             return .init(
                 content: [.text(text: reply.text, annotations: nil, _meta: nil)],
                 structuredContent: .object([
@@ -321,7 +351,7 @@ public struct WispServer: Sendable {
                     "text": .string(reply.text),
                     "refusals": .array(
                         refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
-                    "receipt": Value(json: receipt.json),
+                    "receipt": Value(json: receipt.json), "calls": Value(json: calls),
                     "output": schema == nil ? .null : Self.parse(reply.text),
                 ]),
                 isError: false

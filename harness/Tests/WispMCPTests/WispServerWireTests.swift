@@ -24,10 +24,19 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
             .call(name: "current_date", arguments: #"{"timeZone":"Asia/Tokyo"}"#), .say("The date is {tool}"),
         ],
         approver: any Approver = DenyingApprover(reason: "not in tests"), elicitation: Bool = false,
-        triageSteps: [ScriptedModel.Step] = [], config: String? = nil, unopenable: ModelSelection? = nil
+        triageSteps: [ScriptedModel.Step] = [], config: String? = nil, unopenable: ModelSelection? = nil,
+        fileAudit: Bool = false
     ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
         let sink = MemoryAuditSink()
-        let session = try scratchSession(dependencies: .testing(sink: sink), config: config)
+        // With `fileAudit`, events also go to the audit file, which the resources that read the log serve.
+        let dependencies =
+            fileAudit
+            ? Session.Dependencies(
+                makeClassifier: { _, _ in RuleRiskClassifier.standard },
+                makeSink: { home, config in
+                    TeeAuditSink([sink, try FileAuditSink(url: home.auditFile, limits: config.auditLimits)])
+                }) : .testing(sink: sink)
+        let session = try scratchSession(dependencies: dependencies, config: config)
         let triageModel = ScriptedModel(steps: triageSteps, capabilities: [.guidedGeneration])
         let server = WispServer(session: session) { session, _, id, instructions, tools, model in
             let conversation = try session.conversation(
@@ -92,7 +101,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(status.contains("\"entryPoint\" : \"mcp\""))
         #expect(try await pair.client.readResource(uri: "wisp://approvals").first?.text == "[\n\n]")
         let templates = try await pair.client.send(ListResourceTemplates.request(.init())).value.templates
-        #expect(templates.map(\.uriTemplate) == ["wisp://audit/{session}"])
+        #expect(templates.map(\.uriTemplate) == ["wisp://audit/{session}", "wisp://output/{thread_id}/{id}"])
         // The audit resources read the file, and the test session writes to a memory sink, so they are
         // empty here; the shape and the id check are what the wire test pins.
         let thread = try await pair.client.readResource(uri: "wisp://audit/intro")
@@ -145,6 +154,80 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let server = pair.sink.events.filter { $0.kind == .mcpRequest || $0.kind == .mcpResult }
         #expect(server.count == 2)
         #expect(server.first?.details["arguments"]?.stringValue?.contains("\"prompt\"") == true)
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func respondListsEachToolCallWithSmallOutputInlineAndLargeOutputByReference() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-wire-calls-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let small = dir.appending(path: "small.txt")
+        try Data("one line\n".utf8).write(to: small)
+        let large = dir.appending(path: "large.txt")
+        let lines = (1...60).map { "line \($0) of a file too large to carry inline" }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: large)
+        let pair = try await connected(
+            steps: [
+                .call(name: "read_file", arguments: #"{"path":"\#(small.path)"}"#),
+                .call(name: "read_file", arguments: #"{"path":"\#(large.path)"}"#),
+                .call(name: "run_command", arguments: #"{"command":"echo hello","workingDirectory":"\#(dir.path)"}"#),
+                .say("I read two files and ran echo."),
+            ], fileAudit: true)
+        let result = try await call(
+            pair.client, "respond",
+            [
+                "prompt": .string("read both, then echo"), "thread_id": .string("calls"),
+                "tools": .array(
+                    [.string("read_file"), .string("run_command")]),
+            ])
+        #expect(result.isError == false)
+        let calls = try #require(result.structuredContent?.objectValue?["calls"]?.arrayValue).compactMap(\.objectValue)
+        #expect(calls.map { $0["tool"] } == [.string("read_file"), .string("read_file"), .string("run_command")])
+        // Small output is inline, verbatim as the tool returned it.
+        #expect(calls[0]["output"] == .string("1\tone line\n[end of file]"))
+        #expect(calls[0]["bytes"] == .int(24) && calls[0]["outputURI"] == nil)
+        #expect(calls[0]["arguments"]?.stringValue?.contains("small.txt") == true)
+        // Large output is a reference to the audit log, which the resource resolves to the same text.
+        let id = try #require(calls[1]["id"]?.stringValue)
+        #expect(calls[1]["output"] == nil && (calls[1]["bytes"]?.intValue ?? 0) > 1024)
+        let uri = try #require(calls[1]["outputURI"]?.stringValue)
+        #expect(uri == "wisp://output/calls/\(id)")
+        let read = try await pair.client.readResource(uri: uri)
+        #expect(read.first?.mimeType == "text/plain")
+        #expect(read.first?.text?.hasPrefix("1\tline 1 of a file") == true)
+        #expect(read.first?.text?.utf8.count == calls[1]["bytes"]?.intValue)
+        // A command carries its line and exit status beside its output.
+        #expect(calls[2]["command"] == .string("echo hello") && calls[2]["exitStatus"] == .int(0))
+        #expect(calls[2]["output"]?.stringValue?.contains("hello") == true)
+        // The receipt is unchanged beside it.
+        let receipt = result.structuredContent?.objectValue?["receipt"]?.objectValue
+        #expect(receipt?["tools"]?.arrayValue?.count == 3)
+        // Unknown ids, other threads, and malformed URIs are protocol errors.
+        await #expect(throws: MCPError.self) {
+            _ = try await pair.client.readResource(uri: "wisp://output/calls/0123456789abcdef")
+        }
+        await #expect(throws: MCPError.self) {
+            _ = try await pair.client.readResource(uri: "wisp://output/other/\(id)")
+        }
+        await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://output/calls") }
+        await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://output/calls/NOPE") }
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func withTheAuditOffLargeOutputHasNoReference() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-wire-noaudit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "f.txt")
+        try Data(String(repeating: "word ", count: 100).utf8).write(to: file)
+        let pair = try await connected(
+            steps: [.call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("done")],
+            config: #"{"audit":{"enabled":false},"inlineOutputBytes":100}"#)
+        let result = try await call(pair.client, "respond", ["prompt": .string("read"), "thread_id": .string("n")])
+        let first = result.structuredContent?.objectValue?["calls"]?.arrayValue?.first?.objectValue
+        #expect(first?["output"] == nil && first?["outputURI"] == nil && (first?["bytes"]?.intValue ?? 0) > 100)
         await pair.client.disconnect()
         await pair.server.stop()
     }

@@ -17,6 +17,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var commandMaxOutputBytes: Int?
     /// Live MCP conversation threads kept before eviction.
     public var maxThreads: Int?
+    /// The largest tool output an MCP `respond` result carries inline; larger output is a reference.
+    public var inlineOutputBytes: Int?
     /// What `run_command` may execute and how it is confined.
     public var commandPolicy: CommandPolicy?
     /// Audit log settings.
@@ -202,8 +204,9 @@ public struct Config: Codable, Equatable, Sendable {
         commandMaxOutputBytes: Int? = nil, maxThreads: Int? = nil, commandPolicy: CommandPolicy? = nil,
         audit: AuditConfig? = nil, approval: ApprovalConfig? = nil, ollama: OllamaConfig? = nil,
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
-        tools: ToolsConfig? = nil, routing: RoutingConfig? = nil
+        tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil
     ) {
+        self.inlineOutputBytes = inlineOutputBytes
         self.tools = tools
         self.routing = routing
         self.systemPromptExtension = systemPromptExtension
@@ -253,6 +256,7 @@ public struct Config: Codable, Equatable, Sendable {
                 policy: commandPolicy ?? .default
             ),
             maxThreads: maxThreads ?? 32,
+            inlineOutputBytes: max(0, inlineOutputBytes ?? 1024),
             auditEnabled: audit?.enabled ?? true,
             auditLimits: FileAuditSink.Limits(
                 maxFileBytes: audit?.maxFileBytes ?? 10 * 1024 * 1024, keepFiles: audit?.keepFiles ?? 5),
@@ -288,6 +292,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var runner: CommandRunner.Options
         /// Live MCP threads kept before eviction.
         public var maxThreads: Int
+        /// The largest tool output an MCP `respond` result carries inline, in bytes.
+        public var inlineOutputBytes: Int
         /// Whether the audit log is written.
         public var auditEnabled: Bool
         /// Rotation limits for the audit file.

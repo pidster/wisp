@@ -47,7 +47,7 @@ Both are generated from the live registry, so they cannot drift from what the mo
 
 ## Inspecting wisp
 
-Five more resources and one template let a client read wisp's own state without spending a model turn
+Five more resources and two templates let a client read wisp's own state without spending a model turn
 ([ADR 0018](decisions/0018-introspection.md)). They are read-only and show the same views as the model's
 [`inspect`](tools/inspect.md) tool and `wisp config`.
 
@@ -59,8 +59,10 @@ Five more resources and one template let a client read wisp's own state without 
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
 | `wisp://audit/{session}` | JSON Lines: every event of one session or thread id (a `respond` `thread_id`), for reconstructing what a delegated task did. Listed as a resource template. |
+| `wisp://output/{thread_id}/{id}` | Plain text: one tool call's output in a thread, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). Listed as a resource template. |
 
-The audit resources read the audit file, so they are empty when `audit.enabled` is false. Reading them is
+The audit and output resources read the audit file, so they are empty (and an output reference is not
+given) when `audit.enabled` is false. Reading them is
 not itself audited (the model's `inspect` calls are, as tool calls).
 `wisp tools --json` and `wisp tools --markdown` print the same text on the command line. The `respond`
 tool description points at `wisp://tools`.
@@ -91,7 +93,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "output": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "output": null }
 ```
 
 `output` is the reply parsed as JSON when the call gave a `schema`, and null otherwise.
@@ -130,6 +132,35 @@ delegated work without reading the log ([ADR 0021](decisions/0021-receipts.md)):
 
 Lists hold at most 64 entries each. Token usage is not reported yet: the framework does not expose it
 for Apple's models, and wisp does not record what local runtimes report (`docs/backlog.md`).
+
+`calls` lists each tool call of the turn with what it produced, so a caller can check the reply against
+the real output rather than the model's account of it (decision D9 of the
+[layered-context proposal](proposals/2026-09-29-layered-context.md)). Output up to `inlineOutputBytes`
+(1,024 bytes by default, a [setting](wisp.md)) is inline; larger output is a reference the caller reads
+only if it wants to spend its own context on it:
+
+```json
+[
+  { "id": "3f9c0a1b2c3d4e5f", "tool": "run_command", "arguments": "{\"command\":\"git status --short\"}",
+    "command": "git status --short", "exitStatus": 0, "bytes": 58, "output": "exit status: 0\nstdout:\n M docs/mcp.md\n" },
+  { "id": "8a7b6c5d4e3f2a1b", "tool": "read_file", "arguments": "{\"path\":\"docs/mcp.md\"}", "bytes": 3981,
+    "outputURI": "wisp://output/git/8a7b6c5d4e3f2a1b" }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | The id of the `tool.result` audit event that holds the output; null when the tool threw. The thread's store keeps the same reference for the output ([logging.md](logging.md)). |
+| `tool`, `arguments` | The tool and the model's arguments JSON. |
+| `command`, `exitStatus` | For `run_command`: the command line and, when it ran, its exit status. A command the policy or the gate turned away has no `exitStatus`; its output is the refusal. |
+| `bytes` | The output's size in UTF-8 bytes. |
+| `output` | The output verbatim, when `bytes` is at most `inlineOutputBytes`. |
+| `outputURI` | Otherwise, `wisp://output/{thread_id}/{id}`: `resources/read` returns the output verbatim, from the audit log. Absent when `audit.enabled` is false, since there is no log to serve it from. |
+| `error` | The error, when the tool threw. |
+
+The output is what the tool returned to the model: `run_command`'s rendering of the exit status and the
+tail of each stream, `read_file`'s numbered page, each already bounded by the tool. The list holds at most
+64 calls. `receipt` is unchanged beside it.
 
 `condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
@@ -211,7 +242,7 @@ sequenceDiagram
         run->>model: error: denied, or not approved
     end
     model->>server: reply
-    server->>client: reply text, with thread_id, refusals, and receipt
+    server->>client: reply text, with thread_id, refusals, receipt, and calls
 ```
 
 ### `triage`

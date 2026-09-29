@@ -18,6 +18,15 @@ Changed:
 
 Added:
 
+- MCP `respond` results list the turn's tool calls in `structuredContent.calls`: each call's tool,
+  arguments, command and exit status, and output size, with the output itself inline when it is at most
+  1 KiB, and otherwise a `wisp://output/{thread_id}/{id}` reference. Read that resource template for the
+  output verbatim, from the audit log. The output is what the tool returned, not the model's account of
+  it. The new `inlineOutputBytes` setting changes the threshold.
+- In a long conversation, a reply that retyped a tool's output (a file shown in full, a table of a
+  command's results) is sent to the model on later turns as a short note such as "(showed the person the
+  read_file output, entry 7)", saving the window for what matters. What you see is unchanged. Each cut is
+  audited as `context.cut`; `/inspect context` shows the note.
 - `/save` writes a second file beside a saved transcript, `transcripts/<name>.store`, holding the links from
   each conversation entry (dropped ones too) to the audit events that recorded it. `--resume` reads it, so a
   resumed conversation stays connected to the log, and `session.start` gains `carriedFrom`, the sessions it

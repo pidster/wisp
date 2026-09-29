@@ -247,12 +247,17 @@ public final class ReceiptCollector: AuditSink, Sendable {
 
     /// The receipt for `turn`, and forgets that turn and earlier ones.
     public func take(turn: Int) -> Receipt {
-        let kept = events.withLock { all in
+        Receipt(events: takeEvents(turn: turn), turn: turn)
+    }
+
+    /// The events of `turn`, in the order they were written, for folding more than a receipt from them
+    /// (`TurnCalls`); forgets that turn and earlier ones.
+    public func takeEvents(turn: Int) -> [AuditEvent] {
+        events.withLock { all in
             let mine = all.filter { $0.turn == turn }
             all.removeAll { ($0.turn ?? 0) <= turn }
             return mine
         }
-        return Receipt(events: kept, turn: turn)
     }
 }
 
