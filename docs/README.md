@@ -66,6 +66,7 @@
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
 | [decisions/](decisions/) | Architecture Decision Records, one per significant decision |
 | [proposals/2026-09-22-tui-spike.md](proposals/2026-09-22-tui-spike.md) | Spike: a ratatui front end over a headless `wisp chat --json`; what was built, what was answered, what needs a real terminal |
+| [proposals/2026-09-29-layered-context.md](proposals/2026-09-29-layered-context.md) | For review: stored, active, and shown views of a conversation; a context composed for each request from literal turns, a summary, facts, and recall; display decoupled from context by output handling |
 | [proposals/2026-09-20-escalations.md](proposals/2026-09-20-escalations.md) | For review: two escalation verbs (approval, inquiry) and a choice of channels, including a non-blocking hand-off to the calling agent |
 | [reviews/](reviews/) | Dated code and documentation reviews with their todo lists and status |
 
