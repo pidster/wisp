@@ -136,14 +136,21 @@ public struct SystemInfo: Sendable {
         return Self.ports(try await run("/usr/sbin/lsof -nP -iTCP -sTCP:LISTEN -F pcPnT"), port: nil)
     }
 
+    /// The `folderSizes` report for `path`, the home folder when it is nil or blank: models that fill every
+    /// argument send `""` for "no folder". `du` exits 1 when it could not read some folders (privacy
+    /// protection, the sandbox) and still prints the rest, so the report says the sizes may be low.
     private func diskUsage(_ path: String?) async throws -> String {
-        let folder = Self.expand(path ?? "~", home: home)
+        let named = path?.trimmingCharacters(in: .whitespaces) ?? ""
+        let folder = Self.expand(named.isEmpty ? "~" : named, home: home)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw Failure.badPath(folder)
         }
-        return Self.diskUsage(
-            try await run("/usr/bin/du -x -k -d 1 \(Self.quoted(folder)) 2>/dev/null"), folder: folder)
+        let result = try await probe("/usr/bin/du -x -k -d 1 \(Self.quoted(folder)) 2>/dev/null")
+        let report = Self.diskUsage(
+            result.timedOut ? result.output + "\n(timed out; partial)" : result.output, folder: folder)
+        guard !result.timedOut, result.exitStatus != 0 else { return report }
+        return report + "\n(some folders could not be read, so sizes may be low)"
     }
 
     private func process(_ target: String?) async throws -> String {

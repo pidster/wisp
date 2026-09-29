@@ -13,7 +13,7 @@ through `libproc`), parses them, and returns a short table. Decided in
 | `topic` | enum | yes | `ports`, `freeSpace`, `folderSizes`, `processes`, `memory`, `process`, `battery`, `system`, `network`. |
 | `port` | integer | no | For `ports`: the port asked about; without it, every listening TCP socket. |
 | `process` | string | yes | For `process`: the app or process name (matched case-insensitively) or its id; empty for other topics. Required so the model does not leave the name out. |
-| `path` | string | no | For `folderSizes`: the folder; `~` expands; default the home directory. |
+| `path` | string | no | For `folderSizes`: the folder; `~` expands; the home directory when absent or blank. |
 
 ## What each topic reads
 
@@ -21,7 +21,7 @@ through `libproc`), parses them, and returns a short table. Decided in
 | --- | --- | --- |
 | `ports` | `lsof -nP -iTCP -sTCP:LISTEN`, or `lsof -nP -i :<port>` | command, pid, protocol, address, state |
 | `freeSpace` | `df -k -l` | `/`, `/System/Volumes/Data`, and `/Volumes/*`: size, used, free, capacity |
-| `folderSizes` | `du -x -k -d 1 <path>` | the folder's total and its 15 largest items |
+| `folderSizes` | `du -x -k -d 1 <path>` | the folder's total and its 15 largest items; when `du` could not read some folders (privacy protection, the sandbox) the report says the sizes may be low |
 | `processes` | `libproc`, sampled over 0.5 s | your 15 busiest processes by CPU: pid, CPU%, memory share, resident size, elapsed, name |
 | `memory` | `hw.memsize`, `memory_pressure -Q`, `libproc` | installed memory, the free percentage, your 15 largest processes |
 | `process` | `libproc`, `KERN_PROCARGS2`, `lsof -p` | matching processes; for a single match its command line (secrets redacted) and listening ports |

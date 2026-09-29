@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- `system_info`'s folder sizes treat a blank `path` as the home folder, as an absent one already was;
+  `granite4.1:8b` sent `""` and was refused. When `du` cannot read some folders, the report now says the
+  sizes may be low instead of presenting a partial total as the whole.
+
 ## 0.14.1
 
 Changed:

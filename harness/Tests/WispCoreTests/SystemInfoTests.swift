@@ -8,13 +8,17 @@ import Testing
     /// Canned output per command line, and the lines asked for.
     final class Commands: Sendable {
         let outputs: [String: String]
+        let statuses: [String: Int32]
         let asked = Mutex<[String]>([])
-        init(_ outputs: [String: String]) { self.outputs = outputs }
+        init(_ outputs: [String: String], statuses: [String: Int32] = [:]) {
+            self.outputs = outputs
+            self.statuses = statuses
+        }
 
         var probe: SystemInfo.Probe {
             { line in
                 self.asked.withLock { $0.append(line) }
-                return (self.outputs[line] ?? "", 0, false)
+                return (self.outputs[line] ?? "", self.statuses[line] ?? 0, false)
             }
         }
     }
@@ -82,6 +86,14 @@ import Testing
         await #expect(throws: SystemInfo.Failure.badPath("/nope")) {
             try await info(commands).report(.folderSizes, path: "/nope")
         }
+        #expect(!usage.contains("may be low"))
+        // A blank path is the home folder; du that could not read some folders says the sizes may be low.
+        let line = "/usr/bin/du -x -k -d 1 '\(dir.path)' 2>/dev/null"
+        let blank = try await info(Commands([line: du], statuses: [line: 1]), home: dir.path).report(
+            .folderSizes, path: " ")
+        #expect(
+            blank.hasPrefix("\(dir.path): 4.0 GB")
+                && blank.hasSuffix("(some folders could not be read, so sizes may be low)"))
         #expect(SystemInfo.diskUsage("", folder: "/x") == "nothing readable in /x")
         #expect(SystemInfo.disk("header only") == "no local volumes reported")
     }
