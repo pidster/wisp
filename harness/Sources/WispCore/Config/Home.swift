@@ -39,7 +39,7 @@ public struct Home: Sendable, Equatable {
 
     /// Where saved conversation transcripts go.
     public var transcripts: URL { root.appending(path: "transcripts", directoryHint: .isDirectory) }
-    /// Where the exact context a model saw is saved: by `/context`, and before and after each condensation.
+    /// Where the exact context a model saw is saved: by `/inspect context`, and before and after each condensation.
     public var contexts: URL { root.appending(path: "context", directoryHint: .isDirectory) }
 
     /// Creates the directory tree if it does not exist.

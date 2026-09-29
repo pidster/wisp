@@ -99,7 +99,7 @@ in turn 1, then asked the model to read and summarise six of these docs, about 1
 - Four turns of that size keep the transcript near the 85% budget, so from then on it condensed before
   almost every turn, a turn at a time.
 
-To see this for yourself, `/context` in chat saves the exact context the next request carries:
+To see this for yourself, `/inspect context` in chat saves the exact context the next request carries:
 instructions, prompts, tool calls, tool output, and replies. It writes Markdown to read and JSON to
 rebuild a session from, in `~/.wisp/context/`. Every condensation also saves the transcript before and
 after it, and names both files in its `context.condensation` event (`savedBefore`, `savedAfter`), so

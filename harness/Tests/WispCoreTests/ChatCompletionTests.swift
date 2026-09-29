@@ -13,7 +13,8 @@ import Testing
     }
 
     @Test func commandsSettingsAndValuesComplete() {
-        #expect(complete("/con") == .init(from: 0, candidates: ["/config", "/context"]))
+        #expect(complete("/con") == .init(from: 0, candidates: ["/config"]))
+        #expect(complete("/inspect con").candidates == ["config", "context"])
         #expect(complete("/m").candidates == ["/model", "/models"])
         #expect(complete("/config s") == .init(from: 8, candidates: ["set", "show"]))
         #expect(

@@ -59,13 +59,13 @@ import WispTestSupport
         let agent = Agent(
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("noted")])))
-        let unsaved = Capture(lines: ["/context", "quit"])
+        let unsaved = Capture(lines: ["/inspect context", "quit"])
         var loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: unsaved.io)
         try await loop.run()
         #expect(unsaved.noted.contains("the context is not saved here: audit.enabled is false"))
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "c")
-        let saved = Capture(lines: ["remember BLUE HERON", "/context", "quit"])
+        let saved = Capture(lines: ["remember BLUE HERON", "/inspect context", "quit"])
         loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: saved.io)
         try await loop.run()
@@ -73,7 +73,8 @@ import WispTestSupport
         #expect(note.contains("c-turn1.md") && note.contains("1 turns"), "\(saved.noted)")
         let file = dir.appending(path: "context/c-turn1.md")
         #expect(try String(contentsOf: file, encoding: .utf8).contains("remember BLUE HERON"))
-        #expect(ChatInput(line: "/context") == .context)
+        #expect(ChatInput(line: "/inspect context") == .context && ChatInput(line: "/inspect Context") == .context)
+        #expect(ChatInput(line: "/context") == .unknown("context"))
     }
 
     @Test func commandsMessagesAndTheExitSaveOverAScriptedModel() async throws {

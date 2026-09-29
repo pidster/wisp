@@ -14,13 +14,13 @@ public enum ChatCompletion {
 
     /// The slash commands, as typed.
     public static let commands = [
-        "/help", "/tools", "/tokens", "/context", "/status", "/approvals", "/audit", "/last", "/models", "/model",
+        "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/models", "/model",
         "/stats",
         "/history", "/config", "/save", "/new", "/quit", "/exit",
     ]
 
     /// What `/inspect`, kept as an alias, shows.
-    static let views = ["config", "status", "approvals", "audit"]
+    static let views = ["config", "status", "approvals", "audit", "context"]
 
     /// The candidates for the word at `cursor` (a character index, the end by default) in `text`.
     ///

@@ -2,7 +2,7 @@ import Foundation
 import FoundationModels
 
 /// Saves the exact context a model sees: a transcript as JSON, which a session can be rebuilt from, and
-/// as Markdown a person can read, each entry under a heading in order. `/context` in chat saves the
+/// as Markdown a person can read, each entry under a heading in order. `/inspect context` in chat saves the
 /// transcript the next request will carry, and `Agent` saves the transcript before and after every
 /// condensation, so what was dropped can be seen, not guessed
 /// ([context-management.md](../../../../docs/context-management.md)).
