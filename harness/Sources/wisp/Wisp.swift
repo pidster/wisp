@@ -265,8 +265,9 @@ extension Wisp {
 struct Mcp: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Serve wisp's tools to an MCP client over stdio.",
-        discussion: "Exposes 'respond' (run a task on the model, on a named thread) and 'close_thread', and the "
-            + "resources wisp://tools and wisp://tools.md. Stdout carries the protocol; diagnostics go to stderr.")
+        discussion: "Exposes 'respond' (run a task on the model, on a named thread), the condensing tools, and "
+            + "'close_thread', with resources for wisp's tools, config, status, approvals, measurements, and audit "
+            + "(docs/mcp.md). Stdout carries the protocol; diagnostics go to stderr.")
 
     @OptionGroup var options: SessionOptions
 
@@ -808,10 +809,16 @@ struct Scan: AsyncParsableCommand {
     @Argument(help: "Files to scan. Standard input when omitted.")
     var paths: [String] = []
 
-    @Flag(name: .long, help: "Report personal data too: emails, phone and card numbers, public IPs, user names.")
+    @Flag(
+        name: .long,
+        help: ArgumentHelp(
+            "Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, "
+                + "user names, and lines the personal-data classifier flags."))
     var personal = false
 
-    @Flag(name: .long, help: "Also have the model look for what rules cannot recognise. About 2 s per 4 KiB.")
+    @Flag(
+        name: .long,
+        help: "Also have the model look for what rules cannot recognise: up to three turns of about 2 s per 4 KiB.")
     var thorough = false
 
     @Option(
@@ -858,7 +865,9 @@ struct Redact: AsyncParsableCommand {
     @Flag(name: .long, help: "Replace credentials only and keep personal data.")
     var secretsOnly = false
 
-    @Flag(name: .long, help: "Also have the model find names, addresses, and identifiers. About 2 s per 4 KiB.")
+    @Flag(
+        name: .long,
+        help: "Also have the model find names, addresses, and identifiers: up to three turns of about 2 s per 4 KiB.")
     var thorough = false
 
     @Option(
@@ -1456,7 +1465,7 @@ struct ClassifierCommand: AsyncParsableCommand {
         var validation: String?
 
         @Option(name: .long, help: "For personal: the version to give it, one more than the embedded one.")
-        var version: String?
+        var classifierVersion: String?
 
         func run() async throws {
             switch task {
@@ -1468,8 +1477,8 @@ struct ClassifierCommand: AsyncParsableCommand {
 
         /// Trains the personal-data classifier into `resource`.
         private func shipPersonal() throws {
-            guard let examples, let validation, let version else {
-                throw ValidationError("--task personal needs --examples, --validation, and --version")
+            guard let examples, let validation, let version = classifierVersion else {
+                throw ValidationError("--task personal needs --examples, --validation, and --classifier-version")
             }
             let lines = TrainingSplit.parse(try String(contentsOfFile: examples, encoding: .utf8))
             let held = TrainingSplit.parse(try String(contentsOfFile: validation, encoding: .utf8))

@@ -42,7 +42,8 @@ validation set stops the hold-back, so all 527 training lines train. The disagre
   metadata under the risk classifier's keys and checked at load.
 - **The file is the classifier.** `Resources/personal-default.json` embeds the manifest and the model
   (1.5 MB, 2 MB in base64), as the risk default is embedded. `wisp classifier ship --task personal
-  --examples training/secrets/train.tsv --validation training/secrets/dev.tsv --version <n>` writes it.
+  --examples training/secrets/train.tsv --validation training/secrets/dev.tsv --classifier-version <n>`
+  writes it.
   It runs only when the personal training set changes, and never at a version bump: `scripts/check
   classifier-default` ships only risk. A new file is measured on test before it replaces the old one, and
   its version goes up by one. It is reproducible as a file, not from its examples.

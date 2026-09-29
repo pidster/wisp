@@ -101,6 +101,7 @@ import Testing
         let one = await tool.show("audit git")
         #expect(one.components(separatedBy: "\n").count == 2 && !one.contains("c1"), "\(one)")
         #expect(await tool.show("audit nobody") == "no matching audit events")
+        #expect(await tool.show("status").hasPrefix("{"))
         let empty = InspectTool(
             introspection: Introspection(home: Home(root: home.root.appending(path: "none")), config: Config().resolved)
         )

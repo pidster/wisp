@@ -12,7 +12,7 @@ check the labels against them. Two classifiers are built into the binary:
 
   ```
   wisp classifier ship --task personal --examples training/secrets/train.tsv \
-      --validation training/secrets/dev.tsv --version <n> \
+      --validation training/secrets/dev.tsv --classifier-version <n> \
       --resource harness/Sources/WispCore/Resources/personal-default.json
   ```
 
@@ -36,7 +36,9 @@ share an example exactly, after normalising, by family, or by near match. No ove
 `wisp classifier baseline --task risk|failures|log-severity|secrets --examples <file>` prints the label
 today's rules give each line (the risk rules, `none` where no rule matches; `KnownFailures` for
 failures; `LogDigest`'s keywords for log severity; `SecretScanner` for secrets, the most severe
-category it finds), so a trained classifier can be compared with what it would replace.
+category it finds, and with `--classifier` the personal-data classifier on lines the rules leave), so a
+trained classifier can be compared with what it would replace. For risk, `--reasons` adds the matching
+rules' reasons.
 
 | Task | train | dev | test | Labels |
 | --- | --- | --- | --- | --- |

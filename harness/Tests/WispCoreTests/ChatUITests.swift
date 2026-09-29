@@ -97,6 +97,20 @@ import WispTestSupport
         #expect(event(.approvalDecided, ["decision": "cached"]) == "  · allowed by your approval for this session")
         #expect(event(.approvalDecided, ["decision": "timed-out"]) == "  · no answer in time, denied")
         #expect(event(.approvalDecided, ["decision": "denied"]) == "  · denied")
+        #expect(
+            event(.approvalDecided, ["decision": "cached-project"]) == "  · allowed by your approval for this project")
+        #expect(
+            event(.approvalDecided, ["decision": "cached-turn"]) == "  · allowed: approved once earlier in this turn")
+        #expect(event(.approvalDecided, ["decision": "something-new"]) == "  · something-new")
+        #expect(
+            ChatEvents.progress(
+                AuditEvent(
+                    session: "s", kind: .approvalRequested, details: ["command": "git push", "level": "dangerous"]))
+                == "waiting for approval [dangerous]: git push")
+        #expect(
+            ChatEvents.progress(AuditEvent(session: "s", kind: .approvalDecided, details: ["decision": "denied"]))
+                == "· denied")
+        #expect(ChatEvents.progress(AuditEvent(session: "s", kind: .prompt, details: [:])) == nil)
         #expect(event(.policyDecision, ["verdict": "allowed"]) == nil)
         #expect(
             event(.policyDecision, ["verdict": "denied", "reason": "matches deny rule"])
@@ -130,6 +144,8 @@ import WispTestSupport
         activity.apply(event(.prompt), at: start.addingTimeInterval(6))
         #expect(activity.current?.doing == "waiting for your approval")
         activity.apply(event(.commandOutcome), at: start.addingTimeInterval(7))
+        activity.apply(event(.condensation, ["reason": "window"]))
+        #expect(activity.current?.doing == "condensing the context")
         activity.apply(event(.toolCall, ["tool": "read_file", "arguments": #"{"path":"a.md"}"#]))
         #expect(activity.current?.doing == "read_file a.md")
         activity.end()
@@ -137,7 +153,7 @@ import WispTestSupport
             seen.withLock { $0 }
                 == [
                     "waiting for the model", "running git status", "waiting for your approval", "waiting for the model",
-                    "read_file a.md", nil,
+                    "condensing the context", "read_file a.md", nil,
                 ])
         let fresh = ChatActivity.State(doing: "waiting for the model", since: start, turnStarted: start, asking: false)
         #expect(ChatActivity.line(fresh, now: start.addingTimeInterval(3)) == "3 s · waiting for the model")

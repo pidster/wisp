@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import Synchronization
 import Testing
@@ -266,10 +267,65 @@ import Testing
         #expect(!model.flags("build finished in 3.2 s") && !model.flags("   "))
         #expect(PersonalDataClassifier.Contract.preprocess(" a\u{200B}b \t c ") == "ab c")
         #expect(PersonalDataClassifier.Contract.preprocess(String(repeating: "x", count: 900)).count == 500)
+        let corrupt =
+            #"{"manifest":{"task":"personal","version":"1","created":"x","examplesSource":"x","examples":0,"#
+            + #""examplesDigest":"x","perLabel":{}},"model":"bm90IGEgbW9kZWw="}"#
+        guard case .failure(.unreadable) = PersonalDataClassifier.load(corrupt) else {
+            Issue.record("a model that is not one should be reported as unreadable")
+            return
+        }
         guard case .failure(.notEmbedded) = PersonalDataClassifier.load("{}") else {
             Issue.record("an empty resource should be reported as not embedded")
             return
         }
+    }
+
+    @Test func thePersonalDataClassifierTrainsLoadsFromItsResourceAndRefusesAnotherContract() async throws {
+        func lines(_ label: String, _ texts: [String]) -> [TrainingSplit.Example] {
+            texts.map { TrainingSplit.Example(label: label, text: $0) }
+        }
+        let personal = [
+            "Assigned to Tobias Reinholt", "The account holder is Mrs. Philippa Dunmore",
+            "contact Mei Chen about the refund", "customer Aurelio Santangelo called twice",
+            "patient Nadia Okafor, room 12", "signed by Declan Rourke",
+        ]
+        let other = [
+            "build finished in 3.2 s", "3 tests failed in ParserTests", "GET /health 200 4ms",
+            "warning: unused variable x", "compiling 42 files", "cache hit ratio 0.93",
+        ]
+        let examples = lines("personal", personal) + lines("none", other) + lines("secret", ["password=hunter22x"])
+        let held = lines("personal", ["owner: Philippa Dunmore"]) + lines("none", ["linking wisp"])
+        let url = FileManager.default.temporaryDirectory.appending(path: "wisp-personal-\(UUID().uuidString).mlmodel")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let manifest = try PersonalDataTraining.train(
+            examples, validation: held, source: "test", writingTo: url, version: "9")
+        #expect(manifest.task == "personal" && manifest.version == "9" && manifest.examples == 13)
+        #expect(manifest.perLabel == ["personal": 6, "other": 7] && manifest.examplesDigest.count == 64)
+        let text = try PersonalDataClassifier.resource(manifest: manifest, model: try Data(contentsOf: url))
+        let loaded = try PersonalDataClassifier.load(text).get()
+        #expect(loaded.reference == "personal@9")
+        #expect(!loaded.flags("build finished in 3.2 s"))
+        #expect(throws: PersonalDataTraining.Failure.oneSided) {
+            try PersonalDataTraining.train(
+                lines("none", other), validation: held, source: "test", writingTo: url, version: "9")
+        }
+        #expect(PersonalDataTraining.label("secret") == "other" && PersonalDataTraining.label("personal") == "personal")
+        // A risk classifier is a Core ML text classifier too, but not this contract.
+        let risk = try #require(ShippedClassifier.current)
+        let riskURL = FileManager.default.temporaryDirectory.appending(path: "wisp-risk-\(UUID().uuidString).mlmodel")
+        defer { try? FileManager.default.removeItem(at: riskURL) }
+        try risk.model.write(to: riskURL)
+        let compiled = try await MLModel.compileModel(at: riskURL)
+        #expect(throws: PersonalDataClassifier.Failure.self) {
+            try PersonalDataClassifier(compiledURL: compiled, version: "x")
+        }
+        #expect(throws: PersonalDataClassifier.Failure.self) {
+            try PersonalDataClassifier(compiledURL: riskURL.appending(path: "missing"), version: "x")
+        }
+        #expect(PersonalDataClassifier.Failure.notEmbedded.description.contains("embeds no"))
+        #expect(PersonalDataClassifier.Failure.wrongContract(found: nil).description.contains("contract 1"))
+        #expect(PersonalDataClassifier.Failure.unreadable("x").description.contains("cannot load"))
+        #expect(PersonalDataTraining.Failure.oneSided.description.contains("both"))
     }
 
     @Test func personalDataScansAddTheClassifiersLinesWhereNothingElseFoundAny() async throws {

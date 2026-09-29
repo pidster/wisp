@@ -197,6 +197,26 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(lines.contains("· denied"), "\(lines)")
         #expect(progress.map(\.progress) == (1...progress.count).map(Double.init))
         #expect(progress.allSatisfy { $0.progressToken == .string("tok") })
+        // A condensing tool relays through its own conversation; one whose capture fails still ends cleanly.
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-wire-progress-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = dir.appending(path: "a.log")
+        try Data("fine\n".utf8).write(to: log)
+        let scanned = try await pair.client.send(
+            CallTool.request(
+                .init(
+                    name: "scan_secrets", arguments: ["path": .string(log.path)],
+                    meta: Metadata(progressToken: .integer(7))))
+        ).value
+        #expect(scanned.isError == false)
+        let failed = try await pair.client.send(
+            CallTool.request(
+                .init(
+                    name: "scan_secrets", arguments: ["path": .string(dir.appending(path: "missing.log").path)],
+                    meta: Metadata(progressToken: .integer(8))))
+        ).value
+        #expect(failed.isError == true)
         // Without a token, nothing is sent.
         received.withLock { $0.removeAll() }
         _ = try await call(pair.client, "respond", ["prompt": .string("again"), "thread_id": .string("q")])
