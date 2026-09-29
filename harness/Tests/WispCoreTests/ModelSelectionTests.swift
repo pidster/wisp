@@ -44,6 +44,21 @@ import Testing
         #expect(ModelSelection.privateCloud.leavesDevice)
     }
 
+    @Test func readWindowKeepsAPositiveReadingAndNeverFails() async {
+        struct Refused: Error {}
+        #expect(await ResolvedModel.readWindow { 32_768 } == 32_768)
+        #expect(await ResolvedModel.readWindow { throw Refused() } == nil)
+        #expect(await ResolvedModel.readWindow { 0 } == nil)
+        // A reading that never comes back, and ignores cancellation, is abandoned at the timeout rather
+        // than hanging resolution: a continuation nobody resumes cannot be cancelled.
+        let started = ContinuousClock.now
+        #expect(
+            await ResolvedModel.readWindow(timeout: .milliseconds(50)) {
+                await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in }
+            } == nil)
+        #expect(ContinuousClock.now - started < .seconds(2))
+    }
+
     @Test func configCarriesTheModel() throws {
         #expect(Config().resolved.model == .system)
         #expect(Config(model: .privateCloud).resolved.model == .privateCloud)

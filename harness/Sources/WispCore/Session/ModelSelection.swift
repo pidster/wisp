@@ -213,13 +213,29 @@ public struct ResolvedModel: Sendable {
         reportedInput = nil
     }
 
+    /// Reads a context window that only an async, throwing call can give, without ever failing resolution.
+    ///
+    /// - Parameters:
+    ///   - timeout: How long to wait for the reading before giving up.
+    ///   - read: The reading, such as Private Cloud Compute's `contextSize`.
+    /// - Returns: The window, or nil when the reading throws, times out, or is not positive.
+    static func readWindow(
+        timeout: Duration = .seconds(5), _ read: @escaping @Sendable () async throws -> Int
+    ) async -> Int? {
+        // `Timeout.run`, not a task group: a group waits for a reading that ignores cancellation, so a
+        // hung framework call would hang resolution with it.
+        let window = try? await Timeout.run(timeout, read)
+        return window.flatMap { $0 > 0 ? $0 : nil }
+    }
+
     /// Wraps Private Cloud Compute, which offers no token counting.
     init(selection: ModelSelection, privateCloud model: PrivateCloudComputeLanguageModel) {
         self.selection = selection
         capabilities = model.capabilities
         capabilitySource = .framework
         asset = nil
-        contextSize = nil  // an async property on this model; learned from the first overflow
+        // An async, throwing property on this model; nil (learned from the first overflow) if it fails.
+        contextSize = (try? Blocking.run { await Self.readWindow { try await model.contextSize } }) ?? nil
         contextNote = nil
         makeFromInstructions = { tools, instructions in
             LanguageModelSession(model: model, tools: tools, instructions: instructions)

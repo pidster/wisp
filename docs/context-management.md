@@ -46,7 +46,7 @@ request used, wisp's executors keep the last request's figure on the model (`Usa
 the agent adds a rough cost for the new prompt (four bytes per token) to that figure. A model that reports no usage but can count its transcript (the on-device model) is
 counted instead. If that reaches `contextBudget` (85%) of a known window, the transcript is condensed to the
 policy's turns first and the condensation is audited with reason `budget`. The window is known when the
-model states it (`SystemLanguageModel.contextSize`; for Ollama, the window wisp sized for the model or the
+model states it (`SystemLanguageModel.contextSize`, or `PrivateCloudComputeLanguageModel.contextSize` read when the model is resolved; for Ollama, the window wisp sized for the model or the
 configured `contextLength`, sent as `num_ctx` so the server's default cannot differ from what it condenses
 against; [ADR 0043](decisions/0043-context-window-from-memory.md)) or once an
 overflow error has reported it. Nothing happens for a window nobody knows.

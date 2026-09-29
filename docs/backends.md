@@ -40,7 +40,10 @@ before asking the framework and refuses with a sentence:
 model 'private-cloud' is unavailable: this binary lacks the com.apple.developer.private-cloud-compute entitlement, …
 ```
 
-`wisp models --all` shows the same line. Until wisp ships as a signed app with the entitlement, the
+`wisp models --all` shows the same line. Once the entitlement is present, resolving the model reads its
+window from `PrivateCloudComputeLanguageModel.contextSize` (an async, throwing property; 32,768 tokens on
+this Mac on 2026-09-29, read without the entitlement in a probe), so `Agent` condenses ahead of it; if
+the read throws or takes over five seconds, the window stays unknown until an overflow reports it. Until wisp ships as a signed app with the entitlement, the
 spelling is accepted for that future and every run of it is refused before any data leaves the Mac.
 
 ## Capabilities are declared, never assumed
