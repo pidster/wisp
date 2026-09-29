@@ -22,6 +22,7 @@ sensitive; it is why it is user-only.
 | Field | Meaning |
 | --- | --- |
 | `schema` | Event schema version, currently 1. |
+| `id` | The event's own id: 16 lowercase hex characters, random. A conversation's store refers to the events that recorded its entries by this id rather than copying their content ([context-management.md](context-management.md), "The store and the composer"). Absent from lines written before ids were added. |
 | `time` | ISO 8601 UTC with milliseconds. |
 | `version` | wisp version that wrote it. |
 | `pid` | Process id, to separate concurrent wisps sharing a file. |
@@ -50,7 +51,7 @@ sensitive; it is why it is user-only.
 | `watch.run` | `command`, `run` (from 1), `trigger` (`start`, `change`, `interval`), `exitStatus`, `timedOut`, `state` (`pass`, `fail`), `previous`, `changed`, `seconds`, `findings` (a count, or null when not triaged), `triageError`, `notified`; one per run of `wisp watch` | `wisp watch` |
 | `notification` | `title`, `body` (both as bounded for display), `source` (`model`, `user`, `watch`), `outcome` (`posted`, `refused`), `reason` when refused; one per request from the `notify` tool or `wisp notify` | `Notifier` |
 | `file.write` | `path`, `mode` (`write`, `append`, `replace`), `created`, `bytesBefore`, `bytesAfter`; recorded after an `edit_file` edit lands, the content being in the `tool.call` arguments | `EditFileTool` |
-| `context.condensation` | `turnsBefore`, `turnsAfter`, `contextSize`, `tokenCount`, `savedBefore` and `savedAfter` (the Markdown files holding the transcript before and after, when `audit.enabled`), `reason` (`overflow`: the model refused the prompt and the retry follows; `budget`: the transcript's size (the last request's reported usage, or the model's own count when it reports none) plus the new prompt would pass `contextBudget` of a known window, so the transcript was condensed first) | `Agent` |
+| `context.condensation` | `turnsBefore`, `turnsAfter`, `contextSize`, `tokenCount`, `savedBefore` and `savedAfter` (the Markdown files holding the transcript before and after, when `audit.enabled`), `reason` (`overflow`: the model refused the prompt and the retry follows; `budget`: the transcript's size (the last request's reported usage, or the model's own count when it reports none) plus the new prompt would pass `contextBudget` of a known window, so the transcript was condensed first); the store marks the entries it dropped with this event's `id` | `Agent` |
 | `mcp.request` | `tool`, `arguments` | `WispServer` |
 | `mcp.result` | `tool`, `isError`, `text`, `seconds` | `WispServer` |
 | `error` | `message`, `context` | anywhere |

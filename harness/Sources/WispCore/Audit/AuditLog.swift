@@ -54,11 +54,16 @@ public final class AuditLog: Sendable {
     @discardableResult
     public func beginTurn() -> Int { turns.advance() }
 
-    /// Records an event in the current turn.
-    public func record(_ kind: AuditEvent.Kind, call: String? = nil, details: [String: JSONValue] = [:]) {
+    /// Records an event in the current turn and returns where it is: its session, turn, and id.
+    @discardableResult
+    public func record(
+        _ kind: AuditEvent.Kind, call: String? = nil, details: [String: JSONValue] = [:]
+    ) -> AuditReference {
         let current = currentTurn
-        sink.write(
-            AuditEvent(session: session, kind: kind, turn: current == 0 ? nil : current, call: call, details: details))
+        let event = AuditEvent(
+            session: session, kind: kind, turn: current == 0 ? nil : current, call: call, details: details)
+        sink.write(event)
+        return AuditReference(event)
     }
 
     /// Records an error with its description.

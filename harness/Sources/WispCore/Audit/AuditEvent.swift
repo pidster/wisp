@@ -6,11 +6,37 @@ public enum WispVersion {
     public static let current = "0.14.1"
 }
 
+/// Where one audit event is: its session and turn, to narrow a search of the audit files, and its id.
+/// A conversation's store holds these instead of copies of what the events recorded.
+public struct AuditReference: Codable, Hashable, Sendable {
+    /// The event's session.
+    public var session: String
+    /// The event's turn, where it has one.
+    public var turn: Int?
+    /// The event's id (`AuditEvent.id`).
+    public var event: String
+
+    /// Creates a reference.
+    public init(session: String, turn: Int?, event: String) {
+        self.session = session
+        self.turn = turn
+        self.event = event
+    }
+
+    /// A reference to `event`; an event read from a line without an id refers to nothing and gets an
+    /// empty one.
+    public init(_ event: AuditEvent) {
+        self.init(session: event.session, turn: event.turn, event: event.id ?? "")
+    }
+}
+
 /// One line of the audit log.
 ///
 /// Every event carries enough identity to reconstruct an interaction: the
 /// session (a CLI run, a chat, or an MCP thread), the turn within it, and for
-/// tool activity the call id that pairs a call with its result.
+/// tool activity the call id that pairs a call with its result. Each event also
+/// has its own id, which a conversation's store refers to instead of copying the
+/// content (`ConversationStore`; the audit log stays the one verbatim record).
 public struct AuditEvent: Codable, Equatable, Sendable {
     /// What happened. The string values are the `kind` field in the file.
     public enum Kind: String, Codable, Sendable, CaseIterable {
@@ -45,6 +71,10 @@ public struct AuditEvent: Codable, Equatable, Sendable {
 
     /// Schema version this event was written with.
     public var schema: Int
+    /// This event's own id: 16 lowercase hex characters, random, so a reference to it stays valid
+    /// across rotation, processes, and sessions that reuse a name (an MCP `thread_id`). Nil only in lines
+    /// written by versions before event ids, which had none.
+    public var id: String?
     /// When the event was recorded.
     public var time: Date
     /// wisp version that wrote it.
@@ -62,12 +92,13 @@ public struct AuditEvent: Codable, Equatable, Sendable {
     /// Kind-specific fields. Names are stable; see `docs/logging.md`.
     public var details: [String: JSONValue]
 
-    /// Creates an event stamped with the current time, version, and pid.
+    /// Creates an event stamped with a fresh id, the current time, version, and pid.
     public init(
         session: String, kind: Kind, turn: Int? = nil, call: String? = nil, details: [String: JSONValue] = [:],
         time: Date = Date()
     ) {
         schema = Self.schemaVersion
+        id = Self.makeID()
         self.time = time
         version = WispVersion.current
         pid = ProcessInfo.processInfo.processIdentifier
@@ -76,6 +107,12 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         self.call = call
         self.kind = kind
         self.details = details
+    }
+
+    /// A fresh event id: the first 16 hex characters of a random UUID, lowercased; 60 random bits, so
+    /// ids do not collide across the audit files wisp keeps.
+    static func makeID() -> String {
+        String(UUID().uuidString.filter { $0 != "-" }.prefix(16)).lowercased()
     }
 
     /// A one-line human summary used by `wisp logs`.

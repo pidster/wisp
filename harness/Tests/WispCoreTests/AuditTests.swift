@@ -11,7 +11,8 @@ import Testing
         let line = String(decoding: try AuditEvent.encoder.encode(event), as: UTF8.self)
         #expect(
             line.hasPrefix(
-                "{\"call\":\"c1\",\"details\":{\"n\":3,\"ok\":true,\"tool\":\"run_command\"},\"kind\":\"tool.call\""))
+                "{\"call\":\"c1\",\"details\":{\"n\":3,\"ok\":true,\"tool\":\"run_command\"},\"id\":\"\(event.id ?? "")\",\"kind\":\"tool.call\""
+            ))
         #expect(line.contains("\"time\":\"2023-11-14T22:13:20.500Z\""))
         #expect(!line.contains("\n"))
         let decoded = try AuditEvent.decoder.decode(AuditEvent.self, from: Data(line.utf8))

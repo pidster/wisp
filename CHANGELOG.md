@@ -21,6 +21,8 @@ Added:
 - `/inspect context` in chat saves the exact context the model will see next: instructions, prompts, tool
   calls, tool output, and replies, as Markdown and JSON in `~/.wisp/context/`. Every condensation also
   saves the context before and after it, so you can read exactly which turns were dropped.
+- Every audit event has an `id`, so a record of the conversation can point to the exact event that holds
+  a prompt, a reply, or a tool's output (`docs/logging.md`).
 
 Fixed:
 
