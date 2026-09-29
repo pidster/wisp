@@ -18,25 +18,50 @@ extension Transcript {
     /// calls and outputs stay with the prompt that caused them. Entries before
     /// the first prompt other than instructions are dropped.
     public func condensed(keepTurns: Int) -> Transcript {
-        precondition(keepTurns >= 0, "keepTurns must not be negative")
-        var kept: [Entry] = []
-        if let first = self.first, case .instructions = first {
-            kept.append(first)
-        }
-        var turns: [[Entry]] = []
-        for entry in self {
+        let entries = Array(self)
+        return Transcript(entries: Self.kept(entries.map(Kind.init), keepTurns: keepTurns).map { entries[$0] })
+    }
+
+    /// What condensing needs to know of an entry.
+    enum Kind: Equatable {
+        /// An `.instructions` entry.
+        case instructions
+        /// A `.prompt` entry, which starts a turn.
+        case prompt
+        /// Anything else, which belongs to the turn before it.
+        case other
+
+        /// The kind of `entry`.
+        init(_ entry: Entry) {
             switch entry {
+            case .instructions: self = .instructions
+            case .prompt: self = .prompt
+            default: self = .other
+            }
+        }
+    }
+
+    /// The positions `condensed(keepTurns:)` keeps, in order, for entries of these kinds: the first if it is
+    /// instructions, then every non-instructions entry of the last `keepTurns` turns. `ConversationStore`
+    /// condenses through the same function, so the two cannot disagree.
+    static func kept(_ kinds: [Kind], keepTurns: Int) -> [Int] {
+        precondition(keepTurns >= 0, "keepTurns must not be negative")
+        var kept: [Int] = []
+        if kinds.first == .instructions { kept.append(0) }
+        var turns: [[Int]] = []
+        for (position, kind) in kinds.enumerated() {
+            switch kind {
             case .instructions:
                 continue
             case .prompt:
-                turns.append([entry])
-            default:
+                turns.append([position])
+            case .other:
                 if turns.isEmpty { continue }
-                turns[turns.count - 1].append(entry)
+                turns[turns.count - 1].append(position)
             }
         }
         kept.append(contentsOf: turns.suffix(keepTurns).flatMap { $0 })
-        return Transcript(entries: kept)
+        return kept
     }
 
     /// Number of turns, counted as prompt entries.
