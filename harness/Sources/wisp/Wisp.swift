@@ -400,6 +400,9 @@ struct Chat: AsyncParsableCommand {
                     Self.freshLine()
                     let text = status.rendered(style: style) + "\n" + style.prompt("›") + " "
                     FileHandle.standardError.write(Data(text.utf8))
+                },
+                turn: { mark in
+                    if let footer = mark.footer(style: style) { Self.note(footer) }
                 }))
         try await loop.run()
     }

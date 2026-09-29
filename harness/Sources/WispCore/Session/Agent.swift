@@ -137,6 +137,13 @@ public final class Agent {
     /// serve: it accumulates across requests.
     public var lastInputTokens: Int { model.reportedInputTokens() ?? 0 }
 
+    /// The session's running token totals, in and out, as the framework counts them across requests;
+    /// zero for a model that does not report. `ChatLoop` takes the difference across a turn.
+    public var tokensUsed: TurnTokens {
+        let usage = session.usage
+        return TurnTokens(input: usage.input.totalTokenCount, output: usage.output.totalTokenCount)
+    }
+
     /// Tokens the current transcript occupies: counted by the model when it can, else the runtime's
     /// report for the last request, else nil.
     ///

@@ -114,6 +114,8 @@ pub enum TurnState {
         seconds: f64,
         /// Whether it ended in an error.
         failed: bool,
+        /// Tokens read and written, when the model reports them.
+        tokens: Option<(u64, u64)>,
     },
 }
 
@@ -197,6 +199,7 @@ impl App {
                     TurnState::Ended {
                         seconds: turn.seconds.unwrap_or(0.0),
                         failed: turn.outcome.as_deref() == Some("error"),
+                        tokens: turn.input_tokens.zip(turn.output_tokens),
                     }
                 });
             }
@@ -701,7 +704,11 @@ impl App {
                 spans.push(sep());
                 spans.push(Span::styled(format!("turn {number}…"), palette::wisp()));
             }
-            Some(TurnState::Ended { seconds, failed }) => {
+            Some(TurnState::Ended {
+                seconds,
+                failed,
+                tokens,
+            }) => {
                 spans.push(sep());
                 spans.push(if failed {
                     Span::styled(
@@ -711,6 +718,12 @@ impl App {
                 } else {
                     Span::styled(format!("last turn {seconds:.1} s"), palette::muted())
                 });
+                if let Some((input, output)) = tokens {
+                    spans.push(Span::styled(
+                        format!(", {input} tokens in, {output} out"),
+                        palette::muted(),
+                    ));
+                }
             }
             None => {}
         }
@@ -827,6 +840,8 @@ mod tests {
             number,
             seconds,
             outcome: outcome.map(str::to_string),
+            input_tokens: None,
+            output_tokens: None,
         }
     }
 
@@ -888,7 +903,8 @@ mod tests {
             app.turn,
             Some(TurnState::Ended {
                 seconds: 2.25,
-                failed: false
+                failed: false,
+                tokens: None
             })
         );
         app.handle(Outbound::Turn(turn("end", 4, Some(0.5), Some("error"))));
@@ -896,7 +912,20 @@ mod tests {
             app.turn,
             Some(TurnState::Ended {
                 seconds: 0.5,
-                failed: true
+                failed: true,
+                tokens: None
+            })
+        );
+        let mut counted = turn("end", 5, Some(3.1), Some("ok"));
+        counted.input_tokens = Some(4009);
+        counted.output_tokens = Some(79);
+        app.handle(Outbound::Turn(counted));
+        assert_eq!(
+            app.turn,
+            Some(TurnState::Ended {
+                seconds: 3.1,
+                failed: false,
+                tokens: Some((4009, 79))
             })
         );
     }
@@ -1367,6 +1396,35 @@ mod tests {
         }
         assert_eq!(app.recall.len(), RECALL_LIMIT);
         assert_eq!(app.recall[0], "line 1");
+    }
+
+    #[test]
+    fn the_status_line_names_the_last_turns_tokens_when_the_model_reports_them() {
+        let text = |tokens| {
+            let app = App {
+                status: Some(Status {
+                    model: "system".into(),
+                    directory: "~/x".into(),
+                    branch: None,
+                    dirty: None,
+                    approval: "moderate".into(),
+                    context_used: None,
+                }),
+                turn: Some(TurnState::Ended {
+                    seconds: 3.1,
+                    failed: false,
+                    tokens,
+                }),
+                ..Default::default()
+            };
+            app.status_line()
+                .spans
+                .iter()
+                .map(|span| span.content.to_string())
+                .collect::<String>()
+        };
+        assert!(text(Some((4009, 79))).ends_with("last turn 3.1 s, 4009 tokens in, 79 out"));
+        assert!(text(None).ends_with("last turn 3.1 s"));
     }
 
     #[test]

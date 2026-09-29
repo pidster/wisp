@@ -102,6 +102,16 @@ What a session shows, and where it goes:
 - The model's tool activity as it happens, one dim line per call and result, from the same events the
   audit log records: `⚙ run_command git status`, then `↳ exit 0`; `⚙ read_file README.md`, then
   `↳ 2048 bytes in 0.0 s: 1\t# wisp`. `/last` prints the last tool result whole.
+- What the gate decided for each command, under its call:
+  - its rating: `· safe by rules: a known read-only command (0.2 ms)`, or `(remembered)` when the
+    session reused an earlier verdict;
+  - how it was let through: `· approved (session)`, `· allowed by your approval for this session`, or
+    `· allowed by your standing approval`;
+  - or why it was not: `· denied`, `· no answer in time, denied`, `· blocked by policy: …`.
+  A task routed to a model says so: `· secrets runs on system: …`.
+- Under each reply, how long the turn took and, when the model reports usage, the tokens it read and
+  wrote across the turn's requests: `3.1 s · 4,009 tokens in, 79 out · 25 tokens/s`. `wisp-tui` puts
+  the same figures in its status line.
 - Replies on stdout; everything else (banner, status, prompt, tool lines, notes, approval dialogs) on
   stderr, so `wisp chat > transcript.txt` captures only the replies.
 - Colour when stdout is a terminal, from wisp's palette (`Style.Palette`, shared with `wisp-tui`): one
@@ -177,7 +187,7 @@ Out, to the front end:
 | --- | --- | --- |
 | `note` | `text` | The banner, the help line, and anything chat would say on stderr. |
 | `status` | `model`, `directory`, `branch`, `dirty`, `approval`, `contextUsed` (nulls when unknown) | Before each prompt: the turn is over and input is wanted. |
-| `turn` | `phase`, `turn`, and at the end `seconds` and `outcome` | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). Slash commands are not turns. |
+| `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens` | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. Slash commands are not turns. |
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
 | `event` | `kind`, `call`, `turn`, `details`, `text` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. |

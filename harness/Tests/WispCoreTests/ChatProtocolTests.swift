@@ -148,7 +148,9 @@ import WispTestSupport
         let turns = lines.withLock { $0 }.enumerated().filter { $0.element.contains(#""type":"turn""#) }
         #expect(turns.count == 2)
         #expect(turns.first?.element.contains(#""phase":"start","turn":1"#) == true)
-        #expect(turns.last?.element.contains(#""outcome":"ok","phase":"end""#) == true)
+        #expect(
+            turns.last.map { $0.element.contains(#""outcome":"ok""#) && $0.element.contains(#""phase":"end""#) } == true
+        )
         let deltas = lines.withLock { $0 }.enumerated().filter { $0.element.contains(#""type":"delta""#) }
         #expect(deltas.allSatisfy { $0.offset > turns[0].offset && $0.offset < turns[1].offset })
         #expect(events.allSatisfy { $0.contains(#""turn":1"#) })

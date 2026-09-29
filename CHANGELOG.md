@@ -40,6 +40,12 @@ Added:
   Tab completes the ids. In a terminal, `wisp logs --follow` (`-f`) prints events as they are written,
   and can be narrowed with `--session`, `--kind`, and `--tool`.
 
+- Chat shows what the approval gate decided for each command: its rating and why (`· safe by rules:
+  a known read-only command (0.2 ms)`), and whether a standing approval let it through, you approved
+  it, or it was denied or blocked by policy. Each reply ends with how long the turn took and the tokens
+  it used (`3.1 s · 4,009 tokens in, 79 out · 25 tokens/s`), and `wisp-tui` shows the same in its status
+  line.
+
 Fixed:
 
 - Chat's help said `/audit` shows this session's events; it shows the latest of every session.

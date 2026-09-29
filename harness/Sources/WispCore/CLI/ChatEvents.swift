@@ -33,6 +33,17 @@ public enum ChatEvents {
             return style.muted("  ↳ \(mode) \(path), now \(after) bytes")
         case .error where event.call != nil:
             return style.ember("  ↳ error: \(d["message"]?.stringValue ?? "")")
+        case .classifierVerdict:
+            return verdict(d, style: style)
+        case .approvalDecided:
+            return decision(d, style: style)
+        case .policyDecision where d["verdict"]?.stringValue != "allowed":
+            let reason = d["reason"]?.stringValue.map { ": \($0)" } ?? ""
+            return style.ember("  · blocked by policy\(reason)")
+        case .modelRouted:
+            return style.muted(
+                "  · \(d["task"]?.stringValue ?? "task") runs on \(d["model"]?.stringValue ?? "?"): "
+                    + (d["reason"]?.stringValue ?? ""))
         case .condensation:
             let reason = d["reason"]?.stringValue ?? ""
             return style.muted(
@@ -40,6 +51,40 @@ public enum ChatEvents {
             )
         default:
             return nil
+        }
+    }
+
+    /// The gate's rating of one simple command: `· safe by rules, coreml: a known read-only command
+    /// (0.4 ms)`, naming the command when it is one of several in the line.
+    static func verdict(_ d: [String: JSONValue], style: Style) -> String {
+        let level = d["level"]?.stringValue ?? "?"
+        let sources = d["sources"]?.arrayValue?.compactMap(\.stringValue).joined(separator: ", ") ?? ""
+        let reason = d["reasons"]?.arrayValue?.first?.stringValue ?? ""
+        let milliseconds = (d["seconds"]?.doubleValue ?? 0) * 1000
+        let timing =
+            milliseconds < 10 ? String(format: "%.1f ms", milliseconds) : String(format: "%.0f ms", milliseconds)
+        let cached = d["metadata"]?.objectValue?["classifier.cached"]?.boolValue == true
+        let command = d["line"] == nil ? "" : "\(shortened(d["command"]?.stringValue ?? "")): "
+        let rated = level == "safe" ? style.muted(level) : level == "dangerous" ? style.ember(level) : level
+        return style.muted("  · \(command)") + rated
+            + style.muted(
+                "\(sources.isEmpty ? "" : " by \(sources)")\(reason.isEmpty ? "" : ": \(reason)")"
+                    + " (\(cached ? "remembered" : timing))")
+    }
+
+    /// How a command that needed approval got it, or did not: a standing approval it matched, the
+    /// person's answer, or silence.
+    static func decision(_ d: [String: JSONValue], style: Style) -> String {
+        let scope = d["scope"]?.stringValue
+        switch d["decision"]?.stringValue ?? "" {
+        case "approved": return style.muted("  · approved\(scope.map { " (\($0))" } ?? "")")
+        case "denied": return style.ember("  · denied")
+        case "timed-out": return style.ember("  · no answer in time, denied")
+        case "cached-turn": return style.muted("  · allowed: approved once earlier in this turn")
+        case "cached": return style.muted("  · allowed by your approval for this session")
+        case "cached-project": return style.muted("  · allowed by your approval for this project")
+        case "cached-always": return style.muted("  · allowed by your standing approval")
+        case let other: return style.muted("  · \(other)")
         }
     }
 

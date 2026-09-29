@@ -57,3 +57,13 @@ The two open questions are settled.
   need no version negotiation. `wisp-tui` ships with the wisp of the same version (the release checks
   the two match), so neither side keeps a fallback for the other's older shape. A removal or a changed
   meaning needs a new amendment.
+
+## Amendment, 2026-09-29: the turn's tokens, and the gate's decisions as event text
+
+A `turn` line with `phase` `end` also carries `inputTokens` and `outputTokens` when the model reports
+usage. They are the turn's totals across the requests its tool loop made, taken from the session's
+running usage. `wisp-tui` shows them after the turn's time in its status line.
+
+`classifier.verdict`, `approval.decided`, `policy.decision` (when not allowed), and `model.routed`
+events now carry a rendered `text`. The front end shows them as it shows tool lines, with no change of
+its own. The lines are listed in `docs/wisp.md`.

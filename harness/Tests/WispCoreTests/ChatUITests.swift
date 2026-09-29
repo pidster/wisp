@@ -74,6 +74,51 @@ import WispTestSupport
         #expect(GitState.read(in: dir.path).branch == "01234567")
     }
 
+    @Test func theGatesDecisionsAndRoutingAreShownToo() {
+        func event(_ kind: AuditEvent.Kind, _ details: [String: JSONValue]) -> String? {
+            ChatEvents.render(AuditEvent(session: "s", kind: kind, turn: 1, details: details), style: .plain)
+        }
+        #expect(
+            event(
+                .classifierVerdict,
+                ["level": "safe", "sources": ["rules"], "reasons": ["a known read-only command"], "seconds": 0.0002])
+                == "  · safe by rules: a known read-only command (0.2 ms)")
+        #expect(
+            event(
+                .classifierVerdict,
+                [
+                    "command": "rm -rf build", "line": "make && rm -rf build", "level": "dangerous",
+                    "sources": ["rules", "coreml"], "reasons": ["deletes files"], "seconds": 0.02,
+                    "metadata": ["classifier.cached": true],
+                ]) == "  · rm -rf build: dangerous by rules, coreml: deletes files (remembered)")
+        #expect(event(.classifierVerdict, ["level": "moderate", "seconds": 0.25]) == "  · moderate (250 ms)")
+        #expect(event(.approvalDecided, ["decision": "approved", "scope": "session"]) == "  · approved (session)")
+        #expect(event(.approvalDecided, ["decision": "cached-always"]) == "  · allowed by your standing approval")
+        #expect(event(.approvalDecided, ["decision": "cached"]) == "  · allowed by your approval for this session")
+        #expect(event(.approvalDecided, ["decision": "timed-out"]) == "  · no answer in time, denied")
+        #expect(event(.approvalDecided, ["decision": "denied"]) == "  · denied")
+        #expect(event(.policyDecision, ["verdict": "allowed"]) == nil)
+        #expect(
+            event(.policyDecision, ["verdict": "denied", "reason": "matches deny rule"])
+                == "  · blocked by policy: matches deny rule")
+        #expect(
+            event(.modelRouted, ["task": "secrets", "model": "system", "reason": "the measured default"])
+                == "  · secrets runs on system: the measured default")
+    }
+
+    @Test func aTurnsFooterSaysHowLongItTookAndWhatTokensItUsed() {
+        let tokens = TurnTokens(input: 4009, output: 79)
+        #expect(
+            ChatTurn.end(turn: 1, seconds: 3.16, failed: false, tokens: tokens).footer(style: .plain)
+                == "  3.2 s · 4,009 tokens in, 79 out · 25 tokens/s")
+        #expect(ChatTurn.end(turn: 1, seconds: 0.5, failed: true).footer(style: .plain) == "  failed after 0.5 s")
+        #expect(ChatTurn.start(turn: 1).footer(style: .plain) == nil)
+        #expect(TurnTokens.between(.init(input: 100, output: 10), .init(input: 4109, output: 89)) == tokens)
+        #expect(TurnTokens.between(.init(input: 5, output: 5), .init(input: 5, output: 5)) == nil)
+        #expect(
+            ChatProtocol.turn(.end(turn: 2, seconds: 1, failed: false, tokens: tokens))["inputTokens"] == 4009)
+    }
+
     @Test func eventsRenderAsOneDimLineEach() {
         func event(_ kind: AuditEvent.Kind, call: String? = "c", _ details: [String: JSONValue]) -> AuditEvent {
             AuditEvent(session: "s", kind: kind, turn: 1, call: call, details: details)

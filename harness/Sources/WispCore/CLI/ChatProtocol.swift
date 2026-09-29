@@ -78,13 +78,20 @@ public enum ChatProtocol {
     }
 
     /// The `turn` line's fields: `phase` `start` or `end`, the turn number, and at the end the seconds
-    /// taken and the `outcome`, `ok` or `error`.
+    /// taken, the `outcome`, `ok` or `error`, and `inputTokens` and `outputTokens` when the model reports them.
     public static func turn(_ mark: ChatTurn) -> [String: JSONValue] {
         switch mark {
         case .start(let turn):
-            ["phase": "start", "turn": .int(turn)]
-        case .end(let turn, let seconds, let failed):
-            ["phase": "end", "turn": .int(turn), "seconds": .double(seconds), "outcome": failed ? "error" : "ok"]
+            return ["phase": "start", "turn": .int(turn)]
+        case .end(let turn, let seconds, let failed, let tokens):
+            var fields: [String: JSONValue] = [
+                "phase": "end", "turn": .int(turn), "seconds": .double(seconds), "outcome": failed ? "error" : "ok",
+            ]
+            if let tokens {
+                fields["inputTokens"] = .int(tokens.input)
+                fields["outputTokens"] = .int(tokens.output)
+            }
+            return fields
         }
     }
 

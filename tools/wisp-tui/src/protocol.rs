@@ -79,6 +79,12 @@ pub struct Turn {
     pub seconds: Option<f64>,
     /// At the end, `ok` or `error`.
     pub outcome: Option<String>,
+    /// At the end, the prompt tokens the turn's requests read, when the model reports them.
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: Option<u64>,
+    /// At the end, the tokens the turn wrote, when the model reports them.
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: Option<u64>,
 }
 
 impl Turn {

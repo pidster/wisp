@@ -5,8 +5,44 @@ import FoundationModels
 public enum ChatTurn: Equatable, Sendable {
     /// The message has gone to the model; `turn` is the number its audit events carry.
     case start(turn: Int)
-    /// The reply is complete, or the turn failed with the error noted before this.
-    case end(turn: Int, seconds: Double, failed: Bool)
+    /// The reply is complete, or the turn failed with the error noted before this. `tokens` is what the
+    /// turn's requests used, when the model reports it.
+    case end(turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil)
+
+    /// The line under a reply in the terminal chat: how long the turn took and, when the model reports
+    /// them, the tokens it read and wrote. Nil for a turn's start.
+    public func footer(style: Style) -> String? {
+        guard case .end(_, let seconds, let failed, let tokens) = self else { return nil }
+        var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
+        if let tokens {
+            parts.append("\(tokens.input.formatted()) tokens in, \(tokens.output.formatted()) out")
+            if tokens.output > 0, seconds > 0 {
+                parts.append(String(format: "%.0f tokens/s", Double(tokens.output) / seconds))
+            }
+        }
+        return style.muted("  " + parts.joined(separator: " · "))
+    }
+}
+
+/// The tokens one turn used, across every request its tool loop made.
+public struct TurnTokens: Equatable, Sendable {
+    /// Prompt tokens read, the transcript included each time.
+    public var input: Int
+    /// Tokens written.
+    public var output: Int
+
+    /// Creates a count.
+    public init(input: Int, output: Int) {
+        self.input = input
+        self.output = output
+    }
+
+    /// The difference between two readings of a session's running totals, or nil when the model
+    /// reported nothing.
+    public static func between(_ before: TurnTokens, _ after: TurnTokens) -> TurnTokens? {
+        let used = TurnTokens(input: max(0, after.input - before.input), output: max(0, after.output - before.output))
+        return used.input == 0 && used.output == 0 ? nil : used
+    }
 }
 
 /// The `wisp chat` read-eval-print loop over an agent, with its input and output injected so the
@@ -262,6 +298,7 @@ public struct ChatLoop {
                 // audit events carry.
                 let number = agent.turns.current + 1
                 let started = Date()
+                let before = agent.tokensUsed
                 io.turn(.start(turn: number))
                 var failed = false
                 do {
@@ -272,7 +309,10 @@ public struct ChatLoop {
                     io.print("")
                     io.note(style.ember("error: \(error)"))
                 }
-                io.turn(.end(turn: number, seconds: Date().timeIntervalSince(started), failed: failed))
+                io.turn(
+                    .end(
+                        turn: number, seconds: Date().timeIntervalSince(started), failed: failed,
+                        tokens: .between(before, agent.tokensUsed)))
             }
         }
         if let saveName {
