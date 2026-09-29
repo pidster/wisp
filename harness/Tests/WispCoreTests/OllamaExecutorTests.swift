@@ -137,6 +137,52 @@ final class FakeOllama: URLProtocol {
         #expect(bodies.last?.contains("Z (GMT)") == true)  // TimeZone("UTC") reports itself as GMT
     }
 
+    /// A tool with a required string an Ollama model may leave out, as `system_info`'s `process` is.
+    struct TopicTool: Tool {
+        let name = "topic_tool"
+        let description = "Reports a topic."
+        @Generable struct Arguments {
+            @Guide(description: "The topic.") var topic: String
+            @Guide(description: "For one process: its name. Otherwise empty.") var process: String
+            @Guide(description: "A port, if any.") var port: Int?
+        }
+        func call(arguments: Arguments) async throws -> String {
+            "topic=\(arguments.topic) process=[\(arguments.process)] port=\(arguments.port.map(String.init) ?? "none")"
+        }
+    }
+
+    @Test func aRequiredStringTheModelLeftOutIsFilledEmptyInsteadOfEndingTheTurn() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: Self.shown)
+        // granite4.1:8b on 2026-09-29: {"topic": "processes"} for system_info, which requires process.
+        let call =
+            #"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"topic_tool","arguments":{"topic":"processes"}}}]},"done":false}"#
+        FakeOllama.serve("/api/chat", body: call + "\n")
+        let model = try ModelSelection.ollama("q").resolve(config: Self.config)
+        let agent = Agent(instructions: "x", tools: [TopicTool()], model: model)
+        let task = Task { try await agent.stream("which processes?") { _ in } }
+        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"ok"},"done":true}"# + "\n")
+        let reply = try await task.value
+        #expect(reply.text == "ok")
+        #expect(FakeOllama.bodies(for: "/api/chat").last?.contains("process=[] port=none") == true)
+    }
+
+    @Test func onlyStringsArraysAndBooleansAreCompletedAndOnlyWhenRequired() {
+        let schema: JSONValue = [
+            "type": "object", "required": ["topic", "process", "names", "all", "count", "level"],
+            "properties": [
+                "topic": ["type": "string"], "process": ["type": "string"], "names": ["type": "array"],
+                "all": ["type": "boolean"], "count": ["type": "integer"],
+                "level": ["type": "string", "enum": ["low", "high"]], "port": ["type": "integer"],
+            ],
+        ]
+        let completed = OllamaModel.Executor.completed(["topic": "x", "process": "Safari"], schema: schema)
+        #expect(completed == ["topic": "x", "process": "Safari", "names": [], "all": false])
+        #expect(OllamaModel.Executor.completed("not an object", schema: schema) == "not an object")
+        #expect(OllamaModel.Executor.completed(["a": 1], schema: ["type": "object"]) == ["a": 1])
+    }
+
     @Test func serverErrorsAndBadChunksAreTyped() async throws {
         FakeOllama.serve("/api/tags", body: Self.tags)
         FakeOllama.serve("/api/show", body: Self.shown)

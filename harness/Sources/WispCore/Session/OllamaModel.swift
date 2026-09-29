@@ -331,6 +331,34 @@ public struct OllamaModel: LanguageModel, Sendable {
             return json(String(decoding: data, as: UTF8.self))
         }
 
+        /// A tool call's arguments with each required property the model left out filled with its type's
+        /// empty value: `""` for a string, `[]` for an array, `false` for a boolean. An Ollama model is
+        /// not held to the tool's schema when it writes arguments, and the framework refuses a call
+        /// missing a required property by ending the whole turn; `system_info`'s `process`, required so the
+        /// on-device model always names one, is "otherwise empty" by its own description. A missing
+        /// number or choice has no neutral value and is left out.
+        ///
+        /// - Parameters:
+        ///   - arguments: The arguments as the model wrote them.
+        ///   - schema: The tool's parameters, as the JSON Schema sent to Ollama.
+        /// - Returns: The arguments, completed where that is safe.
+        static func completed(_ arguments: JSONValue, schema: JSONValue) -> JSONValue {
+            guard var fields = arguments.objectValue, let object = schema.objectValue,
+                let properties = object["properties"]?.objectValue, let required = object["required"]?.arrayValue
+            else { return arguments }
+            for name in required.compactMap(\.stringValue) where fields[name] == nil {
+                let property = properties[name]?.objectValue ?? [:]
+                guard property["enum"] == nil else { continue }
+                switch property["type"]?.stringValue {
+                case "string": fields[name] = ""
+                case "array": fields[name] = .array([])
+                case "boolean": fields[name] = false
+                default: continue
+                }
+            }
+            return .object(fields)
+        }
+
         /// The request body for one generation.
         static func body(
             for request: LanguageModelExecutorGenerationRequest, model: String, contextLength: Int
@@ -390,7 +418,12 @@ public struct OllamaModel: LanguageModel, Sendable {
                     }
                     for call in message.tool_calls ?? [] {
                         calls += 1
-                        let encoded = (try? JSONEncoder().encode(call.function.arguments)) ?? Data("{}".utf8)
+                        let schema = request.enabledToolDefinitions.first { $0.name == call.function.name }
+                            .map { Self.json($0.parameters) }
+                        let arguments =
+                            schema.map { Self.completed(call.function.arguments, schema: $0) }
+                            ?? call.function.arguments
+                        let encoded = (try? JSONEncoder().encode(arguments)) ?? Data("{}".utf8)
                         await channel.send(
                             .toolCalls(
                                 action: .toolCall(

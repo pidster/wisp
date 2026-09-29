@@ -76,6 +76,14 @@ condenses the transcript ahead of the window when the last request plus the new 
 of it (`docs/context-management.md`). `/tokens` in `wisp chat` shows that reported usage for these
 models.
 
+Ollama is sent each tool's JSON Schema, but its models are not held to it when they write a call's
+arguments. The framework refuses a call that lacks a required property, and a refused call ends the whole
+turn. On 2026-09-29 `granite4.1:8b` called `system_info` with `{"topic": "processes"}`. `process` is
+required so that the on-device model always names one, and its description says "otherwise empty", so
+the turn ended. The executor therefore fills a missing required string with `""`, a missing array with
+`[]`, and a missing boolean with `false` before the framework sees the call. A missing number or
+choice has no neutral value, so it is left out, and the call still fails.
+
 Models tried on 2026-09-23 on an M4 Max with 48 GB, Ollama 0.33.3, wisp 0.8.1, through `wisp respond`
 with the default `contextLength`. Each ran five prompts three times: the git-thread instruction from
 `AGENTS.md` with `git log --oneline -3`; the same with a quoted, piped command

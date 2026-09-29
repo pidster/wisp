@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- A tool call from an Ollama model that leaves out a required text argument no longer ends the turn with
+  a `ToolCallError`. `granite4.1:8b` did this with `system_info` for "what are the busiest processes".
+  The argument is now filled in empty, as the tool's description asks.
+
 ## 0.14.0
 
 Changed:
