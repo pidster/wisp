@@ -19,13 +19,15 @@ import Testing
 
     @Test func givesUpOnTimeEvenWhenTheOperationIgnoresCancellation() async {
         // A continuation nobody resumes cannot be cancelled; the old task-group wait sat on it forever.
+        // The bound is loose on purpose: the timer task can wait seconds for a thread on a loaded Mac,
+        // and the failure this catches waited minutes.
         let started = ContinuousClock.now
         await #expect(throws: Timeout.Failure.elapsed(.milliseconds(100))) {
             try await Timeout.run(.milliseconds(100)) {
                 await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in }
             }
         }
-        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(ContinuousClock.now - started < .seconds(10))
     }
 
     @Test func propagatesOperationErrors() async {
