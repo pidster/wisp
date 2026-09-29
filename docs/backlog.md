@@ -35,8 +35,9 @@ not the differentiator. Items, in order of leverage:
 - **Reverse delegation through MCP sampling.** When the on-device model is stuck on a sub-step, ask the
   calling harness's model through the protocol, with data leaving the device only for that step and only
   with approval.
-- **Roots and progress.** Use the client's declared roots as the sandbox's writable root; send progress
-  notifications during long commands.
+- **Roots.** Use the client's declared roots as the sandbox's writable root. Progress, done
+  2026-09-29: a caller that sends a `progressToken` gets each line chat would show as a progress
+  notification (`mcp.md`, "Progress"). Open there: per-chunk progress in the condensing tools' model pass.
 
 ## Use cases chosen for later
 

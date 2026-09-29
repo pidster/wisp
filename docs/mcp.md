@@ -549,6 +549,22 @@ Free a thread's model session.
 | --- | --- | --- |
 | `thread_id` | string | yes |
 
+## Progress
+
+A caller that sends a `progressToken` in a `tools/call` request's `_meta` gets `notifications/progress`
+while the call runs. This works for `respond` and for every tool that captures a command. Each
+notification's `message` is a line chat would show for the call's events:
+
+- `⚙ run_command git status` when the model calls a tool;
+- `· safe by rules: a known read-only command (0.2 ms)`, the gate's rating of each command;
+- `waiting for approval [moderate]: git push`, while the approval dialog is open in the client;
+- `· approved (session)`, `· allowed by your standing approval`, `· denied`, or `· blocked by policy: …`;
+- `↳ exit 0`, or a tool's result.
+
+`progress` counts the notifications from 1 in order, with no `total`, since a turn's length is not known
+ahead. All of them are sent before the result. A caller that sends no token gets none. The model pass of
+the condensing tools reports nothing per chunk yet.
+
 ## Audit
 
 Every request and result is recorded in `~/.wisp/logs/audit.jsonl` under the server's session, and each

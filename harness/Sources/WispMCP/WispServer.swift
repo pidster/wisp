@@ -53,7 +53,7 @@ public struct WispServer: Sendable {
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             return OpenThread(
                 thread: ConversationThread(id: id, agent: try conversation.openAgent()), gate: conversation.gate,
-                audit: conversation.audit, receipts: conversation.receipts)
+                audit: conversation.audit, receipts: conversation.receipts, relay: conversation.relay)
         },
         makeTriageAgent: @escaping @Sendable (Conversation, ModelSelection?) throws -> Agent = {
             try $0.openAgent(model: $1)
@@ -113,9 +113,58 @@ public struct WispServer: Sendable {
         await server.stop()
     }
 
+    /// The progress token of the call being handled, when its caller asked for progress
+    /// (`_meta.progressToken`); read by `relaying`.
+    @TaskLocal static var progressToken: ProgressToken?
+
+    /// Dispatches one `tools/call`, with the caller's progress token in scope for `relaying`.
+    func call(_ params: CallTool.Parameters) async throws -> CallTool.Result {
+        try await Self.$progressToken.withValue(params._meta?.progressToken) { try await handle(params) }
+    }
+
+    /// Runs `body` and, when the caller asked for progress, sends it each line chat would show for the
+    /// conversation's events meanwhile (`ChatEvents.progress`): tool calls, the gate's decisions, a wait
+    /// for approval, command outcomes. The notifications go in order, numbered from 1, and all are sent
+    /// before the result.
+    ///
+    /// - Parameters:
+    ///   - relay: The conversation's live events.
+    ///   - body: The call's work.
+    /// - Returns: What `body` returns.
+    /// - Throws: What `body` throws.
+    func relaying<T>(_ relay: EventRelay, _ body: () async throws -> T) async rethrows -> T {
+        guard let token = Self.progressToken else { return try await body() }
+        let (lines, continuation) = AsyncStream<String>.makeStream()
+        let listener = relay.listen { event in
+            if let line = ChatEvents.progress(event) { continuation.yield(line) }
+        }
+        let server = self.server
+        let sender = Task {
+            var step = 0.0
+            for await line in lines {
+                step += 1
+                try? await server.notify(
+                    ProgressNotification.message(.init(progressToken: token, progress: step, message: line)))
+            }
+        }
+        let finish = {
+            relay.stop(listener)
+            continuation.finish()
+            await sender.value
+        }
+        do {
+            let result = try await body()
+            await finish()
+            return result
+        } catch {
+            await finish()
+            throw error
+        }
+    }
+
     /// Dispatches one `tools/call`. Argument errors surface as MCP protocol
     /// errors; execution failures come back as tool results with `isError`.
-    func call(_ params: CallTool.Parameters) async throws -> CallTool.Result {
+    private func handle(_ params: CallTool.Parameters) async throws -> CallTool.Result {
         let call = ShortID.make()
         let arguments = params.arguments.map { Self.render($0) } ?? "{}"
         audit.record(
@@ -260,7 +309,9 @@ public struct WispServer: Sendable {
             return failure(String(describing: error))
         }
         do {
-            let reply = try await opened.thread.thread.respond(to: request.prompt, schema: schema)
+            let reply = try await relaying(opened.thread.relay) {
+                try await opened.thread.thread.respond(to: request.prompt, schema: schema)
+            }
             let refusals = await opened.thread.gate.takeRefusals()
             let receipt = opened.thread.receipts.take(turn: opened.thread.audit.currentTurn)
             return .init(
@@ -526,9 +577,11 @@ public struct WispServer: Sendable {
             defer { conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let runner = CommandRunner(
                 options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
-            let captured = try await Triage.capture(
-                source, runner: runner, gate: conversation.gate, maxOutputBytes: maxBytes)
-            let result = Self.withExitStatus(try await body(conversation, captured), of: captured, warn: flagFailure)
+            let result = try await relaying(conversation.relay) {
+                let captured = try await Triage.capture(
+                    source, runner: runner, gate: conversation.gate, maxOutputBytes: maxBytes)
+                return Self.withExitStatus(try await body(conversation, captured), of: captured, warn: flagFailure)
+            }
             let structured: Value? = Value(json: result.json)
             return .init(
                 content: [.text(text: result.text, annotations: nil, _meta: nil)], structuredContent: structured,

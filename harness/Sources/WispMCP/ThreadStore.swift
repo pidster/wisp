@@ -42,16 +42,19 @@ public struct OpenThread: Sendable {
     public let audit: AuditLog
     /// The turn's events, folded into the result's `receipt`.
     public let receipts: ReceiptCollector
+    /// The same events as they happen, relayed to a caller that asked for progress.
+    public let relay: EventRelay
 
     /// Creates the record.
     public init(
         thread: any RespondingThread, gate: ApprovalGate, audit: AuditLog,
-        receipts: ReceiptCollector = ReceiptCollector()
+        receipts: ReceiptCollector = ReceiptCollector(), relay: EventRelay = EventRelay()
     ) {
         self.thread = thread
         self.gate = gate
         self.audit = audit
         self.receipts = receipts
+        self.relay = relay
     }
 }
 

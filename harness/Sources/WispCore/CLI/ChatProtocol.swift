@@ -77,6 +77,17 @@ public enum ChatProtocol {
         ]
     }
 
+    /// The `activity` line's fields: what the turn under way is doing (`doing`, such as `running git
+    /// status`), whether a person is being asked, and the seconds since the turn began; `doing` is null
+    /// when the turn has ended. A front end times the rest itself.
+    public static func activity(_ state: ChatActivity.State?) -> [String: JSONValue] {
+        guard let state else { return ["doing": .null] }
+        return [
+            "doing": .string(state.doing), "asking": .bool(state.asking),
+            "turnSeconds": .double(state.since.timeIntervalSince(state.turnStarted)),
+        ]
+    }
+
     /// The `turn` line's fields: `phase` `start` or `end`, the turn number, and at the end the seconds
     /// taken, the `outcome`, `ok` or `error`, and `inputTokens` and `outputTokens` when the model reports them.
     public static func turn(_ mark: ChatTurn) -> [String: JSONValue] {

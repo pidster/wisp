@@ -43,8 +43,15 @@ Added:
 - Chat shows what the approval gate decided for each command: its rating and why (`· safe by rules:
   a known read-only command (0.2 ms)`), and whether a standing approval let it through, you approved
   it, or it was denied or blocked by policy. Each reply ends with how long the turn took and the tokens
-  it used (`3.1 s · 4,009 tokens in, 79 out · 25 tokens/s`), and `wisp-tui` shows the same in its status
+  it used (`3.1 s · 4,009 tokens in, 79 out`), and `wisp-tui` shows the same in its status
   line.
+
+- While a turn runs, chat shows what it is doing and for how long, redrawn each second:
+  `… 12 s · running git status (8 s)`, or `waiting for the model`. `wisp-tui` shows the same in its
+  status line.
+- MCP callers that ask for progress (a `progressToken`) are told what a `respond` call, or a tool that
+  runs a command, is doing while it runs: each tool call, the gate's rating, a wait for approval, and
+  each outcome.
 
 Fixed:
 

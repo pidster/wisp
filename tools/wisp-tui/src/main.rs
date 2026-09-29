@@ -16,7 +16,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use ratatui::backend::CrosstermBackend;
@@ -132,6 +132,7 @@ fn run(
 ) -> Result<()> {
     let mut app = App::default();
     let mut height = BAND_HEIGHT;
+    let mut shown_label: Option<String> = None;
     terminal.draw(|frame| app.render(frame, frame.area()))?;
     loop {
         let incoming = match rx.recv_timeout(Duration::from_millis(250)) {
@@ -139,7 +140,11 @@ fn run(
             Err(mpsc::RecvTimeoutError::Timeout) => None,
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         };
-        let changed = changes_the_band(incoming.as_ref());
+        // While a turn runs, the working line's seconds tick: a wake with nothing redraws only when its
+        // text has changed, so the cursor does not move four times a second.
+        let label = app.working_label(Instant::now());
+        let ticked = incoming.is_none() && label.is_some() && label != shown_label;
+        let changed = changes_the_band(incoming.as_ref()) || ticked;
         match incoming {
             Some(Incoming::Line(line)) => app.handle(Outbound::parse(&line)),
             Some(Incoming::Stderr(line)) => app.handle(Outbound::Note { text: line }),
@@ -180,6 +185,7 @@ fn run(
         if !changed {
             continue;
         }
+        shown_label = app.working_label(Instant::now());
         // One synchronized update per frame: the terminal shows the finished frame, not the cleared band
         // of a resize or the steps of inserting lines, which it would otherwise paint as they arrive.
         let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);

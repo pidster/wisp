@@ -106,11 +106,50 @@ import WispTestSupport
                 == "  · secrets runs on system: the measured default")
     }
 
+    @Test func theActivityFollowsTheTurnFromModelToCommandToApprovalAndBack() {
+        let activity = ChatActivity()
+        let seen = Mutex<[String?]>([])
+        activity.onChange { state in seen.withLock { $0.append(state?.doing) } }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        func event(_ kind: AuditEvent.Kind, _ details: [String: JSONValue] = [:]) -> AuditEvent {
+            AuditEvent(session: "s", kind: kind, turn: 1, call: "c", details: details)
+        }
+        activity.apply(event(.toolCall, ["tool": "current_date", "arguments": "{}"]))
+        #expect(activity.current == nil)
+        activity.begin(at: start)
+        activity.apply(
+            event(.toolCall, ["tool": "run_command", "arguments": #"{"command":"git status"}"#]),
+            at: start.addingTimeInterval(4))
+        let running = activity.current
+        #expect(running?.doing == "running git status" && running?.asking == false)
+        #expect(
+            running.map { ChatActivity.line($0, now: start.addingTimeInterval(12)) }
+                == "12 s · running git status (8 s)")
+        activity.apply(event(.approvalRequested, ["command": "git push"]), at: start.addingTimeInterval(5))
+        #expect(activity.current?.asking == true && activity.current?.doing == "waiting for your approval")
+        activity.apply(event(.prompt), at: start.addingTimeInterval(6))
+        #expect(activity.current?.doing == "waiting for your approval")
+        activity.apply(event(.commandOutcome), at: start.addingTimeInterval(7))
+        activity.apply(event(.toolCall, ["tool": "read_file", "arguments": #"{"path":"a.md"}"#]))
+        #expect(activity.current?.doing == "read_file a.md")
+        activity.end()
+        #expect(
+            seen.withLock { $0 }
+                == [
+                    "waiting for the model", "running git status", "waiting for your approval", "waiting for the model",
+                    "read_file a.md", nil,
+                ])
+        let fresh = ChatActivity.State(doing: "waiting for the model", since: start, turnStarted: start, asking: false)
+        #expect(ChatActivity.line(fresh, now: start.addingTimeInterval(3)) == "3 s · waiting for the model")
+        #expect(ChatProtocol.activity(nil) == ["doing": .null])
+        #expect(ChatProtocol.activity(running)["turnSeconds"] == .double(4))
+    }
+
     @Test func aTurnsFooterSaysHowLongItTookAndWhatTokensItUsed() {
         let tokens = TurnTokens(input: 4009, output: 79)
         #expect(
             ChatTurn.end(turn: 1, seconds: 3.16, failed: false, tokens: tokens).footer(style: .plain)
-                == "  3.2 s · 4,009 tokens in, 79 out · 25 tokens/s")
+                == "  3.2 s · 4,009 tokens in, 79 out")
         #expect(ChatTurn.end(turn: 1, seconds: 0.5, failed: true).footer(style: .plain) == "  failed after 0.5 s")
         #expect(ChatTurn.start(turn: 1).footer(style: .plain) == nil)
         #expect(TurnTokens.between(.init(input: 100, output: 10), .init(input: 4109, output: 89)) == tokens)

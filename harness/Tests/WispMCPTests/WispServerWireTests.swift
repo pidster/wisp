@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import Synchronization
 import Testing
 import WispCore
 import WispTestSupport
@@ -37,7 +38,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
             )
             return OpenThread(
                 thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts)
+                receipts: conversation.receipts, relay: conversation.relay)
         } makeTriageAgent: { conversation, model in
             if let model, model == unopenable {
                 throw ModelSelection.Failure.unavailable(model: model.description, reason: "no Ollama server")
@@ -168,6 +169,39 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(approval?["level"] == .string("moderate"))
         #expect(receipt?["denials"]?.arrayValue?.first?.objectValue?["verdict"] == .string("disapproved"))
         #expect(receipt?["commands"] == .array([]))
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func aCallerThatAsksForProgressIsToldWhatTheTurnIsDoingInOrder() async throws {
+        let pair = try await connected(steps: [
+            .call(name: "run_command", arguments: #"{"command":"touch spike.txt"}"#), .say("It said: {tool}"),
+        ])
+        let received = Mutex<[ProgressNotification.Parameters]>([])
+        _ = await pair.client.onNotification(ProgressNotification.self) { message in
+            received.withLock { $0.append(message.params) }
+        }
+        let request = CallTool.request(
+            .init(
+                name: "respond", arguments: ["prompt": .string("go"), "thread_id": .string("p")],
+                meta: Metadata(progressToken: .string("tok"))))
+        let result = try await pair.client.send(request).value
+        #expect(result.isError == false)
+        // Notifications are sent before the result; give the client's handler a moment to run.
+        for _ in 0..<50 where received.withLock({ $0.count }) < 4 { try await Task.sleep(for: .milliseconds(10)) }
+        let progress = received.withLock { $0 }
+        let lines = progress.compactMap(\.message)
+        #expect(lines.first == "⚙ run_command touch spike.txt", "\(lines)")
+        #expect(lines.contains { $0.hasPrefix("· moderate by rules") }, "\(lines)")
+        #expect(lines.contains("waiting for approval [moderate]: touch spike.txt"), "\(lines)")
+        #expect(lines.contains("· denied"), "\(lines)")
+        #expect(progress.map(\.progress) == (1...progress.count).map(Double.init))
+        #expect(progress.allSatisfy { $0.progressToken == .string("tok") })
+        // Without a token, nothing is sent.
+        received.withLock { $0.removeAll() }
+        _ = try await call(pair.client, "respond", ["prompt": .string("again"), "thread_id": .string("q")])
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(received.withLock { $0.isEmpty })
         await pair.client.disconnect()
         await pair.server.stop()
     }

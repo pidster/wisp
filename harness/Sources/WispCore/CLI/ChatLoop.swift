@@ -15,10 +15,9 @@ public enum ChatTurn: Equatable, Sendable {
         guard case .end(_, let seconds, let failed, let tokens) = self else { return nil }
         var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
         if let tokens {
+            // No rate: the turn's time includes its commands and approvals, so tokens over it is not the
+            // model's speed.
             parts.append("\(tokens.input.formatted()) tokens in, \(tokens.output.formatted()) out")
-            if tokens.output > 0, seconds > 0 {
-                parts.append(String(format: "%.0f tokens/s", Double(tokens.output) / seconds))
-            }
         }
         return style.muted("  " + parts.joined(separator: " · "))
     }
@@ -115,6 +114,8 @@ public struct ChatLoop {
         /// The answers a setting offers beyond its kind's own (the models this Mac can run, the Core ML
         /// models on disk); nil offers only those.
         public var configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])?
+        /// What the turn under way is doing, for the face's live line; nil shows none.
+        public var activity: ChatActivity?
 
         /// Creates a context.
         public init(
@@ -125,9 +126,10 @@ public struct ChatLoop {
             openModel: (@Sendable (ModelSelection, Transcript) throws -> Agent)? = nil, stats: CallStats? = nil,
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
-            approvalStore: ApprovalStore? = nil
+            approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil
         ) {
             self.approvalStore = approvalStore
+            self.activity = activity
             self.configFile = configFile
             self.configOptions = configOptions
             self.directory = directory
@@ -181,7 +183,9 @@ public struct ChatLoop {
         self.style = style
         self.io = io
         let note = io.note
+        let activity = context.activity
         tap.onEvent { event in
+            activity?.apply(event)
             if let line = ChatEvents.render(event, style: style) { note(line) }
         }
     }
@@ -300,6 +304,7 @@ public struct ChatLoop {
                 let started = Date()
                 let before = agent.tokensUsed
                 io.turn(.start(turn: number))
+                context.activity?.begin()
                 var failed = false
                 do {
                     _ = try await agent.stream(text) { io.write($0) }
@@ -309,6 +314,7 @@ public struct ChatLoop {
                     io.print("")
                     io.note(style.ember("error: \(error)"))
                 }
+                context.activity?.end()
                 io.turn(
                     .end(
                         turn: number, seconds: Date().timeIntervalSince(started), failed: failed,

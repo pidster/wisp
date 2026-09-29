@@ -67,3 +67,9 @@ running usage. `wisp-tui` shows them after the turn's time in its status line.
 `classifier.verdict`, `approval.decided`, `policy.decision` (when not allowed), and `model.routed`
 events now carry a rendered `text`. The front end shows them as it shows tool lines, with no change of
 its own. The lines are listed in `docs/wisp.md`.
+
+An `activity` line (`doing`, `asking`, `turnSeconds`) reports what the turn under way is doing each time
+that changes, with `doing` null when it ends. `ChatActivity` derives it from the turn's events, so the
+terminal chat's working line and `wisp-tui`'s say the same thing. `wisp-tui` times it on its own
+clock. It redraws on an idle wake only when the text has changed, so the cursor still does not move four
+times a second.

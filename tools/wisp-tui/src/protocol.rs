@@ -26,6 +26,17 @@ pub enum Outbound {
     Status(Status),
     /// A turn's start or end.
     Turn(Turn),
+    /// What the turn under way is doing; `doing` is `None` when it has ended.
+    Activity {
+        /// Such as `running git status` or `waiting for the model`.
+        doing: Option<String>,
+        /// Whether a person is being asked.
+        #[serde(default)]
+        asking: bool,
+        /// Seconds from the turn's start to when this began.
+        #[serde(rename = "turnSeconds", default)]
+        turn_seconds: f64,
+    },
     /// An audit event of the conversation.
     Event(Event),
     /// An approval the front end must answer.

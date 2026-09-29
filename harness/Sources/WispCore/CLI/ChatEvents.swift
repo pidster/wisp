@@ -54,6 +54,18 @@ public enum ChatEvents {
         }
     }
 
+    /// The line a caller waiting on an MCP call is shown for `event` as progress: what chat shows,
+    /// unstyled and unindented, and, since the caller cannot see wisp's approval dialog, a line when a
+    /// command waits for one. Nil for an event chat does not show.
+    public static func progress(_ event: AuditEvent) -> String? {
+        if event.kind == .approvalRequested {
+            let command = shortened(event.details["command"]?.stringValue ?? "")
+            let level = event.details["level"]?.stringValue.map { " [\($0)]" } ?? ""
+            return "waiting for approval\(level): \(command)"
+        }
+        return render(event, style: .plain)?.trimmingCharacters(in: .whitespaces)
+    }
+
     /// The gate's rating of one simple command: `· safe by rules, coreml: a known read-only command
     /// (0.4 ms)`, naming the command when it is one of several in the line.
     static func verdict(_ d: [String: JSONValue], style: Style) -> String {

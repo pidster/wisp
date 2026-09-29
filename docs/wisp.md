@@ -109,8 +109,11 @@ What a session shows, and where it goes:
     `· allowed by your standing approval`;
   - or why it was not: `· denied`, `· no answer in time, denied`, `· blocked by policy: …`.
   A task routed to a model says so: `· secrets runs on system: …`.
+- While a turn runs, a dim line that says what it is doing and for how long, redrawn each second on
+  a terminal: `… 12 s · running git status (8 s)`, `… 3 s · waiting for the model`. It is erased
+  before anything else is written, and is not drawn while a reply is streaming or an approval is asked.
 - Under each reply, how long the turn took and, when the model reports usage, the tokens it read and
-  wrote across the turn's requests: `3.1 s · 4,009 tokens in, 79 out · 25 tokens/s`. `wisp-tui` puts
+  wrote across the turn's requests: `3.1 s · 4,009 tokens in, 79 out`. `wisp-tui` puts
   the same figures in its status line.
 - Replies on stdout; everything else (banner, status, prompt, tool lines, notes, approval dialogs) on
   stderr, so `wisp chat > transcript.txt` captures only the replies.
@@ -187,6 +190,7 @@ Out, to the front end:
 | --- | --- | --- |
 | `note` | `text` | The banner, the help line, and anything chat would say on stderr. |
 | `status` | `model`, `directory`, `branch`, `dirty`, `approval`, `contextUsed` (nulls when unknown) | Before each prompt: the turn is over and input is wanted. |
+| `activity` | `doing`, `asking`, `turnSeconds` | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
 | `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens` | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. Slash commands are not turns. |
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |

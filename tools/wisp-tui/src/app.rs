@@ -5,6 +5,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
 use crate::editor::{Edit, Editor};
@@ -119,6 +120,33 @@ pub enum TurnState {
     },
 }
 
+/// What the turn under way is doing, as wisp last said, timed on this side.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Activity {
+    /// Such as `running git status`.
+    pub doing: String,
+    /// When the turn began.
+    pub turn_started: Instant,
+    /// When it began doing this.
+    pub since: Instant,
+}
+
+impl Activity {
+    /// The working line at `now`: the turn's seconds, what it is doing, and for how long when that is
+    /// not the whole turn, as `12 s · running git status (8 s)`. The same words as the terminal chat.
+    pub fn label(&self, now: Instant) -> String {
+        let turn = now.saturating_duration_since(self.turn_started).as_secs();
+        let doing = now.saturating_duration_since(self.since).as_secs();
+        let later =
+            self.since.saturating_duration_since(self.turn_started) > Duration::from_millis(500);
+        if later && doing != turn {
+            format!("{turn} s · {} ({doing} s)", self.doing)
+        } else {
+            format!("{turn} s · {}", self.doing)
+        }
+    }
+}
+
 /// The whole state.
 #[derive(Debug, Default)]
 pub struct App {
@@ -145,6 +173,8 @@ pub struct App {
     pub busy: bool,
     /// The turn under way, or how the last one ended, for the status line.
     pub turn: Option<TurnState>,
+    /// What the turn under way is doing, and since when, for the status line.
+    pub activity: Option<Activity>,
     /// Whether the reply is inside a fenced block; a turn's end closes one left open.
     pub in_fence: bool,
     /// Whether wisp said goodbye.
@@ -158,6 +188,16 @@ pub struct App {
 }
 
 impl App {
+    /// The working line while a turn runs, or `None` when there is nothing to say.
+    pub fn working_label(&self, now: Instant) -> Option<String> {
+        match self.turn {
+            Some(TurnState::Running(_)) => {
+                self.activity.as_ref().map(|activity| activity.label(now))
+            }
+            _ => None,
+        }
+    }
+
     /// Applies one line from wisp.
     pub fn handle(&mut self, outbound: Outbound) {
         match outbound {
@@ -189,9 +229,26 @@ impl App {
                 self.status = Some(status);
                 self.busy = false;
             }
+            Outbound::Activity {
+                doing,
+                turn_seconds,
+                ..
+            } => {
+                let now = Instant::now();
+                self.activity = doing.map(|doing| Activity {
+                    doing,
+                    turn_started: now
+                        .checked_sub(Duration::from_secs_f64(turn_seconds.max(0.0)))
+                        .unwrap_or(now),
+                    since: now,
+                });
+            }
             Outbound::Turn(turn) => {
                 self.flush_partial();
                 self.in_fence = false;
+                if !turn.is_start() {
+                    self.activity = None;
+                }
                 self.turn = Some(if turn.is_start() {
                     self.busy = true;
                     TurnState::Running(turn.number)
@@ -703,6 +760,10 @@ impl App {
             Some(TurnState::Running(number)) => {
                 spans.push(sep());
                 spans.push(Span::styled(format!("turn {number}…"), palette::wisp()));
+                if let Some(label) = self.working_label(Instant::now()) {
+                    spans.push(sep());
+                    spans.push(Span::styled(label, palette::muted()));
+                }
             }
             Some(TurnState::Ended {
                 seconds,
@@ -1396,6 +1457,35 @@ mod tests {
         }
         assert_eq!(app.recall.len(), RECALL_LIMIT);
         assert_eq!(app.recall[0], "line 1");
+    }
+
+    #[test]
+    fn a_running_turn_says_what_it_is_doing_and_for_how_long() {
+        let start = Instant::now();
+        let activity = |doing: &str, after: u64| Activity {
+            doing: doing.into(),
+            turn_started: start,
+            since: start + Duration::from_secs(after),
+        };
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        assert_eq!(
+            activity("waiting for the model", 0).label(at(3)),
+            "3 s · waiting for the model"
+        );
+        assert_eq!(
+            activity("running git status", 4).label(at(12)),
+            "12 s · running git status (8 s)"
+        );
+        let mut app = App::default();
+        app.handle(Outbound::Turn(turn("start", 1, None, None)));
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"running git status","asking":false,"turnSeconds":2.0}"#,
+        ));
+        let label = app.working_label(Instant::now()).unwrap_or_default();
+        assert!(label.starts_with("2 s · running git status"), "{label}");
+        app.handle(Outbound::Turn(turn("end", 1, Some(2.5), Some("ok"))));
+        assert_eq!(app.activity, None);
+        assert_eq!(app.working_label(Instant::now()), None);
     }
 
     #[test]

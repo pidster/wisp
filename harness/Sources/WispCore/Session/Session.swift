@@ -353,6 +353,8 @@ public struct Conversation: Sendable {
     public let audit: AuditLog
     /// The same events, kept briefly so each turn's `Receipt` can be built for the caller.
     public let receipts: ReceiptCollector
+    /// The same events again, as they happen, for a caller that wants progress while a call runs.
+    public let relay: EventRelay
     /// The three layers the agent starts with; `Prompting.rendered` is what the model sees.
     public let prompting: Prompting
     /// The model the agent runs on.
@@ -372,7 +374,8 @@ public struct Conversation: Sendable {
         model: ModelSelection, observer: (any AuditSink)? = nil
     ) throws -> Conversation {
         let receipts = ReceiptCollector()
-        var audit = audit.alsoRecording(to: receipts)
+        let relay = EventRelay()
+        var audit = audit.alsoRecording(to: receipts).alsoRecording(to: relay)
         if let observer { audit = audit.alsoRecording(to: observer) }
         let gate = ApprovalGate(
             classifier: session.classifier, approver: session.request.autoApprove ? AutoApprover() : approver,
@@ -385,7 +388,8 @@ public struct Conversation: Sendable {
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
         return Conversation(
-            gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, prompting: prompting,
+            gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
+            prompting: prompting,
             model: model, config: session.config, home: session.home, stats: session.stats)
     }
 

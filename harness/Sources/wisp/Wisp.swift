@@ -363,6 +363,7 @@ struct Chat: AsyncParsableCommand {
         }
         let directory = FileManager.default.currentDirectoryPath
         let views = session.introspection
+        let activity = ChatActivity()
         let banner =
             "wisp \(WispVersion.current) · \(agent.model.selection) · \(agent.tools.count) tools · "
             + "audit \(ChatStatus.abbreviated(Wisp.home.auditFile.path)) session \(session.audit.session)"
@@ -382,29 +383,73 @@ struct Chat: AsyncParsableCommand {
                         approver: TerminalApprover(style: style), transcript: transcript, observer: tap,
                         model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
-                configOptions: Chat.configOptions(session: session), approvalStore: session.store),
+                configOptions: Chat.configOptions(session: session), approvalStore: session.store,
+                activity: activity),
             style: style,
             io: .init(
                 readLine: { readLine() },
                 print: { text in
-                    Self.midLine.withLock { $0 = false }
-                    print(text)
+                    Self.onScreen {
+                        Self.midLine.withLock { $0 = false }
+                        print(text)
+                    }
                 },
                 write: { text in
-                    Self.midLine.withLock { $0 = !text.hasSuffix("\n") }
-                    print(text, terminator: "")
-                    fflush(stdout)
+                    Self.onScreen {
+                        Self.midLine.withLock { $0 = !text.hasSuffix("\n") }
+                        print(text, terminator: "")
+                        fflush(stdout)
+                    }
                 },
                 note: Self.note,
                 prompt: { status in
-                    Self.freshLine()
-                    let text = status.rendered(style: style) + "\n" + style.prompt("›") + " "
-                    FileHandle.standardError.write(Data(text.utf8))
+                    Self.onScreen {
+                        Self.freshLine()
+                        let text = status.rendered(style: style) + "\n" + style.prompt("›") + " "
+                        FileHandle.standardError.write(Data(text.utf8))
+                    }
                 },
                 turn: { mark in
                     if let footer = mark.footer(style: style) { Self.note(footer) }
                 }))
+        let ticker =
+            isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
+        defer { ticker?.cancel() }
         try await loop.run()
+    }
+
+    /// Whether the working line is on screen now, guarded with every terminal write so they never interleave.
+    private static let working = Mutex(false)
+
+    /// Runs `write` with the working line erased first, so output always starts on a clean line.
+    private static func onScreen(_ write: () -> Void) {
+        working.withLock { drawn in
+            if drawn {
+                FileHandle.standardError.write(Data("\r\u{1B}[2K".utf8))
+                drawn = false
+            }
+            write()
+        }
+    }
+
+    /// Redraws the working line (`… 12 s · running git status (8 s)`) each second while a turn runs,
+    /// when the cursor is at the start of a line and no one is being asked. When the activity turns to
+    /// an approval or the turn ends, the line is erased at once, before the dialog or the footer.
+    private static func showWorking(_ activity: ChatActivity, style: Style) -> Task<Void, Never> {
+        activity.onChange { state in
+            if state == nil || state?.asking == true { onScreen {} }
+        }
+        return Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                working.withLock { drawn in
+                    guard let state = activity.current, !state.asking, !midLine.withLock({ $0 }) else { return }
+                    let line = style.muted("… " + ChatActivity.line(state))
+                    FileHandle.standardError.write(Data(("\r\u{1B}[2K" + line).utf8))
+                    drawn = true
+                }
+            }
+        }
     }
 
     /// The headless face: JSON Lines in and out, for `wisp-tui` and other front ends (`docs/wisp.md`).
@@ -444,6 +489,8 @@ struct Chat: AsyncParsableCommand {
             agent = try session.openAgent(approver: approver, observer: tap)
         }
         let views = session.introspection
+        let activity = ChatActivity()
+        activity.onChange { send(ChatProtocol.encode("activity", ChatProtocol.activity($0))) }
         var loop = ChatLoop(
             agent: agent, store: store, saveName: save ?? resume, tap: tap,
             context: .init(
@@ -458,7 +505,8 @@ struct Chat: AsyncParsableCommand {
                 openModel: { selection, transcript in
                     try session.openAgent(approver: approver, transcript: transcript, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
-                configOptions: Chat.configOptions(session: session), approvalStore: session.store),
+                configOptions: Chat.configOptions(session: session), approvalStore: session.store,
+                activity: activity),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },
@@ -470,7 +518,10 @@ struct Chat: AsyncParsableCommand {
                     await ChatProtocol.ask(choice, router: router, timeout: session.config.approvalTimeout, send: send)
                 }))
         // Events for the front end, raw and with the terminal's line, instead of the notes the loop would write.
-        tap.onEvent { event in send(ChatProtocol.encode("event", ChatProtocol.event(event))) }
+        tap.onEvent { event in
+            activity.apply(event)
+            send(ChatProtocol.encode("event", ChatProtocol.event(event)))
+        }
         try await loop.run()
         send(ChatProtocol.encode("exit"))
     }
@@ -519,8 +570,10 @@ struct Chat: AsyncParsableCommand {
 
     /// Writes a status line to stderr so stdout stays clean for replies.
     private static func note(_ text: String) {
-        Self.freshLine()
-        FileHandle.standardError.write(Data((text + "\n").utf8))
+        onScreen {
+            Self.freshLine()
+            FileHandle.standardError.write(Data((text + "\n").utf8))
+        }
         Diagnostics.chat.info(Style.stripped(text))
     }
 }
