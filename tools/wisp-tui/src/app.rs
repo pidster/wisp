@@ -744,8 +744,11 @@ impl App {
             if let Some(used) = status.context_used {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let percent = (used * 100.0).round() as u8;
+                // Quiet below half the window, bright from half, amber from 80%, where condensing is near.
                 let style = if used >= 0.8 {
                     palette::amber()
+                } else if used >= 0.5 {
+                    palette::glow()
                 } else {
                     palette::muted()
                 };
@@ -756,7 +759,7 @@ impl App {
             spans.push(Span::styled(directory, palette::wisp()));
             if let Some(branch) = &status.branch {
                 spans.push(Span::styled(":", palette::muted()));
-                spans.push(Span::styled(branch.clone(), palette::wisp()));
+                spans.push(Span::styled(branch.clone(), palette::glow()));
             }
             match (status.added, status.removed) {
                 (Some(added), Some(removed)) if added + removed > 0 => {
@@ -1598,6 +1601,24 @@ mod tests {
             text.ends_with("approve at moderate") && line.width() == 80,
             "{text}"
         );
+        let branch = line.spans.iter().find(|span| span.content == "main");
+        assert_eq!(branch.map(|span| span.style.fg), Some(Some(palette::GLOW)));
+        let used = line.spans.iter().find(|span| span.content == "15% used");
+        assert_eq!(used.map(|span| span.style.fg), Some(Some(palette::MIST)));
+        let half = App {
+            status: Some(Status {
+                context_used: Some(0.6),
+                ..status.clone()
+            }),
+            ..Default::default()
+        };
+        let half_line = half.status_line(80);
+        let bright = half_line
+            .spans
+            .iter()
+            .find(|span| span.content == "60% used");
+        assert_eq!(bright.map(|span| span.style.fg), Some(Some(palette::GLOW)));
+        assert_eq!(palette::TOKENS_OUT, palette::GLOW);
         let added = line.spans.iter().find(|span| span.content == "+12");
         assert_eq!(added.map(|span| span.style.fg), Some(Some(palette::ADDED)));
         let removed = line.spans.iter().find(|span| span.content == "-3");

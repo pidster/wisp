@@ -26,8 +26,8 @@ pub const ADDED: Color = Color::Rgb(0x7E, 0xD9, 0x8F);
 pub const REMOVED: Color = Color::Rgb(0xFF, 0x6B, 0x6B);
 /// Tokens read.
 pub const TOKENS_IN: Color = Color::Rgb(0xF2, 0xE3, 0x9C);
-/// Tokens written: a light blue as bright as `TOKENS_IN` (relative luminance 0.76 each).
-pub const TOKENS_OUT: Color = Color::Rgb(0xCF, 0xE4, 0xFF);
+/// Tokens written: the glow tone.
+pub const TOKENS_OUT: Color = GLOW;
 
 /// The user's own words.
 pub fn user() -> Style {
@@ -44,6 +44,10 @@ pub fn muted() -> Style {
 /// The prompt.
 pub fn prompt() -> Style {
     Style::default().fg(GLOW).add_modifier(Modifier::BOLD)
+}
+/// The brightest tone without the prompt's weight: things to look at in the status line.
+pub fn glow() -> Style {
+    Style::default().fg(GLOW)
 }
 /// Status facts and ok states.
 pub fn wisp() -> Style {

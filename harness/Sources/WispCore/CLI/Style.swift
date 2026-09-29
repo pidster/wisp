@@ -43,8 +43,8 @@ public struct Style: Sendable, Equatable {
         public static let removed = (0xFF, 0x6B, 0x6B)
         /// Tokens read.
         public static let tokensIn = (0xF2, 0xE3, 0x9C)
-        /// Tokens written: a light blue as bright as `tokensIn` (relative luminance 0.76 each).
-        public static let tokensOut = (0xCF, 0xE4, 0xFF)
+        /// Tokens written: the glow tone.
+        public static let tokensOut = glow
     }
 
     private func rgb(_ colour: (Int, Int, Int), _ text: String) -> String {
@@ -55,6 +55,8 @@ public struct Style: Sendable, Equatable {
     public func prompt(_ text: String) -> String { bold(rgb(Palette.glow, text)) }
     /// Status facts and ok states.
     public func wisp(_ text: String) -> String { rgb(Palette.wisp, text) }
+    /// The brightest tone without the prompt's weight: things to look at in the status line.
+    public func glow(_ text: String) -> String { rgb(Palette.glow, text) }
     /// Tool lines, notes, separators.
     public func muted(_ text: String) -> String { rgb(Palette.mist, text) }
     /// Attention.

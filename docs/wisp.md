@@ -128,10 +128,12 @@ What a session shows, and where it goes:
 - Replies on stdout; everything else (banner, status, prompt, tool lines, notes, approval dialogs) on
   stderr, so `wisp chat > transcript.txt` captures only the replies.
 - Colour when stdout is a terminal, from wisp's palette (`Style.Palette`, shared with `wisp-tui`): one
-  green-blue in tones, the brightest for the prompt, the main tone for status facts and ok states, a
-  quiet tone for tool lines, notes, and separators; amber for approvals, moderate, and a context past
-  80%; ember for dangerous and errors; white for the conversation, bold for your own words. Off when
-  piped, when `NO_COLOR` is set, or when `TERM` is `dumb`.
+  green-blue in tones: the brightest for the prompt, the git branch, tokens written, and a context
+  from half to 80% used; the main tone for status facts and ok states; a quiet tone for tool lines,
+  notes, separators, and a context under half used. Amber marks approvals, moderate, and a context
+  past 80%; ember marks dangerous and errors; green and red mark lines added and removed; pale yellow
+  marks tokens read. White is for the conversation, bold for your own words. Colour is off when piped,
+  when `NO_COLOR` is set, or when `TERM` is `dumb`.
 
 | Flag | Meaning |
 | --- | --- |

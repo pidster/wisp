@@ -8,6 +8,8 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 Changed:
 
+- The status line brightens what matters: the git branch, tokens written, and a context from half to 80%
+  used are now in wisp's brightest blue; under half used stays quiet, and past 80% is amber.
 - Ollama models get a context window sized for them when they are selected, instead of 8,192 tokens for
   all. wisp reads the model's shape and maximum from Ollama and the memory available on the Mac, and takes
   the largest window whose cache fits half of what is free (never more than three quarters of the Mac's

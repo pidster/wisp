@@ -38,6 +38,11 @@ import WispTestSupport
         let nearlyFull = ChatStatus(model: "m", directory: "/", approval: "x", contextUsed: 0.85).rendered(
             style: Style(enabled: true))
         #expect(nearlyFull.contains("38;2;242;185;80m85% used"))
+        // From half the window the use is bright, below half quiet; the branch is bright too.
+        let half = ChatStatus(model: "m", directory: "~/w", branch: "main", approval: "x", contextUsed: 0.6)
+            .rendered(style: Style(enabled: true))
+        #expect(half.contains("38;2;207;241;255m60% used") && half.contains("38;2;207;241;255mmain"), "\(half)")
+        #expect(Style(enabled: true).tokensOut("↑1") == Style(enabled: true).glow("↑1"))
         let changed = ChatStatus(
             model: "m", directory: "~/w", branch: "main", dirty: true, added: 12, removed: 3, approval: "x"
         ).rendered(style: Style(enabled: true))

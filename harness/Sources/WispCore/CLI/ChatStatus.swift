@@ -43,10 +43,10 @@ public struct ChatStatus: Equatable, Sendable {
         var model = style.wisp(self.model)
         if let contextUsed {
             let percent = "\(Int((contextUsed * 100).rounded()))% used"
-            model += style.muted(":") + (contextUsed >= 0.8 ? style.amber(percent) : style.muted(percent))
+            model += style.muted(":") + Self.contextTone(percent, used: contextUsed, style: style)
         }
         var place = style.wisp(directory)
-        if let branch { place += style.muted(":") + style.wisp(branch) }
+        if let branch { place += style.muted(":") + style.glow(branch) }
         if let added, let removed, added + removed > 0 {
             place += style.added("+\(added)") + style.removed("-\(removed)")
         } else if dirty == true {
@@ -59,6 +59,13 @@ public struct ChatStatus: Equatable, Sendable {
             if gap >= 3 { return left + String(repeating: " ", count: gap) + right }
         }
         return left + style.muted(" · ") + right
+    }
+
+    /// How a context use is coloured: quiet below half the window, bright from half, amber from 80%,
+    /// where condensing is near (it starts at 85%).
+    static func contextTone(_ text: String, used: Double, style: Style) -> String {
+        if used >= 0.8 { return style.amber(text) }
+        return used >= 0.5 ? style.glow(text) : style.muted(text)
     }
 
     /// `path` with the current user's home replaced by `~`.
