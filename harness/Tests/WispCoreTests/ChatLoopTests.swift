@@ -70,7 +70,7 @@ import WispTestSupport
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: saved.io)
         try await loop.run()
         let note = saved.noted.first { $0.hasPrefix("saved the context") } ?? ""
-        #expect(note.contains("c-turn1.md") && note.contains("1 turns"), "\(saved.noted)")
+        #expect(note.contains("c-turn1.md") && note.contains("1 turn),") && !note.contains("1 turns"), "\(saved.noted)")
         let file = dir.appending(path: "context/c-turn1.md")
         #expect(try String(contentsOf: file, encoding: .utf8).contains("remember BLUE HERON"))
         #expect(ChatInput(line: "/inspect context") == .context && ChatInput(line: "/inspect Context") == .context)

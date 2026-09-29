@@ -22,6 +22,8 @@ Added:
 
 Fixed:
 
+- `/inspect context` and `/tokens` in chat now say "1 turn" and "1 time" for a count of one, not "1 turns".
+
 - Long conversations on the on-device model are condensed again instead of failing with "Provided N
   tokens, but the maximum allowed is 8,192". That model reports no token usage and reports an overflow
   differently from the framework's documented error, so neither safeguard fired.

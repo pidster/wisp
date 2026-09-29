@@ -247,7 +247,8 @@ public struct ChatLoop {
                         (try? await agent.contextTokens()).flatMap { $0 }.map { "\($0.formatted()) tokens, " } ?? ""
                     io.note(
                         "saved the context the next request carries: \(ChatStatus.abbreviated(file.path)) "
-                            + "(\(tokens)\(transcript.turnCount) turns), and the JSON beside it")
+                            + "(\(tokens)\(transcript.turnCount) turn\(transcript.turnCount == 1 ? "" : "s")), and the JSON beside it"
+                    )
                 } catch {
                     io.note(style.ember("error: \(error)"))
                 }
@@ -292,7 +293,8 @@ public struct ChatLoop {
                 do {
                     let tokens = try await agent.contextTokens().map(String.init) ?? "unknown"
                     io.print(
-                        "\(tokens) tokens in \(agent.transcript.turnCount) turns; condensed \(agent.condensations) times"
+                        "\(tokens) tokens in \(agent.transcript.turnCount) turn\(agent.transcript.turnCount == 1 ? "" : "s"); "
+                            + "condensed \(agent.condensations) time\(agent.condensations == 1 ? "" : "s")"
                     )
                 } catch {
                     io.note("error: \(error)")
