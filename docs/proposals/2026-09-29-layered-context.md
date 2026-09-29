@@ -139,16 +139,74 @@ summary is written in batches ([D1](#d1-who-distils-and-when)).
 
 ## Evaluation
 
-The scripted chat from 2026-09-29 becomes an eval, run with `scripts/check eval` like the others:
+The scripted chat from 2026-09-29 is now an eval, `ContextEvalTests` in `ModelEvalTests`, run with
+`scripts/check eval` like the others. Its scenario, scoring, and runner are `ContextEval` in
+`WispTestSupport`, tested in the gate without a model:
 
-1. Plant several facts across the early turns, and state a task.
-2. Fill the window with tool output, including a long digression away from the task.
-3. Ask about each fact, about what came first, and ask the model to return to the task.
+1. Turn 1 states the task (add a `--dry-run` flag to `harbour sync`, a fictional file-sync tool) and a
+   codename. Turns 2 to 4 each plant one more fact (the CI build is failing; the reviewer Maria prefers
+   early returns; the ticket is 4127) and read one of three task files with `read_file`.
+2. Turns 5 to 14 are a digression: ten incident reviews of an unrelated shop, one read per turn. Turn 10
+   also changes a fact: the CI build is green again (D2's current value).
+3. Six questions follow, one per turn: the codename, the ticket, Maria's preference, the CI state now,
+   the first file read, and a return to the task.
+
+Every fixture is one `read_file` page of about 3.6 KB, and none contains an answer, which a gate test
+checks. The whole conversation comes to about 16,000 tokens, two on-device windows. A reply is scored by
+phrase after normalising case and punctuation: the expected phrase anywhere in the reply is correct.
+For the changed fact, naming the new value counts even beside the old one, and naming only the old value
+counts as stale. Each turn records its wall time, the tokens occupied after it, the condensations during
+it (from the audit), and the tools it called. The run's measurement is `context.<strategy>[.<variant>]`
+in `measurements.json`, with time per turn as p50 and p95. The notes carry the condensations, the median
+tokens, and the load average.
+
+A strategy is the seam. `ContextStrategy` opens a conversation over the same model, tools, and
+instructions, and the same scenario runs through it. Today there is one, `DroppingStrategy`: the
+`Agent` unchanged. Layers without recall, the full design, D5's cap and floor variants, and D7's repeated
+facts each add a strategy. A model switch (D10) and an inferred task (D6) will need new step kinds.
+
+Ollama's window is sized from free memory (ADR 0043), so granite runs at three windows:
+- 8,192, configured, to compare with the on-device model.
+- 32,768, configured, which holds the whole scenario: the ceiling, with nothing dropped.
+- The window wisp sizes, which is what a user gets.
+
+All three use the default config, not the operator's.
 
 It is scored on facts recalled, correct "what came first" answers, a correct return to the task, tokens
 per turn, and time per turn. It is run for today's dropping, then for layers without recall, then for the
 full design, on the on-device model and on `ollama:granite4.1:8b`. The bar: better recall than dropping
 at a small, fixed cost per turn.
+
+### Baseline, 2026-09-29
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ContextEvalTests`, recorded in
+`measurements.json`. Another project's builds kept the machine under heavy load throughout (one-minute
+load average 18 at the start, 150 to 270 for the rest), so times are indicative only.
+
+| Model, window | Facts (of 4) | CI now | First file | Task | Condensations | Tokens after a turn, median (max) | Time per turn, median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device, 8,192 | 0 | wrong | wrong | wrong | 9 | 5,896 (7,123) | 21.2 s (34.2 s) |
+| granite4.1:8b, 8,192 | 1 | correct | wrong | wrong | 4 | 6,124 (7,411) | 9.4 s (27.1 s) |
+| granite4.1:8b, 32,768 | 4 | correct | correct | correct | 0 | 11,201 (16,252) | 11.0 s (13.2 s) |
+| granite4.1:8b, sized (8,192 under load) | 0 | wrong | wrong | wrong | 5 | 6,206 (7,573) | 11.4 s (30.6 s) |
+
+What the baseline shows:
+- **Dropping loses everything planted early.** At an 8,192-token window every early fact and the task
+  are gone by the questions. The one correct answer at 8,192 on granite is the CI state, planted mid
+  digression and still in the window.
+- **Wrong answers are confident.** Both models named a mid-digression file as the first one read
+  (`postmortem-07`, `postmortem-06`). Asked to return to the task, they described reading postmortems.
+  On granite with the sized window, the model named the codename question as the task. Granite said
+  the facts were not in "the postmortem files you provided".
+- **The on-device model answered as itself.** Every question got "I am Wisp, a concise assistant
+  running on this Mac" and a refusal ("I cannot provide release codenames").
+- **The model can recall when nothing is dropped.** At 32,768 granite answered all six, so the loss at
+  8,192 is the dropping's, not the model's.
+- **Condensing makes turns slower.** From turn 7 the on-device model condensed before every turn. Granite
+  at 8,192 condensed every other turn, and those turns took 26 to 31 s against 9 to 13 s for the
+  others. Rebuilding the session re-reads the whole prompt, the cost D11 is about.
+- **The sized window is not always bigger.** Under load, wisp sized granite's window at 8,192 of 131,072
+  ("6.7 GiB of a 7.3 GiB budget"), so that run repeated the 8,192 one.
 
 ## Decisions
 
@@ -683,7 +741,8 @@ here as they arise.
 
 ## Phasing
 
-1. The eval, run against today's dropping, as the baseline.
+1. The eval, run against today's dropping, as the baseline. Done 2026-09-29: `ContextEvalTests`, figures
+   under "Evaluation" (on-device 0 of 6, granite at 8,192 1 of 6, granite with nothing dropped 6 of 6).
 2. The store and the composer, reproducing today's behaviour exactly (literal turns only), so the change
    of structure is proven before behaviour changes.
 3. Output handling: routing and cutting presentational text.

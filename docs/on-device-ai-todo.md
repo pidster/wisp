@@ -81,7 +81,9 @@ recent turns, and the task; recall; and display decoupled from context. Eleven q
   *Partly:* condensations save the context before and after, and name both files in the audit.
 - [ ] Measure evidence retention, irrelevant content, assembly latency, token reduction and downstream
   answer accuracy. Include cases where an omitted detail changes the correct answer. *Partly:* the
-  scripted planted-fact chat of 2026-09-29, to become the proposal's eval.
+  proposal's eval, `ContextEvalTests`, measures recall of planted and changed facts, order, and return to
+  the task. Today's dropping scored 0 of 6 on device, and 6 of 6 on granite with nothing dropped
+  (2026-09-29).
 
 ## 3. Tool approval escalation classification
 

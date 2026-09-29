@@ -48,6 +48,46 @@
     "total" : 123
   },
   {
+    "date" : "2026-09-29",
+    "model" : "system",
+    "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then six questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 9 condensations, median 5896 tokens after a turn, load average 18",
+    "p50Milliseconds" : 21217.513833,
+    "p95Milliseconds" : 34158.250208,
+    "passed" : 0,
+    "task" : "context.dropping",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then six questions, scored by phrase; window 32768; this run: facts 4/4, ci correct, first file correct, task correct, 0 condensations, median 11201 tokens after a turn, load average 176",
+    "p50Milliseconds" : 10970.875875000002,
+    "p95Milliseconds" : 13170.153958,
+    "passed" : 6,
+    "task" : "context.dropping.window-32768",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then six questions, scored by phrase; window 8192; this run: facts 1/4, ci correct, first file wrong, task wrong, 4 condensations, median 6124 tokens after a turn, load average 200",
+    "p50Milliseconds" : 9364.174500000001,
+    "p95Milliseconds" : 27124.090083,
+    "passed" : 1,
+    "task" : "context.dropping.window-8192",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then six questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 5 condensations, median 6206 tokens after a turn, load average 248",
+    "p50Milliseconds" : 11413.448875,
+    "p95Milliseconds" : 30556.193792,
+    "passed" : 0,
+    "task" : "context.dropping.window-sized",
+    "total" : 6
+  },
+  {
     "date" : "2026-09-24",
     "maxInputBytes" : 481,
     "model" : "ollama:qwen3.8:27b",

@@ -101,6 +101,13 @@ in turn 1, then asked the model to read and summarise six of these docs, about 1
 - Four turns of that size keep the transcript near the 85% budget, so from then on it condensed before
   almost every turn, a turn at a time.
 
+That chat is now an eval, `ContextEvalTests` (`scripts/check eval`), with four facts, a task, a fact
+that changes, a ten-file digression, and six questions. It is the baseline the
+[layered-context proposal](proposals/2026-09-29-layered-context.md) is measured against. On 2026-09-29
+today's dropping scored 0 of 6 on the on-device model and 1 of 6 on `granite4.1:8b` at the same 8,192-token
+window. Granite scored 6 of 6 at 32,768, where nothing was dropped. Both models again confidently named a
+later file as the first one read. The proposal's "Evaluation" section has the figures.
+
 To see this for yourself, `/inspect context` in chat saves the exact context the next request carries:
 instructions, prompts, tool calls, tool output, and replies. It writes Markdown to read and JSON to
 rebuild a session from, in `~/.wisp/context/`. Every condensation also saves the transcript before and
