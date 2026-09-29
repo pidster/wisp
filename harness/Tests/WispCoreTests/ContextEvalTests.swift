@@ -68,8 +68,9 @@ import WispTestSupport
         #expect(first?.score(scenario.files[1]) == .wrong)
     }
 
-    @Test func theFixturesAreOnePageEachHoldNoAnswerAndOverflowTheWindow() throws {
-        let scenario = ContextEval.baseline()
+    @Test(arguments: ["baseline", "showing"])
+    func theFixturesAreOnePageEachHoldNoAnswerAndOverflowTheWindow(_ name: String) throws {
+        let scenario = name == "showing" ? ContextEval.showing() : ContextEval.baseline()
         var bytes = 0
         for file in scenario.files {
             let path = scenario.fixtures.appending(path: file).path
@@ -139,6 +140,73 @@ import WispTestSupport
             measurement.notes.contains("ci stale") && measurement.notes.contains("\(run.condensations) condensations"))
         #expect(measurement.p50Milliseconds != nil)
         #expect(run.turns[0].line.hasPrefix("turn 1 plant: ") && run.turns[5].line.contains("condensed budget"))
+    }
+
+    @Test func theShowingScenarioAddsOneShownFileAfterTheTaskFiles() {
+        let baseline = ContextEval.baseline()
+        let showing = ContextEval.showing()
+        #expect(showing.name == "showing" && showing.questions == baseline.questions)
+        #expect(showing.steps.count == baseline.steps.count + 1)
+        let shown = showing.steps[4]
+        #expect(shown.kind == .show && shown.file == "harbour.toml")
+        #expect(shown.prompt.contains("read_file") && shown.prompt.contains("full contents"))
+        // Everything else is the baseline, in its order: the task files before, the digression after.
+        var rest = showing.steps
+        rest.remove(at: 4)
+        #expect(rest == baseline.steps)
+        #expect(showing.files.count == 14 && Set(showing.files).count == 14)
+        #expect(showing.summary != baseline.summary && baseline.summary == ContextEval.baselineSummary)
+    }
+
+    @Test func cuttingCutsTheShownFileFromLaterRequestsAndDroppingKeepsIt() async throws {
+        let scenario = ContextEval.showing()
+        /// Scripted replies: the shown file is retyped in a code block, every other read is noted.
+        func steps() -> [ScriptedModel.Step] {
+            var steps: [ScriptedModel.Step] = []
+            for step in scenario.steps {
+                if let file = step.file {
+                    let path = scenario.fixtures.appending(path: file).path
+                    steps.append(.call(name: "read_file", arguments: #"{"path":"\#(path)"}"#))
+                }
+                steps.append(.say(step.kind == .show ? "Here it is:\n\n```toml\n{tool}\n```" : "Noted."))
+            }
+            return steps
+        }
+        var runs: [String: (ContextEval.Run, ScriptedModel)] = [:]
+        for strategy in [DroppingStrategy().name, CuttingStrategy().name] {
+            let model = ScriptedModel(steps: steps())
+            let resolved = ResolvedModel(selection: .system, custom: model)
+            let tools = { (audit: AuditLog) in ToolRegistry(audit: audit).select(["read_file"]).tools }
+            let run =
+                strategy == "cutting"
+                ? await ContextEval.run(
+                    scenario, strategy: CuttingStrategy(), model: resolved, instructions: "x", tools: tools)
+                : await ContextEval.run(
+                    scenario, strategy: DroppingStrategy(), model: resolved, instructions: "x", tools: tools)
+            runs[strategy] = (run, model)
+        }
+        let (dropping, keptModel) = try #require(runs["dropping"])
+        let (cutting, cutModel) = try #require(runs["cutting"])
+        #expect(dropping.cuts == 0 && cutting.cuts == 1)
+        #expect(cutting.turns[4].cuts == 1 && cutting.turns[4].line.contains("cut 1"))
+        #expect(cutting.report[1].contains("1 cuts") && dropping.report[1].contains("0 cuts"))
+        let measurement = cutting.measurement(variant: "showing")
+        #expect(measurement.task == "context.cutting.showing")
+        #expect(measurement.notes.contains("one file shown in full") && measurement.notes.contains("1 cuts"))
+        // The request after the shown file carries the marker with cutting and the retyped file without.
+        let next = { (model: ScriptedModel) in
+            model.script.requests.withLock { $0 }.first { request in
+                request.transcript.contains { if case .prompt(let p) = $0 { "\(p)".contains("detour") } else { false } }
+            }
+        }
+        let carried = { (model: ScriptedModel) -> String in
+            guard let request = next(model),
+                let reply = request.transcript.last(where: { if case .response = $0 { true } else { false } })
+            else { return "" }
+            return ConversationStore.text(of: reply)
+        }
+        #expect(carried(cutModel).hasPrefix("Here it is:\n\n(showed the person the read_file output, entry "))
+        #expect(carried(keptModel).contains("delete_extraneous"))
     }
 
     @Test func recordsAThrownTurnAsItsReplyAndCarriesOn() async throws {

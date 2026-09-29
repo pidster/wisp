@@ -208,6 +208,41 @@ What the baseline shows:
 - **The sized window is not always bigger.** Under load, wisp sized granite's window at 8,192 of 131,072
   ("6.7 GiB of a 7.3 GiB budget"), so that run repeated the 8,192 one.
 
+### Output handling, 2026-09-29
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ContextEvalTests/showing`, recorded
+in `measurements.json` as `context.<strategy>.showing[.window-8192]`. The `showing` scenario is the
+baseline with one more turn after the task files: read `harbour.toml` (866 bytes) and show it in full.
+Every model retyped it in a code block, and cutting found it each time: one cut per run. Another project's
+builds loaded the machine, so times are indicative only. The one-minute load average was 3 to 8 for the
+first on-device runs, 8 to 148 for granite dropping, 148 to 196 for granite cutting, 179 to 101 for the
+on-device rerun, and 78 to 165 for the third on-device cutting run, on 2026-09-30.
+
+| Model, window | Strategy | Facts (of 4) | CI now | First file | Task | Cuts | Condensations | Tokens after a turn, median (max) | Time per turn, median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device, 8,192 | dropping | 0 | wrong | wrong | wrong | 0 | 8 | 6,009 (7,925) | 16.7 s (19.8 s) |
+| On-device, 8,192 | cutting, first run (outlier) | 1 | correct | wrong | wrong | 1 | 1 | 3,047 (7,188) | 6.3 s (15.9 s) |
+| On-device, 8,192 | cutting, rerun | 0 | wrong | wrong | wrong | 1 | 8 | 6,004 (7,717) | 25.9 s (30.4 s) |
+| On-device, 8,192 | cutting, third run (recorded) | 0 | wrong | wrong | wrong | 1 | 8 | 5,955 | 26.3 s (30.9 s) |
+| granite4.1:8b, 8,192 | dropping | 1 | correct | wrong | wrong | 0 | 4 | 6,170 (7,968) | 5.3 s (45.7 s) |
+| granite4.1:8b, 8,192 | cutting | 0 | wrong | wrong | wrong | 1 | 4 | 5,306 (7,868) | 11.0 s (28.3 s) |
+
+What it shows:
+- **A cut saves what the retyping cost, and no more.** After the shown file's turn, granite carried 5,536
+  tokens with cutting against 5,813 without (the turn after it), close to the 200 or so tokens the
+  866-byte retype is worth at four bytes a token. On this scenario that is 3% of the window, too little to move a
+  condensation: both granite runs condensed four times, and the on-device rerun eight times, as dropping did.
+- **The first on-device cutting run is not the cut's doing.** In that run the model read every file
+  differently (about 450 tokens a read instead of 1,300, one read of a file that does not exist), so it
+  stayed under the budget until turn 15. Both later runs read as the dropping run did and matched it;
+  the third is the one recorded in `measurements.json` as `context.cutting.showing`.
+- **Recall is unchanged.** Every run lost the early facts and the task with the turns that held them, as
+  the baseline did; the one or two right answers are the CI state, planted mid-digression. Cutting was
+  never meant to fix recall on its own; facts and `recall` (phase 4) are.
+- **A cut costs a new session on the next request**, as a condensation does. At this scale it is lost in
+  the load: granite's cutting run took 11.8 s for the turn after the cut against 5.5 s without, under a
+  load average near 150.
+
 ## Decisions
 
 Each question settled in review is recorded here with what was considered, what was chosen and why,
@@ -723,8 +758,8 @@ choice becomes per model.
 
 ## Open questions
 
-All eleven were settled with the operator on 2026-09-29; each points to its decision. New questions go
-here as they arise.
+The first eleven were settled with the operator on 2026-09-29; each points to its decision. New questions
+go here as they arise.
 
 1. **Can the person edit facts?** Decided 2026-09-29: see D3 under "Decisions".
 2. **Who distils, and when?** Decided 2026-09-29: see D1 under "Decisions".
@@ -738,6 +773,12 @@ here as they arise.
 9. **Tool output scaled to the window.** Decided 2026-09-29: see D5 under "Decisions".
 10. **A model switch recomposes.** Decided 2026-09-29: see D10 under "Decisions".
 11. **Caching.** Decided 2026-09-29: see D11 under "Decisions".
+
+12. **Routing for display by the request.** Raised in phase 3, 2026-09-29, and left to the operator:
+    whether chat (and `wisp-tui`) should print a tool's output itself when the person asked to see it
+    ("show me the file"), full or summarised by size, instead of relying on the model to retype it; and
+    whether that needs a flag or a command. Today chat shows a one-line note and `/last`; MCP callers get
+    the real output through D9.
 
 ## Phasing
 
@@ -761,6 +802,31 @@ here as they arise.
      composer's path; later designs add strategies whose agents compose differently.
    - Facts, summaries, and D2's identities and versions are not modelled yet; they will cite store
      entries by id.
-3. Output handling: routing and cutting presentational text.
+3. Output handling: routing and cutting presentational text. Done 2026-09-29:
+   - `Presentation` finds presentational text deterministically: a reply's blocks (fenced code blocks
+     and paragraphs) whose word 4-grams are at least half found in one of the turn's tool outputs (with
+     and without `read_file`'s line numbers), joined into runs of the same output, cut only when a run
+     holds at least 24 words. Tested on a retyped file, a table restating a command's output (cut), and a
+     summary quoting one line, analysis, and code the model wrote (kept).
+   - The store records each stretch as a `Cut` on the reply's entry; the entry and the reply the person
+     saw stay whole (D8). `ContextComposer.cutsPresentation` (on by default) sends the reply with the
+     stretch replaced by "(showed the person the read_file output, entry 7)", where 7 is the output's
+     store id, for `recall` to take in phase 4. Cuts are saved in the store's links and composed again on
+     resume. Each is audited as `context.cut`.
+   - `ContextEquivalenceTests` runs with cutting off and still matches the phase 2 snapshots; the
+     snapshots were not re-recorded. With cutting on they match too, since no scripted reply there
+     reproduces 24 words of an output.
+   - Routing for display, as built: chat and `wisp-tui` keep their one-line note per result and `/last`;
+     MCP `respond` gains D9's `calls` with output inline up to `inlineOutputBytes` (1 KiB, a setting) and
+     a `wisp://output/{thread_id}/{id}` reference above it, resolved from the audit log by the
+     `tool.result` event's id, which is the store's reference for the output. The "summary" route and
+     routing by what the request asked for are not built (see "Open questions", 12).
+   - The eval gained `CuttingStrategy` and the `showing` scenario (the baseline plus one turn that shows
+     a file in full); figures under "Evaluation", "Output handling, 2026-09-29": each model retyped the
+     file and each cut saved about 200 tokens, too few on this scenario to move a condensation or recall.
+   - Deviations: a cut forces a new session on the next request, like a condensation, since the rewritten
+     reply is in the middle of what the runtime has processed (D11's cost, measured below); cuts are
+     judged only against the same turn's output, as the design says, so a reply that retells an earlier
+     turn's output is kept.
 4. Facts and the summary, `/inspect facts`, and `recall`.
 5. The ADR, with the eval's figures.

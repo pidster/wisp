@@ -1,0 +1,32 @@
+# harbour.toml: the settings harbour reads at start-up, one table per sync profile.
+# Copy this file to ~/.config/harbour/harbour.toml and edit the paths before the first run.
+
+[profile.photos]
+source = "~/Pictures/Library"
+destination = "/Volumes/Backup/photos"
+include = ["*.heic", "*.jpg", "*.mov"]
+exclude = [".DS_Store", "*.tmp", "Thumbs.db"]
+delete_extraneous = false
+checksum = "sha256"
+max_parallel_copies = 4
+
+[profile.documents]
+source = "~/Documents"
+destination = "nas.local:/shares/documents"
+include = ["**/*"]
+exclude = ["*.lock", "node_modules/**", ".git/**"]
+delete_extraneous = true
+checksum = "size-and-mtime"
+max_parallel_copies = 2
+
+[transport]
+retries = 3
+retry_backoff_seconds = 5
+bandwidth_limit_kbps = 0
+verify_after_copy = true
+
+[logging]
+level = "info"
+file = "~/Library/Logs/harbour/sync.log"
+rotate_after_megabytes = 20
+keep_rotated = 5

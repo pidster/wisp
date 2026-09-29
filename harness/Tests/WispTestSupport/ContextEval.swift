@@ -9,9 +9,10 @@ import WispCore
 /// `ModelEvalTests` drives it on real models.
 ///
 /// A `ContextStrategy` is the seam later designs plug into: each one opens a conversation over the same
-/// model, tools, and instructions, and the same scenario runs through it. `DroppingStrategy`, today's
-/// `Agent`, is the baseline: its `ContextComposer` composes literal turns only, as phase 2 of the proposal
-/// built it to reproduce what came before.
+/// model, tools, and instructions, and the same scenario runs through it. `DroppingStrategy` is the
+/// baseline: an `Agent` whose `ContextComposer` composes literal turns only, as phase 2 of the proposal
+/// built it to reproduce what came before. `CuttingStrategy` adds phase 3's output handling, and
+/// `showing()` is the scenario that gives it presentational text to cut.
 public enum ContextEval {
     /// One scripted user turn before the questions.
     public struct Step: Sendable, Equatable {
@@ -25,6 +26,8 @@ public enum ContextEval {
             case digression
             /// Reads a file and changes a fact planted earlier.
             case change
+            /// Reads a file and asks to be shown its contents, so the reply is presentational text.
+            case show
         }
 
         /// What the turn does.
@@ -106,13 +109,19 @@ public enum ContextEval {
         public var steps: [Step]
         /// The questions, asked in order after the steps.
         public var questions: [Question]
+        /// What the conversation does, for a measurement's notes.
+        public var summary: String
 
         /// Creates a scenario.
-        public init(name: String, fixtures: URL, steps: [Step], questions: [Question]) {
+        public init(
+            name: String, fixtures: URL, steps: [Step], questions: [Question],
+            summary: String = ContextEval.baselineSummary
+        ) {
             self.name = name
             self.fixtures = fixtures
             self.steps = steps
             self.questions = questions
+            self.summary = summary
         }
 
         /// The fixtures the steps read, in order.
@@ -136,6 +145,35 @@ public enum ContextEval {
     ]
     /// The digression read whose turn also changes the CI fact, so the change sits mid-digression.
     static let changeAt = 5
+    /// The file the showing scenario asks to be shown: a short configuration file the model can retype.
+    static let shownFile = "harbour.toml"
+    /// The baseline scenario's description, for a measurement's notes.
+    public static let baselineSummary =
+        "four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway"
+
+    /// The baseline scenario with one more step after the task files: read a short configuration file and
+    /// show it in full. A model asked to show a file retypes it, so that reply is presentational text,
+    /// which the cutting strategy cuts from later requests and dropping keeps until its turn is dropped.
+    /// The questions are the baseline's.
+    ///
+    /// - Parameter fixtures: Where the fixture files are; defaults to the repository's.
+    /// - Returns: The scenario.
+    public static func showing(fixtures: URL = fixturesDirectory) -> Scenario {
+        var scenario = baseline(fixtures: fixtures)
+        scenario.name = "showing"
+        scenario.summary =
+            "four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, "
+            + "and one file shown in full after the task files"
+        let at = 1 + taskFiles.count
+        scenario.steps.insert(
+            Step(
+                kind: .show,
+                prompt: "Use read_file to read \(fixtures.appending(path: shownFile).path) and show me its full "
+                    + "contents exactly as they are, in a code block.",
+                file: shownFile),
+            at: at)
+        return scenario
+    }
 
     /// The baseline scenario: the task and four facts planted over the first four turns (a codename, the
     /// CI state, a reviewer's preference, a ticket number), the three task files read, ten unrelated
@@ -288,10 +326,9 @@ public protocol ContextStrategy: Sendable {
         -> any ContextConversation
 }
 
-/// Today's behaviour: an `Agent` with its default policy, whose composer sends the store's active turns
-/// literally and condenses to the last four ahead of an 85% budget or on overflow. Since phase 2 every
-/// `Agent` composes each request from its `ConversationStore`, so this is the composer's path; a later
-/// design adds a strategy that opens an agent with its own composer rather than a second copy of this one.
+/// The baseline: an `Agent` with its default policy and output handling off, whose composer sends the
+/// store's active turns literally and condenses to the last four ahead of an 85% budget or on overflow,
+/// which is what phase 2 of the proposal built and phase 1 measured.
 public struct DroppingStrategy: ContextStrategy {
     /// `dropping`.
     public let name = "dropping"
@@ -301,13 +338,40 @@ public struct DroppingStrategy: ContextStrategy {
     /// Creates the strategy.
     public init() {}
 
-    /// Opens an `Agent` with the default context policy.
+    /// Opens an `Agent` with the default context policy and presentational text kept.
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
         -> any ContextConversation
     {
-        AgentConversation(Agent(instructions: instructions, tools: tools, model: model, audit: audit))
+        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.cutsPresentation = false
+        return AgentConversation(agent)
+    }
+}
+
+/// Output handling on (phase 3 of the proposal): dropping as `DroppingStrategy` does, and presentational
+/// text, a stretch of a reply that reproduces a tool output of its turn, cut from later requests and
+/// replaced by a marker. This is `Agent`'s default.
+public struct CuttingStrategy: ContextStrategy {
+    /// `cutting`.
+    public let name = "cutting"
+    /// What it does.
+    public let summary =
+        "dropping, with presentational text (a reply's retyping of its turn's tool output) cut to a marker"
+
+    /// Creates the strategy.
+    public init() {}
+
+    /// Opens an `Agent` with the default context policy and output handling on.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextConversation
+    {
+        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.cutsPresentation = true
+        return AgentConversation(agent)
     }
 }
 
@@ -349,12 +413,15 @@ extension ContextEval {
         public var condensations: [String]
         /// The tools called during the turn, in order.
         public var tools: [String]
+        /// Stretches of presentational text cut after the turn (`context.cut` events).
+        public var cuts: Int
 
         /// Creates a turn record.
         public init(
             number: Int, label: String, reply: String, failed: Bool, seconds: Double, tokens: Int?,
-            condensations: [String], tools: [String]
+            condensations: [String], tools: [String], cuts: Int = 0
         ) {
+            self.cuts = cuts
             self.number = number
             self.label = label
             self.reply = reply
@@ -371,7 +438,8 @@ extension ContextEval {
             return
                 "turn \(number) \(label): \(String(format: "%.1f", seconds)) s, tokens \(tokens.map(String.init) ?? "?")"
                 + (condensations.isEmpty ? "" : ", condensed \(condensations.joined(separator: "+"))")
-                + (tools.isEmpty ? "" : ", tools \(tools.joined(separator: ","))") + (failed ? ", FAILED" : "")
+                + (tools.isEmpty ? "" : ", tools \(tools.joined(separator: ","))")
+                + (cuts == 0 ? "" : ", cut \(cuts)") + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
     }
@@ -407,12 +475,15 @@ extension ContextEval {
         public var answers: [Answer]
         /// The one-minute load average when the run started and when it ended.
         public var load: (start: Double, end: Double)
+        /// What the scenario does (`Scenario.summary`).
+        public var scenario: String
 
         /// Creates a run.
         public init(
             strategy: String, model: String, window: Int?, turns: [Turn], answers: [Answer],
-            load: (start: Double, end: Double) = (0, 0)
+            load: (start: Double, end: Double) = (0, 0), scenario: String = ContextEval.baselineSummary
         ) {
+            self.scenario = scenario
             self.strategy = strategy
             self.model = model
             self.window = window
@@ -425,7 +496,7 @@ extension ContextEval {
         public static func == (lhs: Run, rhs: Run) -> Bool {
             lhs.strategy == rhs.strategy && lhs.model == rhs.model && lhs.window == rhs.window
                 && lhs.turns == rhs.turns && lhs.answers == rhs.answers && lhs.load.start == rhs.load.start
-                && lhs.load.end == rhs.load.end
+                && lhs.load.end == rhs.load.end && lhs.scenario == rhs.scenario
         }
 
         /// Correct answers among the questions probing `probes`.
@@ -436,6 +507,9 @@ extension ContextEval {
 
         /// Condensations over the whole run.
         public var condensations: Int { turns.map(\.condensations.count).reduce(0, +) }
+
+        /// Stretches of presentational text cut over the whole run.
+        public var cuts: Int { turns.map(\.cuts).reduce(0, +) }
 
         /// The turn times, in milliseconds.
         public var milliseconds: [Double] { turns.map { $0.seconds * 1000 } }
@@ -450,7 +524,7 @@ extension ContextEval {
             return [
                 "\(strategy) on \(model) (window \(window.map(String.init) ?? "unknown")): facts \(facts.correct)/"
                     + "\(facts.total), \(verdicts)",
-                "\(condensations) condensations over \(turns.count) turns; tokens after a turn median "
+                "\(condensations) condensations and \(cuts) cuts over \(turns.count) turns; tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
                     + "\(tokens.max().map(String.init) ?? "?"); time per turn median "
                     + String(
@@ -473,11 +547,11 @@ extension ContextEval {
             return WispCore.Measurement(
                 task: task, model: model, passed: answers.filter { $0.verdict == .correct }.count,
                 total: answers.count,
-                notes: "a scripted conversation of \(turns.count - answers.count) turns (four facts and a task "
-                    + "planted, 13 file reads including a ten-file digression, a fact changed midway) then six "
-                    + "questions, scored by phrase; window \(window.map(String.init) ?? "unknown"); this run: facts \(facts.correct)/"
+                notes: "a scripted conversation of \(turns.count - answers.count) turns (\(scenario)) then "
+                    + "\(answers.count) questions, scored by phrase; window \(window.map(String.init) ?? "unknown"); "
+                    + "this run: facts \(facts.correct)/"
                     + "\(facts.total), ci \(byID["ci"] ?? "?"), first file \(byID["first-file"] ?? "?"), task "
-                    + "\(byID["task"] ?? "?"), \(condensations) condensations, median "
+                    + "\(byID["task"] ?? "?"), \(condensations) condensations, \(cuts) cuts, median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
                 p50Milliseconds: ContextEval.percentile(milliseconds, 0.5),
@@ -544,7 +618,8 @@ extension ContextEval {
                 condensations: events.filter { $0.kind == .condensation }.map {
                     $0.details["reason"]?.stringValue ?? "?"
                 },
-                tools: events.filter { $0.kind == .toolCall }.map { $0.details["tool"]?.stringValue ?? "?" })
+                tools: events.filter { $0.kind == .toolCall }.map { $0.details["tool"]?.stringValue ?? "?" },
+                cuts: events.filter { $0.kind == .presentationCut }.count)
             turns.append(turn)
             onTurn(turn)
         }
@@ -554,6 +629,6 @@ extension ContextEval {
         }
         return Run(
             strategy: strategy.name, model: model.selection.description, window: model.contextSize, turns: turns,
-            answers: answers, load: (loadAtStart, loadAverage()))
+            answers: answers, load: (loadAtStart, loadAverage()), scenario: scenario.summary)
     }
 }

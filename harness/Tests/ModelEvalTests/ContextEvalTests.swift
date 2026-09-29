@@ -5,8 +5,8 @@ import WispTestSupport
 @testable import WispCore
 
 /// What a long conversation keeps: the context eval of the layered-context proposal
-/// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"), run through today's dropping as the
-/// baseline. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
+/// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"), run through dropping as the baseline, and
+/// through output handling (cutting presentational text) on a scenario that shows a file. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
 /// gate; this suite only drives them on real models. Needs the model; runs only with `WISP_MODEL_TESTS=1`.
 ///
 /// The on-device model's window is 8,192 tokens. Ollama's is sized from the Mac's memory when a model is
@@ -33,12 +33,14 @@ struct ContextEvalTests {
         }
     }
 
-    /// Runs the baseline scenario on `model` through today's dropping, prints each turn and the summary,
-    /// and reports the measurement.
-    static func measure(_ model: ResolvedModel, variant: String? = nil) async throws {
-        let scenario = ContextEval.baseline()
+    /// Runs `scenario` (the baseline by default) on `model` through `strategy` (dropping by default), prints
+    /// each turn and the summary, and reports the measurement.
+    static func measure(
+        _ model: ResolvedModel, variant: String? = nil, strategy: some ContextStrategy = DroppingStrategy(),
+        scenario: ContextEval.Scenario = ContextEval.baseline()
+    ) async throws {
         let run = await ContextEval.run(
-            scenario, strategy: DroppingStrategy(), model: model, instructions: Prompting().rendered,
+            scenario, strategy: strategy, model: model, instructions: Prompting().rendered,
             tools: { audit in
                 let gate = ApprovalGate(
                     classifier: RuleRiskClassifier.standard,
@@ -46,7 +48,7 @@ struct ContextEvalTests {
                     audit: audit)
                 return ToolRegistry(audit: audit, approval: gate).select(["read_file"]).tools
             },
-            onTurn: { print("context eval: \(model.selection) \(variant ?? ""): \($0.line)") })
+            onTurn: { print("context eval: \(strategy.name) \(model.selection) \(variant ?? ""): \($0.line)") })
         for line in run.report { print("context eval: \(line)") }
         for answer in run.answers {
             let shown = answer.reply.replacingOccurrences(of: "\n", with: "⏎").prefix(200)
@@ -77,5 +79,30 @@ struct ContextEvalTests {
         guard let model = Self.granite(contextLength: nil) else { return }
         print("context eval: \(Self.ollama) sized window \(model.contextSize ?? 0): \(model.contextNote ?? "")")
         try await Self.measure(model, variant: "window-sized")
+    }
+
+    // Output handling (phase 3): the showing scenario, where one reply retypes a file, through dropping and
+    // through cutting, on the on-device model and on granite at the same window. `--filter
+    // ContextEvalTests/showing` runs these four alone.
+
+    @Test func showingOnTheOnDeviceModelDropping() async throws {
+        try await Self.measure(try ModelSelection.system.resolve(), variant: "showing", scenario: ContextEval.showing())
+    }
+
+    @Test func showingOnTheOnDeviceModelCutting() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing", strategy: CuttingStrategy(),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func showingOnGraniteAtTheOnDeviceWindowDropping() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(model, variant: "showing.window-8192", scenario: ContextEval.showing())
+    }
+
+    @Test func showingOnGraniteAtTheOnDeviceWindowCutting() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192", strategy: CuttingStrategy(), scenario: ContextEval.showing())
     }
 }

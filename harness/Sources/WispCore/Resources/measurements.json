@@ -50,11 +50,51 @@
   {
     "date" : "2026-09-29",
     "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 8 condensations, 1 cuts, median 5955 tokens after a turn, load average 78",
+    "p50Milliseconds" : 26331.723166,
+    "p95Milliseconds" : 30942.691875,
+    "passed" : 0,
+    "task" : "context.cutting.showing",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 4 condensations, 1 cuts, median 5306 tokens after a turn, load average 148",
+    "p50Milliseconds" : 10997.250917000001,
+    "p95Milliseconds" : 28300.278250000003,
+    "passed" : 0,
+    "task" : "context.cutting.showing.window-8192",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "system",
     "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then six questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 9 condensations, median 5896 tokens after a turn, load average 18",
     "p50Milliseconds" : 21217.513833,
     "p95Milliseconds" : 34158.250208,
     "passed" : 0,
     "task" : "context.dropping",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 0/4, ci wrong, first file wrong, task wrong, 8 condensations, 0 cuts, median 6009 tokens after a turn, load average 3",
+    "p50Milliseconds" : 16745.698709,
+    "p95Milliseconds" : 19843.582749999998,
+    "passed" : 0,
+    "task" : "context.dropping.showing",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-29",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 1/4, ci correct, first file wrong, task wrong, 4 condensations, 0 cuts, median 6170 tokens after a turn, load average 8",
+    "p50Milliseconds" : 5347.891959,
+    "p95Milliseconds" : 45657.711790999994,
+    "passed" : 1,
+    "task" : "context.dropping.showing.window-8192",
     "total" : 6
   },
   {
