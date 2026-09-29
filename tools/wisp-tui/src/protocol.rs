@@ -71,6 +71,10 @@ pub struct Status {
     pub branch: Option<String>,
     /// Whether tracked files have changes, when known.
     pub dirty: Option<bool>,
+    /// Lines added in tracked files since the last commit, when known.
+    pub added: Option<u64>,
+    /// Lines removed, when known.
+    pub removed: Option<u64>,
     /// The approval mode.
     pub approval: String,
     /// Fraction of the context window used, when known.

@@ -6,6 +6,14 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Changed:
+
+- The status line is shorter and says more. On the left, `system:15% used · ~/src/wisp:main+12-3`:
+  the model with its context use, then the directory, branch, and lines added (green) and removed (red)
+  since the last commit, instead of `changes`. On the right, the approval mode, and in `wisp-tui` the
+  last turn and its tokens: `last:3.1s · ↓4,009 ↑79`, tokens read in pale yellow and written in pale
+  blue. The footer under each reply uses the same arrows.
+
 Fixed:
 
 - A tool call from an Ollama model that leaves out a required text argument no longer ends the turn with

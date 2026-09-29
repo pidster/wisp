@@ -612,7 +612,11 @@ impl App {
         }
         if let Some(picker) = &self.picker {
             self.render_picker(frame, picker, area, inset);
-            plain(frame, area.height.saturating_sub(1), self.status_line());
+            plain(
+                frame,
+                area.height.saturating_sub(1),
+                self.status_line(inset.width),
+            );
             return;
         }
         if let Some(approval) = &self.approval {
@@ -634,7 +638,11 @@ impl App {
                 ..inset
             };
             frame.render_widget(Paragraph::new(lines).block(block), dialog);
-            plain(frame, area.height.saturating_sub(1), self.status_line());
+            plain(
+                frame,
+                area.height.saturating_sub(1),
+                self.status_line(inset.width),
+            );
             return;
         }
         let strip = |frame: &mut Frame, index: u16, glyph: &str| {
@@ -675,7 +683,7 @@ impl App {
             frame.set_cursor_position((x.min(area.right().saturating_sub(1)), y));
         }
         strip(frame, status_row - 1, "▀");
-        plain(frame, status_row, self.status_line());
+        plain(frame, status_row, self.status_line(inset.width));
     }
 
     /// The input's rows in `width` cells, at most `visible` of them, and the cursor's row among those
@@ -722,47 +730,52 @@ impl App {
         )
     }
 
-    fn status_line(&self) -> Line<'static> {
+    /// The status row for a band `width` cells wide: on the left the model and its context use, the
+    /// directory with its branch and line changes; on the right the approval mode, the turn, and its
+    /// tokens, pushed to the right edge. When both do not fit, the directory shortens to its last
+    /// folder, and failing that the two sides simply follow each other.
+    fn status_line(&self, width: u16) -> Line<'static> {
         let Some(status) = &self.status else {
             return Line::from(Span::styled("connecting…", palette::muted()));
         };
         let sep = || Span::styled(" · ", palette::muted());
-        let mut spans = vec![
-            Span::styled(status.model.clone(), palette::wisp()),
-            sep(),
-            Span::styled(status.directory.clone(), palette::wisp()),
-        ];
-        if let Some(branch) = &status.branch {
+        let left = |directory: String| {
+            let mut spans = vec![Span::styled(status.model.clone(), palette::wisp())];
+            if let Some(used) = status.context_used {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let percent = (used * 100.0).round() as u8;
+                let style = if used >= 0.8 {
+                    palette::amber()
+                } else {
+                    palette::muted()
+                };
+                spans.push(Span::styled(":", palette::muted()));
+                spans.push(Span::styled(format!("{percent}% used"), style));
+            }
             spans.push(sep());
-            spans.push(Span::styled(branch.clone(), palette::wisp()));
-        }
-        if let Some(dirty) = status.dirty {
-            spans.push(sep());
-            spans.push(Span::styled(
-                if dirty { "changes" } else { "clean" },
-                palette::wisp(),
-            ));
-        }
-        spans.push(sep());
-        spans.push(Span::styled(status.approval.clone(), palette::muted()));
-        if let Some(used) = status.context_used {
-            spans.push(sep());
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let percent = (used * 100.0).round() as u8;
-            let style = if used >= 0.8 {
-                palette::amber()
-            } else {
-                palette::muted()
-            };
-            spans.push(Span::styled(format!("context {percent}% used"), style));
-        }
+            spans.push(Span::styled(directory, palette::wisp()));
+            if let Some(branch) = &status.branch {
+                spans.push(Span::styled(":", palette::muted()));
+                spans.push(Span::styled(branch.clone(), palette::wisp()));
+            }
+            match (status.added, status.removed) {
+                (Some(added), Some(removed)) if added + removed > 0 => {
+                    spans.push(Span::styled(format!("+{added}"), palette::added()));
+                    spans.push(Span::styled(format!("-{removed}"), palette::removed()));
+                }
+                _ if status.dirty == Some(true) => spans.push(Span::styled("*", palette::amber())),
+                _ => {}
+            }
+            spans
+        };
+        let mut right = vec![Span::styled(status.approval.clone(), palette::muted())];
         match self.turn {
             Some(TurnState::Running(number)) => {
-                spans.push(sep());
-                spans.push(Span::styled(format!("turn {number}…"), palette::wisp()));
+                right.push(sep());
+                right.push(Span::styled(format!("turn {number}…"), palette::wisp()));
                 if let Some(label) = self.working_label(Instant::now()) {
-                    spans.push(sep());
-                    spans.push(Span::styled(label, palette::muted()));
+                    right.push(sep());
+                    right.push(Span::styled(label, palette::muted()));
                 }
             }
             Some(TurnState::Ended {
@@ -770,26 +783,60 @@ impl App {
                 failed,
                 tokens,
             }) => {
-                spans.push(sep());
-                spans.push(if failed {
-                    Span::styled(
-                        format!("last turn failed after {seconds:.1} s"),
-                        palette::ember(),
-                    )
+                right.push(sep());
+                right.push(if failed {
+                    Span::styled(format!("last:failed {seconds:.1}s"), palette::ember())
                 } else {
-                    Span::styled(format!("last turn {seconds:.1} s"), palette::muted())
+                    Span::styled(format!("last:{seconds:.1}s"), palette::muted())
                 });
                 if let Some((input, output)) = tokens {
-                    spans.push(Span::styled(
-                        format!(", {input} tokens in, {output} out"),
-                        palette::muted(),
+                    right.push(sep());
+                    right.push(Span::styled(
+                        format!("↓{}", grouped(input)),
+                        palette::tokens_in(),
+                    ));
+                    right.push(Span::raw(" "));
+                    right.push(Span::styled(
+                        format!("↑{}", grouped(output)),
+                        palette::tokens_out(),
                     ));
                 }
             }
             None => {}
         }
+        let cells = |spans: &[Span<'static>]| spans.iter().map(Span::width).sum::<usize>();
+        let right_cells = cells(&right);
+        let mut spans = left(status.directory.clone());
+        if cells(&spans) + right_cells + 3 > usize::from(width) {
+            let last = status
+                .directory
+                .rsplit('/')
+                .next()
+                .unwrap_or(&status.directory);
+            spans = left(format!("…/{last}"));
+        }
+        let gap = usize::from(width).saturating_sub(cells(&spans) + right_cells);
+        if gap >= 3 {
+            spans.push(Span::raw(" ".repeat(gap)));
+        } else {
+            spans.push(sep());
+        }
+        spans.extend(right);
         Line::from(spans)
     }
+}
+
+/// `n` with thousands separated by commas, as the terminal chat's footer writes it.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
 }
 
 /// The prompt's cells as a row offset.
@@ -1497,6 +1544,8 @@ mod tests {
                     directory: "~/x".into(),
                     branch: None,
                     dirty: None,
+                    added: None,
+                    removed: None,
                     approval: "moderate".into(),
                     context_used: None,
                 }),
@@ -1507,14 +1556,82 @@ mod tests {
                 }),
                 ..Default::default()
             };
-            app.status_line()
+            app.status_line(120)
                 .spans
                 .iter()
                 .map(|span| span.content.to_string())
                 .collect::<String>()
         };
-        assert!(text(Some((4009, 79))).ends_with("last turn 3.1 s, 4009 tokens in, 79 out"));
-        assert!(text(None).ends_with("last turn 3.1 s"));
+        assert!(text(Some((4009, 79))).ends_with("moderate · last:3.1s · ↓4,009 ↑79"));
+        assert!(text(None).ends_with("moderate · last:3.1s"));
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn the_status_line_puts_changes_after_the_branch_and_the_rest_on_the_right() {
+        let status = Status {
+            model: "system".into(),
+            directory: "~/src/github.com/pidster/wisp".into(),
+            branch: Some("main".into()),
+            dirty: Some(true),
+            added: Some(12),
+            removed: Some(3),
+            approval: "approve at moderate".into(),
+            context_used: Some(0.15),
+        };
+        let app = App {
+            status: Some(status.clone()),
+            ..Default::default()
+        };
+        let line = app.status_line(80);
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect();
+        assert!(
+            text.starts_with("system:15% used · ~/src/github.com/pidster/wisp:main+12-3   "),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("approve at moderate") && line.width() == 80,
+            "{text}"
+        );
+        let added = line.spans.iter().find(|span| span.content == "+12");
+        assert_eq!(added.map(|span| span.style.fg), Some(Some(palette::ADDED)));
+        let removed = line.spans.iter().find(|span| span.content == "-3");
+        assert_eq!(
+            removed.map(|span| span.style.fg),
+            Some(Some(palette::REMOVED))
+        );
+        // Too narrow for the whole path: it shortens to its last folder.
+        let narrow: String = app
+            .status_line(50)
+            .spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect();
+        assert!(
+            narrow.starts_with("system:15% used · …/wisp:main+12-3"),
+            "{narrow}"
+        );
+        // Dirty without counts, as before a first commit, is a star.
+        let unborn = App {
+            status: Some(Status {
+                added: None,
+                removed: None,
+                ..status
+            }),
+            ..Default::default()
+        };
+        let text: String = unborn
+            .status_line(80)
+            .spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect();
+        assert!(text.contains("wisp:main*"), "{text}");
     }
 
     #[test]
@@ -1525,6 +1642,8 @@ mod tests {
                 directory: "~/x".into(),
                 branch: Some("main".into()),
                 dirty: Some(false),
+                added: Some(0),
+                removed: Some(0),
                 approval: "--yes".into(),
                 context_used: Some(0.137),
             }),
@@ -1554,7 +1673,7 @@ mod tests {
         assert_eq!(row(INPUT_ROW), " › hello");
         assert_eq!(
             row(STATUS_ROW),
-            " system · ~/x · main · clean · --yes · context 14% used"
+            format!(" system:14% used · ~/x:main{}--yes", " ".repeat(27))
         );
         // The input row's tint runs edge to edge, with half-block strips above and below in the tint.
         assert_eq!(buffer[(0, INPUT_ROW)].bg, palette::DEEP);
@@ -1583,7 +1702,7 @@ mod tests {
         let row3: String = (0..60)
             .map(|x| buffer[(x, STATUS_ROW)].symbol().to_string())
             .collect();
-        let at = row3.find("context").unwrap_or(0);
+        let at = row3.find("90% used").unwrap_or(0);
         let column = u16::try_from(row3[..at].chars().count()).unwrap_or(0);
         assert!(at > 0, "no context part in {row3}");
         assert_eq!(buffer[(column, STATUS_ROW)].fg, palette::AMBER);

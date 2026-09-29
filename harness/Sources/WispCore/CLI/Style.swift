@@ -37,6 +37,14 @@ public struct Style: Sendable, Equatable {
         public static let amber = (0xF2, 0xB9, 0x50)
         /// Danger and errors.
         public static let ember = (0xFF, 0x6B, 0x6B)
+        /// Lines added.
+        public static let added = (0x7E, 0xD9, 0x8F)
+        /// Lines removed.
+        public static let removed = (0xFF, 0x6B, 0x6B)
+        /// Tokens read.
+        public static let tokensIn = (0xF2, 0xE3, 0x9C)
+        /// Tokens written.
+        public static let tokensOut = (0xA9, 0xC7, 0xFF)
     }
 
     private func rgb(_ colour: (Int, Int, Int), _ text: String) -> String {
@@ -53,6 +61,14 @@ public struct Style: Sendable, Equatable {
     public func amber(_ text: String) -> String { rgb(Palette.amber, text) }
     /// Danger.
     public func ember(_ text: String) -> String { rgb(Palette.ember, text) }
+    /// Lines added, in the status line.
+    public func added(_ text: String) -> String { rgb(Palette.added, text) }
+    /// Lines removed.
+    public func removed(_ text: String) -> String { rgb(Palette.removed, text) }
+    /// Tokens read, in the footer.
+    public func tokensIn(_ text: String) -> String { rgb(Palette.tokensIn, text) }
+    /// Tokens written.
+    public func tokensOut(_ text: String) -> String { rgb(Palette.tokensOut, text) }
 
     /// Bold.
     public func bold(_ text: String) -> String { wrap("1", text) }

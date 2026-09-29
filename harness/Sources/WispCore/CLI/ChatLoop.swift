@@ -10,16 +10,19 @@ public enum ChatTurn: Equatable, Sendable {
     case end(turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil)
 
     /// The line under a reply in the terminal chat: how long the turn took and, when the model reports
-    /// them, the tokens it read and wrote. Nil for a turn's start.
+    /// them, the tokens it read (↓, pale yellow) and wrote (↑, pale blue). Nil for a turn's start.
     public func footer(style: Style) -> String? {
         guard case .end(_, let seconds, let failed, let tokens) = self else { return nil }
         var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
         if let tokens {
             // No rate: the turn's time includes its commands and approvals, so tokens over it is not the
             // model's speed.
-            parts.append("\(tokens.input.formatted()) tokens in, \(tokens.output.formatted()) out")
+            parts.append(
+                style.tokensIn("↓\(tokens.input.formatted())") + " " + style.tokensOut("↑\(tokens.output.formatted())"))
         }
-        return style.muted("  " + parts.joined(separator: " · "))
+        return "  "
+            + parts.enumerated().map { $0.offset == 0 ? style.muted($0.element) : $0.element }
+            .joined(separator: style.muted(" · "))
     }
 }
 
@@ -93,8 +96,8 @@ public struct ChatLoop {
         public var directory: String
         /// The approval mode, from `ChatStatus.approvalMode`.
         public var approval: String
-        /// Reads the git branch and dirty state of a directory; the CLI passes `GitState.read`.
-        public var git: @Sendable (String) -> (branch: String?, dirty: Bool?)
+        /// Reads the git branch and changes of a directory; the CLI passes `GitState.read`.
+        public var git: @Sendable (String) -> GitState.Summary
         /// Answers `/inspect <what>`; nil makes the command unavailable.
         public var inspect: (@Sendable (String) async -> String)?
         /// A banner line for the start of the session.
@@ -120,7 +123,7 @@ public struct ChatLoop {
         /// Creates a context.
         public init(
             directory: String, approval: String,
-            git: @escaping @Sendable (String) -> (branch: String?, dirty: Bool?) = { _ in (nil, nil) },
+            git: @escaping @Sendable (String) -> GitState.Summary = { _ in GitState.Summary() },
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
             models: (@Sendable (ModelSelection, [any Tool]) async -> [String])? = nil,
             openModel: (@Sendable (ModelSelection, Transcript) throws -> Agent)? = nil, stats: CallStats? = nil,
@@ -199,7 +202,8 @@ public struct ChatLoop {
         }
         return ChatStatus(
             model: agent.model.selection.description, directory: ChatStatus.abbreviated(context.directory),
-            branch: git.branch, dirty: git.dirty, approval: context.approval, contextUsed: used)
+            branch: git.branch, dirty: git.dirty, added: git.added, removed: git.removed, approval: context.approval,
+            contextUsed: used)
     }
 
     /// Adds a typed line to `history`, trimmed, unless it is blank or repeats the line before it.

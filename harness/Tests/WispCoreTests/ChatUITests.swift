@@ -25,15 +25,25 @@ import WispTestSupport
         let full = ChatStatus(
             model: "ollama:q", directory: "~/src/x", branch: "main", dirty: false, approval: "--yes", contextUsed: 0.137
         )
-        #expect(full.rendered(style: .plain) == "ollama:q · ~/src/x · main · clean · --yes · context 14% used")
+        #expect(full.rendered(style: .plain) == "ollama:q:14% used · ~/src/x:main · --yes")
+        #expect(
+            full.rendered(style: .plain, width: 50) == "ollama:q:14% used · ~/src/x:main"
+                + String(repeating: " ", count: 13) + "--yes")
+        #expect(full.rendered(style: .plain, width: 20) == full.rendered(style: .plain))
         let bare = ChatStatus(model: "system", directory: "/tmp", approval: "never asks")
         #expect(bare.rendered(style: .plain) == "system · /tmp · never asks")
         let styled = full.rendered(style: Style(enabled: true))
         #expect(Style.stripped(styled) == full.rendered(style: .plain))
-        #expect(styled.contains("\u{1B}[38;2;143;211;244mollama:q") && styled.contains("38;2;134;174;200mcontext"))
+        #expect(styled.contains("\u{1B}[38;2;143;211;244mollama:q") && styled.contains("38;2;134;174;200m14% used"))
         let nearlyFull = ChatStatus(model: "m", directory: "/", approval: "x", contextUsed: 0.85).rendered(
             style: Style(enabled: true))
-        #expect(nearlyFull.contains("38;2;242;185;80mcontext 85% used"))
+        #expect(nearlyFull.contains("38;2;242;185;80m85% used"))
+        let changed = ChatStatus(
+            model: "m", directory: "~/w", branch: "main", dirty: true, added: 12, removed: 3, approval: "x"
+        ).rendered(style: Style(enabled: true))
+        #expect(changed.contains("38;2;126;217;143m+12") && changed.contains("38;2;255;107;107m-3"))
+        let unborn = ChatStatus(model: "m", directory: "~/w", branch: "main", dirty: true, approval: "x")
+        #expect(unborn.rendered(style: .plain) == "m · ~/w:main* · x")
         #expect(ChatStatus.abbreviated("/Users/me/src", home: "/Users/me") == "~/src")
         #expect(ChatStatus.abbreviated("/Users/me", home: "/Users/me") == "~")
         #expect(ChatStatus.abbreviated("/Users/meg/src", home: "/Users/me") == "/Users/meg/src")
@@ -59,12 +69,14 @@ import WispTestSupport
     @Test func gitStateReadsThisRepositoryAndNothingElsewhere() throws {
         let here = FileManager.default.currentDirectoryPath
         let state = GitState.read(in: here)
-        #expect(state.branch != nil && state.dirty != nil, "\(state)")
+        #expect(state.branch != nil && state.dirty != nil && state.added != nil, "\(state)")
+        #expect(GitState.lineCounts("12\t3\ta.swift\n-\t-\tlogo.png\n0\t0\tscript.sh\n") == (12, 3, 3))
+        #expect(GitState.lineCounts("") == (0, 0, 0))
         #expect(GitState.repositoryRoot(of: here + "/Sources") == GitState.repositoryRoot(of: here))
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-nogit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        #expect(GitState.read(in: dir.path) == (nil, nil))
+        #expect(GitState.read(in: dir.path) == GitState.Summary())
         // A detached HEAD shows a short hash; a branch its name.
         let fake = dir.appending(path: ".git")
         try FileManager.default.createDirectory(at: fake, withIntermediateDirectories: true)
@@ -165,7 +177,7 @@ import WispTestSupport
         let tokens = TurnTokens(input: 4009, output: 79)
         #expect(
             ChatTurn.end(turn: 1, seconds: 3.16, failed: false, tokens: tokens).footer(style: .plain)
-                == "  3.2 s · 4,009 tokens in, 79 out")
+                == "  3.2 s · ↓4,009 ↑79")
         #expect(ChatTurn.end(turn: 1, seconds: 0.5, failed: true).footer(style: .plain) == "  failed after 0.5 s")
         #expect(ChatTurn.start(turn: 1).footer(style: .plain) == nil)
         #expect(TurnTokens.between(.init(input: 100, output: 10), .init(input: 4109, output: 89)) == tokens)

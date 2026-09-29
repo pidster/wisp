@@ -20,6 +20,14 @@ pub const AMBER: Color = Color::Rgb(0xF2, 0xB9, 0x50);
 pub const EMBER: Color = Color::Rgb(0xFF, 0x6B, 0x6B);
 /// The conversation.
 pub const WHITE: Color = Color::Rgb(0xE6, 0xED, 0xF0);
+/// Lines added, in the status line.
+pub const ADDED: Color = Color::Rgb(0x7E, 0xD9, 0x8F);
+/// Lines removed.
+pub const REMOVED: Color = Color::Rgb(0xFF, 0x6B, 0x6B);
+/// Tokens read.
+pub const TOKENS_IN: Color = Color::Rgb(0xF2, 0xE3, 0x9C);
+/// Tokens written.
+pub const TOKENS_OUT: Color = Color::Rgb(0xA9, 0xC7, 0xFF);
 
 /// The user's own words.
 pub fn user() -> Style {
@@ -64,6 +72,22 @@ pub fn amber() -> Style {
 /// Danger.
 pub fn ember() -> Style {
     Style::default().fg(EMBER)
+}
+/// Lines added.
+pub fn added() -> Style {
+    Style::default().fg(ADDED)
+}
+/// Lines removed.
+pub fn removed() -> Style {
+    Style::default().fg(REMOVED)
+}
+/// Tokens read.
+pub fn tokens_in() -> Style {
+    Style::default().fg(TOKENS_IN)
+}
+/// Tokens written.
+pub fn tokens_out() -> Style {
+    Style::default().fg(TOKENS_OUT)
 }
 /// The input row's background.
 pub fn input_background() -> Style {

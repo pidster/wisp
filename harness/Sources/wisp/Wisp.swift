@@ -406,7 +406,9 @@ struct Chat: AsyncParsableCommand {
                 prompt: { status in
                     Self.onScreen {
                         Self.freshLine()
-                        let text = status.rendered(style: style) + "\n" + style.prompt("›") + " "
+                        let text =
+                            status.rendered(style: style, width: Self.terminalWidth()) + "\n"
+                            + style.prompt("›") + " "
                         FileHandle.standardError.write(Data(text.utf8))
                     }
                 },
@@ -417,6 +419,15 @@ struct Chat: AsyncParsableCommand {
             isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
         defer { ticker?.cancel() }
         try await loop.run()
+    }
+
+    /// The terminal's width in columns, or nil when stderr is not a terminal.
+    private static func terminalWidth() -> Int? {
+        var size = winsize()
+        guard ioctl(FileHandle.standardError.fileDescriptor, TIOCGWINSZ, &size) == 0, size.ws_col > 0 else {
+            return nil
+        }
+        return Int(size.ws_col)
     }
 
     /// Whether the working line is on screen now, guarded with every terminal write so they never interleave.
