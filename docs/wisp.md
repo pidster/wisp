@@ -347,7 +347,7 @@ wisp config unset approval.timeoutSeconds
 | `notifications.enabled`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
 | `notifications.perMinute` | 1 to 60. |
 | `ollama.baseURL`, `systemPromptExtension` | Text. |
-| `ollama.contextLength` | 1,024 to 1,048,576. |
+| `ollama.contextLength` | 1,024 to 1,048,576, for every Ollama model; unset, each model's window is sized from its shape and the Mac's memory. |
 
 Each change is checked before it is written: an unknown setting, a value the setting does not take, or
 a file that would no longer load is refused with the reason, and nothing changes. The rest of the file,
@@ -534,7 +534,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | --- | --- | --- |
 | `systemPromptExtension` | none | Text added under wisp's own system prompt for every session and thread on this Mac: house style, standing assumptions. `instructions` is the pre-0.2 name and is read when this key is absent. See [ADR 0017](decisions/0017-three-layer-instructions.md). |
 | `model` | `system` | `system`, `private-cloud`, or `ollama:<name>`. See [ADR 0013](decisions/0013-model-selection.md) and [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md). |
-| `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120, "contextLength": 8192 }` | Where Ollama serves `ollama:<name>` models, how long one generation request may take, and the context window asked of the server on every request (`num_ctx`), which wisp condenses against. See [backends.md](backends.md). |
+| `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120 }` | Where Ollama serves `ollama:<name>` models and how long one generation request may take. `contextLength`, when set, is the context window asked of the server for every model (`num_ctx`), which wisp condenses against; unset, each model's window is sized when it is selected from its shape and the Mac's memory ([ADR 0043](decisions/0043-context-window-from-memory.md)). See [backends.md](backends.md). |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). A definition that breaks the rules makes the config malformed. |
@@ -559,8 +559,8 @@ ignored.
 
 ## Context window
 
-The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is its
-`contextLength`. Before a prompt that would pass 85% of the window, and again when a request overflows,
+The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is sized
+from its shape and the Mac's memory when it is selected, or is `contextLength` when that is set. Before a prompt that would pass 85% of the window, and again when a request overflows,
 wisp drops older turns (keeping the instructions and the last four turns); after an overflow it retries
 once. `chat` prints a note when this happens; MCP results
 carry `condensed: true`. See [context-management.md](context-management.md).

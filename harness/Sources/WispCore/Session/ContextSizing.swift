@@ -1,0 +1,96 @@
+import Foundation
+
+/// Chooses a local model's context window from its shape and the Mac's memory: the largest window whose
+/// key-value cache, with the weights and working buffers, fits the budget, capped at the model's maximum
+/// ([ADR 0043](../../../../docs/decisions/0043-context-window-from-memory.md)).
+public enum ContextSizing {
+    /// What sizing needs to know about a model, from Ollama's `/api/show` `model_info`.
+    public struct Shape: Equatable, Sendable {
+        /// The longest window the model supports.
+        public var maxContext: Int
+        /// Transformer layers (`block_count`).
+        public var layers: Int
+        /// Key-value heads (`attention.head_count_kv`).
+        public var keyValueHeads: Int
+        /// Size of one head's key and of its value.
+        public var keyLength: Int
+        /// See `keyLength`.
+        public var valueLength: Int
+
+        /// Creates a shape.
+        public init(maxContext: Int, layers: Int, keyValueHeads: Int, keyLength: Int, valueLength: Int) {
+            self.maxContext = maxContext
+            self.layers = layers
+            self.keyValueHeads = keyValueHeads
+            self.keyLength = keyLength
+            self.valueLength = valueLength
+        }
+
+        /// Cache bytes per token of window, with 16-bit entries: a quantised cache takes less, so this
+        /// errs towards a smaller window.
+        public var bytesPerToken: Int { layers * keyValueHeads * (keyLength + valueLength) * 2 }
+    }
+
+    /// A chosen window and why, for the audit.
+    public struct Decision: Equatable, Sendable {
+        /// The window, in tokens.
+        public var window: Int
+        /// One sentence, such as `32,768 of 131,072: 10.2 GiB of an 11.1 GiB budget`.
+        public var reason: String
+    }
+
+    /// Windows are multiples of this.
+    public static let step = 4096
+    /// The smallest window chosen, as before this rule.
+    public static let floor = 8192
+    /// Working buffers that do not grow with the window; 0.2 GiB measured, with margin.
+    public static let overhead = 512 << 20
+    /// The share of memory available now that one model may take.
+    public static let availableShare = 0.5
+    /// The share of installed memory that is the most any model may take: about what macOS lets the GPU use.
+    public static let installedShare = 0.75
+
+    /// Reads the shape from `/api/show`'s `model_info`, whose keys are prefixed by the architecture
+    /// (`granite.block_count`); nil when any part is missing.
+    public static func shape(from info: [String: JSONValue]) -> Shape? {
+        guard let architecture = info["general.architecture"]?.stringValue else { return nil }
+        func number(_ key: String) -> Int? { info["\(architecture).\(key)"]?.intValue }
+        guard let maxContext = number("context_length"), let layers = number("block_count"),
+            let keyValueHeads = number("attention.head_count_kv"), maxContext > 0, layers > 0, keyValueHeads > 0
+        else { return nil }
+        let headSize = number("embedding_length").flatMap { width in
+            number("attention.head_count").flatMap { $0 > 0 ? width / $0 : nil }
+        }
+        guard let keyLength = number("attention.key_length") ?? headSize,
+            let valueLength = number("attention.value_length") ?? headSize, keyLength > 0, valueLength > 0
+        else { return nil }
+        return Shape(
+            maxContext: maxContext, layers: layers, keyValueHeads: keyValueHeads, keyLength: keyLength,
+            valueLength: valueLength)
+    }
+
+    /// The window for a model of `shape` whose weights take `weights` bytes, given `memory` now and
+    /// `held` bytes Ollama already holds for this model, which count as available.
+    public static func size(shape: Shape, weights: Int, memory: MemoryState, held: Int = 0) -> Decision {
+        let budget = min(
+            Int(Double(memory.available + held) * availableShare), Int(Double(memory.installed) * installedShare))
+        let fits = max(0, budget - weights - overhead) / max(1, shape.bytesPerToken)
+        let window = min(shape.maxContext, fits / step * step)
+        let floor = min(Self.floor, shape.maxContext)
+        let chosen = max(window, floor)
+        let needed = weights + overhead + chosen * shape.bytesPerToken
+        let figures = "\(gib(needed)) of a \(gib(budget)) budget"
+        if window < floor {
+            return Decision(
+                window: chosen,
+                reason: "\(chosen.formatted()) of \(shape.maxContext.formatted()), the floor: needs \(gib(needed)) "
+                    + "but the budget is \(gib(budget)), so Ollama may run it partly on the CPU")
+        }
+        return Decision(window: chosen, reason: "\(chosen.formatted()) of \(shape.maxContext.formatted()): \(figures)")
+    }
+
+    /// Bytes as GiB to one decimal place.
+    static func gib(_ bytes: Int) -> String {
+        String(format: "%.1f GiB", Double(bytes) / Double(1 << 30))
+    }
+}

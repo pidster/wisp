@@ -73,7 +73,8 @@ public enum ConfigSettings {
         Setting(path: "audit.enabled", summary: "whether the audit log is written", kind: .flag),
         Setting(path: "ollama.baseURL", summary: "where Ollama serves", kind: .text),
         Setting(
-            path: "ollama.contextLength", summary: "the context window asked of Ollama models",
+            path: "ollama.contextLength",
+            summary: "the context window asked of every Ollama model; unset sizes each from memory",
             kind: .integer(1024...1_048_576)),
         Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
     ]
@@ -104,7 +105,7 @@ public enum ConfigSettings {
         case "notifications.perMinute": return .int(d.notificationsPerMinute)
         case "audit.enabled": return .bool(d.auditEnabled)
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
-        case "ollama.contextLength": return .int(d.ollama.contextLength)
+        case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         default: return nil
         }
     }

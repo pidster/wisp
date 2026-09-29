@@ -256,7 +256,10 @@ and ranking for logs, a parsed `.ips` for crashes, a merged outline for JSON
 tool its conversation, runner, gate, and capture.
 `ModelRouting` chooses a model by input size from `Measurements.embedded` and the config's ladder, before
 anything runs; `ChangeDraft.route` applies it, honouring an explicit model and passing over a rung that
-cannot open ([ADR 0037](decisions/0037-routing-by-input-size.md)). `ModelRouting.forTask` gives a task's
+cannot open ([ADR 0037](decisions/0037-routing-by-input-size.md)). An Ollama model's window is chosen when it is
+resolved: `ContextSizing` reads its shape from `/api/show` and sizes the window to what `MemoryState` says
+the Mac has free ([ADR 0043](decisions/0043-context-window-from-memory.md)), and the executor asks for
+that window on every request. `ModelRouting.forTask` gives a task's
 model pass its default when the caller names none: `ModelRouting.taskDefaults` (`secrets: system`,
 measured best), overridden by `routing.tasks`. The choice is audited as `model.routed`.
 While a call runs, `WispServer.relaying` turns the conversation's events into

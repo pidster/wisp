@@ -65,13 +65,26 @@ call tools badly, and only an evaluation says how well.
 Install and run [Ollama](https://ollama.com); `ollama pull <name>` fetches a model. `config.json`:
 
 ```json
-{ "model": "ollama:qwen3-coder", "ollama": { "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120, "contextLength": 8192 } }
+{ "model": "ollama:qwen3-coder", "ollama": { "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120 } }
 ```
+
+**The window is sized per model** ([ADR 0043](decisions/0043-context-window-from-memory.md)). When a model
+is selected, wisp works out its window from the model's shape and the Mac's memory:
+- the model's maximum and shape come from `/api/show`, and its weights' size from `/api/tags`;
+- the key-value cache costs 2 × layers × key-value heads × head size × 2 bytes per token;
+- the window is the largest multiple of 4,096 at which the weights, the cache, and 512 MiB of buffers fit
+  half the memory available now, and no more than three quarters of installed memory, capped at the
+  model's maximum;
+- it is never below 8,192 tokens.
+
+On 2026-09-29, with 19.6 GB available, `granite4.1:8b` (131,072 at most) got 24,576 tokens, estimated at
+9.2 GiB; Ollama loaded it in 8.95 GiB. The `model.resolved` audit event records the window and why.
+Setting `contextLength` fixes one window for every model instead.
 
 Errors: `no Ollama server at <url>` when nothing listens; `Ollama has no model '<name>'; installed: …`
 when the name is unknown (the `:latest` tag may be omitted). Ollama does not signal context overflow; it silently drops the front of the prompt once it passes the
-server's window. wisp therefore asks for an explicit window on every request (`contextLength`, sent as
-`num_ctx`; larger windows cost memory) and reads the token usage every reply reports, and `Agent`
+server's window. wisp therefore asks for an explicit window on every request (the sized or configured
+window, sent as `num_ctx`; larger windows cost memory) and reads the token usage every reply reports, and `Agent`
 condenses the transcript ahead of the window when the last request plus the new prompt would pass 85%
 of it (`docs/context-management.md`). `/tokens` in `wisp chat` shows that reported usage for these
 models.

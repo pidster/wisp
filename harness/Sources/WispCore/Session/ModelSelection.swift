@@ -188,6 +188,8 @@ public struct ResolvedModel: Sendable {
     /// The context window in tokens when the model or its settings state it; nil when only an
     /// overflow error will tell. `Agent` condenses ahead of it from the usage each turn reports.
     public let contextSize: Int?
+    /// Why the window is what it is, when the backend chose it (ADR 0043); nil when it is the model's own.
+    public let contextNote: String?
     private let makeFromInstructions: @Sendable ([any Tool], String) -> LanguageModelSession
     private let makeFromTranscript: @Sendable ([any Tool], Transcript) -> LanguageModelSession
     private let countTokens: (@Sendable (Transcript) async throws -> Int)?
@@ -200,6 +202,7 @@ public struct ResolvedModel: Sendable {
         capabilitySource = .framework
         asset = nil
         contextSize = model.contextSize
+        contextNote = nil
         makeFromInstructions = { tools, instructions in
             LanguageModelSession(model: model, tools: tools, instructions: instructions)
         }
@@ -217,6 +220,7 @@ public struct ResolvedModel: Sendable {
         capabilitySource = .framework
         asset = nil
         contextSize = nil  // an async property on this model; learned from the first overflow
+        contextNote = nil
         makeFromInstructions = { tools, instructions in
             LanguageModelSession(model: model, tools: tools, instructions: instructions)
         }
@@ -237,10 +241,11 @@ public struct ResolvedModel: Sendable {
     ///   - asset: The asset behind it, for the audit.
     ///   - contextSize: The window the runtime was asked for, when known.
     ///   - countTokens: Counts a transcript's tokens, for a model that can; nil when it cannot.
+    ///   - contextNote: Why the window is `contextSize`, when the backend chose it (ADR 0043).
     public init(
         selection: ModelSelection, custom model: some LanguageModel, capabilitySource: CapabilitySource = .runtime,
         asset: String? = nil, contextSize: Int? = nil,
-        countTokens: (@Sendable (Transcript) async throws -> Int)? = nil
+        countTokens: (@Sendable (Transcript) async throws -> Int)? = nil, contextNote: String? = nil
     ) {
         self.selection = selection
         capabilities = model.capabilities
@@ -254,6 +259,7 @@ public struct ResolvedModel: Sendable {
             LanguageModelSession(model: model, tools: tools, transcript: transcript)
         }
         self.countTokens = countTokens
+        self.contextNote = contextNote
         if let reporting = model as? any UsageReporting {
             reportedInput = { reporting.lastInputTokens }
         } else {

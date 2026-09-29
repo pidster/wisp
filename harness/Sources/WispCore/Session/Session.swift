@@ -409,7 +409,7 @@ public struct Conversation: Sendable {
             details: AuditEvent.Details.modelResolved(
                 model: resolved.selection, backend: resolved.selection.backend, asset: resolved.asset,
                 capabilities: resolved.capabilityNames, capabilitySource: resolved.capabilitySource,
-                tools: tools.map(\.name)))
+                tools: tools.map(\.name), contextSize: resolved.contextSize, contextNote: resolved.contextNote))
         let agent =
             if let transcript {
                 Agent(transcript: transcript, tools: tools, model: resolved, audit: audit)

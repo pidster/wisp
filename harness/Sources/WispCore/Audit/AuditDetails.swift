@@ -32,13 +32,15 @@ extension AuditEvent {
         /// declared it.
         public static func modelResolved(
             model: ModelSelection, backend: String, asset: String?, capabilities: [String],
-            capabilitySource: CapabilitySource, tools: [String]
+            capabilitySource: CapabilitySource, tools: [String], contextSize: Int? = nil, contextNote: String? = nil
         ) -> [String: JSONValue] {
             [
                 "model": .string(model.description), "backend": .string(backend),
                 "asset": asset.map { .string($0) } ?? .null,
                 "capabilities": .array(capabilities.map { .string($0) }),
                 "capabilitySource": .string(capabilitySource.rawValue), "tools": .array(tools.map { .string($0) }),
+                "contextSize": contextSize.map { .int($0) } ?? .null,
+                "contextNote": contextNote.map { .string($0) } ?? .null,
             ]
         }
 
@@ -299,7 +301,8 @@ extension AuditEvent {
                 "resume", "parent", "reason",
             ]
         case .sessionEnd: ["reason"]
-        case .modelResolved: ["model", "backend", "asset", "capabilities", "capabilitySource", "tools"]
+        case .modelResolved:
+            ["model", "backend", "asset", "capabilities", "capabilitySource", "tools", "contextSize", "contextNote"]
         case .prompt: ["text", "schema"]
         case .response: ["text", "condensed", "seconds"]
         case .toolCall: ["tool", "arguments"]

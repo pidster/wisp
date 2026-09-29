@@ -8,12 +8,12 @@ public struct OllamaSettings: Equatable, Sendable {
     public var baseURL: URL
     /// Wall-clock limit for one generation request, including streaming.
     public var timeout: Duration
-    /// The context window asked of the server on every request (`num_ctx`), so wisp knows the limit
-    /// it condenses against instead of guessing the server's default.
-    public var contextLength: Int
+    /// The context window to ask of the server for every model (`num_ctx`), when configured; nil sizes
+    /// each model's window from its shape and the Mac's memory when it is selected (ADR 0043).
+    public var contextLength: Int?
 
-    /// The Ollama defaults: the local server on port 11434, two minutes per request, an 8k window.
-    public static let `default` = OllamaSettings(baseURL: defaultBaseURL, timeout: .seconds(120), contextLength: 8192)
+    /// The Ollama defaults: the local server on port 11434, two minutes per request, windows sized per model.
+    public static let `default` = OllamaSettings(baseURL: defaultBaseURL, timeout: .seconds(120))
 
     /// Ollama's own listen address, `http://127.0.0.1:11434`.
     public static let defaultBaseURL: URL = {
@@ -25,7 +25,7 @@ public struct OllamaSettings: Equatable, Sendable {
     }()
 
     /// Creates settings.
-    public init(baseURL: URL, timeout: Duration, contextLength: Int = 8192) {
+    public init(baseURL: URL, timeout: Duration, contextLength: Int? = nil) {
         self.contextLength = contextLength
         self.baseURL = baseURL
         self.timeout = timeout
@@ -96,14 +96,27 @@ public struct OllamaModel: LanguageModel, Sendable {
     public let settings: OllamaSettings
     /// What the server said this model can do (`/api/show` `capabilities`), or nil before `check()`.
     public let reported: [String]?
+    /// The context window asked of the server on every request (`num_ctx`), so wisp knows the limit
+    /// it condenses against: configured, or sized when the model was checked.
+    public let window: Int
+    /// Why the window is what it is, for the `model.resolved` audit event.
+    public let windowReason: String
     /// The last request's usage, written by the executor; a class so the value survives copies.
     private let usage = UsageRecord()
 
-    /// Creates a model; `resolve` on the selection checks it exists and reads its capabilities first.
-    public init(name: String, settings: OllamaSettings = .default, reported: [String]? = nil) {
+    /// Creates a model; `resolve` on the selection checks it exists, reads its capabilities, and sizes
+    /// its window first. Without a sized `window`, the configured one, else `ContextSizing.floor`.
+    public init(
+        name: String, settings: OllamaSettings = .default, reported: [String]? = nil, window: Int? = nil,
+        windowReason: String? = nil
+    ) {
         self.name = name
         self.settings = settings
         self.reported = reported
+        self.window = window ?? settings.contextLength ?? ContextSizing.floor
+        self.windowReason =
+            windowReason
+            ?? (settings.contextLength != nil ? "configured as ollama.contextLength" : "the default, not sized")
     }
 
     /// Input tokens of the last request, from `prompt_eval_count`; nil before the first.
@@ -166,21 +179,77 @@ public struct OllamaModel: LanguageModel, Sendable {
     ///
     /// - Returns: The model with its reported capabilities.
     /// - Throws: `Failure`.
-    public func checked() throws -> OllamaModel {
+    public func checked(memory: MemoryState? = nil) throws -> OllamaModel {
         let installed = try Blocking.run { try await Self.installed(at: settings) }
-        guard Self.matches(name, installed: installed) else {
+        guard let entry = installed.first(where: { $0.name == name || $0.name == "\(name):latest" }) else {
             throw Failure.noSuchModel(name, installed: installed.map(\.name))
         }
-        let reported = try Blocking.run { try await Self.show(name, at: settings) }
-        return OllamaModel(name: name, settings: settings, reported: reported)
+        let shown = try Blocking.run { try await Self.show(name, at: settings) }
+        guard settings.contextLength == nil else {
+            return OllamaModel(name: name, settings: settings, reported: shown.capabilities)
+        }
+        guard let shape = ContextSizing.shape(from: shown.info) else {
+            return OllamaModel(
+                name: name, settings: settings, reported: shown.capabilities, window: ContextSizing.floor,
+                windowReason:
+                    "\(ContextSizing.floor.formatted()), the default: Ollama reported no model shape to size from")
+        }
+        let held = (try? Blocking.run { try await Self.held(entry.name, at: settings) }) ?? 0
+        let decision = ContextSizing.size(
+            shape: shape, weights: entry.size, memory: memory ?? .current(), held: held)
+        return OllamaModel(
+            name: name, settings: settings, reported: shown.capabilities, window: decision.window,
+            windowReason: decision.reason)
     }
 
-    /// Asks `/api/show` what a model can do; the `capabilities` array (`completion`, `tools`,
-    /// `thinking`, `vision`, `embedding`), or empty when the server does not report one.
+    /// What `/api/show` says about a model: its capabilities, and its `model_info`, which holds its shape.
+    public struct Shown: Equatable, Sendable, Decodable {
+        /// `completion`, `tools`, `thinking`, `vision`, `embedding`; empty when the server reports none.
+        public var capabilities: [String]
+        /// Architecture-prefixed facts such as `granite.context_length`.
+        public var info: [String: JSONValue]
+
+        private enum CodingKeys: String, CodingKey { case capabilities, model_info }
+
+        /// Decodes the response, tolerating a server that leaves either part out.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+            info = (try? container.decodeIfPresent([String: JSONValue].self, forKey: .model_info)) ?? [:]
+        }
+    }
+
+    /// Bytes Ollama holds in memory for `name` now (`/api/ps`), or 0 when it is not loaded.
+    ///
+    /// - Throws: `Failure.unreachable` or `Failure.serverError`.
+    public static func held(_ name: String, at settings: OllamaSettings) async throws -> Int {
+        struct Loaded: Decodable {
+            struct Model: Decodable {
+                var name: String
+                var size: Int?
+            }
+            var models: [Model]?
+        }
+        var request = URLRequest(url: settings.baseURL.appending(path: "api/ps"))
+        request.timeoutInterval = 5
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw Failure.unreachable(settings.baseURL, error.localizedDescription)
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            throw Failure.serverError(status: status, body: String(decoding: data.prefix(200), as: UTF8.self))
+        }
+        let loaded = (try? JSONDecoder().decode(Loaded.self, from: data))?.models ?? []
+        return loaded.first { $0.name == name }?.size ?? 0
+    }
+
+    /// Asks `/api/show` what a model can do and what shape it is.
     ///
     /// - Throws: `Failure.unreachable`, `Failure.serverError`, or `Failure.badResponse`.
-    public static func show(_ name: String, at settings: OllamaSettings) async throws -> [String] {
-        struct Shown: Decodable { var capabilities: [String]? }
+    public static func show(_ name: String, at settings: OllamaSettings) async throws -> Shown {
         var request = URLRequest(url: settings.baseURL.appending(path: "api/show"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -197,7 +266,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             throw Failure.serverError(status: status, body: String(decoding: data.prefix(200), as: UTF8.self))
         }
         do {
-            return try JSONDecoder().decode(Shown.self, from: data).capabilities ?? []
+            return try JSONDecoder().decode(Shown.self, from: data)
         } catch {
             throw Failure.badResponse("\(error)")
         }
@@ -387,7 +456,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             http.setValue("application/json", forHTTPHeaderField: "Content-Type")
             http.timeoutInterval = TimeInterval(configuration.timeoutSeconds)
             http.httpBody = try JSONEncoder().encode(
-                Self.body(for: request, model: model.name, contextLength: model.settings.contextLength))
+                Self.body(for: request, model: model.name, contextLength: model.window))
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {
@@ -472,7 +541,8 @@ public struct OllamaBackend: ModelBackend {
             }
             return ResolvedModel(
                 selection: .ollama(name), custom: model, capabilitySource: .runtime,
-                asset: "\(config.ollama.baseURL.absoluteString) \(name)", contextSize: config.ollama.contextLength)
+                asset: "\(config.ollama.baseURL.absoluteString) \(name)", contextSize: model.window,
+                contextNote: model.windowReason)
         } catch let failure as OllamaModel.Failure {
             throw ModelSelection.Failure.unavailable(model: "ollama:\(name)", reason: failure.description)
         }
@@ -491,7 +561,7 @@ public struct OllamaBackend: ModelBackend {
         .object([
             "baseURL": .string(config.ollama.baseURL.absoluteString),
             "timeoutSeconds": .int(Int(config.ollama.timeout.components.seconds)),
-            "contextLength": .int(config.ollama.contextLength),
+            "contextLength": config.ollama.contextLength.map { .int($0) } ?? .string("sized per model (ADR 0043)"),
         ])
     }
 }

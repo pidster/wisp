@@ -183,6 +183,41 @@ final class FakeOllama: URLProtocol {
         #expect(OllamaModel.Executor.completed(["a": 1], schema: ["type": "object"]) == ["a": 1])
     }
 
+    @Test func aModelsWindowIsSizedFromItsShapeUnlessConfiguredAndEveryRequestAsksForIt() async throws {
+        FakeOllama.serve("/api/tags", body: #"{"models":[{"name":"g:latest","size":5349000000}]}"#)
+        FakeOllama.serve(
+            "/api/show",
+            body:
+                #"{"capabilities":["completion","tools"],"model_info":{"general.architecture":"granite","granite.context_length":131072,"granite.block_count":40,"granite.attention.head_count":32,"granite.attention.head_count_kv":8,"granite.embedding_length":4096}}"#
+        )
+        FakeOllama.serve("/api/ps", body: #"{"models":[]}"#)
+        let memory = MemoryState(installed: 51_539_607_552, available: 20_000_000_000)
+        let sized = try OllamaModel(name: "g", settings: Self.settings).checked(memory: memory)
+        #expect(sized.window == 24_576 && sized.windowReason.hasPrefix("24,576 of 131,072"), "\(sized.windowReason)")
+        // A model Ollama already holds counts its memory as available.
+        FakeOllama.serve("/api/ps", body: #"{"models":[{"name":"g:latest","size":10000000000}]}"#)
+        let held = try OllamaModel(name: "g", settings: Self.settings).checked(
+            memory: .init(installed: 51_539_607_552, available: 10_000_000_000))
+        #expect(held.window == 24_576)
+        #expect(try await OllamaModel.held("g:latest", at: Self.settings) == 10_000_000_000)
+        // A configured window wins; no shape falls back to the floor and says why.
+        var configured = Self.settings
+        configured.contextLength = 4096
+        let fixed = try OllamaModel(name: "g", settings: configured).checked(memory: memory)
+        #expect(fixed.window == 4096 && fixed.windowReason == "configured as ollama.contextLength")
+        FakeOllama.serve("/api/show", body: #"{"capabilities":["completion","tools"]}"#)
+        let shapeless = try OllamaModel(name: "g", settings: Self.settings).checked(memory: memory)
+        #expect(shapeless.window == 8192 && shapeless.windowReason.contains("no model shape"))
+        // The window reaches the agent and every request's num_ctx.
+        FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"ok"},"done":true}"# + "\n")
+        let resolved = ResolvedModel(
+            selection: .ollama("g"), custom: sized, contextSize: sized.window, contextNote: sized.windowReason)
+        let agent = Agent(instructions: "x", tools: [], model: resolved)
+        #expect(agent.contextSize == 24_576)
+        _ = try await agent.respond(to: "hi")
+        #expect(FakeOllama.bodies(for: "/api/chat").last?.contains(#""num_ctx":24576"#) == true)
+    }
+
     @Test func serverErrorsAndBadChunksAreTyped() async throws {
         FakeOllama.serve("/api/tags", body: Self.tags)
         FakeOllama.serve("/api/show", body: Self.shown)

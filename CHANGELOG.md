@@ -6,6 +6,14 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Changed:
+
+- Ollama models get a context window sized for them when they are selected, instead of 8,192 tokens for
+  all. wisp reads the model's shape and maximum from Ollama and the memory available on the Mac, and takes
+  the largest window whose cache fits half of what is free (never more than three quarters of the Mac's
+  memory). `granite4.1:8b` got 24,576 tokens on a 48 GB Mac, so conversations condense far less often.
+  Setting `ollama.contextLength` still fixes one window for every model.
+
 Added:
 
 - `/inspect context` in chat saves the exact context the model will see next: instructions, prompts, tool

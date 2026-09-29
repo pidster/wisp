@@ -39,7 +39,7 @@ import WispTestSupport
         #expect(custom.baseURL.host() == "gpu.local")
         #expect(custom.timeout == .seconds(30))
         #expect(custom.contextLength == 4096)
-        #expect(OllamaSettings.default.contextLength == 8192)
+        #expect(OllamaSettings.default.contextLength == nil)  // sized per model (ADR 0043)
     }
 
     @Test func transcriptMapsOntoChatMessages() async throws {
