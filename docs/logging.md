@@ -42,7 +42,7 @@ sensitive; it is why it is user-only.
 | `prompt` | `text`; `schema` (the caller's JSON Schema) when the reply had to be shaped | `Agent` |
 | `response` | `text`, `condensed`, `seconds` | `Agent` |
 | `tool.call` | `tool`, `arguments` (JSON as the model produced it) | `AuditedTool` |
-| `tool.result` | `tool`, `output`, `bytes`, `seconds` | `AuditedTool` |
+| `tool.result` | `tool`, `output`, `bytes`, `seconds`; an MCP `respond` result's `calls` name this event's `id`, and `wisp://output/{thread_id}/{id}` serves its `output` ([mcp.md](mcp.md)) | `AuditedTool` |
 | `policy.decision` | `command`, `workingDirectory`, `verdict` (`allowed`, `denied` by pattern, `disapproved` by the gate), `reason`, `sandbox`, `network`, `nested`; recorded once, after the directory check, patterns, and approval | `CommandRunner` |
 | `command.outcome` | `command`, `exitStatus`, `timedOut`, `truncated`, `stdout`, `stderr`, `seconds` | `CommandRunner` |
 | `secrets.scan` | `source` (`command` and `workingDirectory`, `path`, or `stdin`), `bytes`, `diff`, `thorough`, `findings` (a count), `kinds` (count per kind), `failedChunks` (chunks the model failed on twice, checked by rule only), `classifier` (the personal-data classifier's `personal@<version>`, why it was unavailable, or null without personal data); never a value or a preview | `WispServer`, `wisp scan` |
@@ -52,6 +52,7 @@ sensitive; it is why it is user-only.
 | `notification` | `title`, `body` (both as bounded for display), `source` (`model`, `user`, `watch`), `outcome` (`posted`, `refused`), `reason` when refused; one per request from the `notify` tool or `wisp notify` | `Notifier` |
 | `file.write` | `path`, `mode` (`write`, `append`, `replace`), `created`, `bytesBefore`, `bytesAfter`; recorded after an `edit_file` edit lands, the content being in the `tool.call` arguments | `EditFileTool` |
 | `context.condensation` | `turnsBefore`, `turnsAfter`, `contextSize`, `tokenCount`, `savedBefore` and `savedAfter` (the Markdown files holding the transcript before and after, when `audit.enabled`), `reason` (`overflow`: the model refused the prompt and the retry follows; `budget`: the transcript's size (the last request's reported usage, or the model's own count when it reports none) plus the new prompt would pass `contextBudget` of a known window, so the transcript was condensed first); the store marks the entries it dropped with this event's `id` | `Agent` |
+| `context.cut` | `entry` (the reply's id in the conversation's store), `output` (the store id of the tool output it reproduced), `tool`, `response` and `result` (the `id`s of the `response` and `tool.result` events that recorded the reply and the output, when linked), `bytes` (UTF-8 bytes the cut removes from later requests, net of its marker), `tokens` (`bytes` at four bytes a token, an estimate), `words`, `coverage` (the fraction of the stretch's word 4-grams found in the output); one per stretch of presentational text, recorded after the turn. The reply shown and stored is unchanged; later requests carry a marker in its place ([context-management.md](context-management.md), "Output handling") | `Agent` |
 | `mcp.request` | `tool`, `arguments` | `WispServer` |
 | `mcp.result` | `tool`, `isError`, `text`, `seconds` | `WispServer` |
 | `error` | `message`, `context` | anywhere |

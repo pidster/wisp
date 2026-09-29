@@ -25,7 +25,7 @@ the caller.
 `Agent` keeps each conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
 each request carries, rather than continuing one session and letting its transcript grow. This is phase 2
 of the [layered-context proposal](proposals/2026-09-29-layered-context.md): the structure the later phases
-build on, reproducing the behaviour below exactly.
+build on, reproducing the behaviour below exactly. Phase 3 adds output handling, below.
 
 - **The store** holds every entry of the conversation once, in order, under a stable id: the instructions,
   prompts, tool calls, tool output, and replies. Each entry refers to the audit events that recorded its
@@ -39,8 +39,8 @@ build on, reproducing the behaviour below exactly.
   `/save` (and the save on exit) writes the active transcript to `transcripts/<name>.json` as before and
   the store's link data beside it, in `transcripts/<name>.store`, both readable by the user only. The
   link data holds, for every entry, active or dropped: its position, framework entry id, kind, origin,
-  turn, whether it is active and, if not, the `context.condensation` event that dropped it, and its
-  `sources`. A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
+  turn, whether it is active and, if not, the `context.condensation` event that dropped it, its
+  `sources`, and a reply's `cuts` (absent when it has none, so a save without cuts reads as before). A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
   sidecar, with no `.json` extension, so `TranscriptStore.load` still returns a plain `Transcript`, older
   builds and other readers ignore it, `--list` does not show it, and a transcript named `x.store`
   (`x.store.json`) cannot collide with the links of `x`. Saving a transcript alone (no store) removes a
@@ -54,12 +54,13 @@ build on, reproducing the behaviour below exactly.
   every entry carried, no sources, and a diagnostic (`WISP_LOG=info`, category `chat` or `agent`), never
   an error. `session.start` on a linked resume lists `carriedFrom`, the sessions whose audit events the
   entries refer to, so the chain can be followed from the log alone.
-- **The composer**, for now, sends the store's active entries literally, in order, and decides the
-  condensing below; the agent applies it. Dropped entries stay in the store, marked, and are no longer
-  composed.
+- **The composer** sends the store's active entries in order, with presentational text cut (below), and
+  decides the condensing below; the agent applies it. Dropped entries stay in the store, marked, and are
+  no longer composed.
 - **The session** is kept while each composition is what it already holds, which is every turn that does
-  not condense, so the runtime's processed prefix and the session's token totals carry over as before. A
-  condensation, an overflow retry, or `/new` starts a new session from the composition.
+  not condense or cut, so the runtime's processed prefix and the session's token totals carry over as
+  before. A condensation, an overflow retry, `/new`, or a reply cut after the last turn starts a new
+  session from the composition.
 - **Linking tool entries.** The tools record their own events, which the agent does not see, so every
   `Conversation` also tees its audit log into a `ToolEventTrail`. After each turn, succeeded or failed, the
   agent stores the entries the session added and links each tool call to the latest `tool.call` event of
@@ -70,11 +71,61 @@ build on, reproducing the behaviour below exactly.
   recompose for the new window once the composer does more than literal turns).
 - **`/new`** starts a new store over the instructions alone.
 
-Equivalence is tested: `ContextEquivalenceTests` drives scripted conversations (tools, condensing ahead
+Equivalence is tested, with cutting off: `ContextEquivalenceTests` drives scripted conversations (tools, condensing ahead
 and on overflow, a failed turn, fail-fast, a model that counts, reset and resume, a chat with `/model`,
 `/inspect context`, and `/save`, and an MCP thread through `Session.conversation`) and compares every
 request the model received, every audit event, every reply, every saved context file, and chat's output
-with a snapshot recorded from the code before the store existed.
+with a snapshot recorded from the code before the store existed. With cutting on, the same scenarios
+also match, since none of their scripted replies reproduces 24 words of an output; the cut behaviour is
+tested on its own in `OutputHandlingTests`.
+
+### Output handling
+
+Phase 3 of the proposal decouples what the person is shown from what the model carries. Every output is
+stored once (the audit log's `tool.result`, which the store refers to), and each view gets its own
+rendering of it.
+
+**Cutting presentational text.** A reply often retypes the output of the turn's tool call for the person:
+a file shown in full, a table of a command's results. Once shown, that text has done its job, and carrying
+it doubles the output's cost on every later request. After each turn that succeeds, `Presentation` finds
+such stretches deterministically, without a model:
+
+- The reply is split into blocks: fenced code blocks (fence lines excluded) and paragraphs of consecutive
+  non-blank lines. Words are runs of letters and digits, lowercased, so pipes, punctuation, and fences do
+  not matter.
+- A block's coverage against a tool output of the same turn is the fraction of its word 4-grams found
+  anywhere in the output, taken with and without `read_file`'s line numbers. A block reproduces the output
+  when its best coverage is at least 0.5.
+- Consecutive reproducing blocks of the same output form one stretch, with blank lines and blocks too short
+  to judge (a heading) between them. A stretch is cut only when it holds at least 24 words, about two lines
+  of prose: shorter matches save little beside the marker and are more likely a deliberate quotation.
+
+Four-grams keep common phrases ("the output of") from matching prose that only discusses the output, and
+still match a table whose rows keep the output's order. What stays, tested in the gate: a summary that
+quotes one line, analysis in the model's own words, and code the model wrote. A table that reorders the
+output's columns is not matched; a copy of a file edited here and there still is, since most of its word
+sequence is the output's.
+
+The reply the person saw, the one `respond` returns, and the store's entry stay whole. The store records
+each stretch as a cut on the reply's entry (segment, byte range, the output's store id and tool), and the
+composer sends the reply with the stretch replaced by a marker such as `(showed the person the read_file
+output, entry 7)`, where 7 is the output's store id. The output itself stays in its turn, so while the
+turn is literal the model still has the content once. Each stretch is audited as `context.cut`, with the
+reply, the output, the bytes and estimated tokens removed, and the coverage ([logging.md](logging.md)).
+`Agent.cutsPresentation` turns it off; `DroppingStrategy` in the context eval and the equivalence tests
+run with it off. Measured on 2026-09-29 with the context eval's `showing` scenario, where the model is asked
+to show an 866-byte file: the on-device model and `granite4.1:8b` both retyped it, each run cut it once,
+and the cut saved about 200 tokens, too few there to change when condensing happened or what was recalled
+(the proposal's "Evaluation" has the figures).
+
+**Routing for display.** What each face shows of an output, as built:
+
+| Face | Shown |
+| --- | --- |
+| Chat and `wisp-tui` | A one-line note per result as it happens (`↳ 2048 bytes in 0.0 s: 1\t# wisp`, or a command's exit status), and the model's reply; `/last` prints the last result whole. Unchanged by this phase. |
+| MCP `respond` | The reply, and each call's output in `calls`: inline up to `inlineOutputBytes` (1 KiB), a reference to `wisp://output/{thread_id}/{id}` above it (D9; [mcp.md](mcp.md)). |
+
+The proposal's third route, a summary, and routing by what the request asked for are not built.
 
 ### Condensing
 
@@ -134,9 +185,10 @@ file, so a single tool result cannot fill the window.
    model can ask for more.
 2. Keep tool descriptions short: every registered tool's schema is in the prompt on every turn.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
-4. Prefer dropping whole turns to editing entries, so the transcript stays a faithful record. Since the
-   store, a dropped turn also stays in the conversation's store, marked with the condensation that
-   dropped it.
+4. The store is the faithful record, and the active view may differ from it only by rules that are
+   deterministic, audited, and reversible from the store: dropping whole turns (marked with the
+   condensation that dropped them) and cutting presentational text (marked on the reply, audited as
+   `context.cut`). Nothing is edited in the store itself; the audit log keeps every entry verbatim.
 
 ## On the on-device model, and what condensing costs
 

@@ -12,8 +12,10 @@ import FoundationModels
 /// whole store, dropped entries included, as a `Snapshot` beside it; a resumed conversation rebuilds its
 /// store from the two, or from the transcript alone when there is no usable snapshot.
 ///
-/// Phase 2 of the proposal populates entries and their state only. Facts and summaries (phase 4) will cite
-/// entries by `Entry.ID`, and `recall` will read their content back from the audit log through `sources`.
+/// Phase 2 of the proposal populates entries and their state; phase 3 adds a reply's cuts, the stretches
+/// of presentational text a composer leaves out (`Cut`, `Entry.presented`). Facts and summaries (phase 4)
+/// will cite entries by `Entry.ID`, and `recall` will read their content back from the audit log through
+/// `sources`.
 public struct ConversationStore: Sendable {
     /// What an entry is, as the framework's transcript names it.
     public enum Kind: String, Codable, Sendable, Equatable {
@@ -88,6 +90,42 @@ public struct ConversationStore: Sendable {
         public internal(set) var state: State
         /// The framework's entry: the in-memory cache composing reads.
         public let value: Transcript.Entry
+        /// Stretches of a reply that reproduced a tool output of its turn, which a composer that cuts
+        /// presentational text leaves out of later requests (`Presentation`). The entry itself stays whole.
+        public internal(set) var cuts: [Cut] = []
+
+        /// The entry as a composer that cuts presentational text sends it: a reply with each cut replaced by
+        /// its marker, under the same id; any other entry, or a reply without cuts, as it is.
+        public var presented: Transcript.Entry {
+            guard !cuts.isEmpty, case .response(var response) = value else { return value }
+            for (index, segment) in response.segments.enumerated() {
+                guard case .text(var text) = segment else { continue }
+                let mine = cuts.filter { $0.segment == index }
+                guard !mine.isEmpty else { continue }
+                text.content = Presentation.replacing(
+                    text.content, mine.map { (range: $0.start..<$0.end, with: $0.marker) })
+                response.segments[index] = .text(text)
+            }
+            return .response(response)
+        }
+    }
+
+    /// A stretch of a reply cut from the active context because it reproduced a tool output of the same
+    /// turn: which text segment, where in it, and which output.
+    public struct Cut: Codable, Sendable, Equatable {
+        /// The index of the reply's text segment.
+        public var segment: Int
+        /// The UTF-8 offset in that segment's text where the cut starts.
+        public var start: Int
+        /// The UTF-8 offset where it ends.
+        public var end: Int
+        /// The store id of the tool output it reproduced.
+        public var output: Int
+        /// That output's tool.
+        public var tool: String
+
+        /// What the model reads in its place.
+        public var marker: String { "(showed the person the \(tool) output, entry \(output))" }
     }
 
     /// Every entry, in the order it happened.
@@ -163,6 +201,29 @@ public struct ConversationStore: Sendable {
         for index in entries.indices where entries[index].state == .active && !kept.contains(entries[index].value.id) {
             entries[index].state = .dropped(by: condensation)
         }
+    }
+
+    /// Marks the stretches of the entry with store id `id` that composing leaves out; an unknown id
+    /// changes nothing.
+    ///
+    /// - Parameters:
+    ///   - id: The reply's store id.
+    ///   - cuts: Its cuts, replacing any it had.
+    mutating func cut(_ id: Int, _ cuts: [Cut]) {
+        guard id >= 1, id <= entries.count, entries[id - 1].id == id else { return }
+        entries[id - 1].cuts = cuts
+    }
+
+    /// The text of an entry's text segments, joined; empty for an entry without text.
+    static func text(of entry: Transcript.Entry) -> String {
+        let segments: [Transcript.Segment]
+        switch entry {
+        case .toolOutput(let output): segments = output.segments
+        case .response(let response): segments = response.segments
+        case .prompt(let prompt): segments = prompt.segments
+        default: segments = []
+        }
+        return segments.compactMap { if case .text(let text) = $0 { text.content } else { nil } }.joined()
     }
 
     /// The audit events that recorded each of a turn's new entries, in the same order.

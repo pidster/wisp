@@ -2,7 +2,7 @@ import FoundationModels
 
 extension ConversationStore {
     /// The store as saved beside a transcript (`TranscriptStore.save(_:as:)`): every entry's kind, origin,
-    /// turn, state, and audit references, in store order, so a resumed conversation keeps its entries
+    /// turn, state, audit references, and cuts, in store order, so a resumed conversation keeps its entries
     /// connected to the events that recorded them.
     ///
     /// An active entry's content is the saved transcript's entry with the same framework id, so the
@@ -32,6 +32,9 @@ extension ConversationStore {
             public var sources: [AuditReference]
             /// A dropped entry itself, as a one-entry transcript; nil for an active one.
             public var dropped: Transcript?
+            /// The reply's cut presentational text; nil when it has none, so a snapshot without cuts reads
+            /// and writes as before.
+            public var cuts: [Cut]? = nil
         }
 
         /// The format version, so a future build can tell a snapshot it cannot read.
@@ -84,7 +87,8 @@ extension ConversationStore {
                     ConversationStore.Entry(
                         id: record.id, kind: record.kind, origin: record.origin == .turn ? .resumed : record.origin,
                         turn: record.turn, sources: record.sources,
-                        state: record.active ? .active : .dropped(by: record.droppedBy), value: value))
+                        state: record.active ? .active : .dropped(by: record.droppedBy), value: value,
+                        cuts: record.cuts ?? []))
             }
             guard next == live.count else { return nil }
             return ConversationStore(entries: rebuilt)
@@ -102,7 +106,8 @@ extension ConversationStore {
                 return Snapshot.Record(
                     id: entry.id, entryID: entry.value.id, kind: entry.kind, origin: entry.origin, turn: entry.turn,
                     active: active, droppedBy: droppedBy, sources: entry.sources,
-                    dropped: active ? nil : Transcript(entries: [entry.value]))
+                    dropped: active ? nil : Transcript(entries: [entry.value]),
+                    cuts: entry.cuts.isEmpty ? nil : entry.cuts)
             })
     }
 }

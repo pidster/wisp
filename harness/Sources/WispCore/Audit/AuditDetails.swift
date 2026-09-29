@@ -122,6 +122,22 @@ extension AuditEvent {
             ]
         }
 
+        /// `context.cut`: one stretch of a reply cut from later requests because it reproduced a tool output
+        /// of its turn. `entry` and `output` are store ids; `response` and `result` the audit events that
+        /// recorded the reply and the output; `tokens` estimates `bytes` at four bytes a token.
+        public static func presentationCut(
+            entry: Int, output: Int, tool: String, response: String?, result: String?, bytes: Int, tokens: Int,
+            words: Int, coverage: Double
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "entry": .int(entry), "output": .int(output), "tool": .string(tool), "bytes": .int(bytes),
+                "tokens": .int(tokens), "words": .int(words), "coverage": .double((coverage * 1000).rounded() / 1000),
+            ]
+            if let response { details["response"] = .string(response) }
+            if let result { details["result"] = .string(result) }
+            return details
+        }
+
         /// `context.condensation`.
         public static func condensation(
             turnsBefore: Int, turnsAfter: Int, contextSize: Int, tokenCount: Int, reason: String,
@@ -322,6 +338,8 @@ extension AuditEvent {
             ]
         case .condensation:
             ["turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason", "savedBefore", "savedAfter"]
+        case .presentationCut:
+            ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

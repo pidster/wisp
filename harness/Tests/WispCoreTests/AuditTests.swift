@@ -211,6 +211,12 @@ import Testing
                 .condensation,
                 D.condensation(turnsBefore: 5, turnsAfter: 4, contextSize: 4096, tokenCount: 5000, reason: "overflow")
             ),
+            (
+                .presentationCut,
+                D.presentationCut(
+                    entry: 4, output: 3, tool: "read_file", response: "r", result: "o", bytes: 800, tokens: 200,
+                    words: 120, coverage: 0.97)
+            ),
             (.mcpRequest, D.mcpRequest(tool: "respond", arguments: "{}")),
             (.mcpResult, D.mcpResult(tool: "respond", isError: false, text: "t", seconds: 1)),
             (.error, D.error(message: "m", context: "c")),

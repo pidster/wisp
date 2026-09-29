@@ -35,6 +35,13 @@ public final class Agent {
         get { composer.budget }
         set { composer.budget = newValue }
     }
+    /// Whether presentational text, a stretch of a reply that reproduces a tool output of its turn, is cut
+    /// from later requests (`ContextComposer.cutsPresentation`); on by default. Each cut is audited as
+    /// `context.cut`. The reply returned, streamed, and stored stays whole.
+    public var cutsPresentation: Bool {
+        get { composer.cutsPresentation }
+        set { composer.cutsPresentation = newValue }
+    }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
@@ -271,11 +278,39 @@ public final class Agent {
     }
 
     /// Puts the session over the composer's transcript: continues it when that is what it holds, entry
-    /// for entry, and starts a new one from the composition otherwise or when `fresh`.
+    /// for entry, and starts a new one from the composition otherwise or when `fresh`. A reply whose
+    /// presentational text was cut keeps its id, so replies are compared by content as well; only replies,
+    /// since they are the one kind a composer rewrites, and a tool call's arguments need not compare equal
+    /// to themselves after a save and resume.
     private func materialise(fresh: Bool = false) {
         let composed = transcript
-        guard fresh || composed.map(\.id) != session.transcript.map(\.id) else { return }
+        let held = session.transcript
+        let rewritten = zip(composed, held).contains { mine, theirs in
+            if case .response = mine { mine != theirs } else { false }
+        }
+        guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
         session = model.session(tools: tools, transcript: composed)
+    }
+
+    /// Marks the presentational text in the replies of `turn` in the store, so later requests carry a
+    /// marker in its place, and records a `context.cut` event for each stretch.
+    ///
+    /// - Parameter turn: The turn just stored.
+    private func cutPresentation(turn: Int) {
+        let found = composer.presentation(in: store, turn: turn)
+        guard !found.isEmpty else { return }
+        for entry in Set(found.map(\.entry)) {
+            store.cut(entry, found.filter { $0.entry == entry }.map(\.cut))
+        }
+        for cut in found {
+            audit?.record(
+                .presentationCut,
+                details: AuditEvent.Details.presentationCut(
+                    entry: cut.entry, output: cut.cut.output, tool: cut.cut.tool, response: cut.response?.event,
+                    result: cut.result?.event, bytes: cut.bytes, tokens: cut.bytes / ContextComposer.bytesPerToken,
+                    words: cut.words, coverage: cut.coverage))
+        }
+        Diagnostics.agent.info("cut \(found.count) stretch(es) of presentational text from turn \(turn)")
     }
 
     /// Stores the entries the session added this turn, whether it succeeded or failed, linked to the audit
@@ -413,6 +448,7 @@ public final class Agent {
                 details: AuditEvent.Details.response(
                     text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started)))
             remember(prompt: prompted, response: responded)
+            cutPresentation(turn: turns.current)
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")
