@@ -26,8 +26,8 @@ pub const ADDED: Color = Color::Rgb(0x7E, 0xD9, 0x8F);
 pub const REMOVED: Color = Color::Rgb(0xFF, 0x6B, 0x6B);
 /// Tokens read.
 pub const TOKENS_IN: Color = Color::Rgb(0xF2, 0xE3, 0x9C);
-/// Tokens written.
-pub const TOKENS_OUT: Color = Color::Rgb(0xA9, 0xC7, 0xFF);
+/// Tokens written: a light blue as bright as `TOKENS_IN` (relative luminance 0.76 each).
+pub const TOKENS_OUT: Color = Color::Rgb(0xCF, 0xE4, 0xFF);
 
 /// The user's own words.
 pub fn user() -> Style {

@@ -43,8 +43,8 @@ public struct Style: Sendable, Equatable {
         public static let removed = (0xFF, 0x6B, 0x6B)
         /// Tokens read.
         public static let tokensIn = (0xF2, 0xE3, 0x9C)
-        /// Tokens written.
-        public static let tokensOut = (0xA9, 0xC7, 0xFF)
+        /// Tokens written: a light blue as bright as `tokensIn` (relative luminance 0.76 each).
+        public static let tokensOut = (0xCF, 0xE4, 0xFF)
     }
 
     private func rgb(_ colour: (Int, Int, Int), _ text: String) -> String {
