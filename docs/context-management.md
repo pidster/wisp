@@ -1,7 +1,8 @@
 # Managing the context window
 
 The on-device model's window is small. `LanguageModelError.contextSizeExceeded` reports both the limit and
-the offending count; on this machine a session died at 4,096 tokens. This page records what the framework
+the offending count. On this machine a session died at 4,096 tokens in 2026-09; on macOS 27 the window
+measured 8,192 on 2026-09-29 (below). This page records what the framework
 offers, what wisp does, and what it deliberately does not do yet.
 
 ## What the framework offers (macOS 27 SDK)

@@ -95,7 +95,7 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
   `scripts/check eval`; `OllamaLiveTests` runs only under `WISP_OLLAMA_TESTS=1`. To drive the agent,
   the tool loop, or the MCP server end to end without a model, use `ScriptedModel` from
   `Tests/WispTestSupport` (ADR 0016); `WispServerWireTests` shows the pattern over a real client.
-- **Bound every tool result** (4 KiB or paged); the model's window is about 4k tokens. Keep tool
+- **Bound every tool result** (4 KiB or paged); the on-device model's window is 8,192 tokens on macOS 27. Keep tool
   descriptions short. See `docs/context-management.md`.
 - **Audit new behaviour.** New event kinds go in `AuditEvent.Kind` and `docs/logging.md`.
 - **Commits** are small and single-purpose; subject says what, body says why. Do not pass an explicit
@@ -176,7 +176,7 @@ Which model to pass as `model` when a thread starts (measured in the Ollama sect
 | --- | --- | --- |
 | Default: git, single commands, fixed instructions, short lookups | `ollama:granite4.1:8b` | As fast as the larger models on these, at 5.4 GB |
 | Complex: multi-step tasks, reading and reasoning over several files or outputs | `ollama:qwen3.8:27b` | The newest Qwen; it reasons before it answers, about 10 s more per turn |
-| Ollama not running | `system` | Always there; keep prompts short for its 4k-token window |
+| Ollama not running | `system` | Always there; keep prompts short for its 8k-token window |
 
 If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,

@@ -76,7 +76,7 @@ public struct CustomTool: WispTool {
 
     /// Argument types a definition may use.
     static let types: Set<String> = ["string", "integer", "number", "boolean"]
-    /// Longest description the model is given, so a custom tool cannot crowd the 4k window.
+    /// Longest description the model is given, so a custom tool cannot crowd a small window.
     static let descriptionLimit = 300
     /// `{name}` placeholders in a command.
     static let placeholderPattern = #"\{([a-z][a-z0-9_]*)\}"#

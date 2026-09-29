@@ -18,6 +18,8 @@ Fixed:
   tokens, but the maximum allowed is 8,192". That model reports no token usage and reports an overflow
   differently from the framework's documented error, so neither safeguard fired.
 
+- The `respond` tool told MCP callers the on-device model's window is about 4k tokens; it is 8,192 on
+  macOS 27, and the docs now say so throughout.
 - `system_info`'s folder sizes treat a blank `path` as the home folder, as an absent one already was;
   `granite4.1:8b` sent `""` and was refused. When `du` cannot read some folders, the report now says the
   sizes may be low instead of presenting a partial total as the whole.

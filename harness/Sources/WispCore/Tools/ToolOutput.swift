@@ -2,7 +2,7 @@
 ///
 /// Tools return failures as text rather than throwing, because a thrown error aborts the whole
 /// response with a raw framework message; the model can react to `error: …` and try another way.
-/// Every tool result is bounded, because the on-device window is about 4k tokens.
+/// Every tool result is bounded, because the on-device window is about 8k tokens (8,192 on macOS 27).
 enum ToolOutput {
     /// `error: <description>`.
     static func error(_ error: some Error) -> String {

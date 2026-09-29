@@ -559,8 +559,10 @@ ignored.
 
 ## Context window
 
-The model's window is about 4k tokens. When a prompt no longer fits, wisp drops older turns (keeping the
-instructions and the last four turns) and retries once. `chat` prints a note when this happens; MCP results
+The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is its
+`contextLength`. Before a prompt that would pass 85% of the window, and again when a request overflows,
+wisp drops older turns (keeping the instructions and the last four turns); after an overflow it retries
+once. `chat` prints a note when this happens; MCP results
 carry `condensed: true`. See [context-management.md](context-management.md).
 
 ## Exit codes

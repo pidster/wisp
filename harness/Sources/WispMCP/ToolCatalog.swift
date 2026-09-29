@@ -13,7 +13,7 @@ public enum ToolCatalog {
         description:
             "Run a task on this Mac's on-device Apple Foundation Model (or Apple's Private Cloud Compute with "
             + "model: private-cloud, or a local Ollama model with model: ollama:<name>). The on-device model is small with a context window "
-            + "of roughly 4k tokens, so keep prompts short and delegate only self-contained tasks such as "
+            + "of about 8k tokens, so keep prompts short and delegate only self-contained tasks such as "
             + "summarising a passage, classifying text, or driving a build or test through its own run_command tool. "
             + "Omit thread_id to start a new conversation; the result's structuredContent.thread_id continues it. "
             + "Read the resource wisp://tools for the tools the model can use and how to prompt for them.",

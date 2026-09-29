@@ -99,7 +99,7 @@ command output stay local, and there is no API key, no account, and no bill. App
 Compute is an explicit opt-in (`--model private-cloud`), noted on stderr and in the audit log; it needs
 an entitlement that an unsigned command-line binary cannot carry, so it is refused from this build
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model
-ollama:<name>` when a task needs a larger window than the on-device model's 4k tokens; `wisp models`
+ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens; `wisp models`
 lists what will work.
 
 **Every command passes a gate, and the gate is fast.** Before a command runs it must clear a deny list
@@ -166,7 +166,7 @@ Everything is under [docs/](docs/README.md). Start with the row that matches you
 | Cut a release | [release.md](docs/release.md) |
 
 Two background pages record what we learned about the platform:
-[context-management.md](docs/context-management.md) on living inside a 4k-token window, and
+[context-management.md](docs/context-management.md) on living inside a small context window, and
 [policy-and-sandboxing.md](docs/policy-and-sandboxing.md) on what macOS and the framework offer for
 confinement.
 
