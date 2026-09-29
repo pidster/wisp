@@ -99,3 +99,17 @@ Compile the results of each step into a structured report, noting:
 - **Timestamp** of each operation for traceability.
 
 This expanded guide ensures thorough evaluation of the Wisp assistant's full operational spectrum, facilitating confident deployment and ongoing maintenance.Co‑committer: Wisp Assistant
+
+    2. Report free disk space.
+    3. List sizes of user directories.
+    4. Show current memory usage.
+    5. List top CPU consuming processes.
+    6. Report battery status.
+    7. Display network interface details.
+    8. Read the first 10 lines of functionality-self-test.wisp.
+    9. Append a line to functionality-self-test.wisp.
+   10. Verify changes by reading the updated file.
+   11. List directory contents (ls -la).
+   12. Show the latest audit events.
+   13. Invoke any custom tool defined in the configuration.
+   14. Generate a system health report.
