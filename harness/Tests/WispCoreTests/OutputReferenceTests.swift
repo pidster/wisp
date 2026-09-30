@@ -52,6 +52,30 @@ import WispTestSupport
         #expect(!huge.contains(" at ") && huge.split(separator: "\n")[1].hasPrefix("arguments: a a a"))
     }
 
+    @Test func aTurnThatReplacesTheSessionForAReferenceStillReportsItsTokens() async throws {
+        let (dir, file, small) = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let home = Home(root: dir.appending(path: "home"))
+        try home.ensure()
+        let session = try Session.begin(
+            .init(entryPoint: .mcp), home: home, dependencies: .testing(sink: MemoryAuditSink()))
+        let thread = try session.thread(
+            id: "refs-tokens", approver: DenyingApprover(reason: "not in tests"), tools: .named(["read_file"]))
+        let model = ScriptedModel(steps: [
+            .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("forty"),
+            .call(name: "read_file", arguments: #"{"path":"\#(small.path)"}"#), .say("tiny"),
+        ])
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        _ = try await agent.respond(to: "Read \(file.path)")
+        let first = agent.tokensUsed
+        #expect(first.input == 40)
+        // The second turn recomposes the first output as a reference, so its session is a new one.
+        _ = try await agent.respond(to: "Read the tiny one")
+        let second = agent.tokensUsed
+        #expect(second.input >= first.input)
+        #expect(TurnTokens.between(first, second)?.input == 40)
+    }
+
     /// A scratch file of `page`'s text, removed with its directory by the caller.
     private func scratch() throws -> (dir: URL, file: URL, small: URL) {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-reference-\(UUID().uuidString)")

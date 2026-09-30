@@ -19,6 +19,35 @@ import WispTestSupport
             audit: AuditLog(session: "a", sink: sink))
     }
 
+    @Test func tokenTotalsSurviveTheSessionBeingReplacedMidTurn() async throws {
+        // Each scripted request reports 40 input tokens and one output token per word. A condensation ahead
+        // of the window, an overflow retry, and a reset each start a session whose own count is zero; the
+        // agent's total carries the old one, so a turn's difference is that turn's tokens and never falls.
+        let scripted = ScriptedModel(steps: [.say("one"), .say("two"), .say("three"), .say("four")])
+        let windowed = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: scripted, contextSize: 50),
+            contextPolicy: .condense(keepTurns: 0))
+        #expect(windowed.tokensUsed == TurnTokens(input: 0, output: 0))
+        _ = try await windowed.respond(to: "first")
+        #expect(windowed.tokensUsed == TurnTokens(input: 40, output: 1))
+        // The second prompt is condensed ahead, which replaces the session before the request.
+        let condensed = try await windowed.respond(to: "second prompt that is long enough to count")
+        #expect(condensed.condensed)
+        #expect(windowed.tokensUsed == TurnTokens(input: 80, output: 2))
+        // An overflow on the next request: the retry runs on a fresh session.
+        scripted.script.overflowOnce.withLock { $0 = true }
+        let before = windowed.tokensUsed
+        _ = try await windowed.respond(to: "third")
+        let after = windowed.tokensUsed
+        #expect(TurnTokens.between(before, after) == TurnTokens(input: 40, output: 1))
+        // Starting over keeps the total.
+        windowed.reset()
+        #expect(windowed.tokensUsed == after)
+        _ = try await windowed.respond(to: "fourth")
+        #expect(TurnTokens.between(after, windowed.tokensUsed) == TurnTokens(input: 40, output: 1))
+    }
+
     @Test func respondReturnsTextAndAdvancesTheClock() async throws {
         let sink = MemoryAuditSink()
         let agent = agent(steps: [.say("one"), .say("two")], sink: sink)

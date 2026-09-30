@@ -141,7 +141,9 @@ What a session shows, and where it goes:
   before anything else is written, and is not drawn while a reply is streaming or an approval is asked.
 - Under each reply, how long the turn took and, when the model reports usage, the tokens it read and
   wrote across the turn's requests: `3.1 s · ↓4,009 ↑79`. `wisp-tui` puts the same figures in its
-  status line.
+  status line. The count is the agent's running total across every session it has used, so a turn in which wisp
+  replaced the model's session (references, condensing, an overflow retry) is still counted in full; `/new` keeps
+  the total. `/tokens` is a different figure: the size of the transcript.
 - Replies on stdout; everything else (banner, status, prompt, tool lines, notes, approval dialogs) on
   stderr, so `wisp chat > transcript.txt` captures only the replies.
 - Colour when stdout is a terminal, from wisp's palette (`Style.Palette`, shared with `wisp-tui`): one

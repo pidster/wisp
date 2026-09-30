@@ -180,6 +180,9 @@ Fixed:
 ## 0.14.1
 
 Changed:
+- The tokens shown under a reply in chat (and in `wisp-tui`'s status line) no longer read low, or blank, on
+  a turn in which wisp rebuilt the model's session (to send an earlier tool output as a reference, to
+  condense, or to retry after an overflow). The count now carries over from the session it replaced.
 
 - The status line is shorter and says more. On the left, `system:15% used · ~/src/wisp:main+12-3`:
   the model with its context use, then the directory, branch, and lines added (green) and removed (red)

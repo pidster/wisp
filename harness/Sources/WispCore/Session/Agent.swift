@@ -23,6 +23,9 @@ public final class Agent {
     /// already holds continues it, keeping the runtime's processed prefix and the session's token totals;
     /// any other composition starts a new session. Replaced, never mutated.
     private var session: LanguageModelSession
+    /// What the sessions this agent has replaced had counted, so `tokensUsed` never falls when a new session
+    /// starts from zero. Added to only by `replaceSession(with:)`.
+    private var carried = TurnTokens(input: 0, output: 0)
 
     /// What happens when a prompt no longer fits the context window.
     public var contextPolicy: ContextPolicy { composer.policy }
@@ -236,11 +239,26 @@ public final class Agent {
     /// serve: it accumulates across requests.
     public var lastInputTokens: Int { model.reportedInputTokens() ?? 0 }
 
-    /// The session's running token totals, in and out, as the framework counts them across requests;
-    /// zero for a model that does not report. `ChatLoop` takes the difference across a turn.
+    /// The agent's running token totals, in and out, as the framework counts them across requests; zero
+    /// for a model that does not report. They are the sum over every session the agent has used, so they only
+    /// grow: a session replaced mid-turn (a reference, a cut, a condensation, an overflow retry) hands its
+    /// count on rather than starting the total again. `reset` (`/new`) keeps them too: they measure the
+    /// process's spending, and `ChatLoop` takes the difference across a turn. `/tokens` and the status line
+    /// do not use them; they show the transcript's size (`contextTokens()`).
     public var tokensUsed: TurnTokens {
         let usage = session.usage
-        return TurnTokens(input: usage.input.totalTokenCount, output: usage.output.totalTokenCount)
+        return TurnTokens(
+            input: carried.input + usage.input.totalTokenCount,
+            output: carried.output + usage.output.totalTokenCount)
+    }
+
+    /// Makes `next` the live session after adding what the current one has counted to the carried total.
+    /// Every replacement after initialisation goes through here.
+    ///
+    /// - Parameter next: The session to continue with.
+    private func replaceSession(with next: LanguageModelSession) {
+        carried = tokensUsed
+        session = next
     }
 
     /// Tokens the current transcript occupies: counted by the model when it can, else the runtime's
@@ -354,7 +372,7 @@ public final class Agent {
         }
         store.frames[turns.current] = composer.facts.isEmpty ? nil : composer.facts
         guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
-        session = model.session(tools: tools, transcript: composed)
+        replaceSession(with: model.session(tools: tools, transcript: composed))
     }
 
     /// Gives `memory` the store, facts, and subject kinds as they stand, so a call during the next request reads
