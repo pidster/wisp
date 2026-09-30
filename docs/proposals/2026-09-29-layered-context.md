@@ -434,7 +434,9 @@ under its name.
 
 ### D4. What goes in the instructions, and which tools each request carries
 
-Decided 2026-09-29 with the operator.
+Decided 2026-09-29 with the operator. Amended by
+[D12](#d12-four-records-one-assessment-and-tool-output-as-a-reference): tool selection becomes part of one
+assessment per request.
 
 **The question.** Question 4 (budgets per layer) turned out to be two problems. The instructions are set
 once per conversation and take a fixed share of the window; the other layers are composed per request
@@ -507,7 +509,9 @@ help in the prompt (does not reduce what the framework sends).
 
 ### D5. How the per-request layers share the window, and how big tool output may be
 
-Decided 2026-09-29 with the operator. Settles the rest of question 4, and question 9.
+Decided 2026-09-29 with the operator. Settles the rest of question 4, and question 9. Amended by
+[D12](#d12-four-records-one-assessment-and-tool-output-as-a-reference): tool output is full only in the
+turn that produced it, then a structured reference.
 
 **The question.** After the instructions and the request's tools (D4), the rest of the window is shared
 by the earlier block (summary and facts), the literal turns, and the current request. How is it divided,
@@ -552,7 +556,9 @@ design assumes, for example if a larger earlier block helps small models more th
 
 ### D6. What the task is, and who sets it
 
-Decided 2026-09-29 with the operator.
+Decided 2026-09-29 with the operator. Amended by
+[D12](#d12-four-records-one-assessment-and-tool-output-as-a-reference): in chat, the task and its
+objective are inferred by the assessment on each request, not only as turns age out.
 
 **The question.** The task frame in the prompt (layer 4) keeps the model oriented after the turns that
 stated the task have aged out; the experiment of 2026-09-29 showed a model losing it. Where does the
@@ -597,7 +603,9 @@ correcting them; or MCP callers turn out rarely to pass a task.
 
 ### D7. Repeating the relevant facts next to the request
 
-Decided 2026-09-29 with the operator.
+Decided 2026-09-29 with the operator. Amended by
+[D12](#d12-four-records-one-assessment-and-tool-output-as-a-reference): the relevant facts come from the
+assessment.
 
 **The question.** The earlier block holds every current fact, but well before the request, and small
 models weigh what is near the question most. Should the few facts that bear on a request be repeated in
@@ -721,7 +729,9 @@ recompose against a default. The eval switches models mid-conversation and check
 
 ### D11. Keeping the prefix cacheable
 
-Decided 2026-09-29 with the operator.
+Decided 2026-09-29 with the operator. Amended by
+[D12](#d12-four-records-one-assessment-and-tool-output-as-a-reference): the context is ordered by how
+often each part changes.
 
 **The question.** Ollama and the on-device runtime reuse the processed prefix of the context when a
 request starts as the previous one did. Today the prefix only grows, so almost every request reuses it.
@@ -756,6 +766,90 @@ the eval can relate time per turn to what changed.
 **Reopen if:** the eval shows prefix reuse matters on one model and not the other, in which case the
 choice becomes per model.
 
+### D12. Four records, one assessment, and tool output as a reference
+
+Decided 2026-09-30 with the operator, after phase 3. Settles question 12, and amends D4, D5, D6, D7,
+and D11.
+
+**The question.** Phase 3 left the person's view of tool output to the model: chat showed a one-line
+note, the model retyped what the person asked to see, and wisp cut the copy afterwards. MCP callers got
+the real output (D9), so the two faces behaved differently. Question 12 asked whether chat should print
+output itself when asked, and how.
+
+**The operator's reasoning, as given:**
+- Chat and MCP behaving differently is wrong.
+- For each request the model must infer the person's intent, the task, and its objective.
+- The transcript is what the person sees; it need not be what the model sees.
+- The person must be able to see the model's context at any time, without that costing the model
+  context in the turn.
+- So the truth, its sources, the model's context, and the person's transcript are different things.
+- Facts are temporal, and instructions and prompts change at different rates; the most stable
+  information goes first, for caching.
+- As long as the model can recall the full output, the context can carry a compact structured
+  reference to it instead: which tool ran, when, whether it succeeded, and notes on the output.
+- wisp can show the person the full output, the same way in chat and over MCP, without it entering the
+  model's context in full.
+
+**Considered** (question 12): leave the model to retype and cut the copy (A); chat prints output when
+the request says "show" (B); a `/show <entry>` command (C); and the shape above, which removes the
+question.
+
+**Chosen:**
+- **Four records, each a view of the truth:**
+
+  | Record | Holds | For |
+  | --- | --- | --- |
+  | The truth | The audit log, verbatim and append-only (D8) | The audit, `recall` |
+  | The sources | The store: every derived item linked to the audit events it came from | wisp |
+  | The model's context | Composed for each request | The model |
+  | The transcript | Prompts, replies, and tool output in full | The person, in chat or over MCP |
+
+- **wisp shows tool output; the model does not retype it.** The transcript carries every tool's output
+  from the truth, the same in chat and over MCP; only the rendering differs by face (chat prints or
+  folds, `wisp-tui` folds, MCP returns it inline or as a reference, D9). The instructions tell the model
+  that the person sees tool output, so it comments rather than repeats. Cutting presentational text
+  stays as a safety net, limited to exact copies: a block reproduced with changes carries information
+  the output does not, such as a proposed edit, and is kept.
+- **Tool output in the model's context is full only in the turn that produced it.** The model needs it
+  whole to act on it. After that turn it is a structured reference: the tool, the store entry, the time,
+  success or failure, the size, and notes on the output (extracts, findings, or a summary). `recall`
+  returns the full output.
+- **One assessment per request.** Before each request, one call infers the person's intent, the task
+  and its objective, the tools the request needs, and the facts that bear on it. It is audited and never
+  enters the context. It replaces D4's selection call and D7's choice of facts, and gives D6's inferred
+  task in chat on every request.
+- **Ordered by stability,** most stable first: wisp's prompt; the operator's extension and the tool
+  catalogue; the caller's instructions; permanent facts; dynamic facts and the summary; the literal
+  turns; then ephemeral facts, the task frame, and the request. Authority by position is unchanged:
+  facts stay on the prompt side, however stable.
+- **The model's context is always viewable, at no cost to the model:** `/inspect context` as now, a
+  live view in `wisp-tui`, and a `wisp://context/{thread_id}` resource for MCP callers.
+
+**Taken as the leans, to be confirmed in the build:**
+- A reference's notes are written mechanically first (exit status, counts, the first and last lines,
+  the condensers' findings), as D1 extracts facts; a model summary only for large prose output, in D1's
+  batches.
+- Chat shows output up to a size and folds the rest behind a command to expand it; `wisp-tui` folds.
+
+**Why:** the person sees the real output rather than the model's copy, the same in both faces; the
+model carries what it needs to reason, not what the person needs to read; one assessment does what
+three mechanisms did separately; and ordering by stability serves the cache without a rule per layer.
+
+**Rejected:** A, retyping and cutting: the copy costs the model time and tokens, a small model alters
+what it retypes, and the faces differ. B: a guess at what the person wants to see. C: kept as a
+possible addition for showing an older entry again, not as the way output is shown.
+
+**Consequences:**
+- The eval scores a new strategy with references after the turn; it is expected to fit far more turns
+  in the window and so to improve recall.
+- Cutting's matching changes to exact copies; the phase 3 test that cuts an edited copy is reversed.
+- The assessment call is a new cost per request, measured with D11's figures.
+- Chat, `wisp-tui`, and `wisp chat --json` gain output display; `mcp.md` documents the context
+  resource.
+
+**Reopen if:** the model often needs the full output of an earlier turn and recalls it on most turns
+(references too thin); or the assessment's time per request outweighs what it saves.
+
 ## Open questions
 
 The first eleven were settled with the operator on 2026-09-29; each points to its decision. New questions
@@ -774,11 +868,7 @@ go here as they arise.
 10. **A model switch recomposes.** Decided 2026-09-29: see D10 under "Decisions".
 11. **Caching.** Decided 2026-09-29: see D11 under "Decisions".
 
-12. **Routing for display by the request.** Raised in phase 3, 2026-09-29, and left to the operator:
-    whether chat (and `wisp-tui`) should print a tool's output itself when the person asked to see it
-    ("show me the file"), full or summarised by size, instead of relying on the model to retype it; and
-    whether that needs a flag or a command. Today chat shows a one-line note and `/last`; MCP callers get
-    the real output through D9.
+12. **Routing for display by the request.** Decided 2026-09-30: see D12 under "Decisions".
 
 ## Phasing
 
@@ -828,5 +918,8 @@ go here as they arise.
      reply is in the middle of what the runtime has processed (D11's cost, measured below); cuts are
      judged only against the same turn's output, as the design says, so a reply that retells an earlier
      turn's output is kept.
-4. Facts and the summary, `/inspect facts`, and `recall`.
+3b. D12's output handling: wisp shows tool output in the transcript, the same in chat and over MCP;
+   tool output becomes a structured reference after its turn; cutting limited to exact copies; the
+   context resource; ordering by stability; and the eval's reference strategy.
+4. Facts and the summary, `/inspect facts`, `recall`, and the assessment per request.
 5. The ADR, with the eval's figures.
