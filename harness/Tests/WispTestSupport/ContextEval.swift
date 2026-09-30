@@ -6,7 +6,7 @@ import WispCore
 /// reads and a long digression, then asks for each fact, for the first file read, and for the task
 /// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"). Everything here runs without a model,
 /// so the scenario, the scoring, and the runner are tested in the gate; `ContextEvalTests` in
-/// `ModelEvalTests` drives it on real models.
+/// `harness/Evals` drives it on real models.
 ///
 /// A `ContextStrategy` is the seam later designs plug into: each one opens a conversation over the same
 /// model, tools, and instructions, and the same scenario runs through it. `DroppingStrategy` is the
@@ -133,10 +133,10 @@ public enum ContextEval {
         public var files: [String] { steps.compactMap(\.file) }
     }
 
-    /// `Tests/ModelEvalTests/Fixtures/context`, found from this source file's place in the repository.
+    /// `Tests/WispTestSupport/Fixtures/context`, found from this source file's place in the repository. The
+    /// gate's tests read them and so do the evaluations in `Evals/`, which is why they live here.
     public static var fixturesDirectory: URL {
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "ModelEvalTests/Fixtures/context")
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/context")
     }
 
     /// The on-task files, read in this order after the task is stated.

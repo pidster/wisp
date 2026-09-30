@@ -80,7 +80,7 @@ import WispTestSupport
     }
 
     @Test func aLongPathKeepsItsEndAndAnyOtherNameItsStart() {
-        let path = "harness/Tests/ModelEvalTests/Fixtures/context/harbour-sync-overview.md"
+        let path = "harness/Tests/WispTestSupport/Fixtures/context/harbour-sync-overview.md"
         #expect(FactComposition.shortenedName(path) == "…" + String(path.suffix(60)))
         #expect(FactComposition.shortenedName(path).hasSuffix("harbour-sync-overview.md"))
         let long = String(repeating: "word ", count: 20)

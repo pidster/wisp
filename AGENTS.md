@@ -24,7 +24,8 @@ only what applies everywhere and to every agent.
 
 | Path | Contents |
 | --- | --- |
-| `harness/` | Swift package. Targets: `WispCore` (all logic), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers backends), tests. |
+| `harness/` | Swift package. Targets: `WispCore` (all logic), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers backends), tests, and `WispTestSupport` (`ScriptedModel` and friends, also a library product). |
+| `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`, needing a model). The gate and coverage never build it; `scripts/check eval` does. |
 | `tools/` | Cargo workspace. `wisp-tui`, the terminal front end over `wisp chat --json` (ADR 0029); future tool binaries go here too. The gate runs fmt, pedantic clippy, and tests on it. |
 | `docs/` | Documentation and ADRs. Part of every change (see Definition of done). |
 | `training/` | Labelled training sets for the fast classifiers, with their adversarial reviews (ADR 0038). Only `risk/train.tsv` is built in, copied to `Resources/risk-examples.tsv` by `scripts/check classifier-default`. |
@@ -39,7 +40,7 @@ scripts/check install-hooks        # once per clone
 scripts/check                      # hygiene + strict lint + warnings-as-errors build + tests (the gate)
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
-scripts/check eval [record]        # on-device model evaluation; slow; not in the gate; record rewrites measurements.json
+scripts/check eval [record]        # on-device model evaluation (harness/Evals package); slow; not in the gate; record rewrites measurements.json
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md)
 
 cd harness && swift build                                        # -> .build/debug/wisp
@@ -91,8 +92,8 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
   publishes that section as the release notes and refuses to release without one.
 - **Gate.** `scripts/check` must pass before every commit; the hook runs it. Strict lint, warnings as
   errors, strict concurrency, no escape hatches. Language rules are in `.claude/rules/`.
-- **Tests never need the model.** `ModelEvalTests` is the one model-dependent suite and runs only via
-  `scripts/check eval`; `OllamaLiveTests` runs only under `WISP_OLLAMA_TESTS=1`. To drive the agent,
+- **Tests never need the model.** The model evaluations are the one model-dependent suite. They are a package of
+  their own, `harness/Evals`, that the gate never builds; `scripts/check eval` runs them; `OllamaLiveTests` runs only under `WISP_OLLAMA_TESTS=1`. To drive the agent,
   the tool loop, or the MCP server end to end without a model, use `ScriptedModel` from
   `Tests/WispTestSupport` (ADR 0016); `WispServerWireTests` shows the pattern over a real client.
 - **Bound every tool result** (4 KiB or paged); the on-device model's window is 8,192 tokens on macOS 27. Keep tool

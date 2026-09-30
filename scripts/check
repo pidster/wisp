@@ -5,7 +5,7 @@ set -eu
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
-SWIFT_PATHS="Sources Tests Plugins Package.swift"
+SWIFT_PATHS="Sources Tests Plugins Package.swift Evals/Tests Evals/Package.swift"
 
 # Rust checks run only once the workspace has at least one crate.
 have_crates() {
@@ -116,14 +116,15 @@ coverage_baseline() {
     echo "baseline set to $total% in $BASELINE_FILE"
 }
 
-# eval: run the model evaluation and assert its floors. `eval record` also writes each task's
+# eval: run the model evaluations (the package in harness/Evals, which the gate never builds) and assert
+# their floors. `eval record` also writes each task's
 # measurement into the embedded measurements.json, to commit; a plain eval (what a release runs)
 # leaves the file alone, since the sets are small and a rerun re-rolls the numbers.
 eval_() {
     echo "==> eval (on-device model; not part of the gate)"
     record=""
     if [ "${1:-}" = "record" ]; then record="$ROOT/harness/Sources/WispCore/Resources/measurements.json"; fi
-    (cd harness && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX --filter ModelEvalTests 2>&1 \
+    (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX 2>&1 \
         | grep -E 'model classifier|measured:|eval:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run')
     if [ -n "$record" ]; then
         echo "==> measurements recorded in harness/Sources/WispCore/Resources/measurements.json; commit them"

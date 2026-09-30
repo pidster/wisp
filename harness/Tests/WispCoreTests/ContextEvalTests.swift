@@ -5,7 +5,7 @@ import WispTestSupport
 
 @testable import WispCore
 
-/// The context eval's scenario, scoring, and runner, without a model: `ModelEvalTests` drives the same
+/// The context eval's scenario, scoring, and runner, without a model: `harness/Evals` drives the same
 /// code on real models, so what it measures is settled here.
 @Suite struct ContextEvalScenarioTests {
     @Test func normalisesCaseSeparatorsAndThousands() {

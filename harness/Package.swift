@@ -8,6 +8,8 @@ let package = Package(
         .executable(name: "wisp", targets: ["wisp"]),
         .library(name: "WispCore", targets: ["WispCore"]),
         .library(name: "WispMCP", targets: ["WispMCP"]),
+        // Scripted model and audit helpers; also used by the evaluations package in Evals/.
+        .library(name: "WispTestSupport", targets: ["WispTestSupport"]),
     ],
     traits: [
         // MLX Swift compiles Metal kernels at build time and needs the Metal toolchain; off by default
@@ -77,7 +79,9 @@ let package = Package(
         .target(
             name: "WispTestSupport",
             dependencies: ["WispCore"],
-            path: "Tests/WispTestSupport"
+            path: "Tests/WispTestSupport",
+            // The context evaluation's files, read by path (ContextEval.fixturesDirectory).
+            exclude: ["Fixtures"]
         ),
         .testTarget(
             name: "WispCoreTests",
@@ -96,12 +100,6 @@ let package = Package(
         .testTarget(
             name: "WispCoreAITests",
             dependencies: ["WispCoreAI", "WispTestSupport"]
-        ),
-        .testTarget(
-            name: "ModelEvalTests",
-            dependencies: ["WispCore", "WispTestSupport"],
-            // Real diffs from this repository's history, read by path in DraftEvalTests.
-            exclude: ["Fixtures"]
         ),
         .plugin(
             name: "EmbedSystemPrompt",

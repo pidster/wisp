@@ -44,9 +44,17 @@ model gets a case wrong in practice, keeping cases that do not resemble the prom
 scripts/check eval record
 ```
 
-runs `ModelEvalTests` on the configured model with `WISP_EVAL_RECORD` pointing at
+runs the evaluations (the `ModelEvalTests` target of the `harness/Evals` package) on the configured model with `WISP_EVAL_RECORD` pointing at
 `harness/Sources/WispCore/Resources/measurements.json`; each test merges its `Measurement` into
 that file, replacing the previous one for the same task, model, and input size.
+
+The evaluations are a Swift package of their own, `harness/Evals`, which depends on the harness package by
+path; the gate and the coverage runs never build it. Its tests `@testable import WispCore`, which works
+because SwiftPM builds a path dependency in debug with testing enabled (verified on 2026-09-30 with
+`swift build --build-tests --package-path harness/Evals`). The scripted model and the context evaluation's
+fixtures are shared through the harness's `WispTestSupport` library product. Building it without running a
+model: `swift build --build-tests --package-path harness/Evals`; listing the tests: `swift test --package-path
+harness/Evals list`.
 
 A task that routes by input size ([ADR 0037](decisions/0037-routing-by-input-size.md)) records one
 measurement per size band, each with `maxInputBytes`, the largest input among its cases: the result is

@@ -58,8 +58,10 @@ paths:
 - swift-testing (`@Suite`, `@Test`, `#expect`). `#expect`'s message argument is a `Comment`: write
   `"\(value)"`, not a `String` variable.
 - Tests never need the model. Put logic in pure functions or generic types (`ThreadRegistry<Thread>`,
-  `Transcript.condensed`, `CommandRunner.tail`) and test those. `ModelEvalTests` is the one exception and
-  runs only under `WISP_MODEL_TESTS=1` (`scripts/check eval`).
+  `Transcript.condensed`, `CommandRunner.tail`) and test those. The model evaluations are the one exception:
+  they live in their own package, `harness/Evals` (not built by the gate), and run only under
+  `WISP_MODEL_TESTS=1` (`scripts/check eval`). Helpers they share with the gate's tests belong in
+  `WispTestSupport`, a library product of the harness package.
 - Tests drive the real Seatbelt sandbox: write only under the working directory and
   `FileManager.default.temporaryDirectory`; a "blocked" path must be outside both (the home directory).
 - A computed property that builds a `Transcript` mints new entry ids each access; bind it to a `let`
