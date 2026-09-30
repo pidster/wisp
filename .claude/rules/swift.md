@@ -27,8 +27,8 @@ paths:
   stored property or a closure capture.
 - `public` only for what `WispMCP` or `wisp` calls, an extension-point protocol, or a type a public
   signature exposes; everything else internal (tests use `@testable import`). Folders in `WispCore`
-  group by concern (`Session/`, `Exec/`, `Approval/`, `Audit/`, `Tools/`, `Config/`, `CLI/`, `Support/`);
-  put a new file where its neighbours are.
+  group by concern (`Session/`, `Exec/`, `Approval/`, `Audit/`, `Facts/`, `Tools/`, `Config/`, `CLI/`,
+  `Support/`); put a new file where its neighbours are.
 - Do not wrap session work in `Task.detached` or an `AsyncThrowingStream` closure; streaming is a delta
   callback on the caller's task (ADR 0003).
 - Foundation formatters (`ISO8601DateFormatter`, `JSONEncoder`) are not `Sendable`; use value-type format

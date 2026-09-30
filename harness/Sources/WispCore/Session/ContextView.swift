@@ -94,6 +94,12 @@ public enum ContextView {
         ]
         for item in composition {
             let entry = item.entry
+            if entry.kind == .facts {
+                sections.append(
+                    "## facts · a record on the prompt side, not instructions\n\n"
+                        + ConversationStore.text(of: item.sent))
+                continue
+            }
             var head = "## \(entry.id)"
             if let turn = entry.turn { head += " · turn \(turn)\(entry.origin == .resumed ? " (resumed)" : "")" }
             var body: String

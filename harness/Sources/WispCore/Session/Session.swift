@@ -151,6 +151,10 @@ public struct Session: Sendable {
     public let notifier: Notifier
     /// The recent model turns and classifier calls of every conversation of this session, for `/stats`.
     public let stats: CallStats
+    /// The session's ephemeral facts, shared by every conversation of it (decision D2).
+    public let sessionFacts = SharedFacts.session()
+    /// The shared store of permanent facts under the home directory, which only the person admits facts to.
+    public let permanentFacts: SharedFacts
 
     /// Which face this session is.
     public var entryPoint: EntryPoint { request.entryPoint }
@@ -257,7 +261,7 @@ public struct Session: Sendable {
                 : CachingRiskClassifier(
                     TimedRiskClassifier(classifier, name: config.approvalClassifier.rawValue, stats: stats)),
             notifier: Notifier(enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute),
-            stats: stats)
+            stats: stats, permanentFacts: .permanent(home: home))
     }
 
     /// Where `approval.coremlModel` points: `risk@<version>` in the classifier store, absolute or `~`
@@ -374,6 +378,8 @@ public struct Conversation: Sendable {
     let stats: CallStats
     /// The conversation's tool events, which the agent links its store's tool entries to.
     let toolEvents: ToolEventTrail
+    /// The facts the agent keeps, from the session's; nil when `facts.enabled` is false.
+    let facts: FactSettings?
 
     /// Builds the gate and the tool registry for one conversation of `session`.
     ///
@@ -400,7 +406,12 @@ public struct Conversation: Sendable {
         return Conversation(
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
-            model: model, config: session.config, home: session.home, stats: session.stats, toolEvents: toolEvents)
+            model: model, config: session.config, home: session.home, stats: session.stats, toolEvents: toolEvents,
+            facts: session.config.factsEnabled
+                ? FactSettings(
+                    kinds: session.config.subjectKinds, session: session.sessionFacts,
+                    permanent: session.permanentFacts, distils: session.config.factsDistil)
+                : nil)
     }
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
@@ -457,6 +468,8 @@ public struct Conversation: Sendable {
             }
         agent.stats = stats
         agent.toolEvents = toolEvents
+        agent.factsShare = config.factsShare
+        agent.facts = facts
         if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent
     }

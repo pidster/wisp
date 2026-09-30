@@ -18,6 +18,9 @@ import WispTestSupport
 /// tested on top of it in `OutputHandlingTests`. Phase 3b made sending a tool output as a reference after
 /// its turn the default too; every agent here runs with `referencesOutput` off as well, and chat with its
 /// output display off, for the same reason (`OutputReferenceTests` and `ChatOutputTests` test those).
+/// Phase 4a added facts, which a conversation opened through `Conversation.openAgent` keeps by default; the
+/// one agent here opened that way has them off (`agent.facts = nil`), and every other is made directly and
+/// keeps none (`FactsTests` and `FactCompositionTests` test them).
 ///
 /// wisp's system prompt is not what this suite checks: phase 3b changed its wording (D12's standing rule
 /// that the person sees tool output), so the prompt in force is written back as the phase 2 text before
@@ -406,6 +409,7 @@ import WispTestSupport
             on: ResolvedModel(selection: .system, custom: model, contextSize: 60))
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.facts = nil
         var fingerprint = Fingerprint()
         let long = " This sentence makes the prompt long enough to pass the budget."
         for (index, prompt) in ["read \(a)", "two", "read \(b)" + long, "four" + long, "five" + long, "six" + long]

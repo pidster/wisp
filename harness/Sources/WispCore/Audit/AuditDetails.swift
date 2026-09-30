@@ -150,6 +150,73 @@ extension AuditEvent {
             return details
         }
 
+        /// `context.distillation`: the turns leaving the active view, distilled into facts by the model.
+        public static func distillation(
+            turns: [Int], entries: Int, bytes: Int, facts: [String], seconds: Double, model: ModelSelection,
+            failure: String?
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "turns": .array(turns.map { .int($0) }), "entries": .int(entries), "bytes": .int(bytes),
+                "facts": .array(facts.map { .string($0) }), "seconds": .double((seconds * 1000).rounded() / 1000),
+                "model": .string(model.description),
+            ]
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
+        /// `fact.recorded`: a new fact, or a new version of one, with what it superseded.
+        public static func factRecorded(_ fact: Fact, supersedes: String?) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "id": .string(fact.id), "scope": .string(fact.identity.scope.rawValue),
+                "subject": .string(fact.identity.subject), "name": .string(fact.identity.name),
+                "source": .string(fact.source.rawValue), "version": .int(fact.version), "value": .string(fact.value),
+                "class": .string(fact.temporalClass.rawValue), "method": .string(fact.method.rawValue),
+                "entries": .array(fact.entries.map { .int($0) }),
+                "sources": .array(fact.audit.map { .string($0.event) }),
+            ]
+            if let detail = fact.detail { details["detail"] = .string(detail) }
+            if let supersedes { details["supersedes"] = .string(supersedes) }
+            return details
+        }
+
+        /// `fact.superseded`: a fact replaced by a newer version from its source, or by its approval.
+        public static func factSuperseded(_ fact: Fact, by other: String) -> [String: JSONValue] {
+            [
+                "id": .string(fact.id), "subject": .string(fact.identity.subject), "name": .string(fact.identity.name),
+                "source": .string(fact.source.rawValue), "by": .string(other),
+            ]
+        }
+
+        /// `fact.deleted`: a fact the person deleted.
+        public static func factDeleted(_ fact: Fact) -> [String: JSONValue] {
+            [
+                "id": .string(fact.id), "subject": .string(fact.identity.subject), "name": .string(fact.identity.name),
+                "source": .string(fact.source.rawValue), "value": .string(fact.value), "by": "person",
+            ]
+        }
+
+        /// `fact.approved`: a proposed permanent fact the person admitted to the shared store.
+        public static func factApproved(_ proposal: Fact, admitted: Fact) -> [String: JSONValue] {
+            [
+                "id": .string(proposal.id), "admitted": .string(admitted.id),
+                "subject": .string(admitted.identity.subject), "name": .string(admitted.identity.name),
+                "source": .string(admitted.source.rawValue), "value": .string(admitted.value),
+            ]
+        }
+
+        /// `fact.conflict.raised` and `fact.conflict.resolved`: the heads about one subject and name began or
+        /// stopped disagreeing.
+        public static func factConflict(
+            _ key: FactIdentity.Key, winner: String?, others: [String]
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "subject": .string(key.subject), "name": .string(key.name),
+                "others": .array(others.map { .string($0) }),
+            ]
+            if let winner { details["winner"] = .string(winner) }
+            return details
+        }
+
         /// `context.condensation`.
         public static func condensation(
             turnsBefore: Int, turnsAfter: Int, contextSize: Int, tokenCount: Int, reason: String,
@@ -353,6 +420,16 @@ extension AuditEvent {
         case .presentationCut:
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]
+        case .distillation: ["turns", "entries", "bytes", "facts", "seconds", "model", "failure"]
+        case .factRecorded:
+            [
+                "id", "scope", "subject", "name", "source", "version", "value", "class", "method", "detail", "entries",
+                "sources", "supersedes",
+            ]
+        case .factSuperseded: ["id", "subject", "name", "source", "by"]
+        case .factDeleted: ["id", "subject", "name", "source", "value", "by"]
+        case .factApproved: ["id", "admitted", "subject", "name", "source", "value"]
+        case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

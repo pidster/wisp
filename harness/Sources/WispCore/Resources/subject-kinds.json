@@ -1,0 +1,79 @@
+{
+  "kinds": [
+    {
+      "name": "task",
+      "class": "dynamic",
+      "normaliser": "single",
+      "description": "What the conversation is working on: the goal the person set, in one sentence."
+    },
+    {
+      "name": "decision",
+      "class": "permanent",
+      "normaliser": "casefold",
+      "description": "A choice the person settled, such as a library, an approach, or a name; name it by what was decided."
+    },
+    {
+      "name": "preference",
+      "class": "permanent",
+      "normaliser": "casefold",
+      "description": "How someone likes things done, such as a reviewer's or the person's style; name it by whose and what."
+    },
+    {
+      "name": "entity",
+      "class": "permanent",
+      "normaliser": "casefold",
+      "description": "A named thing and what it is called or numbered: a codename, a ticket, a person, a project."
+    },
+    {
+      "name": "tests",
+      "class": "dynamic",
+      "normaliser": "command",
+      "description": "Whether a test or build command passed or failed, named by the command or by what it covers, such as CI."
+    },
+    {
+      "name": "file",
+      "class": "dynamic",
+      "normaliser": "path",
+      "description": "A file read or changed, named by its path, with what was read or written.",
+      "distil": false
+    },
+    {
+      "name": "service",
+      "class": "ephemeral",
+      "normaliser": "casefold",
+      "description": "Something running on this Mac now: a server, a port in use, a process.",
+      "distil": false
+    },
+    {
+      "name": "machine",
+      "class": "ephemeral",
+      "normaliser": "casefold",
+      "description": "The state of this Mac now: memory, disk space, battery, network.",
+      "distil": false
+    },
+    {
+      "name": "workdir",
+      "class": "dynamic",
+      "normaliser": "single",
+      "description": "The directory the work happens in."
+    },
+    {
+      "name": "branch",
+      "class": "dynamic",
+      "normaliser": "single",
+      "description": "The git branch the work is on."
+    }
+  ],
+  "testCommands": [
+    "swift test",
+    "swift build",
+    "cargo test",
+    "cargo build",
+    "scripts/check",
+    "npm test",
+    "npm run test",
+    "pytest",
+    "go test",
+    "make test"
+  ]
+}

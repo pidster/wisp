@@ -39,6 +39,89 @@ public struct Config: Codable, Equatable, Sendable {
     public var tools: ToolsConfig?
     /// Choosing a model by input size for the tasks that route.
     public var routing: RoutingConfig?
+    /// Facts: whether they are kept, distilled, and composed, and the subject kinds.
+    public var facts: FactsConfig?
+
+    /// Fact settings in the file ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md),
+    /// decisions D1 and D2).
+    public struct FactsConfig: Codable, Equatable, Sendable {
+        /// Whether conversations keep facts at all; default true.
+        public var enabled: Bool?
+        /// Whether turns leaving the active view are distilled into facts by the conversation's model; default
+        /// true.
+        public var distil: Bool?
+        /// The share of the context window facts may take in a request; default 0.1.
+        public var share: Double?
+        /// Kinds to add, or changes to the kinds of the same name.
+        public var kinds: [KindChange]?
+        /// Command prefixes whose exit status is a `tests` fact; replaces wisp's list when set.
+        public var testCommands: [String]?
+
+        /// One configured kind: every field but `name` optional, so a change sets only what it names.
+        public struct KindChange: Codable, Equatable, Sendable {
+            /// The kind's name.
+            public var name: String
+            /// Its temporal class.
+            public var temporalClass: TemporalClass?
+            /// Its normaliser's name.
+            public var normaliser: String?
+            /// What it is, for the distiller.
+            public var description: String?
+            /// Whether the distiller may record facts of it.
+            public var distil: Bool?
+
+            /// The JSON keys.
+            enum CodingKeys: String, CodingKey {
+                case name
+                case temporalClass = "class"
+                case normaliser
+                case description
+                case distil
+            }
+
+            /// Creates a change.
+            public init(
+                name: String, temporalClass: TemporalClass? = nil, normaliser: String? = nil,
+                description: String? = nil, distil: Bool? = nil
+            ) {
+                self.name = name
+                self.temporalClass = temporalClass
+                self.normaliser = normaliser
+                self.description = description
+                self.distil = distil
+            }
+        }
+
+        /// Creates settings; nil fields take defaults.
+        public init(
+            enabled: Bool? = nil, distil: Bool? = nil, share: Double? = nil, kinds: [KindChange]? = nil,
+            testCommands: [String]? = nil
+        ) {
+            self.enabled = enabled
+            self.distil = distil
+            self.share = share
+            self.kinds = kinds
+            self.testCommands = testCommands
+        }
+
+        /// Checks that every kind has a name and a known normaliser, and the share is between 0 and 0.5.
+        ///
+        /// - Throws: `DecodingError.dataCorrupted` naming the problem.
+        public func validate() throws {
+            func fail(_ message: String) -> DecodingError {
+                .dataCorrupted(.init(codingPath: [], debugDescription: "facts: \(message)"))
+            }
+            for kind in kinds ?? [] {
+                guard !kind.name.trimmingCharacters(in: .whitespaces).isEmpty else { throw fail("a kind has no name") }
+                if let normaliser = kind.normaliser, FactNormalisers.named(normaliser) == nil {
+                    throw fail(
+                        "kind \(kind.name): unknown normaliser \(normaliser); use one of "
+                            + FactNormalisers.names.joined(separator: ", "))
+                }
+            }
+            if let share, !(0...0.5).contains(share) { throw fail("share must be between 0 and 0.5") }
+        }
+    }
 
     /// Routing settings in the file.
     public struct RoutingConfig: Codable, Equatable, Sendable {
@@ -207,8 +290,9 @@ public struct Config: Codable, Equatable, Sendable {
         audit: AuditConfig? = nil, approval: ApprovalConfig? = nil, ollama: OllamaConfig? = nil,
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
-        shownOutputLines: Int? = nil
+        shownOutputLines: Int? = nil, facts: FactsConfig? = nil
     ) {
+        self.facts = facts
         self.inlineOutputBytes = inlineOutputBytes
         self.shownOutputLines = shownOutputLines
         self.tools = tools
@@ -237,6 +321,7 @@ public struct Config: Codable, Equatable, Sendable {
         let config = try JSONDecoder().decode(Config.self, from: Data(contentsOf: url))
         try config.commandPolicy?.validate()
         try config.tools?.validate()
+        try config.facts?.validate()
         return config
     }
 
@@ -283,7 +368,9 @@ public struct Config: Codable, Equatable, Sendable {
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
             routingLadder: routing?.ladder ?? [],
-            taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured }
+            taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
+            factsEnabled: facts?.enabled ?? true, factsDistil: facts?.distil ?? true,
+            factsShare: min(0.5, max(0, facts?.share ?? 0.1)), subjectKinds: SubjectKinds.defaults.applying(facts)
         )
     }
 
@@ -342,5 +429,13 @@ public struct Config: Codable, Equatable, Sendable {
         /// The model for each task's model pass when the caller names none: wisp's measured defaults,
         /// overridden by `routing.tasks`.
         public var taskModels: [String: ModelSelection] = ModelRouting.taskDefaults
+        /// Whether conversations keep facts.
+        public var factsEnabled = true
+        /// Whether turns leaving the active view are distilled into facts.
+        public var factsDistil = true
+        /// The share of the context window facts may take in a request.
+        public var factsShare = 0.1
+        /// The subject kinds and test commands in force.
+        public var subjectKinds = SubjectKinds.defaults
     }
 }

@@ -16,9 +16,9 @@ public final class Agent {
     /// The tools the model may call.
     public let tools: [any Tool]
     /// Every entry of the conversation, active or dropped, with the audit events that recorded it.
-    public private(set) var store: ConversationStore
+    public internal(set) var store: ConversationStore
     /// Builds each request's transcript from `store`.
-    private var composer: ContextComposer
+    var composer: ContextComposer
     /// The live session, over the last composed transcript. A request whose composition is what the session
     /// already holds continues it, keeping the runtime's processed prefix and the session's token totals;
     /// any other composition starts a new session. Replaced, never mutated.
@@ -49,6 +49,25 @@ public final class Agent {
     public var referencesOutput: Bool {
         get { composer.referencesOutput }
         set { composer.referencesOutput = newValue }
+    }
+    /// Facts (decisions D1 and D2 of the layered-context proposal): with settings, each turn's tool output is
+    /// read for facts without a model, turns leaving the active view are distilled into facts by the model,
+    /// and each request carries the facts in force as a record on the prompt side (`FactFrame`). Nil, the
+    /// default for an agent made directly, keeps none, and requests are composed exactly as without facts;
+    /// `Conversation.openAgent` sets them from the config.
+    public var facts: FactSettings? {
+        didSet { refreshFacts(quietly: true) }
+    }
+    /// The subjects and names whose heads disagreed at the last check, so each conflict is audited once when
+    /// it is raised and once when it is resolved.
+    var factConflicts: Set<FactIdentity.Key> = []
+    /// The share of the context window the facts may take in a request (`ContextComposer.factsShare`).
+    public var factsShare: Double {
+        get { composer.factsShare }
+        set {
+            composer.factsShare = newValue
+            refreshFacts(quietly: true)
+        }
     }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
@@ -236,7 +255,7 @@ public final class Agent {
             return false
         }
         let estimate = condensation.estimate ?? 0
-        apply(condensation, contextSize: contextSize, tokenCount: estimate, reason: "budget")
+        await apply(condensation, contextSize: contextSize, tokenCount: estimate, reason: "budget")
         Diagnostics.agent.info("condensed ahead of the window: \(estimate) of \(contextSize) tokens")
         return true
     }
@@ -246,6 +265,7 @@ public final class Agent {
     public func reset() {
         store = ConversationStore(carrying: transcript.condensed(keepTurns: 0))
         store.firstTurn = turns.current
+        refreshFacts(quietly: true)
         materialise(fresh: true)
         audit?.record(
             .sessionStart, details: AuditEvent.Details.sessionRestart(tools: tools.map(\.name), model: model.selection))
@@ -260,7 +280,7 @@ public final class Agent {
             guard let overflow = Self.overflow(in: error) else { throw error }
             contextSize = overflow.contextSize
             guard let condensation = composer.overflow(in: store) else { throw error }
-            apply(
+            await apply(
                 condensation, contextSize: overflow.contextSize, tokenCount: overflow.tokenCount, reason: "overflow",
                 fresh: true)
             Diagnostics.agent.info(
@@ -270,8 +290,9 @@ public final class Agent {
     }
 
     /// Applies a condensation: counts it, saves the transcript before and after, records the
-    /// `context.condensation` event, marks the dropped entries in the store with it, and moves the session
-    /// onto the condensed view.
+    /// `context.condensation` event, distils the prose of the turns it drops into facts when the agent keeps
+    /// facts, marks the dropped entries in the store with the event, and moves the session onto the condensed
+    /// view with the facts in force.
     ///
     /// - Parameters:
     ///   - condensation: What the composer decided.
@@ -279,10 +300,10 @@ public final class Agent {
     ///   - tokenCount: The estimate or the overflowing request's size, for the event.
     ///   - reason: `budget` or `overflow`.
     ///   - fresh: Whether to start a new session even when the view is what the session holds.
-    private func apply(
+    nonisolated(nonsending) private func apply(
         _ condensation: ContextComposer.Condensation, contextSize: Int, tokenCount: Int, reason: String,
         fresh: Bool = false
-    ) {
+    ) async {
         condensations += 1
         let event = audit?.record(
             .condensation,
@@ -290,7 +311,12 @@ public final class Agent {
                 turnsBefore: condensation.before.turnCount, turnsAfter: condensation.after.turnCount,
                 contextSize: contextSize, tokenCount: tokenCount, reason: reason,
                 saved: saveCondensation(condensation.before, condensation.after)))
+        let kept = Set(condensation.after.map(\.id))
+        let active = store.entries.filter { $0.state == .active }
+        await distil(
+            active.filter { !kept.contains($0.value.id) }, staying: active.filter { kept.contains($0.value.id) })
         store.retain(condensation.after, droppedBy: event, at: turns.current)
+        refreshFacts()
         materialise(fresh: fresh)
     }
 
@@ -308,6 +334,7 @@ public final class Agent {
             default: false
             }
         }
+        store.frames[turns.current] = composer.facts.isEmpty ? nil : composer.facts
         guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
         session = model.session(tools: tools, transcript: composed)
     }
@@ -363,7 +390,7 @@ public final class Agent {
     ///   - response: The turn's `response` event; nil when the turn failed.
     ///   - started: When the prompt was sent: the prompt entry's time.
     private func remember(prompt: AuditReference?, response: AuditReference?, started: Date) {
-        let added = Array(session.transcript).filter { !store.contains($0) }
+        let added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
         let turn = turns.current
         let events = toolEvents?.take(turn: turn) ?? []
         let sources = ConversationStore.sources(
@@ -379,6 +406,8 @@ public final class Agent {
             }
             store.record(entry, origin: .turn, turn: turn, sources: references, time: time)
         }
+        extractFacts(from: events, turn: turn)
+        refreshFacts()
     }
 
     /// The context composed for the start of `turn` in this conversation's store, entry by entry
@@ -503,6 +532,7 @@ public final class Agent {
         let started = Date()
         let before = condensations
         let referenced = referenceOutputs()
+        refreshFacts()
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
             let text = try await withOverflowRecovery(operation)

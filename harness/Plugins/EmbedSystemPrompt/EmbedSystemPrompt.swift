@@ -7,7 +7,8 @@ import PackagePlugin
 /// `MeasurementsText.text`, `Resources/multiplexers.txt` as `MultiplexersText.text`, and
 /// `Resources/risk-examples.tsv` as `RiskExamplesText.text`, and `Resources/risk-default.json` (the shipped
 /// risk classifier, its model in base64) as `RiskDefaultText.text`, and `Resources/personal-default.json` (the
-/// personal-data classifier, likewise) as `PersonalDefaultText.text`. The text goes into a raw multi-line literal, so it needs no escaping; the
+/// personal-data classifier, likewise) as `PersonalDefaultText.text`, and `Resources/subject-kinds.json` (the default
+/// subject kinds of facts) as `SubjectKindsText.text`. The text goes into a raw multi-line literal, so it needs no escaping; the
 /// one sequence that would end the literal early is refused.
 @main
 struct EmbedSystemPrompt: BuildToolPlugin {
@@ -28,6 +29,7 @@ struct EmbedSystemPrompt: BuildToolPlugin {
         ("system-prompt.md", "SystemPromptText"), ("measurements.json", "MeasurementsText"),
         ("multiplexers.txt", "MultiplexersText"), ("risk-examples.tsv", "RiskExamplesText"),
         ("risk-default.json", "RiskDefaultText"), ("personal-default.json", "PersonalDefaultText"),
+        ("subject-kinds.json", "SubjectKindsText"),
     ]
 
     func createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {

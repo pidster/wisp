@@ -37,6 +37,8 @@ public struct ConversationStore: Sendable {
         case reasoning
         /// An entry of a kind this build does not know.
         case other
+        /// A block of facts a composer adds to a request (`FactFrame`); never stored, only composed.
+        case facts
 
         /// The kind of `entry`.
         init(_ entry: Transcript.Entry) {
@@ -151,6 +153,12 @@ public struct ConversationStore: Sendable {
     public internal(set) var firstTurn = 0
     /// The framework ids of the stored entries, so an entry the session already carried is not stored twice.
     private var known: Set<Transcript.Entry.ID> = []
+    /// The conversation's facts (decision D2): its dynamic facts, and the permanent facts proposed in it and
+    /// not yet approved. Saved with the store.
+    public internal(set) var facts = FactBook(scope: .conversation)
+    /// The facts each turn's requests carried, by turn, so the context of an earlier turn can be shown as it
+    /// was sent; this session's turns only, and not saved.
+    var frames: [Int: FactFrame] = [:]
 
     /// An empty store.
     public init() {}

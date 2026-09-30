@@ -43,6 +43,12 @@ public struct ContextComposer: Sendable {
     public var referencesOutput = true
     /// The zone a reference writes its time in.
     public var timeZone = TimeZone.current
+    /// The facts the next request carries (`FactFrame`), set by the agent before each request; empty, the
+    /// default, adds nothing, so a composer without facts composes exactly as before them.
+    public var facts = FactFrame.empty
+    /// The share of the context window the facts may take (decision D5's cap for the earlier block, with the
+    /// now block inside it); the eval can vary it.
+    public var factsShare = 0.1
 
     /// A decision to cut one stretch of a reply.
     struct PresentationCut: Sendable, Equatable {
@@ -96,8 +102,34 @@ public struct ContextComposer: Sendable {
     /// - Parameter store: The conversation's store.
     /// - Returns: The transcript.
     public func compose(_ store: ConversationStore) -> Transcript {
-        guard cutsPresentation || referencesOutput else { return store.active }
+        guard !facts.isEmpty else { return literal(store) }
         return Transcript(entries: composition(store, atTurn: nil).map(\.sent))
+    }
+
+    /// The literal turns the next request carries, without the facts: what condensing counts and cuts.
+    ///
+    /// - Parameter store: The conversation's store.
+    /// - Returns: The transcript.
+    func literal(_ store: ConversationStore) -> Transcript {
+        guard cutsPresentation || referencesOutput else { return store.active }
+        return Transcript(entries: literalComposition(store, atTurn: nil).map(\.sent))
+    }
+
+    /// The least the facts may take, in bytes, however small the window: room for the task and a few facts.
+    static let factsFloorBytes = 1024
+
+    /// The facts frame for the next request: the facts in force, rendered and capped at `factsShare` of
+    /// `window` at four bytes a token, and never below `factsFloorBytes`.
+    ///
+    /// - Parameters:
+    ///   - view: The facts in force.
+    ///   - store: The conversation's store, whose active entries the literal turns carry.
+    ///   - window: The model's context window, in tokens.
+    /// - Returns: The frame.
+    func factFrame(_ view: FactView, store: ConversationStore, window: Int) -> FactFrame {
+        let active = Set(store.entries.filter { $0.state == .active }.map(\.id))
+        let budget = max(Self.factsFloorBytes, Int(Double(window) * factsShare) * Self.bytesPerToken)
+        return FactComposition.frame(view, active: active, budgetBytes: budget)
     }
 
     /// The context composed for the start of `turn`, rebuilt from the store (`composition(_:atTurn:)`).
@@ -124,6 +156,34 @@ public struct ContextComposer: Sendable {
     ///   - turn: The turn, in the store's session's numbering; nil for the next request.
     /// - Returns: The entries, in order.
     public func composition(_ store: ConversationStore, atTurn turn: Int?) -> [Composed] {
+        let literal = literalComposition(store, atTurn: turn)
+        let frame = turn.map { store.frames[$0] ?? .empty } ?? facts
+        guard !frame.isEmpty else { return literal }
+        let (earlier, now) = frame.entries
+        func composed(_ value: Transcript.Entry) -> Composed {
+            Composed(
+                entry: ConversationStore.Entry(
+                    id: 0, kind: .facts, origin: .carried, turn: nil, sources: [], state: .active, value: value),
+                sent: value, own: false)
+        }
+        var result = literal
+        if let now {
+            result.insert(composed(now), at: result.firstIndex(where: \.own) ?? result.endIndex)
+        }
+        if let earlier {
+            let first = result.first.map { $0.entry.kind == .instructions ? 1 : 0 } ?? 0
+            result.insert(composed(earlier), at: first)
+        }
+        return result
+    }
+
+    /// `composition(_:atTurn:)` without the facts: the literal turns alone.
+    ///
+    /// - Parameters:
+    ///   - store: The conversation's store.
+    ///   - turn: The turn, in the store's session's numbering; nil for the next request.
+    /// - Returns: The entries, in order.
+    func literalComposition(_ store: ConversationStore, atTurn turn: Int?) -> [Composed] {
         let calls = referencesOutput ? store.calls : [:]
         guard let turn else {
             return store.entries.filter { $0.state == .active }.map {
@@ -275,7 +335,7 @@ public struct ContextComposer: Sendable {
         guard case .condense(let keepTurns) = policy, used > 0 else { return nil }
         let estimate = used + prompt.utf8.count / Self.bytesPerToken
         guard Double(estimate) >= Double(window) * budget else { return nil }
-        let before = compose(store)
+        let before = literal(store)
         let after = before.condensed(keepTurns: keepTurns)
         guard after.turnCount < before.turnCount else { return nil }
         return Condensation(before: before, after: after, estimate: estimate)
@@ -288,7 +348,7 @@ public struct ContextComposer: Sendable {
     /// - Returns: The condensation to apply, or nil.
     func overflow(in store: ConversationStore) -> Condensation? {
         guard case .condense(let keepTurns) = policy else { return nil }
-        let before = compose(store)
+        let before = literal(store)
         return Condensation(before: before, after: before.condensed(keepTurns: keepTurns), estimate: nil)
     }
 }

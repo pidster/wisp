@@ -50,6 +50,8 @@ extension ConversationStore {
         public var version: Int
         /// Every entry, in store order.
         public var entries: [Record]
+        /// The conversation's facts; nil in a snapshot saved before facts, or without any.
+        public var facts: FactBook? = nil
 
         /// The sessions whose audit events the entries refer to (their `sources`, and the condensations
         /// that dropped them), sorted and distinct: where to look for what a resumed conversation carries.
@@ -102,7 +104,9 @@ extension ConversationStore {
                         droppedAt: record.active ? nil : 0, referencedAt: record.referencedAt.map { _ in 0 }))
             }
             guard next == live.count else { return nil }
-            return ConversationStore(entries: rebuilt)
+            var store = ConversationStore(entries: rebuilt)
+            if let facts, facts.scope == .conversation { store.facts = facts }
+            return store
         }
     }
 
@@ -120,6 +124,6 @@ extension ConversationStore {
                     dropped: active ? nil : Transcript(entries: [entry.value]),
                     cuts: entry.cuts.isEmpty ? nil : entry.cuts, time: entry.time, droppedAt: entry.droppedAt,
                     referencedAt: entry.referencedAt)
-            })
+            }, facts: facts.facts.isEmpty ? nil : facts)
     }
 }
