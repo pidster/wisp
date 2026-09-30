@@ -410,8 +410,13 @@ all of them. C was rejected for cost and for what a small model does to a list i
   answer "the tests failed at 11:02 and passed at 11:07", not only "the tests pass".
 - **Subjects are defined, not hard-coded.** A subject kind declares its temporal class, how names under
   it are normalised, and a description the distiller is shown. wisp ships a starting set (for example
-  `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`), and configuration can add or
-  change kinds. The distiller is shown the kinds and the existing identities, and asked to reuse them.
+  `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`, `workdir`, `branch`), and
+  configuration can add or change kinds. The distiller is shown the kinds and the existing identities,
+  and asked to reuse them.
+- **The working directory and the git branch are versioned dynamic facts** (added 2026-09-30 by the
+  operator). They are extracted mechanically (D1): the directory from chat's start, an MCP caller's
+  prompt, and `run_command`'s working directory; the branch from git. A move supersedes only that fact,
+  so the stable prefix is untouched, and the history answers "where did that command run?".
 - **Name normalisation is per subject kind, behind one interface,** so the rules can be iterated without
   touching the store: for example, a path relative to the repository root for `file`, case folding for
   `entity`. Mechanical extractors normalise the same way.
