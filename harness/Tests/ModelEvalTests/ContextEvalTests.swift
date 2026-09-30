@@ -6,8 +6,9 @@ import WispTestSupport
 
 /// What a long conversation keeps: the context eval of the layered-context proposal
 /// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"), run through dropping as the baseline, and
-/// through output handling (cutting presentational text) on a scenario that shows a file, and through D12's
-/// output handling (each tool output a reference after its turn) on both. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
+/// through output handling (cutting presentational text) on a scenario that shows a file, through D12's
+/// output handling (each tool output a reference after its turn) on both, and through facts (phase 4a) on
+/// both. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
 /// gate; this suite only drives them on real models. Needs the model; runs only with `WISP_MODEL_TESTS=1`.
 ///
 /// The on-device model's window is 8,192 tokens. Ollama's is sized from the Mac's memory when a model is
@@ -130,5 +131,63 @@ struct ContextEvalTests {
         guard let model = Self.granite(contextLength: 8192) else { return }
         try await Self.measure(
             model, variant: "showing.window-8192", strategy: ReferencingStrategy(), scenario: ContextEval.showing())
+    }
+
+    // Facts (phase 4a): references with facts extracted from tool output, the dropped turns' prose distilled
+    // into facts at each condensation, and the facts composed on the prompt side, on the baseline and the
+    // showing scenarios, on the on-device model and on granite at the same window. `--filter
+    // ContextEvalTests/facts` runs these four alone. The target is the on-device showing run, where references
+    // alone condensed once, at the first question, and lost every early fact.
+
+    @Test func factsBaselineOnTheOnDeviceModel() async throws {
+        try await Self.measure(try ModelSelection.system.resolve(), strategy: FactsStrategy())
+    }
+
+    @Test func factsShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing", strategy: FactsStrategy(),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func factsBaselineOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(model, variant: "window-8192", strategy: FactsStrategy())
+    }
+
+    @Test func factsShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192", strategy: FactsStrategy(), scenario: ContextEval.showing())
+    }
+
+    // The same, condensing at half the window rather than 85%, so every run drops turns and distils whatever
+    // size the model's reads come to; referencing at the same budget is the comparison. `--filter
+    // ContextEvalTests/budget50` runs these four alone.
+
+    @Test func budget50ReferencingShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing.budget-50",
+            strategy: ReferencingStrategy(budget: 0.5),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func budget50FactsShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing.budget-50", strategy: FactsStrategy(budget: 0.5),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func budget50ReferencingShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192.budget-50", strategy: ReferencingStrategy(budget: 0.5),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func budget50FactsShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192.budget-50", strategy: FactsStrategy(budget: 0.5),
+            scenario: ContextEval.showing())
     }
 }

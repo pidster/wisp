@@ -1,7 +1,7 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 3b built. Becomes an ADR
-with the eval's figures.
+Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 3b and 4a built. Becomes an
+ADR with the eval's figures.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
 [ADR 0017](../decisions/0017-three-layer-instructions.md) unchanged.
@@ -293,6 +293,64 @@ What it shows:
 - **A smoke test in chat** (2026-09-30) showed the other side of "call it again to see it": asked how many
   lines a file it had read had, the on-device model read the file again rather than use the reference's
   count, then misreported the byte count as lines.
+
+### Facts, 2026-09-30
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ModelEvalTests.ContextEvalTests/facts`
+and `…/budget50`, recorded in `measurements.json` as `context.facts[.showing][.window-8192]` and
+`context.<strategy>.showing[.window-8192].budget-50`. `FactsStrategy` is `ReferencingStrategy` with facts:
+extracted from tool output each turn, distilled at each condensation, and composed on the prompt side at a
+share of 0.1. Another project's builds loaded the machine: one-minute load average 26 to 139 across the
+runs, so times are indicative only.
+
+At the default 85% budget no run condensed on either model: the reads came to 300 to 330 tokens a turn,
+against about 490 in phase 3b's recorded on-device showing run, so the target case (one condensation at
+turn 16, every early fact lost) did not recur, and no distillation ran. To measure what facts do when turns
+are dropped whatever the reads come to, the `budget-50` variants condense at half the window, with
+referencing at the same budget as the comparison.
+
+| Model, window | Scenario | Strategy | Facts (of 4) | CI now | First file | Task | Condensations (first at turn) | Distillation | Tokens after a turn, median (max) | Time per turn, median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device, 8,192 | baseline | facts | 4 | correct | correct | correct | 0 | none | 3,314 (4,901) | 14.6 s (25.2 s) |
+| On-device, 8,192 | showing | facts | 4 | correct | correct | correct | 0 | none | 3,588 (5,212) | 15.1 s (26.8 s) |
+| granite4.1:8b, 8,192 | baseline | facts | 4 | correct | correct | correct | 0 | none | 4,150 (5,473) | 9.4 s (13.0 s) |
+| granite4.1:8b, 8,192 | showing | facts | 4 | correct | correct | correct | 0 | none | 4,416 (5,744) | 11.9 s (14.3 s) |
+| On-device, 8,192 | showing, budget 50% | referencing | 1 | correct | wrong | wrong | 1 (14) | none | 2,377 (4,278) | 15.7 s (26.5 s) |
+| On-device, 8,192 | showing, budget 50% | facts, recorded | 3 | correct | correct | correct | 1 (13) | 5 facts, 5.0 s | 3,180 (4,277) | 8.7 s (13.7 s) |
+| granite4.1:8b, 8,192 | showing, budget 50% | referencing | 1 | correct | wrong | wrong | 1 (14) | none | 2,584 (5,002) | 8.0 s (12.7 s) |
+| granite4.1:8b, 8,192 | showing, budget 50% | facts, recorded | 4 | correct | wrong | correct | 1 (14) | 8 facts, 12.0 s | 3,103 (5,019) | 4.8 s (10.5 s) |
+| granite4.1:8b, 8,192 | showing, budget 50% | facts, earlier build | 4 | correct | correct | correct | 1 (14) | 7 facts, 42.8 s | 2,769 (5,269) | 7.6 s (12.1 s) |
+| On-device, 8,192 | showing, budget 50% | facts, earlier build | 0 | wrong | wrong | correct | 1 (14) | 13 facts, 22.7 s | 3,152 (4,238) | 8.2 s (16.6 s) |
+
+What it shows:
+- **Facts survive a condensation.** With one condensation that dropped every early turn, referencing
+  alone scored 1 of 6 on each model; with facts the on-device model scored 5 and granite 5 (6 in the run
+  before), naming the codename, the ticket, the current CI state, and the task from the earlier and now
+  blocks. The first file came from the extracted `file` fact on the on-device model.
+- **What the distiller is offered matters on the small model.** The two "earlier build" rows ran before two
+  changes the eval prompted. First, the on-device distiller spent all twelve facts summarising the files
+  read (the instruction said to leave file summaries out), so the codename, ticket, and preference were
+  never recorded; kinds whose facts come from tool output (`file`, `service`, `machine`) now say
+  `distil: false` in `subject-kinds.json`, are not offered, and are dropped if returned. Second, it
+  distilled "CI failing" from turn 2 while "green again" (turn 11) was still in the kept turns, so the
+  earlier block contradicted the literal turns; the distiller now also reads the kept turns' prompts for
+  the latest values. And a path cut at 60 characters lost the file's name ("harbour-sync-o…"); a long path
+  now keeps its end.
+- **The on-device model repeats the provenance.** It answered "The codename for this release is blue
+  heron [model, distilled: the person said, turns 1-8]". The answer is right; the bracket is noise the
+  person sees, and a note for the standing rule D12 adds with `recall`.
+- **Granite's distillation is sometimes loose**: it named a decision "blue heron release" with the task as
+  its value, and recorded a guessed branch ("Assuming the default branch is unspecified…") despite the
+  instruction to leave out anything uncertain. The kinds' descriptions and the normalisers are where to
+  tune it (D2's reopen condition).
+- **The distillation's cost** was 5.0 s on the on-device model and 12.0 s on granite for eight or so turns
+  (22.7 s and 42.8 s in the earlier build, whose prompts and answers were longer), once per condensation.
+  Before a condensation facts cost nothing: a fact whose turn is still in view is not repeated, so the
+  earlier block is empty and the default-budget runs carried the same tokens as referencing.
+- **Changed facts supersede** in the gate: `FactExtractionTests` runs `swift test` failing, then passing,
+  and checks the new version supersedes the old; `FactDistillationTests` has a distillation whose answer
+  says CI failing and then green, and keeps the latter; `FactBookTests` covers versions, sources, and
+  conflicts.
 
 ## Decisions
 
@@ -1042,5 +1100,88 @@ go here as they arise.
      it checks.
    - **The eval** gained `ReferencingStrategy` (exact-copy cutting and references, `Agent`'s default);
      figures under "Evaluation", "References after the turn, 2026-09-30".
-4. Facts and the summary, `/inspect facts`, `recall`, and the assessment per request.
-5. The ADR, with the eval's figures.
+4a. Facts (D1, D2, D3, D6, D8, D12). Done 2026-09-30:
+   - **The model.** A `Fact` is a versioned assertion: identity `{scope, subject, name}`, `source`
+     (`person`, `caller`, `tool`, `model`), `version`, value, temporal class, method (`stated`,
+     `extracted`, `distilled`), the store entries and audit events it came from, when and in which turn it
+     was recorded, what superseded it, and its state (current, superseded, deleted). A `FactBook` per scope
+     keeps every version; a newer assertion from the same source supersedes, and one with the same value
+     adds nothing. `FactView` groups the current heads of all three books by `{subject, name}` and orders
+     them by precedence (the person and a caller, then a tool, then the model, the newer on a tie; a fact
+     the person approved ranks with the person); heads that disagree are a conflict.
+   - **Where they live.** Dynamic facts in the conversation's store, saved in its `.store` sidecar and
+     restored on `--resume`; ephemeral facts in the session (`Session.sessionFacts`), shared by an MCP
+     server's threads and gone with the process; permanent facts in `~/.wisp/facts.json`, user-only,
+     admitted only by the person: stated with `/fact` under a permanent kind, or approved with `/fact
+     approve`. Until approved, a tool's or the model's permanent fact is held by the conversation as a
+     proposal.
+   - **Subject kinds as data**, shipped as `Resources/subject-kinds.json` and changed or extended by
+     `facts.kinds` in the config: `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`,
+     `machine` (added beside `service` for `system_info`'s other topics), `workdir`, and `branch`, each with
+     its class, a normaliser behind `FactNameNormaliser` (`casefold`, `trim`, `single`, `command`, `path`
+     relative to the repository root), and a description for the distiller.
+   - **Extraction every turn, no model**, from the turn's `tool.call` and `tool.result` events, at most 12
+     a turn: `workdir` from `run_command`'s working directory and from chat's start; `branch` from git's
+     output where it names one branch, and from chat's start through the git read the status line already
+     makes; `tests` from the exit status of a listed test command (the list is data); `file` from
+     `read_file` (lines, to the end or not, bytes) and `edit_file`; `service` per listening port and
+     `machine` per other topic from `system_info`, ephemeral.
+   - **Distillation at condensation.** Before a condensation drops turns, one call to the conversation's
+     model in a session of its own distils their prompts and replies into at most 12 facts, shown the
+     kinds and the identities already known, answering a `@Generable` schema, bounded (each text cut to
+     its share of a third of the window, at most 12,000 bytes; 900 output tokens; greedy). Audited as
+     `context.distillation`; a failure is audited and the turns are dropped as before. The kept turns'
+     prompts follow the dropped turns, for the latest values, and kinds whose facts come from tools
+     (`file`, `service`, `machine`) say `distil: false` and are not offered; both came from the eval,
+     under "Facts, 2026-09-30".
+   - **Composition.** Two prompt-side entries, never the instructions: the earlier block after the
+     instructions (permanent facts, then the conversation's facts the literal turns no longer show, and any
+     in conflict) and the now block before the request (ephemeral facts and the task). Each is labelled as
+     a record, each fact one line with its source in brackets and a note when another source disagrees,
+     both within `factsShare` of the window (0.1, never below 1 KiB). `ContextEquivalenceTests` still
+     matches the phase 2 snapshots without re-recording: an agent made directly keeps no facts, and the
+     one opened through `Conversation.openAgent` there has them switched off.
+   - **The eval** gained `FactsStrategy` and `budget-50` variants of it and of `ReferencingStrategy`;
+     figures under "Evaluation", "Facts, 2026-09-30". At half the window, with one condensation that
+     drops every early turn, facts took the on-device model from 1 to 5 of 6 and granite from 1 to 5.
+   - **Person controls.** Chat: `/inspect facts [all]`, `/fact SUBJECT [NAME] = VALUE`, `/fact delete ID`,
+     `/fact approve ID`, `/task [text]`, with completion and help; `wisp chat --json` sends `/inspect facts`
+     as a `view` of kind `facts`, which `wisp-tui` shows in its panel. MCP: `respond`'s `task` and
+     `wisp://threads/{thread_id}/facts` (paged, `?all=true` for history) and `…/facts/{fact_id}`.
+   - **Audit.** `fact.recorded`, `fact.superseded`, `fact.deleted`, `fact.approved`,
+     `fact.conflict.raised`, `fact.conflict.resolved`, and `context.distillation`.
+   - **Choices made in the build**, each open to review:
+     - *A distilled fact is the model's*, recorded with `source: model` and `the person said` or `the model
+       concluded` beside it, even when the person spoke. Recording it as the person's would let the
+       distiller pin a fact, over a tool's, by attributing it to the person.
+     - *An MCP caller's task is `source: caller`*, ranked with the person (the caller is the person's
+       agent) but recorded apart, so the audit says who set it. The caller sets only the task; deleting and
+       approving stay with the person in chat.
+     - *A fact the literal turns still show is not repeated* in the earlier block. That keeps the block
+       unchanged between condensations and the person's changes, which is D11's batching without a rule of
+       its own; a fact in conflict is shown regardless.
+     - *The task goes in the now block*, next to the request (D6, D12), though it is a dynamic fact.
+     - *Not extracted:* the working directory from an MCP caller's prompt, which is prose; `respond` has no
+       working-directory argument to read it from.
+     - *D11's cost.* The now block sits before the request, so every request with a task or an ephemeral
+       fact starts a new session; the earlier block's id is made from its content, so an unchanged block
+       costs nothing.
+4b. The running summary of dropped turns, beside the dynamic facts (D1's batches).
+4c. `recall`: stored entries, a fact's sources and history (D2), and the task in full.
+4d. The assessment per request (D12): the task inferred in chat (D6), the tools a request needs (D4), and
+   the facts to repeat next to the request (D7).
+5. Condensing's guarantees, which today are missing: `ContextComposer.ahead` and `overflow` condense to a
+   fixed four turns (`ContextPolicy.default`) with no check that the result fits; ahead of the window,
+   nothing happens when there are four turns or fewer, even over budget; the overflow retry fails when four
+   turns still exceed the window; and the 85% estimate (usage plus the prompt at four bytes a token) leaves
+   no room for the next turn's reply and tool output. Phase 5:
+   1. Condense to a token target, a low-water mark as a share of the window taken from the eval, in the
+      order references, then distilled facts, then dropping the oldest turns, verifying the composed result
+      after each step (by count or estimate) and condensing further while it is above the target.
+   2. Keep headroom for the next turn in the budget check: D5's literal floor, or a running average of a
+      turn's size.
+   3. When even the floor cannot fit, say so and audit it.
+   4. An invariant test without the model: for any sequence of turn sizes, the context composed after a
+      condensation is at or below the target, and an average turn fits.
+   5. The eval records the fill after each condensation and the turns until the next.
+6. The ADR, with the eval's figures.

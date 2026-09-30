@@ -29,6 +29,25 @@ Changed:
 
 Added:
 
+- Facts: wisp keeps short facts about the conversation and gives them to the model on every request, so a
+  codename, the task, or whether the tests pass outlives the turns that said it. Facts come from tool
+  output without a model (a test command's exit status, a file read or written, the git branch, the
+  working directory, a listening port), and, when older turns are dropped to fit the window, from one
+  call to the model that distils what was said in them. Each is labelled with where it came from and is
+  given as a record, never as instructions. Facts about the machine are shared by an MCP server's threads
+  for the life of the process; names, decisions, and preferences are kept across sessions in
+  `~/.wisp/facts.json`, but only once you state or approve them. The new `facts` setting turns them off,
+  stops the model call, sets their share of the window, and adds or changes subject kinds.
+- Chat's `/inspect facts [all]` lists the facts the model is given, with their sources and history;
+  `/fact SUBJECT [NAME] = VALUE` states one as you, which outranks a tool and the model; `/fact delete ID`
+  and `/fact approve ID` delete one or keep a proposed one for every conversation; `/task [text]` shows or
+  sets the conversation's task. `wisp-tui` shows the facts in its panel.
+- MCP `respond` takes an optional `task`, kept as the thread's task and shown to the model next to each
+  request; `wisp://threads/{thread_id}/facts` lists a thread's facts and `…/facts/{fact_id}` one fact's
+  history, and the thread summary's `task` is filled in.
+- New audit events: `context.distillation`, `fact.recorded`, `fact.superseded`, `fact.deleted`,
+  `fact.approved`, `fact.conflict.raised`, and `fact.conflict.resolved`.
+
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.
   `/show` prints an output whole, by that id or by its entry number.

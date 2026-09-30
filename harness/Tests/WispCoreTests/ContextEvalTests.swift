@@ -240,6 +240,46 @@ import WispTestSupport
         #expect(ReferencingStrategy().summary.contains("reference"))
     }
 
+    @Test func factsDistilTheDroppedTurnsAndTheQuestionCarriesThem() async throws {
+        let plant = { (text: String) in
+            ContextEval.Step(kind: .plant, prompt: text + " Please reply in one short line.")
+        }
+        let scenario = ContextEval.Scenario(
+            name: "tiny", fixtures: ContextEval.fixturesDirectory,
+            steps: [
+                plant("The codename for this release is BLUE HERON."), plant("The CI build is failing right now."),
+                plant("Maria prefers early returns in review."), plant("The ticket number is 4127, for the record."),
+                plant("By the way, the CI build is green again now."),
+            ],
+            questions: [
+                ContextEval.Question(
+                    id: "codename", probe: .fact,
+                    prompt: "What is the codename for this release? Please reply in one short line.",
+                    check: .mentions(["blue heron"]))
+            ])
+        let distilled =
+            #"{"facts":[{"subject":"entity","name":"release codename","value":"BLUE HERON","speaker":"person"}]}"#
+        let model = ScriptedModel(
+            steps: Array(repeating: .say("Noted."), count: 5) + [.say(distilled), .say("BLUE HERON.")])
+        // A 60-token window: every prompt passes the budget, and the question is the first with five turns
+        // behind it, so it condenses to four and distils the first.
+        let run = await ContextEval.run(
+            scenario, strategy: FactsStrategy(share: 0.2),
+            model: ResolvedModel(selection: .system, custom: model, contextSize: 60), instructions: "x",
+            tools: { _ in [] })
+        #expect(run.strategy == "facts" && run.answers.map(\.verdict) == [.correct])
+        #expect(run.firstCondensation == 6 && run.distillations.count == 1 && run.turns[5].distillations.count == 1)
+        #expect(run.facts == 1 && run.turns[5].facts == 1)
+        #expect(run.turns[5].line.contains("distilled in ") && run.turns[5].line.contains("facts 1"))
+        #expect(run.report[1].contains("1 facts recorded, and 1 distillation ("))
+        #expect(run.measurement().notes.contains("1 facts recorded, 1 distillation ("))
+        let question = model.script.requests.withLock { $0.last.map { Array($0.transcript) } } ?? []
+        #expect(question.count > 1 && FactFrame.isFrame(question[1]))
+        #expect(ConversationStore.text(of: question[1]).contains("- entity release codename: BLUE HERON"))
+        #expect(FactsStrategy().summary.contains("distilled") && FactsStrategy().share == 0.1)
+        #expect(FactsStrategy().linksToolEvents && !ReferencingStrategy().linksToolEvents)
+    }
+
     @Test func recordsAThrownTurnAsItsReplyAndCarriesOn() async throws {
         let scenario = ContextEval.Scenario(
             name: "tiny", fixtures: ContextEval.fixturesDirectory,

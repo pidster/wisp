@@ -324,6 +324,16 @@ public protocol ContextStrategy: Sendable {
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
         -> any ContextConversation
+
+    /// Whether the conversation's agent is given the run's tool events, as `Conversation.openAgent` gives a
+    /// face's agent its `ToolEventTrail`, so tool entries link to their audit events and facts can be
+    /// extracted from them. False by default, so the earlier strategies run as they were measured.
+    var linksToolEvents: Bool { get }
+}
+
+extension ContextStrategy {
+    /// No: the agent runs without the run's tool events.
+    public var linksToolEvents: Bool { false }
 }
 
 /// The baseline: an `Agent` with its default policy and output handling off, whose composer sends the
@@ -387,8 +397,15 @@ public struct ReferencingStrategy: ContextStrategy {
     public let summary =
         "dropping, with exact copies of tool output cut and each output a reference after its own turn"
 
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
+
     /// Creates the strategy.
-    public init() {}
+    ///
+    /// - Parameter budget: When to condense; the default is the agent's, 85%.
+    public init(budget: Double = 0.85) {
+        self.budget = budget
+    }
 
     /// Opens an `Agent` with the default context policy and both kinds of output handling on.
     public func open(
@@ -397,8 +414,54 @@ public struct ReferencingStrategy: ContextStrategy {
         -> any ContextConversation
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.contextBudget = budget
         agent.cutsPresentation = true
         agent.referencesOutput = true
+        return AgentConversation(agent)
+    }
+}
+
+/// Facts (phase 4a of the proposal, decisions D1 and D2) on top of `ReferencingStrategy`: facts extracted from
+/// tool output each turn, the prose of the turns a condensation drops distilled into facts by the model, and
+/// the facts in force composed into each request on the prompt side, capped at `share` of the window. Every
+/// fact is kept in memory, so a run neither reads nor writes `~/.wisp/facts.json`.
+public struct FactsStrategy: ContextStrategy {
+    /// `facts`.
+    public let name = "facts"
+    /// What it does.
+    public let summary =
+        "referencing, with facts extracted from tool output, the dropped turns' prose distilled into facts at each "
+        + "condensation, and the facts composed on the prompt side"
+    /// The share of the window the facts may take (`Agent.factsShare`).
+    public var share: Double
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
+    /// Yes: facts are extracted from the turn's tool events.
+    public var linksToolEvents: Bool { true }
+
+    /// Creates the strategy.
+    ///
+    /// - Parameters:
+    ///   - share: The facts' share of the window; the default is the composer's.
+    ///   - budget: When to condense; the default is the agent's, 85%. A lower budget makes a run condense
+    ///     earlier, so distillation is measured on a model whose reads happen to fit.
+    public init(share: Double = 0.1, budget: Double = 0.85) {
+        self.share = share
+        self.budget = budget
+    }
+
+    /// Opens an `Agent` with output handling on and facts kept in memory.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextConversation
+    {
+        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.cutsPresentation = true
+        agent.referencesOutput = true
+        agent.contextBudget = budget
+        agent.factsShare = share
+        agent.facts = FactSettings()
         return AgentConversation(agent)
     }
 }
@@ -445,12 +508,21 @@ extension ContextEval {
         public var cuts: Int
         /// Tool outputs switched to references at the turn's start (`context.reference` events).
         public var references: Int
+        /// The seconds each distillation during the turn took (`context.distillation` events).
+        public var distillations: [Double]
+        /// Facts recorded during the turn, new versions included (`fact.recorded` events).
+        public var facts: Int
+        /// The facts distilled during the turn, as `subject name = value`.
+        public var distilled: [String] = []
 
         /// Creates a turn record.
         public init(
             number: Int, label: String, reply: String, failed: Bool, seconds: Double, tokens: Int?,
-            condensations: [String], tools: [String], cuts: Int = 0, references: Int = 0
+            condensations: [String], tools: [String], cuts: Int = 0, references: Int = 0,
+            distillations: [Double] = [], facts: Int = 0
         ) {
+            self.distillations = distillations
+            self.facts = facts
             self.cuts = cuts
             self.references = references
             self.number = number
@@ -471,6 +543,11 @@ extension ContextEval {
                 + (condensations.isEmpty ? "" : ", condensed \(condensations.joined(separator: "+"))")
                 + (tools.isEmpty ? "" : ", tools \(tools.joined(separator: ","))")
                 + (cuts == 0 ? "" : ", cut \(cuts)") + (references == 0 ? "" : ", referenced \(references)")
+                + (distillations.isEmpty
+                    ? ""
+                    : ", distilled in " + distillations.map { String(format: "%.1f s", $0) }.joined(separator: "+"))
+                + (facts == 0 ? "" : ", facts \(facts)")
+                + (distilled.isEmpty ? "" : ", distilled [\(distilled.joined(separator: "; "))]")
                 + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
@@ -546,6 +623,20 @@ extension ContextEval {
         /// Tool outputs sent as references over the whole run.
         public var references: Int { turns.map(\.references).reduce(0, +) }
 
+        /// The seconds each distillation took, over the whole run.
+        public var distillations: [Double] { turns.flatMap(\.distillations) }
+
+        /// Facts recorded over the whole run.
+        public var facts: Int { turns.map(\.facts).reduce(0, +) }
+
+        /// The distillations in words, for the report and the notes: `none`, or the count and each one's time.
+        var distilled: String {
+            distillations.isEmpty
+                ? "no distillations"
+                : "\(distillations.count) distillation\(distillations.count == 1 ? "" : "s") ("
+                    + distillations.map { String(format: "%.1f s", $0) }.joined(separator: ", ") + ")"
+        }
+
         /// The number of the first turn during which a condensation happened; nil when none did. The turns
         /// before it all fit in the window.
         public var firstCondensation: Int? { turns.first { !$0.condensations.isEmpty }?.number }
@@ -564,7 +655,9 @@ extension ContextEval {
                 "\(strategy) on \(model) (window \(window.map(String.init) ?? "unknown")): facts \(facts.correct)/"
                     + "\(facts.total), \(verdicts)",
                 "\(condensations) condensations (first at turn \(firstCondensation.map(String.init) ?? "none")), "
-                    + "\(cuts) cuts, and \(references) references over \(turns.count) turns; tokens after a turn median "
+                    + "\(cuts) cuts, \(references) references, \(self.facts) facts recorded, and \(distilled) over "
+                    + "\(turns.count) turns; "
+                    + "tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
                     + "\(tokens.max().map(String.init) ?? "?"); time per turn median "
                     + String(
@@ -592,7 +685,9 @@ extension ContextEval {
                     + "this run: facts \(facts.correct)/"
                     + "\(facts.total), ci \(byID["ci"] ?? "?"), first file \(byID["first-file"] ?? "?"), task "
                     + "\(byID["task"] ?? "?"), \(condensations) condensations (first at turn "
-                    + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, median "
+                    + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, "
+                    + (self.facts == 0 && distillations.isEmpty ? "" : "\(self.facts) facts recorded, \(distilled), ")
+                    + "median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
                 p50Milliseconds: ContextEval.percentile(milliseconds, 0.5),
@@ -630,9 +725,13 @@ extension ContextEval {
         tools: (AuditLog) -> [any Tool], onTurn: (Turn) -> Void = { _ in }
     ) async -> Run {
         let sink = MemoryAuditSink()
-        let audit = AuditLog(session: "context-eval", sink: sink)
+        let trail = ToolEventTrail()
+        let audit = AuditLog(session: "context-eval", sink: TeeAuditSink([sink, trail]))
         let conversation = strategy.open(
             model: model, tools: tools(audit), instructions: instructions, audit: audit)
+        if strategy.linksToolEvents, let agent = (conversation as? AgentConversation)?.agent {
+            agent.toolEvents = trail
+        }
         let loadAtStart = loadAverage()
         let prompts =
             scenario.steps.map { ($0.kind.rawValue, $0.prompt) }
@@ -653,7 +752,7 @@ extension ContextEval {
             let elapsed = started.duration(to: clock.now)
             let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
             let events = sink.events.dropFirst(first)
-            let turn = Turn(
+            var turn = Turn(
                 number: turns.count + 1, label: label, reply: reply, failed: failed, seconds: seconds,
                 tokens: await conversation.occupiedTokens(),
                 condensations: events.filter { $0.kind == .condensation }.map {
@@ -661,7 +760,15 @@ extension ContextEval {
                 },
                 tools: events.filter { $0.kind == .toolCall }.map { $0.details["tool"]?.stringValue ?? "?" },
                 cuts: events.filter { $0.kind == .presentationCut }.count,
-                references: events.filter { $0.kind == .outputReferenced }.count)
+                references: events.filter { $0.kind == .outputReferenced }.count,
+                distillations: events.filter { $0.kind == .distillation }.map {
+                    $0.details["seconds"]?.doubleValue ?? 0
+                },
+                facts: events.filter { $0.kind == .factRecorded }.count)
+            turn.distilled = events.filter { $0.kind == .factRecorded && $0.details["method"] == "distilled" }.map {
+                "\($0.details["subject"]?.stringValue ?? "") \($0.details["name"]?.stringValue ?? "") = "
+                    + ($0.details["value"]?.stringValue ?? "")
+            }
             turns.append(turn)
             onTurn(turn)
         }
