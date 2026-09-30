@@ -38,47 +38,140 @@ public struct AuditReference: Codable, Hashable, Sendable {
 /// has its own id, which a conversation's store refers to instead of copying the
 /// content (`ConversationStore`; the audit log stays the one verbatim record).
 public struct AuditEvent: Codable, Equatable, Sendable {
-    /// What happened. The string values are the `kind` field in the file.
-    public enum Kind: String, Codable, Sendable, CaseIterable {
-        case sessionStart = "session.start"
-        case sessionEnd = "session.end"
-        case modelResolved = "model.resolved"
-        case prompt = "prompt"
-        case response = "response"
-        case toolCall = "tool.call"
-        case toolResult = "tool.result"
-        case policyDecision = "policy.decision"
-        case commandOutcome = "command.outcome"
-        case fileWrite = "file.write"
-        case notification = "notification"
-        case secretScan = "secrets.scan"
-        case redaction = "redaction"
-        case watchRun = "watch.run"
-        case modelRouted = "model.routed"
-        case classifierVerdict = "classifier.verdict"
-        case classifierTrained = "classifier.train"
-        case configChange = "config.change"
-        case approvalRequested = "approval.requested"
-        case approvalDecided = "approval.decided"
-        case condensation = "context.condensation"
-        case presentationCut = "context.cut"
-        case outputReferenced = "context.reference"
-        case distillation = "context.distillation"
-        case factRecorded = "fact.recorded"
-        case factSuperseded = "fact.superseded"
-        case factDeleted = "fact.deleted"
-        case factScopeChanged = "fact.scope.changed"
-        /// Legacy: written only by unreleased builds, never now; kept so their logs still read.
-        case factApproved = "fact.approved"
-        /// Legacy, as `factApproved`.
-        case factApprovalAsked = "fact.approval.asked"
-        /// Legacy, as `factApproved`.
-        case factApprovalDecided = "fact.approval.decided"
-        case factConflict = "fact.conflict.raised"
-        case factResolved = "fact.conflict.resolved"
-        case mcpRequest = "mcp.request"
-        case mcpResult = "mcp.result"
-        case error = "error"
+    /// What happened. The string values are the `kind` field in the file. A kind this build does not know
+    /// (written by another release) reads as `.unknown` with its text kept, so `wisp logs` and the audit
+    /// resources show the line as it is instead of dropping it.
+    public enum Kind: Codable, Hashable, Sendable, RawRepresentable, CaseIterable {
+        case sessionStart
+        case sessionEnd
+        case modelResolved
+        case prompt
+        case response
+        case toolCall
+        case toolResult
+        case policyDecision
+        case commandOutcome
+        case fileWrite
+        case notification
+        case secretScan
+        case redaction
+        case watchRun
+        case modelRouted
+        case classifierVerdict
+        case classifierTrained
+        case configChange
+        case approvalRequested
+        case approvalDecided
+        case condensation
+        case presentationCut
+        case outputReferenced
+        case distillation
+        case factRecorded
+        case factSuperseded
+        case factDeleted
+        case factScopeChanged
+        case factConflict
+        case factResolved
+        case mcpRequest
+        case mcpResult
+        case error
+        /// A kind this build does not know, with its `kind` text as written.
+        case unknown(String)
+
+        /// The kinds this build writes, in declaration order; `unknown` is never one of them.
+        public static let allCases: [Kind] = [
+            .sessionStart,
+            .sessionEnd,
+            .modelResolved,
+            .prompt,
+            .response,
+            .toolCall,
+            .toolResult,
+            .policyDecision,
+            .commandOutcome,
+            .fileWrite,
+            .notification,
+            .secretScan,
+            .redaction,
+            .watchRun,
+            .modelRouted,
+            .classifierVerdict,
+            .classifierTrained,
+            .configChange,
+            .approvalRequested,
+            .approvalDecided,
+            .condensation,
+            .presentationCut,
+            .outputReferenced,
+            .distillation,
+            .factRecorded,
+            .factSuperseded,
+            .factDeleted,
+            .factScopeChanged,
+            .factConflict,
+            .factResolved,
+            .mcpRequest,
+            .mcpResult,
+            .error,
+        ]
+
+        /// The `kind` text in the file.
+        public var rawValue: String {
+            switch self {
+            case .sessionStart: "session.start"
+            case .sessionEnd: "session.end"
+            case .modelResolved: "model.resolved"
+            case .prompt: "prompt"
+            case .response: "response"
+            case .toolCall: "tool.call"
+            case .toolResult: "tool.result"
+            case .policyDecision: "policy.decision"
+            case .commandOutcome: "command.outcome"
+            case .fileWrite: "file.write"
+            case .notification: "notification"
+            case .secretScan: "secrets.scan"
+            case .redaction: "redaction"
+            case .watchRun: "watch.run"
+            case .modelRouted: "model.routed"
+            case .classifierVerdict: "classifier.verdict"
+            case .classifierTrained: "classifier.train"
+            case .configChange: "config.change"
+            case .approvalRequested: "approval.requested"
+            case .approvalDecided: "approval.decided"
+            case .condensation: "context.condensation"
+            case .presentationCut: "context.cut"
+            case .outputReferenced: "context.reference"
+            case .distillation: "context.distillation"
+            case .factRecorded: "fact.recorded"
+            case .factSuperseded: "fact.superseded"
+            case .factDeleted: "fact.deleted"
+            case .factScopeChanged: "fact.scope.changed"
+            case .factConflict: "fact.conflict.raised"
+            case .factResolved: "fact.conflict.resolved"
+            case .mcpRequest: "mcp.request"
+            case .mcpResult: "mcp.result"
+            case .error: "error"
+            case .unknown(let text): text
+            }
+        }
+
+        /// The known kind written as `rawValue`; nil for any other text, so a filter can refuse a typo.
+        public init?(rawValue: String) {
+            guard let known = Self.allCases.first(where: { $0.rawValue == rawValue }) else { return nil }
+            self = known
+        }
+
+        /// Reads a `kind` value; text this build does not know becomes `.unknown`.
+        public init(from decoder: any Decoder) throws {
+            let text = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: text) ?? .unknown(text)
+        }
+
+        /// Writes the `kind` text.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
     }
 
     /// Format version of the event schema; bump when fields change meaning.

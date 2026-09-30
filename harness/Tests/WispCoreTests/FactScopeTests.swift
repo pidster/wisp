@@ -233,12 +233,4 @@ import WispTestSupport
         // The command the note names works on the id it printed.
         #expect(capture.noted.contains { $0.hasPrefix("moved c3 to permanent as p1") })
     }
-
-    @Test func factScopeCommandsBeforeAndAfterTheChangeReadOldLogs() throws {
-        // Kinds written by unreleased builds still decode, so their logs read.
-        for kind in ["fact.approved", "fact.approval.asked", "fact.approval.decided", "fact.scope.changed"] {
-            let kind = try #require(AuditEvent.Kind(rawValue: kind), "\(kind)")
-            #expect(!AuditEvent.fields(for: kind).isEmpty)
-        }
-    }
 }

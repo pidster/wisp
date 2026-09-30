@@ -132,6 +132,28 @@ import Testing
         #expect(AuditQuery.events(in: Data("not json\n".utf8)).isEmpty)
     }
 
+    @Test func aLineWithAnUnknownKindIsReadAndPrinted() throws {
+        let line = """
+            {"schema":1,"id":"0123456789abcdef","time":"2026-09-30T10:00:00.000Z","version":"9.9.9","pid":1,\
+            "session":"s","kind":"future.thing","details":{"note":"kept"}}
+            """
+        let events = AuditQuery.events(in: Data((line + "\n").utf8))
+        let event = try #require(events.first)
+        #expect(events.count == 1 && event.kind == .unknown("future.thing"))
+        #expect(event.summary.contains("future.thing session=s") && event.summary.contains("note=kept"))
+        #expect(AuditEvent.fields(for: event.kind).isEmpty)
+        // Written back, it keeps its text; the filter's parser still refuses it as a typo.
+        let again = try AuditEvent.decoder.decode(AuditEvent.self, from: AuditEvent.encoder.encode(event))
+        #expect(again.kind.rawValue == "future.thing" && AuditEvent.Kind(rawValue: "future.thing") == nil)
+        #expect(!AuditEvent.Kind.allCases.contains(.unknown("future.thing")))
+    }
+
+    @Test func aLineWithoutAnIDStillDecodes() {
+        let line =
+            #"{"schema":1,"time":"2026-09-30T10:00:00.000Z","version":"0.1","pid":1,"session":"s","kind":"prompt","details":{}}"#
+        #expect(AuditQuery.events(in: Data(line.utf8)).first?.id == nil)
+    }
+
     @Test func diagnosticsLevelParsing() {
         #expect(Diagnostics.Level(environmentValue: "DEBUG") == .debug)
         #expect(Diagnostics.Level(environmentValue: "warn") == .error)

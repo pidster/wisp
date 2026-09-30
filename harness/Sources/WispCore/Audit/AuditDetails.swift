@@ -438,10 +438,6 @@ extension AuditEvent {
         case .factDeleted: ["id", "subject", "name", "source", "value", "by"]
         case .factScopeChanged:
             ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed"]
-        case .factApproved: ["id", "admitted", "subject", "name", "source", "value", "via"]
-        case .factApprovalAsked: ["id", "conversation", "subject", "name", "source", "value", "position", "count"]
-        case .factApprovalDecided:
-            ["id", "conversation", "subject", "name", "decision", "admitted", "reason", "seconds"]
         case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
@@ -456,6 +452,7 @@ extension AuditEvent {
                 "downgradedFrom",
                 "persistError",
             ]
+        case .unknown: []
         }
     }
 }

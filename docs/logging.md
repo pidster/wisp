@@ -29,7 +29,7 @@ sensitive; it is why it is user-only.
 | `session` | A CLI run, a chat, an MCP server, or an MCP thread (its `thread_id`). |
 | `turn` | 1-based turn within the session, present from the first prompt on. |
 | `call` | Pairs a `tool.call` with its `tool.result`, or an `mcp.request` with its `mcp.result`. |
-| `kind` | One of the kinds below. |
+| `kind` | One of the kinds below. A line whose kind this build does not know (written by another release) is shown as it is, by `wisp logs` and the audit resources, and is not skipped. |
 | `details` | Kind-specific fields. |
 
 ### Kinds and their details
@@ -59,7 +59,6 @@ sensitive; it is why it is user-only.
 | `fact.superseded` | `id`, `subject`, `name`, `source`, `by` (the fact that replaced it: a newer version from the same source, or its copy in another scope after a move) | `Agent` |
 | `fact.deleted` | `id`, `subject`, `name`, `source`, `value`, `by` (`person`); the store keeps the fact, marked deleted, and later requests leave it out | `Agent` (`/fact delete`) |
 | `fact.scope.changed` | `fact` (the id it was named by: `c3`, or `git/c3` for another conversation's proposal), `from` and `to` (`permanent`, `thread`, `session`), `by` (`person` in chat, `caller` over MCP), `now` (its id after the move; the same for a proposal moved to `thread`, which changes in place), `subject`, `name`, `source`, `value`, `proposed` (whether it was a proposed permanent fact); recorded on the log of the conversation that moved it, and on the proposing conversation's when it moved another's, with a `fact.superseded` for the old copy | `Agent` (`/fact ID SCOPE`, `set_fact_scope`) |
-| `fact.approved`, `fact.approval.asked`, `fact.approval.decided` | Legacy: written only by unreleased builds that asked the person through a dialog, never now; the kinds are kept so their logs still read. `fact.scope.changed` replaced them | none |
 | `fact.conflict.raised`, `fact.conflict.resolved` | `subject`, `name`, `winner` (the head that wins by precedence), `others` (the heads that disagree with it; empty when resolved); recorded when the current heads of different sources about one subject and name begin or stop disagreeing | `Agent` |
 | `mcp.request` | `tool`, `arguments` | `WispServer` |
 | `mcp.result` | `tool`, `isError`, `text`, `seconds` | `WispServer` |
