@@ -46,6 +46,9 @@ Changed:
 
 Added:
 
+- `wisp doctor` checks the facts store (parses, mode 600, counts), the subject kinds, that every saved
+  transcript can be resumed, the numeric settings' ranges, and the configured model's context window and
+  how it is known.
 - Facts: wisp keeps short facts about the conversation and gives them to the model on every request, so a
   codename, the task, or whether the tests pass outlives the turns that said it. Facts come from tool
   output without a model (a test command's exit status, a file read or written, the git branch, the

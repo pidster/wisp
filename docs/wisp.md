@@ -393,6 +393,17 @@ server answers and lists the model), the Core ML risk classifier preparing when 
 `config.json` parses, `~/.wisp` writable. Run it first
 when something is wrong. `wisp --version` prints the version.
 
+It also checks what wisp keeps and how it is set. A finding is either ok or not; there is no third
+state, so an ok that needs a caveat carries it in its detail.
+
+| Finding | Not ok when |
+| --- | --- |
+| `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason), configured (`ollama.contextLength`), the default when Ollama reported no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
+| `settings` | `facts.share` is outside 0 to 0.5, which loading the config refuses. A negative `inlineOutputBytes` or `shownOutputLines` is clamped to 0, so it is ok with a note. |
+| `facts store` | `~/.wisp/facts.json` does not parse (wisp then starts with no permanent facts) or is readable by others (fix: `chmod 600 <path>`). Absent is ok; present, the detail counts the current permanent facts by subject. |
+| `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
+| `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
+
 ### `wisp notify <message>`
 
 Shows a macOS notification: `--title` (default `wisp`), `--subtitle`, `--sound`. The same notifier as the

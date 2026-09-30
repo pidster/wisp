@@ -28,6 +28,9 @@ public struct Doctor: Sendable {
         public var configuredModel: @Sendable (ModelSelection, Config.Resolved, Home) -> String?
         /// For a `coreml` classifier: nil when its model prepares, else the failure text.
         public var coremlClassifier: @Sendable (Config.Resolved, Home) -> String?
+        /// The context window wisp would use for the given model and how it is known; nil when the model does
+        /// not resolve (that is the "configured model" finding's business).
+        public var contextWindow: @Sendable (ModelSelection, Config.Resolved, Home) -> ContextWindow?
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -52,17 +55,41 @@ public struct Doctor: Sendable {
                 } catch {
                     return "\(error)"
                 }
+            },
+            contextWindow: { model, config, home in
+                // The same resolution the "configured model" check does, so an Ollama model costs the same
+                // bounded `/api/show` calls and no more.
+                guard let resolved = try? model.resolve(config: config, home: home) else { return nil }
+                return ContextWindow(size: resolved.contextSize, note: resolved.contextNote)
             })
 
         /// Creates probes.
         public init(
             systemModel: @escaping @Sendable () -> String?,
             configuredModel: @escaping @Sendable (ModelSelection, Config.Resolved, Home) -> String?,
-            coremlClassifier: @escaping @Sendable (Config.Resolved, Home) -> String? = { _, _ in nil }
+            coremlClassifier: @escaping @Sendable (Config.Resolved, Home) -> String? = { _, _ in nil },
+            contextWindow: @escaping @Sendable (ModelSelection, Config.Resolved, Home) -> ContextWindow? = { _, _, _ in
+                nil
+            }
         ) {
             self.systemModel = systemModel
             self.configuredModel = configuredModel
             self.coremlClassifier = coremlClassifier
+            self.contextWindow = contextWindow
+        }
+    }
+
+    /// What a resolved model says about its context window.
+    public struct ContextWindow: Equatable, Sendable {
+        /// The window in tokens; nil when only an overflow error will tell.
+        public var size: Int?
+        /// Why the window is `size`, when the backend chose it (ADR 0043); nil when it is the model's own.
+        public var note: String?
+
+        /// Creates a reading.
+        public init(size: Int?, note: String? = nil) {
+            self.size = size
+            self.note = note
         }
     }
 
@@ -72,7 +99,7 @@ public struct Doctor: Sendable {
     public var model: ModelSelection
     /// The configuration local backends read their settings from.
     public var resolvedConfig: Config.Resolved
-    private let probes: Probes
+    let probes: Probes
 
     /// Creates a doctor for `home` and the configured `model`.
     public init(
@@ -87,8 +114,19 @@ public struct Doctor: Sendable {
 
     /// Runs every check. Never throws: problems are findings.
     public func run() -> [Finding] {
-        var findings = [macOSVersion(), modelAvailability(), sandboxExec(), config(), homeWritable()]
-        if model != .system { findings.insert(configuredModel(), at: 2) }
+        var findings = [
+            macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
+            subjectKinds(), savedTranscripts(), homeWritable(),
+        ]
+        // The window follows the model checks, so it can say "not checked" when they failed.
+        let modelProblem = model == .system ? probes.systemModel() : nil
+        var configuredProblem: String?
+        if model != .system {
+            let finding = configuredModel()
+            configuredProblem = finding.ok ? nil : finding.detail
+            findings.insert(finding, at: 2)
+        }
+        findings.insert(contextWindow(unavailable: configuredProblem ?? modelProblem), at: model == .system ? 2 : 3)
         if resolvedConfig.approvalClassifier == .coreml { findings.insert(classifier(), at: 2) }
         return findings
     }
