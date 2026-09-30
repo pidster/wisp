@@ -43,6 +43,8 @@ pub enum Outbound {
     Approval(Approval),
     /// A choice a chat command asks, such as `/config set`.
     Choice(Choice),
+    /// A view a chat command asks for, such as `/inspect context next`.
+    View(View),
     /// Candidates for a `complete` request.
     Completions {
         /// The request's id.
@@ -122,6 +124,55 @@ pub struct Event {
     /// The line to show, worded by wisp so every face agrees; `None` for events chat does not show.
     #[serde(default)]
     pub text: Option<String>,
+    /// For `tool.result`, the tool's output; absent for every other kind and for older wisps.
+    #[serde(default)]
+    pub output: Option<ToolOutput>,
+}
+
+/// Lines of a tool's output the terminal chat shows before folding, when wisp does not say.
+pub const DEFAULT_SHOWN_LINES: usize = 20;
+
+fn default_shown_lines() -> usize {
+    DEFAULT_SHOWN_LINES
+}
+
+/// A tool's output, as far as wisp sent it.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ToolOutput {
+    /// The `tool.result` event's id.
+    #[serde(default)]
+    pub id: String,
+    /// The output, up to 16 KiB.
+    #[serde(default)]
+    pub text: String,
+    /// Lines in the whole output.
+    #[serde(default)]
+    pub lines: u64,
+    /// Bytes in the whole output.
+    #[serde(default)]
+    pub bytes: u64,
+    /// Whether `text` is shorter than the output.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Lines to show before folding; 0 shows none.
+    #[serde(rename = "shownLines", default = "default_shown_lines")]
+    pub shown_lines: usize,
+}
+
+/// A view answering a chat command: Markdown text for a panel.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct View {
+    /// `context` or `turns`.
+    pub kind: String,
+    /// For `context`, the turn it was composed for; `None` is the next request.
+    #[serde(default)]
+    pub turn: Option<u64>,
+    /// How many turns the conversation has had.
+    #[serde(default)]
+    pub turns: u64,
+    /// The Markdown.
+    #[serde(default)]
+    pub text: String,
 }
 
 /// One answer a choice offers.
@@ -230,6 +281,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn parses_every_outbound_shape() {
         assert_eq!(
             Outbound::parse(r#"{"type":"delta","text":"hi"}"#),
@@ -305,6 +357,43 @@ mod tests {
             "{\"type\":\"complete\",\"id\":\"k1\",\"text\":\"/con\",\"cursor\":4}\n"
         );
         assert_eq!(Outbound::parse(r#"{"type":"exit"}"#), Outbound::Exit);
+        let result = Outbound::parse(
+            r#"{"type":"event","kind":"tool.result","call":"c","details":{},"text":"ok","future":1,"output":{"id":"0123456789abcdef","text":"a\nb\n","lines":2,"bytes":4,"truncated":false,"shownLines":1,"extra":true}}"#,
+        );
+        match result {
+            Outbound::Event(e) => {
+                let Some(output) = e.output else {
+                    panic!("no output");
+                };
+                assert_eq!(output.id, "0123456789abcdef");
+                assert_eq!(output.text, "a\nb\n");
+                assert_eq!((output.lines, output.bytes), (2, 4));
+                assert!(!output.truncated);
+                assert_eq!(output.shown_lines, 1);
+            }
+            other => panic!("not an event: {other:?}"),
+        }
+        let bare = Outbound::parse(
+            r#"{"type":"event","kind":"tool.result","output":{"id":"i","text":"t"}}"#,
+        );
+        assert!(
+            matches!(&bare, Outbound::Event(e) if e.output.as_ref().is_some_and(|o| o.shown_lines == 20))
+        );
+        assert_eq!(
+            Outbound::parse(
+                r##"{"type":"view","kind":"context","turn":3,"turns":4,"text":"# Context","x":1}"##
+            ),
+            Outbound::View(View {
+                kind: "context".into(),
+                turn: Some(3),
+                turns: 4,
+                text: "# Context".into()
+            })
+        );
+        assert!(matches!(
+            Outbound::parse(r#"{"type":"view","kind":"context","turn":null,"turns":0,"text":""}"#),
+            Outbound::View(View { turn: None, .. })
+        ));
         assert_eq!(Outbound::parse(r#"{"type":"future"}"#), Outbound::Unknown);
         assert_eq!(
             Outbound::parse("plain text"),

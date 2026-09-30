@@ -157,6 +157,8 @@ fn run(
                     Key::Complete => app.complete(),
                     Key::Submit => app.submit(),
                     Key::Type(c) => app.type_char(c),
+                    Key::Edit(Edit::Left) if app.panel.is_some() => app.step_turn(false),
+                    Key::Edit(Edit::Right) if app.panel.is_some() => app.step_turn(true),
                     Key::Edit(edit) => {
                         app.edit(&edit);
                         Action::None
@@ -167,6 +169,19 @@ fn run(
                     }
                     Key::RecallNext => {
                         app.recall_next();
+                        Action::None
+                    }
+                    Key::ToggleOutput => {
+                        app.toggle_output();
+                        Action::None
+                    }
+                    Key::ShowContext => app.show_context(),
+                    Key::PageUp => {
+                        app.page_up();
+                        Action::None
+                    }
+                    Key::PageDown => {
+                        app.page_down();
                         Action::None
                     }
                     Key::Nothing => Action::None,
@@ -238,6 +253,14 @@ enum Key {
     RecallPrevious,
     /// The next submitted line, or back to the draft.
     RecallNext,
+    /// Ctrl-O: the last tool output in full, or back.
+    ToggleOutput,
+    /// Ctrl-T: the model's context in a panel.
+    ShowContext,
+    /// `PageUp`: a page up in an open panel.
+    PageUp,
+    /// `PageDown`: a page down in an open panel.
+    PageDown,
     /// Nothing wisp-tui uses.
     Nothing,
 }
@@ -257,6 +280,8 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::Char('w') if control => Key::Edit(Edit::DeleteWordBefore),
         KeyCode::Char('b') if alt => Key::Edit(Edit::WordLeft),
         KeyCode::Char('f') if alt => Key::Edit(Edit::WordRight),
+        KeyCode::Char('o') if control => Key::ToggleOutput,
+        KeyCode::Char('t') if control => Key::ShowContext,
         KeyCode::Char(_) if control => Key::Nothing,
         KeyCode::Char(c) => Key::Type(c),
         KeyCode::Enter if alt => Key::Edit(Edit::Newline),
@@ -270,6 +295,8 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::Right => Key::Edit(Edit::Right),
         KeyCode::Home => Key::Edit(Edit::Home),
         KeyCode::End => Key::Edit(Edit::End),
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
         KeyCode::Esc => Key::Cancel,
         KeyCode::Tab => Key::Complete,
         KeyCode::Up => Key::RecallPrevious,
@@ -382,7 +409,9 @@ fn styled(line: &HistoryLine) -> Line<'static> {
         }
         LineKind::Code => palette::code(),
         LineKind::Output => palette::body(),
-        LineKind::Tool | LineKind::Note | LineKind::Fence => palette::muted(),
+        LineKind::Tool | LineKind::ToolOutput | LineKind::Note | LineKind::Fence => {
+            palette::muted()
+        }
         LineKind::Error => palette::ember(),
     };
     Line::from(Span::styled(line.text.clone(), style))
@@ -498,6 +527,11 @@ mod tests {
         assert_eq!(command_for(KeyCode::F(1), none), Key::Nothing);
         assert_eq!(command_for(KeyCode::Tab, none), Key::Complete);
         assert_eq!(command_for(KeyCode::Esc, none), Key::Cancel);
+        assert_eq!(command_for(KeyCode::Char('o'), ctrl), Key::ToggleOutput);
+        assert_eq!(command_for(KeyCode::Char('t'), ctrl), Key::ShowContext);
+        assert_eq!(command_for(KeyCode::Char('t'), none), Key::Type('t'));
+        assert_eq!(command_for(KeyCode::PageUp, none), Key::PageUp);
+        assert_eq!(command_for(KeyCode::PageDown, none), Key::PageDown);
     }
 
     #[test]

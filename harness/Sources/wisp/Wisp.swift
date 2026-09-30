@@ -390,7 +390,7 @@ struct Chat: AsyncParsableCommand {
                         approver: TerminalApprover(style: style), store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity),
+                activity: activity, shownOutputLines: session.config.shownOutputLines),
             style: style,
             io: .init(
                 readLine: { readLine() },
@@ -523,7 +523,7 @@ struct Chat: AsyncParsableCommand {
                     try session.openAgent(approver: approver, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity),
+                activity: activity, shownOutputLines: session.config.shownOutputLines),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },
@@ -533,11 +533,12 @@ struct Chat: AsyncParsableCommand {
                 turn: { send(ChatProtocol.encode("turn", ChatProtocol.turn($0))) },
                 choose: { choice in
                     await ChatProtocol.ask(choice, router: router, timeout: session.config.approvalTimeout, send: send)
-                }))
+                }, view: { send(ChatProtocol.encode("view", ChatProtocol.view($0))) }))
         // Events for the front end, raw and with the terminal's line, instead of the notes the loop would write.
+        let shownLines = session.config.shownOutputLines
         tap.onEvent { event in
             activity.apply(event)
-            send(ChatProtocol.encode("event", ChatProtocol.event(event)))
+            send(ChatProtocol.encode("event", ChatProtocol.event(event, shownLines: shownLines)))
         }
         try await loop.run()
         send(ChatProtocol.encode("exit"))

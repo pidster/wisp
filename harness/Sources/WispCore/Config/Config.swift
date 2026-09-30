@@ -19,6 +19,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var maxThreads: Int?
     /// The largest tool output an MCP `respond` result carries inline; larger output is a reference.
     public var inlineOutputBytes: Int?
+    /// Lines of each tool's output chat shows under its note before folding the rest.
+    public var shownOutputLines: Int?
     /// What `run_command` may execute and how it is confined.
     public var commandPolicy: CommandPolicy?
     /// Audit log settings.
@@ -204,9 +206,11 @@ public struct Config: Codable, Equatable, Sendable {
         commandMaxOutputBytes: Int? = nil, maxThreads: Int? = nil, commandPolicy: CommandPolicy? = nil,
         audit: AuditConfig? = nil, approval: ApprovalConfig? = nil, ollama: OllamaConfig? = nil,
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
-        tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil
+        tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
+        shownOutputLines: Int? = nil
     ) {
         self.inlineOutputBytes = inlineOutputBytes
+        self.shownOutputLines = shownOutputLines
         self.tools = tools
         self.routing = routing
         self.systemPromptExtension = systemPromptExtension
@@ -257,6 +261,7 @@ public struct Config: Codable, Equatable, Sendable {
             ),
             maxThreads: maxThreads ?? 32,
             inlineOutputBytes: max(0, inlineOutputBytes ?? 1024),
+            shownOutputLines: max(0, shownOutputLines ?? 20),
             auditEnabled: audit?.enabled ?? true,
             auditLimits: FileAuditSink.Limits(
                 maxFileBytes: audit?.maxFileBytes ?? 10 * 1024 * 1024, keepFiles: audit?.keepFiles ?? 5),
@@ -294,6 +299,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var maxThreads: Int
         /// The largest tool output an MCP `respond` result carries inline, in bytes.
         public var inlineOutputBytes: Int
+        /// Lines of each tool's output chat shows under its note before folding the rest; 0 shows the note
+        /// alone.
+        public var shownOutputLines: Int = 20
         /// Whether the audit log is written.
         public var auditEnabled: Bool
         /// Rotation limits for the audit file.

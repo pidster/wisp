@@ -75,6 +75,10 @@ import WispTestSupport
         #expect(try String(contentsOf: file, encoding: .utf8).contains("remember BLUE HERON"))
         #expect(ChatInput(line: "/inspect context") == .context && ChatInput(line: "/inspect Context") == .context)
         #expect(ChatInput(line: "/context") == .unknown("context"))
+        #expect(
+            ChatInput(line: "/inspect context 3") == .view("3")
+                && ChatInput(line: "/inspect Context next") == .view("next"))
+        #expect(ChatInput(line: "/show") == .show(nil) && ChatInput(line: "/show 7") == .show("7"))
     }
 
     @Test func commandsMessagesAndTheExitSaveOverAScriptedModel() async throws {

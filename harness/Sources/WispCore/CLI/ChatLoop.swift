@@ -73,14 +73,18 @@ public struct ChatLoop {
         /// Offers a choice and returns the answer, nil for none; nil here asks with a numbered list
         /// through `print` and `readLine`.
         public var choose: ((ChatChoice) async -> String?)?
+        /// Shows a view whole, as a front end's panel does; nil prints its text through `print`.
+        public var view: ((ChatView) -> Void)?
 
         /// Creates an IO.
         public init(
             readLine: @escaping () -> String?, print: @escaping (String) -> Void, write: @escaping (String) -> Void,
             note: @escaping @Sendable (String) -> Void, prompt: @escaping (ChatStatus) -> Void,
-            turn: @escaping (ChatTurn) -> Void = { _ in }, choose: ((ChatChoice) async -> String?)? = nil
+            turn: @escaping (ChatTurn) -> Void = { _ in }, choose: ((ChatChoice) async -> String?)? = nil,
+            view: ((ChatView) -> Void)? = nil
         ) {
             self.choose = choose
+            self.view = view
             self.readLine = readLine
             self.print = print
             self.write = write
@@ -120,6 +124,9 @@ public struct ChatLoop {
         public var configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])?
         /// What the turn under way is doing, for the face's live line; nil shows none.
         public var activity: ChatActivity?
+        /// Lines of each tool's output shown under its note before the rest is folded
+        /// (`Config.Resolved.shownOutputLines`); 0 shows the note alone.
+        public var shownOutputLines: Int
 
         /// Creates a context.
         public init(
@@ -130,8 +137,10 @@ public struct ChatLoop {
             openModel: (@Sendable (ModelSelection, ConversationStore) throws -> Agent)? = nil, stats: CallStats? = nil,
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
-            approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil
+            approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
+            shownOutputLines: Int = Config().resolved.shownOutputLines
         ) {
+            self.shownOutputLines = shownOutputLines
             self.approvalStore = approvalStore
             self.activity = activity
             self.configFile = configFile
@@ -188,9 +197,11 @@ public struct ChatLoop {
         self.io = io
         let note = io.note
         let activity = context.activity
+        let shown = context.shownOutputLines
         tap.onEvent { event in
             activity?.apply(event)
             if let line = ChatEvents.render(event, style: style) { note(line) }
+            if let output = ChatEvents.shownOutput(event, lines: shown, style: style) { note(output) }
         }
     }
 
@@ -259,6 +270,19 @@ public struct ChatLoop {
                 await approvals(request)
             case .last:
                 io.print(tap.lastToolOutput ?? "no tool has run yet")
+            case .show(let argument):
+                if let output = ChatEvents.output(argument, in: agent.store, last: tap.lastToolOutput) {
+                    io.print(output)
+                } else {
+                    io.note(argument == nil ? "no tool has run yet" : "no tool output \(argument ?? "")")
+                }
+            case .view(let argument):
+                switch ChatView.context(argument, of: agent) {
+                case .success(let view):
+                    if let show = io.view { show(view) } else { io.print(view.text) }
+                case .failure(let failure):
+                    io.note(failure.description)
+                }
             case .models:
                 guard let models = context.models else {
                     io.note("models are not listed here")

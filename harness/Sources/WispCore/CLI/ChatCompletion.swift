@@ -14,7 +14,8 @@ public enum ChatCompletion {
 
     /// The slash commands, as typed.
     public static let commands = [
-        "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/models", "/model",
+        "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/show", "/models",
+        "/model",
         "/stats",
         "/history", "/config", "/save", "/new", "/quit", "/exit",
     ]
@@ -51,6 +52,7 @@ public enum ChatCompletion {
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
         case ["/model"]: pool = ConfigSettings.setting("model").map(options) ?? []
         case ["/inspect"]: pool = views
+        case ["/inspect", "context"]: pool = ["next", "turns"]
         case ["/audit"]: pool = ["sessions"] + sessionIDs
         default: pool = []
         }

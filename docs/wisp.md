@@ -58,6 +58,15 @@ in both.
 | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
 | Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
 
+Two keys open a panel over the band, a rounded border around up to 16 rows, with its keys in the bottom
+border: Up and Down scroll a row, PageUp and PageDown a page, and Esc (or the key that opened it) closes
+it. Typing is held while it is open; an approval or a choice arriving closes it and takes its place.
+
+| Keys | Panel |
+| --- | --- |
+| Ctrl-O | The last tool output in full. In the scrollback each output shows its first `shownOutputLines` lines (20), in the quiet tone, then `… 84 more lines · ctrl-o shows all`; lines already in the scrollback cannot be changed, so expanding is this panel and folding is closing it. |
+| Ctrl-T | The model's context, live: what the next request carries (`/inspect context next`), at no model cost. Left steps back a turn to the context composed at that turn's start (`/inspect context N`), Right forward and past the latest turn back to the next request. `/inspect context turns` typed shows the turn list in the same panel. Only between turns. |
+
 A line you send goes into the scrollback styled like the input it came from, a shade darker: its tint
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
 
@@ -111,7 +120,15 @@ What a session shows, and where it goes:
   too narrow, the directory shortens to its last folder.
 - The model's tool activity as it happens, one dim line per call and result, from the same events the
   audit log records: `⚙ run_command git status`, then `↳ exit 0`; `⚙ read_file README.md`, then
-  `↳ 2048 bytes in 0.0 s: 1\t# wisp`. `/last` prints the last tool result whole.
+  `↳ 2048 bytes in 0.0 s: 1\t# wisp`.
+- Under each result, the output itself, as the tool returned it, indented and in the quiet tone: up to
+  `shownOutputLines` lines (20; a [setting](#home-directory-and-configuration)) and at most 2 KiB, then, when there is more,
+  `… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`. `/show` with that id (the start of the output's
+  `tool.result` audit event id) or with its store entry id prints the output whole, and `/last` the last
+  one. You see the real output rather than the model's copy of it, and the model is told so, so its reply
+  comments on the output instead of retyping it (decision D12 of the
+  [layered-context proposal](proposals/2026-09-29-layered-context.md)). Like the tool lines, the output
+  goes to stderr.
 - What the gate decided for each command, under its call:
   - its rating: `· safe by rules: a known read-only command (0.2 ms)`, or `(remembered)` when the
     session reused an earlier verdict;
@@ -160,6 +177,8 @@ What a session shows, and where it goes:
 | `/audit [sessions\|ID]` | The latest 20 audit events of every session, one line each, MCP calls and other terminals included. `sessions` lists the sessions in the log, each with its latest activity, how it began (`chat`, `mcp`, `scan`, …, or `-` for an MCP thread or a condensing call), and how many events it wrote. An id shows that session's latest events, such as `/audit git` for a `respond` thread named `git`; Tab completes ids. |
 | `/inspect [config\|status\|approvals\|audit]` | Kept as an alias: the same views as `/config`, `/status`, `/approvals`, and `/audit`; with no view, `/status`. `/inspect context` is its own command, above. |
 | `/last` | The last tool result in full; the live line shows only its first line. |
+| `/show [ID]` | A tool output in full, to stdout: by the id its fold line gives (the start of its `tool.result` event id, four characters or more) or by its store entry id (the number `/inspect context` and the model's references use); with no id, the last. |
+| `/inspect context next\|N\|turns` | The model's context, shown rather than saved, at no model cost: with `next`, what the next request carries, entry by entry under its store id, with each reply whose copy of an output was cut and each output sent as a reference marked; with a turn number, the context composed at the start of that turn, its own entries (prompt, tool calls and output, reply) marked; with `turns`, one row per turn: time, estimated tokens, what changed since the turn before (entries condensed, replies cut, outputs referenced), and the start of the prompt. Markdown on stdout; `wisp-tui` shows it in its panel (Ctrl-T). |
 | `/models` | The models this conversation could switch to: those that resolve and declare what its tools need, as `wisp models` decides. A table with a header (model, details, capabilities) and the current one marked `*`; `wisp models` keeps its tab-separated lines for scripts. |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint and nothing changes. |
 | `/stats` | Timings of this session's recent model turns and classifier calls: per kind and model, the count, failures, mean, P50, P95, and maximum seconds, and the mean prompt tokens where the runtime reports them (Ollama); then the latest eight calls by start time. Kept in memory only, the latest 256 calls; see below. |
@@ -208,7 +227,8 @@ Out, to the front end:
 | `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens` | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. Slash commands are not turns. |
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
-| `event` | `kind`, `call`, `turn`, `details`, `text` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. |
+| `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show: `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
+| `view` | `kind` (`context` or `turns`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
@@ -546,7 +566,8 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |
-| `inlineOutputBytes` | 1024 | The largest tool output an MCP `respond` result carries inline in `calls`; larger output is a `wisp://output/{thread_id}/{id}` reference ([mcp.md](mcp.md)). `0` makes every output a reference. |
+| `inlineOutputBytes` | 1024 | The largest tool output an MCP `respond` result carries inline in `calls`; larger output is a `wisp://threads/{thread_id}/output/{id}` reference ([mcp.md](mcp.md)). `0` makes every output a reference. |
+| `shownOutputLines` | 20 | Lines of each tool's output chat shows under the call's note, in the quiet tone, before folding the rest behind a line naming `/show` and the output's id; at most 2 KiB are shown whatever the lines. `0` shows the note alone. `wisp chat --json` passes it to the front end as each output's `shownLines`, and `wisp-tui` folds there. Settable with `/config set`. |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
 | `approval` | `{ "threshold": "moderate", "classifier": "coreml", "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |

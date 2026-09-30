@@ -18,6 +18,13 @@ public enum ChatInput: Equatable, Sendable {
     case inspect(String)
     /// Show the last tool result in full.
     case last
+    /// Show a tool output in full: by store entry id, by (the start of) its `tool.result` event id, or the
+    /// last one when nil.
+    case show(String?)
+    /// Show the model's context, `/inspect context <argument>`: `next` for the next request's, a turn
+    /// number for the one composed at that turn's start, `turns` for the list of turns. The bare
+    /// `/inspect context` is `context`, which saves the next request's context to files.
+    case view(String?)
     /// List the models the session could switch to.
     case models
     /// Switch the conversation to a model, or show the current one when nil.
@@ -63,11 +70,15 @@ public enum ChatInput: Equatable, Sendable {
         case "new": self = .new
         case "tokens": self = .tokens
         case "inspect" where argument?.lowercased() == "context": self = .context
+        case "inspect" where argument?.lowercased().hasPrefix("context ") == true:
+            self = .view(
+                String(argument?.dropFirst("context ".count) ?? "").trimmingCharacters(in: .whitespaces))
         case "inspect": self = .inspect(argument ?? "status")
         case "status": self = .inspect("status")
         case "audit": self = .inspect(argument.map { "audit \($0)" } ?? "audit")
         case "approvals": self = .approvals(ApprovalsRequest(argument))
         case "last": self = .last
+        case "show": self = .show(argument)
         case "models": self = .models
         case "model": self = .model(argument)
         case "stats": self = .stats
@@ -83,11 +94,14 @@ public enum ChatInput: Equatable, Sendable {
         /tools           list the tools the model can call
         /tokens          show how much of the context window the conversation uses
         /inspect context save the exact context the model sees next to ~/.wisp/context, as Markdown and JSON
+        /inspect context next|N   show the context the next request carries, or the one composed at turn N's start
+        /inspect context turns    list the turns with what changed at each
         /status          show wisp's own state: model, tools, policy, session
         /approvals       list standing approvals; /approvals revoke [ID] removes one
         /audit           show the latest audit events of every session, MCP calls included
         /audit sessions  list the sessions in the audit log; /audit ID shows one session's events
         /last            show the last tool result in full
+        /show ID         show a tool output in full, by its entry id or the id its fold line gives
         /models          list the models this Mac can run for this conversation
         /model [name]    switch the conversation to a model, keeping the transcript; no name shows the current one
         /stats           show timings of recent model turns and classifier calls

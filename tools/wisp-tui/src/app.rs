@@ -5,6 +5,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
@@ -12,7 +13,7 @@ use crate::editor::{Edit, Editor};
 use crate::markdown;
 use crate::palette;
 use crate::picker::Picker;
-use crate::protocol::{Approval, Inbound, Outbound, Status};
+use crate::protocol::{Approval, Inbound, Outbound, Status, ToolOutput, View};
 
 /// Rows the band occupies with a one-row input: reply in progress, dialog, a half-height strip, the
 /// input, a half-height strip, status. The strips are rows of half-block glyphs in the tint, which read
@@ -63,6 +64,94 @@ pub enum LineKind {
     Error,
     /// Output of a slash command.
     Output,
+    /// A tool's output, indented under its result line, and the fold line after it.
+    ToolOutput,
+}
+
+/// Text rows the output and context panel shows at most.
+pub const PANEL_ROWS: usize = 16;
+
+/// What the panel over the band shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelKind {
+    /// The last tool output, in full.
+    Output,
+    /// The model's context: for the turn, or `None` for the next request.
+    Context(Option<u64>),
+    /// The table of turns.
+    Turns,
+}
+
+/// A panel over the band: text to scroll, opened by Ctrl-O or by a view from wisp.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Panel {
+    /// What it shows.
+    pub kind: PanelKind,
+    /// The text, unwrapped.
+    pub text: String,
+    /// The first row shown, of the wrapped text.
+    pub scroll: usize,
+    /// How many turns the conversation has had, for stepping through them.
+    pub turns: u64,
+}
+
+impl Panel {
+    /// The title on the top border.
+    fn title(&self) -> String {
+        match self.kind {
+            PanelKind::Output => " output ".into(),
+            PanelKind::Context(None) => " context · next request ".into(),
+            PanelKind::Context(Some(turn)) => format!(" context · turn {turn} "),
+            PanelKind::Turns => " context · turns ".into(),
+        }
+    }
+
+    /// The keys, on the bottom border.
+    fn hint(&self) -> &'static str {
+        if matches!(self.kind, PanelKind::Context(_)) {
+            " ↑↓ scroll · ←→ turns · esc close "
+        } else {
+            " ↑↓ scroll · esc close "
+        }
+    }
+}
+
+/// `text` as rows of at most `width` cells: control characters dropped and tabs spaced, long lines
+/// broken at the width.
+fn wrap_rows(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let line = sanitise(line);
+        let mut row = String::new();
+        let mut cells = 0;
+        for c in line.chars() {
+            let w = c.width().unwrap_or(0);
+            if cells + w > width {
+                rows.push(std::mem::take(&mut row));
+                cells = 0;
+            }
+            row.push(c);
+            cells += w;
+        }
+        rows.push(row);
+    }
+    if rows.is_empty() {
+        rows.push(String::new());
+    }
+    rows
+}
+
+/// `line` with tabs as four spaces and other control characters (an escape sequence's start) removed,
+/// so tool output cannot drive the terminal.
+fn sanitise(line: &str) -> String {
+    line.chars()
+        .filter_map(|c| match c {
+            '\t' => Some("    ".to_string()),
+            c if c.is_control() => None,
+            c => Some(c.to_string()),
+        })
+        .collect()
 }
 
 /// What the main loop should do after a key.
@@ -149,6 +238,7 @@ impl Activity {
 
 /// The whole state.
 #[derive(Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     /// Lines waiting to be inserted above the band.
     pub pending: Vec<HistoryLine>,
@@ -185,6 +275,14 @@ pub struct App {
     pub recall_at: Option<usize>,
     /// What was typed before Up was first pressed, restored by Down past the newest line.
     pub draft: String,
+    /// The last tool output wisp sent, for Ctrl-O.
+    pub last_output: Option<ToolOutput>,
+    /// The panel over the band, when open.
+    pub panel: Option<Panel>,
+    /// Whether an `/inspect context` request from a key is awaiting its view.
+    pub context_asked: bool,
+    /// The width the band was last sized for, so scrolling knows how the text wraps.
+    band_width: Cell<u16>,
 }
 
 impl App {
@@ -223,6 +321,7 @@ impl App {
                     LineKind::Note
                 };
                 self.push(&text, kind);
+                self.context_asked = false;
             }
             Outbound::Status(status) => {
                 self.flush_partial();
@@ -261,8 +360,10 @@ impl App {
                 });
             }
             Outbound::Event(event) => {
-                if let Some(line) = event.text {
+                if event.text.is_some() || event.output.is_some() {
                     self.flush_partial();
+                }
+                if let Some(line) = event.text {
                     let kind = if event.kind == "error" {
                         LineKind::Error
                     } else {
@@ -270,14 +371,23 @@ impl App {
                     };
                     self.push(&line, kind);
                 }
+                if let Some(output) = event.output {
+                    self.show_output(output);
+                }
             }
             Outbound::Approval(approval) => {
                 self.flush_partial();
+                self.panel = None;
                 self.approval = Some(approval);
             }
             Outbound::Choice(choice) => {
                 self.flush_partial();
+                self.panel = None;
                 self.picker = Some(Picker::new(choice));
+            }
+            Outbound::View(view) => {
+                self.flush_partial();
+                self.open_view(view);
             }
             Outbound::Completions {
                 id,
@@ -287,6 +397,157 @@ impl App {
             Outbound::Exit => self.exited = true,
             Outbound::Unknown => {}
         }
+    }
+
+    /// Folds a tool's output into scrollback: the first lines wisp says to show, then a line saying
+    /// how many are left. The whole text stays for the panel.
+    fn show_output(&mut self, output: ToolOutput) {
+        let lines: Vec<&str> = output.text.lines().collect();
+        let shown = output.shown_lines.min(lines.len());
+        let mut pending: Vec<String> = lines[..shown]
+            .iter()
+            .map(|line| format!("    {}", sanitise(line)))
+            .collect();
+        if lines.len() > shown {
+            let hidden = lines.len() - shown;
+            let plural = if hidden == 1 { "" } else { "s" };
+            pending.push(format!(
+                "    … {hidden} more line{plural} · ctrl-o shows all"
+            ));
+        }
+        for line in pending {
+            self.push(&line, LineKind::ToolOutput);
+        }
+        self.last_output = Some(output);
+    }
+
+    /// Opens the panel on a view from wisp, unless a dialog holds the band.
+    fn open_view(&mut self, view: View) {
+        self.context_asked = false;
+        if self.approval.is_some() || self.picker.is_some() {
+            return;
+        }
+        let kind = match (view.kind.as_str(), view.turn) {
+            ("turns", _) => PanelKind::Turns,
+            (_, turn) => PanelKind::Context(turn),
+        };
+        // Stepping keeps the reader's place: a new view of the same kind starts at the top.
+        self.panel = Some(Panel {
+            kind,
+            text: view.text,
+            scroll: 0,
+            turns: view.turns,
+        });
+    }
+
+    /// Ctrl-O: opens the last tool output in the panel, or closes the panel when it shows that.
+    pub fn toggle_output(&mut self) {
+        if self.approval.is_some() || self.picker.is_some() {
+            return;
+        }
+        if self
+            .panel
+            .as_ref()
+            .is_some_and(|p| p.kind == PanelKind::Output)
+        {
+            self.panel = None;
+            return;
+        }
+        let Some(output) = &self.last_output else {
+            self.push("no tool output to show yet", LineKind::Note);
+            return;
+        };
+        let mut text = output.text.clone();
+        if output.truncated {
+            let gap = if text.ends_with('\n') { "" } else { "\n" };
+            text = format!(
+                "{text}{gap}… truncated: {} lines, {} bytes in all",
+                output.lines, output.bytes
+            );
+        }
+        self.panel = Some(Panel {
+            kind: PanelKind::Output,
+            text,
+            scroll: 0,
+            turns: 0,
+        });
+    }
+
+    /// Ctrl-T: asks wisp for the context of the next request, when no turn runs and no dialog is open;
+    /// the panel opens when the view arrives. The request is not echoed into scrollback.
+    pub fn show_context(&mut self) -> Action {
+        if self.busy || self.approval.is_some() || self.picker.is_some() || self.context_asked {
+            return Action::None;
+        }
+        self.ask_context(None)
+    }
+
+    /// Sends `/inspect context next` or `/inspect context N` and remembers that a view is awaited.
+    fn ask_context(&mut self, turn: Option<u64>) -> Action {
+        self.context_asked = true;
+        let text = match turn {
+            Some(turn) => format!("/inspect context {turn}"),
+            None => "/inspect context next".to_string(),
+        };
+        Action::Send(Inbound::Message { text })
+    }
+
+    /// Left or Right in a context panel: the previous or next turn's context, the next request's
+    /// after the latest turn. Ignored while a request is outstanding or the panel is not a context.
+    pub fn step_turn(&mut self, forward: bool) -> Action {
+        let Some(Panel {
+            kind: PanelKind::Context(at),
+            turns,
+            ..
+        }) = &self.panel
+        else {
+            return Action::None;
+        };
+        if self.context_asked {
+            return Action::None;
+        }
+        let (at, turns) = (*at, *turns);
+        let target = match (at, forward) {
+            (None, true) => return Action::None,
+            (None, false) if turns == 0 => return Action::None,
+            (None, false) => Some(turns),
+            (Some(turn), false) if turn <= 1 => return Action::None,
+            (Some(turn), false) => Some(turn - 1),
+            (Some(turn), true) if turn >= turns => None,
+            (Some(turn), true) => Some(turn + 1),
+        };
+        self.ask_context(target)
+    }
+
+    /// Rows of text the panel shows for a band `width` wide, and how many it holds in all.
+    fn panel_rows(&self, width: u16) -> (Vec<String>, usize) {
+        let Some(panel) = &self.panel else {
+            return (Vec::new(), 1);
+        };
+        let rows = wrap_rows(&panel.text, dialog_width(width));
+        let visible = rows.len().clamp(1, PANEL_ROWS);
+        (rows, visible)
+    }
+
+    /// Scrolls the panel by `rows` (negative is up), within its text.
+    fn scroll_panel(&mut self, rows: isize) {
+        let width = self.band_width.get();
+        let (all, visible) = self.panel_rows(if width == 0 { 80 } else { width });
+        let Some(panel) = &mut self.panel else {
+            return;
+        };
+        let max = all.len().saturating_sub(visible);
+        panel.scroll = panel.scroll.saturating_add_signed(rows).min(max);
+    }
+
+    /// `PageUp`: a page up in the panel.
+    pub fn page_up(&mut self) {
+        self.scroll_panel(-isize::try_from(PANEL_ROWS).unwrap_or(1));
+    }
+
+    /// `PageDown`: a page down in the panel.
+    pub fn page_down(&mut self) {
+        self.scroll_panel(isize::try_from(PANEL_ROWS).unwrap_or(1));
     }
 
     /// Commits the partial reply line, if any.
@@ -350,7 +611,7 @@ impl App {
     fn typing(&self) -> bool {
         match &self.picker {
             Some(picker) => picker.choice.accepts_text,
-            None => self.approval.is_none() && !self.busy,
+            None => self.approval.is_none() && !self.busy && self.panel.is_none(),
         }
     }
 
@@ -427,6 +688,9 @@ impl App {
 
     /// Esc: leaves an open choice unanswered; otherwise nothing.
     pub fn cancel(&mut self) -> Action {
+        if self.panel.take().is_some() {
+            return Action::None;
+        }
         self.choose(None)
     }
 
@@ -459,6 +723,10 @@ impl App {
 
     /// Up: replaces the input with the previous submitted line, keeping what was typed as the draft.
     pub fn recall_previous(&mut self) {
+        if self.panel.is_some() {
+            self.scroll_panel(-1);
+            return;
+        }
         if let Some(picker) = &mut self.picker {
             picker.step(false);
             return;
@@ -479,6 +747,10 @@ impl App {
 
     /// Down: moves to the next submitted line, and past the newest back to the draft.
     pub fn recall_next(&mut self) {
+        if self.panel.is_some() {
+            self.scroll_panel(1);
+            return;
+        }
         if let Some(picker) = &mut self.picker {
             picker.step(true);
             return;
@@ -501,6 +773,9 @@ impl App {
 
     /// Ctrl-C or Ctrl-D: cancel a dialog first, otherwise quit.
     pub fn interrupt(&mut self) -> Action {
+        if self.panel.take().is_some() {
+            return Action::None;
+        }
         if self.picker.is_some() {
             return self.cancel();
         }
@@ -523,6 +798,7 @@ impl App {
     /// the input's text needs, up to `MAX_INPUT_ROWS`.
     /// While a dialog is asked it takes the input's place: the reply row, the dialog, and the status.
     pub fn band_height(&self, width: u16) -> u16 {
+        self.band_width.set(width);
         if let Some(picker) = &self.picker {
             return u16::try_from(picker.rows())
                 .unwrap_or(u16::MAX)
@@ -531,6 +807,12 @@ impl App {
         if let Some(approval) = &self.approval {
             let rows = dialog_lines(approval, dialog_width(width)).len();
             return u16::try_from(rows)
+                .unwrap_or(u16::MAX)
+                .saturating_add(DIALOG_FRAME + 2);
+        }
+        if self.panel.is_some() {
+            let (_, visible) = self.panel_rows(width);
+            return u16::try_from(visible)
                 .unwrap_or(u16::MAX)
                 .saturating_add(DIALOG_FRAME + 2);
         }
@@ -580,6 +862,59 @@ impl App {
         }
     }
 
+    /// Draws an approval in the input's place: a border coloured by the risk, and the dialog inside.
+    fn render_approval(frame: &mut Frame, approval: &Approval, area: Rect, inset: Rect) {
+        let lines = dialog_lines(approval, dialog_width(area.width));
+        let height = u16::try_from(lines.len())
+            .unwrap_or(u16::MAX)
+            .saturating_add(DIALOG_FRAME);
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(palette::level(&approval.level))
+            .title(Span::styled(
+                format!(" approve · {} ", approval.level),
+                palette::level(&approval.level),
+            ))
+            .padding(Padding::horizontal(1));
+        let dialog = Rect {
+            y: area.y + 1,
+            height: height.min(area.height.saturating_sub(2)),
+            ..inset
+        };
+        frame.render_widget(Paragraph::new(lines).block(block), dialog);
+    }
+
+    /// Draws the panel in the dialogs' place: a rounded border titled for what it shows, the visible
+    /// rows of the text, and the keys on the bottom edge.
+    fn render_panel(&self, frame: &mut Frame, area: Rect, inset: Rect) {
+        let Some(panel) = &self.panel else {
+            return;
+        };
+        let (rows, visible) = self.panel_rows(area.width);
+        let first = panel.scroll.min(rows.len().saturating_sub(visible));
+        let lines: Vec<Line<'static>> = rows
+            .into_iter()
+            .skip(first)
+            .take(visible)
+            .map(|row| Line::from(Span::styled(row, palette::body())))
+            .collect();
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(palette::wisp())
+            .title(Span::styled(panel.title(), palette::wisp()))
+            .title_bottom(Span::styled(panel.hint(), palette::muted()))
+            .padding(Padding::horizontal(1));
+        let height = u16::try_from(visible)
+            .unwrap_or(u16::MAX)
+            .saturating_add(DIALOG_FRAME);
+        let dialog = Rect {
+            y: area.y + 1,
+            height: height.min(area.height.saturating_sub(2)),
+            ..inset
+        };
+        frame.render_widget(Paragraph::new(lines).block(block), dialog);
+    }
+
     /// Draws the band into `area`. Text is inset by the margin everywhere; the input's tint runs edge
     /// to edge with half-block strips above and below it.
     pub fn render(&self, frame: &mut Frame, area: Rect) {
@@ -600,6 +935,15 @@ impl App {
             0,
             Line::from(Span::styled(self.partial.clone(), palette::body())),
         );
+        if self.panel.is_some() {
+            self.render_panel(frame, area, inset);
+            plain(
+                frame,
+                area.height.saturating_sub(1),
+                self.status_line(inset.width),
+            );
+            return;
+        }
         if let Some(suggestions) = &self.suggestions {
             plain(
                 frame,
@@ -620,24 +964,7 @@ impl App {
             return;
         }
         if let Some(approval) = &self.approval {
-            let lines = dialog_lines(approval, dialog_width(area.width));
-            let height = u16::try_from(lines.len())
-                .unwrap_or(u16::MAX)
-                .saturating_add(DIALOG_FRAME);
-            let block = Block::bordered()
-                .border_type(BorderType::Rounded)
-                .border_style(palette::level(&approval.level))
-                .title(Span::styled(
-                    format!(" approve · {} ", approval.level),
-                    palette::level(&approval.level),
-                ))
-                .padding(Padding::horizontal(1));
-            let dialog = Rect {
-                y: area.y + 1,
-                height: height.min(area.height.saturating_sub(2)),
-                ..inset
-            };
-            frame.render_widget(Paragraph::new(lines).block(block), dialog);
+            Self::render_approval(frame, approval, area, inset);
             plain(
                 frame,
                 area.height.saturating_sub(1),
@@ -942,7 +1269,275 @@ mod tests {
             call: Some("c".into()),
             details: Value::Null,
             text: text.map(str::to_string),
+            output: None,
         }
+    }
+
+    fn result_with(text: &str, shown: usize) -> Outbound {
+        let mut e = event("tool.result", Some("  ↳ ok"));
+        e.output = Some(ToolOutput {
+            id: "0123456789abcdef".into(),
+            text: text.into(),
+            lines: text.lines().count() as u64,
+            bytes: text.len() as u64,
+            truncated: false,
+            shown_lines: shown,
+        });
+        Outbound::Event(e)
+    }
+
+    fn numbered(n: usize) -> String {
+        (1..=n).fold(String::new(), |text, i| text + &format!("line {i}\n"))
+    }
+
+    fn texts(app: &mut App) -> Vec<(String, LineKind)> {
+        app.take_pending()
+            .into_iter()
+            .map(|l| (l.text, l.kind))
+            .collect()
+    }
+
+    fn view(kind: &str, turn: Option<u64>, turns: u64) -> Outbound {
+        Outbound::View(View {
+            kind: kind.into(),
+            turn,
+            turns,
+            text: "# Context\nbody".into(),
+        })
+    }
+
+    #[test]
+    fn tool_output_folds_after_its_note_and_says_how_many_lines_remain() {
+        let mut app = App::default();
+        app.handle(result_with(&numbered(5), 2));
+        assert_eq!(
+            texts(&mut app),
+            vec![
+                ("  ↳ ok".into(), LineKind::Tool),
+                ("    line 1".into(), LineKind::ToolOutput),
+                ("    line 2".into(), LineKind::ToolOutput),
+                (
+                    "    … 3 more lines · ctrl-o shows all".into(),
+                    LineKind::ToolOutput
+                ),
+            ]
+        );
+        assert_eq!(
+            app.last_output.as_ref().map(|o| o.id.as_str()),
+            Some("0123456789abcdef")
+        );
+        // Everything fits: no fold line.
+        app.handle(result_with(&numbered(2), 20));
+        assert_eq!(texts(&mut app).len(), 3);
+        // shownLines 0 shows none, only the fold.
+        app.handle(result_with(&numbered(4), 0));
+        let lines = texts(&mut app);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[1].0, "    … 4 more lines · ctrl-o shows all");
+        // Control characters never reach the terminal.
+        app.handle(result_with("a\u{1b}[31mred\tx\n", 5));
+        assert_eq!(texts(&mut app)[1].0, "    a[31mred    x");
+    }
+
+    #[test]
+    fn a_result_without_a_note_or_a_shown_count_still_folds() {
+        let mut app = App::default();
+        let mut e = event("tool.result", None);
+        e.output = Some(
+            serde_json::from_str(r#"{"id":"i","text":"a\nb\n","lines":2,"bytes":4}"#)
+                .unwrap_or_else(|e| panic!("output: {e}")),
+        );
+        app.handle(Outbound::Event(e));
+        assert_eq!(
+            texts(&mut app).len(),
+            2,
+            "no note, two lines, default 20 shown"
+        );
+        app.handle(result_with(&numbered(25), 20));
+        let lines = texts(&mut app);
+        assert_eq!(
+            lines.last().map(|l| l.0.as_str()),
+            Some("    … 5 more lines · ctrl-o shows all")
+        );
+    }
+
+    #[test]
+    fn ctrl_o_opens_the_whole_output_in_a_scrollable_panel_and_closes_it() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.toggle_output();
+        assert!(app.panel.is_none(), "nothing to show yet");
+        assert_eq!(texts(&mut app)[0].1, LineKind::Note);
+        app.handle(result_with(&numbered(40), 3));
+        app.take_pending();
+        app.toggle_output();
+        assert_eq!(
+            app.band_height(60),
+            16 + 2 + 2,
+            "rows, border, reply row, status"
+        );
+        let rows = drawn(&app, 60);
+        assert!(rows[1].starts_with(" ╭ output "), "{rows:?}");
+        assert!(rows[2].contains("line 1"), "{rows:?}");
+        assert!(rows[18].contains("↑↓ scroll · esc close"), "{rows:?}");
+        // Typing is ignored while it is open.
+        app.type_char('x');
+        assert!(app.editor.is_empty());
+        app.recall_next();
+        app.recall_next();
+        assert!(drawn(&app, 60)[2].contains("line 3"));
+        app.recall_previous();
+        assert!(drawn(&app, 60)[2].contains("line 2"));
+        app.page_down();
+        app.page_down();
+        app.page_down();
+        let rows = drawn(&app, 60);
+        assert!(
+            rows[2].contains("line 25"),
+            "scroll stops at the end: {rows:?}"
+        );
+        assert!(rows[18].contains("scroll"));
+        app.page_up();
+        assert!(drawn(&app, 60)[2].contains("line 9"));
+        assert_eq!(app.cancel(), Action::None);
+        assert!(app.panel.is_none());
+        assert_eq!(app.band_height(60), BAND_HEIGHT);
+        app.toggle_output();
+        app.toggle_output();
+        assert!(app.panel.is_none(), "Ctrl-O again closes it");
+        app.toggle_output();
+        assert_eq!(
+            app.interrupt(),
+            Action::None,
+            "Ctrl-C closes the panel first"
+        );
+        assert_eq!(app.interrupt(), Action::Quit);
+    }
+
+    #[test]
+    fn a_short_output_panel_is_only_as_tall_as_its_text_and_notes_truncation() {
+        let mut app = App::default();
+        let mut e = event("tool.result", None);
+        e.output = Some(ToolOutput {
+            id: "i".into(),
+            text: "one\ntwo\n".into(),
+            lines: 900,
+            bytes: 90_000,
+            truncated: true,
+            shown_lines: 20,
+        });
+        app.handle(Outbound::Event(e));
+        app.toggle_output();
+        assert_eq!(app.band_height(60), 3 + 2 + 2);
+        let rows = drawn(&app, 60);
+        assert!(
+            rows[4].contains("truncated: 900 lines, 90000 bytes"),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_approval_or_a_choice_arriving_closes_the_panel() {
+        let mut app = App::default();
+        app.handle(result_with("a\n", 1));
+        app.toggle_output();
+        assert!(app.panel.is_some());
+        app.handle(Outbound::Approval(approval("git push", "git push", &[])));
+        assert!(app.panel.is_none());
+        app.toggle_output();
+        assert!(app.panel.is_none(), "Ctrl-O does nothing under a dialog");
+        assert_eq!(app.show_context(), Action::None);
+        app.approval = None;
+        app.toggle_output();
+        app.handle(Outbound::Choice(choice(&["a"], false)));
+        assert!(app.panel.is_none());
+    }
+
+    #[test]
+    fn ctrl_t_asks_for_the_context_only_when_idle_and_a_view_opens_the_panel() {
+        let mut app = App {
+            status: Some(Status::default()),
+            busy: true,
+            ..Default::default()
+        };
+        assert_eq!(app.show_context(), Action::None, "not while a turn runs");
+        app.busy = false;
+        assert_eq!(
+            app.show_context(),
+            Action::Send(Inbound::Message {
+                text: "/inspect context next".into()
+            })
+        );
+        assert!(app.take_pending().is_empty(), "not echoed");
+        assert_eq!(app.show_context(), Action::None, "one request at a time");
+        app.handle(view("context", None, 4));
+        assert!(!app.context_asked);
+        let rows = drawn(&app, 60);
+        assert!(
+            rows[1].starts_with(" ╭ context · next request "),
+            "{rows:?}"
+        );
+        assert!(rows[3].contains("body"));
+        assert!(rows.iter().any(|r| r.contains("←→ turns")), "{rows:?}");
+        app.handle(view("context", Some(3), 4));
+        assert!(drawn(&app, 60)[1].contains(" context · turn 3 "));
+        app.handle(view("turns", None, 4));
+        let rows = drawn(&app, 60);
+        assert!(rows[1].contains(" context · turns "));
+        assert!(!rows.iter().any(|r| r.contains("←→ turns")));
+        assert_eq!(
+            app.step_turn(false),
+            Action::None,
+            "no stepping in the table"
+        );
+    }
+
+    #[test]
+    fn left_and_right_step_through_turns_one_request_at_a_time() {
+        let ask = |text: &str| Action::Send(Inbound::Message { text: text.into() });
+        let mut app = App::default();
+        app.handle(view("context", None, 4));
+        assert_eq!(
+            app.step_turn(true),
+            Action::None,
+            "nothing after the next request"
+        );
+        assert_eq!(app.step_turn(false), ask("/inspect context 4"));
+        assert_eq!(
+            app.step_turn(false),
+            Action::None,
+            "a request is outstanding"
+        );
+        app.handle(view("context", Some(4), 4));
+        assert_eq!(app.step_turn(false), ask("/inspect context 3"));
+        app.handle(view("context", Some(1), 4));
+        assert_eq!(app.step_turn(false), Action::None, "not below turn 1");
+        assert_eq!(app.step_turn(true), ask("/inspect context 2"));
+        app.handle(view("context", Some(4), 4));
+        assert_eq!(app.step_turn(true), ask("/inspect context next"));
+        // An invalid turn answers with a note, which clears the outstanding flag.
+        app.handle(Outbound::Note {
+            text: "no turn 9: this conversation's turns run from 1 to 4".into(),
+        });
+        assert!(!app.context_asked);
+        assert_eq!(app.step_turn(false), ask("/inspect context 3"));
+        // No turns yet: nowhere to step back to.
+        let mut fresh = App::default();
+        fresh.handle(view("context", None, 0));
+        assert_eq!(fresh.step_turn(false), Action::None);
+        // Esc closes; Left does nothing without a panel.
+        assert_eq!(app.cancel(), Action::None);
+        assert_eq!(app.step_turn(false), Action::None);
+    }
+
+    #[test]
+    fn long_panel_lines_wrap_and_control_characters_are_dropped() {
+        assert_eq!(wrap_rows("abcdef", 4), vec!["abcd", "ef"]);
+        assert_eq!(wrap_rows("a\u{1b}b\tc", 20), vec!["ab    c"]);
+        assert_eq!(wrap_rows("", 4), vec![""]);
+        assert_eq!(wrap_rows("x\n\ny", 4), vec!["x", "", "y"]);
     }
 
     fn turn(phase: &str, number: u64, seconds: Option<f64>, outcome: Option<&str>) -> Turn {

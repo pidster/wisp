@@ -69,12 +69,44 @@ public enum ChatProtocol {
 
     /// The `event` line's fields: the audit event's kind, call, turn, and details, and `text`, the
     /// unstyled line the terminal chat shows for it (null when it shows none), so every face words tool
-    /// activity alike and a front end renders the raw fields only when it wants to.
-    public static func event(_ event: AuditEvent) -> [String: JSONValue] {
-        [
+    /// activity alike and a front end renders the raw fields only when it wants to. A `tool.result` also
+    /// carries `output`, the tool's output for the front end to show (decision D12): its `id` (the event's,
+    /// which `/show` takes), `text` (up to `Paging.pageBytes`), `lines`, `bytes`, `truncated` when `text` is
+    /// shorter than the output, and `shownLines`, how many lines the terminal chat shows before it folds.
+    ///
+    /// - Parameters:
+    ///   - event: The audit event.
+    ///   - shownLines: The fold size (`Config.Resolved.shownOutputLines`).
+    /// - Returns: The fields.
+    public static func event(
+        _ event: AuditEvent, shownLines: Int = Config().resolved.shownOutputLines
+    )
+        -> [String: JSONValue]
+    {
+        var fields: [String: JSONValue] = [
             "kind": .string(event.kind.rawValue), "call": event.call.map { .string($0) } ?? .null,
             "turn": event.turn.map { .int($0) } ?? .null, "details": .object(event.details),
             "text": ChatEvents.render(event, style: .plain).map { .string($0) } ?? .null,
+        ]
+        if event.kind == .toolResult, let output = event.details["output"]?.stringValue {
+            let text = Paging.page(output, number: 1)?.text ?? ""
+            var lines = output.split(separator: "\n", omittingEmptySubsequences: false).count
+            if output.hasSuffix("\n") { lines -= 1 }
+            fields["output"] = .object([
+                "id": event.id.map { .string($0) } ?? .null, "text": .string(text), "lines": .int(lines),
+                "bytes": .int(output.utf8.count), "truncated": .bool(text.utf8.count < output.utf8.count),
+                "shownLines": .int(shownLines),
+            ])
+        }
+        return fields
+    }
+
+    /// The `view` line's fields: a view a chat command shows whole (`/inspect context next`, `N`, or `turns`), for a front end that shows
+    /// it in a panel of its own rather than in the transcript.
+    public static func view(_ view: ChatView) -> [String: JSONValue] {
+        [
+            "kind": .string(view.kind.rawValue), "turn": view.turn.map { .int($0) } ?? .null,
+            "turns": .int(view.turns), "text": .string(view.text),
         ]
     }
 

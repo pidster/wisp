@@ -54,6 +54,81 @@ public enum ChatEvents {
         }
     }
 
+    /// The most bytes of a tool's output chat shows under its note, whatever the line setting.
+    public static let shownOutputBytes = 2048
+
+    /// A tool's output as chat shows it under the call's note (decision D12 of the layered-context
+    /// proposal): the person sees the output as the tool returned it, so the model need not retype it.
+    /// At most `lines` lines and `shownOutputBytes` bytes are shown, each indented; when more remain, a
+    /// last line says how much and how to see it all (`/show` with the start of the `tool.result` event's
+    /// id, which is also the store's reference for the output). Nil for any other event, an empty output,
+    /// or `lines` 0.
+    ///
+    /// - Parameters:
+    ///   - event: The audit event.
+    ///   - lines: The most lines to show (`Config.Resolved.shownOutputLines`).
+    ///   - style: Styling.
+    /// - Returns: The lines, joined, or nil.
+    public static func shownOutput(_ event: AuditEvent, lines: Int, style: Style) -> String? {
+        guard event.kind == .toolResult, lines > 0, let output = event.details["output"]?.stringValue,
+            !output.isEmpty
+        else { return nil }
+        let fold = folded(output, lines: lines)
+        var shown = fold.shown.map { style.muted("    " + $0) }
+        if fold.hidden > 0 {
+            let handle = event.id.map { " /show \($0.prefix(8))" } ?? " /last"
+            shown.append(
+                style.muted(
+                    "    … \(fold.hidden) more line\(fold.hidden == 1 ? "" : "s"), "
+                        + "\(output.utf8.count) bytes in all:\(handle)"))
+        }
+        return shown.joined(separator: "\n")
+    }
+
+    /// The first lines of `output` that fit in `lines` lines and `shownOutputBytes` bytes, and how many lines
+    /// are left out. A trailing empty line is not counted.
+    ///
+    /// - Parameters:
+    ///   - output: The whole output.
+    ///   - lines: The most lines to show.
+    /// - Returns: The lines shown and the count hidden.
+    public static func folded(_ output: String, lines: Int) -> (shown: [String], hidden: Int) {
+        var all = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if all.last == "" { all.removeLast() }
+        var shown: [String] = []
+        var bytes = 0
+        for line in all.prefix(max(0, lines)) {
+            bytes += line.utf8.count + 1
+            guard bytes <= shownOutputBytes || shown.isEmpty else { break }
+            shown.append(line.utf8.count > shownOutputBytes ? String(line.prefix(shownOutputBytes / 2)) + "…" : line)
+        }
+        return (shown, all.count - shown.count)
+    }
+
+    /// The output `/show <argument>` asks for, whole: the tool output with that store entry id, or whose
+    /// `tool.result` event id starts with `argument` (at least four characters), or with no argument the
+    /// last one; nil when there is none.
+    ///
+    /// - Parameters:
+    ///   - argument: What follows `/show`.
+    ///   - store: The conversation's store.
+    ///   - last: The last tool result chat saw, which a turn not yet stored may hold.
+    /// - Returns: The output, or nil.
+    public static func output(_ argument: String?, in store: ConversationStore, last: String?) -> String? {
+        let outputs = store.entries.filter { $0.kind == .toolOutput }
+        guard let argument, !argument.isEmpty else {
+            return last ?? outputs.last.map { ConversationStore.text(of: $0.value) }
+        }
+        if let id = Int(argument) {
+            return outputs.first { $0.id == id }.map { ConversationStore.text(of: $0.value) }
+        }
+        let prefix = argument.lowercased()
+        guard prefix.count >= 4 else { return nil }
+        let found = outputs.filter { $0.sources.contains { $0.event.hasPrefix(prefix) } }
+        guard found.count == 1, let entry = found.first else { return nil }
+        return ConversationStore.text(of: entry.value)
+    }
+
     /// The line a caller waiting on an MCP call is shown for `event` as progress: what chat shows,
     /// unstyled and unindented, and, since the caller cannot see wisp's approval dialog, a line when a
     /// command waits for one. Nil for an event chat does not show.
