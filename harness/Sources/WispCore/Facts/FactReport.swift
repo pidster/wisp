@@ -11,13 +11,19 @@ public enum FactReport {
     /// Proposals from the process's other conversations follow, under their own heading, by the reference
     /// `/fact` takes (`git/c3`).
     ///
+    /// The running summary follows the facts, under its own heading: the current version, and with `all` the
+    /// versions it superseded, newest first.
+    ///
     /// - Parameters:
     ///   - facts: Every fact the conversation sees, in any state (`Agent.allFacts`).
     ///   - all: Whether to include superseded and deleted versions.
     ///   - elsewhere: Proposed permanent facts of other conversations awaiting the person
     ///     (`Agent.proposalsElsewhere`).
+    ///   - summaries: The running summary's versions, oldest first (`ThreadRecord.summaries`).
     /// - Returns: The text.
-    public static func markdown(_ facts: [Fact], all: Bool, elsewhere: [FactProposal] = []) -> String {
+    public static func markdown(
+        _ facts: [Fact], all: Bool, elsewhere: [FactProposal] = [], summaries: [RunningSummary] = []
+    ) -> String {
         let view = FactView(facts)
         let shown = facts.filter { all || $0.state == .current }.sorted { lhs, rhs in
             lhs.identity.key != rhs.identity.key ? lhs.identity.key < rhs.identity.key : lhs.recorded < rhs.recorded
@@ -25,7 +31,7 @@ public enum FactReport {
         let title = all ? "# Facts, with their history" : "# Facts"
         guard !shown.isEmpty else {
             return title + "\n\nNo facts yet. `/fact SUBJECT [NAME] = VALUE` states one; `/task TEXT` sets the task.\n"
-                + proposals(elsewhere)
+                + summary(summaries, all: all) + proposals(elsewhere)
         }
         var rows = [
             title, "",
@@ -48,7 +54,48 @@ public enum FactReport {
             "\(view.groups.count) subject\(view.groups.count == 1 ? "" : "s") in force"
                 + (conflicts > 0 ? ", \(conflicts) in conflict" : "")
                 + ". `/fact delete ID` deletes one; `/fact ID permanent|thread|session` moves one.")
-        return rows.joined(separator: "\n") + "\n" + proposals(elsewhere)
+        return rows.joined(separator: "\n") + "\n" + summary(summaries, all: all) + proposals(elsewhere)
+    }
+
+    /// The section showing the running summary, or nothing when none was written.
+    ///
+    /// - Parameters:
+    ///   - summaries: Its versions, oldest first.
+    ///   - all: Whether to show the superseded versions too.
+    /// - Returns: The section, starting with a blank line.
+    static func summary(_ summaries: [RunningSummary], all: Bool) -> String {
+        guard let current = summaries.last else { return "" }
+        var rows = ["", "## Summary of earlier turns", "", describe(current), "", current.text]
+        if all {
+            for earlier in summaries.dropLast().reversed() {
+                rows += ["", "### Superseded: " + describe(earlier), "", earlier.text]
+            }
+        } else if summaries.count > 1 {
+            rows += ["", "\(summaries.count - 1) earlier version\(summaries.count == 2 ? "" : "s"); `all` shows them."]
+        }
+        return rows.joined(separator: "\n") + "\n"
+    }
+
+    /// One summary version's line: its version, what it covers, and who wrote it when.
+    static func describe(_ summary: RunningSummary) -> String {
+        "Version \(summary.version), covering the \(summary.covered) earliest turn\(summary.covered == 1 ? "" : "s")"
+            + " (store entries up to \(summary.through)), written by \(summary.model) at "
+            + summary.recorded.ISO8601Format() + "."
+    }
+
+    /// A summary version as JSON, for the thread's facts resource.
+    ///
+    /// - Parameter summary: The version.
+    /// - Returns: The object.
+    public static func json(_ summary: RunningSummary) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "version": .int(summary.version), "text": .string(summary.text), "covered": .int(summary.covered),
+            "turns": .array(summary.turns.map { .int($0) }), "entries": .array(summary.entries.map { .int($0) }),
+            "sources": .array(summary.audit.map { .string($0.event) }), "through": .int(summary.through),
+            "recorded": .string(summary.recorded.ISO8601Format()), "model": .string(summary.model),
+        ]
+        if let turn = summary.turn { object["turn"] = .int(turn) }
+        return .object(object)
     }
 
     /// The section listing other conversations' proposals, or nothing when there are none.

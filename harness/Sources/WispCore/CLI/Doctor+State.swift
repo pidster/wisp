@@ -96,7 +96,7 @@ extension Doctor {
     }
 
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0 and
-    /// `facts.share` must be between 0 and 0.5, which loading the config enforces.
+    /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, which loading the config enforces.
     func settingsInRange() -> Finding {
         let name = "settings"
         var config = Config()
@@ -114,11 +114,15 @@ extension Doctor {
         if let share = config.facts?.share, !(0...0.5).contains(share) {
             problems.append("facts.share \(share) must be between 0 and 0.5; wisp refuses to load this config")
         }
+        if let share = config.facts?.summaryShare, !(0...0.5).contains(share) {
+            problems.append(
+                "facts.summaryShare \(share) must be between 0 and 0.5; wisp refuses to load this config")
+        }
         guard problems.isEmpty else { return Finding(name: name, ok: false, detail: problems.joined(separator: "; ")) }
         let resolved = resolvedConfig
         let state =
             "inlineOutputBytes \(resolved.inlineOutputBytes), shownOutputLines \(resolved.shownOutputLines), "
-            + "facts.share \(resolved.factsShare)"
+            + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare)"
         let clamped = notes.isEmpty ? "" : " (clamped: " + notes.joined(separator: "; ") + ")"
         return Finding(name: name, ok: true, detail: "in range: " + state + clamped)
     }

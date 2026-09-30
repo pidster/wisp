@@ -164,6 +164,24 @@ extension AuditEvent {
             return details
         }
 
+        /// `context.summary`: a new version of the running summary of the turns condensing dropped, or why none
+        /// was written.
+        public static func summary(
+            version: Int?, turns: [Int], entries: Int, bytes: Int, covered: Int?, summaryBytes: Int?, seconds: Double,
+            model: ModelSelection, combined: Bool, failure: String?
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "turns": .array(turns.map { .int($0) }), "entries": .int(entries), "bytes": .int(bytes),
+                "seconds": .double((seconds * 1000).rounded() / 1000), "model": .string(model.description),
+                "combined": .bool(combined),
+            ]
+            if let version { details["version"] = .int(version) }
+            if let covered { details["covered"] = .int(covered) }
+            if let summaryBytes { details["summaryBytes"] = .int(summaryBytes) }
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
         /// `fact.recorded`: a new fact, or a new version of one, with what it superseded.
         public static func factRecorded(_ fact: Fact, supersedes: String?) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
@@ -442,6 +460,11 @@ extension AuditEvent {
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]
         case .distillation: ["turns", "entries", "bytes", "facts", "seconds", "model", "failure"]
+        case .summary:
+            [
+                "version", "turns", "entries", "bytes", "covered", "summaryBytes", "seconds", "model", "combined",
+                "failure",
+            ]
         case .factRecorded:
             [
                 "id", "scope", "subject", "name", "source", "version", "value", "class", "method", "detail", "entries",

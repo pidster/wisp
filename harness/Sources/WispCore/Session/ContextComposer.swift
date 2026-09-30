@@ -14,7 +14,9 @@ import FoundationModels
 /// and every later request carries a compact structured reference in its place (`OutputReference`), under
 /// the same entry id. Condensing keeps the instructions and the policy's last turns
 /// (`Transcript.condensed(keepTurns:)`), ahead of the window at `budget` or on overflow, and the store marks
-/// the rest dropped rather than forgetting them. The composer is pure: it decides, and `Agent` counts
+/// the rest dropped rather than forgetting them. Phase 4a adds the facts (`facts`, a `FactFrame` the agent
+/// renders), and phase 4b the running summary of the dropped turns at the end of the earlier block
+/// (`summarises`, `summaryShare`, `summaryBatchTurns`). The composer is pure: it decides, and `Agent` counts
 /// tokens, saves the archive, records the audit events, and applies the result.
 public struct ContextComposer: Sendable {
     /// A decision to condense: the active view before and after, and the estimate that prompted it.
@@ -49,6 +51,22 @@ public struct ContextComposer: Sendable {
     /// The share of the context window the facts may take (decision D5's cap for the earlier block, with the
     /// now block inside it); the eval can vary it.
     public var factsShare = 0.1
+    /// Whether the turns condensing drops are summarised in the earlier block (phase 4b, decision D1): the
+    /// running summary, written by the model in batches and carried before the literal turns. Only an agent
+    /// that keeps facts writes one; off, nothing is written or carried (`ContextEquivalenceTests` runs with it
+    /// off).
+    public var summarises = true
+    /// The share of the context window the running summary may take, on top of `factsShare`: the earlier
+    /// block's cap is the two together, and the summary never takes the facts' room. Its own setting because
+    /// the eval showed a summary sharing the facts' 0.1 crowding out the early facts it was meant to add to
+    /// ("Summary, 2026-09-30" in the proposal). The eval can vary it.
+    public var summaryShare = 0.05
+    /// How many dropped turns wait for the summary: a condensation writes a new version only when the turns it
+    /// drops and those dropped earlier and not yet summarised come to at least this many. 3: a condensation
+    /// with references on drops many turns at once and summarises at once, and without them, when condensing
+    /// drops a turn or two before almost every prompt, it bounds the summary's calls to one in every few
+    /// condensations and the turns missing from it to two, which the facts cover.
+    public var summaryBatchTurns = 3
 
     /// A decision to cut one stretch of a reply.
     struct PresentationCut: Sendable, Equatable {
@@ -118,8 +136,9 @@ public struct ContextComposer: Sendable {
     /// The least the facts may take, in bytes, however small the window: room for the task and a few facts.
     static let factsFloorBytes = 1024
 
-    /// The facts frame for the next request: the facts in force, rendered and capped at `factsShare` of
-    /// `window` at four bytes a token, and never below `factsFloorBytes`.
+    /// The facts frame for the next request: the facts in force and, when `summarises`, the running summary,
+    /// rendered and capped at `factsShare` of `window` at four bytes a token, and never below
+    /// `factsFloorBytes`, and the summary within `summaryShare` of `window` on top of that.
     ///
     /// - Parameters:
     ///   - view: The facts in force.
@@ -129,7 +148,10 @@ public struct ContextComposer: Sendable {
     func factFrame(_ view: FactView, store: ThreadRecord, window: Int) -> FactFrame {
         let active = Set(store.entries.filter { $0.state == .active }.map(\.id))
         let budget = max(Self.factsFloorBytes, Int(Double(window) * factsShare) * Self.bytesPerToken)
-        return FactComposition.frame(view, active: active, budgetBytes: budget)
+        let summary = summarises ? store.summary : nil
+        return FactComposition.frame(
+            view, active: active, budgetBytes: budget, summary: summary,
+            summaryBytes: SummaryWriter.capBytes(share: summaryShare, window: window))
     }
 
     /// The context composed for the start of `turn`, rebuilt from the store (`composition(_:atTurn:)`).

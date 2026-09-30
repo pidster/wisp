@@ -17,9 +17,9 @@ import FoundationModels
 /// of presentational text a composer leaves out (`Cut`, `Entry.presented`); phase 3b adds when each entry
 /// was recorded and the turn from which a condensation dropped it or a tool output was sent as a reference
 /// (`Entry.droppedAt`, `Entry.referencedAt`), so the context of any turn can be composed again
-/// (`ContextComposer.compose(_:atTurn:)`). Facts and summaries (phase 4)
-/// will cite entries by `Entry.ID`, and `recall` will read their content back from the audit log through
-/// `sources`.
+/// (`ContextComposer.compose(_:atTurn:)`). Phase 4a adds the conversation's facts and phase 4b the running
+/// summary's versions, both citing entries by `Entry.ID`; `recall` will read their content back from the
+/// audit log through `sources`.
 public struct ThreadRecord: Sendable {
     /// What an entry is, as the framework's transcript names it.
     public enum Kind: String, Codable, Sendable, Equatable {
@@ -158,6 +158,33 @@ public struct ThreadRecord: Sendable {
     /// The facts each turn's requests carried, by turn, so the context of an earlier turn can be shown as it
     /// was sent; this session's turns only, and not saved.
     var frames: [Int: FactFrame] = [:]
+    /// The running summary's versions, oldest first (phase 4b, decision D1): the last is current, each earlier
+    /// one superseded by the next. Saved with the store; at most `RunningSummary.historyLimit` are kept.
+    public internal(set) var summaries: [RunningSummary] = []
+
+    /// The current running summary, or nil before the first is written.
+    public var summary: RunningSummary? { summaries.last }
+
+    /// Makes `summary` the current running summary, superseding the one before it, and keeps the history within
+    /// `RunningSummary.historyLimit`.
+    ///
+    /// - Parameter summary: The new version.
+    mutating func summarise(_ summary: RunningSummary) {
+        summaries.append(summary)
+        if summaries.count > RunningSummary.historyLimit {
+            summaries.removeFirst(summaries.count - RunningSummary.historyLimit)
+        }
+    }
+
+    /// The dropped entries the running summary does not cover yet: prompts, tool calls, and replies after its
+    /// `through`, in order. Condensing drops whole turns, so these are whole turns too.
+    var unsummarised: [Entry] {
+        let through = summary?.through ?? 0
+        return entries.filter { entry in
+            guard entry.id > through, entry.state != .active else { return false }
+            return [.prompt, .toolCalls, .response].contains(entry.kind)
+        }
+    }
 
     /// An empty store.
     public init() {}

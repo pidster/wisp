@@ -14,15 +14,23 @@ public struct FactSettings: Sendable {
     public var permanent: SharedFacts
     /// Whether turns leaving the active view are distilled by the model.
     public var distils: Bool
+    /// Whether the running summary is written in the same model call as the facts when both are due
+    /// (`SummaryWriter.Combined`), rather than in a call of its own after the facts'.
+    public var summaryWithFacts: Bool
     /// The process's proposed permanent facts, from every conversation, which it shares with them.
     public var proposals: FactProposals
+
+    /// Whether the summary shares the facts' call by default: yes, since the eval found one call as reliable
+    /// as two on the on-device model and granite, faster, and no worse (proposal, "Summary, 2026-09-30").
+    public static let summaryWithFactsDefault = true
 
     /// Creates settings. The defaults keep every fact in memory, which is what a test wants.
     public init(
         kinds: SubjectKinds = .defaults, session: SharedFacts = .session(),
         permanent: SharedFacts = SharedFacts(scope: .permanent), distils: Bool = true,
-        proposals: FactProposals = FactProposals()
+        proposals: FactProposals = FactProposals(), summaryWithFacts: Bool = FactSettings.summaryWithFactsDefault
     ) {
+        self.summaryWithFacts = summaryWithFacts
         self.kinds = kinds
         self.session = session
         self.permanent = permanent
@@ -253,7 +261,7 @@ extension Agent {
                     samplingMode: .greedy, maximumResponseTokens: FactDistiller.maximumResponseTokens)
             ).content
             let assertions = FactDistiller.assertions(
-                from: answer, kinds: facts.kinds, turns: distilled, entries: prose.map(\.id),
+                from: answer.facts, kinds: facts.kinds, turns: distilled, entries: prose.map(\.id),
                 audit: prose.flatMap(\.sources), turn: turns.current, time: Date())
             recorded = assertions.compactMap { record($0)?.id }
         } catch {

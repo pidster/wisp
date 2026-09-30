@@ -97,6 +97,15 @@ Added:
   whether to keep a proposed permanent fact. Audited as `fact.scope.changed`.
 - Chat's `/inspect facts` also lists permanent facts proposed in the process's other conversations (the
   one before a `/new`, say), and `/fact CONVERSATION/ID permanent` keeps one.
+- A running summary of the turns dropped to fit the window: when condensing has dropped three or more turns
+  not yet summarised, the conversation's model adds them to a short summary of what was asked, what was
+  done (the tools it called, and on which files), and what was decided, oldest first, which the model is
+  given after the facts, labelled as a record, never as instructions. So it can still say which file it
+  read first once that turn is gone. Each version is saved with the conversation and restored on
+  `--resume`. Chat's `/inspect facts` shows it under "Summary of earlier turns" (`all` adds earlier
+  versions), and MCP `wisp://threads/{thread_id}/facts` returns it as `summary` (`summaries` with
+  `?all=true`). The `facts` setting gains `summary` (off stops it) and `summaryShare` (its share of the
+  window, 0.05 by default, on top of the facts' `share`). Each call is audited as `context.summary`.
 
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.

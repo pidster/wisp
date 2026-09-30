@@ -52,6 +52,11 @@ public struct Config: Codable, Equatable, Sendable {
         public var distil: Bool?
         /// The share of the context window facts may take in a request; default 0.1.
         public var share: Double?
+        /// Whether the turns condensing drops are summarised in the earlier block by the conversation's model;
+        /// default true.
+        public var summary: Bool?
+        /// The share of the context window the running summary may take, on top of `share`; default 0.05.
+        public var summaryShare: Double?
         /// Kinds to add, or changes to the kinds of the same name.
         public var kinds: [KindChange]?
         /// Command prefixes whose exit status is a `tests` fact; replaces wisp's list when set.
@@ -95,8 +100,10 @@ public struct Config: Codable, Equatable, Sendable {
         /// Creates settings; nil fields take defaults.
         public init(
             enabled: Bool? = nil, distil: Bool? = nil, share: Double? = nil, kinds: [KindChange]? = nil,
-            testCommands: [String]? = nil
+            testCommands: [String]? = nil, summary: Bool? = nil, summaryShare: Double? = nil
         ) {
+            self.summary = summary
+            self.summaryShare = summaryShare
             self.enabled = enabled
             self.distil = distil
             self.share = share
@@ -104,7 +111,7 @@ public struct Config: Codable, Equatable, Sendable {
             self.testCommands = testCommands
         }
 
-        /// Checks that every kind has a name and a known normaliser, and the share is between 0 and 0.5.
+        /// Checks that every kind has a name and a known normaliser, and both shares are between 0 and 0.5.
         ///
         /// - Throws: `DecodingError.dataCorrupted` naming the problem.
         public func validate() throws {
@@ -120,6 +127,9 @@ public struct Config: Codable, Equatable, Sendable {
                 }
             }
             if let share, !(0...0.5).contains(share) { throw fail("share must be between 0 and 0.5") }
+            if let summaryShare, !(0...0.5).contains(summaryShare) {
+                throw fail("summaryShare must be between 0 and 0.5")
+            }
         }
     }
 
@@ -375,7 +385,9 @@ public struct Config: Codable, Equatable, Sendable {
             routingLadder: routing?.ladder ?? [],
             taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
             factsEnabled: facts?.enabled ?? true, factsDistil: facts?.distil ?? true,
-            factsShare: min(0.5, max(0, facts?.share ?? 0.1)), subjectKinds: SubjectKinds.defaults.applying(facts)
+            factsShare: min(0.5, max(0, facts?.share ?? 0.1)), factsSummary: facts?.summary ?? true,
+            summaryShare: min(0.5, max(0, facts?.summaryShare ?? 0.05)),
+            subjectKinds: SubjectKinds.defaults.applying(facts)
         )
     }
 
@@ -442,6 +454,10 @@ public struct Config: Codable, Equatable, Sendable {
         public var factsDistil = true
         /// The share of the context window facts may take in a request.
         public var factsShare = 0.1
+        /// Whether the turns condensing drops are summarised in the earlier block.
+        public var factsSummary = true
+        /// The share of the context window the running summary may take.
+        public var summaryShare = 0.05
         /// The subject kinds and test commands in force.
         public var subjectKinds = SubjectKinds.defaults
     }

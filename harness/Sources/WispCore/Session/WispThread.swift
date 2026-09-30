@@ -118,6 +118,8 @@ public struct WispThread: Sendable {
         agent.stats = stats
         agent.toolEvents = toolEvents
         agent.factsShare = config.factsShare
+        agent.summarises = config.factsSummary
+        agent.summaryShare = config.summaryShare
         agent.facts = facts
         if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent

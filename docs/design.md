@@ -47,7 +47,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, thread, agent, thread record, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, and the agent's fact operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, thread, agent, thread record, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, and the agent's fact and summary operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -109,7 +109,9 @@ handling). One turn, as the agent runs it:
 2. The composer decides whether to condense ahead of the window, over the literal turns alone, and the
    agent applies it: saves the archive, records `context.condensation`, distils the prose of the turns it
    drops into facts with one model call in a session of its own (`FactDistiller`, audited as
-   `context.distillation`), marks the dropped entries in the store with the condensation and this turn
+   `context.distillation`), and, when the dropped turns not yet summarised come to a batch
+   (`ContextComposer.summaryBatchTurns`), writes the facts and the updated running summary in that one call
+   instead (`SummaryWriter`, audited as `context.distillation` and `context.summary`; `Agent.handOn`), marks the dropped entries in the store with the condensation and this turn
    (`droppedAt`), and renders the frame again. For a model that reports usage, the estimate subtracts what
    step 1 saved.
 3. The composer builds the request's transcript: the store's active entries, with each reply's cut
@@ -145,9 +147,11 @@ the replies and outputs whole. Because the store knows the turn of each change,
 a composition, or the list of turns, as Markdown for chat's `/inspect context next|N|turns`, `wisp-tui`, and the MCP context
 resources, and `Paging` bounds it. The order is fixed by the framework and the composer: the instructions
 entry (wisp's prompt, the operator's extension, the caller's instructions, and the tool definitions) first
-and unchanged for the conversation, then the earlier block of facts (permanent, then dynamic), the turns
-oldest first, the now block (ephemeral facts, the task), then the request: D12's order by stability, with
-the summary of phase 4b to come beside the dynamic facts.
+and unchanged for the conversation, then the earlier block (permanent facts, dynamic facts, then the
+running summary of phase 4b), the turns oldest first, the now block (ephemeral facts, the task), then the
+request: D12's order by stability. The composer's `summarises` switch (on by default) is off in
+`ContextEquivalenceTests` with the others; its versions (`RunningSummary`) are kept in the store and saved
+with its links.
 
 **Facts** (phase 4a; [context-management.md](context-management.md), "Facts") are `Fact` values in a
 `FactBook` per scope: the conversation's in `ThreadRecord.facts`, a value saved with the store's

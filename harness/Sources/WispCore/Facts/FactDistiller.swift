@@ -111,9 +111,12 @@ enum FactDistiller {
     ///   - budgetBytes: The most the turns may take together.
     ///   - later: The turns that stay in view, whose prompts are shown for hindsight: a value they change is
     ///     given as it now stands.
+    ///   - summary: When the same call writes the running summary (`SummaryWriter.Combined`): the summary so
+    ///     far, shown before the turns, the turns' tool calls, shown among them, and the summary's word limit.
     /// - Returns: The prompt.
     static func prompt(
-        turns: [Turn], kinds: SubjectKinds, existing: [FactIdentity.Key], budgetBytes: Int, later: [Turn] = []
+        turns: [Turn], kinds: SubjectKinds, existing: [FactIdentity.Key], budgetBytes: Int, later: [Turn] = [],
+        summary: SummaryRequest? = nil
     ) -> String {
         var lines = ["Subjects:"]
         lines += kinds.kinds.filter(\.distils).map { "- \($0.name): \($0.description)" }
@@ -123,20 +126,49 @@ enum FactDistiller {
             lines.append("Already recorded (reuse these subjects and names):")
             lines += known.map { "- \($0.subject)" + ($0.name.isEmpty ? "" : " \($0.name)") }
         }
+        if let summary {
+            lines.append("")
+            if let previous = summary.previous {
+                lines.append(
+                    "The summary so far, of \(previous.covered) earlier turn\(previous.covered == 1 ? "" : "s"):")
+                lines.append(previous.text)
+            } else {
+                lines.append("There is no summary yet.")
+            }
+        }
         lines.append("")
         lines.append("The turns:")
-        let texts = max(1, turns.count * 2)
-        let each = max(120, min(entryCharacters, budgetBytes / texts))
-        for turn in turns {
-            lines.append("Turn \(turn.number), the person: " + flat(turn.prompt, each))
-            if !turn.reply.isEmpty { lines.append("Turn \(turn.number), the assistant: " + flat(turn.reply, each)) }
+        if let summary {
+            lines += SummaryWriter.turnLines(turns, calls: summary.calls, budgetBytes: budgetBytes)
+        } else {
+            let texts = max(1, turns.count * 2)
+            let each = max(120, min(entryCharacters, budgetBytes / texts))
+            for turn in turns {
+                lines.append("Turn \(turn.number), the person: " + flat(turn.prompt, each))
+                if !turn.reply.isEmpty { lines.append("Turn \(turn.number), the assistant: " + flat(turn.reply, each)) }
+            }
         }
         if !later.isEmpty {
             lines.append("")
             lines.append("Later turns, still in view (for the latest values):")
             lines += later.map { "Turn \($0.number), the person: " + flat($0.prompt, laterCharacters) }
         }
+        if let summary {
+            lines.append("")
+            lines.append(
+                "Give the facts, then the updated summary of the turns above in at most \(summary.words) words.")
+        }
         return lines.joined(separator: "\n")
+    }
+
+    /// What a distillation that also writes the running summary is shown besides the turns.
+    struct SummaryRequest {
+        /// The summary so far, or nil for the first.
+        var previous: RunningSummary?
+        /// The turns' tool calls, by turn number (`SummaryWriter.calls(in:)`).
+        var calls: [Int: [String]]
+        /// The summary's word limit.
+        var words: Int
     }
 
     /// `text` on one line, cut to `limit` characters.
@@ -148,7 +180,7 @@ enum FactDistiller {
     /// are dropped, and a later item about the same identity replaces an earlier one.
     ///
     /// - Parameters:
-    ///   - distillation: The model's answer.
+    ///   - items: The model's facts (`Distillation.facts`, or `SummaryWriter.Combined.facts`).
     ///   - kinds: The subject kinds.
     ///   - turns: The turns distilled, for the facts' provenance.
     ///   - entries: The store ids of the entries distilled.
@@ -157,7 +189,7 @@ enum FactDistiller {
     ///   - time: When.
     /// - Returns: The assertions.
     static func assertions(
-        from distillation: Distillation, kinds: SubjectKinds, turns: [Turn], entries: [Int], audit: [AuditReference],
+        from items: [Item], kinds: SubjectKinds, turns: [Turn], entries: [Int], audit: [AuditReference],
         turn: Int?, time: Date
     ) -> [FactBook.Assertion] {
         let numbers = turns.map(\.number)
@@ -167,7 +199,7 @@ enum FactDistiller {
             : (numbers.min() == numbers.max()
                 ? ", turn \(numbers[0])" : ", turns \(numbers.min() ?? 0)-\(numbers.max() ?? 0)")
         var found: [FactBook.Assertion] = []
-        for item in distillation.facts.prefix(maximumFacts) {
+        for item in items.prefix(maximumFacts) {
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, kinds.kind(item.subject)?.distils == true,
                 let (identity, temporalClass) = kinds.identity(subject: item.subject, name: item.name)

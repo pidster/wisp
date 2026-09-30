@@ -24,10 +24,15 @@ public enum ContextView {
         public var cut: Int
         /// Tool outputs sent as references from it on.
         public var referenced: Int
+        /// Versions of the running summary written during it, when condensing dropped turns.
+        public var summarised = 0
 
-        /// What changed since the turn before, in words: `condensed 6`, `cut 1`, `referenced 2`, or `none`.
+        /// What changed since the turn before, in words: `condensed 6`, `cut 1`, `referenced 2`, `summarised 1`,
+        /// or `none`.
         public var changes: String {
-            let parts = [("condensed", condensed), ("cut", cut), ("referenced", referenced)].filter { $0.1 > 0 }
+            let parts = [
+                ("condensed", condensed), ("cut", cut), ("referenced", referenced), ("summarised", summarised),
+            ].filter { $0.1 > 0 }
             return parts.isEmpty ? "none" : parts.map { "\($0.0) \($0.1)" }.joined(separator: ", ")
         }
     }
@@ -54,7 +59,8 @@ public enum ContextView {
                 tokens: estimatedTokens(before.map(\.sent)),
                 condensed: store.entries.filter { $0.droppedAt == number }.count,
                 cut: store.entries.filter { $0.origin == .turn && $0.turn == number - 1 && !$0.cuts.isEmpty }.count,
-                referenced: store.entries.filter { $0.referencedAt == number }.count)
+                referenced: store.entries.filter { $0.referencedAt == number }.count,
+                summarised: store.summaries.filter { $0.turn == number }.count)
         }
     }
 

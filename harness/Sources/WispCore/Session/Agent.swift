@@ -296,8 +296,8 @@ public final class Agent {
     }
 
     /// Applies a condensation: counts it, saves the transcript before and after, records the
-    /// `context.condensation` event, distils the prose of the turns it drops into facts when the agent keeps
-    /// facts, marks the dropped entries in the store with the event, and moves the session onto the condensed
+    /// `context.condensation` event, distils the prose of the turns it drops into facts and, when a batch is
+    /// due, adds them to the running summary when the agent keeps facts (`handOn(_:staying:)`), marks the dropped entries in the store with the event, and moves the session onto the condensed
     /// view with the facts in force.
     ///
     /// - Parameters:
@@ -319,7 +319,7 @@ public final class Agent {
                 saved: saveCondensation(condensation.before, condensation.after)))
         let kept = Set(condensation.after.map(\.id))
         let active = store.entries.filter { $0.state == .active }
-        await distil(
+        await handOn(
             active.filter { !kept.contains($0.value.id) }, staying: active.filter { kept.contains($0.value.id) })
         store.retain(condensation.after, droppedBy: event, at: turns.current)
         refreshFacts()

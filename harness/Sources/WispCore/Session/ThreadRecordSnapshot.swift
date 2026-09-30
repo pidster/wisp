@@ -4,7 +4,7 @@ import FoundationModels
 extension ThreadRecord {
     /// The store as saved beside a transcript (`TranscriptStore.save(_:as:)`): every entry's kind, origin,
     /// turn, state, audit references, cuts, time, and the turns it was dropped or referenced from, in store
-    /// order, so a resumed conversation keeps its entries connected to the events that recorded them and
+    /// order, with the conversation's facts and its running summary's versions, so a resumed conversation keeps its entries connected to the events that recorded them and
     /// composes its tool outputs as the saving session last did.
     ///
     /// An active entry's content is the saved transcript's entry with the same framework id, so the
@@ -51,6 +51,8 @@ extension ThreadRecord {
         public var entries: [Record]
         /// The conversation's facts; nil when it has none.
         public var facts: FactBook? = nil
+        /// The running summary's versions, oldest first; nil when none was written.
+        public var summaries: [RunningSummary]? = nil
 
         /// The sessions whose audit events the entries refer to (their `sources`, and the condensations
         /// that dropped them), sorted and distinct: where to look for what a resumed conversation carries.
@@ -105,6 +107,11 @@ extension ThreadRecord {
             guard next == live.count else { return nil }
             var store = ThreadRecord(entries: rebuilt)
             if let facts, facts.scope == .thread { store.facts = facts }
+            store.summaries = (summaries ?? []).map { summary in
+                var restored = summary
+                restored.turn = summary.turn.map { _ in 0 }
+                return restored
+            }
             return store
         }
     }
@@ -123,6 +130,6 @@ extension ThreadRecord {
                     dropped: active ? nil : Transcript(entries: [entry.value]),
                     cuts: entry.cuts.isEmpty ? nil : entry.cuts, time: entry.time, droppedAt: entry.droppedAt,
                     referencedAt: entry.referencedAt)
-            }, facts: facts.facts.isEmpty ? nil : facts)
+            }, facts: facts.facts.isEmpty ? nil : facts, summaries: summaries.isEmpty ? nil : summaries)
     }
 }

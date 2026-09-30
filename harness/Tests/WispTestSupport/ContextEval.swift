@@ -461,7 +461,71 @@ public struct FactsStrategy: ContextStrategy {
         agent.referencesOutput = true
         agent.contextBudget = budget
         agent.factsShare = share
+        agent.summarises = false
         agent.facts = FactSettings()
+        return AgentThread(agent)
+    }
+}
+
+/// The running summary (phase 4b of the proposal, decision D1) on top of `FactsStrategy`: when condensing drops
+/// at least `batchTurns` turns not yet summarised, the model adds them to the summary so far, which the earlier
+/// block carries after the facts, capped at `summaryShare` of the window. `together` writes the summary in the
+/// facts' call; otherwise it has a call of its own.
+public struct SummaryStrategy: ContextStrategy {
+    /// `summary`, or `summary-separate` when the summary has a call of its own.
+    public var name: String { together ? "summary" : "summary-separate" }
+    /// What it does.
+    public var summary: String {
+        "facts, with the turns condensing drops added to a running summary in the earlier block"
+            + (together ? ", written in the facts' call" : ", written in a call of its own")
+    }
+    /// The share of the window the facts may take (`Agent.factsShare`).
+    public var share: Double
+    /// The share of the window the summary may take (`Agent.summaryShare`).
+    public var summaryShare: Double
+    /// Dropped turns that wait for the summary (`Agent.summaryBatchTurns`).
+    public var batchTurns: Int
+    /// Whether the summary is written in the facts' call (`FactSettings.summaryWithFacts`).
+    public var together: Bool
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
+    /// Yes: facts are extracted from the turn's tool events.
+    public var linksToolEvents: Bool { true }
+
+    /// Creates the strategy.
+    ///
+    /// - Parameters:
+    ///   - share: The facts' share of the window; the default is the composer's.
+    ///   - summaryShare: The summary's share of the window; the default is the composer's.
+    ///   - batchTurns: Dropped turns that wait for the summary; the default is the composer's.
+    ///   - together: Whether the summary is written in the facts' call; the default is `FactSettings`'s.
+    ///   - budget: When to condense; the default is the agent's, 85%.
+    public init(
+        share: Double = 0.1, summaryShare: Double = 0.05, batchTurns: Int = 3,
+        together: Bool = FactSettings.summaryWithFactsDefault, budget: Double = 0.85
+    ) {
+        self.share = share
+        self.summaryShare = summaryShare
+        self.batchTurns = batchTurns
+        self.together = together
+        self.budget = budget
+    }
+
+    /// Opens an `Agent` with output handling on, facts kept in memory, and the running summary.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextThread
+    {
+        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.cutsPresentation = true
+        agent.referencesOutput = true
+        agent.contextBudget = budget
+        agent.factsShare = share
+        agent.summarises = true
+        agent.summaryShare = summaryShare
+        agent.summaryBatchTurns = batchTurns
+        agent.facts = FactSettings(summaryWithFacts: together)
         return AgentThread(agent)
     }
 }
@@ -514,6 +578,9 @@ extension ContextEval {
         public var facts: Int
         /// The facts distilled during the turn, as `subject name = value`.
         public var distilled: [String] = []
+        /// The seconds each summary call during the turn took (`context.summary` events), with whether it
+        /// shared the facts' call and whether it failed.
+        public var summaries: [SummaryCall] = []
 
         /// Creates a turn record.
         public init(
@@ -548,8 +615,31 @@ extension ContextEval {
                     : ", distilled in " + distillations.map { String(format: "%.1f s", $0) }.joined(separator: "+"))
                 + (facts == 0 ? "" : ", facts \(facts)")
                 + (distilled.isEmpty ? "" : ", distilled [\(distilled.joined(separator: "; "))]")
+                + (summaries.isEmpty ? "" : ", summarised " + summaries.map(\.words).joined(separator: "+"))
                 + (failed ? ", FAILED" : "")
                 + " | \(shown)"
+        }
+    }
+
+    /// One summary call (`context.summary`).
+    public struct SummaryCall: Sendable, Equatable {
+        /// How long it took; for one shared with the facts, the shared call's time.
+        public var seconds: Double
+        /// Whether it shared the facts' call.
+        public var combined: Bool
+        /// Why no version was written, or nil.
+        public var failure: String?
+
+        /// Creates a record.
+        public init(seconds: Double, combined: Bool, failure: String? = nil) {
+            self.seconds = seconds
+            self.combined = combined
+            self.failure = failure
+        }
+
+        /// In words: `4.2 s`, `in the facts' call`, and `failed` where it did.
+        var words: String {
+            (combined ? "in the facts' call" : String(format: "%.1f s", seconds)) + (failure == nil ? "" : " failed")
         }
     }
 
@@ -586,6 +676,8 @@ extension ContextEval {
         public var load: (start: Double, end: Double)
         /// What the scenario does (`Scenario.summary`).
         public var scenario: String
+        /// The running summary's last version when the run ended, for a strategy that writes one.
+        public var summary: RunningSummary?
 
         /// Creates a run.
         public init(
@@ -605,7 +697,7 @@ extension ContextEval {
         public static func == (lhs: Run, rhs: Run) -> Bool {
             lhs.strategy == rhs.strategy && lhs.model == rhs.model && lhs.window == rhs.window
                 && lhs.turns == rhs.turns && lhs.answers == rhs.answers && lhs.load.start == rhs.load.start
-                && lhs.load.end == rhs.load.end && lhs.scenario == rhs.scenario
+                && lhs.load.end == rhs.load.end && lhs.scenario == rhs.scenario && lhs.summary == rhs.summary
         }
 
         /// Correct answers among the questions probing `probes`.
@@ -628,6 +720,17 @@ extension ContextEval {
 
         /// Facts recorded over the whole run.
         public var facts: Int { turns.map(\.facts).reduce(0, +) }
+
+        /// The summary calls, over the whole run.
+        public var summaries: [SummaryCall] { turns.flatMap(\.summaries) }
+
+        /// The summary calls in words, for the report and the notes: empty when none were made.
+        var summarised: String {
+            let calls = summaries
+            guard !calls.isEmpty else { return "" }
+            return "\(calls.count) summar\(calls.count == 1 ? "y" : "ies") ("
+                + calls.map(\.words).joined(separator: ", ") + ")"
+        }
 
         /// The distillations in words, for the report and the notes: `none`, or the count and each one's time.
         var distilled: String {
@@ -655,8 +758,8 @@ extension ContextEval {
                 "\(strategy) on \(model) (window \(window.map(String.init) ?? "unknown")): facts \(facts.correct)/"
                     + "\(facts.total), \(verdicts)",
                 "\(condensations) condensations (first at turn \(firstCondensation.map(String.init) ?? "none")), "
-                    + "\(cuts) cuts, \(references) references, \(self.facts) facts recorded, and \(distilled) over "
-                    + "\(turns.count) turns; "
+                    + "\(cuts) cuts, \(references) references, \(self.facts) facts recorded, "
+                    + (summaries.isEmpty ? "" : "\(summarised), ") + "and \(distilled) over \(turns.count) turns; "
                     + "tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
                     + "\(tokens.max().map(String.init) ?? "?"); time per turn median "
@@ -687,6 +790,7 @@ extension ContextEval {
                     + "\(byID["task"] ?? "?"), \(condensations) condensations (first at turn "
                     + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, "
                     + (self.facts == 0 && distillations.isEmpty ? "" : "\(self.facts) facts recorded, \(distilled), ")
+                    + (summaries.isEmpty ? "" : "\(summarised), ")
                     + "median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
@@ -769,6 +873,11 @@ extension ContextEval {
                 "\($0.details["subject"]?.stringValue ?? "") \($0.details["name"]?.stringValue ?? "") = "
                     + ($0.details["value"]?.stringValue ?? "")
             }
+            turn.summaries = events.filter { $0.kind == .summary }.map {
+                SummaryCall(
+                    seconds: $0.details["seconds"]?.doubleValue ?? 0, combined: $0.details["combined"] == true,
+                    failure: $0.details["failure"]?.stringValue)
+            }
             turns.append(turn)
             onTurn(turn)
         }
@@ -776,8 +885,10 @@ extension ContextEval {
         let answers = zip(scenario.questions, replies).map { question, reply in
             Answer(question: question, reply: reply, verdict: question.score(reply))
         }
-        return Run(
+        var run = Run(
             strategy: strategy.name, model: model.selection.description, window: model.contextSize, turns: turns,
             answers: answers, load: (loadAtStart, loadAverage()), scenario: scenario.summary)
+        run.summary = (thread as? AgentThread)?.agent.store.summary
+        return run
     }
 }

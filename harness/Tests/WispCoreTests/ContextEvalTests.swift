@@ -280,6 +280,40 @@ import WispTestSupport
         #expect(FactsStrategy().linksToolEvents && !ReferencingStrategy().linksToolEvents)
     }
 
+    @Test func theSummaryStrategyWritesTheSummaryWhenABatchOfTurnsHasBeenDropped() async throws {
+        let steps = (1...7).map {
+            ContextEval.Step(kind: .plant, prompt: "Note number \($0) for the record. Please reply in one short line.")
+        }
+        let scenario = ContextEval.Scenario(
+            name: "tiny", fixtures: ContextEval.fixturesDirectory, steps: steps,
+            questions: [
+                ContextEval.Question(
+                    id: "first", probe: .order, prompt: "What was the first note? Please reply in one short line.",
+                    check: .mentions(["number 1"]))
+            ])
+        let none = #"{"facts":[]}"#
+        let model = ScriptedModel(
+            steps: Array(repeating: .say("Noted."), count: 5) + [
+                .say(none), .say("Noted."), .say(none), .say("Noted."), .say(none),
+                .say("The person gave note number 1, then 2, then 3."), .say("Note number 1."),
+            ])
+        // A 60-token window: from the sixth turn each condenses to the last four and drops one turn, so the
+        // question's condensation brings the dropped turns to three, the batch, and the summary is written.
+        let run = await ContextEval.run(
+            scenario, strategy: SummaryStrategy(share: 0.2, together: false),
+            model: ResolvedModel(selection: .system, custom: model, contextSize: 60), instructions: "x",
+            tools: { _ in [] })
+        #expect(run.strategy == "summary-separate" && run.answers.map(\.verdict) == [.correct])
+        #expect(run.distillations.count == 3 && run.summaries.count == 1 && run.turns[7].summaries.count == 1)
+        #expect(run.turns[7].line.contains("summarised ") && run.report[1].contains("1 summary ("))
+        #expect(run.measurement().notes.contains("1 summary ("))
+        #expect(run.summary?.text == "The person gave note number 1, then 2, then 3." && run.summary?.covered == 3)
+        let question = model.script.requests.withLock { $0.last.map { Array($0.transcript) } } ?? []
+        #expect(ThreadRecord.text(of: question[1]).hasSuffix("The person gave note number 1, then 2, then 3."))
+        #expect(SummaryStrategy().name == "summary" && SummaryStrategy().together && SummaryStrategy().batchTurns == 3)
+        #expect(SummaryStrategy().summary.contains("running summary"))
+    }
+
     @Test func recordsAThrownTurnAsItsReplyAndCarriesOn() async throws {
         let scenario = ContextEval.Scenario(
             name: "tiny", fixtures: ContextEval.fixturesDirectory,

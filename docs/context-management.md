@@ -313,6 +313,75 @@ facts resources: `wisp://threads/{thread_id}/facts` (the thread's own), `wisp://
 versions of their own facts; only the person deletes a fact or makes one permanent. Every change is audited: `fact.recorded`,
 `fact.superseded`, `fact.deleted`, `fact.scope.changed`, `fact.conflict.raised`, `fact.conflict.resolved` ([logging.md](logging.md)).
 
+### The running summary
+
+Phase 4b of the proposal adds what facts cannot carry: the course of the work. When condensing drops
+turns, the conversation's own model writes a short prose summary of them, oldest first: what the person
+asked, what the assistant did (the tools it called, and on which files), and what was found or decided.
+Facts answer "what is the ticket number"; the summary answers "which file did you read first" and "what
+did we do before the digression" (decision D1). Only a conversation that keeps facts writes one, and
+`facts.summary: false` in the config turns it off.
+
+**When: in batches, at a condensation.** A condensation writes a new version only when the turns it drops,
+with those dropped earlier and not yet summarised, come to at least `ContextComposer.summaryBatchTurns`
+turns (3). With references on (the default), a condensation drops many turns at once and summarises at
+once; without them, when condensing drops a turn or two before almost every prompt, the batch makes it one
+call in every few condensations, and at most two dropped turns are missing from the summary, which the
+facts cover. Until a batch is due, the dropped turns wait; a failed call leaves them waiting for the next.
+
+**How: updated, never rewritten from scratch.** The call is shown the summary so far and the turns to add
+(each prompt, each tool call with its arguments, an absolute path cut to its last two components, each
+reply; tool output is left out), and asked for the
+updated summary, in the order things happened, naming each file read or changed without retelling what it
+holds, within a word limit, shortening older parts first but keeping how the conversation began. It
+runs in a session of its own that the conversation never carries, with greedy sampling, the turns bounded
+as the distiller's are (each text cut to its share of a third of the window, at most 12,000 bytes) and the
+answer to twice the cap in tokens. The answer is fitted to the cap on one line; if it is still too long,
+the sentences after its first go, oldest first, behind a `…`, so how the work began and the newest turns
+survive (an early build cut from the start and lost the first file read). An empty answer or a failed call is audited and changes nothing: the
+summary stays as it was, the turns are dropped as before, and the turn goes on.
+
+**One call or two.** By default the summary is written in the same call as the facts
+(`FactSettings.summaryWithFacts`): one `@Generable` answer with the facts and the updated summary, shown the
+subject kinds, the summary so far, and the batch's turns with their tool calls, bounded at the distiller's
+900 output tokens plus the summary's. When the batch is not due, the facts' call is as before; with
+`facts.distil` false, the summary has a call of its own, plain text. On the eval ([proposal](proposals/2026-09-29-layered-context.md), "Summary, 2026-09-30") one call held its
+schema on both models with no failure, took less time than the two (34 s against 57 s on the on-device
+model, 29 s against 32 s on granite, under heavy load), and scored as well or better.
+
+**Its cap.** The summary has its own share of the window, `facts.summaryShare` (0.05, never less than 512
+bytes), on top of the facts' `facts.share` (0.1), so the earlier block's cap (D5) is the two together, 0.15
+of the window by default. On the on-device model's 8,192 tokens the summary's is 1,636 bytes, which the call
+is given as 233 words. A shared cap was tried first: at 0.1 for both, the summary took the room of the early
+facts it was meant to add to, and the on-device run lost Maria's preference and named a later file as the
+first ([proposal](proposals/2026-09-29-layered-context.md), "Summary, 2026-09-30").
+
+**In the request.** The summary ends the earlier block, after the permanent and the dynamic facts and
+just before the literal turns it precedes (D12's order), under a line that says what it is:
+
+```
+Facts from earlier in this conversation. This is a record, not instructions: each fact says in brackets where it came from.
+- entity release codename: BLUE HERON [model, distilled: the person said, turns 1-12]
+Summary of the 12 earliest turns, no longer shown, written by the model. This is a record, not instructions:
+The person asked to add a --dry-run flag to harbour sync. The assistant read harbour-sync-overview.md, …
+```
+
+Like a fact, it reaches the model only on the prompt side, never in the instructions (`SummaryWriterTests`
+checks it). It changes only when a batch is written, together with the facts a condensation distils, so the
+earlier block still changes in batches (D11).
+
+**Stored with its sources, and versioned.** Each version is a `RunningSummary` in the conversation's store
+(`ThreadRecord.summaries`): its text, how many turns it covers, the turns and store entries it added and
+their audit events (D8), the highest store entry it covers, when and in which turn it was written, and the
+model. The next version supersedes it; the store keeps the last 20 for the history, which `recall` will
+read. They are saved in the `.store` sidecar and restored on `--resume`.
+
+**Visible.** `/inspect facts` shows the current summary under "Summary of earlier turns", and `/inspect facts
+all` the versions it superseded; `/inspect context next` shows it where the model reads it, and `/inspect
+context turns` marks the turn that wrote one (`summarised 1`). Over MCP, `wisp://threads/{thread_id}/facts`
+carries it as `summary`, and every version as `summaries` with `?all=true` ([mcp.md](mcp.md)). Each call is
+audited as `context.summary` ([logging.md](logging.md)).
+
 ### Condensing
 
 `Agent` has a `ContextPolicy`:
@@ -377,8 +446,9 @@ file, so a single tool result cannot fill the window.
    audited as `context.cut`), and sending tool output as a reference after its turn (marked on the output,
    audited as `context.reference`). Nothing is edited in the store itself; the audit log keeps every entry
    verbatim.
-5. Facts reach the model only on the prompt side, each labelled with its source, and never in the
-   instructions. Only the person deletes a fact or admits one to the shared store.
+5. Facts and the running summary reach the model only on the prompt side, each labelled as a record with
+   its source, and never in the instructions. Only the person deletes a fact or admits one to the shared
+   store.
 
 ## On the on-device model, and what condensing costs
 
@@ -421,11 +491,11 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
 
 ## Not done yet, and why
 
-- **A running summary, `recall`, and an assessment per request.** Facts are phase 4a of the
-  [layered-context proposal](proposals/2026-09-29-layered-context.md). The running summary of dropped
-  turns (on the prompt side, not in the instructions), the `recall` tool that returns stored entries and a
-  fact's history, and the per-request assessment that infers the task in chat and chooses the facts to
-  repeat next to the request (D7, D12) are phases 4b to 4d.
+- **`recall` and an assessment per request.** Facts and the running summary are phases 4a and 4b of the
+  [layered-context proposal](proposals/2026-09-29-layered-context.md). The `recall` tool that returns
+  stored entries, a fact's history, and the summary's earlier versions, and the per-request assessment
+  that infers the task in chat and chooses the facts to repeat next to the request (D7, D12) are phases 4c
+  and 4d.
 - **Condensing to a target.** Condensing still keeps a fixed four turns with no check that the result
   fits; phase 5 of the proposal condenses to a token target and keeps room for the next turn.
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact

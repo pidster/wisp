@@ -53,8 +53,10 @@ extension WispServer {
             && text.dropFirst().allSatisfy(\.isNumber)
     }
 
-    /// Serves `wisp://threads/{thread_id}/facts[/{fact_id}]`: the thread's own facts, those its store holds.
-    /// The session's and the permanent ones have resources of their own.
+    /// Serves `wisp://threads/{thread_id}/facts[/{fact_id}]`: the thread's own facts, those its store holds,
+    /// and the collection's `summary`, the running summary of the turns condensing dropped (null before the
+    /// first), with every version in `summaries` under `?all=true`. The session's and the permanent facts have
+    /// resources of their own.
     ///
     /// - Parameters:
     ///   - id: The thread.
@@ -93,6 +95,9 @@ extension WispServer {
         var listing = try listing(own, page: page, all: all, base: base, view: view)
         let keys = Set(own.filter { $0.state == .current }.map(\.identity.key))
         listing = Self.with(listing, "conflicts", .int(view.conflicts.intersection(keys).count))
+        let summaries = await open.thread.summaries() ?? []
+        listing = Self.with(listing, "summary", summaries.last.map(FactReport.json) ?? .null)
+        if all { listing = Self.with(listing, "summaries", .array(summaries.map(FactReport.json))) }
         return listing
     }
 

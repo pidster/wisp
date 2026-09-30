@@ -352,6 +352,37 @@ What it shows:
   says CI failing and then green, and keeps the latter; `FactBookTests` covers versions, sources, and
   conflicts.
 
+### Summary, 2026-09-30
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ModelEvalTests.ContextEvalTests/summary`,
+recorded in `measurements.json` as `context.summary.showing[.window-8192].budget-50` (the summary written
+in the facts' call) and `context.summary-separate.…` (in a call of its own). The `showing` scenario at a
+50% budget, as for facts, since at 85% nothing condenses; window 8,192. Each figure is one run: a second
+on-device run was started and stopped before it produced results. Load average 78 to 110, so times are
+indicative only.
+
+| Model | Summary written | Score | Wrong | Condensations | Model call | Tokens median (max) | Time per turn median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device | in the facts' call | 5/6 | preference | 1 (turn 14) | 34.4 s | 3,049 (4,318) | 14.2 s (24.4 s) |
+| On-device | separate call | 3/6 | ticket, preference, first file | 2 (first at turn 13) | 29.9 + 30.4 s summaries, 27.2 + 17.0 s facts | 3,259 (4,373) | 12.7 s (52.6 s) |
+| granite4.1:8b | in the facts' call | 6/6 | none | 1 (turn 14) | 28.6 s | 3,190 (5,057) | 10.9 s (14.8 s) |
+| granite4.1:8b | separate call | 5/6 | first file | 1 (turn 14) | 19.9 s facts + 12.4 s summary | 2,945 (4,492) | 7.1 s (15.4 s) |
+
+What it shows:
+- **One call for facts and the summary** held its schema on both models with no failure, cost less time
+  than two calls, and scored as well or better; it is the default (`FactSettings.summaryWithFacts`, not a config key).
+- **Granite now answers "which file came first"**: 6 of 6 against 5 of 6 with facts alone. On the
+  on-device model the first file was right from the extracted `file` fact and its turn, not the summary;
+  the on-device score stays 5 of 6.
+- **The summary has its own cap** (`facts.summaryShare`, 0.05 of the window, at least 512 bytes), beside
+  the facts' 0.1: sharing one cap was measured first, and the summary crowded out early facts (an earlier
+  on-device run lost the preference and named a later file as the first).
+- **The on-device model ignores the word limit** and retells what files hold, so an answer over the cap
+  loses its middle sentences, oldest first, keeping how the work began and the newest turns; long paths
+  are shortened in what the call is shown.
+- **D1's reopen condition** (a batched summary lagging enough to mislead) is not measured: with references
+  on, one condensation drops many turns at once, so no batch waited in these runs.
+
 ## Decisions
 
 Each question settled in review is recorded here with what was considered, what was chosen and why,
@@ -1183,7 +1214,20 @@ go here as they arise.
      - *D11's cost.* The now block sits before the request, so every request with a task or an ephemeral
        fact starts a new session; the earlier block's id is made from its content, so an unchanged block
        costs nothing.
-4b. The running summary of dropped turns, beside the dynamic facts (D1's batches).
+4b. The running summary of dropped turns, beside the dynamic facts (D1's batches). Done 2026-09-30,
+   figures under "Evaluation", "Summary, 2026-09-30":
+   - Written by the conversation's model at a condensation, once the dropped turns not yet summarised come
+     to `summaryBatchTurns` (3); with references on, one condensation drops enough at once. By default in
+     the same call that distils facts (one `@Generable` answer with both), otherwise a call of its own.
+   - Updated, not rewritten: the call sees the previous summary and the batch's prompts, tool calls, and
+     replies (not tool output), and returns the summary within `facts.summaryShare` of the window; an
+     answer over the cap loses its middle sentences. A failure keeps the summary as it was and the turns
+     for the next batch.
+   - It ends the earlier block, after the facts, labelled as a record, never in the instructions. Each
+     version is kept in the thread record (the last 20) with the turns, entries, and audit references it
+     covers, saved in the `.store` sidecar; audited as `context.summary`.
+   - Visible with the facts: `/inspect facts` shows it (`all` adds earlier versions), `/inspect context
+     turns` marks the turn that wrote one, and `wisp://threads/{id}/facts` carries `summary`.
 4c. `recall`: stored entries, a fact's sources and history (D2), and the task in full.
 4d. The assessment per request (D12): the task inferred in chat (D6), the tools a request needs (D4), and
    the facts to repeat next to the request (D7).

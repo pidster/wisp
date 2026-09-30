@@ -24,6 +24,10 @@ public protocol RespondingThread: Sendable {
     /// Every fact the thread sees, in any state (`Agent.allFacts`); nil when it keeps none.
     func facts() async -> [Fact]?
 
+    /// The running summary's versions, oldest first (`ThreadRecord.summaries`); nil when the thread keeps no
+    /// facts.
+    func summaries() async -> [RunningSummary]?
+
     /// Moves one of the thread's facts, or a session fact, to `target` as the caller's action
     /// (`Agent.setFactScope`).
     ///
@@ -47,6 +51,9 @@ extension RespondingThread {
 
     /// None, as for `context(_:)`.
     public func facts() async -> [Fact]? { nil }
+
+    /// None, as for `context(_:)`.
+    public func summaries() async -> [RunningSummary]? { nil }
 
     /// Refused: a thread without a thread record keeps no facts.
     public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact { throw FactFailure.off }
@@ -88,6 +95,11 @@ public actor ThreadActor: RespondingThread {
     /// Moves a fact as the caller's action.
     public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact {
         try agent.setFactScope(id, to: target, by: .caller)
+    }
+
+    /// The agent's running summary's versions, or nil when it keeps no facts.
+    public func summaries() async -> [RunningSummary]? {
+        agent.facts == nil ? nil : agent.store.summaries
     }
 
     /// The agent's facts, or nil when it keeps none; proposals moved elsewhere are marked superseded first.

@@ -20,7 +20,9 @@ import WispTestSupport
 /// output display off, for the same reason (`OutputReferenceTests` and `ChatOutputTests` test those).
 /// Phase 4a added facts, which a conversation opened through `WispThread.openAgent` keeps by default; the
 /// one agent here opened that way has them off (`agent.facts = nil`), and every other is made directly and
-/// keeps none (`FactsTests` and `FactCompositionTests` test them).
+/// keeps none (`FactsTests` and `FactCompositionTests` test them). Phase 4b added the running summary,
+/// which only an agent keeping facts writes; every agent here also runs with `summarises` off, so the suite
+/// runs with every layer switched off (`RunningSummaryTests` and `SummaryWriterTests` test it).
 ///
 /// wisp's system prompt is not what this suite checks: phase 3b changed its wording (D12's standing rule
 /// that the person sees tool output), so the prompt in force is written back as the phase 2 text before
@@ -211,6 +213,7 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: model, contextSize: 60), audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "eq")
         var fingerprint = Fingerprint()
         let long = " This sentence makes the prompt long enough to pass the budget."
@@ -251,6 +254,7 @@ import WispTestSupport
             audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "ov")
         var fingerprint = Fingerprint()
         var streamed: [String] = []
@@ -269,6 +273,7 @@ import WispTestSupport
             contextPolicy: .failFast, audit: audit)
         strict.cutsPresentation = false
         strict.referencesOutput = false
+        strict.summarises = false
         await reply(&fingerprint) { try await strict.respond(to: "boom") }
         await reply(&fingerprint) { try await strict.respond(to: "again") }
         fingerprint.output.append(canon.json(strict.transcript))
@@ -288,6 +293,7 @@ import WispTestSupport
             contextPolicy: .condense(keepTurns: 1), audit: AuditLog(session: "count", sink: sink))
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         var fingerprint = Fingerprint()
         for prompt in ["first", "second", "third", "fourth"] {
             await reply(&fingerprint) { try await agent.respond(to: prompt) }
@@ -309,6 +315,7 @@ import WispTestSupport
             audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         var fingerprint = Fingerprint()
         await reply(&fingerprint) { try await agent.respond(to: "first") }
         await reply(&fingerprint) { try await agent.respond(to: "second") }
@@ -323,6 +330,7 @@ import WispTestSupport
             audit: audit)
         resumed.cutsPresentation = false
         resumed.referencesOutput = false
+        resumed.summarises = false
         await reply(&fingerprint) { try await resumed.respond(to: "after resume") }
         await reply(&fingerprint) {
             try await resumed.respond(to: "a long prompt after resuming, long enough to pass the budget")
@@ -353,6 +361,7 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: first, contextSize: 60), audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         agent.archive = archive
         let context = ChatLoop.Context(
             directory: "/r", approval: "--yes",
@@ -362,6 +371,7 @@ import WispTestSupport
                     model: ResolvedModel(selection: selection, custom: second, contextSize: 60), audit: audit)
                 switched.cutsPresentation = false
                 switched.referencesOutput = false
+                switched.summarises = false
                 switched.archive = archive
                 return switched
             })
@@ -409,6 +419,7 @@ import WispTestSupport
             on: ResolvedModel(selection: .system, custom: model, contextSize: 60))
         agent.cutsPresentation = false
         agent.referencesOutput = false
+        agent.summarises = false
         agent.facts = nil
         var fingerprint = Fingerprint()
         let long = " This sentence makes the prompt long enough to pass the budget."

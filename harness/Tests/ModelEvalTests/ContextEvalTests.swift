@@ -52,6 +52,9 @@ struct ContextEvalTests {
             },
             onTurn: { print("context eval: \(strategy.name) \(model.selection) \(variant ?? ""): \($0.line)") })
         for line in run.report { print("context eval: \(line)") }
+        if let summary = run.summary {
+            print("context eval: summary v\(summary.version) of \(summary.covered) turns: \(summary.text)")
+        }
         for answer in run.answers {
             let shown = answer.reply.replacingOccurrences(of: "\n", with: "⏎").prefix(200)
             print("context eval: \(answer.question.id) \(answer.verdict.rawValue): \(shown)")
@@ -188,6 +191,36 @@ struct ContextEvalTests {
         guard let model = Self.granite(contextLength: 8192) else { return }
         try await Self.measure(
             model, variant: "showing.window-8192.budget-50", strategy: FactsStrategy(budget: 0.5),
+            scenario: ContextEval.showing())
+    }
+
+    // The running summary (phase 4b) on facts, at half the window, where condensing drops turns: written in the
+    // facts' call (the default, `summary`), and in a call of its own (`summary-separate`). `--filter
+    // ContextEvalTests/summary` runs these four alone.
+
+    @Test func summarySeparateShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing.budget-50",
+            strategy: SummaryStrategy(together: false, budget: 0.5), scenario: ContextEval.showing())
+    }
+
+    @Test func summaryShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing.budget-50",
+            strategy: SummaryStrategy(together: true, budget: 0.5), scenario: ContextEval.showing())
+    }
+
+    @Test func summarySeparateShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192.budget-50", strategy: SummaryStrategy(together: false, budget: 0.5),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func summaryShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192.budget-50", strategy: SummaryStrategy(together: true, budget: 0.5),
             scenario: ContextEval.showing())
     }
 }
