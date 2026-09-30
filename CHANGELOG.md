@@ -6,8 +6,25 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Breaking:
+
+- Transcripts saved before this version cannot be resumed. `--resume` needs the `transcripts/<name>.store`
+  file that `/save` now writes beside a transcript; a transcript without one, or with one that cannot be
+  read or does not match, is refused with `transcript 'x' was saved by an older wisp and cannot be
+  resumed; start a new conversation`, where it used to resume without links to the audit log. Start a new
+  conversation instead.
+- MCP resources about `respond` threads moved under `wisp://threads/{thread_id}`. A thread's audit events
+  are now `wisp://threads/{thread_id}/audit`; `wisp://audit/{session}` still serves every other session
+  (the server's own, `triage-<id>` and the other condensing tools', CLI runs') and refuses a thread's id
+  with a pointer to the new place. `wisp://status` no longer lists the threads: it gives `threadCount`
+  and `threadsURI`, and `wisp://threads` lists them.
+
 Changed:
 
+- Unknown audit event kinds are shown rather than skipped: `wisp logs`, the `inspect` tool, and the audit
+  resources now print a line written by another release whose `kind` this build does not know, as it is,
+  where they used to leave it out. `wisp logs --kind` still accepts only the kinds listed in
+  `docs/logging.md`.
 - The status line brightens what matters: the git branch, tokens written, and a context from half to 80%
   used are now in wisp's brightest blue; under half used stays quiet, and past 80% is amber.
 - Ollama models get a context window sized for them when they are selected, instead of 8,192 tokens for
@@ -15,12 +32,6 @@ Changed:
   the largest window whose cache fits half of what is free (never more than three quarters of the Mac's
   memory). `granite4.1:8b` got 24,576 tokens on a 48 GB Mac, so conversations condense far less often.
   Setting `ollama.contextLength` still fixes one window for every model.
-- MCP resources about `respond` threads moved under `wisp://threads/{thread_id}`. A thread's audit events
-  are now `wisp://threads/{thread_id}/audit`; `wisp://audit/{session}` still serves every other session
-  (the server's own, `triage-<id>` and the other condensing tools', CLI runs') and refuses a thread's id
-  with a pointer to the new place. A tool call's output is `wisp://threads/{thread_id}/output/{id}`, and
-  `respond`'s `outputURI` gives that form. `wisp://status` no longer lists the threads: it gives
-  `threadCount` and `threadsURI`, and `wisp://threads` lists them.
 - Chat, `wisp-tui`, and MCP show you each tool's output as the tool returned it, so the model no longer
   needs to retype it: wisp's system prompt now tells the model that you see the output and that it should
   comment on it rather than repeat it, unless asked to.
@@ -98,7 +109,7 @@ Added:
 - `/save` writes a second file beside a saved transcript, `transcripts/<name>.store`, holding the links from
   each conversation entry (dropped ones too) to the audit events that recorded it. `--resume` reads it, so a
   resumed conversation stays connected to the log, and `session.start` gains `carriedFrom`, the sessions it
-  came from. Older saves, and a missing or unreadable file, resume as before.
+  came from.
 - `/inspect context` in chat saves the exact context the model will see next: instructions, prompts, tool
   calls, tool output, and replies, as Markdown and JSON in `~/.wisp/context/`. Every condensation also
   saves the context before and after it, so you can read exactly which turns were dropped.

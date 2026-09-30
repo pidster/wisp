@@ -9,23 +9,27 @@ public struct TranscriptStore: Sendable {
         case invalidName(String)
         /// No transcript has this name.
         case notFound(String)
+        /// The transcript has no usable store beside it (`<name>.store` is missing, unreadable, or does not
+        /// match it), so it was saved by a wisp that did not keep one and cannot be resumed.
+        case notResumable(String)
 
         /// Human-readable explanation.
         public var description: String {
             switch self {
             case .invalidName(let name): "invalid transcript name '\(name)': use 1-64 of [A-Za-z0-9._-]"
             case .notFound(let name): "no saved transcript named '\(name)'"
+            case .notResumable(let name):
+                "transcript '\(name)' was saved by an older wisp and cannot be resumed; start a new conversation"
             }
         }
     }
 
-    /// A saved conversation: the transcript, and the store links saved beside it when there are usable ones.
+    /// A saved conversation: the transcript, and the store links saved beside it.
     public struct Saved: Sendable {
         /// The transcript, as `load` returns it.
         public let transcript: Transcript
-        /// The links to the audit log; nil for a save without them, or with ones that did not decode or
-        /// did not match the transcript (logged as a diagnostic).
-        public let links: ConversationStore.Snapshot?
+        /// The links to the audit log, checked to match the transcript.
+        public let links: ConversationStore.Snapshot
     }
 
     /// The directory holding `<name>.json` files.
@@ -83,24 +87,17 @@ public struct TranscriptStore: Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
-    /// Reads the transcript saved under `name` and its store links. Links that are missing, do not decode,
-    /// or do not match the transcript are ignored (the latter two are logged), so a resume never fails
-    /// because of them.
+    /// Reads the transcript saved under `name` and the store links saved beside it. A transcript without
+    /// links, or with ones that do not decode or do not match it, cannot be resumed.
     ///
-    /// - Throws: As `load`.
+    /// - Throws: As `load`, and `Failure.notResumable`.
     public func loadConversation(_ name: String) throws -> Saved {
         let transcript = try load(name)
         let file = try linksURL(for: name)
-        guard let data = try? Data(contentsOf: file) else { return Saved(transcript: transcript, links: nil) }
-        guard let snapshot = try? JSONDecoder().decode(ConversationStore.Snapshot.self, from: data) else {
-            Diagnostics.chat.info("the store saved with '\(name)' cannot be read; resuming without links")
-            return Saved(transcript: transcript, links: nil)
-        }
-        guard snapshot.restored(over: transcript) != nil else {
-            Diagnostics.chat.info(
-                "the store saved with '\(name)' does not match its transcript; resuming without links")
-            return Saved(transcript: transcript, links: nil)
-        }
+        guard let data = try? Data(contentsOf: file),
+            let snapshot = try? JSONDecoder().decode(ConversationStore.Snapshot.self, from: data),
+            snapshot.restored(over: transcript) != nil
+        else { throw Failure.notResumable(name) }
         return Saved(transcript: transcript, links: snapshot)
     }
 

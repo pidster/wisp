@@ -147,14 +147,14 @@ import WispTestSupport
         let store = TranscriptStore(directory: dir)
         try store.save(agent.store, as: "kept")
         let saved = try store.loadConversation("kept")
-        #expect(saved.links?.facts?.current.map(\.value) == ["the task"])
+        #expect(saved.links.facts?.current.map(\.value) == ["the task"])
         let resumed = Agent(
             transcript: saved.transcript, tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()),
             links: saved.links)
         resumed.facts = FactSettings()
         #expect(resumed.taskHistory.map(\.value) == ["the task"])
         #expect(resumed.transcript.contains(where: FactFrame.isFrame), "the task is composed again")
-        // A snapshot without facts reads as before.
+        // A store without facts is saved without a facts field, and restores empty.
         var bare = agent.store.snapshot
         bare.facts = nil
         #expect(bare.restored(over: agent.store.active)?.facts.facts.isEmpty == true)

@@ -59,7 +59,7 @@ public struct ConversationStore: Sendable {
         /// A turn of this conversation produced it, and `sources` names the audit events that recorded it.
         case turn
         /// It came with the conversation's start: the instructions a session was created with, or a saved
-        /// transcript without store data being resumed. Its content was recorded elsewhere or not at all, so
+        /// transcript handed to an agent without store data. Its content was recorded elsewhere or not at all, so
         /// it has no sources.
         case carried
         /// A turn of an earlier conversation produced it, and a saved store brought it back
@@ -100,8 +100,7 @@ public struct ConversationStore: Sendable {
         /// presentational text leaves out of later requests (`Presentation`). The entry itself stays whole.
         public internal(set) var cuts: [Cut] = []
         /// When it was recorded: a prompt when it was sent, a tool output when its `tool.result` event was
-        /// written, anything else when its turn was stored; nil when unknown (carried, or saved by a build
-        /// before times were kept).
+        /// written, anything else when its turn was stored; nil when unknown (carried).
         public internal(set) var time: Date? = nil
         /// The turn during which a condensation dropped it, in this session's turns: requests of that turn
         /// and later leave it out. 0 when it was dropped before this session began (a resumed store); nil

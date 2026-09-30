@@ -350,7 +350,7 @@ struct Chat: AsyncParsableCommand {
         let saved = try resume.map { name in try Wisp.usage { try store.loadConversation(name) } }
         let session = try Wisp.begin(
             try options.request(
-                entryPoint: .chat, autoApprove: yes, resume: resume, carriedFrom: saved?.links?.sessions ?? []))
+                entryPoint: .chat, autoApprove: yes, resume: resume, carriedFrom: saved?.links.sessions ?? []))
         defer { session.end() }
         try Wisp.home.ensure()
         if json {

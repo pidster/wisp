@@ -28,14 +28,15 @@ import WispTestSupport
     }
 
     private func resume(
-        _ saved: TranscriptStore.Saved, steps: [ScriptedModel.Step] = [.say("resumed")]
+        _ saved: TranscriptStore.Saved, linked: Bool = true, steps: [ScriptedModel.Step] = [.say("resumed")]
     )
         -> (Agent, ScriptedModel)
     {
         let model = ScriptedModel(steps: steps)
         let agent = Agent(
             transcript: saved.transcript, tools: [],
-            model: ResolvedModel(selection: .system, custom: model, contextSize: 10_000), links: saved.links)
+            model: ResolvedModel(selection: .system, custom: model, contextSize: 10_000),
+            links: linked ? saved.links : nil)
         return (agent, model)
     }
 
@@ -61,7 +62,7 @@ import WispTestSupport
         let agent = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(agent.store, as: "chat")
         let saved = try store.loadConversation("chat")
-        let links = try #require(saved.links)
+        let links = saved.links
         let (resumed, _) = resume(saved)
         // Every entry keeps its id, kind, turn, state, and sources; a turn's entries become `resumed`.
         #expect(resumed.store.entries.count == agent.store.entries.count)
@@ -78,7 +79,7 @@ import WispTestSupport
         #expect(resumed.transcript.map(\.id) == saved.transcript.map(\.id))
         // Saved again, the links are the same.
         try store.save(resumed.store, as: "again")
-        let again = try #require(try store.loadConversation("again").links)
+        let again = try store.loadConversation("again").links
         #expect(again.sessions == links.sessions && again.entries.map(\.sources) == links.entries.map(\.sources))
         #expect(again.entries.map(\.origin).allSatisfy { $0 != .turn })
     }
@@ -90,11 +91,10 @@ import WispTestSupport
         let agent = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(agent.store, as: "chat")
         let linked = try store.loadConversation("chat")
-        #expect(linked.links != nil)
-        let bare = TranscriptStore.Saved(transcript: linked.transcript, links: nil)
         var requests: [Data] = []
-        for saved in [linked, bare] {
-            let (resumed, model) = resume(saved)
+        for withLinks in [true, false] {
+            let saved = linked
+            let (resumed, model) = resume(saved, linked: withLinks)
             _ = try await resumed.respond(to: "after resume")
             let first = try #require(model.script.requests.withLock { $0.first })
             requests.append(try Self.withoutIDs(first.transcript))
@@ -104,7 +104,7 @@ import WispTestSupport
         #expect(requests[0] == requests[1])
     }
 
-    @Test func aBareSaveLoadsCarriedWithoutSources() async throws {
+    @Test func aSaveWithoutLinksCannotBeResumed() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TranscriptStore(directory: dir)
@@ -113,15 +113,17 @@ import WispTestSupport
         // Saving the transcript alone drops links a previous save left.
         try store.save(agent.transcript, as: "chat")
         #expect(!FileManager.default.fileExists(atPath: try store.linksURL(for: "chat").path))
-        let saved = try store.loadConversation("chat")
-        #expect(saved.links == nil)
-        let (resumed, _) = resume(saved)
-        #expect(resumed.store.entries.count == agent.transcript.count)
-        #expect(resumed.store.entries.allSatisfy { $0.origin == .carried && $0.sources.isEmpty && $0.state == .active })
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        // The transcript itself still loads, and lists.
+        #expect(try store.load("chat").map(\.id) == agent.transcript.map(\.id))
         #expect(try store.list() == ["chat"])
+        #expect(
+            TranscriptStore.Failure.notResumable("chat").description
+                == "transcript 'chat' was saved by an older wisp and cannot be resumed; start a new conversation")
+        #expect(throws: TranscriptStore.Failure.notFound("nope")) { try store.loadConversation("nope") }
     }
 
-    @Test func aCorruptOrMismatchedStoreFileFallsBack() async throws {
+    @Test func aCorruptOrMismatchedStoreFileCannotBeResumed() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TranscriptStore(directory: dir)
@@ -131,19 +133,18 @@ import WispTestSupport
         let good = try Data(contentsOf: links)
         // Not JSON at all.
         try Data("{ nope".utf8).write(to: links)
-        #expect(try store.loadConversation("chat").links == nil)
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
         // Links of another conversation: valid JSON that names entries the transcript does not have.
         let other = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(other.store, as: "other")
         try Data(contentsOf: store.linksURL(for: "other")).write(to: links)
-        let mismatched = try store.loadConversation("chat")
-        #expect(mismatched.links == nil && mismatched.transcript.map(\.id) == agent.transcript.map(\.id))
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
         // A future version this build cannot read.
         var future = try JSONDecoder().decode(ConversationStore.Snapshot.self, from: good)
         future.version = 99
         try JSONEncoder().encode(future).write(to: links)
-        #expect(try store.loadConversation("chat").links == nil)
-        // The agent itself also falls back when handed links that do not match.
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        // The agent itself also carries the transcript alone when handed links that do not match.
         let (resumed, _) = resume(TranscriptStore.Saved(transcript: agent.transcript, links: future))
         #expect(resumed.store.entries.allSatisfy { $0.origin == .carried })
     }

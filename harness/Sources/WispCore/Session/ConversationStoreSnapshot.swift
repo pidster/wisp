@@ -34,8 +34,7 @@ extension ConversationStore {
             public var sources: [AuditReference]
             /// A dropped entry itself, as a one-entry transcript; nil for an active one.
             public var dropped: Transcript?
-            /// The reply's cut presentational text; nil when it has none, so a snapshot without cuts reads
-            /// and writes as before.
+            /// The reply's cut presentational text; nil when it has none.
             public var cuts: [Cut]? = nil
             /// When it was recorded; nil when unknown.
             public var time: Date? = nil
@@ -50,7 +49,7 @@ extension ConversationStore {
         public var version: Int
         /// Every entry, in store order.
         public var entries: [Record]
-        /// The conversation's facts; nil in a snapshot saved before facts, or without any.
+        /// The conversation's facts; nil when it has none.
         public var facts: FactBook? = nil
 
         /// The sessions whose audit events the entries refer to (their `sources`, and the condensations

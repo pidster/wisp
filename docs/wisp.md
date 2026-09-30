@@ -157,7 +157,7 @@ What a session shows, and where it goes:
 | `-i, --instructions <text>` | As for `respond`. |
 | `--tool <name>` (repeatable) | As for `respond`. |
 | `--no-tools` | Give the model no tools: a text-only conversation any model can run. |
-| `-r, --resume <name>` | Continue a transcript saved under `~/.wisp/transcripts/<name>.json`, with the entries' links to the audit log when `<name>.store` is beside it. |
+| `-r, --resume <name>` | Continue a transcript saved under `~/.wisp/transcripts/<name>.json`, with the entries' links to the audit log from `<name>.store`. A transcript saved without one (by an older wisp) cannot be resumed. |
 | `--save <name>` | Save the transcript under this name on exit. Defaults to the resumed name. |
 | `--list` | Print the names of saved transcripts and exit. |
 | `--unsafe` | Disable the `run_command` policy and sandbox. |
@@ -550,7 +550,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | --- | --- |
 | `config.json` | Optional settings, below. |
 | `transcripts/<name>.json` | Saved conversations. |
-| `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Optional: a resume without it, or with one that does not match, works as before. |
+| `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Required to resume: `--resume` refuses a transcript without it, or with one that does not decode or match. |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, or moved there with `/fact ID permanent`. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
@@ -622,7 +622,7 @@ stated it. See [context-management.md](context-management.md).
 | --- | --- |
 | 0 | Success, including a reply in which the model reports that a command was refused; the refusal itself is in the audit log (`wisp logs --kind approval.decided`). |
 | 1 | Runtime failure, such as the model being unavailable. |
-| 64 | Usage error: bad flags, unknown `--tool` or `--model`, empty stdin prompt, malformed `config.json`, a `--resume` name that is invalid or not saved. |
+| 64 | Usage error: bad flags, unknown `--tool` or `--model`, empty stdin prompt, malformed `config.json`, a `--resume` name that is invalid, not saved, or saved by an older wisp without its `.store` file. |
 
 ## Requirements
 

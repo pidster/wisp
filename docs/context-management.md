@@ -36,12 +36,11 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
   is active or was dropped, and by which `context.condensation` event.
 - **In memory, and saved with the transcript.** The store also keeps the framework's value of each entry,
   as a cache of the conversation's own entries, so composing a request never reads the audit files.
-  `/save` (and the save on exit) writes the active transcript to `transcripts/<name>.json` as before and
+  `/save` (and the save on exit) writes the active transcript to `transcripts/<name>.json` and
   the store's link data beside it, in `transcripts/<name>.store`, both readable by the user only. The
   link data holds, for every entry, active or dropped: its position, framework entry id, kind, origin,
   turn, whether it is active and, if not, the `context.condensation` event that dropped it, its
-  `sources`, a reply's `cuts` (absent when it has none, so a save without cuts reads as before), and,
-  since phase 3b, when the entry was recorded (`time`), the turn during which a condensation dropped it
+  `sources`, a reply's `cuts` (absent when it has none), and, when the entry was recorded (`time`), the turn during which a condensation dropped it
   (`droppedAt`), and the turn from which a tool output was sent as a reference (`referencedAt`), each
   absent when unknown. A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
   sidecar, with no `.json` extension, so `TranscriptStore.load` still returns a plain `Transcript`, older
@@ -54,9 +53,10 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
   origin `resumed` (its `turn` and `sources` belong to the session that saved it), and one that was
   carried stays `carried`. `droppedAt` and `referencedAt` become 0 on resume, since both happened before
   the resuming session's first turn. The active view is the saved transcript, and the first request
-  composes it with the same cuts and references the saving session last sent. A save without a sidecar, or one that does not decode or match, resumes as before:
-  every entry carried, no sources, and a diagnostic (`WISP_LOG=info`, category `chat` or `agent`), never
-  an error. `session.start` on a linked resume lists `carriedFrom`, the sessions whose audit events the
+  composes it with the same cuts and references the saving session last sent. A transcript without a sidecar (saved before wisp kept one), or with one that does not decode,
+  is not version 1, or does not match, cannot be resumed: `--resume` stops with `transcript 'x' was saved
+  by an older wisp and cannot be resumed; start a new conversation` (exit 64) and starts nothing.
+  `session.start` on a resume lists `carriedFrom`, the sessions whose audit events the
   entries refer to, so the chain can be followed from the log alone.
 - **The composer** sends the store's active entries in order, with presentational text cut and tool output
   after its turn sent as a reference (below), and decides the condensing below; the agent applies it.

@@ -80,7 +80,10 @@ between identical runs, observed on 2026-09-20 (93.05% against a 93.08% baseline
 
 `CHANGELOG.md` is written for people who run wisp, not from commit subjects: what they can now do,
 what changed under them, what was broken and is fixed. Add a line under `## Unreleased` in the commit
-that makes a user-visible change; the version-bump commit renames that section to the version.
+that makes a user-visible change; the version-bump commit renames that section to the version. Anything
+a user can notice as a removal or an incompatible change (a URI that moved, old data that no longer
+loads) goes first, in a `Breaking:` list ahead of `Added:` and `Changed:`. The release script publishes
+the whole section as it stands, so the list needs no other handling.
 
 ## Bumping the version
 
