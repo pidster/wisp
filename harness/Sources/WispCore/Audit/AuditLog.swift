@@ -71,6 +71,82 @@ public final class AuditLog: Sendable {
         record(
             .error, call: call, details: AuditEvent.Details.error(message: String(describing: error), context: context))
     }
+
+    /// The event `reference` names, read back from this log's sink when the sink can read (`AuditReader`): the
+    /// audit files for a session's file sink, memory for a test's. Nil when the sink cannot read, the event is
+    /// not there (audit disabled, or rotated out of the files kept), or the reference names no event. The
+    /// `recall` tool reads a stored entry's content this way (decision D8 of the layered-context proposal).
+    ///
+    /// - Parameter reference: Where the event is.
+    /// - Returns: The event, or nil.
+    public func event(_ reference: AuditReference) -> AuditEvent? {
+        guard !reference.event.isEmpty else { return nil }
+        return (sink as? any AuditReader)?.event(reference)
+    }
+}
+
+/// A sink that can read back an event it wrote, by its id: how the store's references into the audit log
+/// (`ThreadRecord.Entry.sources`) are resolved to content.
+public protocol AuditReader: Sendable {
+    /// The event `reference` names, or nil when this sink does not hold it.
+    ///
+    /// - Parameter reference: Its session, turn, and id; the id decides, the session is checked.
+    /// - Returns: The event, or nil.
+    func event(_ reference: AuditReference) -> AuditEvent?
+}
+
+extension TeeAuditSink: AuditReader {
+    /// The first of its sinks that can read the event and holds it.
+    public func event(_ reference: AuditReference) -> AuditEvent? {
+        for sink in sinks {
+            if let found = (sink as? any AuditReader)?.event(reference) { return found }
+        }
+        return nil
+    }
+}
+
+extension MemoryAuditSink: AuditReader {
+    /// The event with the reference's id and session, from memory.
+    public func event(_ reference: AuditReference) -> AuditEvent? {
+        events.last { $0.id == reference.event && $0.session == reference.session }
+    }
+}
+
+extension FileAuditSink: AuditReader {
+    /// The event with the reference's id and session, from the current file, then the rotated ones, newest
+    /// first. Each file is searched for the id as the encoder writes it (`"id":"…"`) and only the lines that hold
+    /// it are decoded, so a lookup costs a read of the files rather than a decode of every line.
+    public func event(_ reference: AuditReference) -> AuditEvent? {
+        let needle = Data(#""id":"\#(reference.event)""#.utf8)
+        for file in [url] + Self.rotatedFiles(for: url, keep: limits.keepFiles) {
+            guard let data = try? Data(contentsOf: file) else { continue }
+            if let found = Self.event(matching: reference, needle: needle, in: data) { return found }
+        }
+        return nil
+    }
+
+    /// The event in `data`, one JSON line per event, whose line holds `needle` and which decodes to the
+    /// reference's id and session; the last such line wins.
+    ///
+    /// - Parameters:
+    ///   - reference: The event sought.
+    ///   - needle: Its id as the encoder writes it.
+    ///   - data: A file's bytes.
+    /// - Returns: The event, or nil.
+    static func event(matching reference: AuditReference, needle: Data, in data: Data) -> AuditEvent? {
+        var searchEnd = data.endIndex
+        while let range = data.range(of: needle, options: .backwards, in: data.startIndex..<searchEnd) {
+            let start = data[..<range.lowerBound].lastIndex(of: 0x0A).map { $0 + 1 } ?? data.startIndex
+            let end = data[range.upperBound...].firstIndex(of: 0x0A) ?? data.endIndex
+            if let event = try? AuditEvent.decoder.decode(AuditEvent.self, from: data[start..<end]),
+                event.id == reference.event, event.session == reference.session
+            {
+                return event
+            }
+            searchEnd = range.lowerBound
+        }
+        return nil
+    }
 }
 
 /// Discards events.
