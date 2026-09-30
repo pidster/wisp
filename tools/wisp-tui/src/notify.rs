@@ -1,6 +1,6 @@
 //! Posting wisp's notifications through the terminal (ADR 0044): the terminal the front end runs in
-//! posts a banner under its own name for an escape sequence, OSC 9 in Ghostty, iTerm2, and `WezTerm` and
-//! OSC 99 in kitty. The front end owns the screen, so only it may write one, and only between frames.
+//! posts a banner under its own name for an escape sequence, OSC 9 in Ghostty and `WezTerm` and OSC 99
+//! in kitty (iTerm2 needs a setting, so it is left to wisp's app route). The front end owns the screen, so only it may write one, and only between frames.
 
 use std::io::{self, Write};
 
@@ -19,11 +19,14 @@ pub enum Sequence {
 ///
 /// `TERM_PROGRAM` decides when it is set, so a multiplexer inside a known terminal (`tmux`, which does
 /// not pass the sequence through) is not taken for the terminal; otherwise `TERM`. The same table as
-/// wisp's own terminal route (`TerminalNotification.sequence` in the harness).
+/// wisp's own terminal route (`TerminalNotification.sequence` in the harness), except iTerm2: it shows
+/// OSC 9 only with "Send escape sequence-generated alerts" turned on, and a write that shows nothing would
+/// lose the banner, so the front end does not declare `notify` there and wisp posts through the terminal
+/// app instead.
 pub fn detect(var: impl Fn(&str) -> Option<String>) -> Option<Sequence> {
     if let Some(program) = var("TERM_PROGRAM").filter(|p| !p.is_empty()) {
         return match program.as_str() {
-            "ghostty" | "iTerm.app" | "WezTerm" => Some(Sequence::Osc9),
+            "ghostty" | "WezTerm" => Some(Sequence::Osc9),
             "kitty" => Some(Sequence::Osc99),
             _ => None,
         };
@@ -136,7 +139,8 @@ mod tests {
         );
         assert_eq!(
             detect(env(&[("TERM_PROGRAM", "iTerm.app")])),
-            Some(Sequence::Osc9)
+            None,
+            "iTerm2 shows OSC 9 only after a setting, so wisp's app route posts instead"
         );
         assert_eq!(
             detect(env(&[("TERM_PROGRAM", "WezTerm")])),

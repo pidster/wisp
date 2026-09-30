@@ -42,12 +42,19 @@ in this order:
 | `app` | With `notifications.viaTerminalApp` on (the default) and `__CFBundleIdentifier` set: `display notification` sent to that app (`tell application id …`); macOS asks once for Automation consent per app | The terminal app (probed 2026-09-30 in Terminal.app and Ghostty) |
 | `osascript` | Always, last | Script Editor |
 
+**iTerm2 shows OSC 9 only with a setting on:** Settings, Profiles, Terminal, Notification Center Alerts,
+Filter Alerts, "Send escape sequence-generated alerts" (per Claude Code's documentation, which uses the
+same sequence). The write succeeds whether or not the setting is on, so a banner could be lost without a
+word; in iTerm2 the app route is tried before the terminal route, and `wisp-tui` leaves notifications to
+wisp there.
+
 Terminal.app has no sequence, and `tmux` does not pass one through, so in either a notification falls
 through to the app route, and to `osascript` only without it. `wisp doctor` names the route it would take
 in the terminal it runs in.
 
-**A terminal may hold back its own banner while its window has focus.** Probed 2026-09-30: Ghostty posted
-the OSC 9 banner only once another app was in front. That is the terminal route's behaviour by design,
+**A terminal may hold back its own banner while its window has focus.** Probed 2026-09-30: Ghostty posts
+OSC 9 (and OSC 777, which wisp does not use) as a banner under its own name, but only once another app is
+in front. That is the terminal route's behaviour by design,
 since a person looking at the terminal sees the output; the app route posts regardless.
 
 The two AppleScript routes run `/usr/bin/osascript` with a fixed script; the title, subtitle, message,

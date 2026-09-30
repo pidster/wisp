@@ -181,8 +181,8 @@ build chose, and why:
 - **The app route is behind `notifications.viaTerminalApp`**, and `wisp notify --route app` probes it
   (it is tried even with the setting off); `--route` takes any route alone. Probed by the operator on
   2026-09-30 on macOS 27: the banner came from Terminal.app and from Ghostty, so the setting is on by
-  default. The same probe found that Ghostty holds back its OSC 9 banner while its window has focus and
-  posts it once another app is in front; the terminal route keeps its place first, since a person
+  default. The same probes found that Ghostty posts OSC 9 (and OSC 777) as its own banner, held back
+  while its window has focus and posted once another app is in front; the terminal route keeps its place first, since a person
   looking at the terminal sees the output, and it needs no consent.
 - **Sequence text** is sanitised again for the terminal on top of `Notifier`'s cleaning: every C0 and C1
   control character and DEL becomes a space and `;` becomes `,`, in Swift (`TerminalNotification`) and in

@@ -30,6 +30,9 @@ public enum TerminalNotification {
         public var name: String
         /// The sequence it posts; nil when it has none.
         public var sequence: Sequence?
+        /// Why the sequence may post nothing, when the terminal shows it only after a setting the person
+        /// turns on (iTerm2); such a terminal is tried after the app route, so a banner is not lost silently.
+        public var optIn: String? = nil
     }
 
     /// The terminal named by `TERM_PROGRAM`, which decides when set (so `tmux` inside kitty is tmux, which
@@ -42,7 +45,10 @@ public enum TerminalNotification {
         if let program = environment["TERM_PROGRAM"], !program.isEmpty {
             switch program {
             case "ghostty": return Terminal(name: "Ghostty", sequence: .osc9)
-            case "iTerm.app": return Terminal(name: "iTerm2", sequence: .osc9)
+            case "iTerm.app":
+                return Terminal(
+                    name: "iTerm2", sequence: .osc9,
+                    optIn: "only with iTerm2's \"Send escape sequence-generated alerts\" on")
             case "WezTerm": return Terminal(name: "WezTerm", sequence: .osc9)
             case "kitty": return Terminal(name: "kitty", sequence: .osc99)
             case "Apple_Terminal": return Terminal(name: "Terminal.app", sequence: nil)
@@ -163,6 +169,12 @@ public struct NotificationRoutes: Sendable {
         case mcp
         /// No screen of its own: only the process routes.
         case headless
+
+        /// Whether wisp writes to its own terminal in this face.
+        var isTerminal: Bool {
+            if case .terminal = self { return true }
+            return false
+        }
     }
 
     /// One route in the plan: tried, or skipped and why.
@@ -210,10 +222,14 @@ public struct NotificationRoutes: Sendable {
 
     /// The plan: each route in order, tried or skipped with the reason.
     func steps() -> [Step] {
-        var steps = [
-            hostStep(), terminalStep(), appStep(forced: only == .app),
-            .attempt(.osascript, "banners come from Script Editor"),
-        ]
+        // A terminal whose sequence posts only after a setting (iTerm2) goes after the app route: the
+        // write succeeds either way, so a terminal that shows nothing would lose the banner silently.
+        let optIn = face.isTerminal && TerminalNotification.terminal(in: environment)?.optIn != nil
+        var steps =
+            optIn
+            ? [hostStep(), appStep(forced: only == .app), terminalStep()]
+            : [hostStep(), terminalStep(), appStep(forced: only == .app)]
+        steps.append(.attempt(.osascript, "banners come from Script Editor"))
         if let only {
             steps = steps.filter {
                 switch $0 {
@@ -246,7 +262,8 @@ public struct NotificationRoutes: Sendable {
             guard let sequence = terminal.sequence else {
                 return .skip(.terminal, "\(terminal.name) has no notification sequence")
             }
-            return .attempt(.terminal, "\(terminal.name) posts \(sequence.rawValue) notifications")
+            let posts = "\(terminal.name) posts \(sequence.rawValue) notifications"
+            return .attempt(.terminal, terminal.optIn.map { "\(posts) \($0)" } ?? posts)
         }
     }
 

@@ -53,6 +53,8 @@ Added:
   `wisp notify`, and `wisp watch` write the terminal's own notification sequence, so the banner carries the
   terminal's name and icon and clicking it returns to it, instead of Script Editor. `wisp-tui` does the
   same in those terminals. A terminal may hold its banner back while its window has focus (Ghostty does).
+  iTerm2 shows the sequence only with "Send escape sequence-generated alerts" on, so there wisp posts
+  through the terminal app first.
   Elsewhere (Terminal.app, tmux, `wisp mcp`), `display notification` is sent to your terminal app by its
   bundle identifier, so the banner is still the terminal's; macOS asks you to allow that once per app, and
   `notifications.viaTerminalApp` (on by default) turns it off. The `notification` audit event records the

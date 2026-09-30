@@ -57,8 +57,8 @@ import Testing
 
     @Test func terminalsAreNamedByTermProgramThenTerm() {
         #expect(TerminalNotification.terminal(in: ["TERM_PROGRAM": "ghostty"])?.sequence == .osc9)
-        #expect(
-            TerminalNotification.terminal(in: ["TERM_PROGRAM": "iTerm.app"]) == .init(name: "iTerm2", sequence: .osc9))
+        let iterm = TerminalNotification.terminal(in: ["TERM_PROGRAM": "iTerm.app"])
+        #expect(iterm?.name == "iTerm2" && iterm?.sequence == .osc9 && iterm?.optIn != nil)
         #expect(TerminalNotification.terminal(in: ["TERM_PROGRAM": "WezTerm"])?.sequence == .osc9)
         #expect(TerminalNotification.terminal(in: ["TERM_PROGRAM": "kitty"])?.sequence == .osc99)
         #expect(TerminalNotification.terminal(in: ["TERM": "xterm-kitty"]) == .init(name: "kitty", sequence: .osc99))
@@ -121,6 +121,17 @@ import Testing
         let kitty = Effects()
         #expect(deliver(.terminal, ["TERM": "xterm-kitty"], effects: kitty).0 == .posted(.terminal))
         #expect(String(decoding: kitty.written.withLock { $0[0] }, as: UTF8.self).hasPrefix("\u{1B}]99;i=wisp-"))
+    }
+
+    @Test func iTerm2TriesTheAppRouteFirstSinceItsSequenceNeedsASetting() {
+        let iterm = ["TERM_PROGRAM": "iTerm.app", "__CFBundleIdentifier": "com.googlecode.iterm2"]
+        let effects = Effects()
+        let viaApp = deliver(.terminal, iterm, app: true, effects: effects)
+        #expect(viaApp.0 == .posted(.app) && effects.writes == 0 && effects.runs == 1)
+        let noApp = Effects()
+        let viaTerminal = deliver(.terminal, iterm, app: false, effects: noApp)
+        #expect(viaTerminal.0 == .posted(.terminal) && noApp.writes == 1)
+        #expect(viaTerminal.skipped == ["host: no front end", "app: off (notifications.viaTerminalApp)"])
     }
 
     @Test func terminalAppFallsToOsascriptWithTheAppRouteOff() {
