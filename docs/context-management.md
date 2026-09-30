@@ -197,12 +197,16 @@ unless `facts.enabled` is false; an `Agent` made directly keeps none, and compos
 | `ephemeral` | The machine now: services, ports, memory | The session (`Session.sessionFacts`, ids `s…`), shared by every conversation of one process, so an MCP server's threads share them | Never; gone when the process ends |
 | `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and written on each change | Always |
 
-Only the person admits a fact to the shared store: by stating it (`/fact` under a permanent kind) or by
-approving one a tool or the model proposed (`/fact approve`, or an MCP client's dialog). Until then a
-proposed permanent fact is held by the conversation, as a dynamic one is, and `/inspect facts` says how to
-approve it. Over MCP, a client with elicitation is asked once per proposal, after the call's result; Decline
-is remembered, and silence leaves the proposal waiting in `wisp://facts/proposed` ([mcp.md](mcp.md),
-"Approving a permanent fact").
+Only the person moves a fact into the shared store: by stating it (`/fact` under a permanent kind) or by
+moving one a tool or the model proposed (`/fact ID permanent`; [ADR 0044](decisions/0044-host-effects.md),
+amended 2026-09-30, withdrew the dialog that once asked over MCP). Until then a proposed permanent fact is
+held by the conversation, as a dynamic one is. A fact's scope is a state the person sets by command,
+naming the target: `permanent`, `thread` (the conversation's own, dynamic), or `session` (ephemeral); scope
+and temporal class move together, and the old copy stays as history. After each turn wisp lists the facts
+the turn recorded or changed, so they can be seen and moved: chat prints a note under the reply, `wisp chat
+--json` carries them on the turn's end, and MCP `respond` returns them in `structuredContent.facts`. Over
+MCP a caller may move a fact between `thread` and `session` with `set_fact_scope`; `permanent` is set from
+chat ([mcp.md](mcp.md), "Facts a turn recorded, and their scope").
 
 **Versions and precedence.** A newer assertion about the same identity from the same source supersedes the
 older, which stays as history; one with the same value adds nothing. Different sources stand side by side,
@@ -302,13 +306,12 @@ records either as a turn's entry, and each turn's blocks are kept in memory so `
 what that turn carried. Condensing counts and cuts the literal turns alone.
 
 **The person's controls** (D3, D6): `/inspect facts [all]`, `/fact SUBJECT [NAME] = VALUE`, `/fact delete
-ID`, `/fact approve ID`, `/task [text]` in chat and `wisp-tui` ([wisp.md](wisp.md)); over MCP,
-`respond`'s `task` (recorded as `source: caller`, ranked with the person), the approval dialog, and the
+ID`, `/fact ID permanent|thread|session`, `/task [text]` in chat and `wisp-tui` ([wisp.md](wisp.md)); over
+MCP, `respond`'s `task` (recorded as `source: caller`, ranked with the person), `set_fact_scope`, and the
 facts resources: `wisp://threads/{thread_id}/facts` (the thread's own), `wisp://session/facts`,
 `wisp://facts`, and `wisp://facts/proposed` ([mcp.md](mcp.md)). The model and tools only add newer
-versions of their own facts; only the person deletes or approves. Every change is audited: `fact.recorded`,
-`fact.superseded`, `fact.deleted`, `fact.approved`, `fact.approval.asked`, `fact.approval.decided`,
-`fact.conflict.raised`, `fact.conflict.resolved` ([logging.md](logging.md)).
+versions of their own facts; only the person deletes a fact or makes one permanent. Every change is audited: `fact.recorded`,
+`fact.superseded`, `fact.deleted`, `fact.scope.changed`, `fact.conflict.raised`, `fact.conflict.resolved` ([logging.md](logging.md)).
 
 ### Condensing
 

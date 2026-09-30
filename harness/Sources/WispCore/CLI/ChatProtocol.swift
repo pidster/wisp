@@ -122,12 +122,14 @@ public enum ChatProtocol {
     }
 
     /// The `turn` line's fields: `phase` `start` or `end`, the turn number, and at the end the seconds
-    /// taken, the `outcome`, `ok` or `error`, and `inputTokens` and `outputTokens` when the model reports them.
+    /// taken, the `outcome`, `ok` or `error`, `inputTokens` and `outputTokens` when the model reports them, and
+    /// `facts` when the turn recorded or changed any (`FactReport.newFactsJSON`); the same facts are also sent as
+    /// a `note` line, which is what a front end shows.
     public static func turn(_ mark: ChatTurn) -> [String: JSONValue] {
         switch mark {
         case .start(let turn):
             return ["phase": "start", "turn": .int(turn)]
-        case .end(let turn, let seconds, let failed, let tokens):
+        case .end(let turn, let seconds, let failed, let tokens, let facts):
             var fields: [String: JSONValue] = [
                 "phase": "end", "turn": .int(turn), "seconds": .double(seconds), "outcome": failed ? "error" : "ok",
             ]
@@ -135,6 +137,7 @@ public enum ChatProtocol {
                 fields["inputTokens"] = .int(tokens.input)
                 fields["outputTokens"] = .int(tokens.output)
             }
+            if !facts.isEmpty { fields["facts"] = FactReport.newFactsJSON(facts) }
             return fields
         }
     }

@@ -84,6 +84,7 @@ and return something small:
 | `dependency_audit` | An npm, cargo, or pip audit as what needs action, most severe first |
 | `flaky_tests` | Tests that pass in some runs and fail in others |
 | `hot_paths` | A profile's folded stacks as where the time goes |
+| `set_fact_scope` | Moves a fact of a `respond` thread to the thread or the session |
 | `close_thread` | Frees a `respond` thread |
 
 A failing `swift test` run comes back as a headline and a few `file:line: message` findings; two

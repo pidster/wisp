@@ -6,14 +6,14 @@ extension ChatLoop {
             directory: context.directory, branch: context.git(context.directory).branch, observer: "chat")
     }
 
-    /// Carries out `/fact`: states a fact as the person, deletes one, or approves a proposed permanent fact,
+    /// Carries out `/fact`: states a fact as the person, moves one to a scope, or deletes one,
     /// and says what happened.
     ///
     /// - Parameter request: What was asked.
     func fact(_ request: FactRequest) {
         do {
             switch request {
-            case .usage, .delete(nil), .approve(nil):
+            case .usage, .delete(nil):
                 io.note(FactRequest.usageText)
             case .state(let subject, let name, let value):
                 let fact = try agent.stateFact(subject: subject, name: name, value: value)
@@ -24,9 +24,11 @@ extension ChatLoop {
             case .delete(let id?):
                 let fact = try agent.deleteFact(id)
                 io.note("deleted \(fact.id): \(fact.identity.subject) \(fact.identity.name)")
-            case .approve(let id?):
-                let fact = try agent.approveFact(id)
-                io.note("approved \(id): kept as \(fact.id) in ~/.wisp/facts.json for every conversation")
+            case .move(let id, let target):
+                let fact = try agent.setFactScope(id, to: target)
+                io.note(
+                    "moved \(id) to \(target.rawValue)" + (fact.id == id ? "" : " as \(fact.id)")
+                        + (target == .permanent ? " (kept in ~/.wisp/facts.json for every conversation)" : ""))
             }
         } catch {
             io.note(style.ember("error: \(error)"))

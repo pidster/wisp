@@ -158,19 +158,25 @@ with the config's `SubjectKinds`, to each agent as `FactSettings`, so an MCP ser
 session's facts. `FactView` merges the current facts of the three books by `{subject, name}` and orders
 each group's heads by precedence; `FactComposition` renders the frame within `factsShare` of the window;
 `FactReport` renders them for the person (`/inspect facts`, `/task`, the MCP facts resources). The
-person's changes go through `Agent.stateFact`, `deleteFact`, `approveFact`, and `setTask`, each audited.
+person's changes go through `Agent.stateFact`, `deleteFact`, `setFactScope`, and `setTask`, each audited.
 
 Proposed permanent facts are also mirrored, whenever a conversation's facts change
 (`Agent.syncProposals`, from `refreshFacts`), into `FactProposals`, one per `Session` and shared through
-`FactSettings`: a `final class` with a `Mutex` holding a copy of each proposal with its conversation, its
-status (awaiting, declined, approved, withdrawn), and the declines by subject, name, and value. A face lists
-from it and approves through it (`approve` admits the copy to the shared store and audits on the proposing
-conversation's log), so a proposal can be approved from another conversation or after its own has gone;
-the owning conversation marks its copy superseded at its next sync. The approval dialog is a host effect
-(ADR 0044): `SessionHost` carries a `FactApprover` beside the command `Approver`. The MCP server's is
-`ElicitationFactApprover`; at the end of every `tools/call` the server claims the unasked proposals and
-queues `FactProposals.ask` on `FactAskQueue`, an actor that runs one batch after another, after waiting in
-`ResponseLedger` (fed by `CompatibilityTransport.send`) until that call's response has been written.
+`FactSettings`: a `final class` with a `Mutex` holding a copy of each proposal with its conversation and its
+status (awaiting, moved, withdrawn). A face lists from it (`/inspect facts`, `wisp://facts/proposed`), so a
+proposal can be listed from another conversation or after its own has gone; the owning conversation marks its
+copy superseded at its next sync after another conversation moved it.
+
+A fact's scope is a state the person sets by command, not a host effect (ADR 0044, amended 2026-09-30, which
+withdrew the fact-approval dialog). `Agent.setFactScope(id, to:, by:)` takes one of `FactTarget`'s
+`permanent`, `thread`, `session`; scope and temporal class move together, the fact enters the target book
+(`FactBook.admit`) and the old copy is superseded, or, for a proposed permanent fact moved to `thread`,
+changes class in place (`FactBook.retarget`). A move to `permanent` writes it as the person's (`approved` is
+set, so it ranks with the person); it is audited as `fact.scope.changed`. Chat's `/fact ID SCOPE` calls it with
+`by: .person`, and MCP's `set_fact_scope` with `by: .caller`, refusing `permanent` and `p…` ids in the
+request decoder. After each turn `Agent.Reply.facts` holds the facts the turn recorded or changed
+(`Agent.turnFactIDs`, reset when a turn starts), which chat prints as a one-line note, `wisp chat --json`
+adds to the turn's end (and as a `note`), and `respond` returns as `structuredContent.facts`.
 
 ### Risk classification and approval
 
@@ -302,7 +308,7 @@ than thrown. See [ADR 0009](decisions/0009-command-policy-and-sandbox.md).
 
 `WispMCP.WispServer` serves stdio MCP (`wisp mcp`) through `CompatibilityTransport`, which
 normalises messages the SDK cannot decode although the protocol allows them (see `docs/mcp.md`). It advertises `respond`, the condensing tools (`triage`,
-`summarise_diff`, `draft_change`, `scan_secrets`, `redact`, `condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`), and `close_thread` from `ToolCatalog`, whose JSON Schemas and descriptions are the contract other harnesses see; wisp's own tools
+`summarise_diff`, `draft_change`, `scan_secrets`, `redact`, `condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`), `set_fact_scope`, and `close_thread` from `ToolCatalog`, whose JSON Schemas and descriptions are the contract other harnesses see; wisp's own tools
 are reachable only through `respond`, and are described to clients by the `wisp://tools` resources,
 generated from `ToolRegistry.descriptions` (schema from each tool's `GenerationSchema`, limits and example
 prompt from the tool's own `WispTool` conformance, so a changed default shows up in the catalogue).

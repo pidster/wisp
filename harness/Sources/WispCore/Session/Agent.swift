@@ -61,6 +61,8 @@ public final class Agent {
     /// The subjects and names whose heads disagreed at the last check, so each conflict is audited once when
     /// it is raised and once when it is resolved.
     var factConflicts: Set<FactIdentity.Key> = []
+    /// The ids of the facts recorded or changed since the current turn began (`factsChangedThisTurn`).
+    var turnFactIDs: [String] = []
     /// How many times `reset` has started a fresh conversation; each is a conversation of its own among the
     /// process's proposals (`conversationID`), since its store numbers its facts from `c1` again.
     private(set) var generation = 0
@@ -463,11 +465,15 @@ public final class Agent {
         public var text: String
         /// Whether older turns were dropped to fit the context window during this turn.
         public var condensed: Bool
+        /// The facts the turn recorded or changed that are still in force, from its tools and the model, for
+        /// the person to see and to move to another scope; empty when facts are off or the turn added none.
+        public var facts: [Fact]
 
         /// Creates a reply.
-        public init(text: String, condensed: Bool) {
+        public init(text: String, condensed: Bool, facts: [Fact] = []) {
             self.text = text
             self.condensed = condensed
+            self.facts = facts
         }
     }
 
@@ -532,6 +538,7 @@ public final class Agent {
         _ prompt: String, schema: JSONValue? = nil, _ operation: () async throws -> String
     ) async throws -> Reply {
         turns.advance()
+        turnFactIDs = []
         let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
@@ -540,7 +547,7 @@ public final class Agent {
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
             let text = try await withOverflowRecovery(operation)
-            let reply = Reply(text: text, condensed: condensations > before)
+            var reply = Reply(text: text, condensed: condensations > before)
             recordStats(started: started, failure: nil)
             let responded = audit?.record(
                 .response,
@@ -548,6 +555,7 @@ public final class Agent {
                     text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started)))
             remember(prompt: prompted, response: responded, started: started)
             cutPresentation(turn: turns.current)
+            reply.facts = factsChangedThisTurn
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")

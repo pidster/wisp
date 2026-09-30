@@ -6,13 +6,13 @@ public enum ChatTurn: Equatable, Sendable {
     /// The message has gone to the model; `turn` is the number its audit events carry.
     case start(turn: Int)
     /// The reply is complete, or the turn failed with the error noted before this. `tokens` is what the
-    /// turn's requests used, when the model reports it.
-    case end(turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil)
+    /// turn's requests used, when the model reports it; `facts` are the ones the turn recorded or changed.
+    case end(turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil, facts: [Fact] = [])
 
     /// The line under a reply in the terminal chat: how long the turn took and, when the model reports
     /// them, the tokens it read (↓, pale yellow) and wrote (↑, pale blue). Nil for a turn's start.
     public func footer(style: Style) -> String? {
-        guard case .end(_, let seconds, let failed, let tokens) = self else { return nil }
+        guard case .end(_, let seconds, let failed, let tokens, _) = self else { return nil }
         var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
         if let tokens {
             // No rate: the turn's time includes its commands and approvals, so tokens over it is not the
@@ -371,8 +371,9 @@ public struct ChatLoop {
                 io.turn(.start(turn: number))
                 context.activity?.begin()
                 var failed = false
+                var facts: [Fact] = []
                 do {
-                    _ = try await agent.stream(text) { io.write($0) }
+                    facts = try await agent.stream(text) { io.write($0) }.facts
                     io.print("")
                 } catch {
                     failed = true
@@ -383,7 +384,8 @@ public struct ChatLoop {
                 io.turn(
                     .end(
                         turn: number, seconds: Date().timeIntervalSince(started), failed: failed,
-                        tokens: .between(before, agent.tokensUsed)))
+                        tokens: .between(before, agent.tokensUsed), facts: facts))
+                if let note = FactReport.newFacts(facts) { io.note(style.muted(note)) }
             }
         }
         if let saveName {

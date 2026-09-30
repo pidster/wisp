@@ -161,6 +161,19 @@ public struct FactBook: Codable, Sendable, Equatable {
         facts[index].supersededBy = other
     }
 
+    /// Changes the temporal class of the current fact `id` in place, which is how a proposed permanent fact
+    /// becomes one of the conversation's own (`Agent.setFactScope`).
+    ///
+    /// - Parameters:
+    ///   - id: The fact.
+    ///   - temporalClass: The class it takes.
+    /// - Returns: The fact as changed, or nil when there is no current fact with that id.
+    mutating func retarget(_ id: String, to temporalClass: TemporalClass) -> Fact? {
+        guard let index = facts.firstIndex(where: { $0.id == id }), facts[index].state == .current else { return nil }
+        facts[index].temporalClass = temporalClass
+        return facts[index]
+    }
+
     /// Keeps at most `limit` superseded and deleted versions, dropping the oldest first; current facts are
     /// always kept. Bounds a long session's book.
     ///

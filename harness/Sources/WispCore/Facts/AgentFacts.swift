@@ -43,6 +43,10 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
     case notProposed(String)
     /// No proposal awaiting the person with that reference (`conversation/fact`).
     case noSuchProposal(String)
+    /// The fact is already where the person asked to move it.
+    case alreadyThere(String, FactTarget)
+    /// Another conversation's proposal cannot move into this conversation.
+    case otherConversation(String)
     /// The value is empty.
     case emptyValue
     /// The shared store could not be written.
@@ -58,6 +62,9 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
         case .notProposed(let id): "fact \(id) is not a proposed permanent fact"
         case .noSuchProposal(let reference):
             "no proposal \(reference) awaiting approval; /inspect facts lists those of other conversations"
+        case .alreadyThere(let id, let target): "fact \(id) is already in scope \(target.rawValue)"
+        case .otherConversation(let id):
+            "\(id) is another conversation's proposal; it can be moved to permanent or session"
         case .emptyValue: "a fact needs a value"
         case .unwritable(let reason): reason
         }
@@ -81,6 +88,16 @@ extension Agent {
     /// The fact `id` in whichever store its prefix names, or nil.
     public func fact(_ id: String) -> Fact? { allFacts.first { $0.id == id } }
 
+    /// The facts recorded or changed since the current turn began that are still in force, oldest first: what
+    /// the turn's tools and the model added (`Reply.facts`).
+    var factsChangedThisTurn: [Fact] {
+        var seen: Set<String> = []
+        return turnFactIDs.compactMap { id in
+            guard seen.insert(id).inserted, let fact = fact(id), fact.state == .current else { return nil }
+            return fact
+        }
+    }
+
     /// Every version, from every store, of what the fact `id` is about, oldest first; empty for an unknown id.
     public func factHistory(_ id: String) -> [Fact] {
         guard let key = fact(id)?.identity.key else { return [] }
@@ -102,13 +119,13 @@ extension Agent {
     }
 
     /// Mirrors the conversation's current proposals into the process's registry, and marks superseded any that
-    /// the person approved from outside the conversation (an MCP client's dialog, or chat approving another
-    /// conversation's proposal). The approval was audited when it was made.
+    /// the person moved from outside the conversation (chat moving another conversation's proposal). The move
+    /// was audited when it was made.
     public func syncProposals() {
         guard let facts else { return }
         let current = store.facts.current.filter(\.proposed)
-        let approved = facts.proposals.sync(conversation: conversationID, audit: audit, current: current)
-        for (id, admitted) in approved { store.facts.supersede(id, by: admitted) }
+        let moved = facts.proposals.sync(conversation: conversationID, audit: audit, current: current)
+        for (id, admitted) in moved { store.facts.supersede(id, by: admitted) }
     }
 
     /// Recomputes the facts the next request carries, and audits conflicts that began or ended since the
@@ -175,8 +192,10 @@ extension Agent {
         }
         switch change {
         case .recorded(let fact):
+            turnFactIDs.append(fact.id)
             audit?.record(.factRecorded, details: AuditEvent.Details.factRecorded(fact, supersedes: nil))
         case .superseded(let old, let fact):
+            turnFactIDs.append(fact.id)
             audit?.record(.factRecorded, details: AuditEvent.Details.factRecorded(fact, supersedes: old.id))
             audit?.record(.factSuperseded, details: AuditEvent.Details.factSuperseded(old, by: fact.id))
         case .unchanged:
@@ -314,37 +333,6 @@ extension Agent {
         audit?.record(.factDeleted, details: AuditEvent.Details.factDeleted(deleted))
         refreshFacts()
         return deleted
-    }
-
-    /// Admits a proposed permanent fact to the shared store, where every later conversation sees it: the
-    /// person's approval in chat (D2, D3). `id` is one of this conversation's proposals (`c3`), or a proposal
-    /// of another conversation of the process by its reference (`git/c3`), which `/inspect facts` lists. The
-    /// proposal is marked superseded by the admitted fact, in its own conversation's store the next time that
-    /// conversation syncs.
-    ///
-    /// - Parameter id: A current proposal in this conversation, or another conversation's by reference.
-    /// - Returns: The fact as the shared store holds it.
-    /// - Throws: `FactFailure`.
-    @discardableResult
-    public func approveFact(_ id: String) throws(FactFailure) -> Fact {
-        guard let facts else { throw .off }
-        if let (conversation, _) = FactProposal.parse(id), conversation != conversationID {
-            guard let status = facts.proposals.proposal(id)?.status, status == .awaiting || status == .declined else {
-                throw .noSuchProposal(id)
-            }
-            let admitted = try facts.proposals.approve(id, permanent: facts.permanent, via: "chat")
-            refreshFacts()
-            return admitted
-        }
-        let local = FactProposal.parse(id)?.fact ?? id
-        guard let proposal = store.facts.fact(local), proposal.state == .current else { throw .noSuchFact(local) }
-        guard proposal.proposed else { throw .notProposed(local) }
-        syncProposals()
-        let admitted = try facts.proposals.approve(
-            "\(conversationID)/\(local)", permanent: facts.permanent, via: "chat")
-        store.facts.supersede(local, by: admitted.id)
-        refreshFacts()
-        return admitted
     }
 
     /// Records what wisp knows of where the conversation works without a model: the directory it starts in

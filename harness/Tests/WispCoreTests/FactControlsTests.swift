@@ -75,15 +75,16 @@ import WispTestSupport
                     value: "BLUE HERON", temporalClass: .permanent, method: .distilled)))
         #expect(proposal.identity.scope == .conversation && proposal.proposed && proposal.id == "c1")
         #expect(!FileManager.default.fileExists(atPath: home.factsFile.path))
-        #expect(throws: FactFailure.notProposed("c2")) {
-            try agent.approveFact(try agent.stateFact(subject: "task", name: "", value: "ship it").id)
-        }
-        let admitted = try agent.approveFact(proposal.id)
+        let admitted = try agent.setFactScope(proposal.id, to: .permanent)
         #expect(admitted.id == "p1" && admitted.identity.scope == .permanent && admitted.approved != nil)
         #expect(admitted.source == .model && FactComposition.provenance(admitted).hasSuffix("approved by the person"))
         #expect(
             agent.store.facts.fact("c1")?.state == .superseded && agent.store.facts.fact("c1")?.supersededBy == "p1")
-        #expect(sink.events.first { $0.kind == .factApproved }?.details["admitted"] == "p1")
+        let changed = try #require(sink.events.first { $0.kind == .factScopeChanged })
+        #expect(
+            changed.details["now"] == "p1" && changed.details["from"] == "thread"
+                && changed.details["to"] == "permanent")
+        #expect(changed.details["by"] == "person" && changed.details["proposed"] == true)
         let attributes = try FileManager.default.attributesOfItem(atPath: home.factsFile.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
         // The person's own statement of a permanent kind goes straight to the shared store.
@@ -92,7 +93,7 @@ import WispTestSupport
         // A later conversation, in a later process, sees both.
         let later = self.agent(sink: MemoryAuditSink(), home: home)
         #expect(later.factView.groups.map(\.winner.value) == ["BLUE HERON", "early returns"])
-        #expect(throws: FactFailure.noSuchFact("c9")) { try later.approveFact("c9") }
+        #expect(throws: FactFailure.noSuchFact("c9")) { try later.setFactScope("c9", to: .permanent) }
         _ = try later.deleteFact("p2")
         #expect(self.agent(sink: MemoryAuditSink(), home: home).factView.groups.count == 1)
     }
@@ -176,7 +177,7 @@ import WispTestSupport
         let current = FactReport.markdown(agent.allFacts, all: false)
         #expect(
             current.contains("| c1 | entity | codename | BLUE \\| HERON | model, distilled: the person said, turn 1 |"))
-        #expect(current.contains("permanent (proposed) | /fact approve c1 to keep it |"))
+        #expect(current.contains("permanent (proposed) | /fact c1 permanent to keep it |"))
         #expect(current.contains("| c4 | tests | ci | green again | the person | dynamic | wins; disagreeing: c2 |"))
         #expect(
             current.contains(

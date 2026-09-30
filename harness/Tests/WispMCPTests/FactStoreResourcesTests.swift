@@ -74,7 +74,7 @@ import WispTestSupport
         // A thread's collection holds only its own facts; the others point to where they moved.
         let own = try await json(server, "wisp://threads/t/facts")
         #expect(own["facts"]?.arrayValue?.compactMap { $0.objectValue?["id"] } == ["c1"])
-        #expect(own["facts"]?.arrayValue?.allSatisfy { $0.objectValue?["scope"] == "conversation" } == true)
+        #expect(own["facts"]?.arrayValue?.allSatisfy { $0.objectValue?["scope"] == "thread" } == true)
         for (uri, pointer) in [
             ("wisp://threads/t/facts/p2", "wisp://facts/p2"), ("wisp://threads/t/facts/s1", "wisp://session/facts"),
         ] {

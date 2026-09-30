@@ -32,7 +32,7 @@ public enum ChatCompletion {
     ///   - approvalIDs: The standing approvals' ids, for `/approvals revoke`.
     ///   - sessionIDs: The audit log's recent session ids, for `/audit`.
     ///   - subjects: The subject kinds, for `/fact`.
-    ///   - factIDs: The current facts' ids, for `/fact delete` and `approve`.
+    ///   - factIDs: The current facts' ids, for `/fact delete` and `/fact ID SCOPE`.
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
@@ -57,8 +57,10 @@ public enum ChatCompletion {
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]
         case ["/inspect", "facts"]: pool = ["all"]
-        case ["/fact"]: pool = ["delete", "approve"] + subjects
-        case ["/fact", "delete"], ["/fact", "approve"]: pool = factIDs
+        case ["/fact"]: pool = ["delete"] + factIDs + subjects
+        case ["/fact", "delete"]: pool = factIDs
+        case let words where words.count == 2 && words[0] == "/fact" && factIDs.contains(words[1]):
+            pool = FactTarget.allCases.map(\.rawValue)
         case ["/audit"]: pool = ["sessions"] + sessionIDs
         default: pool = []
         }

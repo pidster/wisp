@@ -195,40 +195,21 @@ extension AuditEvent {
             ]
         }
 
-        /// `fact.approved`: a proposed permanent fact the person admitted to the shared store, and where they
-        /// approved it (`chat` for `/fact approve`, `elicitation` for an MCP client's dialog).
-        public static func factApproved(_ proposal: Fact, admitted: Fact, via: String) -> [String: JSONValue] {
-            [
-                "id": .string(proposal.id), "admitted": .string(admitted.id),
-                "subject": .string(admitted.identity.subject), "name": .string(admitted.identity.name),
-                "source": .string(admitted.source.rawValue), "value": .string(admitted.value), "via": .string(via),
-            ]
-        }
-
-        /// `fact.approval.asked`: the host asked the person whether to keep a proposed permanent fact.
-        public static func factApprovalAsked(_ proposal: FactProposal, position: Int, count: Int) -> [String: JSONValue]
-        {
-            [
-                "id": .string(proposal.fact.id), "conversation": .string(proposal.conversation),
-                "subject": .string(proposal.fact.identity.subject), "name": .string(proposal.fact.identity.name),
-                "source": .string(proposal.fact.source.rawValue), "value": .string(proposal.fact.value),
-                "position": .int(position), "count": .int(count),
-            ]
-        }
-
-        /// `fact.approval.decided`: the person's answer, or its absence. `decision` is `approved`, `declined`,
-        /// `cancelled`, `timed-out`, or `failed`.
-        public static func factApprovalDecided(
-            _ proposal: FactProposal, decision: String, admitted: String?, reason: String?, seconds: Double
+        /// `fact.scope.changed`: a fact's scope was moved by command (chat's `/fact ID SCOPE`, MCP's
+        /// `set_fact_scope`). `fact` is the id it was named by (`c3`, or `git/c3` for another conversation's
+        /// proposal), `from` and `to` the scopes (`permanent`, `thread`, `session`), `by` who asked (`person` or
+        /// `caller`), `now` the id it has after the move, and `proposed` whether it was a proposed permanent
+        /// fact awaiting the person.
+        public static func factScopeChanged(
+            named id: String, before: Fact, after: Fact, to: FactTarget, by: FactSource
         ) -> [String: JSONValue] {
-            var details: [String: JSONValue] = [
-                "id": .string(proposal.fact.id), "conversation": .string(proposal.conversation),
-                "subject": .string(proposal.fact.identity.subject), "name": .string(proposal.fact.identity.name),
-                "decision": .string(decision), "seconds": .double((seconds * 1000).rounded() / 1000),
+            [
+                "fact": .string(id), "from": .string(FactTarget(holding: before).rawValue),
+                "to": .string(to.rawValue), "by": .string(by.rawValue), "now": .string(after.id),
+                "subject": .string(after.identity.subject), "name": .string(after.identity.name),
+                "source": .string(after.source.rawValue), "value": .string(after.value),
+                "proposed": .bool(before.proposed),
             ]
-            if let admitted { details["admitted"] = .string(admitted) }
-            if let reason { details["reason"] = .string(reason) }
-            return details
         }
 
         /// `fact.conflict.raised` and `fact.conflict.resolved`: the heads about one subject and name began or
@@ -455,6 +436,8 @@ extension AuditEvent {
             ]
         case .factSuperseded: ["id", "subject", "name", "source", "by"]
         case .factDeleted: ["id", "subject", "name", "source", "value", "by"]
+        case .factScopeChanged:
+            ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed"]
         case .factApproved: ["id", "admitted", "subject", "name", "source", "value", "via"]
         case .factApprovalAsked: ["id", "conversation", "subject", "name", "source", "value", "position", "count"]
         case .factApprovalDecided:

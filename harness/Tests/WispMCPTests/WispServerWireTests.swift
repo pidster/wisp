@@ -71,7 +71,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(
             tools.map(\.name) == [
                 "respond", "triage", "summarise_diff", "draft_change", "scan_secrets", "redact", "condense_log",
-                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "close_thread",
+                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "set_fact_scope", "close_thread",
             ])
         #expect(tools.first?.inputSchema.objectValue?["required"] == .array([.string("prompt")]))
         let resources = try await pair.client.listResources().resources

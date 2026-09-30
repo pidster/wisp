@@ -10,26 +10,16 @@ import WispCore
 /// (`{"codex/auth-change": {}}`), which the specification permits, while SDK 0.12.1 declares the field
 /// as `[String: String]` and fails the whole request with `-32603`. Each non-string value is replaced
 /// by its compact JSON text, so nothing is lost and the SDK decodes it. wisp never reads the field.
-///
-/// Outgoing messages go out unchanged, and each response is noted in a `ResponseLedger` when one is given.
 actor CompatibilityTransport: Transport {
     /// The transport this one wraps.
     private let base: any Transport
     /// The logger the SDK uses for this transport.
     nonisolated let logger: Logger
-    /// Where written responses are noted; nil notes nothing.
-    private let responses: ResponseLedger?
 
     /// Wraps `base`.
-    ///
-    /// - Parameters:
-    ///   - base: The transport.
-    ///   - logger: The SDK's logger.
-    ///   - responses: Where to note each response written.
-    init(_ base: any Transport, logger: Logger = DiagnosticsLogHandler.logger(), responses: ResponseLedger? = nil) {
+    init(_ base: any Transport, logger: Logger = DiagnosticsLogHandler.logger()) {
         self.base = base
         self.logger = logger
-        self.responses = responses
     }
 
     /// Connects the base transport.
@@ -38,11 +28,8 @@ actor CompatibilityTransport: Transport {
     /// Disconnects the base transport.
     func disconnect() async { await base.disconnect() }
 
-    /// Sends unchanged, then notes it in the ledger if it is a response.
-    func send(_ data: Data) async throws {
-        try await base.send(data)
-        responses?.record(data)
-    }
+    /// Sends unchanged.
+    func send(_ data: Data) async throws { try await base.send(data) }
 
     /// Receives from the base transport, normalising each message.
     func receive() -> AsyncThrowingStream<Data, Swift.Error> {

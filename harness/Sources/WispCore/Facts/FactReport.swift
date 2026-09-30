@@ -6,10 +6,10 @@ import Foundation
 public enum FactReport {
     /// The facts as a Markdown table: the current ones, or with `all` every version, superseded and deleted
     /// ones included. Each row gives the id, what it is about, the value, the source and how it was made,
-    /// the class, and a note: which fact wins a conflict and which disagree, and how to approve a proposal.
+    /// the class, and a note: which fact wins a conflict and which disagree, and how to keep a proposal.
     ///
     /// Proposals from the process's other conversations follow, under their own heading, by the reference
-    /// `/fact approve` takes (`git/c3`).
+    /// `/fact` takes (`git/c3`).
     ///
     /// - Parameters:
     ///   - facts: Every fact the conversation sees, in any state (`Agent.allFacts`).
@@ -47,7 +47,7 @@ public enum FactReport {
         rows.append(
             "\(view.groups.count) subject\(view.groups.count == 1 ? "" : "s") in force"
                 + (conflicts > 0 ? ", \(conflicts) in conflict" : "")
-                + ". `/fact delete ID` deletes one; `/fact approve ID` admits a proposed permanent fact.")
+                + ". `/fact delete ID` deletes one; `/fact ID permanent|thread|session` moves one.")
         return rows.joined(separator: "\n") + "\n" + proposals(elsewhere)
     }
 
@@ -66,12 +66,13 @@ public enum FactReport {
             let fact = proposal.fact
             let cells = [
                 proposal.reference, fact.identity.subject, fact.identity.name.isEmpty ? "-" : fact.identity.name,
-                fact.value, source(fact), proposal.conversation, proposal.asked ? "asked, not answered" : "",
+                fact.value, source(fact), proposal.conversation, "",
             ]
             rows.append("| " + cells.map(cell).joined(separator: " | ") + " |")
         }
         rows.append("")
-        rows.append("`/fact approve ID` keeps one for every conversation.")
+        rows.append(
+            "`/fact ID permanent` keeps one for every conversation; `/fact ID session` shares it with this session.")
         return rows.joined(separator: "\n") + "\n"
     }
 
@@ -103,7 +104,7 @@ public enum FactReport {
         FactComposition.provenance(fact)
     }
 
-    /// The note on a fact: its place in a conflict, or how to approve it.
+    /// The note on a fact: its place in a conflict, or how to keep it.
     static func note(_ fact: Fact, view: FactView) -> String {
         guard fact.state == .current else { return "" }
         var notes: [String] = []
@@ -114,7 +115,7 @@ public enum FactReport {
                 notes.append("disagrees with \(group.winner.id), which wins")
             }
         }
-        if fact.proposed { notes.append("/fact approve \(fact.id) to keep it") }
+        if fact.proposed { notes.append("/fact \(fact.id) permanent to keep it") }
         return notes.joined(separator: "; ")
     }
 
@@ -122,6 +123,44 @@ public enum FactReport {
     private static func cell(_ text: String) -> String {
         OutputReference.shortened(text.split(whereSeparator: \.isNewline).joined(separator: " "), to: 160)
             .replacingOccurrences(of: "|", with: "\\|")
+    }
+
+    /// The note chat prints after a turn that recorded or changed facts, in one line: how many, the first few
+    /// with their ids, values, and sources, a count of the rest, and how to move one; nil when there are none.
+    ///
+    /// - Parameters:
+    ///   - facts: The facts (`Agent.Reply.facts`).
+    ///   - limit: How many to name.
+    /// - Returns: The line, such as `2 new facts: c7 release codename = BLUE HERON (model), c8 branch = main
+    ///   (tool) - /fact <id> permanent|thread|session`.
+    public static func newFacts(_ facts: [Fact], limit: Int = 3) -> String? {
+        guard !facts.isEmpty else { return nil }
+        let shown = facts.prefix(limit).map { fact -> String in
+            let label = fact.identity.name.isEmpty ? fact.identity.subject : fact.identity.name
+            let value = OutputReference.shortened(
+                fact.value.split(whereSeparator: \.isNewline).joined(separator: " "), to: 60)
+            return "\(fact.id) \(label) = \(value) (\(fact.source.rawValue))"
+        }
+        let more = facts.count > limit ? ", and \(facts.count - limit) more" : ""
+        return "\(facts.count) new fact\(facts.count == 1 ? "" : "s"): \(shown.joined(separator: ", "))\(more)"
+            + " \u{2014} /fact <id> permanent|thread|session"
+    }
+
+    /// The facts a turn recorded or changed, as JSON: `id`, `scope` (`permanent`, `thread`, `session`),
+    /// `subject`, `name`, `value`, `source`, and `proposed`, whether the fact awaits the person for permanent.
+    ///
+    /// - Parameter facts: The facts (`Agent.Reply.facts`).
+    /// - Returns: An array of objects.
+    public static func newFactsJSON(_ facts: [Fact]) -> JSONValue {
+        .array(
+            facts.map { fact in
+                .object([
+                    "id": .string(fact.id), "scope": .string(FactTarget(holding: fact).rawValue),
+                    "subject": .string(fact.identity.subject), "name": .string(fact.identity.name),
+                    "value": .string(fact.value), "source": .string(fact.source.rawValue),
+                    "proposed": .bool(fact.proposed),
+                ])
+            })
     }
 
     /// One fact as JSON, for the MCP facts resources.
@@ -132,7 +171,7 @@ public enum FactReport {
     /// - Returns: The object.
     public static func json(_ fact: Fact, view: FactView) -> JSONValue {
         var object: [String: JSONValue] = [
-            "id": .string(fact.id), "scope": .string(fact.identity.scope.rawValue),
+            "id": .string(fact.id), "scope": .string(FactTarget(holding: fact).rawValue),
             "subject": .string(fact.identity.subject), "name": .string(fact.identity.name),
             "value": .string(fact.value), "source": .string(fact.source.rawValue), "version": .int(fact.version),
             "class": .string(fact.temporalClass.rawValue), "method": .string(fact.method.rawValue),

@@ -473,11 +473,42 @@ public enum ToolCatalog {
         annotations: .init(title: "Close thread", readOnlyHint: false, idempotentHint: false, openWorldHint: false)
     )
 
+    /// Moves one of a thread's facts, or a session fact, to another scope (`thread` or `session`).
+    public static let setFactScope = Tool(
+        name: "set_fact_scope",
+        description:
+            "Move a fact to another scope: thread (the conversation's own) or session (shared by the server's "
+            + "threads, gone when it ends). The fact_id is one of the thread's (c1, c2, ...) or a session fact "
+            + "(s1, ...), listed in the result's structuredContent.facts and under wisp://threads/{thread_id}/facts. "
+            + "A proposed permanent fact moved to thread stops being proposed. Permanent is set from chat.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "thread_id": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The thread that owns the fact, or receives a session fact moved to thread."),
+                ]),
+                "fact_id": .object([
+                    "type": .string("string"),
+                    "description": .string("The fact: c<number> of the thread, or s<number> of the session."),
+                ]),
+                "scope": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("thread"), .string("session")]),
+                    "description": .string("Where to move it."),
+                ]),
+            ]),
+            "required": .array([.string("thread_id"), .string("fact_id"), .string("scope")]),
+        ]),
+        annotations: .init(title: "Set a fact's scope", readOnlyHint: false, idempotentHint: true, openWorldHint: false)
+    )
+
     /// Every tool, in the order clients see them.
     public static var all: [Tool] {
         [
             respond, triage, summariseDiff, draftChange, scanSecrets, redact, condenseLog, jsonShape, dependencyAudit,
-            flakyTests, hotPaths, closeThread,
+            flakyTests, hotPaths, setFactScope, closeThread,
         ]
     }
 
@@ -1058,5 +1089,46 @@ public struct CloseThreadRequest: Equatable, Sendable {
         }
         try validateThreadID(id)
         threadID = id
+    }
+}
+
+/// Decoded arguments for the `set_fact_scope` tool.
+public struct SetFactScopeRequest: Equatable, Sendable {
+    /// The thread that owns the fact, or receives a session fact moved to `thread`.
+    public var threadID: String
+    /// The fact: `c<number>` of the thread or `s<number>` of the session.
+    public var factID: String
+    /// Where to move it: `thread` or `session`.
+    public var scope: FactTarget
+
+    /// Decodes and validates MCP call arguments.
+    ///
+    /// - Parameter arguments: The raw `tools/call` arguments.
+    /// - Throws: `MCPError.invalidParams` if an argument is missing or malformed, if the fact is a permanent one
+    ///   (`p<number>`), or if `scope` is `permanent`: permanent facts are managed from chat, not over MCP.
+    public init(arguments: [String: Value]?) throws {
+        guard let id = arguments?["thread_id"]?.stringValue else {
+            throw MCPError.invalidParams("'thread_id' is required and must be a string")
+        }
+        try validateThreadID(id)
+        guard let fact = arguments?["fact_id"]?.stringValue, !fact.isEmpty else {
+            throw MCPError.invalidParams("'fact_id' is required: c<number> of the thread or s<number> of the session")
+        }
+        guard let word = arguments?["scope"]?.stringValue, let target = FactTarget(rawValue: word) else {
+            throw MCPError.invalidParams("'scope' is required: thread or session")
+        }
+        guard target != .permanent else {
+            throw MCPError.invalidParams("scope permanent is set from chat (/fact ID permanent), not over MCP")
+        }
+        guard fact.hasPrefix(FactScope.permanent.prefix) == false else {
+            throw MCPError.invalidParams("permanent facts (\(fact)) are managed from chat, not over MCP")
+        }
+        let digits = fact.dropFirst()
+        guard let first = fact.first, "cs".contains(first), !digits.isEmpty, digits.allSatisfy(\.isASCII),
+            digits.allSatisfy(\.isNumber)
+        else {
+            throw MCPError.invalidParams("'fact_id' must be c<number> of the thread or s<number> of the session")
+        }
+        (threadID, factID, scope) = (id, fact, target)
     }
 }

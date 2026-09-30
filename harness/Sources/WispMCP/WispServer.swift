@@ -34,12 +34,8 @@ public struct WispServer: Sendable {
         ) throws -> OpenThread
     private let makeThread: ThreadFactory
     /// What the client's user can be asked through elicitation (ADR 0044): commands, which `--yes` sessions
-    /// approve inside the gate instead, and proposed permanent facts, which only the person admits.
+    /// approve inside the gate instead.
     let host: SessionHost
-    /// The fact-approval dialogs, asked one after another after the calls that proposed them.
-    let factAsks = FactAskQueue()
-    /// The responses written to the client, so a dialog can wait for the result of the call that queued it.
-    let responses = ResponseLedger()
     /// The command-approval effect of `host`.
     private var approver: any Approver { host.approver }
     /// Opens the agent that judges one chunk for a condensing tool; tests inject one over a scripted model.
@@ -75,9 +71,7 @@ public struct WispServer: Sendable {
                 resources: .init(subscribe: false, listChanged: false), tools: .init(listChanged: false)))
         self.session = session
         let timeout = session.config.approvalTimeout
-        host = SessionHost(
-            approver: ElicitationApprover(server: server, client: client, timeout: timeout),
-            facts: ElicitationFactApprover(server: server, client: client, timeout: timeout))
+        host = SessionHost(approver: ElicitationApprover(server: server, client: client, timeout: timeout))
         threads = ThreadStore(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
@@ -102,7 +96,7 @@ public struct WispServer: Sendable {
     ///
     /// - Throws: Transport errors from the MCP SDK.
     func serve(transport: any Transport) async throws {
-        let transport = CompatibilityTransport(transport, responses: responses)
+        let transport = CompatibilityTransport(transport)
         await server.withMethodHandler(ListTools.self) { _ in .init(tools: ToolCatalog.all) }
         await server.withMethodHandler(CallTool.self) { params in try await self.call(params) }
         await server.withMethodHandler(ListResources.self) { _ in
@@ -217,6 +211,9 @@ public struct WispServer: Sendable {
                 result = await flakyTests(try FlakyTestsRequest(arguments: params.arguments))
             case ToolCatalog.hotPaths.name:
                 result = await hotPaths(try CondensingRequest(arguments: params.arguments).source)
+            case ToolCatalog.setFactScope.name:
+                let request = try SetFactScopeRequest(arguments: params.arguments)
+                result = await setFactScope(request)
             case ToolCatalog.closeThread.name:
                 let request = try CloseThreadRequest(arguments: params.arguments)
                 result = await closeThread(request)
@@ -234,31 +231,8 @@ public struct WispServer: Sendable {
             details: AuditEvent.Details.mcpResult(
                 tool: params.name, isError: result.isError ?? false, text: text,
                 seconds: Date().timeIntervalSince(started)))
-        await askAboutProposedFacts()
         return result
     }
-
-    /// Queues a question to the person about each permanent fact proposed since the last call, in any
-    /// conversation of the server, and returns without waiting for the answers: the call's result goes back
-    /// at once, and the dialogs follow once it has been written (at most `resultWait` later), one at a time.
-    /// Nothing is asked when the client has no elicitation; the proposals wait in `wisp://facts/proposed`.
-    func askAboutProposedFacts() async {
-        guard let approver = host.facts, approver.canAsk else { return }
-        let proposals = session.factProposals
-        let permanent = session.permanentFacts
-        let pending = proposals.claim(permanent: permanent)
-        guard !pending.isEmpty else { return }
-        let request = ResponseLedger.currentRequest()
-        let responses = responses
-        await factAsks.enqueue {
-            await responses.waitForResponse(to: request, atMost: Self.resultWait)
-            await proposals.ask(pending, via: approver, permanent: permanent)
-        }
-    }
-
-    /// The longest a fact-approval dialog waits for its call's result to be written; a cancelled call gets
-    /// none.
-    static let resultWait = Duration.seconds(5)
 
     /// Serves the resources: the tool catalogue from the live registry, and the introspection views.
     ///
@@ -391,6 +365,7 @@ public struct WispServer: Sendable {
                     "refusals": .array(
                         refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
+                    "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
                     "output": schema == nil ? .null : Self.parse(reply.text),
                 ]),
                 isError: false
@@ -685,6 +660,31 @@ public struct WispServer: Sendable {
         let makeAgent = makeTriageAgent
         return { prompt in
             try await makeAgent(conversation, model).respond(to: prompt, schema: try OutputSchema(json: schema)).text
+        }
+    }
+
+    /// Moves a fact of the thread, or a session fact, to `thread` or `session` on behalf of the caller
+    /// (`fact.scope.changed`, `by: caller`); a thread that is not open, an unknown fact, or a fact already
+    /// there are tool errors.
+    private func setFactScope(_ request: SetFactScopeRequest) async -> CallTool.Result {
+        guard let open = await threads.peek(request.threadID) else {
+            return failure("no open thread \(request.threadID); respond starts one")
+        }
+        do {
+            let fact = try await open.thread.setFactScope(request.factID, to: request.scope)
+            let rows = Self.turnFacts([fact], thread: request.threadID).arrayValue ?? []
+            return .init(
+                content: [
+                    .text(
+                        text: "moved \(request.factID) to \(request.scope.rawValue)"
+                            + (fact.id == request.factID ? "" : " as \(fact.id)"), annotations: nil, _meta: nil)
+                ],
+                structuredContent: .object([
+                    "thread_id": .string(request.threadID), "from": .string(request.factID),
+                    "fact": Value(json: rows.first ?? .null),
+                ]), isError: false)
+        } catch {
+            return failure("\(error)")
         }
     }
 

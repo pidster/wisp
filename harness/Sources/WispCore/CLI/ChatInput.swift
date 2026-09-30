@@ -27,7 +27,7 @@ public enum ChatInput: Equatable, Sendable {
     case view(String?)
     /// Show the facts in force, `/inspect facts`; with `all` (`/inspect facts all`) their history too.
     case facts(all: Bool)
-    /// State, delete, or approve a fact: `/fact …`.
+    /// State, move, or delete a fact: `/fact …`.
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
     case task(String?)
@@ -108,7 +108,8 @@ public enum ChatInput: Equatable, Sendable {
         /inspect context turns    list the turns with what changed at each
         /inspect facts [all]      list the facts the model is given, with their sources; all adds their history
         /fact SUBJECT [NAME] = VALUE   state a fact as you, which outranks a tool's and the model's
-        /fact delete ID, /fact approve ID   delete a fact; admit a proposed permanent fact to ~/.wisp/facts.json
+        /fact ID permanent|thread|session   move a fact to that scope; permanent keeps it in ~/.wisp/facts.json
+        /fact delete ID  delete a fact
         /task [text]     show the task and its history, or set it
         /status          show wisp's own state: model, tools, policy, session
         /approvals       list standing approvals; /approvals revoke [ID] removes one
@@ -185,13 +186,14 @@ public enum FactRequest: Equatable, Sendable {
     case state(subject: String, name: String, value: String)
     /// Delete a fact by id.
     case delete(String?)
-    /// Approve a proposed permanent fact by id.
-    case approve(String?)
+    /// Move a fact to a scope: `/fact ID permanent|thread|session`.
+    case move(String, FactTarget)
     /// Anything else: show how to use it.
     case usage
 
     /// How to use `/fact`.
-    public static let usageText = "usage: /fact SUBJECT [NAME] = VALUE, /fact delete ID, or /fact approve ID"
+    public static let usageText =
+        "usage: /fact SUBJECT [NAME] = VALUE, /fact ID permanent|thread|session, or /fact delete ID"
 
     /// Parses what follows `/fact`.
     public init(_ argument: String?) {
@@ -202,8 +204,8 @@ public enum FactRequest: Equatable, Sendable {
             self = .usage
         case "delete" where words.count <= 2:
             self = .delete(words.count > 1 ? words[1] : nil)
-        case "approve" where words.count <= 2:
-            self = .approve(words.count > 1 ? words[1] : nil)
+        case _? where words.count == 2 && FactTarget(rawValue: words[1].lowercased()) != nil:
+            self = .move(words[0], FactTarget(rawValue: words[1].lowercased()) ?? .thread)
         default:
             guard let equals = text.firstIndex(of: "=") else {
                 self = .usage

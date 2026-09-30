@@ -21,7 +21,10 @@ import WispTestSupport
                 == .fact(.state(subject: "tests", name: "swift test --filter X", value: "passed")))
         #expect(
             ChatInput(line: "/fact delete c3") == .fact(.delete("c3"))
-                && ChatInput(line: "/fact approve") == .fact(.approve(nil)))
+                && ChatInput(line: "/fact c7 permanent") == .fact(.move("c7", .permanent))
+                && ChatInput(line: "/fact git/c7 Session") == .fact(.move("git/c7", .session))
+                && ChatInput(line: "/fact s2 thread") == .fact(.move("s2", .thread)))
+        #expect(FactRequest("approve c7") == .usage && FactRequest("c7 forever") == .usage)
         #expect(FactRequest(nil) == .usage && FactRequest("entity codename") == .usage && FactRequest("= x") == .usage)
         #expect(FactRequest("x =") == .usage)
         #expect(FactRequest("delete a = b") == .state(subject: "delete", name: "a", value: "b"))
@@ -33,7 +36,12 @@ import WispTestSupport
         #expect(ChatCompletion.complete("/inspect facts ").candidates == ["all"])
         #expect(ChatCompletion.complete("/fact e").candidates == ["entity"])
         #expect(ChatCompletion.complete("/fact d").candidates == ["decision", "delete"])
-        #expect(ChatCompletion.complete("/fact approve c", factIDs: ["c1", "p2"]).candidates == ["c1"])
+        #expect(ChatCompletion.complete("/fact delete c", factIDs: ["c1", "p2"]).candidates == ["c1"])
+        #expect(
+            ChatCompletion.complete("/fact c1 ", factIDs: ["c1", "p2"]).candidates == [
+                "permanent", "session", "thread",
+            ])
+        #expect(ChatCompletion.complete("/fact c1 s", factIDs: ["c1", "p2"]).candidates == ["session"])
     }
 
     @Test func theLoopStatesShowsAndChangesFacts() async throws {
@@ -46,7 +54,9 @@ import WispTestSupport
         agent.facts = FactSettings()
         let capture = ChatLoopTests.Capture(lines: [
             "/task add a --dry-run flag", "/task", "/fact tests ci = green", "/fact mood = fine", "/fact",
-            "/inspect facts", "/fact delete c9", "/fact delete c3", "/inspect facts all", "/fact approve c1", "quit",
+            "/inspect facts", "/fact delete c9", "/fact delete c3", "/inspect facts all", "/fact c1 thread",
+            "/fact c4 session",
+            "/fact s1 permanent", "quit",
         ])
         var loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
@@ -62,7 +72,9 @@ import WispTestSupport
         #expect(notes.contains(FactRequest.usageText))
         #expect(notes.contains { $0.contains("error: no current fact c9") })
         #expect(notes.contains("deleted c3: task "))
-        #expect(notes.contains { $0.contains("error: fact c1 is not a proposed permanent fact") })
+        #expect(notes.contains { $0.contains("error: fact c1 is already in scope thread") })
+        #expect(notes.contains("moved c4 to session as s1"))
+        #expect(notes.contains("moved s1 to permanent as p1 (kept in ~/.wisp/facts.json for every conversation)"))
         let out = capture.output
         #expect(out.contains("task: add a --dry-run flag\n  the person,"))
         #expect(out.contains("# Facts\n") && out.contains("| c4 | tests | ci | green | the person | dynamic |  |"))

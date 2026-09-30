@@ -23,6 +23,16 @@ public protocol RespondingThread: Sendable {
 
     /// Every fact the thread sees, in any state (`Agent.allFacts`); nil when it keeps none.
     func facts() async -> [Fact]?
+
+    /// Moves one of the thread's facts, or a session fact, to `target` as the caller's action
+    /// (`Agent.setFactScope`).
+    ///
+    /// - Parameters:
+    ///   - id: The fact (`c3`, `s1`).
+    ///   - target: `thread` or `session`.
+    /// - Returns: The fact as its new scope holds it.
+    /// - Throws: `FactFailure`.
+    func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact
 }
 
 extension RespondingThread {
@@ -37,6 +47,9 @@ extension RespondingThread {
 
     /// None, as for `context(_:)`.
     public func facts() async -> [Fact]? { nil }
+
+    /// Refused: a thread without a conversation store keeps no facts.
+    public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact { throw FactFailure.off }
 }
 
 /// One conversation with the on-device model, addressable by id across MCP calls.
@@ -72,7 +85,12 @@ public actor ConversationThread: RespondingThread {
     /// Sets the agent's task as the caller's.
     public func setTask(_ task: String) async throws { try agent.setTask(task, source: .caller) }
 
-    /// The agent's facts, or nil when it keeps none; proposals approved elsewhere are marked superseded first.
+    /// Moves a fact as the caller's action.
+    public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact {
+        try agent.setFactScope(id, to: target, by: .caller)
+    }
+
+    /// The agent's facts, or nil when it keeps none; proposals moved elsewhere are marked superseded first.
     public func facts() async -> [Fact]? {
         guard agent.facts != nil else { return nil }
         agent.syncProposals()

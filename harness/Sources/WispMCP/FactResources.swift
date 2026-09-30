@@ -157,21 +157,43 @@ extension WispServer {
     }
 
     /// `wisp://facts/proposed`: the proposals awaiting the person, oldest first, each with its conversation,
-    /// the reference chat's `/fact approve` takes, whether the person was asked, and the thread fact's URI
-    /// when the conversation is a thread of this server.
+    /// the reference chat's `/fact` takes, and the thread fact's URI when the conversation is a thread of this
+    /// server.
     private func proposedFacts(page: Int) throws -> JSONValue {
         let view = FactView([])
         let rows = session.factProposals.awaiting.map { proposal -> JSONValue in
             var row = FactReport.json(proposal.fact, view: view).objectValue ?? [:]
             row["thread_id"] = .string(proposal.conversation)
             row["reference"] = .string(proposal.reference)
-            row["asked"] = .bool(proposal.asked)
             row["uri"] =
                 directory.record(proposal.conversation) == nil
                 ? .null : .string("\(ToolCatalog.threadURI(proposal.conversation))/facts/\(proposal.fact.id)")
             return .object(row)
         }
         return try Self.paged(rows, page: page, base: ToolCatalog.proposedFactsResourceURI, key: "facts")
+    }
+
+    /// The facts a turn recorded or changed, for `respond`'s `structuredContent.facts`: each with `id`, `scope`,
+    /// `subject`, `name`, `value`, `source`, `proposed`, and `uri`, where the person or a caller can read it
+    /// (a thread's fact under the thread, a session fact in the session's collection, a permanent one under
+    /// `wisp://facts`).
+    ///
+    /// - Parameters:
+    ///   - facts: The turn's facts (`Agent.Reply.facts`).
+    ///   - thread: The thread that ran the turn.
+    /// - Returns: The array.
+    static func turnFacts(_ facts: [Fact], thread: String) -> JSONValue {
+        let rows = FactReport.newFactsJSON(facts).arrayValue ?? []
+        return .array(
+            zip(facts, rows).map { fact, row in
+                let uri =
+                    switch FactTarget(holding: fact) {
+                    case .thread: "\(ToolCatalog.threadURI(thread))/facts/\(fact.id)"
+                    case .session: ToolCatalog.sessionFactsResourceURI
+                    case .permanent: "\(ToolCatalog.factsResourceURI)/\(fact.id)"
+                    }
+                return with(row, "uri", .string(uri))
+            })
     }
 
     /// `object` with `key` set to `value`.

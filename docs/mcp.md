@@ -3,7 +3,7 @@
 `wisp mcp` speaks the Model Context Protocol over stdio, so other agent harnesses can delegate work to the
 on-device model. It advertises `respond`; ten condensing tools that keep raw material on the Mac and
 return a small result (`triage`, `summarise_diff`, `draft_change`, `scan_secrets`, `redact`,
-`condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`); and `close_thread`. wisp's own tools (`run_command`, `read_file`, `system_info`, and the
+`condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`); `set_fact_scope`; and `close_thread`. wisp's own tools (`run_command`, `read_file`, `system_info`, and the
 rest) are not exposed directly; they are reachable only by asking `respond` to use them, so every command runs under the model's policy, sandbox, and approval with the audit trail of a
 turn ([ADR 0006](decisions/0006-mcp-server-over-stdio.md), amended). Stdout is the protocol channel; diagnostics go to stderr. The
 server runs until the client closes stdin.
@@ -68,9 +68,9 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/facts` | JSON: the thread's own facts (ids `c…`): its task, the state of the work, and its proposed permanent facts. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `supersededBy`, `approved`, `conflict` (the winning head and the ones that disagree, when they do, including a permanent or session fact), and `uri`; plus `conflicts`, the count of its facts in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. The session's and the permanent facts are in the resources below; all of them, as the model is given them, are in `…/context/next`. |
 | `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one of the thread's facts (`fact`) and every version the thread holds of what it is about (`history`), oldest first. A `p…` or `s…` id is refused with a pointer to where it is served. |
-| `wisp://facts` | JSON: the permanent facts in the shared store (`~/.wisp/facts.json`, ids `p…`), which only the person admits; the same fields, with `approved` for one the person approved, and `uri`. Current only; `?all=true` adds superseded and deleted versions. Paged. |
+| `wisp://facts` | JSON: the permanent facts in the shared store (`~/.wisp/facts.json`, ids `p…`), which only the person moves facts into, from chat; the same fields, with `approved` for one the person approved, and `uri`. Current only; `?all=true` adds superseded and deleted versions. Paged. |
 | `wisp://facts/{fact_id}` | JSON: one permanent fact (`fact`) and every version the shared store holds of what it is about (`history`), oldest first. `fact_id` starts with `p`, so `wisp://facts/proposed` is never taken for one. |
-| `wisp://facts/proposed` | JSON: the permanent facts a tool or the model proposed in any conversation of this server, awaiting the person: neither approved nor declined. Each has the fact's fields, `thread_id` (its conversation), `reference` (`thread_id/fact_id`, which chat's `/fact approve` takes), `asked` (whether the person was asked through elicitation and has not answered), and `uri` (the thread's fact, or null for a conversation that is not a thread). Paged. See "Approving a permanent fact" below. |
+| `wisp://facts/proposed` | JSON: the permanent facts a tool or the model proposed in any conversation of this server, awaiting the person: not yet moved to another scope. Each has the fact's fields, `thread_id` (its conversation), `reference` (`thread_id/fact_id`, which chat's `/fact` takes), and `uri` (the thread's fact, or null for a conversation that is not a thread). Paged. Nothing asks about them: chat lists them and moves them (`/fact git/c3 permanent`), and `respond`'s `facts` and `set_fact_scope` handle a thread's own. |
 | `wisp://session/facts` | JSON: the session's ephemeral facts (ids `s…`): the machine now, such as a listening port, shared by every thread of this server and gone with it. Current only; `?all=true` adds superseded versions. Paged. |
 | `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
 | `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
@@ -127,8 +127,17 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "output": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "output": null }
 ```
+
+`facts` lists the facts the turn recorded or changed that are still in force, from its tools and the model
+(a test command's status, a distilled codename): each `{ "id", "scope", "subject", "name", "value",
+"source", "proposed", "uri" }`. `scope` is `thread`, `session`, or `permanent`; `proposed` is true for a
+permanent fact a tool or the model proposed, which awaits the person; `uri` is where to read it
+(`wisp://threads/{thread_id}/facts/{fact_id}` for a thread's, `wisp://session/facts` for the session's).
+The list is empty when the turn recorded none or the thread keeps no facts. Nothing in the reply asks the
+person anything: a caller may move a fact with `set_fact_scope` (below), and the person changes any fact's
+scope from chat.
 
 `output` is the reply parsed as JSON when the call gave a `schema`, and null otherwise.
 
@@ -208,50 +217,43 @@ that produced it and a compact reference in every later request ([context-manage
 **A caller's task ranks with the person's.** The MCP caller is the person's agent, so its `task` takes the
 person's precedence over what a tool or the model says about the task (decision D2), and is recorded apart
 as `source: caller`, so the audit and the facts resource say who set it. It is the only fact a caller sets
-in this version. Deleting a fact is chat's; approving a permanent one is the person's, through the
-client's dialog (see "Approving a permanent fact" below) or chat's `/fact approve`, never the caller's.
+in this version. Deleting a fact is chat's, and so is making one permanent: the caller can move a fact
+between `thread` and `session` with `set_fact_scope` (below), never to `permanent`.
 
 `condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
 `session.end` with reason `evicted`. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
 in order; different threads run concurrently.
 
-### Approving a permanent fact
+### Facts a turn recorded, and their scope
 
-A permanent fact (a name, a codename, a settled decision, a preference) is kept across sessions in
-`~/.wisp/facts.json` and given to every later conversation, so only the person admits one (decision D2 of
-the [layered-context proposal](proposals/2026-09-29-layered-context.md), ADR 0044 as amended on
-2026-09-30). When a tool or the model proposes one in a thread, the thread keeps it as its own proposal and
-the server asks the person, if the client advertised elicitation:
+A fact has a scope, which is where it lives: `permanent` (the shared store under `~/.wisp`, kept across
+sessions), `thread` (the conversation's own facts) or `session` (shared by the server's threads, gone when
+the process ends). A permanent fact a tool or the model proposes is not written to the shared store: the
+thread keeps it as a proposal (`proposed: true`, in `wisp://facts/proposed`) until the person moves it to
+`permanent` from chat. wisp does not ask about it over MCP (the fact-approval dialog was withdrawn on
+2026-09-30, [ADR 0044](decisions/0044-host-effects.md)); it lists what a turn added in `respond`'s `facts`,
+and the scope is a state that is changed by a command that names the target. How permanent facts are
+managed over MCP is undecided, so `permanent` is not offered here.
 
-- **After the call, never during it.** The `respond` result goes back first; the dialog follows once the
-  result has been written. The turn, and the model behind the caller, never wait on the person.
-- **One dialog per proposal,** in a row when a turn proposes several (titled "(1 of 3)" and so on), and
-  one at a time across threads. It is fieldless, like the command dialog:
+### `set_fact_scope`
 
-  ```
-  wisp: keep as a permanent fact?
+Move a fact to another scope: the caller's counterpart to chat's `/fact ID SCOPE`.
 
-  Keep as a permanent fact? release codename: BLUE HERON (proposed by the model, from the person's words in turn 3)
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `thread_id` | string | yes | The thread that owns the fact, or that receives a session fact moved to `thread` (fact ids are per conversation, so a thread is always named). |
+| `fact_id` | string | yes | `c<number>`, a fact of that thread, or `s<number>`, a session fact. A `p<number>` (permanent) fact is refused. |
+| `scope` | string | yes | `thread` or `session`. `permanent` is refused with a message saying it is set from chat. |
 
-  Subject: entity
-  Conversation: git (fact c3)
-
-  Accept keeps it in ~/.wisp/facts.json as approved by you, and every later conversation is given it.
-  Decline leaves it with this conversation only, and wisp will not ask about this value again. No answer
-  within 600 seconds leaves it waiting in wisp://facts/proposed.
-  ```
-
-- **Accept** admits it as approved by the person, ranking with the person's own facts, and the thread's
-  copy is marked superseded by it. **Decline** or Cancel leaves it with the thread as a proposal, and wisp
-  does not ask again about the same subject, name, and value, from any thread, while the server runs.
-  **No answer** within `approval.timeoutSeconds` (`0` waits forever) admits nothing and leaves it waiting.
-  A value already in the shared store is not asked about.
-- **Without elicitation** nothing is asked: the proposal waits in `wisp://facts/proposed`. `--yes` does
-  not approve facts; it stands for the person on commands only.
-
-Each question and answer is audited on the thread: `fact.approval.asked`, `fact.approval.decided`, and, on
-Accept, `fact.approved` with `via: elicitation` ([logging.md](logging.md)).
+Scope and temporal class move together: `session` makes the fact ephemeral and shared by the server's
+threads, `thread` makes it the thread's own, dynamic. A proposed permanent fact moved to `thread` stops
+being proposed, in place; any other move takes the fact into the target store as a new fact (a new id, in
+`structuredContent.fact`) and leaves the old one as history, superseded by it. Moving a fact to the scope it
+is already in is an error, as are an unknown fact and a thread that is not open. Result content is a line
+such as `moved c2 to session as s1`; `structuredContent` is `{ "thread_id", "from" (the id given), "fact" }`
+with `fact` in the shape of `respond`'s `facts`. Each move is audited on the thread as `fact.scope.changed`
+with `by: caller` ([logging.md](logging.md)).
 
 ## Structured output
 

@@ -46,23 +46,25 @@ Added:
   stops the model call, sets their share of the window, and adds or changes subject kinds.
 - Chat's `/inspect facts [all]` lists the facts the model is given, with their sources and history;
   `/fact SUBJECT [NAME] = VALUE` states one as you, which outranks a tool and the model; `/fact delete ID`
-  and `/fact approve ID` delete one or keep a proposed one for every conversation; `/task [text]` shows or
+  and `/fact ID permanent|thread|session` delete one or move it to another scope; `/task [text]` shows or
   sets the conversation's task. `wisp-tui` shows the facts in its panel.
 - MCP `respond` takes an optional `task`, kept as the thread's task and shown to the model next to each
   request; `wisp://threads/{thread_id}/facts` lists a thread's facts and `…/facts/{fact_id}` one fact's
   history, and the thread summary's `task` is filled in.
 - New audit events: `context.distillation`, `fact.recorded`, `fact.superseded`, `fact.deleted`,
-  `fact.approved`, `fact.conflict.raised`, and `fact.conflict.resolved`.
-- Over MCP, when a tool or the model proposes a permanent fact in a thread, wisp asks you whether to keep
-  it through the client's dialog, after the call's result has gone back, one fact per dialog: "Keep as a
-  permanent fact? release codename: BLUE HERON (proposed by the model, from the person's words in turn
-  3)". Accept keeps it for every conversation; Decline leaves it with the thread and wisp does not ask
-  again about the same value; no answer within `approval.timeoutSeconds` leaves it waiting. A client
-  without elicitation is not asked; `wisp://facts/proposed` lists what waits. Audited as
-  `fact.approval.asked` and `fact.approval.decided`, and `fact.approved` now says `via` (`chat` or
-  `elicitation`).
+  `fact.scope.changed`, `fact.conflict.raised`, and `fact.conflict.resolved`.
+- Facts are listed after each turn, and their scope is yours to change by command. Chat prints a quiet note
+  under the reply when a turn recorded or changed facts (`2 new facts: c7 release codename = BLUE HERON
+  (model), … — /fact <id> permanent|thread|session`; at most three named, then a count); `wisp chat --json`
+  sends the same as a `note` and adds `facts` to the turn's end, which `wisp-tui` shows as a note; and MCP
+  `respond` returns them as `structuredContent.facts`, each with `id`, `scope`, `subject`, `name`, `value`,
+  `source`, `proposed`, and `uri`. `/fact ID permanent|thread|session` moves a fact to the scope you name
+  (`permanent` writes it to `~/.wisp/facts.json` as yours, ranking with you; out of `permanent` takes it
+  out). Over MCP the new `set_fact_scope` tool moves a thread's fact or a
+  session fact between `thread` and `session`; `permanent` is set from chat. wisp never asks over MCP
+  whether to keep a proposed permanent fact. Audited as `fact.scope.changed`.
 - Chat's `/inspect facts` also lists permanent facts proposed in the process's other conversations (the
-  one before a `/new`, say), and `/fact approve CONVERSATION/ID` keeps one.
+  one before a `/new`, say), and `/fact CONVERSATION/ID permanent` keeps one.
 
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.

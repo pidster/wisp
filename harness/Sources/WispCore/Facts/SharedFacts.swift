@@ -104,6 +104,21 @@ public final class SharedFacts: Sendable {
         return deleted
     }
 
+    /// Marks the current fact `id` superseded by `other`, a fact in another book, and saves: the fact moved
+    /// there (`Agent.setFactScope`).
+    ///
+    /// - Parameters:
+    ///   - id: The fact.
+    ///   - other: The id of the fact that replaces it.
+    /// - Throws: `Failure.unwritable`.
+    func supersede(_ id: String, by other: String) throws {
+        let snapshot = book.withLock { book -> FactBook in
+            book.supersede(id, by: other)
+            return book
+        }
+        try save(snapshot)
+    }
+
     /// Writes `snapshot` to `url`, user-only, when there is one.
     private func save(_ snapshot: FactBook) throws {
         guard let url else { return }

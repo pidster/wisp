@@ -67,8 +67,12 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case factRecorded = "fact.recorded"
         case factSuperseded = "fact.superseded"
         case factDeleted = "fact.deleted"
+        case factScopeChanged = "fact.scope.changed"
+        /// Legacy: written only by unreleased builds, never now; kept so their logs still read.
         case factApproved = "fact.approved"
+        /// Legacy, as `factApproved`.
         case factApprovalAsked = "fact.approval.asked"
+        /// Legacy, as `factApproved`.
         case factApprovalDecided = "fact.approval.decided"
         case factConflict = "fact.conflict.raised"
         case factResolved = "fact.conflict.resolved"

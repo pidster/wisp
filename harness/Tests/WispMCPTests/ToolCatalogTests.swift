@@ -10,7 +10,7 @@ import WispCore
         #expect(
             ToolCatalog.all.map(\.name) == [
                 "respond", "triage", "summarise_diff", "draft_change", "scan_secrets", "redact", "condense_log",
-                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "close_thread",
+                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "set_fact_scope", "close_thread",
             ])
     }
 
@@ -19,6 +19,34 @@ import WispCore
             let schema = tool.inputSchema.objectValue
             #expect(schema?["type"]?.stringValue == "object", "\(tool.name)")
             #expect(schema?["required"]?.arrayValue != nil, "\(tool.name)")
+        }
+    }
+
+    @Test func setFactScopeOffersOnlyThreadAndSession() throws {
+        let schema = try #require(ToolCatalog.setFactScope.inputSchema.objectValue)
+        let scope = try #require(schema["properties"]?.objectValue?["scope"]?.objectValue)
+        #expect(scope["enum"]?.arrayValue?.compactMap(\.stringValue) == ["thread", "session"])
+        #expect(schema["required"]?.arrayValue?.compactMap(\.stringValue) == ["thread_id", "fact_id", "scope"])
+        let request = try SetFactScopeRequest(arguments: [
+            "thread_id": "git", "fact_id": "c3", "scope": "session",
+        ])
+        #expect(request.threadID == "git" && request.factID == "c3" && request.scope == .session)
+        for (arguments, message) in [
+            (["thread_id": "git", "fact_id": "c3", "scope": "permanent"], "set from chat"),
+            (["thread_id": "git", "fact_id": "p1", "scope": "thread"], "managed from chat"),
+            (["thread_id": "git", "fact_id": "c3", "scope": "forever"], "'scope' is required"),
+            (["thread_id": "git", "fact_id": "x3", "scope": "thread"], "c<number>"),
+            (["thread_id": "git", "fact_id": "c", "scope": "thread"], "c<number>"),
+            (["thread_id": "git", "fact_id": "", "scope": "thread"], "'fact_id' is required"),
+            (["fact_id": "c3", "scope": "thread"], "'thread_id' is required"),
+            (["thread_id": "../x", "fact_id": "c3", "scope": "thread"], "'thread_id' must be"),
+        ] as [([String: Value], String)] {
+            do {
+                _ = try SetFactScopeRequest(arguments: arguments)
+                Issue.record("\(arguments) was accepted")
+            } catch let error as MCPError {
+                #expect("\(error)".contains(message), "\(error)")
+            }
         }
     }
 
