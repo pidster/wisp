@@ -231,6 +231,7 @@ public struct ChatLoop {
     /// - Throws: Only the exit save can throw; everything inside the loop is reported as a note.
     public mutating func run() async throws {
         if let banner = context.banner { io.note(style.bold(banner)) }
+        observeWorkplace()
         io.note(style.muted("/help for commands, /quit or Ctrl-D to exit."))
         loop: while true {
             io.prompt(await status())
@@ -282,6 +283,22 @@ public struct ChatLoop {
                     if let show = io.view { show(view) } else { io.print(view.text) }
                 case .failure(let failure):
                     io.note(failure.description)
+                }
+            case .facts(let all):
+                let view = ChatView(
+                    kind: .facts, turn: nil, turns: agent.turns.current,
+                    text: FactReport.markdown(agent.allFacts, all: all))
+                if let show = io.view { show(view) } else { io.print(view.text) }
+            case .fact(let request):
+                fact(request)
+            case .task(nil):
+                io.print(FactReport.task(agent.taskHistory))
+            case .task(let text?):
+                do {
+                    let fact = try agent.setTask(text)
+                    io.note("task set (\(fact.id)); /task shows it and its history")
+                } catch {
+                    io.note(style.ember("error: \(error)"))
                 }
             case .models:
                 guard let models = context.models else {
@@ -338,6 +355,7 @@ public struct ChatLoop {
                 }
             case .new:
                 agent.reset()
+                observeWorkplace()
                 io.note("new conversation")
             case .config(let request):
                 await config(request)

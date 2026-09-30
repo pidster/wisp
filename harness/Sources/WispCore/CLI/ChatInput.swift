@@ -25,6 +25,12 @@ public enum ChatInput: Equatable, Sendable {
     /// number for the one composed at that turn's start, `turns` for the list of turns. The bare
     /// `/inspect context` is `context`, which saves the next request's context to files.
     case view(String?)
+    /// Show the facts in force, `/inspect facts`; with `all` (`/inspect facts all`) their history too.
+    case facts(all: Bool)
+    /// State, delete, or approve a fact: `/fact …`.
+    case fact(FactRequest)
+    /// Show the task and its history, or with text set it as the person: `/task [text]`.
+    case task(String?)
     /// List the models the session could switch to.
     case models
     /// Switch the conversation to a model, or show the current one when nil.
@@ -70,6 +76,8 @@ public enum ChatInput: Equatable, Sendable {
         case "new": self = .new
         case "tokens": self = .tokens
         case "inspect" where argument?.lowercased() == "context": self = .context
+        case "inspect" where argument?.lowercased() == "facts": self = .facts(all: false)
+        case "inspect" where argument?.lowercased() == "facts all": self = .facts(all: true)
         case "inspect" where argument?.lowercased().hasPrefix("context ") == true:
             self = .view(
                 String(argument?.dropFirst("context ".count) ?? "").trimmingCharacters(in: .whitespaces))
@@ -79,6 +87,8 @@ public enum ChatInput: Equatable, Sendable {
         case "approvals": self = .approvals(ApprovalsRequest(argument))
         case "last": self = .last
         case "show": self = .show(argument)
+        case "fact": self = .fact(FactRequest(argument))
+        case "task": self = .task(argument)
         case "models": self = .models
         case "model": self = .model(argument)
         case "stats": self = .stats
@@ -96,6 +106,10 @@ public enum ChatInput: Equatable, Sendable {
         /inspect context save the exact context the model sees next to ~/.wisp/context, as Markdown and JSON
         /inspect context next|N   show the context the next request carries, or the one composed at turn N's start
         /inspect context turns    list the turns with what changed at each
+        /inspect facts [all]      list the facts the model is given, with their sources; all adds their history
+        /fact SUBJECT [NAME] = VALUE   state a fact as you, which outranks a tool's and the model's
+        /fact delete ID, /fact approve ID   delete a fact; admit a proposed permanent fact to ~/.wisp/facts.json
+        /task [text]     show the task and its history, or set it
         /status          show wisp's own state: model, tools, policy, session
         /approvals       list standing approvals; /approvals revoke [ID] removes one
         /audit           show the latest audit events of every session, MCP calls included
@@ -161,6 +175,47 @@ public enum ApprovalsRequest: Equatable, Sendable {
         case nil, "list": self = .list
         case "revoke": self = .revoke(parts.count > 1 ? parts[1] : nil)
         case let word?: self = .unknown(word)
+        }
+    }
+}
+
+/// What `/fact` asks for.
+public enum FactRequest: Equatable, Sendable {
+    /// State a fact as the person: `/fact SUBJECT [NAME] = VALUE`.
+    case state(subject: String, name: String, value: String)
+    /// Delete a fact by id.
+    case delete(String?)
+    /// Approve a proposed permanent fact by id.
+    case approve(String?)
+    /// Anything else: show how to use it.
+    case usage
+
+    /// How to use `/fact`.
+    public static let usageText = "usage: /fact SUBJECT [NAME] = VALUE, /fact delete ID, or /fact approve ID"
+
+    /// Parses what follows `/fact`.
+    public init(_ argument: String?) {
+        let text = (argument ?? "").trimmingCharacters(in: .whitespaces)
+        let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        switch words.first?.lowercased() {
+        case nil:
+            self = .usage
+        case "delete" where words.count <= 2:
+            self = .delete(words.count > 1 ? words[1] : nil)
+        case "approve" where words.count <= 2:
+            self = .approve(words.count > 1 ? words[1] : nil)
+        default:
+            guard let equals = text.firstIndex(of: "=") else {
+                self = .usage
+                return
+            }
+            let about = text[..<equals].split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            let value = text[text.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            guard let subject = about.first, !value.isEmpty else {
+                self = .usage
+                return
+            }
+            self = .state(subject: subject, name: about.dropFirst().joined(separator: " "), value: value)
         }
     }
 }

@@ -56,7 +56,7 @@ in both.
 | Ctrl-U, Ctrl-K | Delete to the start or to the end. |
 | Alt-Enter | A newline, for a message of several lines. |
 | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
-| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
+| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect` (and `all` after `/inspect facts`), a subject kind or `delete` and `approve` after `/fact`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
 
 Two keys open a panel over the band, a rounded border around up to 16 rows, with its keys in the bottom
 border: Up and Down scroll a row, PageUp and PageDown a page, and Esc (or the key that opened it) closes
@@ -176,6 +176,10 @@ What a session shows, and where it goes:
 | `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from. |
 | `/audit [sessions\|ID]` | The latest 20 audit events of every session, one line each, MCP calls and other terminals included. `sessions` lists the sessions in the log, each with its latest activity, how it began (`chat`, `mcp`, `scan`, …, or `-` for an MCP thread or a condensing call), and how many events it wrote. An id shows that session's latest events, such as `/audit git` for a `respond` thread named `git`; Tab completes ids. |
 | `/inspect [config\|status\|approvals\|audit]` | Kept as an alias: the same views as `/config`, `/status`, `/approvals`, and `/audit`; with no view, `/status`. `/inspect context` is its own command, above. |
+| `/inspect facts [all]` | The facts the model is given, as a table: id (`c…` the conversation's, `s…` the session's, `p…` the shared store's), subject, name, value, source (`the person`, `tool run_command, turn 3`, `model, distilled: the person said, turns 1-12`), class, and a note: which fact wins where sources disagree, and how to approve a proposed permanent fact. `all` adds superseded and deleted versions with what replaced them. `wisp-tui` shows it in its panel; `wisp chat --json` sends it as a `view` of kind `facts`. See [context-management.md](context-management.md), "Facts". |
+| `/fact SUBJECT [NAME] = VALUE` | State a fact as you: it outranks what a tool or the model says about the same subject and name, and is how you correct one. `SUBJECT` is a subject kind (in `wisp-tui`, `/fact` then Tab lists them); `NAME` is what it is about, left out for `task`, `workdir`, and `branch`. A permanent kind (`decision`, `preference`, `entity`) goes straight to `~/.wisp/facts.json`, where every later conversation sees it. |
+| `/fact delete ID`, `/fact approve ID` | Delete a fact, from any store: later requests leave it out, and the store keeps it as deleted history. Approve a permanent fact a tool or the model proposed (the note in `/inspect facts` says which): it moves to `~/.wisp/facts.json`. Only you can delete or approve; the model and tools can only add newer versions of their own facts. |
+| `/task [text]` | The conversation's task, who set it, and its earlier versions; with text, set it as yours. The model sees the task next to each request. |
 | `/last` | The last tool result in full; the live line shows only its first line. |
 | `/show [ID]` | A tool output in full, to stdout: by the id its fold line gives (the start of its `tool.result` event id, four characters or more) or by its store entry id (the number `/inspect context` and the model's references use); with no id, the last. |
 | `/inspect context next\|N\|turns` | The model's context, shown rather than saved, at no model cost: with `next`, what the next request carries, entry by entry under its store id, with each reply whose copy of an output was cut and each output sent as a reference marked; with a turn number, the context composed at the start of that turn, its own entries (prompt, tool calls and output, reply) marked; with `turns`, one row per turn: time, estimated tokens, what changed since the turn before (entries condensed, replies cut, outputs referenced), and the start of the prompt. Markdown on stdout; `wisp-tui` shows it in its panel (Ctrl-T). |
@@ -228,7 +232,7 @@ Out, to the front end:
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show: `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
-| `view` | `kind` (`context` or `turns`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
+| `view` | `kind` (`context`, `turns`, or `facts`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
@@ -547,6 +551,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `transcripts/<name>.json` | Saved conversations. |
 | `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Optional: a resume without it, or with one that does not match, works as before. |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
+| `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, or approved with `/fact approve`. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
@@ -568,6 +573,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |
 | `inlineOutputBytes` | 1024 | The largest tool output an MCP `respond` result carries inline in `calls`; larger output is a `wisp://threads/{thread_id}/output/{id}` reference ([mcp.md](mcp.md)). `0` makes every output a reference. |
 | `shownOutputLines` | 20 | Lines of each tool's output chat shows under the call's note, in the quiet tone, before folding the rest behind a line naming `/show` and the output's id; at most 2 KiB are shown whatever the lines. `0` shows the note alone. `wisp chat --json` passes it to the front end as each output's `shownLines`, and `wisp-tui` folds there. Settable with `/config set`. |
+| `facts` | `{ "enabled": true, "distil": true, "share": 0.1 }` | Facts, as [context-management.md](context-management.md) ("Facts") describes them. `enabled: false` keeps none: no extraction, no distillation, nothing added to requests. `distil: false` keeps the mechanical facts from tool output but makes no model call when turns leave the window. `share` is the most of the window the facts may take in a request, from 0 to 0.5 (never less than 1 KiB). `kinds` adds subject kinds or changes wisp's (below); `testCommands` replaces the list of command prefixes whose exit status is a `tests` fact (`swift test`, `swift build`, `cargo test`, `cargo build`, `scripts/check`, `npm test`, `npm run test`, `pytest`, `go test`, `make test`). |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
 | `approval` | `{ "threshold": "moderate", "classifier": "coreml", "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |
@@ -582,13 +588,32 @@ stderr.
 A malformed file or an invalid `commandPolicy` pattern is an error; a missing file is fine. Unknown fields are
 ignored.
 
+`facts.kinds` entries each name a kind and set any of `class` (`permanent`, `dynamic`, or `ephemeral`),
+`normaliser` (how names under it are made one: `casefold`, `trim`, `single` for one fact per conversation,
+`command` for a command line's core, `path` for a path relative to its git repository's root),
+`description` (what the distiller is told such facts are), and `distil` (`false` leaves the kind to the
+tools: the model is not asked for such facts; wisp's `file`, `service`, and `machine` say so). An entry with a known kind's name changes only
+the fields it sets; any other name adds a kind, `dynamic` and `casefold` unless it says otherwise. wisp's
+kinds are `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`, `machine`, `workdir`, and
+`branch` ([context-management.md](context-management.md) lists them). An unknown normaliser, a kind without
+a name, or a `share` outside 0 to 0.5 makes the config malformed.
+
+```json
+{ "facts": { "kinds": [
+  { "name": "ticket", "class": "dynamic", "description": "A ticket, its number, and its state." },
+  { "name": "entity", "class": "dynamic" }
+] } }
+```
+
 ## Context window
 
 The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is sized
 from its shape and the Mac's memory when it is selected, or is `contextLength` when that is set. Before a prompt that would pass 85% of the window, and again when a request overflows,
 wisp drops older turns (keeping the instructions and the last four turns); after an overflow it retries
 once. `chat` prints a note when this happens; MCP results
-carry `condensed: true`. See [context-management.md](context-management.md).
+carry `condensed: true`. Before the turns go, the model distils what was said in them into facts, and the
+facts are given to the model on every later request, so a codename or the task outlives the turns that
+stated it. See [context-management.md](context-management.md).
 
 ## Exit codes
 

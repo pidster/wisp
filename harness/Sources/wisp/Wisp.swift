@@ -487,7 +487,8 @@ struct Chat: AsyncParsableCommand {
                 let sessions =
                     text.hasPrefix("/audit ") ? (try? session.introspection.sessions().map(\.id)) ?? [] : []
                 let result = ChatCompletion.complete(
-                    text, cursor: cursor, options: { known[$0.path] ?? [] }, approvalIDs: ids, sessionIDs: sessions)
+                    text, cursor: cursor, options: { known[$0.path] ?? [] }, approvalIDs: ids, sessionIDs: sessions,
+                    subjects: session.config.subjectKinds.kinds.map(\.name))
                 send(ChatProtocol.encode("completions", ChatProtocol.completions(id: id, result)))
             }
         }

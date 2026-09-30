@@ -80,6 +80,8 @@ pub enum PanelKind {
     Context(Option<u64>),
     /// The table of turns.
     Turns,
+    /// The facts the model is given (`/inspect facts`).
+    Facts,
 }
 
 /// A panel over the band: text to scroll, opened by Ctrl-O or by a view from wisp.
@@ -103,6 +105,7 @@ impl Panel {
             PanelKind::Context(None) => " context · next request ".into(),
             PanelKind::Context(Some(turn)) => format!(" context · turn {turn} "),
             PanelKind::Turns => " context · turns ".into(),
+            PanelKind::Facts => " facts ".into(),
         }
     }
 
@@ -429,6 +432,7 @@ impl App {
         }
         let kind = match (view.kind.as_str(), view.turn) {
             ("turns", _) => PanelKind::Turns,
+            ("facts", _) => PanelKind::Facts,
             (_, turn) => PanelKind::Context(turn),
         };
         // Stepping keeps the reader's place: a new view of the same kind starts at the top.
@@ -1492,6 +1496,10 @@ mod tests {
             Action::None,
             "no stepping in the table"
         );
+        app.handle(view("facts", None, 4));
+        let rows = drawn(&app, 60);
+        assert!(rows[1].contains(" facts "), "{rows:?}");
+        assert!(!rows.iter().any(|r| r.contains("←→ turns")));
     }
 
     #[test]

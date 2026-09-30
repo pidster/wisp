@@ -17,11 +17,11 @@ public enum ChatCompletion {
         "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/show", "/models",
         "/model",
         "/stats",
-        "/history", "/config", "/save", "/new", "/quit", "/exit",
+        "/history", "/config", "/save", "/new", "/quit", "/exit", "/fact", "/task",
     ]
 
     /// What `/inspect`, kept as an alias, shows.
-    static let views = ["config", "status", "approvals", "audit", "context"]
+    static let views = ["config", "status", "approvals", "audit", "context", "facts"]
 
     /// The candidates for the word at `cursor` (a character index, the end by default) in `text`.
     ///
@@ -31,10 +31,13 @@ public enum ChatCompletion {
     ///   - options: The values a setting offers beyond its kind's own, such as the models for `model`.
     ///   - approvalIDs: The standing approvals' ids, for `/approvals revoke`.
     ///   - sessionIDs: The audit log's recent session ids, for `/audit`.
+    ///   - subjects: The subject kinds, for `/fact`.
+    ///   - factIDs: The current facts' ids, for `/fact delete` and `approve`.
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
-        approvalIDs: [String] = [], sessionIDs: [String] = []
+        approvalIDs: [String] = [], sessionIDs: [String] = [],
+        subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = []
     ) -> Result {
         let head = String(text.prefix(cursor ?? text.count))
         let from = head.lastIndex(of: " ").map { head.distance(from: head.startIndex, to: $0) + 1 } ?? 0
@@ -53,6 +56,9 @@ public enum ChatCompletion {
         case ["/model"]: pool = ConfigSettings.setting("model").map(options) ?? []
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]
+        case ["/inspect", "facts"]: pool = ["all"]
+        case ["/fact"]: pool = ["delete", "approve"] + subjects
+        case ["/fact", "delete"], ["/fact", "approve"]: pool = factIDs
         case ["/audit"]: pool = ["sessions"] + sessionIDs
         default: pool = []
         }
