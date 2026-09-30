@@ -209,6 +209,37 @@ import WispTestSupport
         #expect(carried(keptModel).contains("delete_extraneous"))
     }
 
+    @Test func referencingSendsEachReadAsAReferenceAfterItsTurnAndCountsWhereCondensingBegan() async throws {
+        let scenario = ContextEval.showing()
+        var steps: [ScriptedModel.Step] = []
+        for step in scenario.steps {
+            if let file = step.file {
+                let path = scenario.fixtures.appending(path: file).path
+                steps.append(.call(name: "read_file", arguments: #"{"path":"\#(path)"}"#))
+            }
+            steps.append(.say("Noted."))
+        }
+        let model = ScriptedModel(steps: steps)
+        let run = await ContextEval.run(
+            scenario, strategy: ReferencingStrategy(), model: ResolvedModel(selection: .system, custom: model),
+            instructions: "x", tools: { ToolRegistry(audit: $0).select(["read_file"]).tools })
+        // Every read's output becomes a reference at the start of the turn after it: 14 reads, the last one
+        // at the first question.
+        #expect(run.references == 14 && run.turns[1].references == 0 && run.turns[2].references == 1)
+        #expect(run.turns[2].line.contains("referenced 1") && run.firstCondensation == nil)
+        #expect(run.report[1].contains("14 references") && run.report[1].contains("first at turn none"))
+        let measurement = run.measurement(variant: "showing")
+        #expect(measurement.task == "context.referencing.showing" && measurement.notes.contains("14 references"))
+        // A request after a later read's call carries the earlier read as a reference and its own read whole.
+        let requests = model.script.requests.withLock { $0 }
+        let outputs = requests.map { request in
+            request.transcript.compactMap { if case .toolOutput = $0 { ConversationStore.text(of: $0) } else { nil } }
+        }
+        let referenced = outputs.first { $0.count == 2 && $0[0].hasPrefix("[output of entry ") }
+        #expect(referenced?[1].hasPrefix("[output of entry ") == false)
+        #expect(ReferencingStrategy().summary.contains("reference"))
+    }
+
     @Test func recordsAThrownTurnAsItsReplyAndCarriesOn() async throws {
         let scenario = ContextEval.Scenario(
             name: "tiny", fixtures: ContextEval.fixturesDirectory,

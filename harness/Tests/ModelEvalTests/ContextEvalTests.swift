@@ -6,7 +6,8 @@ import WispTestSupport
 
 /// What a long conversation keeps: the context eval of the layered-context proposal
 /// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"), run through dropping as the baseline, and
-/// through output handling (cutting presentational text) on a scenario that shows a file. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
+/// through output handling (cutting presentational text) on a scenario that shows a file, and through D12's
+/// output handling (each tool output a reference after its turn) on both. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
 /// gate; this suite only drives them on real models. Needs the model; runs only with `WISP_MODEL_TESTS=1`.
 ///
 /// The on-device model's window is 8,192 tokens. Ollama's is sized from the Mac's memory when a model is
@@ -104,5 +105,30 @@ struct ContextEvalTests {
         guard let model = Self.granite(contextLength: 8192) else { return }
         try await Self.measure(
             model, variant: "showing.window-8192", strategy: CuttingStrategy(), scenario: ContextEval.showing())
+    }
+
+    // Output handling as D12 settled it (phase 3b): exact-copy cutting and each tool output a reference after
+    // its turn, on the baseline and the showing scenarios, on the on-device model and on granite at the same
+    // window. `--filter ContextEvalTests/referencing` runs these four alone.
+
+    @Test func referencingBaselineOnTheOnDeviceModel() async throws {
+        try await Self.measure(try ModelSelection.system.resolve(), strategy: ReferencingStrategy())
+    }
+
+    @Test func referencingShowingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "showing", strategy: ReferencingStrategy(),
+            scenario: ContextEval.showing())
+    }
+
+    @Test func referencingBaselineOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(model, variant: "window-8192", strategy: ReferencingStrategy())
+    }
+
+    @Test func referencingShowingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "showing.window-8192", strategy: ReferencingStrategy(), scenario: ContextEval.showing())
     }
 }

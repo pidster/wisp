@@ -1,6 +1,7 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D11 recorded. Becomes an ADR with the eval's figures.
+Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 3b built. Becomes an ADR
+with the eval's figures.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
 [ADR 0017](../decisions/0017-three-layer-instructions.md) unchanged.
@@ -242,6 +243,56 @@ What it shows:
 - **A cut costs a new session on the next request**, as a condensation does. At this scale it is lost in
   the load: granite's cutting run took 11.8 s for the turn after the cut against 5.5 s without, under a
   load average near 150.
+
+### References after the turn, 2026-09-30
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ModelEvalTests.ContextEvalTests/referencing`
+and recorded in `measurements.json` as `context.referencing[.showing][.window-8192]`, with the phase 3b
+system prompt. For comparison, the whole model eval was then run once more without recording (the same
+build; its suites run in parallel), which gives dropping and cutting under the new prompt and a second
+referencing run of each. The load came and went: one-minute load average 2 to 9 for the recorded runs,
+and from 2 up to 335 across the comparison run, so times are indicative only.
+
+| Model, window | Scenario | Strategy | Facts (of 4) | CI now | First file | Task | Condensations (first at turn) | Tokens after a turn, median (max) | Time per turn, median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device, 8,192 | baseline | dropping | 0 | wrong | wrong | wrong | 9 (7) | 6,387 (7,637) | 42.8 s (57.9 s) |
+| On-device, 8,192 | baseline | referencing, recorded | 4 | correct | correct | correct | 0 | 4,721 (7,093) | 13.4 s (19.9 s) |
+| On-device, 8,192 | baseline | referencing, rerun | 4 | correct | correct | correct | 0 | 4,719 (7,090) | 13.9 s (25.6 s) |
+| On-device, 8,192 | showing | dropping | 0 | wrong | wrong | wrong | 10 (7) | 6,593 (7,695) | 19.9 s (21.1 s) |
+| On-device, 8,192 | showing | cutting | 0 | wrong | wrong | wrong | 10 (7) | 6,436 (7,621) | 19.1 s (30.9 s) |
+| On-device, 8,192 | showing | referencing, recorded | 0 | wrong | wrong | wrong | 1 (16) | 2,612 (7,183) | 9.7 s (21.6 s) |
+| On-device, 8,192 | showing | referencing, rerun (outlier) | 4 | correct | correct | correct | 0 | 4,578 (6,445) | 11.5 s (27.0 s) |
+| granite4.1:8b, 8,192 | baseline | dropping | 1 | correct | wrong | wrong | 1 (12) | 5,162 (7,250) | 4.7 s (10.9 s) |
+| granite4.1:8b, 8,192 | baseline | referencing, recorded | 4 | correct | correct | correct | 0 | 5,204 (7,061) | 5.9 s (8.8 s) |
+| granite4.1:8b, 8,192 | baseline | referencing, rerun | 4 | correct | correct | correct | 0 | 5,178 (6,998) | 13.0 s (15.6 s) |
+| granite4.1:8b, 8,192 | showing | dropping | 0 | wrong | wrong | wrong | 4 (10) | 5,554 (8,046) | 7.0 s (47.4 s) |
+| granite4.1:8b, 8,192 | showing | cutting | 0 | wrong | wrong | wrong | 5 (8) | 5,665 (7,836) | 10.4 s (25.3 s) |
+| granite4.1:8b, 8,192 | showing | referencing, recorded | 4 | correct | correct | correct | 0 | 5,520 (7,325) | 14.0 s (19.8 s) |
+| granite4.1:8b, 8,192 | showing | referencing, rerun | 4 | correct | correct | correct | 0 | 5,465 (7,198) | 15.3 s (20.2 s) |
+
+What it shows:
+- **References fit the scenario in the window.** A file-reading turn added about 490 tokens on the
+  on-device model and 450 on granite, against about 1,300 when the output stays whole, so the 14-turn
+  baseline never condensed on either model at 8,192 tokens; dropping condensed from turn 7 on the
+  on-device model and from turn 8 to 12 on granite.
+- **Recall follows.** With nothing dropped, both models answered all six questions, as granite did with a
+  32,768-token window and dropping. The reference's `arguments` line kept the first file's path in view.
+- **The showing scenario sits at the edge on the on-device model.** Its one more turn took the recorded
+  run to 7,183 tokens after the last read, past the 85% budget, so the first question condensed to the
+  last four turns and every early fact went with them, as with dropping; the model then answered "You
+  haven't asked a question" to each. The rerun read every digression file under a wrong path (the tool
+  said the file did not exist, so there was less to carry), stayed at 6,445 tokens, and scored 6 of 6; it
+  is the outlier, and the recorded run is the representative one. What survives a condensation is phase
+  4's job (facts and `recall`).
+- **Asked to show a file, both models still retyped it**, as the prompt allows, and exact-copy cutting
+  took the copy out: one cut per showing run.
+- **Time per turn.** On the on-device model, smaller requests and no condensing made turns faster. On
+  granite at low load a turn took a little longer (5.9 s against 4.7 s median): each turn after a
+  tool-using turn starts a new session, and a context that never condenses stays large. Under the
+  comparison run's load (73 to 335) granite's times are not comparable.
+- **A smoke test in chat** (2026-09-30) showed the other side of "call it again to see it": asked how many
+  lines a file it had read had, the on-device model read the file again rather than use the reference's
+  count, then misreported the byte count as lines.
 
 ## Decisions
 
@@ -918,8 +969,73 @@ go here as they arise.
      reply is in the middle of what the runtime has processed (D11's cost, measured below); cuts are
      judged only against the same turn's output, as the design says, so a reply that retells an earlier
      turn's output is kept.
-3b. D12's output handling: wisp shows tool output in the transcript, the same in chat and over MCP;
-   tool output becomes a structured reference after its turn; cutting limited to exact copies; the
-   context resource; ordering by stability; and the eval's reference strategy.
+3b. D12's output handling. Done 2026-09-30:
+   - **Cutting limited to exact copies.** `Presentation` now compares lines, not word 4-grams: a block is
+     cut only when its lines, normalised for formatting alone (`read_file`'s line numbers, whitespace, a
+     Markdown table's pipes and header), occur in the output in order. The phase 3 test that cut an edited
+     copy is reversed, and a proposed edit shown as a changed copy of a file is kept.
+   - **Tool output as a structured reference after its turn.** `ContextComposer.referencesOutput` (on by
+     default, beside `cutsPresentation`) sends each stored output as a reference built by `OutputReference`,
+     under the same entry id, with no model call:
+
+     ```
+     [output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; call it again to see it]
+     arguments: {"path": "/work/harbour/docs/overview.md"}
+     first line: 1	# harbour sync: overview
+     last line: [end of file]
+     ```
+
+     The notes are D12's mechanical lean: status (a command's exit status, or `failed` for an `error: …`
+     result), line and byte counts, the first and last lines of content, and the call's arguments so the
+     model can run it again until `recall` exists. None of the model's own tools has a condenser's
+     findings, so there are none to add yet. Lines are cut to 100 characters, arguments to 200, the whole
+     to 640 bytes, and an output no longer than its reference stays whole. The switch happens once, at the
+     start of the turn after the output's: the agent marks the store entry (`referencedAt`) and audits
+     `context.reference`. The store also records each entry's time and the turn a condensation dropped it
+     (`droppedAt`); the sidecar saves all three, so a resumed conversation composes the same references.
+   - **D11's effect.** A reference rewrites an entry already in the session, so the turn after every
+     tool-using turn starts a new session, as a cut or a condensation does. The rewritten entry is the
+     previous turn's output, near the end of the context, so a runtime that reuses a processed prefix
+     (Ollama) reprocesses only that turn and the new prompt. For a model that reports usage, the
+     ahead-of-window estimate subtracts the bytes the new references save, since the last request's report
+     counted those outputs whole; in granite's recorded baseline run the last read reported 7,061 tokens, 86% of
+     the window, so the unadjusted estimate would have condensed at the first question.
+     Measured below: on the on-device model time per turn fell (13.4 s median against 19.9 to 42.8 s for
+     dropping), since requests are smaller and nothing condenses; on granite it rose a little at low load
+     (5.9 s against 4.7 s), the new session each turn and a context that no longer shrinks.
+   - **wisp shows tool output.** Chat prints each output under its note, in the quiet tone, up to
+     `shownOutputLines` (20, a setting; 2 KiB at most), with a fold line naming `/show <id>` (the start of
+     the `tool.result` event id; `/show` also takes a store entry id, the addition D12's rejected C kept).
+     `wisp chat --json` adds `output` (text up to 16 KiB, lines, bytes, `truncated`, `shownLines`, id) to
+     each `tool.result` event; `wisp-tui` folds output in the scrollback and expands the last one in a
+     panel (Ctrl-O). MCP's `calls` (D9) was already the same rule, and `mcp.md` now says so.
+   - **The system prompt** replaces "Report tool results faithfully, quoting exit status and output as
+     returned" with one standing rule: "The person sees tool output as returned, so comment on it rather
+     than repeat it unless asked to". The instructions with seven tools went from 1,261 to 1,268 tokens on
+     the on-device model (`/tokens`, 2026-09-30), so about 7 tokens more than the 104 D4 measured. A
+     prompt that asks for a copy still gets one: in the `showing` scenario both models retyped the file,
+     and cutting took the exact copy out.
+   - **The model's context, viewable at no model cost.** `ContextComposer.composition(_:atTurn:)` rebuilds
+     the context composed at the start of any turn from the store (entries recorded before it, less those
+     dropped by then, with the cuts and references in force then, then the turn's own entries as its tool
+     loop carried them); `ContextView` renders it and the turn list. Chat has `/inspect context next`,
+     `/inspect context N`, and `/inspect context turns` (the bare `/inspect context` still saves files); `wisp-tui` shows the same in a panel (Ctrl-T, Left and Right step through turns);
+     MCP has, under the thread, `wisp://threads/{thread_id}/context` (the turns: time, start of the prompt,
+     tokens composed, what changed), `…/context/{turn}`, and `…/context/next` (what `/inspect context`
+     saves). With them, resources about a thread moved under `wisp://threads/{thread_id}`: its summary,
+     `output` (its calls) and `output/{id}` (formerly `wisp://output/{thread_id}/{id}`), and `audit`
+     (formerly `wisp://audit/{thread_id}`); `wisp://threads` lists the server's threads, open or closed.
+   - **Ordering by stability.** Nothing to reorder yet: the framework puts the instructions entry (wisp's
+     prompt, the operator's extension, the caller's instructions, and every tool definition) first and
+     unchanged for the conversation, then the turns, then the request. D12's full order (permanent facts,
+     dynamic facts and the summary, the literal turns, then ephemeral facts and the task frame before the
+     request) lands with facts in phase 4.
+   - **Tests** without the model: `OutputReferenceTests`, `ChatOutputTests`, `ThreadResourcesTests`,
+     `ContextResourcesTests`, and the reversed and new `PresentationTests`. `ContextEquivalenceTests` runs
+     with references and cutting off and still matches the phase 2 snapshots without re-recording; it
+     writes the system prompt back as the phase 2 wording before comparing, since the prompt is not what
+     it checks.
+   - **The eval** gained `ReferencingStrategy` (exact-copy cutting and references, `Agent`'s default);
+     figures under "Evaluation", "References after the turn, 2026-09-30".
 4. Facts and the summary, `/inspect facts`, `recall`, and the assessment per request.
 5. The ADR, with the eval's figures.

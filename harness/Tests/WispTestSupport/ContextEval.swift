@@ -346,6 +346,7 @@ public struct DroppingStrategy: ContextStrategy {
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         return AgentConversation(agent)
     }
 }
@@ -371,6 +372,33 @@ public struct CuttingStrategy: ContextStrategy {
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.cutsPresentation = true
+        agent.referencesOutput = false
+        return AgentConversation(agent)
+    }
+}
+
+/// Output handling as decision D12 of the proposal settled it (phase 3b), `Agent`'s default: dropping as
+/// `DroppingStrategy` does, cutting limited to exact copies, and each tool output sent whole only in the
+/// turn that produced it and as a compact reference in every later request.
+public struct ReferencingStrategy: ContextStrategy {
+    /// `referencing`.
+    public let name = "referencing"
+    /// What it does.
+    public let summary =
+        "dropping, with exact copies of tool output cut and each output a reference after its own turn"
+
+    /// Creates the strategy.
+    public init() {}
+
+    /// Opens an `Agent` with the default context policy and both kinds of output handling on.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextConversation
+    {
+        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        agent.cutsPresentation = true
+        agent.referencesOutput = true
         return AgentConversation(agent)
     }
 }
@@ -415,13 +443,16 @@ extension ContextEval {
         public var tools: [String]
         /// Stretches of presentational text cut after the turn (`context.cut` events).
         public var cuts: Int
+        /// Tool outputs switched to references at the turn's start (`context.reference` events).
+        public var references: Int
 
         /// Creates a turn record.
         public init(
             number: Int, label: String, reply: String, failed: Bool, seconds: Double, tokens: Int?,
-            condensations: [String], tools: [String], cuts: Int = 0
+            condensations: [String], tools: [String], cuts: Int = 0, references: Int = 0
         ) {
             self.cuts = cuts
+            self.references = references
             self.number = number
             self.label = label
             self.reply = reply
@@ -439,7 +470,8 @@ extension ContextEval {
                 "turn \(number) \(label): \(String(format: "%.1f", seconds)) s, tokens \(tokens.map(String.init) ?? "?")"
                 + (condensations.isEmpty ? "" : ", condensed \(condensations.joined(separator: "+"))")
                 + (tools.isEmpty ? "" : ", tools \(tools.joined(separator: ","))")
-                + (cuts == 0 ? "" : ", cut \(cuts)") + (failed ? ", FAILED" : "")
+                + (cuts == 0 ? "" : ", cut \(cuts)") + (references == 0 ? "" : ", referenced \(references)")
+                + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
     }
@@ -511,6 +543,13 @@ extension ContextEval {
         /// Stretches of presentational text cut over the whole run.
         public var cuts: Int { turns.map(\.cuts).reduce(0, +) }
 
+        /// Tool outputs sent as references over the whole run.
+        public var references: Int { turns.map(\.references).reduce(0, +) }
+
+        /// The number of the first turn during which a condensation happened; nil when none did. The turns
+        /// before it all fit in the window.
+        public var firstCondensation: Int? { turns.first { !$0.condensations.isEmpty }?.number }
+
         /// The turn times, in milliseconds.
         public var milliseconds: [Double] { turns.map { $0.seconds * 1000 } }
 
@@ -524,7 +563,8 @@ extension ContextEval {
             return [
                 "\(strategy) on \(model) (window \(window.map(String.init) ?? "unknown")): facts \(facts.correct)/"
                     + "\(facts.total), \(verdicts)",
-                "\(condensations) condensations and \(cuts) cuts over \(turns.count) turns; tokens after a turn median "
+                "\(condensations) condensations (first at turn \(firstCondensation.map(String.init) ?? "none")), "
+                    + "\(cuts) cuts, and \(references) references over \(turns.count) turns; tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
                     + "\(tokens.max().map(String.init) ?? "?"); time per turn median "
                     + String(
@@ -551,7 +591,8 @@ extension ContextEval {
                     + "\(answers.count) questions, scored by phrase; window \(window.map(String.init) ?? "unknown"); "
                     + "this run: facts \(facts.correct)/"
                     + "\(facts.total), ci \(byID["ci"] ?? "?"), first file \(byID["first-file"] ?? "?"), task "
-                    + "\(byID["task"] ?? "?"), \(condensations) condensations, \(cuts) cuts, median "
+                    + "\(byID["task"] ?? "?"), \(condensations) condensations (first at turn "
+                    + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
                 p50Milliseconds: ContextEval.percentile(milliseconds, 0.5),
@@ -619,7 +660,8 @@ extension ContextEval {
                     $0.details["reason"]?.stringValue ?? "?"
                 },
                 tools: events.filter { $0.kind == .toolCall }.map { $0.details["tool"]?.stringValue ?? "?" },
-                cuts: events.filter { $0.kind == .presentationCut }.count)
+                cuts: events.filter { $0.kind == .presentationCut }.count,
+                references: events.filter { $0.kind == .outputReferenced }.count)
             turns.append(turn)
             onTurn(turn)
         }
