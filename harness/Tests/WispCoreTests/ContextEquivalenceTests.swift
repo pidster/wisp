@@ -15,7 +15,13 @@ import WispTestSupport
 /// Phase 3 made cutting presentational text the default. It changes requests by design wherever a reply
 /// reproduces its turn's tool output, so every agent here runs with `cutsPresentation` off: the suite
 /// still proves that phase 2's structure sends exactly what the code before it did. The cut behaviour is
-/// tested on top of it in `OutputHandlingTests`.
+/// tested on top of it in `OutputHandlingTests`. Phase 3b made sending a tool output as a reference after
+/// its turn the default too; every agent here runs with `referencesOutput` off as well, and chat with its
+/// output display off, for the same reason (`OutputReferenceTests` and `ChatOutputTests` test those).
+///
+/// wisp's system prompt is not what this suite checks: phase 3b changed its wording (D12's standing rule
+/// that the person sees tool output), so the prompt in force is written back as the phase 2 text before
+/// comparing (`phase2SystemPrompt`), and a change of wording needs no new snapshot.
 ///
 /// Random ids (entry and tool-call ids, audit call ids, session ids) and scratch paths are replaced by
 /// stable names in order of first appearance, so the comparison still checks that an entry carried from
@@ -36,12 +42,35 @@ import WispTestSupport
         var output: [String] = []
     }
 
+    /// wisp's system prompt as the snapshots were recorded with it.
+    static let phase2SystemPrompt =
+        "You are Wisp, a concise assistant running on this Mac. Use the available tools when they help answer "
+        + "accurately: call one tool at a time with exact arguments, and wait for its result before deciding what "
+        + "to do next. Report tool results faithfully, quoting exit status and output as returned; if a command "
+        + "was refused, say so instead of guessing. When a message asks for nothing, such as a greeting, a single "
+        + "word, or \"test\", reply briefly and ask what they would like. Keep replies short."
+
     /// Replaces random ids and scratch paths with stable names.
     struct Canon {
         /// Raw id to stable name.
         var names: [String: String] = [:]
-        /// Literal text to replace first, such as a scratch directory's path.
-        var literals: [(String, String)] = []
+        /// Literal text to replace first, such as a scratch directory's path; wisp's system prompt always
+        /// goes back to the phase 2 wording, in each form it takes in a fingerprint (plain and JSON-escaped).
+        var literals: [(String, String)]
+
+        /// The system prompt's replacements.
+        static let prompt: [(String, String)] = [
+            (Prompting.systemPrompt, ContextEquivalenceTests.phase2SystemPrompt),
+            (
+                Prompting.systemPrompt.replacingOccurrences(of: "\"", with: "\\\""),
+                ContextEquivalenceTests.phase2SystemPrompt.replacingOccurrences(of: "\"", with: "\\\"")
+            ),
+        ]
+
+        /// A canon replacing `literals` first.
+        init(literals: [(String, String)] = []) {
+            self.literals = literals + Self.prompt
+        }
 
         /// The stable name for `raw`, minted on first sight.
         mutating func name(_ raw: String) -> String {
@@ -178,6 +207,7 @@ import WispTestSupport
             instructions: "Be brief.", tools: ToolRegistry(audit: audit).select(["read_file"]).tools,
             model: ResolvedModel(selection: .system, custom: model, contextSize: 60), audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "eq")
         var fingerprint = Fingerprint()
         let long = " This sentence makes the prompt long enough to pass the budget."
@@ -217,6 +247,7 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: model), contextPolicy: .condense(keepTurns: 1),
             audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "ov")
         var fingerprint = Fingerprint()
         var streamed: [String] = []
@@ -234,6 +265,7 @@ import WispTestSupport
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: failing),
             contextPolicy: .failFast, audit: audit)
         strict.cutsPresentation = false
+        strict.referencesOutput = false
         await reply(&fingerprint) { try await strict.respond(to: "boom") }
         await reply(&fingerprint) { try await strict.respond(to: "again") }
         fingerprint.output.append(canon.json(strict.transcript))
@@ -252,6 +284,7 @@ import WispTestSupport
                 countTokens: { transcript in transcript.turnCount * 30 }),
             contextPolicy: .condense(keepTurns: 1), audit: AuditLog(session: "count", sink: sink))
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         var fingerprint = Fingerprint()
         for prompt in ["first", "second", "third", "fourth"] {
             await reply(&fingerprint) { try await agent.respond(to: prompt) }
@@ -272,6 +305,7 @@ import WispTestSupport
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: model, contextSize: 60),
             audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         var fingerprint = Fingerprint()
         await reply(&fingerprint) { try await agent.respond(to: "first") }
         await reply(&fingerprint) { try await agent.respond(to: "second") }
@@ -285,6 +319,7 @@ import WispTestSupport
             transcript: saved, tools: [], model: ResolvedModel(selection: .system, custom: next, contextSize: 60),
             audit: audit)
         resumed.cutsPresentation = false
+        resumed.referencesOutput = false
         await reply(&fingerprint) { try await resumed.respond(to: "after resume") }
         await reply(&fingerprint) {
             try await resumed.respond(to: "a long prompt after resuming, long enough to pass the budget")
@@ -314,6 +349,7 @@ import WispTestSupport
             instructions: "Be brief.", tools: tools,
             model: ResolvedModel(selection: .system, custom: first, contextSize: 60), audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         agent.archive = archive
         let context = ChatLoop.Context(
             directory: "/r", approval: "--yes",
@@ -322,6 +358,7 @@ import WispTestSupport
                     store: store, tools: tools,
                     model: ResolvedModel(selection: selection, custom: second, contextSize: 60), audit: audit)
                 switched.cutsPresentation = false
+                switched.referencesOutput = false
                 switched.archive = archive
                 return switched
             })
@@ -368,6 +405,7 @@ import WispTestSupport
         let agent = try conversation.openAgent(
             on: ResolvedModel(selection: .system, custom: model, contextSize: 60))
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         var fingerprint = Fingerprint()
         let long = " This sentence makes the prompt long enough to pass the budget."
         for (index, prompt) in ["read \(a)", "two", "read \(b)" + long, "four" + long, "five" + long, "six" + long]

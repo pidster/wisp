@@ -1,3 +1,4 @@
+import Foundation
 import FoundationModels
 
 /// The stored view of one conversation: every entry it has had, once, in the order it happened, each under
@@ -13,7 +14,10 @@ import FoundationModels
 /// store from the two, or from the transcript alone when there is no usable snapshot.
 ///
 /// Phase 2 of the proposal populates entries and their state; phase 3 adds a reply's cuts, the stretches
-/// of presentational text a composer leaves out (`Cut`, `Entry.presented`). Facts and summaries (phase 4)
+/// of presentational text a composer leaves out (`Cut`, `Entry.presented`); phase 3b adds when each entry
+/// was recorded and the turn from which a condensation dropped it or a tool output was sent as a reference
+/// (`Entry.droppedAt`, `Entry.referencedAt`), so the context of any turn can be composed again
+/// (`ContextComposer.compose(_:atTurn:)`). Facts and summaries (phase 4)
 /// will cite entries by `Entry.ID`, and `recall` will read their content back from the audit log through
 /// `sources`.
 public struct ConversationStore: Sendable {
@@ -93,6 +97,18 @@ public struct ConversationStore: Sendable {
         /// Stretches of a reply that reproduced a tool output of its turn, which a composer that cuts
         /// presentational text leaves out of later requests (`Presentation`). The entry itself stays whole.
         public internal(set) var cuts: [Cut] = []
+        /// When it was recorded: a prompt when it was sent, a tool output when its `tool.result` event was
+        /// written, anything else when its turn was stored; nil when unknown (carried, or saved by a build
+        /// before times were kept).
+        public internal(set) var time: Date? = nil
+        /// The turn during which a condensation dropped it, in this session's turns: requests of that turn
+        /// and later leave it out. 0 when it was dropped before this session began (a resumed store); nil
+        /// while active, or when it is not known.
+        public internal(set) var droppedAt: Int? = nil
+        /// For a tool output, the turn from whose first request it has been sent as a reference rather than
+        /// in full (`ContextComposer.referencesOutput`), in this session's turns; 0 when that began before
+        /// this session; nil while it is still sent whole.
+        public internal(set) var referencedAt: Int? = nil
 
         /// The entry as a composer that cuts presentational text sends it: a reply with each cut replaced by
         /// its marker, under the same id; any other entry, or a reply without cuts, as it is.
@@ -130,6 +146,9 @@ public struct ConversationStore: Sendable {
 
     /// Every entry, in the order it happened.
     public private(set) var entries: [Entry] = []
+    /// The turn clock's value when this store began: its own turns are the ones after it. 0 for a store
+    /// opened with its conversation; a `/new` starts a store at the turn it was typed.
+    public internal(set) var firstTurn = 0
     /// The framework ids of the stored entries, so an entry the session already carried is not stored twice.
     private var known: Set<Transcript.Entry.ID> = []
 
@@ -182,12 +201,15 @@ public struct ConversationStore: Sendable {
     ///   - origin: Where it came from.
     ///   - turn: The turn that produced it, when a turn did.
     ///   - sources: The audit events that recorded it.
-    mutating func record(_ entry: Transcript.Entry, origin: Origin, turn: Int?, sources: [AuditReference]) {
+    ///   - time: When it was recorded, when known.
+    mutating func record(
+        _ entry: Transcript.Entry, origin: Origin, turn: Int?, sources: [AuditReference], time: Date? = nil
+    ) {
         guard known.insert(entry.id).inserted else { return }
         entries.append(
             Entry(
                 id: entries.count + 1, kind: Kind(entry), origin: origin, turn: turn, sources: sources, state: .active,
-                value: entry))
+                value: entry, time: time))
     }
 
     /// Makes `view` the active view: every active entry it does not carry is dropped by `condensation`. The
@@ -196,11 +218,37 @@ public struct ConversationStore: Sendable {
     /// - Parameters:
     ///   - view: The entries to keep active.
     ///   - condensation: The `context.condensation` event that dropped the rest, when audited.
-    mutating func retain(_ view: Transcript, droppedBy condensation: AuditReference?) {
+    ///   - turn: The turn during which it happened, when known.
+    mutating func retain(_ view: Transcript, droppedBy condensation: AuditReference?, at turn: Int? = nil) {
         let kept = Set(view.map(\.id))
         for index in entries.indices where entries[index].state == .active && !kept.contains(entries[index].value.id) {
             entries[index].state = .dropped(by: condensation)
+            entries[index].droppedAt = turn
         }
+    }
+
+    /// Marks the tool output with store id `id` as sent by reference from `turn` on; an unknown id, or an
+    /// entry already marked, changes nothing.
+    ///
+    /// - Parameters:
+    ///   - id: The output's store id.
+    ///   - turn: The turn whose first request carries the reference.
+    mutating func reference(_ id: Int, from turn: Int) {
+        guard id >= 1, id <= entries.count, entries[id - 1].id == id, entries[id - 1].referencedAt == nil else {
+            return
+        }
+        entries[id - 1].referencedAt = turn
+    }
+
+    /// The tool call each tool output answers, by the output's framework id: the call's tool name and its
+    /// arguments as JSON, from the `toolCalls` entries.
+    var calls: [String: (tool: String, arguments: String)] {
+        var found: [String: (tool: String, arguments: String)] = [:]
+        for entry in entries {
+            guard case .toolCalls(let calls) = entry.value else { continue }
+            for call in calls { found[call.id] = (call.toolName, call.arguments.jsonString) }
+        }
+        return found
     }
 
     /// Marks the stretches of the entry with store id `id` that composing leaves out; an unknown id

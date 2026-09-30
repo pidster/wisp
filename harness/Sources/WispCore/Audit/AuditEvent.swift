@@ -62,6 +62,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case approvalDecided = "approval.decided"
         case condensation = "context.condensation"
         case presentationCut = "context.cut"
+        case outputReferenced = "context.reference"
         case mcpRequest = "mcp.request"
         case mcpResult = "mcp.result"
         case error = "error"

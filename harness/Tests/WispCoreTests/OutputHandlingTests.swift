@@ -96,7 +96,7 @@ import WispTestSupport
         #expect(span.coverage >= 0.8)
     }
 
-    @Test func aTableThatReordersTheColumnsIsNotMatchedButAnEditedCopyIs() {
+    @Test func aTableThatReordersTheColumnsIsNotMatchedAndNeitherIsAnEditedCopy() {
         let output = """
             exit status: 0
             stdout:
@@ -118,9 +118,44 @@ import WispTestSupport
             | Session.swift | 463 |
             """
         #expect(Presentation.spans(in: reordered, outputs: [output]).isEmpty)
-        // A copy with one value changed still reproduces most of the output's word sequence.
+        // A copy with one value changed carries something the output does not, so it is kept (D12). Written
+        // as paragraphs, the unchanged ones before it are exact copies and may go; the changed one stays.
         let edited = Self.config.replacingOccurrences(of: "retries = 3", with: "retries = 5")
-        #expect(Presentation.spans(in: edited, outputs: [Self.numbered(Self.config)]).count == 1)
+        let changed =
+            edited.utf8.count - (edited.firstRange(of: "retries = 5").map { edited[$0.lowerBound...].utf8.count } ?? 0)
+        let spans = Presentation.spans(in: edited, outputs: [Self.numbered(Self.config)])
+        #expect(spans.allSatisfy { !$0.range.contains(changed) })
+        let fenced = "```toml\n\(edited)\n```"
+        #expect(Presentation.spans(in: fenced, outputs: [Self.numbered(Self.config)]).isEmpty)
+    }
+
+    @Test func aProposedEditShownAsAChangedCopyOfTheFileIsKept() {
+        let output = Self.numbered(Self.config)
+        // The whole file, retyped with one line added and one operator changed: an edit to review.
+        let proposed = Self.config.replacingOccurrences(
+            of: "checksum = \"sha256\"", with: "checksum = \"sha256\"\ndry_run = false")
+        let reply = "With the flag, the profile would read:\n\n```toml\n\(proposed)\n```\n\nShall I write it?"
+        #expect(Presentation.spans(in: reply, outputs: [output]).isEmpty)
+        // Whitespace and fences are formatting: the same file reindented is still an exact copy.
+        let reindented = Self.config.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? "" : "  " + $0.replacingOccurrences(of: " = ", with: "   =   ") }
+            .joined(separator: "\n")
+        #expect(Presentation.spans(in: "~~~\n\(reindented)\n~~~", outputs: [output]).count == 1)
+        // One character changed inside a line is a change.
+        let operatorChanged = Self.config.replacingOccurrences(
+            of: "delete_extraneous = false", with: "delete_extraneous = true")
+        #expect(Presentation.spans(in: "```\n\(operatorChanged)\n```", outputs: [output]).isEmpty)
+    }
+
+    @Test func linesAreComparedWithoutFormatting() {
+        #expect(Presentation.normalised("12\t  let  x =\t1  ") == "let x = 1")
+        #expect(Presentation.normalised("| 425 | Agent.swift |") == "425 Agent.swift")
+        #expect(Presentation.normalised("   ") == "")
+        #expect(Presentation.isTableSeparator("| --- | :-: |") && !Presentation.isTableSeparator("| a | b |"))
+        #expect(
+            Presentation.occurs(["b", "c"], in: ["a", "b", "c"])
+                && !Presentation.occurs(["c", "b"], in: ["a", "b", "c"]))
+        #expect(!Presentation.occurs([], in: ["a"]) && !Presentation.occurs(["a", "b"], in: ["a"]))
     }
 
     @Test func aSummaryThatQuotesOneLineStays() {
@@ -322,6 +357,7 @@ import WispTestSupport
             instructions: "x", tools: ToolRegistry(audit: audit).select(["read_file"]).tools,
             model: ResolvedModel(selection: .system, custom: model), audit: audit)
         agent.cutsPresentation = false
+        agent.referencesOutput = false
         let reply = try await agent.respond(to: "show it")
         _ = try await agent.respond(to: "and now?")
         let second = try #require(model.script.requests.withLock { $0 }.last)
@@ -346,6 +382,7 @@ import WispTestSupport
             store.record(entry, origin: .turn, turn: index < 4 ? 1 : 2, sources: [])
         }
         var composer = ContextComposer()
+        composer.referencesOutput = false
         // The second turn has no tool output, so its retelling is not presentational by this rule.
         #expect(composer.presentation(in: store, turn: 2).isEmpty)
         let found = composer.presentation(in: store, turn: 1)

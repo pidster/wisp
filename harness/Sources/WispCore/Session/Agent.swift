@@ -42,6 +42,14 @@ public final class Agent {
         get { composer.cutsPresentation }
         set { composer.cutsPresentation = newValue }
     }
+    /// Whether a tool output is sent as a compact reference after the turn that produced it
+    /// (`ContextComposer.referencesOutput`); on by default. The switch happens at the start of the next
+    /// turn, once per turn, and each output switched is audited as `context.reference`. The output returned,
+    /// shown, and stored stays whole.
+    public var referencesOutput: Bool {
+        get { composer.referencesOutput }
+        set { composer.referencesOutput = newValue }
+    }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
@@ -212,10 +220,18 @@ public final class Agent {
     /// Condenses before a prompt when the transcript plus a rough cost for the new prompt would pass the
     /// budget of a known window, so a runtime that truncates silently never gets the chance. The
     /// transcript's size is the last request's reported usage, or, for a model that reports none (the
-    /// on-device model), the model's own count of the transcript. Returns whether it did.
-    nonisolated(nonsending) private func condenseAheadIfNeeded(for prompt: String) async -> Bool {
+    /// on-device model), the model's own count of the transcript, less what references made at this turn's
+    /// start saved, since the last request still carried those outputs whole.
+    ///
+    /// - Parameters:
+    ///   - prompt: The prompt about to be sent.
+    ///   - referenced: Bytes the outputs switched to references at this turn's start saved, which a
+    ///     runtime's report for the last request still counts.
+    /// - Returns: Whether it condensed.
+    nonisolated(nonsending) private func condenseAheadIfNeeded(for prompt: String, referenced: Int = 0) async -> Bool {
         guard composer.condensesAhead, let contextSize else { return false }
-        let used = lastInputTokens > 0 ? lastInputTokens : ((try? await model.tokenCount(for: transcript)) ?? 0)
+        let reported = max(0, lastInputTokens - referenced / ContextComposer.bytesPerToken)
+        let used = lastInputTokens > 0 ? reported : ((try? await model.tokenCount(for: transcript)) ?? 0)
         guard let condensation = composer.ahead(of: prompt, in: store, used: used, window: contextSize) else {
             return false
         }
@@ -229,6 +245,7 @@ public final class Agent {
     /// store, and records it as a `session.start` with reason `new`.
     public func reset() {
         store = ConversationStore(carrying: transcript.condensed(keepTurns: 0))
+        store.firstTurn = turns.current
         materialise(fresh: true)
         audit?.record(
             .sessionStart, details: AuditEvent.Details.sessionRestart(tools: tools.map(\.name), model: model.selection))
@@ -273,20 +290,23 @@ public final class Agent {
                 turnsBefore: condensation.before.turnCount, turnsAfter: condensation.after.turnCount,
                 contextSize: contextSize, tokenCount: tokenCount, reason: reason,
                 saved: saveCondensation(condensation.before, condensation.after)))
-        store.retain(condensation.after, droppedBy: event)
+        store.retain(condensation.after, droppedBy: event, at: turns.current)
         materialise(fresh: fresh)
     }
 
     /// Puts the session over the composer's transcript: continues it when that is what it holds, entry
     /// for entry, and starts a new one from the composition otherwise or when `fresh`. A reply whose
-    /// presentational text was cut keeps its id, so replies are compared by content as well; only replies,
-    /// since they are the one kind a composer rewrites, and a tool call's arguments need not compare equal
-    /// to themselves after a save and resume.
+    /// presentational text was cut, and a tool output sent as a reference, keep their ids, so those two
+    /// kinds are compared by content as well; only those, since they are the ones a composer rewrites, and
+    /// a tool call's arguments need not compare equal to themselves after a save and resume.
     private func materialise(fresh: Bool = false) {
         let composed = transcript
         let held = session.transcript
         let rewritten = zip(composed, held).contains { mine, theirs in
-            if case .response = mine { mine != theirs } else { false }
+            switch mine {
+            case .response, .toolOutput: mine != theirs
+            default: false
+            }
         }
         guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
         session = model.session(tools: tools, transcript: composed)
@@ -313,20 +333,64 @@ public final class Agent {
         Diagnostics.agent.info("cut \(found.count) stretch(es) of presentational text from turn \(turn)")
     }
 
+    /// Marks the stored tool outputs that this turn's requests send as references rather than whole, and
+    /// records a `context.reference` event for each. Called once, at the start of a turn, so an output is
+    /// whole for the rest of its own turn and a reference from the next one on.
+    ///
+    /// - Returns: The bytes the references save, net of their own size.
+    private func referenceOutputs() -> Int {
+        let found = composer.newReferences(in: store)
+        guard !found.isEmpty else { return 0 }
+        let turn = turns.current
+        for output in found {
+            store.reference(output.entry, from: turn)
+            audit?.record(
+                .outputReferenced,
+                details: AuditEvent.Details.outputReferenced(
+                    entry: output.entry, tool: output.tool, result: output.result?.event, bytes: output.bytes,
+                    referenceBytes: output.referenceBytes,
+                    tokens: (output.bytes - output.referenceBytes) / ContextComposer.bytesPerToken))
+        }
+        Diagnostics.agent.info("sending \(found.count) tool output(s) as references from turn \(turn)")
+        return found.reduce(0) { $0 + $1.bytes - $1.referenceBytes }
+    }
+
     /// Stores the entries the session added this turn, whether it succeeded or failed, linked to the audit
     /// events that recorded them.
     ///
     /// - Parameters:
     ///   - prompt: The turn's `prompt` event.
     ///   - response: The turn's `response` event; nil when the turn failed.
-    private func remember(prompt: AuditReference?, response: AuditReference?) {
+    ///   - started: When the prompt was sent: the prompt entry's time.
+    private func remember(prompt: AuditReference?, response: AuditReference?, started: Date) {
         let added = Array(session.transcript).filter { !store.contains($0) }
         let turn = turns.current
+        let events = toolEvents?.take(turn: turn) ?? []
         let sources = ConversationStore.sources(
-            for: added, prompt: prompt, response: response, toolEvents: toolEvents?.take(turn: turn) ?? [])
+            for: added, prompt: prompt, response: response, toolEvents: events)
+        let now = Date()
         for (entry, references) in zip(added, sources) {
-            store.record(entry, origin: .turn, turn: turn, sources: references)
+            var time = now
+            if case .prompt = entry { time = started }
+            if case .toolOutput = entry, let id = references.first?.event,
+                let event = events.first(where: { $0.id == id })
+            {
+                time = event.time
+            }
+            store.record(entry, origin: .turn, turn: turn, sources: references, time: time)
         }
+    }
+
+    /// The context composed for the start of `turn` in this conversation's store, entry by entry
+    /// (`ContextComposer.composition(_:atTurn:)`), or, with no turn, what the next request carries. Nil for a
+    /// turn the store cannot show: one not yet begun, or one before the store's first (a `/new` began it
+    /// later).
+    ///
+    /// - Parameter turn: The turn, as its audit events number it; nil for the next request.
+    /// - Returns: The composition, or nil.
+    public func composition(atTurn turn: Int?) -> [ContextComposer.Composed]? {
+        if let turn, turn <= store.firstTurn || turn > turns.current { return nil }
+        return composer.composition(store, atTurn: turn)
     }
 
     /// Saves the transcript before and after a condensation to `archive`, returning both paths for the
@@ -438,7 +502,8 @@ public final class Agent {
         let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
-        if !(await condenseAheadIfNeeded(for: prompt)) { materialise() }
+        let referenced = referenceOutputs()
+        if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
             let text = try await withOverflowRecovery(operation)
             let reply = Reply(text: text, condensed: condensations > before)
@@ -447,14 +512,14 @@ public final class Agent {
                 .response,
                 details: AuditEvent.Details.response(
                     text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started)))
-            remember(prompt: prompted, response: responded)
+            remember(prompt: prompted, response: responded, started: started)
             cutPresentation(turn: turns.current)
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")
             audit?.error(error, context: "turn")
             Diagnostics.agent.error("turn failed: \(error)")
-            remember(prompt: prompted, response: nil)
+            remember(prompt: prompted, response: nil, started: started)
             throw error
         }
     }

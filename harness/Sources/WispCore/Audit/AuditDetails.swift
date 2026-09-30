@@ -138,6 +138,18 @@ extension AuditEvent {
             return details
         }
 
+        /// `context.reference`: a stored tool output that requests now carry as a reference.
+        public static func outputReferenced(
+            entry: Int, tool: String, result: String?, bytes: Int, referenceBytes: Int, tokens: Int
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "entry": .int(entry), "tool": .string(tool), "bytes": .int(bytes),
+                "referenceBytes": .int(referenceBytes), "tokens": .int(tokens),
+            ]
+            if let result { details["result"] = .string(result) }
+            return details
+        }
+
         /// `context.condensation`.
         public static func condensation(
             turnsBefore: Int, turnsAfter: Int, contextSize: Int, tokenCount: Int, reason: String,
@@ -340,6 +352,7 @@ extension AuditEvent {
             ["turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason", "savedBefore", "savedAfter"]
         case .presentationCut:
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
+        case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

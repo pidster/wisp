@@ -1,9 +1,11 @@
+import Foundation
 import FoundationModels
 
 extension ConversationStore {
     /// The store as saved beside a transcript (`TranscriptStore.save(_:as:)`): every entry's kind, origin,
-    /// turn, state, audit references, and cuts, in store order, so a resumed conversation keeps its entries
-    /// connected to the events that recorded them.
+    /// turn, state, audit references, cuts, time, and the turns it was dropped or referenced from, in store
+    /// order, so a resumed conversation keeps its entries connected to the events that recorded them and
+    /// composes its tool outputs as the saving session last did.
     ///
     /// An active entry's content is the saved transcript's entry with the same framework id, so the
     /// snapshot repeats none of it. A dropped entry is not in the transcript, so the snapshot holds it, as
@@ -35,6 +37,13 @@ extension ConversationStore {
             /// The reply's cut presentational text; nil when it has none, so a snapshot without cuts reads
             /// and writes as before.
             public var cuts: [Cut]? = nil
+            /// When it was recorded; nil when unknown.
+            public var time: Date? = nil
+            /// The saving session's turn during which a condensation dropped it; nil when active or unknown.
+            public var droppedAt: Int? = nil
+            /// The saving session's turn from which a tool output was sent as a reference; nil when it was
+            /// still sent whole.
+            public var referencedAt: Int? = nil
         }
 
         /// The format version, so a future build can tell a snapshot it cannot read.
@@ -59,7 +68,8 @@ extension ConversationStore {
         /// transcript: another version, entry positions out of order, active entries that are not the
         /// transcript's entries in order (by id and kind), or a dropped entry that does not decode to
         /// itself. A restored entry's origin is `resumed` where it was a turn's, since that turn belongs to
-        /// the session that saved it.
+        /// the session that saved it. Its `droppedAt` and `referencedAt` become 0 where they were set: both
+        /// happened before the resuming session's first turn, whose numbers start again.
         ///
         /// - Parameter transcript: The saved transcript, or the session's view of it.
         /// - Returns: The rebuilt store, or nil when the snapshot does not match.
@@ -88,7 +98,8 @@ extension ConversationStore {
                         id: record.id, kind: record.kind, origin: record.origin == .turn ? .resumed : record.origin,
                         turn: record.turn, sources: record.sources,
                         state: record.active ? .active : .dropped(by: record.droppedBy), value: value,
-                        cuts: record.cuts ?? []))
+                        cuts: record.cuts ?? [], time: record.time,
+                        droppedAt: record.active ? nil : 0, referencedAt: record.referencedAt.map { _ in 0 }))
             }
             guard next == live.count else { return nil }
             return ConversationStore(entries: rebuilt)
@@ -107,7 +118,8 @@ extension ConversationStore {
                     id: entry.id, entryID: entry.value.id, kind: entry.kind, origin: entry.origin, turn: entry.turn,
                     active: active, droppedBy: droppedBy, sources: entry.sources,
                     dropped: active ? nil : Transcript(entries: [entry.value]),
-                    cuts: entry.cuts.isEmpty ? nil : entry.cuts)
+                    cuts: entry.cuts.isEmpty ? nil : entry.cuts, time: entry.time, droppedAt: entry.droppedAt,
+                    referencedAt: entry.referencedAt)
             })
     }
 }

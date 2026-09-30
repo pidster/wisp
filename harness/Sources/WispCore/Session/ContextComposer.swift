@@ -1,3 +1,4 @@
+import Foundation
 import FoundationModels
 
 /// Builds each request's transcript from a conversation's store, within the model's window
@@ -8,7 +9,10 @@ import FoundationModels
 /// it to reproduce what `Agent` did when it continued one session. Phase 3 adds output handling: with
 /// `cutsPresentation` on (the default), a reply's presentational text, a stretch that reproduces a tool
 /// output of its turn (`Presentation`), is sent as a short marker in every later request, while the store
-/// keeps the reply whole. Condensing keeps the instructions and the policy's last turns
+/// keeps the reply whole. Phase 3b (decision D12) adds `referencesOutput` (also on by default): a tool
+/// output is sent whole only within the turn that produced it, which the framework's tool loop carries,
+/// and every later request carries a compact structured reference in its place (`OutputReference`), under
+/// the same entry id. Condensing keeps the instructions and the policy's last turns
 /// (`Transcript.condensed(keepTurns:)`), ahead of the window at `budget` or on overflow, and the store marks
 /// the rest dropped rather than forgetting them. The composer is pure: it decides, and `Agent` counts
 /// tokens, saves the archive, records the audit events, and applies the result.
@@ -33,6 +37,12 @@ public struct ContextComposer: Sendable {
     /// Whether presentational text is cut from later requests. Off, every entry is sent as stored, which
     /// is phase 2's behaviour exactly (`ContextEquivalenceTests` runs with it off).
     public var cutsPresentation = true
+    /// Whether a tool output is sent as a reference after the turn that produced it (`OutputReference`).
+    /// An output no longer than its reference is always sent whole. Off, every output is sent as stored
+    /// (`ContextEquivalenceTests` runs with it off).
+    public var referencesOutput = true
+    /// The zone a reference writes its time in.
+    public var timeZone = TimeZone.current
 
     /// A decision to cut one stretch of a reply.
     struct PresentationCut: Sendable, Equatable {
@@ -59,13 +69,155 @@ public struct ContextComposer: Sendable {
         self.policy = policy
     }
 
-    /// The transcript the next request carries: the store's active entries, in order.
+    /// One entry of a composition: the stored entry, what the request carries for it, and whether it is
+    /// the composed turn's own.
+    public struct Composed: Sendable {
+        /// The stored entry.
+        public let entry: ConversationStore.Entry
+        /// What the request carries: the entry, a reply with its cuts, or a tool output's reference.
+        public let sent: Transcript.Entry
+        /// Whether it was added during the composed turn, by its tool loop.
+        public let own: Bool
+
+        /// Whether a tool output is sent as its reference.
+        public var referenced: Bool {
+            if case .toolOutput = entry.value { sent != entry.value } else { false }
+        }
+        /// Whether a reply is sent with its presentational text cut.
+        public var cut: Bool {
+            if case .response = entry.value { sent != entry.value } else { false }
+        }
+    }
+
+    /// The transcript the next request carries: the store's active entries, in order, each reply with its
+    /// cuts and each tool output as a reference, as the switches say. Every stored turn is over when this
+    /// is called (a turn's entries are stored when it ends), so every stored output is referenced.
     ///
     /// - Parameter store: The conversation's store.
     /// - Returns: The transcript.
     public func compose(_ store: ConversationStore) -> Transcript {
-        guard cutsPresentation else { return store.active }
-        return Transcript(entries: store.entries.filter { $0.state == .active }.map(\.presented))
+        guard cutsPresentation || referencesOutput else { return store.active }
+        return Transcript(entries: composition(store, atTurn: nil).map(\.sent))
+    }
+
+    /// The context composed for the start of `turn`, rebuilt from the store (`composition(_:atTurn:)`).
+    ///
+    /// - Parameters:
+    ///   - store: The conversation's store.
+    ///   - turn: The turn, in the store's session's numbering.
+    /// - Returns: The transcript, and how many of its entries are the turn's own, at its end.
+    func compose(_ store: ConversationStore, atTurn turn: Int) -> (transcript: Transcript, own: Int) {
+        let composed = composition(store, atTurn: turn)
+        return (Transcript(entries: composed.map(\.sent)), composed.filter(\.own).count)
+    }
+
+    /// A composition, entry by entry. With no turn, the next request's: the active entries, replies cut and
+    /// outputs referenced as the switches say. With a turn, the context composed for the start of that
+    /// turn, rebuilt from the store: the entries recorded before it, less those a condensation had dropped
+    /// by then, with the cuts and references in force then (`Entry.droppedAt`, `Entry.referencedAt`); then
+    /// the turn's own entries, as its tool loop carried them. Entries of a resumed store count as recorded
+    /// before every turn of this session. A condensation during the turn counts as before it, since it
+    /// happens ahead of the request, or before its retry.
+    ///
+    /// - Parameters:
+    ///   - store: The conversation's store.
+    ///   - turn: The turn, in the store's session's numbering; nil for the next request.
+    /// - Returns: The entries, in order.
+    public func composition(_ store: ConversationStore, atTurn turn: Int?) -> [Composed] {
+        let calls = referencesOutput ? store.calls : [:]
+        guard let turn else {
+            return store.entries.filter { $0.state == .active }.map {
+                Composed(entry: $0, sent: rendered($0, calls: calls, whole: false), own: false)
+            }
+        }
+        var composed: [Composed] = []
+        for entry in store.entries {
+            let recorded = entry.origin == .turn ? entry.turn ?? 0 : 0
+            guard recorded <= turn else { continue }
+            if entry.state != .active, (entry.droppedAt ?? 0) <= turn { continue }
+            if recorded == turn, entry.origin == .turn {
+                composed.append(Composed(entry: entry, sent: entry.value, own: true))
+                continue
+            }
+            let referenced = entry.referencedAt.map { $0 <= turn } ?? false
+            composed.append(Composed(entry: entry, sent: rendered(entry, calls: calls, whole: !referenced), own: false))
+        }
+        return composed
+    }
+
+    /// `entry` as a request after its turn carries it: a reply with its cuts, a tool output as its
+    /// reference unless `whole` or it is no longer than the reference, anything else as stored.
+    ///
+    /// - Parameters:
+    ///   - entry: The stored entry.
+    ///   - calls: The store's calls by output id (`ConversationStore.calls`).
+    ///   - whole: Whether a tool output goes whole.
+    /// - Returns: The entry to send, under the same id.
+    func rendered(
+        _ entry: ConversationStore.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool
+    ) -> Transcript.Entry {
+        switch entry.value {
+        case .response:
+            return cutsPresentation ? entry.presented : entry.value
+        case .toolOutput(let output):
+            guard referencesOutput, !whole, let reference = reference(for: entry, calls: calls) else {
+                return entry.value
+            }
+            return .toolOutput(
+                Transcript.ToolOutput(
+                    id: output.id, toolName: output.toolName, segments: [.text(.init(content: reference))]))
+        default:
+            return entry.value
+        }
+    }
+
+    /// The reference that stands for tool output `entry`, or nil when it is not a tool output or is no
+    /// longer than its reference, so sending it whole costs no more.
+    ///
+    /// - Parameters:
+    ///   - entry: The stored entry.
+    ///   - calls: The store's calls by output id (`ConversationStore.calls`).
+    /// - Returns: The reference's text, or nil.
+    func reference(for entry: ConversationStore.Entry, calls: [String: (tool: String, arguments: String)]) -> String? {
+        guard case .toolOutput(let output) = entry.value else { return nil }
+        let text = ConversationStore.text(of: entry.value)
+        let reference = OutputReference.text(
+            tool: output.toolName, entry: entry.id, time: entry.time, arguments: calls[output.id]?.arguments,
+            output: text, timeZone: timeZone)
+        return reference.utf8.count < text.utf8.count ? reference : nil
+    }
+
+    /// A decision to send one stored tool output as a reference from now on.
+    struct Referencing: Sendable, Equatable {
+        /// The output's store id.
+        let entry: Int
+        /// Its tool.
+        let tool: String
+        /// The `tool.result` event that recorded it, when it was linked.
+        let result: AuditReference?
+        /// The output's size in UTF-8 bytes.
+        let bytes: Int
+        /// The reference's size in UTF-8 bytes.
+        let referenceBytes: Int
+    }
+
+    /// The active tool outputs not yet marked as referenced that a request now sends as references: every
+    /// one, since each was stored at the end of an earlier turn, except those no longer than their
+    /// reference. None when `referencesOutput` is off.
+    ///
+    /// - Parameter store: The conversation's store.
+    /// - Returns: The outputs, in store order.
+    func newReferences(in store: ConversationStore) -> [Referencing] {
+        guard referencesOutput else { return [] }
+        let calls = store.calls
+        return store.entries.compactMap { entry in
+            guard entry.state == .active, entry.referencedAt == nil, case .toolOutput(let output) = entry.value,
+                let reference = reference(for: entry, calls: calls)
+            else { return nil }
+            return Referencing(
+                entry: entry.id, tool: output.toolName, result: entry.sources.first,
+                bytes: ConversationStore.text(of: entry.value).utf8.count, referenceBytes: reference.utf8.count)
+        }
     }
 
     /// The presentational text in the replies `turn` added: every stretch of a reply's text that reproduces

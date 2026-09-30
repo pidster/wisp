@@ -25,7 +25,7 @@ the caller.
 `Agent` keeps each conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
 each request carries, rather than continuing one session and letting its transcript grow. This is phase 2
 of the [layered-context proposal](proposals/2026-09-29-layered-context.md): the structure the later phases
-build on, reproducing the behaviour below exactly. Phase 3 adds output handling, below.
+build on, reproducing the behaviour below exactly. Phases 3 and 3b add output handling, below.
 
 - **The store** holds every entry of the conversation once, in order, under a stable id: the instructions,
   prompts, tool calls, tool output, and replies. Each entry refers to the audit events that recorded its
@@ -40,7 +40,10 @@ build on, reproducing the behaviour below exactly. Phase 3 adds output handling,
   the store's link data beside it, in `transcripts/<name>.store`, both readable by the user only. The
   link data holds, for every entry, active or dropped: its position, framework entry id, kind, origin,
   turn, whether it is active and, if not, the `context.condensation` event that dropped it, its
-  `sources`, and a reply's `cuts` (absent when it has none, so a save without cuts reads as before). A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
+  `sources`, a reply's `cuts` (absent when it has none, so a save without cuts reads as before), and,
+  since phase 3b, when the entry was recorded (`time`), the turn during which a condensation dropped it
+  (`droppedAt`), and the turn from which a tool output was sent as a reference (`referencedAt`), each
+  absent when unknown. A dropped entry is not in the transcript, so the link data holds the entry itself. It is a
   sidecar, with no `.json` extension, so `TranscriptStore.load` still returns a plain `Transcript`, older
   builds and other readers ignore it, `--list` does not show it, and a transcript named `x.store`
   (`x.store.json`) cannot collide with the links of `x`. Saving a transcript alone (no store) removes a
@@ -49,18 +52,25 @@ build on, reproducing the behaviour below exactly. Phase 3 adds output handling,
   transcript (its active entries are the transcript's entries, in order, by id and kind), the store is
   rebuilt with every entry's sources, state, and dropped entries; an entry a turn produced comes back with
   origin `resumed` (its `turn` and `sources` belong to the session that saved it), and one that was
-  carried stays `carried`. The active view, and so the first request, is exactly the saved transcript, as
-  without link data. A save without a sidecar, or one that does not decode or match, resumes as before:
+  carried stays `carried`. `droppedAt` and `referencedAt` become 0 on resume, since both happened before
+  the resuming session's first turn. The active view is the saved transcript, and the first request
+  composes it with the same cuts and references the saving session last sent. A save without a sidecar, or one that does not decode or match, resumes as before:
   every entry carried, no sources, and a diagnostic (`WISP_LOG=info`, category `chat` or `agent`), never
   an error. `session.start` on a linked resume lists `carriedFrom`, the sessions whose audit events the
   entries refer to, so the chain can be followed from the log alone.
-- **The composer** sends the store's active entries in order, with presentational text cut (below), and
-  decides the condensing below; the agent applies it. Dropped entries stay in the store, marked, and are
-  no longer composed.
+- **The composer** sends the store's active entries in order, with presentational text cut and tool output
+  after its turn sent as a reference (below), and decides the condensing below; the agent applies it.
+  Dropped entries stay in the store, marked, and are no longer composed.
 - **The session** is kept while each composition is what it already holds, which is every turn that does
-  not condense or cut, so the runtime's processed prefix and the session's token totals carry over as
-  before. A condensation, an overflow retry, `/new`, or a reply cut after the last turn starts a new
-  session from the composition.
+  not condense, cut, or reference, so the runtime's processed prefix and the session's token totals carry
+  over as before. A condensation, an overflow retry, `/new`, a reply cut after the last turn, or an output
+  switched to a reference at a turn's start starts a new session from the composition.
+- **Any turn's context can be composed again.** The store records when each entry was dropped and when
+  each output became a reference, by turn, so `ContextComposer.composition(_:atTurn:)` rebuilds the context
+  composed at the start of any turn of the session: the entries recorded before it, less those dropped by
+  then, with the cuts and references in force then, followed by the turn's own entries as its tool loop
+  carried them. Chat's `/inspect context N`, `wisp-tui`'s context panel, and the MCP resource
+  `wisp://threads/{thread_id}/context/{turn}` show it ([mcp.md](mcp.md), [wisp.md](wisp.md)).
 - **Linking tool entries.** The tools record their own events, which the agent does not see, so every
   `Conversation` also tees its audit log into a `ToolEventTrail`. After each turn, succeeded or failed, the
   agent stores the entries the session added and links each tool call to the latest `tool.call` event of
@@ -77,34 +87,43 @@ and on overflow, a failed turn, fail-fast, a model that counts, reset and resume
 request the model received, every audit event, every reply, every saved context file, and chat's output
 with a snapshot recorded from the code before the store existed. With cutting on, the same scenarios
 also match, since none of their scripted replies reproduces 24 words of an output; the cut behaviour is
-tested on its own in `OutputHandlingTests`.
+tested on its own in `OutputHandlingTests`. Phase 3b's references change requests by design, so the suite
+runs with them off too (they are tested in `OutputReferenceTests`), and it writes wisp's system prompt
+back as the phase 2 wording before comparing, since D12 changed one sentence of it; the snapshots were not
+re-recorded.
 
 ### Output handling
 
-Phase 3 of the proposal decouples what the person is shown from what the model carries. Every output is
-stored once (the audit log's `tool.result`, which the store refers to), and each view gets its own
-rendering of it.
+Phases 3 and 3b of the proposal decouple what the person is shown from what the model carries. Every
+output is stored once (the audit log's `tool.result`, which the store refers to), and each view gets its
+own rendering of it. Since decision D12 (phase 3b), wisp shows the person every tool's output itself, the
+same in chat and over MCP; the model carries each output whole only in the turn that produced it, and a
+compact reference after that; and the instructions tell the model that the person sees the output, so it
+comments rather than repeats.
 
-**Cutting presentational text.** A reply often retypes the output of the turn's tool call for the person:
-a file shown in full, a table of a command's results. Once shown, that text has done its job, and carrying
-it doubles the output's cost on every later request. After each turn that succeeds, `Presentation` finds
-such stretches deterministically, without a model:
+**Cutting presentational text, exact copies only.** A reply sometimes still retypes the output of the
+turn's tool call for the person: a file shown in full, a table of a command's results. Once shown, that
+text has done its job, and carrying it doubles the output's cost on every later request. After each turn
+that succeeds, `Presentation` finds such stretches deterministically, without a model. Since D12 it is a
+safety net limited to exact copies: a stretch reproduced with changes, such as a proposed edit shown as a
+changed copy of a file, carries information the output does not, and is kept.
 
 - The reply is split into blocks: fenced code blocks (fence lines excluded) and paragraphs of consecutive
-  non-blank lines. Words are runs of letters and digits, lowercased, so pipes, punctuation, and fences do
-  not matter.
-- A block's coverage against a tool output of the same turn is the fraction of its word 4-grams found
-  anywhere in the output, taken with and without `read_file`'s line numbers. A block reproduces the output
-  when its best coverage is at least 0.5.
-- Consecutive reproducing blocks of the same output form one stretch, with blank lines and blocks too short
-  to judge (a heading) between them. A stretch is cut only when it holds at least 24 words, about two lines
-  of prose: shorter matches save little beside the marker and are more likely a deliberate quotation.
+  non-blank lines.
+- Lines are compared after normalising formatting only: `read_file`'s line numbers are removed, runs of
+  whitespace become one space, ends are trimmed, and blank lines are left out. A Markdown table's row is
+  compared as its cells joined by a space, and its header and separator rows are formatting, so a table
+  that restates a command's output line for line matches.
+- A block reproduces an output of the same turn when its normalised lines occur in the output's, in order
+  and next to each other. One changed character in a line, an added line, or a reordered one, and it does
+  not.
+- Consecutive reproducing blocks of the same output form one stretch, with blank lines between them. A
+  stretch is cut only when it holds at least 24 words, about two lines of prose: shorter matches save
+  little beside the marker and are more likely a deliberate quotation.
 
-Four-grams keep common phrases ("the output of") from matching prose that only discusses the output, and
-still match a table whose rows keep the output's order. What stays, tested in the gate: a summary that
-quotes one line, analysis in the model's own words, and code the model wrote. A table that reorders the
-output's columns is not matched; a copy of a file edited here and there still is, since most of its word
-sequence is the output's.
+What stays, tested in the gate: a summary that quotes one line, analysis in the model's own words, code the
+model wrote, a table that reorders the output's columns, and a copy with one value changed or a line
+added. Phase 3 matched by word 4-grams at half coverage, which cut an edited copy too; D12 reversed that.
 
 The reply the person saw, the one `respond` returns, and the store's entry stay whole. The store records
 each stretch as a cut on the reply's entry (segment, byte range, the output's store id and tool), and the
@@ -118,14 +137,47 @@ to show an 866-byte file: the on-device model and `granite4.1:8b` both retyped i
 and the cut saved about 200 tokens, too few there to change when condensing happened or what was recalled
 (the proposal's "Evaluation" has the figures).
 
-**Routing for display.** What each face shows of an output, as built:
+**Tool output as a reference after its turn.** The model needs an output whole to act on it, within the
+turn that produced it; the framework's tool loop carries it so. After that turn, with
+`ContextComposer.referencesOutput` on (the default; `Agent.referencesOutput`), every later request carries a
+compact structured reference in its place, under the same entry id, built mechanically by
+`OutputReference` with no model call:
+
+```
+[output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; call it again to see it]
+arguments: {"path": "/work/harbour/docs/overview.md"}
+first line: 1	# harbour sync: overview
+last line: [end of file]
+```
+
+It names the tool, the store entry, when the output was recorded, success or failure (a command's exit
+status, or `failed` for an `error: …` result), the line and byte counts, the call's arguments (so the
+model can run the call again until `recall` exists, phase 4), and the first and last lines of content,
+each shortened to 100 characters, arguments to 200, and the whole to at most 640 bytes. An output no
+longer than its reference is always sent whole. None of the model's own tools has a condenser's findings
+to add; the notes are the same for every tool.
+
+The switch happens once, at the start of the turn after the output's, and each output switched is audited
+as `context.reference` with its entry, tool, `tool.result` event, and the bytes and estimated tokens saved
+([logging.md](logging.md)). Since the reply of the previous turn is followed by the new prompt, the
+composition then differs from what the session holds at that output, so the turn starts a new session (the
+proposal's D11). The change is at the previous turn, near the end of the context, so a runtime that reuses
+a processed prefix (Ollama) reprocesses that turn and the new prompt, not the whole context. For a model
+that reports usage, the ahead-of-window estimate subtracts what the new references saved, since the
+report for the last request still counted those outputs whole. The equivalence tests and the eval's
+`dropping` and `cutting` strategies run with it off.
+
+**Routing for display.** What each face shows of an output:
 
 | Face | Shown |
 | --- | --- |
-| Chat and `wisp-tui` | A one-line note per result as it happens (`↳ 2048 bytes in 0.0 s: 1\t# wisp`, or a command's exit status), and the model's reply; `/last` prints the last result whole. Unchanged by this phase. |
-| MCP `respond` | The reply, and each call's output in `calls`: inline up to `inlineOutputBytes` (1 KiB), a reference to `wisp://output/{thread_id}/{id}` above it (D9; [mcp.md](mcp.md)). |
+| Chat | A one-line note per result as it happens (`↳ 2048 bytes in 0.0 s: 1\t# wisp`, or a command's exit status), then the output itself, indented and in the quiet tone, up to `shownOutputLines` lines (20) and 2 KiB, with a fold line (`… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`) when there is more; `/show` and `/last` print an output whole ([wisp.md](wisp.md)). |
+| `wisp chat --json` and `wisp-tui` | The `tool.result` event carries the output, its size, and the fold size; `wisp-tui` shows it folded and expands the last one in a panel. |
+| MCP `respond` | The reply, and each call's output in `calls`: inline up to `inlineOutputBytes` (1 KiB), a reference to `wisp://threads/{thread_id}/output/{id}` above it (D9; [mcp.md](mcp.md)). |
 
-The proposal's third route, a summary, and routing by what the request asked for are not built.
+Every face shows the output the tool returned, from the same audit event, never the model's account of
+it; only the rendering differs (D12). The proposal's summary route and routing by what the request asked
+for are not built; D12 made them unnecessary.
 
 ### Condensing
 
@@ -187,8 +239,10 @@ file, so a single tool result cannot fill the window.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
 4. The store is the faithful record, and the active view may differ from it only by rules that are
    deterministic, audited, and reversible from the store: dropping whole turns (marked with the
-   condensation that dropped them) and cutting presentational text (marked on the reply, audited as
-   `context.cut`). Nothing is edited in the store itself; the audit log keeps every entry verbatim.
+   condensation that dropped them), cutting exact copies of tool output from replies (marked on the reply,
+   audited as `context.cut`), and sending tool output as a reference after its turn (marked on the output,
+   audited as `context.reference`). Nothing is edited in the store itself; the audit log keeps every entry
+   verbatim.
 
 ## On the on-device model, and what condensing costs
 
@@ -220,7 +274,10 @@ today's dropping scored 0 of 6 on the on-device model and 1 of 6 on `granite4.1:
 window. Granite scored 6 of 6 at 32,768, where nothing was dropped. Both models again confidently named a
 later file as the first one read. The proposal's "Evaluation" section has the figures.
 
-To see this for yourself, `/inspect context` in chat saves the exact context the next request carries:
+To see this for yourself, `/inspect context next` in chat shows the context the next request carries, entry by entry
+under its store id, `/inspect context N` the one composed at the start of turn N, and `/inspect context turns` what
+changed at each turn; `wisp-tui` shows the same in a panel (Ctrl-T), and an MCP caller reads
+`wisp://threads/{thread_id}/context`. None of them costs the model anything. A bare `/inspect context` saves the exact context the next request carries:
 instructions, prompts, tool calls, tool output, and replies. It writes Markdown to read and JSON to
 rebuild a session from, in `~/.wisp/context/`. Every condensation also saves the transcript before and
 after it, and names both files in its `context.condensation` event (`savedBefore`, `savedAfter`), so

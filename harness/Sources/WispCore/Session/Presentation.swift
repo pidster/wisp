@@ -1,32 +1,31 @@
 import Foundation
 
-/// Finds presentational text in a reply: stretches the model wrote for the person to read that largely
-/// reproduce a tool output of the same turn, such as a retyped file or a table restating a command's result
+/// Finds presentational text in a reply: stretches the model wrote for the person to read that reproduce a
+/// tool output of the same turn exactly, such as a retyped file or a table restating a command's result
 /// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), "Output handling
-/// decouples display from context"). Once shown, such a stretch has done its job, and the composer cuts it
-/// from later requests; the output itself is stored and in the audit log.
+/// decouples display from context", and decision D12). Once shown, such a stretch has done its job, and the
+/// composer cuts it from later requests; the output itself is stored and in the audit log.
 ///
-/// The measure is word-sequence overlap, deterministic and without a model:
-/// - **Words** are maximal runs of letters and digits, lowercased, so punctuation, Markdown table pipes,
-///   and code fences do not matter.
-/// - **Blocks** are the units judged: a fenced code block (its fence lines excluded from the words), or a
-///   paragraph of consecutive non-blank lines.
-/// - **Coverage** of a block against one output is the fraction of the block's word 4-grams
-///   (`shingleLength`) that occur anywhere in the output, taken with and without `read_file`'s line
-///   numbers. A block reproduces an output when its best coverage reaches `threshold`.
-/// - **Runs:** consecutive reproducing blocks of the same output join into one span, with any blank lines
-///   and blocks too short to judge (fewer words than a shingle, such as a heading) between them. A run is
+/// Only exact copies are cut (D12): a stretch reproduced with changes, such as a proposed edit shown as a
+/// changed copy of a file, carries information the output does not, and is kept. The measure is
+/// deterministic and needs no model:
+/// - **Lines** are compared after normalising formatting only: `read_file`'s line numbers (a number and a
+///   tab at the start) are removed, runs of whitespace become one space, the ends are trimmed, and blank
+///   lines are left out. A Markdown table's row is compared as its cells joined by a space, and its header
+///   and separator rows are formatting, so a table that restates a command's output line for line matches.
+/// - **Blocks** are the units judged: a fenced code block (its fence lines excluded), or a paragraph of
+///   consecutive non-blank lines.
+/// - A block **reproduces** an output when its normalised lines occur, in order and next to each other,
+///   among the output's normalised lines. One changed character in any line, an added line, or a
+///   reordered one, and it does not.
+/// - **Runs:** consecutive reproducing blocks of the same output join into one span, with the blank lines
+///   and wordless blocks between them. A block that does not reproduce the output ends the run. A run is
 ///   cut only when it holds at least `minimumWords` words, so one quoted line or a short answer that
 ///   happens to match stays.
 ///
-/// Analysis, answers, and code the model wrote do not reproduce the output's word sequence, so they stay.
+/// Analysis, answers, code the model wrote, and edited copies do not reproduce the output's lines, so
+/// they stay.
 enum Presentation {
-    /// Words per shingle. Four keeps common three-word phrases ("the output of", "is set to") from
-    /// matching prose that merely discusses the output, while still matching a table whose rows keep
-    /// the output's order.
-    static let shingleLength = 4
-    /// The coverage from which a block counts as reproducing an output.
-    static let threshold = 0.5
     /// The fewest words a run must hold to be cut: about two lines of prose. A shorter run saves little
     /// beside its marker and is more likely a deliberate quotation.
     static let minimumWords = 24
@@ -38,9 +37,10 @@ enum Presentation {
         var range: Range<Int>
         /// The index of the output it reproduces, in the order the outputs were given.
         var output: Int
-        /// Words in the run's judged blocks.
+        /// Words in the run's blocks.
         var words: Int
-        /// The fraction of the run's shingles found in the output.
+        /// The fraction of the run's lines found in the output: 1 for every span, since only exact copies
+        /// are cut; kept so the `context.cut` event's field keeps its meaning.
         var coverage: Double
     }
 
@@ -50,6 +50,8 @@ enum Presentation {
         var range: Range<Int>
         /// The block's words, fence lines excluded.
         var words: [String]
+        /// The block's lines as compared (`normalised`), fence lines and table formatting excluded.
+        var lines: [String] = []
     }
 
     /// The words of `text`: maximal runs of letters and digits, lowercased.
@@ -68,19 +70,37 @@ enum Presentation {
         return result
     }
 
-    /// The word `shingleLength`-grams of `words`, joined by a space.
-    static func shingles(_ words: [String]) -> [String] {
-        guard words.count >= shingleLength else { return [] }
-        return (0...(words.count - shingleLength)).map { words[$0..<($0 + shingleLength)].joined(separator: " ") }
+    /// `line` as compared: without `read_file`'s line number, whitespace runs as one space, trimmed; a
+    /// Markdown table row as its cells joined by a space. Empty for a blank line.
+    static func normalised(_ line: some StringProtocol) -> String {
+        var text = Substring(line)
+        if let number = text.firstMatch(of: #/^\s*\d+\t/#) { text = text[number.range.upperBound...] }
+        var trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") {
+            trimmed =
+                trimmed.split(separator: "|", omittingEmptySubsequences: true)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        return trimmed.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    /// The shingles of a tool output, taken twice: as it is, and with `read_file`'s line numbers (a number
-    /// and a tab at the start of each line) removed, so a file retyped with or without its numbers matches.
-    static func outputShingles(_ output: String) -> Set<String> {
-        let unnumbered = output.split(separator: "\n", omittingEmptySubsequences: false).map { line in
-            line.firstMatch(of: #/^\d+\t/#).map { line[$0.range.upperBound...] } ?? line
+    /// Whether `line` is a Markdown table's separator row, such as `| --- | :-: |`.
+    static func isTableSeparator(_ line: some StringProtocol) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("|") && trimmed.contains("-") && trimmed.allSatisfy { "|-: ".contains($0) }
+    }
+
+    /// The lines of a tool output as compared: normalised, blank lines left out.
+    static func outputLines(_ output: String) -> [String] {
+        output.split(separator: "\n", omittingEmptySubsequences: false).map(normalised).filter { !$0.isEmpty }
+    }
+
+    /// Whether `lines` occur in `output`, in order and next to each other.
+    static func occurs(_ lines: [String], in output: [String]) -> Bool {
+        guard !lines.isEmpty, lines.count <= output.count else { return false }
+        return (0...(output.count - lines.count)).contains { start in
+            lines.indices.allSatisfy { output[start + $0] == lines[$0] }
         }
-        return Set(shingles(words(output))).union(shingles(words(unnumbered.joined(separator: "\n"))))
     }
 
     /// The blocks of `text`, in order: fenced code blocks and paragraphs.
@@ -91,6 +111,18 @@ enum Presentation {
             let length = line.utf8.count
             lines.append((offset..<(offset + length), line))
             offset += length + 1
+        }
+        /// The compared lines of `slice`: a table's header and separator rows dropped, blank lines left out.
+        func compared(_ slice: ArraySlice<(range: Range<Int>, text: Substring)>) -> [String] {
+            let texts = slice.map(\.text)
+            var kept: [String] = []
+            for (index, line) in texts.enumerated() {
+                if isTableSeparator(line) { continue }
+                if index + 1 < texts.count, isTableSeparator(texts[index + 1]) { continue }
+                let normal = normalised(line)
+                if !normal.isEmpty { kept.append(normal) }
+            }
+            return kept
         }
         var blocks: [Block] = []
         var index = 0
@@ -104,83 +136,73 @@ enum Presentation {
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 let fence = String(trimmed.prefix(3))
                 var end = index + 1
-                var words: [String] = []
                 while end < lines.count, !lines[end].text.trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
-                    words += Self.words(lines[end].text)
                     end += 1
                 }
                 let last = min(end, lines.count - 1)
-                blocks.append(Block(range: line.range.lowerBound..<lines[last].range.upperBound, words: words))
+                let inside = lines[(index + 1)..<max(index + 1, end)]
+                blocks.append(
+                    Block(
+                        range: line.range.lowerBound..<lines[last].range.upperBound,
+                        words: inside.flatMap { Self.words($0.text) }, lines: compared(inside)))
                 index = last + 1
                 continue
             }
             var end = index
-            var words: [String] = []
             while end < lines.count {
                 let next = lines[end].text.trimmingCharacters(in: .whitespaces)
                 if next.isEmpty || (end > index && (next.hasPrefix("```") || next.hasPrefix("~~~"))) { break }
-                words += Self.words(lines[end].text)
                 end += 1
             }
-            blocks.append(Block(range: line.range.lowerBound..<lines[end - 1].range.upperBound, words: words))
+            let paragraph = lines[index..<end]
+            blocks.append(
+                Block(
+                    range: line.range.lowerBound..<lines[end - 1].range.upperBound,
+                    words: paragraph.flatMap { Self.words($0.text) }, lines: compared(paragraph)))
             index = end
         }
         return blocks
     }
 
-    /// The spans of `reply` to cut, in order: runs of blocks that reproduce one of `outputs`.
+    /// The spans of `reply` to cut, in order: runs of blocks that reproduce one of `outputs` exactly.
     ///
     /// - Parameters:
     ///   - reply: The model's text.
     ///   - outputs: The texts of the turn's tool outputs.
     /// - Returns: The spans, each at least `minimumWords` long.
     static func spans(in reply: String, outputs: [String]) -> [Span] {
-        let sets = outputs.map(outputShingles)
-        guard sets.contains(where: { !$0.isEmpty }) else { return [] }
-        /// A run being built: its output, range, words, and covered and total shingles.
+        let compared = outputs.map(outputLines)
+        guard compared.contains(where: { !$0.isEmpty }) else { return [] }
+        /// A run being built: its output, range, and words.
         struct Run {
             var output: Int
             var range: Range<Int>
             var words: Int
-            var covered: Int
-            var total: Int
         }
         var spans: [Span] = []
         var run: Run?
         func close() {
             if let finished = run, finished.words >= minimumWords {
-                spans.append(
-                    Span(
-                        range: finished.range, output: finished.output, words: finished.words,
-                        coverage: Double(finished.covered) / Double(max(finished.total, 1))))
+                spans.append(Span(range: finished.range, output: finished.output, words: finished.words, coverage: 1))
             }
             run = nil
         }
         for block in blocks(reply) {
-            let grams = shingles(block.words)
-            // Too short to judge: it joins a run only when a reproducing block of the same output follows,
-            // since extending a run's range to that block takes in everything between.
-            if grams.isEmpty { continue }
-            var best: (output: Int, covered: Int)?
-            for (index, set) in sets.enumerated() where !set.isEmpty {
-                let covered = grams.filter(set.contains).count
-                if covered > (best?.covered ?? -1) { best = (index, covered) }
-            }
-            guard let best, Double(best.covered) / Double(grams.count) >= threshold else {
+            // Wordless (a rule, an empty fence): it joins a run only when a reproducing block of the same
+            // output follows, since extending a run's range to that block takes in everything between.
+            if block.lines.isEmpty { continue }
+            let matching = compared.indices.filter { occurs(block.lines, in: compared[$0]) }
+            guard let first = matching.first else {
                 close()
                 continue
             }
-            if var current = run, current.output == best.output {
+            if var current = run, matching.contains(current.output) {
                 current.range = current.range.lowerBound..<block.range.upperBound
                 current.words += block.words.count
-                current.covered += best.covered
-                current.total += grams.count
                 run = current
             } else {
                 close()
-                run = Run(
-                    output: best.output, range: block.range, words: block.words.count, covered: best.covered,
-                    total: grams.count)
+                run = Run(output: first, range: block.range, words: block.words.count)
             }
         }
         close()
