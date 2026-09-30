@@ -8,11 +8,16 @@ public enum FactReport {
     /// ones included. Each row gives the id, what it is about, the value, the source and how it was made,
     /// the class, and a note: which fact wins a conflict and which disagree, and how to approve a proposal.
     ///
+    /// Proposals from the process's other conversations follow, under their own heading, by the reference
+    /// `/fact approve` takes (`git/c3`).
+    ///
     /// - Parameters:
     ///   - facts: Every fact the conversation sees, in any state (`Agent.allFacts`).
     ///   - all: Whether to include superseded and deleted versions.
+    ///   - elsewhere: Proposed permanent facts of other conversations awaiting the person
+    ///     (`Agent.proposalsElsewhere`).
     /// - Returns: The text.
-    public static func markdown(_ facts: [Fact], all: Bool) -> String {
+    public static func markdown(_ facts: [Fact], all: Bool, elsewhere: [FactProposal] = []) -> String {
         let view = FactView(facts)
         let shown = facts.filter { all || $0.state == .current }.sorted { lhs, rhs in
             lhs.identity.key != rhs.identity.key ? lhs.identity.key < rhs.identity.key : lhs.recorded < rhs.recorded
@@ -20,6 +25,7 @@ public enum FactReport {
         let title = all ? "# Facts, with their history" : "# Facts"
         guard !shown.isEmpty else {
             return title + "\n\nNo facts yet. `/fact SUBJECT [NAME] = VALUE` states one; `/task TEXT` sets the task.\n"
+                + proposals(elsewhere)
         }
         var rows = [
             title, "",
@@ -42,6 +48,30 @@ public enum FactReport {
             "\(view.groups.count) subject\(view.groups.count == 1 ? "" : "s") in force"
                 + (conflicts > 0 ? ", \(conflicts) in conflict" : "")
                 + ". `/fact delete ID` deletes one; `/fact approve ID` admits a proposed permanent fact.")
+        return rows.joined(separator: "\n") + "\n" + proposals(elsewhere)
+    }
+
+    /// The section listing other conversations' proposals, or nothing when there are none.
+    ///
+    /// - Parameter elsewhere: The proposals.
+    /// - Returns: The section, starting with a blank line.
+    static func proposals(_ elsewhere: [FactProposal]) -> String {
+        guard !elsewhere.isEmpty else { return "" }
+        var rows = [
+            "", "## Proposed in other conversations", "",
+            "| ID | Subject | Name | Value | Source | Conversation | Note |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for proposal in elsewhere {
+            let fact = proposal.fact
+            let cells = [
+                proposal.reference, fact.identity.subject, fact.identity.name.isEmpty ? "-" : fact.identity.name,
+                fact.value, source(fact), proposal.conversation, proposal.asked ? "asked, not answered" : "",
+            ]
+            rows.append("| " + cells.map(cell).joined(separator: " | ") + " |")
+        }
+        rows.append("")
+        rows.append("`/fact approve ID` keeps one for every conversation.")
         return rows.joined(separator: "\n") + "\n"
     }
 

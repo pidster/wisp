@@ -49,11 +49,11 @@ public struct FactView: Sendable, Equatable {
     public func group(_ key: FactIdentity.Key) -> Group? { groups.first { $0.key == key } }
 
     /// Whether two values say the same thing: equal after case folding and collapsing whitespace.
-    static func same(_ lhs: String, _ rhs: String) -> Bool {
-        let fold = { (text: String) in
-            text.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
-        }
-        return fold(lhs) == fold(rhs)
+    static func same(_ lhs: String, _ rhs: String) -> Bool { folded(lhs) == folded(rhs) }
+
+    /// `text` case-folded with its whitespace collapsed: the form in which two values are compared.
+    static func folded(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
     }
 }
 

@@ -61,6 +61,9 @@ public final class Agent {
     /// The subjects and names whose heads disagreed at the last check, so each conflict is audited once when
     /// it is raised and once when it is resolved.
     var factConflicts: Set<FactIdentity.Key> = []
+    /// How many times `reset` has started a fresh conversation; each is a conversation of its own among the
+    /// process's proposals (`conversationID`), since its store numbers its facts from `c1` again.
+    private(set) var generation = 0
     /// The share of the context window the facts may take in a request (`ContextComposer.factsShare`).
     public var factsShare: Double {
         get { composer.factsShare }
@@ -263,6 +266,7 @@ public final class Agent {
     /// Starts a fresh session with the same instructions and tools, discarding the conversation and its
     /// store, and records it as a `session.start` with reason `new`.
     public func reset() {
+        generation += 1
         store = ConversationStore(carrying: transcript.condensed(keepTurns: 0))
         store.firstTurn = turns.current
         refreshFacts(quietly: true)

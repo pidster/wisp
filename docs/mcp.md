@@ -62,12 +62,16 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
 | `wisp://audit/{session}` | JSON Lines: every event of one session that is not a `respond` thread: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here with a pointer to its `…/audit` below. |
 | `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `model`, `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
-| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below. |
+| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below and the facts resources the thread is given (`sessionFacts`, `permanentFacts`, `proposedFacts`). |
 | `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. |
 | `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
-| `wisp://threads/{thread_id}/facts` | JSON: the facts the thread's model is given: its own (the task, the state of the work, proposed permanent facts), the session's (the machine now, shared by every thread of this server), and the shared permanent ones. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `conflict` (the winning head and the ones that disagree, when they do), and `uri`; plus `conflicts`, the count in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. |
-| `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one fact (`fact`) and every version, from every source, of what it is about (`history`), oldest first. |
+| `wisp://threads/{thread_id}/facts` | JSON: the thread's own facts (ids `c…`): its task, the state of the work, and its proposed permanent facts. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `supersededBy`, `approved`, `conflict` (the winning head and the ones that disagree, when they do, including a permanent or session fact), and `uri`; plus `conflicts`, the count of its facts in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. The session's and the permanent facts are in the resources below; all of them, as the model is given them, are in `…/context/next`. |
+| `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one of the thread's facts (`fact`) and every version the thread holds of what it is about (`history`), oldest first. A `p…` or `s…` id is refused with a pointer to where it is served. |
+| `wisp://facts` | JSON: the permanent facts in the shared store (`~/.wisp/facts.json`, ids `p…`), which only the person admits; the same fields, with `approved` for one the person approved, and `uri`. Current only; `?all=true` adds superseded and deleted versions. Paged. |
+| `wisp://facts/{fact_id}` | JSON: one permanent fact (`fact`) and every version the shared store holds of what it is about (`history`), oldest first. `fact_id` starts with `p`, so `wisp://facts/proposed` is never taken for one. |
+| `wisp://facts/proposed` | JSON: the permanent facts a tool or the model proposed in any conversation of this server, awaiting the person: neither approved nor declined. Each has the fact's fields, `thread_id` (its conversation), `reference` (`thread_id/fact_id`, which chat's `/fact approve` takes), `asked` (whether the person was asked through elicitation and has not answered), and `uri` (the thread's fact, or null for a conversation that is not a thread). Paged. See "Approving a permanent fact" below. |
+| `wisp://session/facts` | JSON: the session's ephemeral facts (ids `s…`): the machine now, such as a listening port, shared by every thread of this server and gone with it. Current only; `?all=true` adds superseded versions. Paged. |
 | `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
 | `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
 | `wisp://threads/{thread_id}/audit` | JSON Lines: every event of the thread, for reconstructing what a delegated task did. |
@@ -86,10 +90,9 @@ resumed today) shows its earlier session's entries as carried into every turn of
 references and cuts the saving session last sent; the contexts of the saving session's own turns can be
 composed only as far as the saved sidecar allows, and are not addressable here.
 
-The facts resources read the thread's store and the session's in memory, likewise at no model cost, and
-likewise only while the thread is open. A thread keeps facts unless `facts.enabled` is false in the
-config, in which case reading them is an `invalidParams` error saying so ([context-management.md](context-management.md),
-"Facts").
+The facts resources read the stores in memory, likewise at no model cost; a thread's own only while the
+thread is open. A thread keeps facts unless `facts.enabled` is false in the config, in which case reading
+its facts is an `invalidParams` error saying so ([context-management.md](context-management.md), "Facts").
 
 The audit and output resources read the audit file, so they are empty (and an output reference is not
 given) when `audit.enabled` is false. Reading any resource is not itself audited (the model's `inspect`
@@ -205,12 +208,50 @@ that produced it and a compact reference in every later request ([context-manage
 **A caller's task ranks with the person's.** The MCP caller is the person's agent, so its `task` takes the
 person's precedence over what a tool or the model says about the task (decision D2), and is recorded apart
 as `source: caller`, so the audit and the facts resource say who set it. It is the only fact a caller sets
-in this version; the person's other controls (deleting a fact, approving a permanent one) are chat's.
+in this version. Deleting a fact is chat's; approving a permanent one is the person's, through the
+client's dialog (see "Approving a permanent fact" below) or chat's `/fact approve`, never the caller's.
 
 `condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
 `session.end` with reason `evicted`. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
 in order; different threads run concurrently.
+
+### Approving a permanent fact
+
+A permanent fact (a name, a codename, a settled decision, a preference) is kept across sessions in
+`~/.wisp/facts.json` and given to every later conversation, so only the person admits one (decision D2 of
+the [layered-context proposal](proposals/2026-09-29-layered-context.md), ADR 0044 as amended on
+2026-09-30). When a tool or the model proposes one in a thread, the thread keeps it as its own proposal and
+the server asks the person, if the client advertised elicitation:
+
+- **After the call, never during it.** The `respond` result goes back first; the dialog follows once the
+  result has been written. The turn, and the model behind the caller, never wait on the person.
+- **One dialog per proposal,** in a row when a turn proposes several (titled "(1 of 3)" and so on), and
+  one at a time across threads. It is fieldless, like the command dialog:
+
+  ```
+  wisp: keep as a permanent fact?
+
+  Keep as a permanent fact? release codename: BLUE HERON (proposed by the model, from the person's words in turn 3)
+
+  Subject: entity
+  Conversation: git (fact c3)
+
+  Accept keeps it in ~/.wisp/facts.json as approved by you, and every later conversation is given it.
+  Decline leaves it with this conversation only, and wisp will not ask about this value again. No answer
+  within 600 seconds leaves it waiting in wisp://facts/proposed.
+  ```
+
+- **Accept** admits it as approved by the person, ranking with the person's own facts, and the thread's
+  copy is marked superseded by it. **Decline** or Cancel leaves it with the thread as a proposal, and wisp
+  does not ask again about the same subject, name, and value, from any thread, while the server runs.
+  **No answer** within `approval.timeoutSeconds` (`0` waits forever) admits nothing and leaves it waiting.
+  A value already in the shared store is not asked about.
+- **Without elicitation** nothing is asked: the proposal waits in `wisp://facts/proposed`. `--yes` does
+  not approve facts; it stands for the person on commands only.
+
+Each question and answer is audited on the thread: `fact.approval.asked`, `fact.approval.decided`, and, on
+Accept, `fact.approved` with `via: elicitation` ([logging.md](logging.md)).
 
 ## Structured output
 

@@ -102,3 +102,91 @@ struct ElicitationApprover: Approver {
         return .once
     }
 }
+
+/// Asks the MCP client's user whether to keep a proposed permanent fact, through elicitation: the
+/// fact-approval effect of the server's host (ADR 0044, amended 2026-09-30).
+///
+/// The dialog is fieldless, Accept or Decline, because a form picker once made Claude Code's dialog
+/// unresponsive (ADR 0011). Without elicitation the server does not ask, and the proposal waits in
+/// `wisp://facts/proposed`.
+struct ElicitationFactApprover: FactApprover {
+    /// The running server, which owns the connection to the client.
+    let server: Server
+    /// What the client advertised during initialize.
+    let client: ClientCapabilityFlags
+    /// How long to wait for an answer; nil waits forever.
+    let timeout: Duration?
+
+    /// Whether the client advertised elicitation.
+    var canAsk: Bool { client.elicitation.withLock { $0 } }
+
+    /// The dialog's text: the question, where the proposal came from, and what each answer does.
+    ///
+    /// - Parameters:
+    ///   - request: The question.
+    ///   - timeout: The wait, for the note on silence.
+    /// - Returns: The text.
+    static func message(_ request: FactApprovalRequest, timeout: Duration?) -> String {
+        let fact = request.proposal.fact
+        return """
+            \(request.question)
+
+            Subject: \(fact.identity.subject)
+            Conversation: \(request.proposal.conversation) (fact \(fact.id))
+
+            Accept keeps it in ~/.wisp/facts.json as approved by you, and every later conversation is given it. \
+            Decline leaves it with this conversation only, and wisp will not ask about this value again.\
+            \(timeout.map { " No answer within \($0.components.seconds) seconds leaves it waiting in wisp://facts/proposed." } ?? "")
+            """
+    }
+
+    /// Sends the fieldless elicitation and maps the answer; silence past the timeout is `unanswered`.
+    func decide(_ request: FactApprovalRequest) async -> FactApprovalDecision {
+        guard canAsk else { return .failed("this client does not support elicitation") }
+        let text = Self.message(request, timeout: timeout)
+        let schema = Elicitation.RequestSchema(title: request.title, description: text, properties: [:], required: [])
+        let server = server
+        do {
+            let result = try await Timeout.run(timeout) {
+                try await server.requestElicitation(message: text, requestedSchema: schema)
+            }
+            switch result.action {
+            case .accept: return .approved
+            case .decline: return .declined
+            case .cancel: return .cancelled
+            }
+        } catch Timeout.Failure.elapsed(let waited) {
+            Diagnostics.mcp.info("fact approval unanswered: \(waited)")
+            return .unanswered(waited)
+        } catch {
+            Diagnostics.mcp.error("fact elicitation failed: \(error)")
+            return .failed("\(error)")
+        }
+    }
+}
+
+/// Runs the server's fact-approval dialogs one after another, off the calls that proposed them, so no
+/// `tools/call` waits on the person and two threads' questions never overlap.
+actor FactAskQueue {
+    /// The last dialog batch queued; each waits for the one before.
+    private var last: Task<Void, Never>?
+
+    /// Queues `work` after whatever is queued already, and returns at once.
+    ///
+    /// - Parameter work: A batch of questions.
+    func enqueue(_ work: @escaping @Sendable () async -> Void) {
+        let previous = last
+        last = Task {
+            await previous?.value
+            await work()
+        }
+    }
+
+    /// Waits until everything queued so far has been asked and answered; tests use it.
+    func settled() async {
+        while let task = last {
+            await task.value
+            if last == task { return }
+        }
+    }
+}

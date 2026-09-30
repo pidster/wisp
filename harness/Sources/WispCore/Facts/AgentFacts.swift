@@ -14,16 +14,20 @@ public struct FactSettings: Sendable {
     public var permanent: SharedFacts
     /// Whether turns leaving the active view are distilled by the model.
     public var distils: Bool
+    /// The process's proposed permanent facts, from every conversation, which it shares with them.
+    public var proposals: FactProposals
 
     /// Creates settings. The defaults keep every fact in memory, which is what a test wants.
     public init(
         kinds: SubjectKinds = .defaults, session: SharedFacts = .session(),
-        permanent: SharedFacts = SharedFacts(scope: .permanent), distils: Bool = true
+        permanent: SharedFacts = SharedFacts(scope: .permanent), distils: Bool = true,
+        proposals: FactProposals = FactProposals()
     ) {
         self.kinds = kinds
         self.session = session
         self.permanent = permanent
         self.distils = distils
+        self.proposals = proposals
     }
 }
 
@@ -37,6 +41,8 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
     case noSuchFact(String)
     /// The fact is not a proposed permanent fact.
     case notProposed(String)
+    /// No proposal awaiting the person with that reference (`conversation/fact`).
+    case noSuchProposal(String)
     /// The value is empty.
     case emptyValue
     /// The shared store could not be written.
@@ -50,6 +56,8 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
             "no subject \(name); the subjects are \(known.joined(separator: ", "))"
         case .noSuchFact(let id): "no current fact \(id); /inspect facts lists them"
         case .notProposed(let id): "fact \(id) is not a proposed permanent fact"
+        case .noSuchProposal(let reference):
+            "no proposal \(reference) awaiting approval; /inspect facts lists those of other conversations"
         case .emptyValue: "a fact needs a value"
         case .unwritable(let reason): reason
         }
@@ -82,6 +90,27 @@ extension Agent {
     /// The task's versions, oldest first.
     public var taskHistory: [Fact] { store.facts.history(of: FactIdentity.Key(subject: "task", name: "")) }
 
+    /// The conversation's name among the process's proposals: its audit session, which for an MCP thread is
+    /// the `thread_id`, with `.N` after the Nth `reset` (chat's `/new`), whose store numbers its facts afresh.
+    public var conversationID: String { (audit?.session ?? "unaudited") + (generation == 0 ? "" : ".\(generation)") }
+
+    /// The proposed permanent facts of the process's other conversations that await the person, oldest first.
+    public var proposalsElsewhere: [FactProposal] {
+        guard let facts else { return [] }
+        let own = conversationID
+        return facts.proposals.awaiting.filter { $0.conversation != own }
+    }
+
+    /// Mirrors the conversation's current proposals into the process's registry, and marks superseded any that
+    /// the person approved from outside the conversation (an MCP client's dialog, or chat approving another
+    /// conversation's proposal). The approval was audited when it was made.
+    public func syncProposals() {
+        guard let facts else { return }
+        let current = store.facts.current.filter(\.proposed)
+        let approved = facts.proposals.sync(conversation: conversationID, audit: audit, current: current)
+        for (id, admitted) in approved { store.facts.supersede(id, by: admitted) }
+    }
+
     /// Recomputes the facts the next request carries, and audits conflicts that began or ended since the
     /// last check. Without facts, the composer carries none.
     ///
@@ -92,6 +121,7 @@ extension Agent {
             composer.facts = .empty
             return
         }
+        syncProposals()
         let view = factView
         composer.facts = composer.factFrame(view, store: store, window: contextSize ?? Self.assumedWindow)
         let now = view.conflicts
@@ -286,28 +316,33 @@ extension Agent {
         return deleted
     }
 
-    /// Admits the proposed permanent fact `id` to the shared store, where every later conversation sees it:
-    /// the person's approval (D2, D3). The proposal is marked superseded by the admitted fact.
+    /// Admits a proposed permanent fact to the shared store, where every later conversation sees it: the
+    /// person's approval in chat (D2, D3). `id` is one of this conversation's proposals (`c3`), or a proposal
+    /// of another conversation of the process by its reference (`git/c3`), which `/inspect facts` lists. The
+    /// proposal is marked superseded by the admitted fact, in its own conversation's store the next time that
+    /// conversation syncs.
     ///
-    /// - Parameter id: A current proposal in this conversation.
+    /// - Parameter id: A current proposal in this conversation, or another conversation's by reference.
     /// - Returns: The fact as the shared store holds it.
     /// - Throws: `FactFailure`.
     @discardableResult
     public func approveFact(_ id: String) throws(FactFailure) -> Fact {
         guard let facts else { throw .off }
-        guard let proposal = store.facts.fact(id), proposal.state == .current else { throw .noSuchFact(id) }
-        guard proposal.proposed else { throw .notProposed(id) }
-        var candidate = proposal
-        candidate.approved = Date()
-        let admitted: Fact
-        do {
-            admitted = try facts.permanent.admit(candidate)
-        } catch {
-            throw .unwritable("\(error)")
+        if let (conversation, _) = FactProposal.parse(id), conversation != conversationID {
+            guard let status = facts.proposals.proposal(id)?.status, status == .awaiting || status == .declined else {
+                throw .noSuchProposal(id)
+            }
+            let admitted = try facts.proposals.approve(id, permanent: facts.permanent, via: "chat")
+            refreshFacts()
+            return admitted
         }
-        store.facts.supersede(id, by: admitted.id)
-        audit?.record(.factApproved, details: AuditEvent.Details.factApproved(proposal, admitted: admitted))
-        audit?.record(.factSuperseded, details: AuditEvent.Details.factSuperseded(proposal, by: admitted.id))
+        let local = FactProposal.parse(id)?.fact ?? id
+        guard let proposal = store.facts.fact(local), proposal.state == .current else { throw .noSuchFact(local) }
+        guard proposal.proposed else { throw .notProposed(local) }
+        syncProposals()
+        let admitted = try facts.proposals.approve(
+            "\(conversationID)/\(local)", permanent: facts.permanent, via: "chat")
+        store.facts.supersede(local, by: admitted.id)
         refreshFacts()
         return admitted
     }

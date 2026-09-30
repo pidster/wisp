@@ -155,6 +155,8 @@ public struct Session: Sendable {
     public let sessionFacts = SharedFacts.session()
     /// The shared store of permanent facts under the home directory, which only the person admits facts to.
     public let permanentFacts: SharedFacts
+    /// The permanent facts proposed in every conversation of this session, awaiting the person's decision.
+    public let factProposals = FactProposals()
 
     /// Which face this session is.
     public var entryPoint: EntryPoint { request.entryPoint }
@@ -410,7 +412,8 @@ public struct Conversation: Sendable {
             facts: session.config.factsEnabled
                 ? FactSettings(
                     kinds: session.config.subjectKinds, session: session.sessionFacts,
-                    permanent: session.permanentFacts, distils: session.config.factsDistil)
+                    permanent: session.permanentFacts, distils: session.config.factsDistil,
+                    proposals: session.factProposals)
                 : nil)
     }
 

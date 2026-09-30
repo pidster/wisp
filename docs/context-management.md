@@ -198,8 +198,11 @@ unless `facts.enabled` is false; an `Agent` made directly keeps none, and compos
 | `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and written on each change | Always |
 
 Only the person admits a fact to the shared store: by stating it (`/fact` under a permanent kind) or by
-approving one a tool or the model proposed (`/fact approve`). Until then a proposed permanent fact is held
-by the conversation, as a dynamic one is, and `/inspect facts` says how to approve it.
+approving one a tool or the model proposed (`/fact approve`, or an MCP client's dialog). Until then a
+proposed permanent fact is held by the conversation, as a dynamic one is, and `/inspect facts` says how to
+approve it. Over MCP, a client with elicitation is asked once per proposal, after the call's result; Decline
+is remembered, and silence leaves the proposal waiting in `wisp://facts/proposed` ([mcp.md](mcp.md),
+"Approving a permanent fact").
 
 **Versions and precedence.** A newer assertion about the same identity from the same source supersedes the
 older, which stays as history; one with the same value adds nothing. Different sources stand side by side,
@@ -300,11 +303,12 @@ what that turn carried. Condensing counts and cuts the literal turns alone.
 
 **The person's controls** (D3, D6): `/inspect facts [all]`, `/fact SUBJECT [NAME] = VALUE`, `/fact delete
 ID`, `/fact approve ID`, `/task [text]` in chat and `wisp-tui` ([wisp.md](wisp.md)); over MCP,
-`respond`'s `task` (recorded as `source: caller`, ranked with the person) and the
-`wisp://threads/{thread_id}/facts` resources ([mcp.md](mcp.md)). The model and tools only add newer
+`respond`'s `task` (recorded as `source: caller`, ranked with the person), the approval dialog, and the
+facts resources: `wisp://threads/{thread_id}/facts` (the thread's own), `wisp://session/facts`,
+`wisp://facts`, and `wisp://facts/proposed` ([mcp.md](mcp.md)). The model and tools only add newer
 versions of their own facts; only the person deletes or approves. Every change is audited: `fact.recorded`,
-`fact.superseded`, `fact.deleted`, `fact.approved`, `fact.conflict.raised`, `fact.conflict.resolved`
-([logging.md](logging.md)).
+`fact.superseded`, `fact.deleted`, `fact.approved`, `fact.approval.asked`, `fact.approval.decided`,
+`fact.conflict.raised`, `fact.conflict.resolved` ([logging.md](logging.md)).
 
 ### Condensing
 

@@ -287,7 +287,7 @@ public struct ChatLoop {
             case .facts(let all):
                 let view = ChatView(
                     kind: .facts, turn: nil, turns: agent.turns.current,
-                    text: FactReport.markdown(agent.allFacts, all: all))
+                    text: FactReport.markdown(agent.allFacts, all: all, elsewhere: agent.proposalsElsewhere))
                 if let show = io.view { show(view) } else { io.print(view.text) }
             case .fact(let request):
                 fact(request)

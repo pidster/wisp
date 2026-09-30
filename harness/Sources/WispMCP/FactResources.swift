@@ -2,12 +2,59 @@ import Foundation
 import MCP
 import WispCore
 
-/// The facts of a live `respond` thread (decisions D2 and D3 of the layered-context proposal):
-/// `wisp://threads/{thread_id}/facts` lists the facts the thread's model is given, current by default and
-/// every version with `?all=true`, paged; `…/facts/{fact_id}` is one fact with every version of what it is
-/// about. Read from the thread's store and the session's, at no model cost.
+/// The facts resources (decisions D2 and D3 of the layered-context proposal), each under what owns it:
+/// `wisp://facts` is the shared store of permanent facts and `wisp://facts/{fact_id}` one of them with its
+/// history; `wisp://facts/proposed` the permanent facts proposed in any conversation of the server, awaiting
+/// the person; `wisp://session/facts` the session's ephemeral facts; `wisp://threads/{thread_id}/facts` a
+/// thread's own facts and `…/facts/{fact_id}` one of them. Collections list current facts by default and
+/// every version with `?all=true`, paged. All are read from memory, at no model cost.
 extension WispServer {
-    /// Serves `wisp://threads/{thread_id}/facts[/{fact_id}]`.
+    /// Serves a resource under `wisp://facts` or `wisp://session/facts`, or nil for a URI that is neither.
+    ///
+    /// - Parameter uri: The URI read.
+    /// - Returns: The contents, or nil.
+    /// - Throws: `MCPError.invalidParams` for an unknown fact, a malformed URI, or a page out of range.
+    func readFactStores(_ uri: String) throws -> ReadResource.Result? {
+        let permanent = ThreadURI(uri, root: ToolCatalog.factsResourceURI)
+        let session = ThreadURI(uri, root: ToolCatalog.sessionFactsResourceURI)
+        guard let parsed = permanent ?? session else { return nil }
+        guard parsed.page >= 1 else { throw MCPError.invalidParams("page must be a whole number from 1") }
+        let contents: JSONValue
+        switch (permanent != nil, parsed.path) {
+        case (true, []):
+            contents = try listing(
+                self.session.permanentFacts.facts, page: parsed.page, all: parsed.all,
+                base: ToolCatalog.factsResourceURI)
+        case (true, ["proposed"]):
+            contents = try proposedFacts(page: parsed.page)
+        case (true, let path) where path.count == 1 && Self.isPermanentFactID(path[0]):
+            let id = path[0]
+            contents = try history(
+                of: id, in: self.session.permanentFacts.facts,
+                missing: "no permanent fact \(id); wisp://facts lists them")
+        case (true, let path) where path.count == 1:
+            let id = path[0]
+            throw MCPError.invalidParams(
+                "\(id) is not a permanent fact's id (p1, p2, …); a thread's facts are under "
+                    + "wisp://threads/{thread_id}/facts and the session's at \(ToolCatalog.sessionFactsResourceURI)")
+        case (false, []):
+            contents = try listing(
+                self.session.sessionFacts.facts, page: parsed.page, all: parsed.all,
+                base: ToolCatalog.sessionFactsResourceURI, linked: false)
+        default:
+            throw MCPError.invalidParams("Unknown resource: \(uri)")
+        }
+        return .init(contents: [.text(Introspection.render(contents), uri: uri, mimeType: "application/json")])
+    }
+
+    /// Whether `text` has the form of a permanent fact's id: `p` and a number, so `proposed` is never one.
+    static func isPermanentFactID(_ text: String) -> Bool {
+        text.count > 1 && text.hasPrefix(FactScope.permanent.prefix) && text.dropFirst().allSatisfy(\.isASCII)
+            && text.dropFirst().allSatisfy(\.isNumber)
+    }
+
+    /// Serves `wisp://threads/{thread_id}/facts[/{fact_id}]`: the thread's own facts, those its store holds.
+    /// The session's and the permanent ones have resources of their own.
     ///
     /// - Parameters:
     ///   - id: The thread.
@@ -26,28 +73,61 @@ extension WispServer {
             }
             throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
         }
-        guard let facts = await open.thread.facts() else {
+        guard let seen = await open.thread.facts() else {
             throw MCPError.invalidParams("thread \(id) keeps no facts (facts.enabled is false)")
         }
-        let view = FactView(facts)
+        let view = FactView(seen)
+        let own = seen.filter { $0.identity.scope == .conversation }
         let base = ToolCatalog.threadURI(id) + "/facts"
         if let fact {
-            guard let found = facts.first(where: { $0.id == fact }) else {
-                throw MCPError.invalidParams("no fact \(fact) in thread \(id); \(base) lists them")
+            guard own.contains(where: { $0.id == fact }) else {
+                let elsewhere =
+                    fact.hasPrefix(FactScope.permanent.prefix)
+                    ? "; permanent facts are at \(ToolCatalog.factsResourceURI)/\(fact)"
+                    : fact.hasPrefix(FactScope.session.prefix)
+                        ? "; the session's are at \(ToolCatalog.sessionFactsResourceURI)" : ""
+                throw MCPError.invalidParams("no fact \(fact) in thread \(id); \(base) lists them\(elsewhere)")
             }
-            let history = facts.filter { $0.identity.key == found.identity.key }.sorted { $0.recorded < $1.recorded }
-            return .object([
-                "fact": FactReport.json(found, view: view),
-                "history": .array(history.map { FactReport.json($0, view: view) }),
-            ])
+            return try history(of: fact, in: own, missing: "", view: view)
         }
+        var listing = try listing(own, page: page, all: all, base: base, view: view)
+        let keys = Set(own.filter { $0.state == .current }.map(\.identity.key))
+        listing = Self.with(listing, "conflicts", .int(view.conflicts.intersection(keys).count))
+        return listing
+    }
+
+    /// The thread's current task and who set it, or null when it has none or keeps no facts.
+    func threadTask(_ id: String) async -> JSONValue {
+        guard let open = await threads.peek(id), let facts = await open.thread.facts(),
+            let task = facts.last(where: { $0.identity.subject == "task" && $0.state == .current })
+        else { return .null }
+        return .object(["text": .string(task.value), "source": .string(task.source.rawValue), "id": .string(task.id)])
+    }
+
+    /// A page of `facts` (current ones, or every version with `all`), each with its URI under `base` when
+    /// `linked`, and the count of conflicts among them.
+    ///
+    /// - Parameters:
+    ///   - facts: Every fact of the store, in any state.
+    ///   - page: The page.
+    ///   - all: Whether to include superseded and deleted versions.
+    ///   - base: The collection's URI.
+    ///   - linked: Whether each fact has a URI of its own under `base`.
+    ///   - view: The facts in force, for each fact's conflict; the store's own current facts when nil.
+    /// - Returns: The page.
+    /// - Throws: `MCPError.invalidParams` for a page past the last.
+    private func listing(
+        _ facts: [Fact], page: Int, all: Bool, base: String, linked: Bool = true, view: FactView? = nil
+    ) throws -> JSONValue {
+        let view = view ?? FactView(facts)
         let shown = facts.filter { all || $0.state == .current }.sorted { lhs, rhs in
             lhs.identity.key != rhs.identity.key ? lhs.identity.key < rhs.identity.key : lhs.recorded < rhs.recorded
         }
         let rows = shown.map { fact -> JSONValue in
-            var row = FactReport.json(fact, view: view).objectValue ?? [:]
-            row["uri"] = .string("\(base)/\(fact.id)")
-            return .object(row)
+            linked
+                ? Self.with(FactReport.json(fact, view: view), "uri", .string("\(base)/\(fact.id)"))
+                : FactReport
+                    .json(fact, view: view)
         }
         var listing = try Self.paged(rows, page: page, base: base, key: "facts").objectValue ?? [:]
         if all, let next = listing["next"]?.stringValue {
@@ -57,11 +137,47 @@ extension WispServer {
         return .object(listing)
     }
 
-    /// The thread's current task and who set it, or null when it has none or keeps no facts.
-    func threadTask(_ id: String) async -> JSONValue {
-        guard let open = await threads.peek(id), let facts = await open.thread.facts(),
-            let task = facts.last(where: { $0.identity.subject == "task" && $0.state == .current })
-        else { return .null }
-        return .object(["text": .string(task.value), "source": .string(task.source.rawValue), "id": .string(task.id)])
+    /// One fact of `facts` and every version of what it is about, oldest first.
+    ///
+    /// - Parameters:
+    ///   - id: The fact.
+    ///   - facts: The store's facts.
+    ///   - missing: The error when there is no such fact.
+    ///   - view: The facts in force, for conflicts; the store's own current facts when nil.
+    /// - Returns: `fact` and `history`.
+    /// - Throws: `MCPError.invalidParams` with `missing`.
+    private func history(of id: String, in facts: [Fact], missing: String, view: FactView? = nil) throws -> JSONValue {
+        guard let found = facts.first(where: { $0.id == id }) else { throw MCPError.invalidParams(missing) }
+        let view = view ?? FactView(facts)
+        let history = facts.filter { $0.identity.key == found.identity.key }.sorted { $0.recorded < $1.recorded }
+        return .object([
+            "fact": FactReport.json(found, view: view),
+            "history": .array(history.map { FactReport.json($0, view: view) }),
+        ])
+    }
+
+    /// `wisp://facts/proposed`: the proposals awaiting the person, oldest first, each with its conversation,
+    /// the reference chat's `/fact approve` takes, whether the person was asked, and the thread fact's URI
+    /// when the conversation is a thread of this server.
+    private func proposedFacts(page: Int) throws -> JSONValue {
+        let view = FactView([])
+        let rows = session.factProposals.awaiting.map { proposal -> JSONValue in
+            var row = FactReport.json(proposal.fact, view: view).objectValue ?? [:]
+            row["thread_id"] = .string(proposal.conversation)
+            row["reference"] = .string(proposal.reference)
+            row["asked"] = .bool(proposal.asked)
+            row["uri"] =
+                directory.record(proposal.conversation) == nil
+                ? .null : .string("\(ToolCatalog.threadURI(proposal.conversation))/facts/\(proposal.fact.id)")
+            return .object(row)
+        }
+        return try Self.paged(rows, page: page, base: ToolCatalog.proposedFactsResourceURI, key: "facts")
+    }
+
+    /// `object` with `key` set to `value`.
+    private static func with(_ object: JSONValue, _ key: String, _ value: JSONValue) -> JSONValue {
+        var fields = object.objectValue ?? [:]
+        fields[key] = value
+        return .object(fields)
     }
 }

@@ -522,10 +522,18 @@ public enum ToolCatalog {
     /// Template for the context the thread's next request carries.
     public static let contextNextTemplate = "wisp://threads/{thread_id}/context/next"
 
-    /// Template for a thread's facts.
+    /// Template for a thread's own facts.
     public static let factsTemplate = "wisp://threads/{thread_id}/facts"
-    /// Template for one fact's history.
+    /// Template for one of a thread's facts, with its history.
     public static let factTemplate = "wisp://threads/{thread_id}/facts/{fact_id}"
+    /// URI of the permanent facts in the shared store.
+    public static let factsResourceURI = "wisp://facts"
+    /// Template for one permanent fact, with its history.
+    public static let permanentFactTemplate = "wisp://facts/{fact_id}"
+    /// URI of the permanent facts proposed in the server's conversations, awaiting the person.
+    public static let proposedFactsResourceURI = "wisp://facts/proposed"
+    /// URI of the session's ephemeral facts, shared by every thread of the server.
+    public static let sessionFactsResourceURI = "wisp://session/facts"
 
     /// The resources wisp advertises.
     public static let resources: [Resource] = [
@@ -562,6 +570,27 @@ public enum ToolCatalog {
             description:
                 "The last 100 audit events across every session, as JSON Lines; the full log is in the audit file.",
             mimeType: "application/x-ndjson"),
+        Resource(
+            name: "wisp permanent facts", uri: factsResourceURI, title: "Permanent facts, kept across sessions",
+            description:
+                "The facts in the shared store (~/.wisp/facts.json), which only the person admits: each with its "
+                + "source, value, when it was approved, and its URI; ?all=true adds superseded and deleted versions; "
+                + "paged with ?page=N.",
+            mimeType: "application/json"),
+        Resource(
+            name: "wisp proposed facts", uri: proposedFactsResourceURI,
+            title: "Permanent facts proposed in any thread, awaiting the person",
+            description:
+                "Facts a tool or the model proposed as permanent in any conversation of this server, not yet approved "
+                + "or declined, each with its thread and whether the person was asked; paged with ?page=N.",
+            mimeType: "application/json"),
+        Resource(
+            name: "wisp session facts", uri: sessionFactsResourceURI,
+            title: "The session's facts about the machine now",
+            description:
+                "Ephemeral facts (a listening port, the machine) shared by every thread of this server and gone "
+                + "with it; ?all=true adds superseded versions; paged with ?page=N.",
+            mimeType: "application/json"),
         Resource(
             name: "wisp measurements", uri: measurementsResourceURI, title: "What each delegated task achieved",
             description:
@@ -625,16 +654,24 @@ public enum ToolCatalog {
             mimeType: "text/markdown"),
         Resource.Template(
             uriTemplate: factsTemplate, name: "wisp thread facts",
-            title: "The facts a thread's model is given",
+            title: "A thread's own facts",
             description:
-                "The current facts the thread sees (its own, the session's, and the shared permanent ones), each with "
-                + "its source, class, value, and any conflict, and its URI; ?all=true adds superseded and deleted "
-                + "versions; paged with ?page=N.",
+                "The thread's own facts (its task, the state of the work, its proposed permanent facts), each with "
+                + "its source, class, value, any conflict, and its URI; ?all=true adds superseded and deleted "
+                + "versions; paged with ?page=N. The session's are at wisp://session/facts, the permanent ones at "
+                + "wisp://facts, and all of them as the model is given them at wisp://threads/{thread_id}/context/next.",
             mimeType: "application/json"),
         Resource.Template(
             uriTemplate: factTemplate, name: "wisp thread fact history",
-            title: "One fact and every version of what it is about",
-            description: "The fact, and every version from every source of its subject and name, oldest first.",
+            title: "One of a thread's facts and every version of what it is about",
+            description: "The fact, and every version the thread holds of its subject and name, oldest first.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: permanentFactTemplate, name: "wisp permanent fact history",
+            title: "One permanent fact and every version of what it is about",
+            description:
+                "The fact (an id starting with p), and every version the shared store holds of its subject and "
+                + "name, oldest first.",
             mimeType: "application/json"),
     ]
 }

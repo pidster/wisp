@@ -9,18 +9,22 @@ extension WispServer {
     /// Rows a collection's page holds.
     static let rowsPerPage = 50
 
-    /// A `wisp://threads` URI split into its path after the scheme's `threads` and its page.
+    /// A URI under a collection's root (`wisp://threads` by default, `wisp://facts`, `wisp://session/facts`)
+    /// split into its path after the root and its query.
     struct ThreadURI: Equatable {
-        /// The path's segments after `wisp://threads`, such as `["git", "output", "8a7b…"]`.
+        /// The path's segments after the root, such as `["git", "output", "8a7b…"]` under `wisp://threads`.
         var path: [String]
         /// The `page` query value, from 1; 1 when absent.
         var page: Int
         /// Whether the query says `all=true`.
         var all = false
 
-        /// Parses `uri`, or nil when it is not under `wisp://threads`.
-        init?(_ uri: String) {
-            let root = ToolCatalog.threadsResourceURI
+        /// Parses `uri`, or nil when it is not under `root`.
+        ///
+        /// - Parameters:
+        ///   - uri: The URI read.
+        ///   - root: The collection's root.
+        init?(_ uri: String, root: String = ToolCatalog.threadsResourceURI) {
             guard uri == root || uri.hasPrefix(root + "/") || uri.hasPrefix(root + "?") else { return nil }
             var rest = Substring(uri.dropFirst(root.count))
             page = 1
@@ -117,7 +121,9 @@ extension WispServer {
             "task": await threadTask(id),
             "resources": .object([
                 "context": .string(base + "/context"), "contextNext": .string(base + "/context/next"),
-                "facts": .string(base + "/facts"),
+                "facts": .string(base + "/facts"), "sessionFacts": .string(ToolCatalog.sessionFactsResourceURI),
+                "permanentFacts": .string(ToolCatalog.factsResourceURI),
+                "proposedFacts": .string(ToolCatalog.proposedFactsResourceURI),
                 "output": .string(base + "/output"), "audit": .string(base + "/audit"),
             ]),
         ])

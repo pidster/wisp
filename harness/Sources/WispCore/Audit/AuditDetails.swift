@@ -195,13 +195,40 @@ extension AuditEvent {
             ]
         }
 
-        /// `fact.approved`: a proposed permanent fact the person admitted to the shared store.
-        public static func factApproved(_ proposal: Fact, admitted: Fact) -> [String: JSONValue] {
+        /// `fact.approved`: a proposed permanent fact the person admitted to the shared store, and where they
+        /// approved it (`chat` for `/fact approve`, `elicitation` for an MCP client's dialog).
+        public static func factApproved(_ proposal: Fact, admitted: Fact, via: String) -> [String: JSONValue] {
             [
                 "id": .string(proposal.id), "admitted": .string(admitted.id),
                 "subject": .string(admitted.identity.subject), "name": .string(admitted.identity.name),
-                "source": .string(admitted.source.rawValue), "value": .string(admitted.value),
+                "source": .string(admitted.source.rawValue), "value": .string(admitted.value), "via": .string(via),
             ]
+        }
+
+        /// `fact.approval.asked`: the host asked the person whether to keep a proposed permanent fact.
+        public static func factApprovalAsked(_ proposal: FactProposal, position: Int, count: Int) -> [String: JSONValue]
+        {
+            [
+                "id": .string(proposal.fact.id), "conversation": .string(proposal.conversation),
+                "subject": .string(proposal.fact.identity.subject), "name": .string(proposal.fact.identity.name),
+                "source": .string(proposal.fact.source.rawValue), "value": .string(proposal.fact.value),
+                "position": .int(position), "count": .int(count),
+            ]
+        }
+
+        /// `fact.approval.decided`: the person's answer, or its absence. `decision` is `approved`, `declined`,
+        /// `cancelled`, `timed-out`, or `failed`.
+        public static func factApprovalDecided(
+            _ proposal: FactProposal, decision: String, admitted: String?, reason: String?, seconds: Double
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "id": .string(proposal.fact.id), "conversation": .string(proposal.conversation),
+                "subject": .string(proposal.fact.identity.subject), "name": .string(proposal.fact.identity.name),
+                "decision": .string(decision), "seconds": .double((seconds * 1000).rounded() / 1000),
+            ]
+            if let admitted { details["admitted"] = .string(admitted) }
+            if let reason { details["reason"] = .string(reason) }
+            return details
         }
 
         /// `fact.conflict.raised` and `fact.conflict.resolved`: the heads about one subject and name began or
@@ -428,7 +455,10 @@ extension AuditEvent {
             ]
         case .factSuperseded: ["id", "subject", "name", "source", "by"]
         case .factDeleted: ["id", "subject", "name", "source", "value", "by"]
-        case .factApproved: ["id", "admitted", "subject", "name", "source", "value"]
+        case .factApproved: ["id", "admitted", "subject", "name", "source", "value", "via"]
+        case .factApprovalAsked: ["id", "conversation", "subject", "name", "source", "value", "position", "count"]
+        case .factApprovalDecided:
+            ["id", "conversation", "subject", "name", "decision", "admitted", "reason", "seconds"]
         case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]

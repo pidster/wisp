@@ -160,6 +160,18 @@ each group's heads by precedence; `FactComposition` renders the frame within `fa
 `FactReport` renders them for the person (`/inspect facts`, `/task`, the MCP facts resources). The
 person's changes go through `Agent.stateFact`, `deleteFact`, `approveFact`, and `setTask`, each audited.
 
+Proposed permanent facts are also mirrored, whenever a conversation's facts change
+(`Agent.syncProposals`, from `refreshFacts`), into `FactProposals`, one per `Session` and shared through
+`FactSettings`: a `final class` with a `Mutex` holding a copy of each proposal with its conversation, its
+status (awaiting, declined, approved, withdrawn), and the declines by subject, name, and value. A face lists
+from it and approves through it (`approve` admits the copy to the shared store and audits on the proposing
+conversation's log), so a proposal can be approved from another conversation or after its own has gone;
+the owning conversation marks its copy superseded at its next sync. The approval dialog is a host effect
+(ADR 0044): `SessionHost` carries a `FactApprover` beside the command `Approver`. The MCP server's is
+`ElicitationFactApprover`; at the end of every `tools/call` the server claims the unasked proposals and
+queues `FactProposals.ask` on `FactAskQueue`, an actor that runs one batch after another, after waiting in
+`ResponseLedger` (fed by `CompatibilityTransport.send`) until that call's response has been written.
+
 ### Risk classification and approval
 
 `ApprovalGate` (an actor, one per conversation) takes an `ApprovalThreshold` (a level, or `never`) and runs a `RiskClassifier` (`CompositeRiskClassifier` over

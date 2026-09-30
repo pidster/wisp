@@ -26,6 +26,12 @@ Changed:
   comment on it rather than repeat it, unless asked to.
 - A reply's copy of a tool output is left out of later requests only when it is an exact copy (formatting
   aside). A copy with changes, such as a proposed edit shown as a changed file, is kept for the model.
+- MCP facts resources moved under what owns them. `wisp://threads/{thread_id}/facts` now lists only the
+  thread's own facts (its task, the state of the work, its proposals); the permanent facts are at
+  `wisp://facts` (one, with its history, at `wisp://facts/{fact_id}`), and the session's at
+  `wisp://session/facts`. `…/facts/{fact_id}` under a thread refuses a `p…` or `s…` id and says where it
+  is. `wisp://threads/{thread_id}/context/next` still shows every fact as the model is given it. The thread
+  summary links all of them.
 
 Added:
 
@@ -47,6 +53,16 @@ Added:
   history, and the thread summary's `task` is filled in.
 - New audit events: `context.distillation`, `fact.recorded`, `fact.superseded`, `fact.deleted`,
   `fact.approved`, `fact.conflict.raised`, and `fact.conflict.resolved`.
+- Over MCP, when a tool or the model proposes a permanent fact in a thread, wisp asks you whether to keep
+  it through the client's dialog, after the call's result has gone back, one fact per dialog: "Keep as a
+  permanent fact? release codename: BLUE HERON (proposed by the model, from the person's words in turn
+  3)". Accept keeps it for every conversation; Decline leaves it with the thread and wisp does not ask
+  again about the same value; no answer within `approval.timeoutSeconds` leaves it waiting. A client
+  without elicitation is not asked; `wisp://facts/proposed` lists what waits. Audited as
+  `fact.approval.asked` and `fact.approval.decided`, and `fact.approved` now says `via` (`chat` or
+  `elicitation`).
+- Chat's `/inspect facts` also lists permanent facts proposed in the process's other conversations (the
+  one before a `/new`, say), and `/fact approve CONVERSATION/ID` keeps one.
 
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.

@@ -72,8 +72,12 @@ public actor ConversationThread: RespondingThread {
     /// Sets the agent's task as the caller's.
     public func setTask(_ task: String) async throws { try agent.setTask(task, source: .caller) }
 
-    /// The agent's facts, or nil when it keeps none.
-    public func facts() async -> [Fact]? { agent.facts == nil ? nil : agent.allFacts }
+    /// The agent's facts, or nil when it keeps none; proposals approved elsewhere are marked superseded first.
+    public func facts() async -> [Fact]? {
+        guard agent.facts != nil else { return nil }
+        agent.syncProposals()
+        return agent.allFacts
+    }
 }
 
 /// Everything the server keeps for one open `thread_id`: the thread, the gate its tools consult, and

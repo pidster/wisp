@@ -68,6 +68,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case factSuperseded = "fact.superseded"
         case factDeleted = "fact.deleted"
         case factApproved = "fact.approved"
+        case factApprovalAsked = "fact.approval.asked"
+        case factApprovalDecided = "fact.approval.decided"
         case factConflict = "fact.conflict.raised"
         case factResolved = "fact.conflict.resolved"
         case mcpRequest = "mcp.request"

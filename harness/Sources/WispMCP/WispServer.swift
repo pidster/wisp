@@ -33,8 +33,15 @@ public struct WispServer: Sendable {
             _ tools: ToolSelection, _ model: ModelSelection?
         ) throws -> OpenThread
     private let makeThread: ThreadFactory
-    /// Asks the client's user through elicitation; `--yes` sessions bypass it inside the gate.
-    private let approver: ElicitationApprover
+    /// What the client's user can be asked through elicitation (ADR 0044): commands, which `--yes` sessions
+    /// approve inside the gate instead, and proposed permanent facts, which only the person admits.
+    let host: SessionHost
+    /// The fact-approval dialogs, asked one after another after the calls that proposed them.
+    let factAsks = FactAskQueue()
+    /// The responses written to the client, so a dialog can wait for the result of the call that queued it.
+    let responses = ResponseLedger()
+    /// The command-approval effect of `host`.
+    private var approver: any Approver { host.approver }
     /// Opens the agent that judges one chunk for a condensing tool; tests inject one over a scripted model.
     private let makeTriageAgent: @Sendable (Conversation, ModelSelection?) throws -> Agent
 
@@ -67,7 +74,10 @@ public struct WispServer: Sendable {
             capabilities: .init(
                 resources: .init(subscribe: false, listChanged: false), tools: .init(listChanged: false)))
         self.session = session
-        approver = ElicitationApprover(server: server, client: client, timeout: session.config.approvalTimeout)
+        let timeout = session.config.approvalTimeout
+        host = SessionHost(
+            approver: ElicitationApprover(server: server, client: client, timeout: timeout),
+            facts: ElicitationFactApprover(server: server, client: client, timeout: timeout))
         threads = ThreadStore(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
@@ -92,7 +102,7 @@ public struct WispServer: Sendable {
     ///
     /// - Throws: Transport errors from the MCP SDK.
     func serve(transport: any Transport) async throws {
-        let transport = CompatibilityTransport(transport)
+        let transport = CompatibilityTransport(transport, responses: responses)
         await server.withMethodHandler(ListTools.self) { _ in .init(tools: ToolCatalog.all) }
         await server.withMethodHandler(CallTool.self) { params in try await self.call(params) }
         await server.withMethodHandler(ListResources.self) { _ in
@@ -224,8 +234,31 @@ public struct WispServer: Sendable {
             details: AuditEvent.Details.mcpResult(
                 tool: params.name, isError: result.isError ?? false, text: text,
                 seconds: Date().timeIntervalSince(started)))
+        await askAboutProposedFacts()
         return result
     }
+
+    /// Queues a question to the person about each permanent fact proposed since the last call, in any
+    /// conversation of the server, and returns without waiting for the answers: the call's result goes back
+    /// at once, and the dialogs follow once it has been written (at most `resultWait` later), one at a time.
+    /// Nothing is asked when the client has no elicitation; the proposals wait in `wisp://facts/proposed`.
+    func askAboutProposedFacts() async {
+        guard let approver = host.facts, approver.canAsk else { return }
+        let proposals = session.factProposals
+        let permanent = session.permanentFacts
+        let pending = proposals.claim(permanent: permanent)
+        guard !pending.isEmpty else { return }
+        let request = ResponseLedger.currentRequest()
+        let responses = responses
+        await factAsks.enqueue {
+            await responses.waitForResponse(to: request, atMost: Self.resultWait)
+            await proposals.ask(pending, via: approver, permanent: permanent)
+        }
+    }
+
+    /// The longest a fact-approval dialog waits for its call's result to be written; a cancelled call gets
+    /// none.
+    static let resultWait = Duration.seconds(5)
 
     /// Serves the resources: the tool catalogue from the live registry, and the introspection views.
     ///
@@ -272,6 +305,7 @@ public struct WispServer: Sendable {
             }
             return try lines(try views.audit(AuditQuery(session: id)))
         default:
+            if let result = try readFactStores(params.uri) { return result }
             if let result = try await readThread(params.uri) { return result }
             throw MCPError.invalidParams("Unknown resource: \(params.uri)")
         }
