@@ -36,11 +36,16 @@ This document outlines a comprehensive approach to testing and evaluating the fu
 
 ### 3. File Operations Testing
 **Purpose**: Validate reading and writing capabilities.
-**Tools**: `read_file`, `edit_file`
+**Tools**: `read_file`, `edit_file`, `run_command`
 **Steps**:
 1. **Read a File**: Use `read_file(path="functionality-self-test.wisp", limit=10)` to fetch the first 10 lines of the newly created file.
-2. **Edit a File**: Perform a line replacement or append content using `edit_file(path="functionality-self-test.wisp", mode="append", content="\n# Append line added via self-test\n")`.
-3. Verify changes by re‑reading the file.
+2. **Edit a File**: Never edit this guide or any file in the repository. The write tests use a scratch file
+   under `$TMPDIR`, which the sandbox allows and only this user can read. Create it with
+   `run_command(command="mktemp -t wisp-self-test")`, and use the path it prints as `<scratch>` below.
+   Write it with `edit_file(path="<scratch>", mode="write", content="line one\nline two\n")`, append with
+   `edit_file(path="<scratch>", mode="append", content="# Append line added via self-test\n")`, and replace a
+   line with `edit_file(path="<scratch>", mode="replace", line=1, content="line one, replaced")`.
+3. Verify changes by re‑reading `<scratch>`, then remove it with `run_command(command="rm <scratch>")`.
 
 ---
 
@@ -107,8 +112,8 @@ This expanded guide ensures thorough evaluation of the Wisp assistant's full ope
     6. Report battery status.
     7. Display network interface details.
     8. Read the first 10 lines of functionality-self-test.wisp.
-    9. Append a line to functionality-self-test.wisp.
-   10. Verify changes by reading the updated file.
+    9. Make a scratch file with mktemp -t wisp-self-test; write, append to, and replace a line in it (never this guide).
+   10. Verify changes by reading the scratch file, then remove it.
    11. List directory contents (ls -la).
    12. Show the latest audit events.
    13. Invoke any custom tool defined in the configuration.
