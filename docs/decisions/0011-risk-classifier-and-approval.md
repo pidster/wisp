@@ -1,6 +1,7 @@
 # ADR 0011: Classify command risk with rules plus the on-device model, and ask above a threshold
 
-Date: 2026-09-17. Status: accepted.
+Date: 2026-09-17. Status: accepted. Amended by [ADR 0044](0044-host-effects.md): approval is the first
+request-and-answer host effect; approvers are what a face carries for it.
 
 ## Context
 

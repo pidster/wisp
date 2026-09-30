@@ -1,6 +1,7 @@
 # ADR 0030: Notifications through osascript, bounded and audited, without approval
 
-Date: 2026-09-23. Status: accepted.
+Date: 2026-09-23. Status: accepted. Amended by [ADR 0044](0044-host-effects.md): `notify` is a host
+effect, posted by the front end or the terminal when they can, and by `osascript` only as the last route.
 
 ## Context
 
