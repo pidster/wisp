@@ -546,6 +546,14 @@ under its name.
 
 **Reopen if** the person finds stating a fact a clumsy way to correct one, in use.
 
+**Note, 2026-09-30 (operator):** approving is a host effect ([ADR 0044](../decisions/0044-host-effects.md),
+amended 2026-09-30). Over MCP, a client with elicitation is asked once per proposed permanent fact, after
+the call's result, in a fieldless Accept/Decline dialog; Decline is remembered and not asked again, and
+silence leaves the proposal waiting. Without elicitation, proposals wait in `wisp://facts/proposed`. Chat
+lists the proposals of every conversation of its process in `/inspect facts` and approves them with `/fact
+approve`. The facts resources moved under what owns them: `wisp://facts` (permanent), `wisp://facts/proposed`,
+`wisp://session/facts`, and `wisp://threads/{thread_id}/facts` for the thread's own.
+
 ### D4. What goes in the instructions, and which tools each request carries
 
 Decided 2026-09-29 with the operator. Amended by
