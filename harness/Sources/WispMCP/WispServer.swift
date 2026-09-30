@@ -329,6 +329,13 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
+        if let task = request.task {
+            do {
+                try await opened.thread.thread.setTask(task)
+            } catch {
+                return failure("could not set the task of \(id): \(error)")
+            }
+        }
         do {
             let reply = try await relaying(opened.thread.relay) {
                 try await opened.thread.thread.respond(to: request.prompt, schema: schema)

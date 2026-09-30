@@ -15,6 +15,8 @@ extension WispServer {
         var path: [String]
         /// The `page` query value, from 1; 1 when absent.
         var page: Int
+        /// Whether the query says `all=true`.
+        var all = false
 
         /// Parses `uri`, or nil when it is not under `wisp://threads`.
         init?(_ uri: String) {
@@ -28,6 +30,7 @@ extension WispServer {
                 for item in items where item.hasPrefix("page=") {
                     page = Int(item.dropFirst(5)) ?? 0
                 }
+                all = items.contains("all=true")
             }
             path = rest.split(separator: "/", omittingEmptySubsequences: false).dropFirst().map(String.init)
         }
@@ -57,6 +60,11 @@ extension WispServer {
             let text = try events.map { String(decoding: try AuditEvent.encoder.encode($0), as: UTF8.self) }
                 .joined(separator: "\n")
             return .init(contents: [.text(text, uri: uri, mimeType: "application/x-ndjson")])
+        case let parts where parts.first == "facts" && parts.count <= 2:
+            return try json(
+                await readFacts(
+                    thread: id, fact: parts.count == 2 ? parts[1] : nil, page: parsed.page, all: parsed.all),
+                uri: uri)
         case let parts where parts.first == "context":
             return try await readContext(thread: id, Array(parts.dropFirst()), page: parsed.page, uri: uri)
         default:
@@ -106,9 +114,10 @@ extension WispServer {
             "tools": .array(record.tools.map { .string($0) }), "instructions": .bool(record.instructions),
             "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
             "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
-            "task": .null,
+            "task": await threadTask(id),
             "resources": .object([
                 "context": .string(base + "/context"), "contextNext": .string(base + "/context/next"),
+                "facts": .string(base + "/facts"),
                 "output": .string(base + "/output"), "audit": .string(base + "/audit"),
             ]),
         ])

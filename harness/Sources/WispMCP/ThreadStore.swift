@@ -14,6 +14,15 @@ public protocol RespondingThread: Sendable {
 
     /// The thread's turns with what changed at each (`ContextView.turns(of:)`); nil when it cannot show them.
     func contextTurns() async -> [ContextView.Turn]?
+
+    /// Sets the thread's task as the caller's assertion (decision D6).
+    ///
+    /// - Parameter task: The task.
+    /// - Throws: `FactFailure` when the thread keeps no facts.
+    func setTask(_ task: String) async throws
+
+    /// Every fact the thread sees, in any state (`Agent.allFacts`); nil when it keeps none.
+    func facts() async -> [Fact]?
 }
 
 extension RespondingThread {
@@ -22,6 +31,12 @@ extension RespondingThread {
 
     /// None, as for `context(_:)`.
     public func contextTurns() async -> [ContextView.Turn]? { nil }
+
+    /// Refused: a thread without a conversation store keeps no facts.
+    public func setTask(_ task: String) async throws { throw FactFailure.off }
+
+    /// None, as for `context(_:)`.
+    public func facts() async -> [Fact]? { nil }
 }
 
 /// One conversation with the on-device model, addressable by id across MCP calls.
@@ -53,6 +68,12 @@ public actor ConversationThread: RespondingThread {
 
     /// The agent's turns, from its store.
     public func contextTurns() async -> [ContextView.Turn]? { ContextView.turns(of: agent) }
+
+    /// Sets the agent's task as the caller's.
+    public func setTask(_ task: String) async throws { try agent.setTask(task, source: .caller) }
+
+    /// The agent's facts, or nil when it keeps none.
+    public func facts() async -> [Fact]? { agent.facts == nil ? nil : agent.allFacts }
 }
 
 /// Everything the server keeps for one open `thread_id`: the thread, the gate its tools consult, and

@@ -62,10 +62,12 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
 | `wisp://audit/{session}` | JSON Lines: every event of one session that is not a `respond` thread: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here with a pointer to its `…/audit` below. |
 | `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `model`, `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
-| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (null until the proposal's phase 4), and `resources`, the URIs below. |
+| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below. |
 | `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. |
 | `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
+| `wisp://threads/{thread_id}/facts` | JSON: the facts the thread's model is given: its own (the task, the state of the work, proposed permanent facts), the session's (the machine now, shared by every thread of this server), and the shared permanent ones. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `conflict` (the winning head and the ones that disagree, when they do), and `uri`; plus `conflicts`, the count in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. |
+| `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one fact (`fact`) and every version, from every source, of what it is about (`history`), oldest first. |
 | `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
 | `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
 | `wisp://threads/{thread_id}/audit` | JSON Lines: every event of the thread, for reconstructing what a delegated task did. |
@@ -83,6 +85,11 @@ number them, from 1. A thread resumed from a saved conversation (chat's `--resum
 resumed today) shows its earlier session's entries as carried into every turn of its own, with the
 references and cuts the saving session last sent; the contexts of the saving session's own turns can be
 composed only as far as the saved sidecar allows, and are not addressable here.
+
+The facts resources read the thread's store and the session's in memory, likewise at no model cost, and
+likewise only while the thread is open. A thread keeps facts unless `facts.enabled` is false in the
+config, in which case reading them is an `invalidParams` error saying so ([context-management.md](context-management.md),
+"Facts").
 
 The audit and output resources read the audit file, so they are empty (and an output reference is not
 given) when `audit.enabled` is false. Reading any resource is not itself audited (the model's `inspect`
@@ -111,6 +118,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 | `instructions` | string | no | Instructions for this thread, added under wisp's own system prompt and the server's configured extension; replaces the server's `--instructions` for the thread. Only when a thread starts; an error afterwards. |
 | `tools` | string[] | no | Names of wisp tools to enable. Only when a thread starts. Omitted: all. `[]`: a text-only thread, which a model that declares no tool calling can still run; a thread that needs tools on such a model is refused with a hint before generation. |
 | `model` | string | no | `system` (default), `private-cloud` (alias `pcc`; data leaves the Mac), or `ollama:<name>` (a model the local Ollama serves; `wisp models` lists them). Only when a thread starts. |
+| `task` | string | no | The thread's task, in a sentence. Kept as a dynamic fact of the thread with source `caller` and shown to the model next to each request, labelled as a record ([context-management.md](context-management.md), "Facts"). Given when a thread starts or on any later call to revise it; the earlier wording stays as history in `wisp://threads/{thread_id}/facts`. A thread without it has no task, unless its model distils one from turns that leave its window. An empty string is an error, as is a task for a thread that keeps no facts (`facts.enabled` false). |
 | `schema` | object | no | A JSON Schema for this reply. The reply is JSON of that shape through the framework's guided generation, also parsed into `structuredContent.output`. Per call, on any thread; see "Structured output" below. |
 
 Result content is the reply text. `structuredContent`:
@@ -193,6 +201,11 @@ The model is told the person sees the output, so its reply comments on it rather
 unless the prompt asks for a copy. Within the thread's own context, each output is whole only in the turn
 that produced it and a compact reference in every later request ([context-management.md](context-management.md),
 "Output handling"); `wisp://threads/{thread_id}/context/next` shows what the model will carry.
+
+**A caller's task ranks with the person's.** The MCP caller is the person's agent, so its `task` takes the
+person's precedence over what a tool or the model says about the task (decision D2), and is recorded apart
+as `source: caller`, so the audit and the facts resource say who set it. It is the only fact a caller sets
+in this version; the person's other controls (deleting a fact, approving a permanent one) are chat's.
 
 `condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a

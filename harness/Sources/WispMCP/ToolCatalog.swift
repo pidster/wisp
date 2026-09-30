@@ -51,6 +51,13 @@ public enum ToolCatalog {
                             + "Compute; data leaves the Mac), or ollama:<name> (a local Ollama model). Only when a "
                             + "thread starts."),
                 ]),
+                "task": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The thread's task, in a sentence: kept as a fact and shown to the model next to each "
+                            + "request. Given when a thread starts or later to revise it; wisp://threads/{thread_id}/facts "
+                            + "shows it."),
+                ]),
                 "schema": .object([
                     "type": .string("object"),
                     "description": .string(
@@ -515,6 +522,11 @@ public enum ToolCatalog {
     /// Template for the context the thread's next request carries.
     public static let contextNextTemplate = "wisp://threads/{thread_id}/context/next"
 
+    /// Template for a thread's facts.
+    public static let factsTemplate = "wisp://threads/{thread_id}/facts"
+    /// Template for one fact's history.
+    public static let factTemplate = "wisp://threads/{thread_id}/facts/{fact_id}"
+
     /// The resources wisp advertises.
     public static let resources: [Resource] = [
         Resource(
@@ -611,6 +623,19 @@ public enum ToolCatalog {
             description:
                 "What chat's /inspect context saves, for a thread: the next request's context, entry by entry.",
             mimeType: "text/markdown"),
+        Resource.Template(
+            uriTemplate: factsTemplate, name: "wisp thread facts",
+            title: "The facts a thread's model is given",
+            description:
+                "The current facts the thread sees (its own, the session's, and the shared permanent ones), each with "
+                + "its source, class, value, and any conflict, and its URI; ?all=true adds superseded and deleted "
+                + "versions; paged with ?page=N.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: factTemplate, name: "wisp thread fact history",
+            title: "One fact and every version of what it is about",
+            description: "The fact, and every version from every source of its subject and name, oldest first.",
+            mimeType: "application/json"),
     ]
 }
 
@@ -635,6 +660,8 @@ public struct RespondRequest: Equatable, Sendable {
     public var model: ModelSelection?
     /// JSON Schema the reply must take, for this call only; nil means prose.
     public var schema: JSONValue?
+    /// The thread's task, set or revised as the caller's assertion (D6); nil leaves it as it is.
+    public var task: String?
 
     /// Decodes and validates MCP call arguments.
     ///
@@ -671,6 +698,12 @@ public struct RespondRequest: Equatable, Sendable {
             } catch {
                 throw MCPError.invalidParams("\(error)")
             }
+        }
+        if let raw = arguments?["task"] {
+            guard let text = raw.stringValue, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw MCPError.invalidParams("'task' must be a non-empty string")
+            }
+            task = text
         }
         if let raw = arguments?["schema"] {
             guard raw.objectValue != nil else { throw MCPError.invalidParams("'schema' must be a JSON Schema object") }
