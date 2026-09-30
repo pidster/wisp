@@ -1,7 +1,8 @@
 # ADR 0044: Host effects: what a tool asks the front end to do
 
 Date: 2026-09-30. Status: accepted; the build follows. Amended 2026-09-30: fact approval, the second
-request-and-answer effect, and its MCP mapping (below). Amends
+request-and-answer effect, and its MCP mapping (below); amended again the same day, withdrawing that effect
+(the last amendment below). Amends
 [ADR 0011](0011-risk-classifier-and-approval.md) (approvers) and [ADR 0030](0030-notifications.md) (how a
 notification is posted).
 
@@ -105,6 +106,32 @@ passes an instruction back to the controller, which has, in effect, a tool of it
   - **Audited** on the proposing conversation's log: `fact.approval.asked`, `fact.approval.decided`
     (`approved`, `declined`, `cancelled`, `timed-out`, `failed`), and `fact.approved` with `via`
     (`chat`, `elicitation`).
+- **Amended 2026-09-30 (later, by the operator): the fact-approval effect is withdrawn.** The dialog above
+  was built and is removed before any release. A fact's scope is a state the person sets by command, not a
+  host effect, so `SessionHost` carries the command approver alone again (the notification effect above will
+  be its second). What replaces it:
+  - **wisp lists new facts; it does not ask about them.** After each turn, the facts the turn recorded or
+    changed are listed: a quiet note under the reply in chat (and a `note` line, plus `facts` on the turn's
+    end, in `wisp chat --json`, which `wisp-tui` shows), and `structuredContent.facts` in MCP `respond`. A
+    proposal waits, as a proposed fact of its conversation, until the person moves it.
+  - **One operation, named by target state:** move fact ID to `permanent`, `thread`, or `session`.
+    Scope and temporal class move together (D2 ties them: `permanent` is the shared store, `thread` the
+    conversation's dynamic facts, `session` ephemeral). To `permanent` writes the fact to the shared store as
+    the person's, ranking with the person as an approved fact did; out of `permanent` removes it from the
+    shared store into the target scope of the conversation doing the move. Deleting stays a separate
+    command. Chat: `/fact ID permanent|thread|session` (`/fact approve` is gone). MCP: `set_fact_scope`.
+  - **Over MCP only `thread` and `session`.** `permanent` is not offered, and a request naming it, or a
+    `p…` fact, is refused with a message saying it is set from chat. How permanent facts are managed over
+    MCP is for the operator to decide later; until then a client without a person at the keyboard cannot
+    make a fact permanent, which is the safe side of D2.
+  - **Audited** as one event, `fact.scope.changed` (`fact`, `from`, `to`, `by`: `person` in chat, `caller`
+    over MCP), replacing `fact.approved`, `fact.approval.asked`, and `fact.approval.decided`. Those three
+    kinds stay in the schema, marked legacy, so a log written by a build that had them still reads.
+  - **Gone with the dialog:** the ask queue, waiting for a call's response to be written, the reflection
+    on the SDK's handler context that found the response id, and decline memory. The reason is what the
+    dialog was for: it made wisp interrupt the person over MCP with a question that a list and a command
+    answer without holding a turn open. The choices made in the first amendment about ordering, batching,
+    timeouts, and `--yes` no longer apply; `--yes` still stands for the person on commands only.
 
 ## Consequences
 
@@ -121,7 +148,8 @@ passes an instruction back to the controller, which has, in effect, a tool of it
   that discussion.
 - **Not yet probed:** a dialog that arrives after a tool call's result, in Claude Code. The protocol allows
   a server request at any time; whether Claude Code shows it while the model is still working is to be
-  checked with the release build.
+  checked with the release build. (Moot for facts after the later amendment, which removed that dialog; it
+  applies to any future effect that asks the person over MCP.)
 - Tests without the model: route selection for each face and environment (terminal names, no tty, no
   bundle identifier, a `hello` with and without `notify`), the sequences written, the protocol lines
   both ways, and the `route` field in the audit.

@@ -554,6 +554,15 @@ lists the proposals of every conversation of its process in `/inspect facts` and
 approve`. The facts resources moved under what owns them: `wisp://facts` (permanent), `wisp://facts/proposed`,
 `wisp://session/facts`, and `wisp://threads/{thread_id}/facts` for the thread's own.
 
+**Note, 2026-09-30, later (operator): the approval dialog is withdrawn.** The note above stands as history:
+approving over MCP by dialog was built and removed before release ([ADR 0044](../decisions/0044-host-effects.md),
+amended again 2026-09-30). A fact's scope is a state the person sets by command, naming the target:
+`/fact ID permanent|thread|session` in chat, which replaces `/fact approve`, and `set_fact_scope` over MCP,
+which offers only `thread` and `session` until the operator decides how permanent facts are managed there.
+Scope and temporal class move together. After each turn wisp lists the facts it recorded or changed (a note
+in chat and `wisp chat --json`, `structuredContent.facts` in MCP `respond`), and proposals of every
+conversation stay listed in `/inspect facts` and `wisp://facts/proposed`.
+
 ### D4. What goes in the instructions, and which tools each request carries
 
 Decided 2026-09-29 with the operator. Amended by
