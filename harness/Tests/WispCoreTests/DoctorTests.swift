@@ -24,7 +24,7 @@ import WispTestSupport
         #expect(
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
-                "subject kinds", "saved transcripts", "home",
+                "subject kinds", "saved transcripts", "notify", "home",
             ])
         let broken = Doctor.Probes(
             systemModel: { "not enabled" }, configuredModel: { model, _, _ in "\(model) is down" })
@@ -32,7 +32,7 @@ import WispTestSupport
         #expect(
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
-                "settings", "facts store", "subject kinds", "saved transcripts", "home",
+                "settings", "facts store", "subject kinds", "saved transcripts", "notify", "home",
             ])
         #expect(!extra[1].ok && extra[1].detail == "not enabled")
         #expect(!extra[3].ok && extra[3].detail == "private-cloud is down")

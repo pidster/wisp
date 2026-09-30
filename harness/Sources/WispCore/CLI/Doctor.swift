@@ -31,6 +31,12 @@ public struct Doctor: Sendable {
         /// The context window wisp would use for the given model and how it is known; nil when the model does
         /// not resolve (that is the "configured model" finding's business).
         public var contextWindow: @Sendable (ModelSelection, Config.Resolved, Home) -> ContextWindow?
+        /// The process environment, which names the terminal and its app, for the `notify` finding.
+        public var environment: @Sendable () -> [String: String]
+        /// Whether `/dev/tty` opens for writing, for the `notify` finding; nothing is written.
+        public var terminalOpens: @Sendable () -> Bool
+        /// Whether `/usr/bin/osascript` can run, for the `notify` finding.
+        public var osascriptPresent: @Sendable () -> Bool
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -61,7 +67,9 @@ public struct Doctor: Sendable {
                 // bounded `/api/show` calls and no more.
                 guard let resolved = try? model.resolve(config: config, home: home) else { return nil }
                 return ContextWindow(size: resolved.contextSize, note: resolved.contextNote)
-            })
+            },
+            environment: { ProcessInfo.processInfo.environment }, terminalOpens: TerminalNotification.ttyOpens,
+            osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") })
 
         /// Creates probes.
         public init(
@@ -70,12 +78,18 @@ public struct Doctor: Sendable {
             coremlClassifier: @escaping @Sendable (Config.Resolved, Home) -> String? = { _, _ in nil },
             contextWindow: @escaping @Sendable (ModelSelection, Config.Resolved, Home) -> ContextWindow? = { _, _, _ in
                 nil
-            }
+            },
+            environment: @escaping @Sendable () -> [String: String] = { [:] },
+            terminalOpens: @escaping @Sendable () -> Bool = { false },
+            osascriptPresent: @escaping @Sendable () -> Bool = { true }
         ) {
             self.systemModel = systemModel
             self.configuredModel = configuredModel
             self.coremlClassifier = coremlClassifier
             self.contextWindow = contextWindow
+            self.environment = environment
+            self.terminalOpens = terminalOpens
+            self.osascriptPresent = osascriptPresent
         }
     }
 
@@ -116,7 +130,7 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), homeWritable(),
+            subjectKinds(), savedTranscripts(), notifyRoute(), homeWritable(),
         ]
         // The window follows the model checks, so it can say "not checked" when they failed.
         let modelProblem = model == .system ? probes.systemModel() : nil
