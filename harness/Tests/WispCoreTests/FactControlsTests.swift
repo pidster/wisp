@@ -113,7 +113,8 @@ import WispTestSupport
         #expect(one.factView.groups.count == 2 && two.fact("s1")?.value == "node, listening")
         // The session's facts go next to the request, and the person can delete them from any conversation.
         two.refreshFacts()
-        #expect(two.composer.facts.now?.contains("- service port 8080: node, listening [tool system_info]") == true)
+        #expect(
+            two.composer.facts.now?.contains("- service port 8080: node, listening — from tool system_info") == true)
         _ = try two.deleteFact("s1")
         #expect(shared.current.isEmpty)
         // A new conversation in the same agent starts without the old one's facts.

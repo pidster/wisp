@@ -8,7 +8,7 @@ public struct ToolRegistry: Sendable {
     /// The built-in tools' names, in registration order; `tools.disabled` may name only these, and a
     /// custom tool may not take one.
     public static let builtInNames = [
-        "current_date", "run_command", "read_file", "edit_file", "inspect", "notify", "system_info",
+        "current_date", "run_command", "read_file", "edit_file", "inspect", "notify", "system_info", "memory",
     ]
 
     /// Builds the registry with the given limits for command execution and file pages.
@@ -25,6 +25,9 @@ public struct ToolRegistry: Sendable {
     ///   - introspection: What `inspect` shows; the default sees the default home and config.
     ///   - host: The face's effects; `notify` posts through it. Nil gives one with only the process routes
     ///     and a notifier of its own.
+    ///   - memory: The conversation's record, which `memory` reads and where its notes wait (`WispThread` passes
+    ///     its own). Nil gives one with nothing published, whose `memory` says there is no record: enough for a
+    ///     catalogue.
     ///   - disabled: Built-in tools to leave out (`tools.disabled`).
     ///   - custom: The user's own tools (`tools.custom`), appended after the built-ins; each runs through
     ///     `run_command`'s runner and gate.
@@ -32,7 +35,8 @@ public struct ToolRegistry: Sendable {
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
-        host: SessionHost? = nil, disabled: Set<String> = [], custom: [CustomTool.Definition] = []
+        host: SessionHost? = nil, memory: MemorySource? = nil, disabled: Set<String> = [],
+        custom: [CustomTool.Definition] = []
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
         let commandRunner = CommandRunner(options: runner, audit: audit, approval: approval)
@@ -48,6 +52,7 @@ public struct ToolRegistry: Sendable {
                     host: host ?? SessionHost(approver: DenyingApprover(reason: "no host"), notifier: Notifier()),
                     audit: audit), audit: audit),
             AuditedTool(SystemInfoTool(runner: commandRunner), audit: audit),
+            AuditedTool(MemoryTool(source: memory ?? MemorySource(), audit: audit), audit: audit),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework
         // rejects its schema; such a tool is left out with a diagnostic rather than failing the session.

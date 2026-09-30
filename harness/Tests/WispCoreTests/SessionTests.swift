@@ -50,7 +50,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home.root) }
         let (session, _) = try begin(.init(entryPoint: .chat), home: home)
         #expect(session.prompting == Prompting(systemPromptExtension: "from file", instructions: nil))
-        #expect(session.prompting.rendered.hasPrefix(Prompting.systemPrompt))
+        #expect(session.prompting.rendered.hasPrefix(Prompting.systemPrompt(memory: false)))
         #expect(session.prompting.rendered.hasSuffix("Guidance for this Mac:\nfrom file"))
         #expect(session.config.model == .system)
         #expect(session.config.runner.policy == .default)

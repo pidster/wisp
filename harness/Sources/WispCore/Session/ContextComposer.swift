@@ -45,6 +45,10 @@ public struct ContextComposer: Sendable {
     public var referencesOutput = true
     /// The zone a reference writes its time in.
     public var timeZone = TimeZone.current
+    /// Whether the conversation has the `memory` tool (phase 4c), so a reference tells the model to recall its
+    /// entry with it rather than run the call again. Off, the default for a composer whose agent has no memory,
+    /// keeps the phase 3b wording.
+    public var recalls = false
     /// The facts the next request carries (`FactFrame`), set by the agent before each request; empty, the
     /// default, adds nothing, so a composer without facts composes exactly as before them.
     public var facts = FactFrame.empty
@@ -265,7 +269,7 @@ public struct ContextComposer: Sendable {
         let text = ThreadRecord.text(of: entry.value)
         let reference = OutputReference.text(
             tool: output.toolName, entry: entry.id, time: entry.time, arguments: calls[output.id]?.arguments,
-            output: text, timeZone: timeZone)
+            output: text, timeZone: timeZone, recallable: recalls)
         return reference.utf8.count < text.utf8.count ? reference : nil
     }
 

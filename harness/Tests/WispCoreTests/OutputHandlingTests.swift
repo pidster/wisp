@@ -339,6 +339,7 @@ import WispTestSupport
         let resumed = Agent(
             transcript: saved.transcript, tools: agent.tools,
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [])), links: saved.links)
+        resumed.memory = agent.memory.map { _ in MemorySource() }
         #expect(resumed.store.entries.first { $0.id == stored.id }?.cuts == stored.cuts)
         #expect(resumed.transcript.map(\.id) == agent.transcript.map(\.id))
         #expect(

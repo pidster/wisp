@@ -119,8 +119,9 @@ handling). One turn, as the agent runs it:
    (`OutputReference`: tool, entry, time, status, size, the call's arguments, first and last lines), and
    the frame's two prompt-side entries: the earlier block after the instructions, the now block before the
    request.
-4. The agent puts the session over it, continuing the live session when it already holds exactly that,
-   and starting a new one otherwise. The framework runs the tool loop, which carries this turn's own
+4. The agent publishes its store, facts, subject kinds, and turn to the conversation's `MemorySource`, when it
+   has `memory` (`Agent.memory`), then puts the session over the composition, continuing the live session when it
+   already holds exactly that, and starting a new one otherwise. The framework runs the tool loop, which carries this turn's own
    outputs whole; an overflow condenses the active view as it was before the prompt and retries once.
 5. The entries the session added, whether the turn succeeded or failed, go into the store, each with
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
@@ -152,6 +153,21 @@ running summary of phase 4b), the turns oldest first, the now block (ephemeral f
 request: D12's order by stability. The composer's `summarises` switch (on by default) is off in
 `ContextEquivalenceTests` with the others; its versions (`RunningSummary`) are kept in the store and saved
 with its links.
+
+**Memory** (phase 4c; [tools/memory.md](tools/memory.md)) reads the store, and adds to the facts, from outside
+the agent: the framework calls `MemoryTool` on its own task, so the agent publishes a copy of its store, every
+fact it sees, the subject kinds, and the turn into a `MemorySource` (a `final class` with a `Mutex`, one per
+`WispThread`) before every request, and takes the notes the tool left there when the turn ends, recording them
+as the model's facts (method `noted`) in `remember`, beside the turn's extracted facts. `Memory` is pure: it
+reads the verb (`recall`, `note`; none is a recall) and a note's form and rules. `Recall` is pure too: it reads
+what follows `recall` (`entry 7`, `turn 3`, `task`, `summary`, `fact …`, with `from line N`), gathers the
+material, and pages it at 4 KiB. An entry's content is read from the audit event its store entry refers to,
+through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
+its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
+(D8). `memory` is a built-in tool, so a thread given every tool has it and a named list only when it names it;
+`WispThread.openAgent` wires it and renders the prompt with its rule
+(`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each
+call records `context.memory`.
 
 **Facts** (phase 4a; [context-management.md](context-management.md), "Facts") are `Fact` values in a
 `FactBook` per scope: the conversation's in `ThreadRecord.facts`, a value saved with the store's
@@ -215,7 +231,9 @@ classifier split` and `TrainingSetsTests`.
 `AuditLog.record` returns as an `AuditReference`. Every `WispThread` tees its audit into a
 `ReceiptCollector`, for the `respond` receipt, an `EventRelay`, which passes events to whoever is
 listening at the moment, and a `ToolEventTrail`, which the agent links its store's tool entries to. The MCP server listens while a call that carried a `progressToken` runs.
-`AuditTail` follows the log file, across rotation, for `wisp logs --follow`.
+`AuditTail` follows the log file, across rotation, for `wisp logs --follow`. `AuditLog.event(_:)` reads one
+event back by its reference when the sink can (`AuditReader`), which is how `memory`'s recall reaches an
+entry's verbatim content.
 
 ### `Session` and `WispThread`
 
@@ -312,7 +330,9 @@ tool can change no more than a command could. Each edit is cleared by the gate a
 `edit_file <mode> <path>` and recorded as `file.write` ([ADR 0024](decisions/0024-edit-file.md)). The
 tools do not share one control path: `run_command` passes the policy patterns, the gate, and Seatbelt;
 `edit_file` the writable list and the gate; `read_file` the gate's rules only; `inspect` and
-`current_date` none. `NotifyTool` posts through the session's host (above), bounded, rate-limited, and
+`current_date` none; `memory` reads only the conversation's record and the audit log and writes only the
+model's own facts, below the person's and the tools', so none either.
+`NotifyTool` posts through the session's host (above), bounded, rate-limited, and
 audited as `notification` with the route taken, without the gate
 ([ADR 0030](decisions/0030-notifications.md), [ADR 0044](decisions/0044-host-effects.md)).
 

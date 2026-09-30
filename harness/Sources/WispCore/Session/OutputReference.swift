@@ -3,15 +3,15 @@ import Foundation
 /// What the model carries in place of a tool output after the turn that produced it
 /// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), decision D12): a
 /// compact, structured reference that says which tool ran, the store entry, when, whether it succeeded,
-/// how large the output was, notes on it, and the call's arguments, so the model can run the call again
-/// for the full output until `recall` exists (phase 4).
+/// how large the output was, notes on it, and the call's arguments. A conversation with the `memory` tool
+/// (phase 4c) is told the call that recalls the entry in full; one without it, to run the call again.
 ///
 /// The notes are mechanical, as D1 extracts facts from tool output: the status (a command's exit status,
 /// or `failed` for an `error: …` result), the line and byte counts, and the first and last lines of
 /// content. No model is called. Every part is bounded, so a reference stays well under `maxBytes`:
 ///
 /// ```
-/// [output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; call it again to see it]
+/// [output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; to see it: memory "recall entry 7"]
 /// arguments: {"path":"/work/harbour/docs/overview.md"}
 /// first line: 1	# harbour sync: overview
 /// last line: [end of file]
@@ -73,27 +73,38 @@ enum OutputReference {
     ///   - arguments: The call's arguments as JSON, when the call is in the store.
     ///   - output: The output's text.
     ///   - timeZone: The zone the time is written in.
+    ///   - recallable: Whether the conversation has `memory`, so the reference names the call that recalls it;
+    ///     without it, the reference says to run the call again.
     /// - Returns: The reference, at most `maxBytes` bytes.
     static func text(
-        tool: String, entry: Int, time: Date?, arguments: String?, output: String, timeZone: TimeZone = .current
+        tool: String, entry: Int, time: Date?, arguments: String?, output: String, timeZone: TimeZone = .current,
+        recallable: Bool = false
     ) -> String {
         let notes = notes(on: output, tool: tool)
-        var clock = ""
-        if let time {
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = timeZone
-            let parts = calendar.dateComponents([.hour, .minute, .second], from: time)
-            clock = String(format: " at %02d:%02d:%02d", parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0)
-        }
+        let clock = time.map { " at " + Self.clock($0, in: timeZone) } ?? ""
         let plural = { (count: Int, noun: String) in "\(count) \(noun)\(count == 1 ? "" : "s")" }
+        let hint = recallable ? "to see it: memory \"recall entry \(entry)\"" : "call it again to see it"
         var lines = [
             "[output of entry \(entry) not repeated: \(shortened(tool, to: 40))\(clock), \(notes.status), "
-                + "\(plural(notes.lines, "line")), \(plural(notes.bytes, "byte")); call it again to see it]"
+                + "\(plural(notes.lines, "line")), \(plural(notes.bytes, "byte")); \(hint)]"
         ]
         if let arguments { lines.append("arguments: " + shortened(flat(arguments), to: argumentCharacters)) }
         if let first = notes.first { lines.append("first line: " + first) }
         if let last = notes.last { lines.append("last line: " + last) }
         return ToolOutput.bounded(lines.joined(separator: "\n"), maxBytes: maxBytes - 64)
+    }
+
+    /// `time` as `14:05:12` in `timeZone`.
+    ///
+    /// - Parameters:
+    ///   - time: The time.
+    ///   - timeZone: The zone.
+    /// - Returns: Hours, minutes, and seconds.
+    static func clock(_ time: Date, in timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.hour, .minute, .second], from: time)
+        return String(format: "%02d:%02d:%02d", parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0)
     }
 
     /// `text` on one line: newlines and tabs written as spaces.

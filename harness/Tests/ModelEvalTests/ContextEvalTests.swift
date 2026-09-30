@@ -8,8 +8,9 @@ import WispTestSupport
 /// (docs/proposals/2026-09-29-layered-context.md, "Evaluation"), run through dropping as the baseline, and
 /// through output handling (cutting presentational text) on a scenario that shows a file, through D12's
 /// output handling (each tool output a reference after its turn) on both, and through facts (phase 4a) on
-/// both. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in the
-/// gate; this suite only drives them on real models. Needs the model; runs only with `WISP_MODEL_TESTS=1`.
+/// both, and through memory (phase 4c) on a scenario with a question only an early read can answer and one with
+/// a fact stated in passing. The scenario, scoring, and runner are `ContextEval` in `WispTestSupport`, tested in
+/// the gate; this suite only drives them on real models. Needs the model; runs only with `WISP_MODEL_TESTS=1`.
 ///
 /// The on-device model's window is 8,192 tokens. Ollama's is sized from the Mac's memory when a model is
 /// selected (ADR 0043) and can be many times the scenario, so granite runs three times: at a configured
@@ -42,7 +43,8 @@ struct ContextEvalTests {
         scenario: ContextEval.Scenario = ContextEval.baseline()
     ) async throws {
         let run = await ContextEval.run(
-            scenario, strategy: strategy, model: model, instructions: Prompting().rendered,
+            scenario, strategy: strategy, model: model,
+            instructions: Prompting().rendered(toolsAvailable: true, memory: strategy.hasMemory),
             tools: { audit in
                 let gate = ApprovalGate(
                     classifier: RuleRiskClassifier.standard,
@@ -222,5 +224,65 @@ struct ContextEvalTests {
         try await Self.measure(
             model, variant: "showing.window-8192.budget-50", strategy: SummaryStrategy(together: true, budget: 0.5),
             scenario: ContextEval.showing())
+    }
+
+    // Memory (phase 4c) on the recalling scenario (showing, then a question on a detail of the first file that no
+    // fact or summary carries), at half the window where condensing drops the read, with the summary strategy
+    // without memory as the comparison. `--filter ContextEvalTests/recalling` runs these four alone.
+
+    @Test func recallingWithMemoryOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "recalling.budget-50", strategy: MemoryStrategy(budget: 0.5),
+            scenario: ContextEval.recalling())
+    }
+
+    @Test func recallingWithoutMemoryOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "recalling.budget-50",
+            strategy: SummaryStrategy(together: true, budget: 0.5), scenario: ContextEval.recalling())
+    }
+
+    @Test func recallingWithMemoryOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192.budget-50", strategy: MemoryStrategy(budget: 0.5),
+            scenario: ContextEval.recalling())
+    }
+
+    @Test func recallingWithoutMemoryOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192.budget-50", strategy: SummaryStrategy(together: true, budget: 0.5),
+            scenario: ContextEval.recalling())
+    }
+
+    // Memory's note (phase 4c) on the noting scenario (recalling, with a release date stated in passing
+    // mid-digression and asked for last), with and without memory. `--filter ContextEvalTests/noting` runs these
+    // four alone.
+
+    @Test func notingWithMemoryOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "noting.budget-50", strategy: MemoryStrategy(budget: 0.5),
+            scenario: ContextEval.noting())
+    }
+
+    @Test func notingWithoutMemoryOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try ModelSelection.system.resolve(), variant: "noting.budget-50",
+            strategy: SummaryStrategy(together: true, budget: 0.5), scenario: ContextEval.noting())
+    }
+
+    @Test func notingWithMemoryOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "noting.window-8192.budget-50", strategy: MemoryStrategy(budget: 0.5),
+            scenario: ContextEval.noting())
+    }
+
+    @Test func notingWithoutMemoryOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "noting.window-8192.budget-50", strategy: SummaryStrategy(together: true, budget: 0.5),
+            scenario: ContextEval.noting())
     }
 }

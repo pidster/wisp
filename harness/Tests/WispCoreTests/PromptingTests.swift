@@ -7,7 +7,7 @@ import Testing
     @Test func rendersTheLayersInOrderUnderHeadings() {
         let all = Prompting(systemPromptExtension: " Prefer British spelling. ", instructions: "Answer in French.")
         let expected =
-            Prompting.systemPrompt
+            Prompting.systemPrompt(memory: false)
             + "\n\nGuidance for this Mac:\nPrefer British spelling.\n\nInstructions for this conversation:\nAnswer in French."
         #expect(all.rendered == expected)
     }
@@ -20,13 +20,12 @@ import Testing
     }
 
     @Test func emptyLayersAreOmittedAndTheSystemPromptCannotBe() {
-        #expect(Prompting().rendered == Prompting.systemPrompt)
-        #expect(Prompting(systemPromptExtension: "  \n", instructions: "").rendered == Prompting.systemPrompt)
-        #expect(
-            Prompting(instructions: "x").rendered == Prompting.systemPrompt
-                + "\n\nInstructions for this conversation:\nx")
+        let base = Prompting.systemPrompt(memory: false)
+        #expect(Prompting().rendered == base)
+        #expect(Prompting(systemPromptExtension: "  \n", instructions: "").rendered == base)
+        #expect(Prompting(instructions: "x").rendered == base + "\n\nInstructions for this conversation:\nx")
         #expect(Prompting.systemPrompt.contains("Wisp"))
-        #expect(Prompting.systemPrompt.utf8.count < 600, "keep layer 1 small for a 4k window")
+        #expect(Prompting.systemPrompt.utf8.count < 900, "keep layer 1 small for an 8k window")
     }
 
     /// The embedded text is the resource file, so editing the file is editing the prompt.

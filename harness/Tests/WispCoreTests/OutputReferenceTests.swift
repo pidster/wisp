@@ -130,6 +130,7 @@ import WispTestSupport
             transcript: saved.transcript, tools: agent.tools,
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("again")])),
             audit: AuditLog(session: "resumed", sink: resumedSink), links: saved.links)
+        resumed.memory = agent.memory.map { _ in MemorySource() }
         #expect(resumed.store.entries.first { $0.id == output.id }?.referencedAt == 0)
         #expect(resumed.store.entries.first { $0.id == output.id }?.time == output.time)
         #expect(outputs(resumed.transcript) == outputs(agent.transcript))

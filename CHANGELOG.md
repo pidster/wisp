@@ -106,6 +106,23 @@ Added:
   versions), and MCP `wisp://threads/{thread_id}/facts` returns it as `summary` (`summaries` with
   `?all=true`). The `facts` setting gains `summary` (off stops it) and `summaryShare` (its share of the
   window, 0.05 by default, on top of the facts' `share`). Each call is audited as `context.summary`.
+- A `memory` tool for the model, the conversation's memory (not the Mac's RAM, which `system_info` reports).
+  `recall` restores, for one turn, what the context holds only as a reference, a marker, a summary, or a
+  fact: a stored tool output, reply, or prompt (`recall entry 7`), a whole turn (`recall turn 3`), the task
+  and the prompt the conversation began with (`recall task`), the summary's versions (`recall summary`), or
+  a fact's history with where each version came from (`recall fact tests`). Content is read from the audit
+  log, and from the conversation's store where the audit does not hold it; results are paged at 4 KiB and
+  become a reference after their turn like any output. `note SUBJECT NAME = VALUE` records a fact as the
+  model's, below the person's and a tool's; a note of a permanent kind is a proposal until you keep it, and
+  at most 12 are kept a turn. It is one of all the tools, so a conversation given a named list (`--tool`,
+  MCP `tools`) has it only when the list names it; `tools.disabled: ["memory"]` leaves it out. References
+  in a conversation with it say `to see it: memory "recall entry 7"` where they said `call it again to see
+  it`, and the system prompt gains one line saying so. Each call is audited as `context.memory`, and each
+  note kept as `fact.recorded` with method `noted`.
+- Each fact reaches the model as one line with its source after the value, `- entity release codename:
+  BLUE HERON — from the person`, rather than in brackets, which the models copied into their replies. A
+  fact a tool gave names the output it came from (`from tool read_file, turn 2, entry 4`), so the model can
+  recall it once the turn is gone.
 
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.
@@ -122,7 +139,7 @@ Added:
   each output's URI). Collections are paged with `?page=N`.
 - In a long conversation, each tool's output is sent to the model whole only in the turn that produced
   it; later requests carry a short reference instead (the tool, when it ran, whether it succeeded, its
-  size, its first and last lines, and the call to run again), so far more turns fit before older ones are
+  size, its first and last lines, and how to see it whole), so far more turns fit before older ones are
   dropped. Each switch is audited as `context.reference`.
 - `wisp chat --json` adds the output, its size, and the fold size to each `tool.result` event
   (`output`), and a `view` line that answers `/inspect context next`, `N`, or `turns`.

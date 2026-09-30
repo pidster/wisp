@@ -71,6 +71,8 @@ public enum FactMethod: String, Codable, Sendable {
     case extracted
     /// Distilled by the model from turns leaving the active view.
     case distilled
+    /// Noted by the model while it worked, with the `memory` tool's `note`; recorded when its turn ends.
+    case noted
 }
 
 /// What a fact is about: `{scope, subject, name}`, such as `{thread, tests, swift test}` (D2).

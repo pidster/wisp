@@ -182,6 +182,62 @@ extension AuditEvent {
             return details
         }
 
+        /// `context.memory` for a recall: what one `memory` call restored for its turn, and where the content was
+        /// read from.
+        ///
+        /// - Parameters:
+        ///   - request: The call's `request`, as the model wrote it.
+        ///   - target: What it was read as: `entry`, `turn`, `task`, `summary`, or `fact`.
+        ///   - found: Whether anything was restored.
+        ///   - entries: The store ids of the entries restored.
+        ///   - facts: The ids of the facts restored.
+        ///   - summaries: The versions of the running summary restored.
+        ///   - events: The ids of the audit events content was read from.
+        ///   - from: `audit` when every entry's content came from the audit log, `store` when every one came from
+        ///     the thread record's copy, `audit+store` for a mix; nil when no entry content was restored.
+        ///   - offset: The first line of the page.
+        ///   - bytes: The result's UTF-8 bytes.
+        /// - Returns: The details, with `action` `recall`.
+        public static func memoryRecall(
+            request: String, target: String, found: Bool, entries: [Int], facts: [String], summaries: [Int],
+            events: [String], from: String?, offset: Int, bytes: Int
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "request": .string(request), "action": "recall", "target": .string(target), "found": .bool(found),
+                "entries": .array(entries.map { .int($0) }), "facts": .array(facts.map { .string($0) }),
+                "summaries": .array(summaries.map { .int($0) }), "events": .array(events.map { .string($0) }),
+                "offset": .int(offset), "bytes": .int(bytes),
+            ]
+            if let from { details["from"] = .string(from) }
+            return details
+        }
+
+        /// `context.memory` for a note: what the model noted, or why it was refused. A kept note is recorded as a
+        /// `fact.recorded` (method `noted`) when its turn ends.
+        ///
+        /// - Parameters:
+        ///   - request: The call's `request`, as the model wrote it.
+        ///   - subject: The subject kind, when kept.
+        ///   - name: The normalised name, when kept.
+        ///   - value: The value as kept.
+        ///   - temporalClass: The kind's class; `permanent` makes the fact a proposal.
+        ///   - failure: Why it was refused (`shape`, `subject`, `name`, `off`, `full`), or nil when kept.
+        /// - Returns: The details, with `action` `note` and `noted`.
+        public static func memoryNote(
+            request: String, subject: String?, name: String?, value: String?, temporalClass: TemporalClass?,
+            failure: String?
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "request": .string(request), "action": "note", "noted": .bool(failure == nil),
+            ]
+            if let subject { details["subject"] = .string(subject) }
+            if let name { details["name"] = .string(name) }
+            if let value { details["value"] = .string(value) }
+            if let temporalClass { details["class"] = .string(temporalClass.rawValue) }
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
         /// `fact.recorded`: a new fact, or a new version of one, with what it superseded.
         public static func factRecorded(_ fact: Fact, supersedes: String?) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
@@ -464,6 +520,11 @@ extension AuditEvent {
             [
                 "version", "turns", "entries", "bytes", "covered", "summaryBytes", "seconds", "model", "combined",
                 "failure",
+            ]
+        case .memory:
+            [
+                "request", "action", "target", "found", "entries", "facts", "summaries", "events", "from", "offset",
+                "bytes", "noted", "subject", "name", "value", "class", "failure",
             ]
         case .factRecorded:
             [

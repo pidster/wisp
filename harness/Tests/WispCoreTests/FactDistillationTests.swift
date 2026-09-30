@@ -72,7 +72,8 @@ import WispTestSupport
         let question = Array(requests[3].transcript)
         #expect(FactFrame.isFrame(question[1]))
         let earlier = ThreadRecord.text(of: question[1])
-        #expect(earlier.contains("- entity release codename: BLUE HERON [model, distilled: the person said, turn 1]"))
+        #expect(
+            earlier.contains("- entity release codename: BLUE HERON — from model, distilled: the person said, turn 1"))
         #expect(earlier.contains("- tests ci: green again"))
         let now = try #require(question.last { FactFrame.isFrame($0) })
         #expect(ThreadRecord.text(of: now).contains("- task: add a --dry-run flag to harbour sync"))

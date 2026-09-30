@@ -45,8 +45,14 @@ struct ChatEvalTests {
             let gate = ApprovalGate(
                 classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
                 threshold: .level(.moderate), audit: audit)
-            let tools = ToolRegistry(audit: audit, approval: gate).select(ToolRegistry.builtInNames).tools
-            let agent = Agent(instructions: Prompting().rendered, tools: tools, model: model, audit: audit)
+            // Every built-in tool, memory wired to the agent, and the prompt with its memory rule: what chat opens.
+            let memory = MemorySource()
+            let tools = ToolRegistry(audit: audit, approval: gate, memory: memory).select(ToolRegistry.builtInNames)
+                .tools
+            let agent = Agent(
+                instructions: Prompting().rendered(toolsAvailable: true, memory: true), tools: tools, model: model,
+                audit: audit)
+            agent.memory = memory
             var reply = ""
             var lastTurn = 0
             do {

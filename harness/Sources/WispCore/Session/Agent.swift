@@ -74,6 +74,17 @@ public final class Agent {
             refreshFacts(quietly: true)
         }
     }
+    /// What the conversation's `memory` tool reads and writes (phase 4c of the layered-context proposal): the
+    /// agent publishes its store and facts to it before every request, records the notes the model made when the
+    /// turn ends, and references name `memory "recall entry N"` rather than a second call. Nil, the default for
+    /// an agent made directly, publishes nothing, and references keep the phase 3b wording; `WispThread.openAgent`
+    /// sets it when the thread has `memory`.
+    public var memory: MemorySource? {
+        didSet {
+            composer.recalls = memory != nil
+            publishMemory()
+        }
+    }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
@@ -332,6 +343,7 @@ public final class Agent {
     /// kinds are compared by content as well; only those, since they are the ones a composer rewrites, and
     /// a tool call's arguments need not compare equal to themselves after a save and resume.
     private func materialise(fresh: Bool = false) {
+        publishMemory()
         let composed = transcript
         let held = session.transcript
         let rewritten = zip(composed, held).contains { mine, theirs in
@@ -343,6 +355,12 @@ public final class Agent {
         store.frames[turns.current] = composer.facts.isEmpty ? nil : composer.facts
         guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
         session = model.session(tools: tools, transcript: composed)
+    }
+
+    /// Gives `memory` the store, facts, and subject kinds as they stand, so a call during the next request reads
+    /// them and a note names the turn.
+    private func publishMemory() {
+        memory?.publish(store: store, facts: allFacts, kinds: facts?.kinds, turn: turns.current)
     }
 
     /// Marks the presentational text in the replies of `turn` in the store, so later requests carry a
@@ -413,6 +431,7 @@ public final class Agent {
             store.record(entry, origin: .turn, turn: turn, sources: references, time: time)
         }
         extractFacts(from: events, turn: turn)
+        for note in memory?.takeNotes() ?? [] { record(note) }
         refreshFacts()
     }
 

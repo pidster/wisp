@@ -22,7 +22,10 @@ import WispTestSupport
 /// one agent here opened that way has them off (`agent.facts = nil`), and every other is made directly and
 /// keeps none (`FactsTests` and `FactCompositionTests` test them). Phase 4b added the running summary,
 /// which only an agent keeping facts writes; every agent here also runs with `summarises` off, so the suite
-/// runs with every layer switched off (`RunningSummaryTests` and `SummaryWriterTests` test it).
+/// runs with every layer switched off (`RunningSummaryTests` and `SummaryWriterTests` test it). Phase 4c
+/// added `memory`, which a thread given a list of tools has only when the list names it; the thread here names
+/// `read_file` alone, so its tools and instructions are phase 2's (`MemoryTests` tests it). Its config still
+/// disables `memory`, as the recorded session start expects.
 ///
 /// wisp's system prompt is not what this suite checks: phase 3b changed its wording (D12's standing rule
 /// that the person sees tool output), so the prompt in force is written back as the phase 2 text before
@@ -64,13 +67,16 @@ import WispTestSupport
         var literals: [(String, String)]
 
         /// The system prompt's replacements.
-        static let prompt: [(String, String)] = [
-            (Prompting.systemPrompt, ContextEquivalenceTests.phase2SystemPrompt),
-            (
-                Prompting.systemPrompt.replacingOccurrences(of: "\"", with: "\\\""),
-                ContextEquivalenceTests.phase2SystemPrompt.replacingOccurrences(of: "\"", with: "\\\"")
-            ),
-        ]
+        static let prompt: [(String, String)] = [true, false].flatMap { memory in
+            let current = Prompting.systemPrompt(memory: memory)
+            return [
+                (current, ContextEquivalenceTests.phase2SystemPrompt),
+                (
+                    current.replacingOccurrences(of: "\"", with: "\\\""),
+                    ContextEquivalenceTests.phase2SystemPrompt.replacingOccurrences(of: "\"", with: "\\\"")
+                ),
+            ]
+        }
 
         /// A canon replacing `literals` first.
         init(literals: [(String, String)] = []) {
@@ -402,6 +408,7 @@ import WispTestSupport
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir.appending(path: "home"))
         try home.ensure()
+        try Data(#"{"tools": {"disabled": ["memory"]}}"#.utf8).write(to: home.configFile)
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
         var canon = Canon(literals: [(dir.path, "<dir>"), (session.audit.session, "<session>")])

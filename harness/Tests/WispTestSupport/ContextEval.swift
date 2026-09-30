@@ -74,6 +74,11 @@ public enum ContextEval {
         case order
         /// A return to the task stated at the start.
         case task
+        /// A detail only an early tool output held, which no fact or summary carries: what `memory`'s recall is for.
+        case detail
+        /// A fact the person stated in passing mid-digression, which the model can note as it works (`memory`'s
+        /// note) before distilling reaches that turn.
+        case noted
     }
 
     /// A question asked once the window has been filled.
@@ -145,6 +150,8 @@ public enum ContextEval {
     ]
     /// The digression read whose turn also changes the CI fact, so the change sits mid-digression.
     static let changeAt = 5
+    /// The digression read whose turn, in the noting scenario, states the release date in passing.
+    static let notedAt = 7
     /// The file the showing scenario asks to be shown: a short configuration file the model can retype.
     static let shownFile = "harbour.toml"
     /// The baseline scenario's description, for a measurement's notes.
@@ -172,6 +179,48 @@ public enum ContextEval {
                     + "contents exactly as they are, in a code block.",
                 file: shownFile),
             at: at)
+        return scenario
+    }
+
+    /// The showing scenario with one more question at the end, about a detail of the first file read that no fact
+    /// or summary carries: what the temporary file a copy writes to is called (`.harbour-tmp-<random>`, line 52 of
+    /// the design overview). A model can answer it only from the file's text: from the literal turns while the
+    /// read is still there, and once condensing has dropped it, by recalling the read (phase 4c).
+    ///
+    /// - Parameter fixtures: Where the fixture files are; defaults to the repository's.
+    /// - Returns: The scenario.
+    public static func recalling(fixtures: URL = fixturesDirectory) -> Scenario {
+        var scenario = showing(fixtures: fixtures)
+        scenario.name = "recalling"
+        scenario.summary += ", then one question on a detail of the first file"
+        scenario.questions.append(
+            Question(
+                id: "detail", probe: .detail,
+                prompt: "In the design overview you read first, what exactly is the temporary file that each copy "
+                    + "writes to named? Give the name as the file writes it.",
+                check: .mentions(["harbour tmp"])))
+        return scenario
+    }
+
+    /// The recalling scenario with a fact stated in passing during the digression, which no tool output holds and
+    /// which the model can note as it works (`memory`'s note, phase 4c): the release date moves to 14 November at
+    /// the eighth incident review, and an eighth question asks for it. Without a note, the answer depends on the
+    /// distiller keeping it when that turn is dropped, or on the turn still being in view.
+    ///
+    /// - Parameter fixtures: Where the fixture files are; defaults to the repository's.
+    /// - Returns: The scenario.
+    public static func noting(fixtures: URL = fixturesDirectory) -> Scenario {
+        var scenario = recalling(fixtures: fixtures)
+        scenario.name = "noting"
+        scenario.summary += ", and a release date stated in passing mid-digression, asked for last"
+        let at = scenario.steps.firstIndex { $0.file == digressionFiles[notedAt] } ?? scenario.steps.count - 1
+        scenario.steps[at].prompt =
+            "Keep this in mind for later: the release date moved to 14 November. "
+            + scenario.steps[at].prompt.replacingOccurrences(of: "Next, use", with: "Now use")
+        scenario.questions.append(
+            Question(
+                id: "release-date", probe: .noted, prompt: "When is the release date?",
+                check: .mentions(["14 november", "november 14", "14 nov", "nov 14", "14th november", "november 14th"])))
         return scenario
     }
 
@@ -289,6 +338,20 @@ public enum ContextEval {
     }
 }
 
+extension ContextEval {
+    /// Whether `reply` repeats where a fact came from, as the facts' lines write it: a bracketed source
+    /// (`[the person]`, `[tool read_file, turn 2]`, the form before 2026-09-30), the dash form that replaced it
+    /// (`— from the person`), or `(source: …)`. Both models copied the bracketed form into answers in phase 4c.
+    ///
+    /// - Parameter reply: A reply.
+    /// - Returns: Whether it echoes a source.
+    public static func echoesSource(_ reply: String) -> Bool {
+        reply.contains(
+            #/(?i)\[(the person|the caller|tool\b|model\b)|[—–-]\s*from (the person|the caller|tool |model\b)|\(source:/#
+        )
+    }
+}
+
 /// A conversation under test: the one operation the scenario needs, and a reading of how full the
 /// window is. Later designs (layers without recall, the full design, D5's cap and floor variants, D7's
 /// repeated facts) conform with their own composer; the scenario and scoring do not change.
@@ -329,11 +392,18 @@ public protocol ContextStrategy: Sendable {
     /// face's agent its `ToolEventTrail`, so tool entries link to their audit events and facts can be
     /// extracted from them. False by default, so the earlier strategies run as they were measured.
     var linksToolEvents: Bool { get }
+
+    /// Whether the conversation has `memory`, so its instructions carry the system prompt's memory rule
+    /// (`Prompting.rendered(toolsAvailable:memory:)`). False by default: a strategy without the tool is not told
+    /// of it.
+    var hasMemory: Bool { get }
 }
 
 extension ContextStrategy {
     /// No: the agent runs without the run's tool events.
     public var linksToolEvents: Bool { false }
+    /// No: the conversation has no `memory`.
+    public var hasMemory: Bool { false }
 }
 
 /// The baseline: an `Agent` with its default policy and output handling off, whose composer sends the
@@ -530,6 +600,50 @@ public struct SummaryStrategy: ContextStrategy {
     }
 }
 
+/// `memory` (phase 4c of the proposal) on top of `SummaryStrategy`, with the summary written in the facts' call:
+/// the model can recall any stored entry, a turn, the task, the summary's versions, or a fact's history for the
+/// turn it asks in, and note facts as it works; references name it (`to see it: memory "recall entry 7"`) instead
+/// of a second call. The full design of the proposal short of the per-request assessment (phase 4d).
+public struct MemoryStrategy: ContextStrategy {
+    /// `memory`.
+    public let name = "memory"
+    /// What it does.
+    public let summary =
+        "summary (in the facts' call), with the memory tool recalling stored entries, turns, the task, and facts' "
+        + "histories and noting facts, and references naming it"
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
+    /// Yes: facts are extracted from the turn's tool events.
+    public var linksToolEvents: Bool { true }
+    /// Yes: the conversation has `memory`.
+    public var hasMemory: Bool { true }
+
+    /// Creates the strategy.
+    ///
+    /// - Parameter budget: When to condense; the default is the agent's, 85%.
+    public init(budget: Double = 0.85) {
+        self.budget = budget
+    }
+
+    /// Opens an `Agent` as `SummaryStrategy` does, with `memory` added to its tools and wired to it.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextThread
+    {
+        let source = MemorySource()
+        let memory = ToolRegistry(audit: audit, memory: source).select([MemoryTool.toolName]).tools
+        let agent = Agent(instructions: instructions, tools: tools + memory, model: model, audit: audit)
+        agent.cutsPresentation = true
+        agent.referencesOutput = true
+        agent.contextBudget = budget
+        agent.summarises = true
+        agent.facts = FactSettings(summaryWithFacts: true)
+        agent.memory = source
+        return AgentThread(agent)
+    }
+}
+
 /// An `Agent` as a conversation under test.
 public final class AgentThread: ContextThread {
     /// The agent, unchanged.
@@ -581,6 +695,9 @@ extension ContextEval {
         /// The seconds each summary call during the turn took (`context.summary` events), with whether it
         /// shared the facts' call and whether it failed.
         public var summaries: [SummaryCall] = []
+        /// Each `memory` call during the turn (`context.memory` events): a recall as `request -> target` with
+        /// `found` or `none`, a note as `request -> noted` or `refused (reason)`.
+        public var memoryCalls: [String] = []
 
         /// Creates a turn record.
         public init(
@@ -616,6 +733,7 @@ extension ContextEval {
                 + (facts == 0 ? "" : ", facts \(facts)")
                 + (distilled.isEmpty ? "" : ", distilled [\(distilled.joined(separator: "; "))]")
                 + (summaries.isEmpty ? "" : ", summarised " + summaries.map(\.words).joined(separator: "+"))
+                + (memoryCalls.isEmpty ? "" : ", memory [\(memoryCalls.joined(separator: "; "))]")
                 + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
@@ -724,6 +842,27 @@ extension ContextEval {
         /// The summary calls, over the whole run.
         public var summaries: [SummaryCall] { turns.flatMap(\.summaries) }
 
+        /// The `memory` calls, over the whole run.
+        public var memoryCalls: [String] { turns.flatMap(\.memoryCalls) }
+
+        /// The answers that repeat a fact's source (`ContextEval.echoesSource`).
+        public var echoes: Int { answers.filter { ContextEval.echoesSource($0.reply) }.count }
+
+        /// Tool calls other than `memory` made while answering the questions: a model re-reading a file its
+        /// context holds as a reference, which recalling should make unnecessary.
+        public var questionCalls: [String] {
+            turns.filter { $0.label.hasPrefix("question:") }.flatMap(\.tools).filter { $0 != MemoryTool.toolName }
+        }
+
+        /// The memory calls and the questions' other tool calls in words, for the report and the notes: empty
+        /// when there were neither.
+        var recalled: String {
+            guard !memoryCalls.isEmpty || !questionCalls.isEmpty else { return "" }
+            return "\(memoryCalls.count) memory call\(memoryCalls.count == 1 ? "" : "s")"
+                + (memoryCalls.isEmpty ? "" : " (\(memoryCalls.joined(separator: "; ")))")
+                + ", \(questionCalls.count) other tool call\(questionCalls.count == 1 ? "" : "s") in the questions"
+        }
+
         /// The summary calls in words, for the report and the notes: empty when none were made.
         var summarised: String {
             let calls = summaries
@@ -756,10 +895,11 @@ extension ContextEval {
             let verdicts = answers.map { "\($0.question.id)=\($0.verdict.rawValue)" }.joined(separator: " ")
             return [
                 "\(strategy) on \(model) (window \(window.map(String.init) ?? "unknown")): facts \(facts.correct)/"
-                    + "\(facts.total), \(verdicts)",
+                    + "\(facts.total), \(verdicts); \(echoes) of \(answers.count) answers echo a fact's source",
                 "\(condensations) condensations (first at turn \(firstCondensation.map(String.init) ?? "none")), "
                     + "\(cuts) cuts, \(references) references, \(self.facts) facts recorded, "
-                    + (summaries.isEmpty ? "" : "\(summarised), ") + "and \(distilled) over \(turns.count) turns; "
+                    + (summaries.isEmpty ? "" : "\(summarised), ") + (recalled.isEmpty ? "" : "\(recalled), ")
+                    + "and \(distilled) over \(turns.count) turns; "
                     + "tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
                     + "\(tokens.max().map(String.init) ?? "?"); time per turn median "
@@ -787,10 +927,13 @@ extension ContextEval {
                     + "\(answers.count) questions, scored by phrase; window \(window.map(String.init) ?? "unknown"); "
                     + "this run: facts \(facts.correct)/"
                     + "\(facts.total), ci \(byID["ci"] ?? "?"), first file \(byID["first-file"] ?? "?"), task "
-                    + "\(byID["task"] ?? "?"), \(condensations) condensations (first at turn "
+                    + "\(byID["task"] ?? "?")" + (byID["detail"].map { ", detail \($0)" } ?? "")
+                    + (byID["release-date"].map { ", release date \($0)" } ?? "")
+                    + ", \(echoes) answer\(echoes == 1 ? "" : "s") echoing a fact's source"
+                    + ", \(condensations) condensations (first at turn "
                     + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, "
                     + (self.facts == 0 && distillations.isEmpty ? "" : "\(self.facts) facts recorded, \(distilled), ")
-                    + (summaries.isEmpty ? "" : "\(summarised), ")
+                    + (summaries.isEmpty ? "" : "\(summarised), ") + (recalled.isEmpty ? "" : "\(recalled), ")
                     + "median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
@@ -872,6 +1015,16 @@ extension ContextEval {
             turn.distilled = events.filter { $0.kind == .factRecorded && $0.details["method"] == "distilled" }.map {
                 "\($0.details["subject"]?.stringValue ?? "") \($0.details["name"]?.stringValue ?? "") = "
                     + ($0.details["value"]?.stringValue ?? "")
+            }
+            turn.memoryCalls = events.filter { $0.kind == .memory }.map { event in
+                let request = event.details["request"]?.stringValue ?? "?"
+                guard event.details["action"] == "note" else {
+                    return "\(request) -> \(event.details["target"]?.stringValue ?? "?") "
+                        + (event.details["found"] == true ? "found" : "none")
+                }
+                return "\(request) -> "
+                    + (event.details["noted"] == true
+                        ? "noted" : "refused (\(event.details["failure"]?.stringValue ?? "?"))")
             }
             turn.summaries = events.filter { $0.kind == .summary }.map {
                 SummaryCall(

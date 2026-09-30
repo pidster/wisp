@@ -123,7 +123,7 @@ import WispTestSupport
         let registry = ToolRegistry(disabled: ["notify", "system_info"], custom: [Self.count])
         #expect(
             registry.all.map(\.name) == [
-                "current_date", "run_command", "read_file", "edit_file", "inspect", "word_count",
+                "current_date", "run_command", "read_file", "edit_file", "inspect", "memory", "word_count",
             ])
         #expect(registry.descriptions.contains { $0.name == "word_count" })
     }

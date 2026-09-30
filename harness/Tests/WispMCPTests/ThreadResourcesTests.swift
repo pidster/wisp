@@ -77,7 +77,9 @@ func json(_ server: WispServer, _ uri: String) async throws -> [String: JSONValu
         #expect(rows[1]["turns"] == .int(2) && rows[1]["state"] == .string("open") && rows[1]["model"] == "system")
         #expect(rows[1]["uri"] == .string("wisp://threads/one") && list["pages"] == .int(1) && list["next"] == .null)
         let one = try await json(server, "wisp://threads/one")
-        #expect(one["tools"] == .array(["read_file"]) && one["instructions"] == .bool(true) && one["task"] == .null)
+        #expect(
+            one["tools"] == .array(["read_file"]) && one["instructions"] == .bool(true)
+                && one["task"] == .null)
         #expect(one["resources"]?.objectValue?["output"] == .string("wisp://threads/one/output"))
         #expect(one["resources"]?.objectValue?["contextNext"] == .string("wisp://threads/one/context/next"))
         #expect(try await json(server, "wisp://threads/two")["instructions"] == .bool(false))

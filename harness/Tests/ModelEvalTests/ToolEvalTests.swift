@@ -53,7 +53,8 @@ struct ToolEvalTests {
             let tools = registry.select(["read_file", "edit_file"]).tools
             let file = dir.appending(path: item.name)
             try Data(item.before.utf8).write(to: file)
-            let agent = Agent(instructions: Prompting.systemPrompt, tools: tools, model: model, audit: audit)
+            let agent = Agent(
+                instructions: Prompting.systemPrompt(memory: false), tools: tools, model: model, audit: audit)
             let prompt =
                 "Use read_file to read \(file.path). Then use edit_file with mode replace on \(file.path), with line "
                 + "set to the number read_file showed for `\(item.find)` and content `\(item.replacement)`. "

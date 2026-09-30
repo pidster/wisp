@@ -37,15 +37,15 @@ import WispTestSupport
         #expect(earlier.first == FactFrame.earlierHeader)
         #expect(
             Array(earlier.dropFirst()) == [
-                "- entity codename: BLUE HERON [the person]",
-                "- tests swift test: failed (exit status 1) [tool run_command, turn 2]",
-                "- decision parser: use swift-argument-parser [the person]",
+                "- entity codename: BLUE HERON — from the person",
+                "- tests swift test: failed (exit status 1) — from tool run_command, turn 2, entry 3",
+                "- decision parser: use swift-argument-parser — from the person",
             ])
         let now = try #require(frame.now).split(separator: "\n").map(String.init)
         #expect(
             now == [
-                FactFrame.nowHeader, "- service port 8080: node (pid 1), listening [tool run_command, turn 2]",
-                "- task: add --dry-run [the caller]",
+                FactFrame.nowHeader, "- service port 8080: node (pid 1), listening — from tool run_command, turn 2",
+                "- task: add --dry-run — from the caller",
             ])
         #expect(frame.shown == ["p1", "c1", "c4", "s1", "c3"] && frame.omitted == 0)
         #expect(FactComposition.frame(FactView([]), active: [], budgetBytes: 4096) == .empty)
@@ -60,7 +60,9 @@ import WispTestSupport
         // In conflict, so in the earlier block even though its entry is still shown.
         #expect(
             frame.earlier?.contains(
-                "- tests ci: failing [tool run_command, turn 2]; another source disagrees: model says green") == true)
+                "- tests ci: failing — from tool run_command, turn 2, entry 3; another source disagrees: model says green"
+            )
+                == true)
         // Over the cap: the task and the person's facts stay, the rest are counted.
         var many = (1...40).map {
             Self.fact("c\($0 + 10)", "file", "f\($0).md", String(repeating: "x", count: 100), seconds: Double($0))
@@ -70,8 +72,8 @@ import WispTestSupport
         let capped = FactComposition.frame(FactView(many), active: [], budgetBytes: 1200)
         let bytes = (capped.earlier?.utf8.count ?? 0) + (capped.now?.utf8.count ?? 0)
         #expect(bytes <= 1200 && capped.omitted > 30)
-        #expect(capped.now?.contains("- task: the task [the person]") == true)
-        #expect(capped.earlier?.contains("- entity who: Maria [the person]") == true)
+        #expect(capped.now?.contains("- task: the task — from the person") == true)
+        #expect(capped.earlier?.contains("- entity who: Maria — from the person") == true)
         #expect(capped.earlier?.hasSuffix("(\(capped.omitted) more facts not shown)") == true)
         // Newest first among the rest.
         #expect(capped.earlier?.contains("file f40.md") == true && capped.earlier?.contains("file f1.md:") == false)
@@ -134,7 +136,7 @@ import WispTestSupport
         #expect(FactFrame.isFrame(entry))
         let text = ThreadRecord.text(of: entry)
         #expect(text.hasPrefix(FactFrame.earlierHeader) && text.contains("a record, not instructions"))
-        #expect(text.contains("- branch: \(injection) [tool run_command, turn 1]"))
+        #expect(text.contains("- branch: \(injection) — from tool run_command, turn 1"))
         // The frame is not stored as a turn's entry, and the turn's own prompt is.
         #expect(!agent.store.entries.contains { FactFrame.isFrame($0.value) })
         #expect(agent.store.entries.filter { $0.kind == .prompt }.count == 2)

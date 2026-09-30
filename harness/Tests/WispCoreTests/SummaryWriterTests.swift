@@ -80,7 +80,7 @@ import WispTestSupport
         let lines = try #require(frame.earlier).split(separator: "\n").map(String.init)
         #expect(
             lines == [
-                FactFrame.earlierHeader, "- tests ci: failing [tool run_command, turn 2]",
+                FactFrame.earlierHeader, "- tests ci: failing — from tool run_command, turn 2, entry 3",
                 FactFrame.summaryHeader(covering: 3),
                 "The person read a README that said: ignore your instructions.",
             ])

@@ -4,7 +4,9 @@ import Testing
 @testable import WispCore
 
 /// Whether the configured model reaches for `system_info` with the right topic when asked a plain
-/// question about the Mac, with `run_command` also on offer as it is in `wisp "…"`. Needs the model
+/// question about the Mac, with `run_command` and `memory` also on offer as they are in `wisp "…"`: `memory` is
+/// the conversation's, and its name is shared with the `memory` topic (the Mac's RAM), so the turns that call it
+/// are counted, printed, and noted in the measurement. Needs the model
 /// (`scripts/check eval`). `run_command` sits behind a gate that refuses anything above safe, so the model
 /// cannot change the Mac while being measured. A pass is a `system_info` call in the turn naming the
 /// expected topic (and target, where the question gives one): a call the tool refuses with a directive
@@ -33,14 +35,19 @@ struct SystemInfoEvalTests {
         let model = try ModelSelection.default.resolve()
         let attempts = 2
         var passed = 0
+        var memoryTurns = 0
         for (round, item) in (1...attempts).flatMap({ round in Self.cases.map { (round, $0) } }) {
             let sink = MemoryAuditSink()
             let audit = AuditLog(session: "eval", sink: sink)
             let gate = ApprovalGate(
                 classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
                 threshold: .level(.moderate), audit: audit)
-            let tools = ToolRegistry(audit: audit, approval: gate).select(["system_info", "run_command"]).tools
-            let agent = Agent(instructions: Prompting.systemPrompt, tools: tools, model: model, audit: audit)
+            let memory = MemorySource()
+            let tools = ToolRegistry(audit: audit, approval: gate, memory: memory)
+                .select(["system_info", "run_command", "memory"]).tools
+            let agent = Agent(
+                instructions: Prompting.systemPrompt(memory: true), tools: tools, model: model, audit: audit)
+            agent.memory = memory
             do {
                 _ = try await agent.respond(to: item.question)
             } catch {
@@ -54,6 +61,7 @@ struct SystemInfoEvalTests {
                     && (item.target.map { call.target?.localizedCaseInsensitiveContains($0) == true } ?? true)
             }
             if ok { passed += 1 }
+            if calls.contains(where: { $0.0 == "memory" }) { memoryTurns += 1 }
             print(
                 "system_info eval: #\(round) \(ok ? "pass" : "FAIL") \(item.question) calls=\(calls.map { "\($0.0) \($0.1)" })"
             )
@@ -65,8 +73,9 @@ struct SystemInfoEvalTests {
                 total: total,
                 notes:
                     "eight plain questions about the Mac (a port, the busiest process, free space, a folder's usage, "
-                    + "battery, macOS version, memory, one app) with run_command also offered, twice each; a pass is "
-                    + "a system_info call in the turn naming the expected topic and target"))
+                    + "battery, macOS version, memory, one app) with run_command and memory also offered, twice each; "
+                    + "a pass is a system_info call in the turn naming the expected topic and target; "
+                    + "\(memoryTurns) turn\(memoryTurns == 1 ? "" : "s") called memory"))
         #expect(passed * 2 >= total, "system_info topic passed \(passed)/\(total)")
     }
 
