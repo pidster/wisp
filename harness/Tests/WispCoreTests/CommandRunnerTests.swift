@@ -207,7 +207,9 @@ import Testing
         let outcome = try await runner.run("sleep 30 & sleep 30; echo done")
         let elapsed = ContinuousClock.now - started
         #expect(outcome.timedOut)
-        #expect(elapsed < .seconds(4), "took \(elapsed)")
+        // Loose on purpose: a loaded Mac takes seconds to schedule the teardown, and the failure this
+        // catches waits for the background `sleep 30`.
+        #expect(elapsed < .seconds(15), "took \(elapsed)")
         #expect(!outcome.stdout.contains("done"))
     }
 
