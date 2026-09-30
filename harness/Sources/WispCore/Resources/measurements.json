@@ -190,6 +190,46 @@
   {
     "date" : "2026-09-30",
     "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file, and a release date stated in passing mid-digression, asked for last) then 8 questions, scored by phrase; window 8192; this run: facts 2/4, ci correct, first file correct, task correct, detail correct, release date correct, 0 answers echoing a fact's source, 2 condensations (first at turn 12), 0 cuts, 15 references, 26 facts recorded, 2 distillations (24.8 s, 26.2 s), 2 summaries (in the facts' call, in the facts' call), 2 memory calls (note entity release codename = BLUE HERON -> noted; recall entry 8 -> entry found), 0 other tool calls in the questions, median 3409 tokens after a turn, load average 35",
+    "p50Milliseconds" : 11527.445833,
+    "p95Milliseconds" : 30072.345166000003,
+    "passed" : 6,
+    "task" : "context.memory.noting.budget-50",
+    "total" : 8
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file, and a release date stated in passing mid-digression, asked for last) then 8 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file wrong, task correct, detail wrong, release date correct, 0 answers echoing a fact's source, 1 condensations (first at turn 14), 1 cuts, 14 references, 21 facts recorded, 1 distillation (29.4 s), 1 summary (in the facts' call), median 3463 tokens after a turn, load average 58",
+    "p50Milliseconds" : 9138.392791999999,
+    "p95Milliseconds" : 12485.410834,
+    "passed" : 6,
+    "task" : "context.memory.noting.window-8192.budget-50",
+    "total" : 8
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file) then 7 questions, scored by phrase; window 8192; this run: facts 3/4, ci correct, first file correct, task correct, detail wrong, 1 answer echoing a fact's source, 1 condensations (first at turn 13), 1 cuts, 14 references, 17 facts recorded, 1 distillation (21.2 s), 1 summary (in the facts' call), 2 memory calls (BLUE HERON -> fact none; recall entry 1 -> entry found), 0 other tool calls in the questions, median 3321 tokens after a turn, load average 4",
+    "p50Milliseconds" : 6134.740417,
+    "p95Milliseconds" : 10486.910291999999,
+    "passed" : 5,
+    "task" : "context.memory.recalling.budget-50",
+    "total" : 7
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file) then 7 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file wrong, task correct, detail wrong, 0 answers echoing a fact's source, 1 condensations (first at turn 13), 1 cuts, 14 references, 21 facts recorded, 1 distillation (37.7 s), 1 summary (in the facts' call), 0 memory calls, 1 other tool call in the questions, median 3683 tokens after a turn, load average 15",
+    "p50Milliseconds" : 7406.075167,
+    "p95Milliseconds" : 16254.2485,
+    "passed" : 5,
+    "task" : "context.memory.recalling.window-8192.budget-50",
+    "total" : 7
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
     "notes" : "a scripted conversation of 14 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway) then 6 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file correct, task correct, 0 condensations (first at turn none), 0 cuts, 13 references, median 4721 tokens after a turn, load average 6",
     "p50Milliseconds" : 13415.30675,
     "p95Milliseconds" : 19882.793708,
@@ -245,6 +285,86 @@
     "p95Milliseconds" : 8826.028583,
     "passed" : 6,
     "task" : "context.referencing.window-8192",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 2/4, ci correct, first file wrong, task correct, 2 condensations (first at turn 13), 0 cuts, 14 references, 38 facts recorded, 2 distillations (27.2 s, 17.0 s), 2 summaries (29.9 s, 30.4 s), median 3259 tokens after a turn, load average 78",
+    "p50Milliseconds" : 12683.236333,
+    "p95Milliseconds" : 52627.962417,
+    "passed" : 3,
+    "task" : "context.summary-separate.showing.budget-50",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file wrong, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 17 facts recorded, 1 distillation (19.9 s), 1 summary (12.4 s), median 2945 tokens after a turn, load average 80",
+    "p50Milliseconds" : 7104.591292,
+    "p95Milliseconds" : 15422.175125000002,
+    "passed" : 5,
+    "task" : "context.summary-separate.showing.window-8192.budget-50",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file, and a release date stated in passing mid-digression, asked for last) then 8 questions, scored by phrase; window 8192; this run: facts 2/4, ci correct, first file correct, task correct, detail wrong, release date correct, 8 answers echoing a fact's source, 1 condensations (first at turn 13), 0 cuts, 14 references, 17 facts recorded, 1 distillation (25.1 s), 1 summary (in the facts' call), 0 memory calls, 1 other tool call in the questions, median 3425 tokens after a turn, load average 130",
+    "p50Milliseconds" : 11650.814833,
+    "p95Milliseconds" : 25263.216333,
+    "passed" : 5,
+    "task" : "context.summary.noting.budget-50",
+    "total" : 8
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file, and a release date stated in passing mid-digression, asked for last) then 8 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file correct, task correct, detail correct, release date correct, 0 answers echoing a fact's source, 2 condensations (first at turn 14), 1 cuts, 15 references, 33 facts recorded, 2 distillations (25.9 s, 34.2 s), 2 summaries (in the facts' call, in the facts' call), 0 memory calls, 8 other tool calls in the questions, median 3252 tokens after a turn, load average 33",
+    "p50Milliseconds" : 6511.371209,
+    "p95Milliseconds" : 38158.355125,
+    "passed" : 8,
+    "task" : "context.summary.noting.window-8192.budget-50",
+    "total" : 8
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file) then 7 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file correct, task correct, detail wrong, 7 answers echoing a fact's source, 1 condensations (first at turn 14), 1 cuts, 14 references, 17 facts recorded, 1 distillation (23.3 s), 1 summary (in the facts' call), median 3133 tokens after a turn, load average 9",
+    "p50Milliseconds" : 7790.948583,
+    "p95Milliseconds" : 14703.713415999999,
+    "passed" : 6,
+    "task" : "context.summary.recalling.budget-50",
+    "total" : 7
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files, then one question on a detail of the first file) then 7 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file wrong, task correct, detail correct, 6 answers echoing a fact's source, 1 condensations (first at turn 15), 1 cuts, 14 references, 21 facts recorded, 1 distillation (28.7 s), 1 summary (in the facts' call), 0 memory calls, 1 other tool call in the questions, median 3020 tokens after a turn, load average 36",
+    "p50Milliseconds" : 9515.40675,
+    "p95Milliseconds" : 14171.271041,
+    "passed" : 6,
+    "task" : "context.summary.recalling.window-8192.budget-50",
+    "total" : 7
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "system",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 3/4, ci correct, first file correct, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 17 facts recorded, 1 distillation (34.4 s), 1 summary (in the facts' call), median 3049 tokens after a turn, load average 110",
+    "p50Milliseconds" : 14169.957417,
+    "p95Milliseconds" : 24433.923333,
+    "passed" : 5,
+    "task" : "context.summary.showing.budget-50",
+    "total" : 6
+  },
+  {
+    "date" : "2026-09-30",
+    "model" : "ollama:granite4.1:8b",
+    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file correct, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 20 facts recorded, 1 distillation (28.6 s), 1 summary (in the facts' call), median 3190 tokens after a turn, load average 84",
+    "p50Milliseconds" : 10856.594833000001,
+    "p95Milliseconds" : 14824.248333,
+    "passed" : 6,
+    "task" : "context.summary.showing.window-8192.budget-50",
     "total" : 6
   },
   {
@@ -350,45 +470,5 @@
     "passed" : 7,
     "task" : "triage",
     "total" : 7
-  },
-  {
-    "date" : "2026-09-30",
-    "model" : "system",
-    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 3/4, ci correct, first file correct, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 17 facts recorded, 1 distillation (34.4 s), 1 summary (in the facts' call), median 3049 tokens after a turn, load average 110",
-    "p50Milliseconds" : 14169.957417,
-    "p95Milliseconds" : 24433.923333,
-    "passed" : 5,
-    "task" : "context.summary.showing.budget-50",
-    "total" : 6
-  },
-  {
-    "date" : "2026-09-30",
-    "model" : "ollama:granite4.1:8b",
-    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file correct, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 20 facts recorded, 1 distillation (28.6 s), 1 summary (in the facts' call), median 3190 tokens after a turn, load average 84",
-    "p50Milliseconds" : 10856.594833000001,
-    "p95Milliseconds" : 14824.248333,
-    "passed" : 6,
-    "task" : "context.summary.showing.window-8192.budget-50",
-    "total" : 6
-  },
-  {
-    "date" : "2026-09-30",
-    "model" : "system",
-    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 2/4, ci correct, first file wrong, task correct, 2 condensations (first at turn 13), 0 cuts, 14 references, 38 facts recorded, 2 distillations (27.2 s, 17.0 s), 2 summaries (29.9 s, 30.4 s), median 3259 tokens after a turn, load average 78",
-    "p50Milliseconds" : 12683.236333,
-    "p95Milliseconds" : 52627.962417,
-    "passed" : 3,
-    "task" : "context.summary-separate.showing.budget-50",
-    "total" : 6
-  },
-  {
-    "date" : "2026-09-30",
-    "model" : "ollama:granite4.1:8b",
-    "notes" : "a scripted conversation of 15 turns (four facts and a task planted, 13 file reads including a ten-file digression, a fact changed midway, and one file shown in full after the task files) then 6 questions, scored by phrase; window 8192; this run: facts 4/4, ci correct, first file wrong, task correct, 1 condensations (first at turn 14), 1 cuts, 14 references, 17 facts recorded, 1 distillation (19.9 s), 1 summary (12.4 s), median 2945 tokens after a turn, load average 80",
-    "p50Milliseconds" : 7104.591292,
-    "p95Milliseconds" : 15422.175125000002,
-    "passed" : 5,
-    "task" : "context.summary-separate.showing.window-8192.budget-50",
-    "total" : 6
   }
 ]

@@ -1,6 +1,6 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 3b and 4a built. Becomes an
+Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 4c built. Becomes an
 ADR with the eval's figures.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
@@ -101,6 +101,9 @@ A `recall` tool, bounded and paged like `read_file`, restores stored material fo
 
 The standing rule in layer 1 says it exists and when to use it. What it returns lives only in that turn's
 literal segment, and ages out like anything else.
+
+Built in phase 4c as the `recall` verb of a `memory` tool, which also lets the model note a fact as it works
+(operator, 2026-09-30; see the phasing entry and "Memory, 2026-09-30").
 
 ### Facts
 
@@ -382,6 +385,120 @@ What it shows:
   are shortened in what the call is shown.
 - **D1's reopen condition** (a batched summary lagging enough to mislead) is not measured: with references
   on, one condensation drops many turns at once, so no batch waited in these runs.
+
+### Recall, 2026-09-30
+
+Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --filter ModelEvalTests.ContextEvalTests/recalling…`,
+one run at a time, recorded then in `measurements.json` as `context.recall.recalling[.window-8192].budget-50`
+and, for the comparison without `recall`, `context.summary.recalling[.window-8192].budget-50`; both were
+replaced by the runs of "Memory, 2026-09-30" below, and the figures here are kept as the first build's. The `recalling`
+scenario is `showing` with a seventh question on a detail of the first file that no fact or summary carries
+(the name of the temporary file a copy writes to, `.harbour-tmp-<random>`), at a 50% budget so the read is
+dropped before it is asked about; window 8,192. `RecallStrategy` is `SummaryStrategy` (summary in the facts'
+call) with `recall` and its prompt rule. The first two on-device rows ran on earlier builds of this phase; the
+changes between them are under "Choices made in the build" in the phasing entry. One-minute load average 3 to
+6, except the granite comparison (13 to 23), so times are comparable except there.
+
+| Model | Strategy | Score | Wrong | Recalls (turn: what, result) | Other tool calls in the questions | Condensations (first at) | Tokens median (max) | Time per turn median (p95) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device | recall, first build | 5/7 | preference, detail | 1: `task`, none; 22: `entry 2`, found (the first prompt, not the read) | 0 | 1 (13) | 3,297 (4,359) | 6.3 s (10.7 s) |
+| On-device | recall, second build | 3/7 | ticket, preference, task, detail | 1: `task`, none (then "I have no stored task") | 0 | 2 (12) | 2,684 (4,405) | 6.7 s (27.0 s) |
+| On-device | recall, recorded | 4/7 | ticket, preference, detail | 1: `task`, none; 19: `task`, found; 22: `entry 8`, found (the right read) | 0 | 2 (12) | 3,246 (4,314) | 7.0 s (26.3 s) |
+| On-device | summary, no recall | 5/7 | first file, detail | none | 1 (`read_file` of `postmortem-09`, at the detail question) | 2 (13) | 2,729 (4,241) | 9.0 s (25.8 s) |
+| granite4.1:8b | recall | 6/7 | first file | 22: `entry 6`, found (the right read) | 0 | 1 (14) | 3,513 (5,200) | 5.1 s (10.2 s) |
+| granite4.1:8b | summary, no recall | 6/7 | detail | none | 0 | 1 (14) | 3,051 (4,994) | 4.7 s (8.6 s) |
+
+What it shows:
+- **Granite recalls what it needs and uses it.** Asked for the detail, it recalled the first read by the
+  entry its `file` fact names and quoted `.harbour-tmp-<random>`; without `recall` it made a name up
+  (`tmp/<uuid>.harbour-sync`). It recalled nothing else. Its one miss with recall was the first file, named as
+  `postmortem-01` beside the right fact's source: noise in one run, since the fact and the summary both
+  said otherwise.
+- **The on-device model calls `recall`, but does not yet profit from it.** In the recorded run it recalled
+  the right entry at the detail question and still invented the name (`tmp_plan_001`) from a page that held
+  it; in the first run it took the turn in a fact's source ("turn 2") for an entry number and recalled the
+  first prompt. That is why a tool fact's source now names its entry. Its losses on the ticket and the
+  preference are the distiller's (it recorded "ticket = ticket" and nothing for Maria), as in phase 4a's
+  earlier runs, not recall's.
+- **It recalls when nothing is missing.** Every on-device run recalled `task` in the first turn, where the
+  task was the prompt in front of it; the second run took the empty answer as "there is no task" and carried
+  that into its reply and the distilled facts. Recall before anything is stored now says the first turn is all
+  in view, and in the recorded run the first-turn recall did no harm. A recall of the task at the CI question
+  was also unneeded. D12's reopen condition (recalling on most turns) is not met: 1 to 3 recalls in 22 turns.
+- **Re-reads fell away.** With `recall` no run called another tool while answering the questions; without it,
+  the on-device model answered the detail question by reading a file again, the wrong one
+  (`postmortem-09-config-typo.md`), which is 3b's smoke-test finding again.
+- **Costs.** A recall adds its page to its turn: granite's detail turn carried 4,815 tokens against 3,255
+  without, and took 10.2 s against 2.5 s. The tool definition and the rule add 146 tokens to every request's
+  instructions on the on-device model.
+- **The bracket clause did not work.** The on-device model copied the facts' sources into every answer in
+  all runs, under both wordings; granite did too with `recall` and its rule, and not without them. Moving the
+  sources out of brackets, or out of the fact's line, is the likelier fix, and a change to the facts' frame.
+- **A second run of each, in the full eval** (`scripts/check eval`, not recorded; load average 45 to 115 from
+  other work): on-device with recall 3/7 and without 4/7; granite with recall 6/7 and without 5/7. Granite
+  again recalled the first read (`entry 6`) and quoted the name; without `recall` it missed the detail. The
+  on-device model again recalled at the first turn (`harbour`, a fact query) and replied "I have no prior
+  record of harbour's details", and at the detail question recalled a digression's read (`entry 36`) and said
+  the file did not mention one: the early answer that everything is in view did not stop the first-turn
+  recall from misleading it, which stays open.
+- **One run each, and variance is large**: the three on-device runs with recall scored 5, 3, and 4 on builds
+  that differ in small ways, so the on-device figures say what the model does, not by how much recall helps.
+
+### Memory, 2026-09-30
+
+After the operator widened `recall` to `memory` (phasing, 4c), measured on this Mac with `WISP_MODEL_TESTS=1
+swift test --filter ContextEvalTests/<test>`, one run at a time, window 8,192, budget 50%, recorded in
+`measurements.json` as `context.memory.<scenario>[.window-8192].budget-50` and, without `memory`,
+`context.summary.<scenario>[.window-8192].budget-50` (these replace the first build's `context.recall.*` and
+`context.summary.recalling.*` rows). `MemoryStrategy` is `SummaryStrategy` with `memory` and its rule. The
+`noting` scenario is `recalling` with "Keep this in mind for later: the release date moved to 14 November."
+said at the eighth incident review, and an eighth question, "When is the release date?". An answer that
+repeats a fact's source (a bracket, `— from …`, or `(source: …)`) is counted as an echo. The one-minute load
+average was 4 to 14 for the first three runs and 15 to 130 for the rest, from other work on the Mac, so
+times are comparable only within the first three.
+
+| Model | Scenario | Strategy | Score | Wrong | Memory calls (turn: request, result) | Other tool calls in the questions | Echoes | Condensations (first at) | Tokens median (max) | Time per turn median (p95) | Load |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| On-device | recalling | memory, facts `— from` | 5/7 | preference, detail | 1: `BLUE HERON`, recall, nothing stored; 22: `recall entry 1`, found (the instructions, not the read) | 0 | 1/7 | 1 (13) | 3,321 (4,383) | 6.1 s (10.5 s) | 4 |
+| On-device | recalling | memory, facts `(source: …)` | 4/7 | ticket, preference, detail | 1: `BLUE HERON`, recall, nothing stored | 1 (`read_file`, a wrong path) | 7/7 | 2 (12) | 2,632 (4,101) | 8.6 s (21.8 s) | 6 |
+| On-device | recalling | summary, no memory | 6/7 | detail | none | 0 | 7/7 | 1 (14) | 3,133 (4,338) | 7.8 s (14.7 s) | 9 |
+| granite4.1:8b | recalling | memory | 5/7 | first file, detail | none | 1 (`read_file`) | 0/7 | 1 (13) | 3,683 (5,078) | 7.4 s (16.3 s) | 15 |
+| granite4.1:8b | recalling | summary, no memory | 6/7 | first file | none | 1 (`read_file`) | 6/7 | 1 (15) | 3,020 (5,231) | 9.5 s (14.2 s) | 36 |
+| On-device | noting | memory | 6/8 | ticket, preference | 1: `note entity release codename = BLUE HERON`, noted; 22: `recall entry 8`, found (the right read) | 0 | 0/8 | 2 (12) | 3,409 (4,247) | 11.5 s (30.1 s) | 35 |
+| On-device | noting | summary, no memory | 5/8 | ticket, preference, detail | none | 1 (`read_file`, not found) | 8/8 | 1 (13) | 3,425 (4,390) | 11.7 s (25.3 s) | 130 |
+| granite4.1:8b | noting | memory | 6/8 | first file, detail | none | 0 | 0/8 | 1 (14) | 3,463 (5,184) | 9.1 s (12.5 s) | 58 |
+| granite4.1:8b | noting | summary, no memory | 8/8 | none | none | 8 (re-reads) | 0/8 | 2 (14) | 3,252 (5,118) | 6.5 s (38.2 s) | 33 |
+
+What it shows:
+- **The facts' format.** The two forms were compared on the same strategy and scenario, one run each: with
+  the source behind a dash the on-device model echoed it in 1 of 7 answers, with `(source: …)` in 7 of 7 (the
+  first build's brackets: every answer). The dash form was kept. It is not the whole fix: without `memory`,
+  whose rule adds the prompt's second line, the on-device model echoed the dash form in every answer (7/7,
+  8/8), and granite in 6 of 7 on `recalling` and none on `noting`. With `memory`, across four runs, 1 echo in
+  30 answers. Which part of the difference is the prompt's second line and which is variance is open.
+- **Notes.** The on-device model noted once in four runs with `memory`, correctly, in the first turn: `note
+  entity release codename = BLUE HERON`, which was recorded as a proposal. Its other first-turn calls were
+  `BLUE HERON` with no verb, a recall that answered that nothing is stored yet; the replies ("We're starting
+  fresh", "I've noted the BLUE HERON codename") did no harm to the later answers. Neither model noted the
+  release date said in passing, and both answered it without a note: the distiller kept it, or the turn was
+  still in view. Granite called `memory` in none of its runs, where the first build's `recall` was called in
+  both (the right read, both times). Noting does not yet show a gain the distiller does not already give.
+- **Recall.** The on-device model recalled at the detail question in both of its runs with `memory`: once the
+  right read (`entry 8`), and it answered `.harbour-tmp-<random>`, which no run of it did before; once `entry
+  1`, the instructions. Without `memory`, it and granite re-read a file instead, the wrong one or a wrong
+  path, except granite on `noting`, which re-read the right file and answered everything.
+- **No RAM question went to `memory`.** `SystemInfoEvalTests` on the on-device model, with `memory`,
+  `system_info`, and `run_command` offered and the memory rule in the prompt: 13 of 16 passed, and no turn
+  called `memory`. The three misses were `system_info` with the wrong topic (`system` for "How much memory is
+  in use, and by what?", twice; `memory` for "Is Ollama running, and how much memory does it use?", which
+  expects `process`); the recorded figure before `memory` was 14 of 16. The description's steer holds in this
+  eval; the name stays.
+- **Other suites** on the on-device model, not recorded: `ChatEvalTests` 24/24 (every built-in tool and
+  `memory`, no call to it on a greeting), `ToolEvalTests` schema 6/6 and `edit_file` 16/30 (floor 15; 21/30 on
+  2026-09-26; that suite has neither `memory` nor the rule, and its prompt is the unchanged first line, so the
+  drop is variance or the load of 35 to 43 at the time).
+- **One run each, and variance is large**, as before: the on-device `recalling` runs with `memory` scored 5
+  and 4 on builds that differ only in the facts' line.
 
 ## Decisions
 
@@ -1228,7 +1345,117 @@ go here as they arise.
      covers, saved in the `.store` sidecar; audited as `context.summary`.
    - Visible with the facts: `/inspect facts` shows it (`all` adds earlier versions), `/inspect context
      turns` marks the turn that wrote one, and `wisp://threads/{id}/facts` carries `summary`.
-4c. `recall`: stored entries, a fact's sources and history (D2), and the task in full.
+4c. `memory`: recall of stored entries, a fact's sources and history (D2), and the task in full, and notes by
+   the model. Built first as a `recall` tool, then widened to `memory` the same day; done 2026-09-30, figures
+   under "Evaluation", "Recall, 2026-09-30" and "Memory, 2026-09-30"; [tools/memory.md](../tools/memory.md)
+   is its page. The bullets below describe the first build, as `recall`; the next block says what the
+   widening changed.
+   - **The tool.** One text argument, `what`: `entry 7`, `turn 3`, `task`, `summary`, or `fact <subject or
+     name>` (a fact id such as `c12` too), read leniently (`Recall.target`), with `from line N` for a later
+     page. One string because the references and markers already spell what to ask for (`recall entry 7 to
+     see it`, `…, entry 7)`, and the turns in facts' sources), and a small model copies a phrase more reliably
+     than it fills optional fields; paging in the same string because an `offset` field cost the tool 31 of its
+     134 tokens (103 without it, measured with `tokenCount(for:)` on the on-device model, as D4 measured the
+     others). Description: "Restores earlier material in full, for this turn: an entry or turn a reference
+     names, the task, the summary, or a fact's history." Pages of 4 KiB, as `read_file`'s.
+   - **What it restores, and from where.** An entry's content is read from the audit event its store entry
+     refers to (D8), by id, through `AuditLog.event(_:)` (a sink that can read back, `AuditReader`: the file
+     sink searches the current and rotated files, newest first, for the id and decodes only the lines that
+     hold it). Phase 2 kept the framework's entries in memory so that composing never reads the audit files;
+     that copy is the fallback, for an entry the audit does not hold (text before a tool call, an event rotated
+     out, the audit off), and the result's header and the `context.recall` event say which was used. A turn is
+     its stored entries in order. The task is the task fact's versions, oldest first, with their sources and
+     entries, then the prompt the conversation began with, in full: the store knows no more than that of
+     "the turns that shaped it" until phase 4d infers the task. A fact is found by id or by words matched
+     against subjects, names, then values (at most four subjects) and returned as every version, with source,
+     time, value, state, what superseded it, and the entries it came from: D2's history. The summary is its
+     versions, newest first (the store keeps 20).
+   - **For the turn only.** The result is an ordinary tool output: whole in its turn, a reference after it
+     (`[output of entry 40 not repeated: recall at …]`), so recalled material ages out as anything else does.
+     The agent publishes a copy of its store and facts to the tool (`RecallSource`) before every request; the
+     tool never touches the agent.
+   - **References and markers name it.** A reference ends `recall entry 7 to see it` in a conversation with
+     `recall`, and keeps `call it again to see it` only in one without it: an agent made directly (tests,
+     the earlier eval strategies), or a conversation whose config disables `recall`. Every stored output can
+     be recalled, since the store keeps every entry. The cut marker already named the entry.
+   - **The standing rule** (D12's layer 1) is the system prompt's last line, given only to a conversation
+     with `recall`: "Earlier turns may reach you only as a summary, facts, or references; when a question
+     needs detail they leave out, call recall with the entry or turn they name instead of guessing or running a
+     tool again." (The first wording, "to see one in full, call recall with the entry or turn it names rather
+     than running a tool again", led the on-device model to recall the task in the first turn; see below.) One clause for 4a's
+     finding that the on-device model repeats facts' provenance follows the first line's "Keep replies
+     short.": "Facts from earlier carry their source in brackets, for you only: never copy a bracket into a
+     reply." Measured with `tokenCount(for:)` on the on-device
+     model, 2026-09-30: the prompt went from 111 tokens to 132 without the rule and 175 with it; with every
+     tool, the instructions from 1,268 to 1,435 tokens.
+   - **Registration.** `recall` is a built-in tool (`ToolRegistry.builtInNames`, so `wisp tools` and
+     `wisp://tools` list it and `tools.disabled` can name it), added to every conversation that has any tool,
+     all or named (`ToolRegistry.withRecall`, from `WispThread.setUp`), and wired to the agent by
+     `WispThread.openAgent`. A conversation with no tools does not get it.
+   - **Audit.** A call is a `tool.call` and `tool.result` like any tool's, and a `context.recall` event names
+     what the text alone does not: the target, the entries, facts, and summary versions restored, the audit
+     events read, and whether the content came from the audit log or the store (the proposal's "new events
+     for … recall").
+   - **The eval** gained `RecallStrategy` (summary in the facts' call, plus `recall`) and the `recalling`
+     scenario (showing, then a seventh question on a detail of the first file that no fact or summary
+     carries: the name of the temporary file a copy writes to, `.harbour-tmp-<random>`).
+   - **Choices made in the build**, each open to review:
+     - *Named tool selections get `recall` too.* `--tool read_file` and MCP `tools: ["run_command"]` now give
+       the tool and `recall`, where they gave exactly the tools named; `tools.disabled` is the way out. The
+       alternative, `recall` only with all tools or when named, keeps the selection exact but leaves a
+       conversation of named tools with references it cannot follow, which then keep "call it again".
+       Reversed by the operator the same day: `memory` comes with all tools or when named (decision 3 below).
+     - *A tool fact's source names its entry.* `[tool read_file, turn 2, entry 4]` where it said `[tool
+       read_file, turn 2]`: once condensing has dropped a read, the fact is the only pointer left to it, and in
+       the first on-device run the model read "turn 2" and recalled `entry 2` (the first prompt), then made
+       the answer up. A fact from one output names it; a distilled fact, from many entries, does not.
+     - *No fact ids in facts' lines.* `recall fact <words>` finds a fact by subject, name, or value; ids would
+       cost a few tokens a fact.
+     - *Nothing stored yet is not "none".* Before the first turn is stored, every target answers that the
+       first turn is all in the model's context. In the second on-device run the model recalled `task` at the
+       first turn, read "no task and no prompt stored yet", told the person it had no task, and the distiller
+       later recorded "no task stored" and "no codename provided".
+     - *The clause on brackets* was first "leave the bracketed sources of facts out of them"; the on-device
+       model still copied every bracket in the first run, so it became "Facts from earlier carry their source
+       in brackets, for you only: never copy a bracket into a reply." Removed with the widening (decision 4 below).
+   - **Widened to `memory`, 2026-09-30 (operator).** Five decisions after the first build's evaluation:
+     1. *One tool, `memory`, with verbs*, as the person's chat commands and `config get/set` have them, in one
+        string argument, `request`: `recall …` does everything `recall` did (`recall entry 7`, `recall turn
+        3`, `recall task`, `recall summary`, `recall fact codename`, `recall entry 7 from line 60`), with the
+        same lenient reading, and a request with no verb is a recall; `note SUBJECT NAME = VALUE` records a
+        fact as the model. A `task` verb is left for phase 4d (today `task` alone recalls the task).
+        References and page ends name the call to copy: `to see it: memory "recall entry 7"`, `[more: memory
+        "recall entry 7 from line 60"]`. The page is [tools/memory.md](../tools/memory.md); `recall.md` is
+        gone. The audit event is `context.memory` with an `action` (`recall`, `note`), one kind for both, so a
+        reader filters one kind for everything the tool did.
+     2. *The name is shared with `system_info`'s `memory` topic (RAM)*, so the description starts "This
+        conversation's memory, not the Mac's RAM (that is system_info)". The eval decides whether that is
+        enough: `SystemInfoEvalTests` now offers `memory` beside `system_info` and `run_command`, and counts
+        the turns that call it (below). A rename is the operator's call if it is not.
+     3. *Registration: all tools, or named.* `memory` is a built-in tool, so a conversation given every tool
+        has it from the first turn, and a named list has it only when the list names it: MCP's git thread
+        (`tools: ["run_command"]`) stays exact. This reverses the first build's choice (named selections got
+        `recall` too). Without `memory`, references keep "call it again to see it".
+     4. *The bracket clause is removed*, and the facts' line puts the source after the value, behind a dash:
+        `- entity release codename: BLUE HERON — from the person`. Both forms tried were measured on the
+        on-device model (below); the dash form was echoed less.
+     5. *Token cost* measured again with `tokenCount(for:)` on the on-device model: the tool's definition 110
+        tokens (the first build's `recall` 103); the system prompt 111 tokens without the rule and 154 with
+        it (175 in the first build, with the bracket clause); every tool and the prompt 1,375 against 1,222
+        without `memory` (1,435 against 1,268 in the first build).
+   - **Notes, as built.** `note SUBJECT NAME = VALUE` (also `SUBJECT: NAME = VALUE`, and `SUBJECT NAME:
+     VALUE` without `=`; `remember` is taken as `note`) records a fact with source `model` and a new method,
+     `noted`, rather than `stated`: `stated` is the person's and a caller's word, and a note is neither
+     extracted nor distilled, so the audit and `/inspect facts` should tell it apart (`model, noted, turn 4`).
+     Precedence is the model's, the lowest, so a note never outranks the person or a tool; a newer note or
+     distilled fact on the same identity is the model's next version. The subject must be a kind the
+     distiller may use (`file`, `service`, and `machine` are the tools'); an unknown one is refused with a
+     short directive error that lists the kinds and repeats the example. A kind that names its facts needs a
+     name. The class is the kind's, so a note of a permanent kind is a proposal until the person keeps it
+     (D2). At most 12 a turn, as a distillation; values cut to 200 characters. The tool cannot touch the
+     agent, so it leaves the note in the `MemorySource`, and the agent records it when the turn ends, beside
+     the turn's extracted facts: it reaches the model's facts from the next request and the person's list of
+     the turn's new facts. Audited as `context.memory` and, when recorded, `fact.recorded`.
 4d. The assessment per request (D12): the task inferred in chat (D6), the tools a request needs (D4), and
    the facts to repeat next to the request (D7).
 5. Condensing's guarantees, which today are missing: `ContextComposer.ahead` and `overflow` condense to a
