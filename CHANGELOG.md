@@ -21,6 +21,10 @@ Breaking:
 
 Changed:
 
+- `/help` lists every chat command as it is now: `/inspect facts` with the summary of earlier turns and
+  proposals from other conversations, the forms of `/fact` and `/show` IDs, `/inspect` as the general form
+  of `/status`, `/audit`, and `/approvals`, and the `/?`, `/q`, `help`, and `exit` aliases. Long usages put
+  their description on the next line, and under `wisp-tui` the list ends with its keys.
 - `wisp-tui`'s approval dialog has an empty line between what it asks about and the keys that answer it.
 - The `notify` tool now tells the model which route posted the notification (`notification posted via
   terminal`) where it said `notification shown`.
@@ -176,13 +180,13 @@ Fixed:
 - `system_info`'s folder sizes treat a blank `path` as the home folder, as an absent one already was;
   `granite4.1:8b` sent `""` and was refused. When `du` cannot read some folders, the report now says the
   sizes may be low instead of presenting a partial total as the whole.
+- The tokens shown under a reply in chat (and in `wisp-tui`'s status line) no longer read low, or blank, on
+  a turn in which wisp rebuilt the model's session (to send an earlier tool output as a reference, to
+  condense, or to retry after an overflow). The count now carries over from the session it replaced.
 
 ## 0.14.1
 
 Changed:
-- The tokens shown under a reply in chat (and in `wisp-tui`'s status line) no longer read low, or blank, on
-  a turn in which wisp rebuilt the model's session (to send an earlier tool output as a reference, to
-  condense, or to retry after an overflow). The count now carries over from the session it replaced.
 
 - The status line is shorter and says more. On the left, `system:15% used · ~/src/wisp:main+12-3`:
   the model with its context use, then the directory, branch, and lines added (green) and removed (red)

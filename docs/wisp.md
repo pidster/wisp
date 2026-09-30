@@ -170,7 +170,7 @@ What a session shows, and where it goes:
 
 | Command | Effect |
 | --- | --- |
-| `/help` | List commands. |
+| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (Ctrl-O, Ctrl-T, Left and Right in the context panel). |
 | `/tools` | List the tools the model can call. |
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
@@ -196,7 +196,6 @@ What a session shows, and where it goes:
 | `/save [name]` | Save now; the name is remembered for exit. |
 | `/new` | Start over with the same instructions and tools. |
 | `/quit`, `/exit`, `/q`, a bare `exit`, `quit`, or `q`, Ctrl-D | Exit, saving if a name is set. |
-| `/help`, `/?`, a bare `help` | List commands. |
 
 `/stats` counts two kinds of call. A `turn` is one message through the conversation's model until the
 reply; the framework runs the tool loop inside it, so its time includes the tools the model called and

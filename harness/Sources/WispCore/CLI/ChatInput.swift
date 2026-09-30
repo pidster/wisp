@@ -98,36 +98,109 @@ public enum ChatInput: Equatable, Sendable {
         }
     }
 
-    /// The text shown for `/help`.
-    public static let helpText = """
-        /help            show this list
-        /tools           list the tools the model can call
-        /tokens          show how much of the context window the conversation uses
-        /inspect context save the exact context the model sees next to ~/.wisp/context, as Markdown and JSON
-        /inspect context next|N   show the context the next request carries, or the one composed at turn N's start
-        /inspect context turns    list the turns with what changed at each
-        /inspect facts [all]      list the facts the model is given, with their sources; all adds their history
-        /fact SUBJECT [NAME] = VALUE   state a fact as you, which outranks a tool's and the model's
-        /fact ID permanent|thread|session   move a fact to that scope; permanent keeps it in ~/.wisp/facts.json
-        /fact delete ID  delete a fact
-        /task [text]     show the task and its history, or set it
-        /status          show wisp's own state: model, tools, policy, session
-        /approvals       list standing approvals; /approvals revoke [ID] removes one
-        /audit           show the latest audit events of every session, MCP calls included
-        /audit sessions  list the sessions in the audit log; /audit ID shows one session's events
-        /last            show the last tool result in full
-        /show ID         show a tool output in full, by its entry id or the id its fold line gives
-        /models          list the models this Mac can run for this conversation
-        /model [name]    switch the conversation to a model, keeping the transcript; no name shows the current one
-        /stats           show timings of recent model turns and classifier calls
-        /history         list what you have typed this session (Up and Down recall it in wisp-tui)
-        /config          show the config; /config list shows the settings you can change
-        /config get KEY  show one setting's value and whether it is set or the default
-        /config set KEY VALUE, /config unset KEY   change ~/.wisp/config.json; leave out a part to choose it
-        /save [name]     save the transcript to ~/.wisp/transcripts
-        /new             start a fresh conversation with the same instructions and tools
-        /quit            exit (also /exit, a bare exit or quit, Ctrl-D)
+    /// One line of `/help`: how a command is typed, what it does, and the words the parser accepts for it.
+    struct HelpEntry: Equatable, Sendable {
+        /// How it is typed, such as `/fact delete ID`.
+        let usage: String
+        /// What it does, short; `helpText` moves it under a usage too long for the column.
+        let about: String
+        /// The slash words (without the slash) that reach this command.
+        let names: [String]
+    }
+
+    /// Every command `/help` lists, in order. The one list `helpText` renders and the tests check against the
+    /// parser in `init(line:)`, so a command cannot be parsed without being listed.
+    static let helpEntries: [HelpEntry] = [
+        HelpEntry(usage: "/help, /?", about: "this list (also a bare help or ?)", names: ["help", "?"]),
+        HelpEntry(usage: "/tools", about: "the tools the model can call", names: ["tools"]),
+        HelpEntry(usage: "/tokens", about: "how much of the context window the conversation uses", names: ["tokens"]),
+        HelpEntry(
+            usage: "/inspect [VIEW]",
+            about: "wisp's own state: status (the default), config, approvals, audit, context, facts",
+            names: ["inspect"]),
+        HelpEntry(
+            usage: "/status", about: "short for /inspect status: model, tools, policy, session", names: ["status"]),
+        HelpEntry(
+            usage: "/approvals [revoke [ID]]", about: "list standing approvals, or remove one", names: ["approvals"]),
+        HelpEntry(
+            usage: "/audit [sessions|ID]",
+            about: "latest audit events of every session; sessions lists them, an ID shows one",
+            names: ["audit"]),
+        HelpEntry(
+            usage: "/inspect context", about: "save the exact context the next request carries to ~/.wisp/context",
+            names: []),
+        HelpEntry(
+            usage: "/inspect context next|N|turns",
+            about: "show the next request's context, the one composed at turn N's start, or a row per turn",
+            names: []),
+        HelpEntry(
+            usage: "/inspect facts [all]",
+            about: "the facts the model is given, the running summary of earlier turns, and proposals from other "
+                + "conversations; all adds history",
+            names: []),
+        HelpEntry(
+            usage: "/fact SUBJECT [NAME] = VALUE", about: "state a fact as you; it outranks a tool's and the model's",
+            names: ["fact"]),
+        HelpEntry(
+            usage: "/fact ID permanent|thread|session",
+            about: "move a fact to that scope; ID is cN, sN, pN, or CONV/cN for another conversation's proposal",
+            names: []),
+        HelpEntry(usage: "/fact delete ID", about: "delete a fact", names: []),
+        HelpEntry(usage: "/task [text]", about: "show the task and its history, or set it", names: ["task"]),
+        HelpEntry(
+            usage: "/last", about: "the last tool result in full", names: ["last"]),
+        HelpEntry(
+            usage: "/show [ID]", about: "a tool output in full: an entry number or an event-id prefix (4+ characters)",
+            names: ["show"]),
+        HelpEntry(usage: "/models", about: "the models this Mac can run for this conversation", names: ["models"]),
+        HelpEntry(
+            usage: "/model [name]",
+            about: "switch the conversation to a model, keeping the transcript; no name shows it",
+            names: ["model"]),
+        HelpEntry(usage: "/stats", about: "timings of recent model turns and classifier calls", names: ["stats"]),
+        HelpEntry(usage: "/history", about: "what you have typed this session", names: ["history"]),
+        HelpEntry(
+            usage: "/config [list|get KEY|set KEY VALUE|unset KEY]", about: "show or change ~/.wisp/config.json",
+            names: ["config"]),
+        HelpEntry(usage: "/save [name]", about: "save the transcript to ~/.wisp/transcripts", names: ["save"]),
+        HelpEntry(
+            usage: "/new", about: "start a fresh conversation with the same instructions and tools", names: ["new"]),
+        HelpEntry(
+            usage: "/quit, /exit, /q", about: "exit (also a bare exit, quit, or q, and Ctrl-D)",
+            names: ["quit", "exit", "q"]),
+    ]
+
+    /// The width of the usage column; a longer usage puts its description on the next line.
+    private static let helpColumn = 28
+
+    /// The keys `wisp-tui` adds to the chat, listed for its users only.
+    private static let frontEndKeys = """
+
+        In wisp-tui:
+          Ctrl-O                      the last tool output in full; again to close
+          Ctrl-T                      the model's context in a panel
+          Left, Right                 in that panel, the previous or next turn's context
+          Up, Down                    recall what you typed
+          Esc                         close the panel
         """
+
+    /// The text shown for `/help`.
+    ///
+    /// - Parameter frontEnd: Whether the chat runs under `wisp-tui`, whose keys are listed after the commands.
+    /// - Returns: One line per command in a column, the description on the next line for a usage that is too
+    ///   long for it.
+    public static func helpText(frontEnd: Bool = false) -> String {
+        let lines = helpEntries.map { entry -> String in
+            guard entry.usage.count < helpColumn else {
+                return entry.usage + "\n" + String(repeating: " ", count: helpColumn) + entry.about
+            }
+            return entry.usage.padding(toLength: helpColumn, withPad: " ", startingAt: 0) + entry.about
+        }
+        return lines.joined(separator: "\n") + (frontEnd ? frontEndKeys : "")
+    }
+
+    /// The text shown for `/help` in the plain terminal chat.
+    public static var helpText: String { helpText() }
 }
 
 /// What `/config` asks for.
