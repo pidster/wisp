@@ -39,11 +39,16 @@ in this order:
 | --- | --- | --- |
 | `host` | Under `wisp chat --json`, when the front end's `hello` declared `notify` (`wisp-tui` does in a terminal that has a sequence): wisp sends a `notify` line and the front end writes the sequence between its frames | The terminal |
 | `terminal` | Plain chat and the one-shot commands (`wisp notify`, `wisp watch`, `wisp "…"`), when `/dev/tty` opens and `TERM_PROGRAM` (or, when unset, `TERM`) names a terminal with a notification sequence: Ghostty, iTerm2, and WezTerm post OSC 9 (`ESC ] 9 ; title: message BEL`), kitty OSC 99 (the title and the message as two chunks). Written to `/dev/tty`, never to stdout. Never under `--json` (the front end owns the terminal) or `wisp mcp` (the client does) | The terminal, under its name and icon; clicking it returns to the terminal |
-| `app` | Only with `notifications.viaTerminalApp` on and `__CFBundleIdentifier` set: `display notification` sent to that app (`tell application id …`) | The terminal app, if macOS attributes it so (unprobed) |
+| `app` | With `notifications.viaTerminalApp` on (the default) and `__CFBundleIdentifier` set: `display notification` sent to that app (`tell application id …`); macOS asks once for Automation consent per app | The terminal app (probed 2026-09-30 in Terminal.app and Ghostty) |
 | `osascript` | Always, last | Script Editor |
 
 Terminal.app has no sequence, and `tmux` does not pass one through, so in either a notification falls
-through to the last route. `wisp doctor` names the route it would take in the terminal it runs in.
+through to the app route, and to `osascript` only without it. `wisp doctor` names the route it would take
+in the terminal it runs in.
+
+**A terminal may hold back its own banner while its window has focus.** Probed 2026-09-30: Ghostty posted
+the OSC 9 banner only once another app was in front. That is the terminal route's behaviour by design,
+since a person looking at the terminal sees the output; the app route posts regardless.
 
 The two AppleScript routes run `/usr/bin/osascript` with a fixed script; the title, subtitle, message,
 and the app's bundle identifier are passed as arguments and read from `argv`, so nothing the model writes
@@ -67,9 +72,10 @@ wisp notify --route app "probe"
 ```
 
 The first time, macOS asks whether wisp's terminal may control the app (Automation); allow it and run the
-command again, since the first attempt gives up after five seconds. Then look at the banner: if it shows
-your terminal's name and icon, `wisp config set notifications.viaTerminalApp true` turns the route on for
-terminals without a sequence (Terminal.app); if it shows Script Editor, leave it off.
+command again, since the first attempt gives up after five seconds. Then look at the banner: it should
+show your terminal's name and icon. Probed 2026-09-30 on macOS 27 in Terminal.app and Ghostty, both
+attributed to the terminal, so the route is on by default; `wisp config set notifications.viaTerminalApp
+false` turns it off, and notifications then fall through to `osascript` (Script Editor).
 `wisp notify --route terminal "probe"` checks the terminal route the same way.
 
 A helper app posting through Apple's `UserNotifications`, so banners come from Wisp itself, is planned

@@ -842,7 +842,10 @@ struct Notify: ParsableCommand {
             .init(title: title, body: message, subtitle: subtitle, sound: sound), source: .user, audit: session.audit)
         switch outcome {
         case .posted(let route): if self.route != nil { Wisp.note("posted via \(route.rawValue)") }
-        case .refused(let reason): throw ValidationError("notification not shown: \(reason)")
+        case .refused(let reason):
+            // A route that cannot post is not a usage mistake: say why, without the usage text.
+            Wisp.note("notification not shown: \(reason)")
+            throw ExitCode.failure
         }
     }
 }

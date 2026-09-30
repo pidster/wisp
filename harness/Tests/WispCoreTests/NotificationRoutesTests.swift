@@ -238,14 +238,14 @@ import Testing
     }
 
     @Test func theSessionBuildsHostsWithTheSetting() throws {
-        let off = try scratchHostSession(config: nil)
+        let off = try scratchHostSession(config: #"{"notifications":{"viaTerminalApp":false}}"#)
         #expect(!off.host(approver: DenyingApprover(reason: "x"), face: .terminal).notifications.viaTerminalApp)
-        let on = try scratchHostSession(config: #"{"notifications":{"viaTerminalApp":true}}"#)
+        let on = try scratchHostSession(config: nil)
         let host = on.host(approver: DenyingApprover(reason: "x"), face: .mcp, only: .app)
         #expect(host.notifications.viaTerminalApp && host.notifications.only == .app)
         #expect(host.notifier === on.notifier)
-        #expect(Config().resolved.notificationsViaTerminalApp == false)
-        #expect(ConfigSettings.defaultValue("notifications.viaTerminalApp") == .bool(false))
+        #expect(Config().resolved.notificationsViaTerminalApp == true)
+        #expect(ConfigSettings.defaultValue("notifications.viaTerminalApp") == .bool(true))
     }
 
     /// A session over a scratch home with `config` as its `config.json`.

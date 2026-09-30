@@ -19,15 +19,14 @@ import Testing
         let ghostty = finding(["TERM_PROGRAM": "ghostty"])
         #expect(ghostty == .init(name: "notify", ok: true, detail: "terminal: Ghostty posts OSC 9 notifications"))
         #expect(
-            finding(["TERM_PROGRAM": "Apple_Terminal"]).detail
+            finding(["TERM_PROGRAM": "Apple_Terminal"], config: Config(notifications: .init(viaTerminalApp: false)))
+                .detail
                 == "osascript: banners come from Script Editor; terminal: Terminal.app has no notification "
                 + "sequence; app: off (notifications.viaTerminalApp)")
         #expect(
             finding(["TERM_PROGRAM": "ghostty"], tty: false).detail.hasPrefix(
                 "osascript: banners come from Script Editor; terminal: no terminal (/dev/tty does not open)"))
-        let app = finding(
-            ["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"],
-            config: Config(notifications: .init(viaTerminalApp: true)))
+        let app = finding(["TERM_PROGRAM": "Apple_Terminal", "__CFBundleIdentifier": "com.apple.Terminal"])
         #expect(app.ok && app.detail.hasPrefix("app: posted as com.apple.Terminal"))
     }
 

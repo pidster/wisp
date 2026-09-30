@@ -178,10 +178,12 @@ build chose, and why:
   client that owns no terminal should ever let the server write to one is for a later decision.
 - **A `hello` without `approve` denies every approval without asking**, with the reason, as "a host that
   cannot ask denies with a reason" says. No `hello` asks over the protocol as before.
-- **The app route is behind `notifications.viaTerminalApp`, off**, and `wisp notify --route app` probes it
-  (it is tried even with the setting off); `--route` takes any route alone. The probe needs a person to
-  look at the banner, so the default stays off until one has (`docs/tools/notify.md`, "Probing the app
-  route").
+- **The app route is behind `notifications.viaTerminalApp`**, and `wisp notify --route app` probes it
+  (it is tried even with the setting off); `--route` takes any route alone. Probed by the operator on
+  2026-09-30 on macOS 27: the banner came from Terminal.app and from Ghostty, so the setting is on by
+  default. The same probe found that Ghostty holds back its OSC 9 banner while its window has focus and
+  posts it once another app is in front; the terminal route keeps its place first, since a person
+  looking at the terminal sees the output, and it needs no consent.
 - **Sequence text** is sanitised again for the terminal on top of `Notifier`'s cleaning: every C0 and C1
   control character and DEL becomes a space and `;` becomes `,`, in Swift (`TerminalNotification`) and in
   `wisp-tui` (`notify.rs`) alike. OSC 9 is `ESC ] 9 ; title — subtitle: body BEL`; OSC 99 is a title chunk

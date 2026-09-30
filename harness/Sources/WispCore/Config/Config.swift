@@ -370,7 +370,7 @@ public struct Config: Codable, Equatable, Sendable {
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
-            notificationsViaTerminalApp: notifications?.viaTerminalApp ?? false,
+            notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
             routingLadder: routing?.ladder ?? [],
             taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
