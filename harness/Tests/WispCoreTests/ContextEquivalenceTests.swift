@@ -18,7 +18,7 @@ import WispTestSupport
 /// tested on top of it in `OutputHandlingTests`. Phase 3b made sending a tool output as a reference after
 /// its turn the default too; every agent here runs with `referencesOutput` off as well, and chat with its
 /// output display off, for the same reason (`OutputReferenceTests` and `ChatOutputTests` test those).
-/// Phase 4a added facts, which a conversation opened through `Conversation.openAgent` keeps by default; the
+/// Phase 4a added facts, which a conversation opened through `WispThread.openAgent` keeps by default; the
 /// one agent here opened that way has them off (`agent.facts = nil`), and every other is made directly and
 /// keeps none (`FactsTests` and `FactCompositionTests` test them).
 ///
@@ -387,7 +387,7 @@ import WispTestSupport
         try check(fingerprint, "chat-model-switch")
     }
 
-    @Test func anMCPThreadThroughSessionConversation() async throws {
+    @Test func anMCPThreadThroughSessionThread() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir.appending(path: "home"))
@@ -395,7 +395,7 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
         var canon = Canon(literals: [(dir.path, "<dir>"), (session.audit.session, "<session>")])
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "thread-1", approver: DenyingApprover(reason: "not in tests"), instructions: "Be brief.",
             tools: .named(["read_file"]))
         let a = dir.appending(path: "a.txt").path
@@ -405,7 +405,7 @@ import WispTestSupport
             .call(name: "read_file", arguments: #"{"path":"\#(b)"}"#), .say("B: {tool}"), .say("four"), .say("five"),
             .say("six"),
         ])
-        let agent = try conversation.openAgent(
+        let agent = try thread.openAgent(
             on: ResolvedModel(selection: .system, custom: model, contextSize: 60))
         agent.cutsPresentation = false
         agent.referencesOutput = false
@@ -416,7 +416,7 @@ import WispTestSupport
             .enumerated()
         {
             await reply(&fingerprint) { try await agent.respond(to: prompt) }
-            let receipt = canon.json(conversation.receipts.take(turn: index + 1).json)
+            let receipt = canon.json(thread.receipts.take(turn: index + 1).json)
             fingerprint.replies.append(receipt.replacing(#/"seconds":[-0-9.eE+]+/#, with: #""seconds":0"#))
         }
         fingerprint.output.append(canon.json(agent.transcript))

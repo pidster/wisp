@@ -18,7 +18,7 @@ public struct FactProposal: Sendable, Equatable {
     }
 
     /// The conversation that holds it: its audit session, which for an MCP thread is the `thread_id`.
-    public var conversation: String
+    public var threadID: String
     /// The fact as the conversation recorded it.
     public var fact: Fact
     /// Where it stands.
@@ -27,18 +27,18 @@ public struct FactProposal: Sendable, Equatable {
     public var admitted: String?
 
     /// The id that names it across the process: `conversation/fact`, such as `git/c3`.
-    public var reference: String { "\(conversation)/\(fact.id)" }
+    public var reference: String { "\(threadID)/\(fact.id)" }
 
     /// Splits a reference into its conversation and fact id, or nil when `text` is not one.
     ///
     /// - Parameter text: Such as `git/c3`.
     /// - Returns: The conversation and the fact id.
-    public static func parse(_ text: String) -> (conversation: String, fact: String)? {
+    public static func parse(_ text: String) -> (thread: String, fact: String)? {
         guard let slash = text.firstIndex(of: "/") else { return nil }
-        let conversation = String(text[..<slash])
+        let thread = String(text[..<slash])
         let fact = String(text[text.index(after: slash)...])
-        guard !conversation.isEmpty, !fact.isEmpty, !fact.contains("/") else { return nil }
-        return (conversation, fact)
+        guard !thread.isEmpty, !fact.isEmpty, !fact.contains("/") else { return nil }
+        return (thread, fact)
     }
 }
 
@@ -77,24 +77,24 @@ public final class FactProposals: Sendable {
     public func proposal(_ reference: String) -> FactProposal? { all.first { $0.reference == reference } }
 
     /// The audit log of `conversation`, when known.
-    func audit(_ conversation: String) -> AuditLog? { contents.withLock { $0.audits[conversation] } }
+    func audit(_ thread: String) -> AuditLog? { contents.withLock { $0.audits[thread] } }
 
     /// Mirrors one conversation's current proposals: adds the new ones, withdraws those it no longer holds,
     /// and returns the ones moved from outside the conversation since, with their ids in the store they went
     /// to, so the conversation can mark its own copies superseded.
     ///
     /// - Parameters:
-    ///   - conversation: The conversation's audit session.
+    ///   - thread: The thread's audit session.
     ///   - audit: Its audit log.
     ///   - current: Its current proposed permanent facts (`Fact.proposed`).
     /// - Returns: Moved proposals' fact ids mapped to the ids the other store gave them.
     @discardableResult
-    func sync(conversation: String, audit: AuditLog?, current: [Fact]) -> [String: String] {
+    func sync(thread: String, audit: AuditLog?, current: [Fact]) -> [String: String] {
         contents.withLock { contents in
-            if let audit { contents.audits[conversation] = audit }
+            if let audit { contents.audits[thread] = audit }
             var moved: [String: String] = [:]
             let held = Set(current.map(\.id))
-            for index in contents.entries.indices where contents.entries[index].conversation == conversation {
+            for index in contents.entries.indices where contents.entries[index].threadID == thread {
                 let entry = contents.entries[index]
                 if entry.status == .moved, held.contains(entry.fact.id), let admitted = entry.admitted {
                     moved[entry.fact.id] = admitted
@@ -103,8 +103,8 @@ public final class FactProposals: Sendable {
                 }
             }
             for fact in current
-            where !contents.entries.contains(where: { $0.conversation == conversation && $0.fact.id == fact.id }) {
-                contents.entries.append(FactProposal(conversation: conversation, fact: fact, status: .awaiting))
+            where !contents.entries.contains(where: { $0.threadID == thread && $0.fact.id == fact.id }) {
+                contents.entries.append(FactProposal(threadID: thread, fact: fact, status: .awaiting))
             }
             Self.trim(&contents.entries)
             return moved

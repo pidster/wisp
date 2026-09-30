@@ -109,9 +109,9 @@ public struct ChatLoop {
         /// Lists the models `/models` offers: those that can serve a conversation on the given current
         /// model with the given tools; nil makes the command unavailable.
         public var models: (@Sendable (ModelSelection, [any Tool]) async -> [String])?
-        /// Opens an agent on another model continuing the conversation's store, for `/model`; nil makes it
+        /// Opens an agent on another model continuing the thread's record, for `/model`; nil makes it
         /// unavailable.
-        public var openModel: (@Sendable (ModelSelection, ConversationStore) throws -> Agent)?
+        public var openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)?
         /// The session's call store, for `/stats`; nil makes the command unavailable.
         public var stats: CallStats?
         /// The `config.json` that `/config set` and `unset` change; nil makes them unavailable.
@@ -134,7 +134,7 @@ public struct ChatLoop {
             git: @escaping @Sendable (String) -> GitState.Summary = { _ in GitState.Summary() },
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
             models: (@Sendable (ModelSelection, [any Tool]) async -> [String])? = nil,
-            openModel: (@Sendable (ModelSelection, ConversationStore) throws -> Agent)? = nil, stats: CallStats? = nil,
+            openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)? = nil, stats: CallStats? = nil,
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,

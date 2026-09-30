@@ -16,7 +16,7 @@ public enum TemporalClass: String, Codable, Sendable, CaseIterable {
     public var scope: FactScope {
         switch self {
         case .permanent: .permanent
-        case .dynamic: .conversation
+        case .dynamic: .thread
         case .ephemeral: .session
         }
     }
@@ -26,16 +26,16 @@ public enum TemporalClass: String, Codable, Sendable, CaseIterable {
 public enum FactScope: String, Codable, Sendable, CaseIterable {
     /// The shared store under `~/.wisp`, across sessions (`PermanentFacts`).
     case permanent
-    /// The conversation's own store (`ConversationStore.facts`), saved with it.
-    case conversation
-    /// The session, shared by every conversation of one `wisp` process (`SessionFacts`).
+    /// The thread's own store (`ThreadRecord.facts`), saved with it.
+    case thread
+    /// The session, shared by every thread of one `wisp` process (`SessionFacts`).
     case session
 
     /// The letter a fact id starts with in this scope, so an id names its store: `p3`, `c12`, `s1`.
     public var prefix: String {
         switch self {
         case .permanent: "p"
-        case .conversation: "c"
+        case .thread: "c"
         case .session: "s"
         }
     }
@@ -73,7 +73,7 @@ public enum FactMethod: String, Codable, Sendable {
     case distilled
 }
 
-/// What a fact is about: `{scope, subject, name}`, such as `{conversation, tests, swift test}` (D2).
+/// What a fact is about: `{scope, subject, name}`, such as `{thread, tests, swift test}` (D2).
 public struct FactIdentity: Hashable, Codable, Sendable {
     /// Where it is held.
     public var scope: FactScope
@@ -139,7 +139,7 @@ public struct Fact: Codable, Sendable, Equatable, Identifiable {
     /// Where exactly: the tool for an extracted fact (`run_command`), who spoke for a distilled one
     /// (`the person said`, `the model concluded`); nil when there is nothing to add.
     public var detail: String?
-    /// The conversation store entries it came from, by id; empty for a stated fact.
+    /// The thread record entries it came from, by id; empty for a stated fact.
     public var entries: [Int]
     /// The audit events that recorded what it came from (D8), so it can be traced without the store.
     public var audit: [AuditReference]

@@ -110,7 +110,7 @@ import WispTestSupport
         // listed and movable though the new store numbers its facts from c1 again.
         let earlier = try propose(chat, "vendor", "Initech")
         chat.reset()
-        #expect(chat.conversationID == "chat.1")
+        #expect(chat.threadID == "chat.1")
         let fresh = try propose(chat, "vendor", "Umbrella")
         #expect(fresh.id == "c1")
         #expect(chat.proposalsElsewhere.map(\.reference).contains("chat/\(earlier.id)"))

@@ -265,7 +265,7 @@ import WispTestSupport
         #expect(tap.lastToolOutput == "full output")
     }
 
-    @Test func liveToolEventsReachTheChatNotesThroughTheConversation() async throws {
+    @Test func liveToolEventsReachTheChatNotesThroughTheThread() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-chat-events-\(UUID().uuidString)")
         let home = Home(root: root)
         try home.ensure()
@@ -275,13 +275,13 @@ import WispTestSupport
         let notes = Mutex<[String]>([])
         // The real conversation set-up with the tap observing; the model is scripted through a custom
         // agent over the same tools and audit, as the wire tests do.
-        let conversation = try Conversation.setUp(
+        let thread = try WispThread.setUp(
             session: session, audit: session.audit, approver: DenyingApprover(reason: "x"),
             prompting: session.prompting,
             toolNames: ["current_date"], model: .system, observer: tap)
         let agent = Agent(
-            instructions: "x", tools: conversation.tools,
-            model: ResolvedModel(selection: .system, custom: ScriptedModel()), audit: conversation.audit)
+            instructions: "x", tools: thread.tools,
+            model: ResolvedModel(selection: .system, custom: ScriptedModel()), audit: thread.audit)
         tap.onEvent { event in
             if let line = ChatEvents.render(event, style: .plain) { notes.withLock { $0.append(line) } }
         }

@@ -14,13 +14,13 @@ import WispTestSupport
     /// A server whose threads keep facts, opened as the faces open them, over a scripted model.
     private func server() throws -> WispServer {
         WispServer(session: try scratchSession()) { session, approver, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: .none, model: model)
-            let agent = try conversation.openAgent(
+            let agent = try thread.openAgent(
                 on: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok"), .say("ok")])))
             return OpenThread(
-                thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts, relay: conversation.relay)
+                thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts, relay: thread.relay)
         }
     }
 

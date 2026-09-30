@@ -67,7 +67,7 @@ import WispTestSupport
 
     /// The text of every tool output in `transcript`, in order.
     private func outputs(_ transcript: Transcript) -> [String] {
-        transcript.compactMap { if case .toolOutput = $0 { ConversationStore.text(of: $0) } else { nil } }
+        transcript.compactMap { if case .toolOutput = $0 { ThreadRecord.text(of: $0) } else { nil } }
     }
 
     @Test func anOutputIsWholeInItsTurnAndAReferenceFromTheNextAndIsAuditedOnce() async throws {
@@ -77,14 +77,14 @@ import WispTestSupport
         try home.ensure()
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "refs", approver: DenyingApprover(reason: "not in tests"), tools: .named(["read_file"]))
         let model = ScriptedModel(steps: [
             .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("It has forty lines."),
             .call(name: "read_file", arguments: #"{"path":"\#(small.path)"}"#), .say("tiny"), .say("third"),
             .say("fourth"),
         ])
-        let agent = try conversation.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
         _ = try await agent.respond(to: "Read \(file.path)")
         // Within the turn, the request after the call carries the output whole.
         let inTurn = try #require(model.script.requests.withLock { $0 }.last)
@@ -98,7 +98,7 @@ import WispTestSupport
         let requests = model.script.requests.withLock { $0 }
         let next = requests[2].transcript
         let carried = try #require(next.first { $0.id == output.value.id })
-        let reference = ConversationStore.text(of: carried)
+        let reference = ThreadRecord.text(of: carried)
         #expect(reference.hasPrefix("[output of entry \(output.id) not repeated: read_file at "))
         #expect(reference.contains(#"arguments: {"path": "\#(file.path)"}"#))
         #expect(reference.contains("41 lines") && reference.contains("last line: [end of file]"))
@@ -110,21 +110,21 @@ import WispTestSupport
         #expect(event.details["result"]?.stringValue == output.sources.first?.event)
         let bytes = try #require(event.details["bytes"]?.intValue)
         let referenceBytes = try #require(event.details["referenceBytes"]?.intValue)
-        #expect(bytes == ConversationStore.text(of: output.value).utf8.count && referenceBytes == reference.utf8.count)
+        #expect(bytes == ThreadRecord.text(of: output.value).utf8.count && referenceBytes == reference.utf8.count)
         #expect(event.details["tokens"] == .int((bytes - referenceBytes) / 4))
         // The tiny output is shorter than a reference, so it is always sent whole and never audited.
         _ = try await agent.respond(to: "third")
         let tiny = try #require(agent.store.entries.last { $0.kind == .toolOutput })
         #expect(tiny.referencedAt == nil)
-        #expect(outputs(agent.transcript).last == ConversationStore.text(of: tiny.value))
+        #expect(outputs(agent.transcript).last == ThreadRecord.text(of: tiny.value))
         #expect(sink.events.filter { $0.kind == .outputReferenced }.count == 1)
         // The store and the person keep the output whole.
-        #expect(ConversationStore.text(of: output.value).contains("line 40 of the overview"))
+        #expect(ThreadRecord.text(of: output.value).contains("line 40 of the overview"))
         // Saved and resumed, the store composes the same references and audits none again.
         let transcripts = TranscriptStore(directory: dir.appending(path: "transcripts"))
         try FileManager.default.createDirectory(at: transcripts.directory, withIntermediateDirectories: true)
         try transcripts.save(agent.store, as: "refs")
-        let saved = try transcripts.loadConversation("refs")
+        let saved = try transcripts.loadThread("refs")
         let resumedSink = MemoryAuditSink()
         let resumed = Agent(
             transcript: saved.transcript, tools: agent.tools,
@@ -159,7 +159,7 @@ import WispTestSupport
 
     /// A store of three turns: a read, a question, and a read after a condensation during turn 3 dropped
     /// turn 1.
-    private func history() -> ConversationStore {
+    private func history() -> ThreadRecord {
         let segment = { (text: String) in Transcript.Segment.text(.init(content: text)) }
         let call = { (id: String, path: String) in
             Transcript.Entry.toolCalls(
@@ -169,7 +169,7 @@ import WispTestSupport
                         arguments: (try? GeneratedContent(json: #"{"path":"\#(path)"}"#)) ?? GeneratedContent(""))
                 ]))
         }
-        var store = ConversationStore(
+        var store = ThreadRecord(
             carrying: Transcript(entries: [.instructions(.init(segments: [segment("x")], toolDefinitions: []))]))
         let turns: [[Transcript.Entry]] = [
             [

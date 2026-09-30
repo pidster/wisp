@@ -29,7 +29,7 @@ public struct TranscriptStore: Sendable {
         /// The transcript, as `load` returns it.
         public let transcript: Transcript
         /// The links to the audit log, checked to match the transcript.
-        public let links: ConversationStore.Snapshot
+        public let links: ThreadRecord.Snapshot
     }
 
     /// The directory holding `<name>.json` files.
@@ -72,7 +72,7 @@ public struct TranscriptStore: Sendable {
     /// (dropped entries included) beside it, both readable by the user only.
     ///
     /// - Throws: `Failure.invalidName` or file-system errors.
-    public func save(_ store: ConversationStore, as name: String) throws {
+    public func save(_ store: ThreadRecord, as name: String) throws {
         let file = try url(for: name)
         let links = try linksURL(for: name)
         try write(store.active, to: file)
@@ -91,11 +91,11 @@ public struct TranscriptStore: Sendable {
     /// links, or with ones that do not decode or do not match it, cannot be resumed.
     ///
     /// - Throws: As `load`, and `Failure.notResumable`.
-    public func loadConversation(_ name: String) throws -> Saved {
+    public func loadThread(_ name: String) throws -> Saved {
         let transcript = try load(name)
         let file = try linksURL(for: name)
         guard let data = try? Data(contentsOf: file),
-            let snapshot = try? JSONDecoder().decode(ConversationStore.Snapshot.self, from: data),
+            let snapshot = try? JSONDecoder().decode(ThreadRecord.Snapshot.self, from: data),
             snapshot.restored(over: transcript) != nil
         else { throw Failure.notResumable(name) }
         return Saved(transcript: transcript, links: snapshot)

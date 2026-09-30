@@ -2,9 +2,9 @@ import Testing
 
 @testable import WispMCP
 
-@Suite struct ThreadStoreTests {
+@Suite struct ThreadRegistryTests {
     @Test func createsFindsAndCloses() async throws {
-        let store = ThreadStore<String>(capacity: 4)
+        let store = ThreadRegistry<String>(capacity: 4)
         _ = try await store.create(id: "a") { "A" }
         #expect(await store.find("a") == "A")
         #expect(await store.find("b") == nil)
@@ -13,16 +13,16 @@ import Testing
     }
 
     @Test func rejectsDuplicateAndUnknownIds() async throws {
-        let store = ThreadStore<String>(capacity: 4)
+        let store = ThreadRegistry<String>(capacity: 4)
         _ = try await store.create(id: "a") { "A" }
-        await #expect(throws: ThreadStore<String>.Failure.alreadyExists("a")) {
+        await #expect(throws: ThreadRegistry<String>.Failure.alreadyExists("a")) {
             try await store.create(id: "a") { "A2" }
         }
-        await #expect(throws: ThreadStore<String>.Failure.notFound("zz")) { try await store.close("zz") }
+        await #expect(throws: ThreadRegistry<String>.Failure.notFound("zz")) { try await store.close("zz") }
     }
 
     @Test func evictsLeastRecentlyUsedAtCapacityAndReportsIt() async throws {
-        let store = ThreadStore<String>(capacity: 2)
+        let store = ThreadRegistry<String>(capacity: 2)
         #expect(try await store.create(id: "a") { "A" }.evicted == nil)
         _ = try await store.create(id: "b") { "B" }
         _ = await store.find("a")  // b is now least recently used
@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func findOrCreateIsIdempotentForOneId() async throws {
-        let store = ThreadStore<String>(capacity: 4)
+        let store = ThreadRegistry<String>(capacity: 4)
         let first = try await store.findOrCreate(id: "x") { "X1" }
         let second = try await store.findOrCreate(id: "x") { "X2" }
         #expect(first.created && first.thread == "X1")
@@ -42,7 +42,7 @@ import Testing
 
     @Test func factoryErrorsDoNotStoreAThread() async {
         struct Boom: Error {}
-        let store = ThreadStore<String>(capacity: 2)
+        let store = ThreadRegistry<String>(capacity: 2)
         await #expect(throws: Boom.self) { try await store.create(id: "a") { throw Boom() } }
         #expect(await store.ids.isEmpty)
     }

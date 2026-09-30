@@ -5,7 +5,7 @@ import WispTestSupport
 
 @testable import WispCore
 
-/// Saving a conversation's store beside its transcript, and resuming with the links intact.
+/// Saving a thread's record beside its transcript, and resuming with the links intact.
 @Suite struct SavedStoreTests {
     private func scratch() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-saved-\(UUID().uuidString)")
@@ -61,7 +61,7 @@ import WispTestSupport
         let store = TranscriptStore(directory: dir)
         let agent = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(agent.store, as: "chat")
-        let saved = try store.loadConversation("chat")
+        let saved = try store.loadThread("chat")
         let links = saved.links
         let (resumed, _) = resume(saved)
         // Every entry keeps its id, kind, turn, state, and sources; a turn's entries become `resumed`.
@@ -79,7 +79,7 @@ import WispTestSupport
         #expect(resumed.transcript.map(\.id) == saved.transcript.map(\.id))
         // Saved again, the links are the same.
         try store.save(resumed.store, as: "again")
-        let again = try store.loadConversation("again").links
+        let again = try store.loadThread("again").links
         #expect(again.sessions == links.sessions && again.entries.map(\.sources) == links.entries.map(\.sources))
         #expect(again.entries.map(\.origin).allSatisfy { $0 != .turn })
     }
@@ -90,7 +90,7 @@ import WispTestSupport
         let store = TranscriptStore(directory: dir)
         let agent = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(agent.store, as: "chat")
-        let linked = try store.loadConversation("chat")
+        let linked = try store.loadThread("chat")
         var requests: [Data] = []
         for withLinks in [true, false] {
             let saved = linked
@@ -113,14 +113,14 @@ import WispTestSupport
         // Saving the transcript alone drops links a previous save left.
         try store.save(agent.transcript, as: "chat")
         #expect(!FileManager.default.fileExists(atPath: try store.linksURL(for: "chat").path))
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
         // The transcript itself still loads, and lists.
         #expect(try store.load("chat").map(\.id) == agent.transcript.map(\.id))
         #expect(try store.list() == ["chat"])
         #expect(
             TranscriptStore.Failure.notResumable("chat").description
                 == "transcript 'chat' was saved by an older wisp and cannot be resumed; start a new conversation")
-        #expect(throws: TranscriptStore.Failure.notFound("nope")) { try store.loadConversation("nope") }
+        #expect(throws: TranscriptStore.Failure.notFound("nope")) { try store.loadThread("nope") }
     }
 
     @Test func aCorruptOrMismatchedStoreFileCannotBeResumed() async throws {
@@ -133,17 +133,17 @@ import WispTestSupport
         let good = try Data(contentsOf: links)
         // Not JSON at all.
         try Data("{ nope".utf8).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
         // Links of another conversation: valid JSON that names entries the transcript does not have.
         let other = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(other.store, as: "other")
         try Data(contentsOf: store.linksURL(for: "other")).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
         // A future version this build cannot read.
-        var future = try JSONDecoder().decode(ConversationStore.Snapshot.self, from: good)
+        var future = try JSONDecoder().decode(ThreadRecord.Snapshot.self, from: good)
         future.version = 99
         try JSONEncoder().encode(future).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadConversation("chat") }
+        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
         // The agent itself also carries the transcript alone when handed links that do not match.
         let (resumed, _) = resume(TranscriptStore.Saved(transcript: agent.transcript, links: future))
         #expect(resumed.store.entries.allSatisfy { $0.origin == .carried })

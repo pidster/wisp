@@ -14,14 +14,14 @@ import WispTestSupport
     private func server(steps: [ScriptedModel.Step]) throws -> WispServer {
         let session = try scratchSession()
         return WispServer(session: session) { session, approver, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             // The faces' own path, so the agent keeps facts as the config says and links its tool events.
-            let agent = try conversation.openAgent(
+            let agent = try thread.openAgent(
                 on: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)))
             return OpenThread(
-                thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts, relay: conversation.relay)
+                thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts, relay: thread.relay)
         }
     }
 
@@ -81,14 +81,14 @@ import WispTestSupport
     @Test func aThreadWithoutFactsRefusesATask() async throws {
         let session = try scratchSession()
         let server = WispServer(session: session) { session, approver, id, _, _, _ in
-            let conversation = try session.conversation(id: id, approver: approver, tools: .none)
+            let thread = try session.thread(id: id, approver: approver, tools: .none)
             return OpenThread(
-                thread: ConversationThread(
+                thread: ThreadActor(
                     id: id,
                     agent: Agent(
                         instructions: "x", tools: [],
                         model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok")])))),
-                gate: conversation.gate, audit: conversation.audit)
+                gate: thread.gate, audit: thread.audit)
         }
         let result = try await server.call(
             .init(name: "respond", arguments: ["prompt": "hi", "thread_id": "plain", "task": "a task"]))

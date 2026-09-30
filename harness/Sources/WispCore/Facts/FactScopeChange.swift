@@ -17,7 +17,7 @@ public enum FactTarget: String, Sendable, Equatable, CaseIterable {
     public var scope: FactScope {
         switch self {
         case .permanent: .permanent
-        case .thread: .conversation
+        case .thread: .thread
         case .session: .session
         }
     }
@@ -36,7 +36,7 @@ public enum FactTarget: String, Sendable, Equatable, CaseIterable {
     public init(holding fact: Fact) {
         switch fact.identity.scope {
         case .permanent: self = .permanent
-        case .conversation: self = .thread
+        case .thread: self = .thread
         case .session: self = .session
         }
     }
@@ -66,14 +66,14 @@ extension Agent {
         syncProposals()
         var local = id
         var elsewhere: FactProposal?
-        if let (conversation, fact) = FactProposal.parse(id) {
-            if conversation == conversationID {
+        if let (thread, fact) = FactProposal.parse(id) {
+            if thread == threadID {
                 local = fact
             } else {
                 guard let proposal = facts.proposals.proposal(id), proposal.status == .awaiting else {
                     throw .noSuchProposal(id)
                 }
-                guard target != .thread else { throw .otherConversation(id) }
+                guard target != .thread else { throw .otherThread(id) }
                 elsewhere = proposal
             }
         }
@@ -83,7 +83,7 @@ extension Agent {
         } else {
             let found: Fact? =
                 switch local.first {
-                case FactScope.conversation.prefix.first: store.facts.fact(local)
+                case FactScope.thread.prefix.first: store.facts.fact(local)
                 case FactScope.session.prefix.first: facts.session.facts.first { $0.id == local }
                 case FactScope.permanent.prefix.first: facts.permanent.facts.first { $0.id == local }
                 default: nil
@@ -94,7 +94,7 @@ extension Agent {
         if FactTarget(holding: before) == target, !before.proposed { throw .alreadyThere(id, target) }
 
         let after: Fact
-        if elsewhere == nil, target == .thread, before.identity.scope == .conversation {
+        if elsewhere == nil, target == .thread, before.identity.scope == .thread {
             guard let changed = store.facts.retarget(local, to: target.temporalClass) else { throw .noSuchFact(local) }
             after = changed
         } else {
@@ -111,7 +111,7 @@ extension Agent {
                     facts.proposals.markMoved(elsewhere.reference, admitted: after.id)
                 } else {
                     switch before.identity.scope {
-                    case .conversation: store.facts.supersede(local, by: after.id)
+                    case .thread: store.facts.supersede(local, by: after.id)
                     case .session: try facts.session.supersede(local, by: after.id)
                     case .permanent: try facts.permanent.supersede(local, by: after.id)
                     }
@@ -122,7 +122,7 @@ extension Agent {
         }
         let details = AuditEvent.Details.factScopeChanged(named: id, before: before, after: after, to: target, by: by)
         audit?.record(.factScopeChanged, details: details)
-        if let elsewhere, let owner = facts.proposals.audit(elsewhere.conversation), owner !== audit {
+        if let elsewhere, let owner = facts.proposals.audit(elsewhere.threadID), owner !== audit {
             owner.record(.factScopeChanged, details: details)
         }
         if after.id != before.id {

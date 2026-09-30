@@ -1,7 +1,7 @@
 import Foundation
 import FoundationModels
 
-extension ConversationStore {
+extension ThreadRecord {
     /// The store as saved beside a transcript (`TranscriptStore.save(_:as:)`): every entry's kind, origin,
     /// turn, state, audit references, cuts, time, and the turns it was dropped or referenced from, in store
     /// order, so a resumed conversation keeps its entries connected to the events that recorded them and
@@ -74,12 +74,12 @@ extension ConversationStore {
         ///
         /// - Parameter transcript: The saved transcript, or the session's view of it.
         /// - Returns: The rebuilt store, or nil when the snapshot does not match.
-        func restored(over transcript: Transcript) -> ConversationStore? {
+        func restored(over transcript: Transcript) -> ThreadRecord? {
             guard version == Self.currentVersion else { return nil }
             let live = Array(transcript)
             var next = 0
             var seen: Set<String> = []
-            var rebuilt: [ConversationStore.Entry] = []
+            var rebuilt: [ThreadRecord.Entry] = []
             for (index, record) in entries.enumerated() {
                 guard record.id == index + 1, seen.insert(record.entryID).inserted else { return nil }
                 let value: Transcript.Entry
@@ -95,7 +95,7 @@ extension ConversationStore {
                 }
                 guard Kind(value) == record.kind else { return nil }
                 rebuilt.append(
-                    ConversationStore.Entry(
+                    ThreadRecord.Entry(
                         id: record.id, kind: record.kind, origin: record.origin == .turn ? .resumed : record.origin,
                         turn: record.turn, sources: record.sources,
                         state: record.active ? .active : .dropped(by: record.droppedBy), value: value,
@@ -103,8 +103,8 @@ extension ConversationStore {
                         droppedAt: record.active ? nil : 0, referencedAt: record.referencedAt.map { _ in 0 }))
             }
             guard next == live.count else { return nil }
-            var store = ConversationStore(entries: rebuilt)
-            if let facts, facts.scope == .conversation { store.facts = facts }
+            var store = ThreadRecord(entries: rebuilt)
+            if let facts, facts.scope == .thread { store.facts = facts }
             return store
         }
     }

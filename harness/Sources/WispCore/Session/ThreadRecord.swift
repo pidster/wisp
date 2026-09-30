@@ -1,7 +1,7 @@
 import Foundation
 import FoundationModels
 
-/// The stored view of one conversation: every entry it has had, once, in the order it happened, each under
+/// The stored view of one thread: every entry it has had, once, in the order it happened, each under
 /// a stable id ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), "Three
 /// views of one conversation").
 ///
@@ -20,7 +20,7 @@ import FoundationModels
 /// (`ContextComposer.compose(_:atTurn:)`). Facts and summaries (phase 4)
 /// will cite entries by `Entry.ID`, and `recall` will read their content back from the audit log through
 /// `sources`.
-public struct ConversationStore: Sendable {
+public struct ThreadRecord: Sendable {
     /// What an entry is, as the framework's transcript names it.
     public enum Kind: String, Codable, Sendable, Equatable {
         /// The instructions the session was created with, tool definitions included.
@@ -90,7 +90,7 @@ public struct ConversationStore: Sendable {
         /// The audit events that hold its content verbatim: a prompt's `prompt` event, a reply's `response`
         /// event, each tool call's `tool.call` event, a tool output's `tool.result` event. Empty when nothing
         /// recorded it: carried entries, text the model wrote before a tool call, and tool activity in an
-        /// agent not opened through a `Conversation` (which has no `ToolEventTrail`).
+        /// agent not opened through a `WispThread` (which has no `ToolEventTrail`).
         public let sources: [AuditReference]
         /// Whether requests carry it.
         public internal(set) var state: State
@@ -154,7 +154,7 @@ public struct ConversationStore: Sendable {
     private var known: Set<Transcript.Entry.ID> = []
     /// The conversation's facts (decision D2): its dynamic facts, and the permanent facts proposed in it and
     /// not yet approved. Saved with the store.
-    public internal(set) var facts = FactBook(scope: .conversation)
+    public internal(set) var facts = FactBook(scope: .thread)
     /// The facts each turn's requests carried, by turn, so the context of an earlier turn can be shown as it
     /// was sent; this session's turns only, and not saved.
     var frames: [Int: FactFrame] = [:]

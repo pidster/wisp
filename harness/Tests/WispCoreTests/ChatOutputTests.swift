@@ -86,13 +86,13 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .chat), home: home, dependencies: .testing(sink: sink))
         let tap = ChatEvents.Tap()
-        let conversation = try Conversation.setUp(
+        let thread = try WispThread.setUp(
             session: session, audit: session.audit, approver: DenyingApprover(reason: "not in tests"),
             prompting: session.prompting, toolNames: ["read_file"], model: .system, observer: tap)
         let model = ScriptedModel(steps: [
             .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("Thirty lines."), .say("ok"),
         ])
-        let agent = try conversation.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
         let capture = ChatLoopTests.Capture(lines: ["read \(file.path)", "/show", "/show 99", "/quit"])
         var context = ChatLoopTests.context
         context.shownOutputLines = 5
@@ -113,7 +113,7 @@ import WispTestSupport
     }
 
     @Test func showFindsAnOutputByEntryOrEventID() {
-        var store = ConversationStore()
+        var store = ThreadRecord()
         store.record(
             .toolOutput(.init(id: "o1", toolName: "read_file", segments: [.text(.init(content: "first"))])),
             origin: .turn, turn: 1, sources: [AuditReference(session: "s", turn: 1, event: "abcdef0123456789")])
@@ -127,6 +127,6 @@ import WispTestSupport
         #expect(ChatEvents.output("7", in: store, last: nil) == nil)
         #expect(ChatEvents.output(nil, in: store, last: nil) == "second")
         #expect(ChatEvents.output(nil, in: store, last: "live") == "live")
-        #expect(ChatEvents.output(nil, in: ConversationStore(), last: nil) == nil)
+        #expect(ChatEvents.output(nil, in: ThreadRecord(), last: nil) == nil)
     }
 }

@@ -54,7 +54,7 @@ import WispTestSupport
             agent.store.facts.fact("c1")?.state == .superseded && agent.store.facts.fact("c1")?.supersededBy == "s1")
         // session -> thread
         let owned = try agent.setFactScope("s1", to: .thread)
-        #expect(owned.id == "c2" && owned.identity.scope == .conversation && owned.temporalClass == .dynamic)
+        #expect(owned.id == "c2" && owned.identity.scope == .thread && owned.temporalClass == .dynamic)
         #expect(agent.facts?.session.current.isEmpty == true)
         // thread -> permanent: the shared store holds it as the person's, and it ranks with the person.
         let kept = try agent.setFactScope("c2", to: .permanent)
@@ -70,7 +70,7 @@ import WispTestSupport
         #expect(again.id == "p2" && agent.facts?.permanent.current.map(\.id) == ["p2"])
         // permanent -> thread: out of the shared store into the conversation doing the move.
         let home = try agent.setFactScope("p2", to: .thread)
-        #expect(home.id == "c3" && home.identity.scope == .conversation && home.temporalClass == .dynamic)
+        #expect(home.id == "c3" && home.identity.scope == .thread && home.temporalClass == .dynamic)
         #expect(agent.facts?.permanent.current.isEmpty == true && agent.fact("c3")?.state == .current)
         // The audit says what moved, from where to where, and by whom.
         let changes = sink.events.filter { $0.kind == .factScopeChanged }
@@ -175,7 +175,7 @@ import WispTestSupport
         #expect(FactReport.newFacts([]) == nil)
         func fact(_ id: String, _ name: String, _ value: String, _ source: FactSource = .model) -> Fact {
             Fact(
-                id: id, identity: FactIdentity(scope: .conversation, subject: "entity", name: name), source: source,
+                id: id, identity: FactIdentity(scope: .thread, subject: "entity", name: name), source: source,
                 version: 1, value: value, temporalClass: .permanent, method: .distilled, entries: [], audit: [],
                 recorded: Date(), state: .current)
         }

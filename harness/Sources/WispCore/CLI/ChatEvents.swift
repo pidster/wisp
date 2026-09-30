@@ -111,22 +111,22 @@ public enum ChatEvents {
     ///
     /// - Parameters:
     ///   - argument: What follows `/show`.
-    ///   - store: The conversation's store.
+    ///   - store: The thread's record.
     ///   - last: The last tool result chat saw, which a turn not yet stored may hold.
     /// - Returns: The output, or nil.
-    public static func output(_ argument: String?, in store: ConversationStore, last: String?) -> String? {
+    public static func output(_ argument: String?, in store: ThreadRecord, last: String?) -> String? {
         let outputs = store.entries.filter { $0.kind == .toolOutput }
         guard let argument, !argument.isEmpty else {
-            return last ?? outputs.last.map { ConversationStore.text(of: $0.value) }
+            return last ?? outputs.last.map { ThreadRecord.text(of: $0.value) }
         }
         if let id = Int(argument) {
-            return outputs.first { $0.id == id }.map { ConversationStore.text(of: $0.value) }
+            return outputs.first { $0.id == id }.map { ThreadRecord.text(of: $0.value) }
         }
         let prefix = argument.lowercased()
         guard prefix.count >= 4 else { return nil }
         let found = outputs.filter { $0.sources.contains { $0.event.hasPrefix(prefix) } }
         guard found.count == 1, let entry = found.first else { return nil }
-        return ConversationStore.text(of: entry.value)
+        return ThreadRecord.text(of: entry.value)
     }
 
     /// The line a caller waiting on an MCP call is shown for `event` as progress: what chat shows,

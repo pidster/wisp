@@ -48,14 +48,14 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try scratchSession(dependencies: .testing(sink: sink))
         let server = WispServer(session: session) { session, approver, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: .none, model: model)
-            let agent = try conversation.openAgent(
+            let agent = try thread.openAgent(
                 on: ResolvedModel(
                     selection: .system, custom: ScriptedModel(steps: Array(repeating: .say("ok"), count: 6))))
             return OpenThread(
-                thread: ProposingThread(agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts, relay: conversation.relay)
+                thread: ProposingThread(agent: agent), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts, relay: thread.relay)
         }
         let transports = await InMemoryTransport.createConnectedPair()
         try await server.serve(transport: transports.server)

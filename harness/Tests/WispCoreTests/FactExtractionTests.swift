@@ -26,7 +26,7 @@ import Testing
             "exit status: 1\nstdout:\nerror: 2 tests failed")
         #expect(Self.facts([failing]) == ["workdir  = /work/repo", "tests swift test = failed (exit status 1)"])
         // The same command passing supersedes the failure in a book: CI failing, then green.
-        var book = FactBook(scope: .conversation)
+        var book = FactBook(scope: .thread)
         let first = FactExtraction.assertions(from: [failing], kinds: .defaults, turn: 3)
         for assertion in first { book.record(assertion) }
         var passing = failing

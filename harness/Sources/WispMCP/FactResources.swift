@@ -77,7 +77,7 @@ extension WispServer {
             throw MCPError.invalidParams("thread \(id) keeps no facts (facts.enabled is false)")
         }
         let view = FactView(seen)
-        let own = seen.filter { $0.identity.scope == .conversation }
+        let own = seen.filter { $0.identity.scope == .thread }
         let base = ToolCatalog.threadURI(id) + "/facts"
         if let fact {
             guard own.contains(where: { $0.id == fact }) else {
@@ -163,11 +163,11 @@ extension WispServer {
         let view = FactView([])
         let rows = session.factProposals.awaiting.map { proposal -> JSONValue in
             var row = FactReport.json(proposal.fact, view: view).objectValue ?? [:]
-            row["thread_id"] = .string(proposal.conversation)
+            row["thread_id"] = .string(proposal.threadID)
             row["reference"] = .string(proposal.reference)
             row["uri"] =
-                directory.record(proposal.conversation) == nil
-                ? .null : .string("\(ToolCatalog.threadURI(proposal.conversation))/facts/\(proposal.fact.id)")
+                directory.record(proposal.threadID) == nil
+                ? .null : .string("\(ToolCatalog.threadURI(proposal.threadID))/facts/\(proposal.fact.id)")
             return .object(row)
         }
         return try Self.paged(rows, page: page, base: ToolCatalog.proposedFactsResourceURI, key: "facts")

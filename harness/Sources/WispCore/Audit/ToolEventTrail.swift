@@ -2,8 +2,8 @@ import Synchronization
 
 /// Keeps a conversation's recent `tool.call` and `tool.result` events in memory, so the agent can link
 /// the tool calls and outputs of a turn's transcript to the audit events that recorded them
-/// (`ConversationStore`). The tools record their own events, which the agent never sees; a conversation
-/// adds this sink to its audit log (`Conversation.setUp`) and hands it to the agent.
+/// (`ThreadRecord`). The tools record their own events, which the agent never sees; a conversation
+/// adds this sink to its audit log (`WispThread.setUp`) and hands it to the agent.
 ///
 /// Bounded: only the newest `capacity` events are kept, and taking a turn's events forgets that turn and
 /// everything older.

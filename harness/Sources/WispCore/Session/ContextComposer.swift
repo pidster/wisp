@@ -1,7 +1,7 @@
 import Foundation
 import FoundationModels
 
-/// Builds each request's transcript from a conversation's store, within the model's window
+/// Builds each request's transcript from a thread's record, within the model's window
 /// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), "What changes in
 /// wisp").
 ///
@@ -55,7 +55,7 @@ public struct ContextComposer: Sendable {
         /// The reply's store id.
         let entry: Int
         /// Where, and which output.
-        let cut: ConversationStore.Cut
+        let cut: ThreadRecord.Cut
         /// The audit event that recorded the reply, when it was linked.
         let response: AuditReference?
         /// The `tool.result` event that recorded the output, when it was linked.
@@ -79,7 +79,7 @@ public struct ContextComposer: Sendable {
     /// the composed turn's own.
     public struct Composed: Sendable {
         /// The stored entry.
-        public let entry: ConversationStore.Entry
+        public let entry: ThreadRecord.Entry
         /// What the request carries: the entry, a reply with its cuts, or a tool output's reference.
         public let sent: Transcript.Entry
         /// Whether it was added during the composed turn, by its tool loop.
@@ -99,18 +99,18 @@ public struct ContextComposer: Sendable {
     /// cuts and each tool output as a reference, as the switches say. Every stored turn is over when this
     /// is called (a turn's entries are stored when it ends), so every stored output is referenced.
     ///
-    /// - Parameter store: The conversation's store.
+    /// - Parameter store: The thread's record.
     /// - Returns: The transcript.
-    public func compose(_ store: ConversationStore) -> Transcript {
+    public func compose(_ store: ThreadRecord) -> Transcript {
         guard !facts.isEmpty else { return literal(store) }
         return Transcript(entries: composition(store, atTurn: nil).map(\.sent))
     }
 
     /// The literal turns the next request carries, without the facts: what condensing counts and cuts.
     ///
-    /// - Parameter store: The conversation's store.
+    /// - Parameter store: The thread's record.
     /// - Returns: The transcript.
-    func literal(_ store: ConversationStore) -> Transcript {
+    func literal(_ store: ThreadRecord) -> Transcript {
         guard cutsPresentation || referencesOutput else { return store.active }
         return Transcript(entries: literalComposition(store, atTurn: nil).map(\.sent))
     }
@@ -123,10 +123,10 @@ public struct ContextComposer: Sendable {
     ///
     /// - Parameters:
     ///   - view: The facts in force.
-    ///   - store: The conversation's store, whose active entries the literal turns carry.
+    ///   - store: The thread's record, whose active entries the literal turns carry.
     ///   - window: The model's context window, in tokens.
     /// - Returns: The frame.
-    func factFrame(_ view: FactView, store: ConversationStore, window: Int) -> FactFrame {
+    func factFrame(_ view: FactView, store: ThreadRecord, window: Int) -> FactFrame {
         let active = Set(store.entries.filter { $0.state == .active }.map(\.id))
         let budget = max(Self.factsFloorBytes, Int(Double(window) * factsShare) * Self.bytesPerToken)
         return FactComposition.frame(view, active: active, budgetBytes: budget)
@@ -135,10 +135,10 @@ public struct ContextComposer: Sendable {
     /// The context composed for the start of `turn`, rebuilt from the store (`composition(_:atTurn:)`).
     ///
     /// - Parameters:
-    ///   - store: The conversation's store.
+    ///   - store: The thread's record.
     ///   - turn: The turn, in the store's session's numbering.
     /// - Returns: The transcript, and how many of its entries are the turn's own, at its end.
-    func compose(_ store: ConversationStore, atTurn turn: Int) -> (transcript: Transcript, own: Int) {
+    func compose(_ store: ThreadRecord, atTurn turn: Int) -> (transcript: Transcript, own: Int) {
         let composed = composition(store, atTurn: turn)
         return (Transcript(entries: composed.map(\.sent)), composed.filter(\.own).count)
     }
@@ -152,17 +152,17 @@ public struct ContextComposer: Sendable {
     /// happens ahead of the request, or before its retry.
     ///
     /// - Parameters:
-    ///   - store: The conversation's store.
+    ///   - store: The thread's record.
     ///   - turn: The turn, in the store's session's numbering; nil for the next request.
     /// - Returns: The entries, in order.
-    public func composition(_ store: ConversationStore, atTurn turn: Int?) -> [Composed] {
+    public func composition(_ store: ThreadRecord, atTurn turn: Int?) -> [Composed] {
         let literal = literalComposition(store, atTurn: turn)
         let frame = turn.map { store.frames[$0] ?? .empty } ?? facts
         guard !frame.isEmpty else { return literal }
         let (earlier, now) = frame.entries
         func composed(_ value: Transcript.Entry) -> Composed {
             Composed(
-                entry: ConversationStore.Entry(
+                entry: ThreadRecord.Entry(
                     id: 0, kind: .facts, origin: .carried, turn: nil, sources: [], state: .active, value: value),
                 sent: value, own: false)
         }
@@ -180,10 +180,10 @@ public struct ContextComposer: Sendable {
     /// `composition(_:atTurn:)` without the facts: the literal turns alone.
     ///
     /// - Parameters:
-    ///   - store: The conversation's store.
+    ///   - store: The thread's record.
     ///   - turn: The turn, in the store's session's numbering; nil for the next request.
     /// - Returns: The entries, in order.
-    func literalComposition(_ store: ConversationStore, atTurn turn: Int?) -> [Composed] {
+    func literalComposition(_ store: ThreadRecord, atTurn turn: Int?) -> [Composed] {
         let calls = referencesOutput ? store.calls : [:]
         guard let turn else {
             return store.entries.filter { $0.state == .active }.map {
@@ -210,11 +210,11 @@ public struct ContextComposer: Sendable {
     ///
     /// - Parameters:
     ///   - entry: The stored entry.
-    ///   - calls: The store's calls by output id (`ConversationStore.calls`).
+    ///   - calls: The store's calls by output id (`ThreadRecord.calls`).
     ///   - whole: Whether a tool output goes whole.
     /// - Returns: The entry to send, under the same id.
     func rendered(
-        _ entry: ConversationStore.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool
+        _ entry: ThreadRecord.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool
     ) -> Transcript.Entry {
         switch entry.value {
         case .response:
@@ -236,11 +236,11 @@ public struct ContextComposer: Sendable {
     ///
     /// - Parameters:
     ///   - entry: The stored entry.
-    ///   - calls: The store's calls by output id (`ConversationStore.calls`).
+    ///   - calls: The store's calls by output id (`ThreadRecord.calls`).
     /// - Returns: The reference's text, or nil.
-    func reference(for entry: ConversationStore.Entry, calls: [String: (tool: String, arguments: String)]) -> String? {
+    func reference(for entry: ThreadRecord.Entry, calls: [String: (tool: String, arguments: String)]) -> String? {
         guard case .toolOutput(let output) = entry.value else { return nil }
-        let text = ConversationStore.text(of: entry.value)
+        let text = ThreadRecord.text(of: entry.value)
         let reference = OutputReference.text(
             tool: output.toolName, entry: entry.id, time: entry.time, arguments: calls[output.id]?.arguments,
             output: text, timeZone: timeZone)
@@ -265,9 +265,9 @@ public struct ContextComposer: Sendable {
     /// one, since each was stored at the end of an earlier turn, except those no longer than their
     /// reference. None when `referencesOutput` is off.
     ///
-    /// - Parameter store: The conversation's store.
+    /// - Parameter store: The thread's record.
     /// - Returns: The outputs, in store order.
-    func newReferences(in store: ConversationStore) -> [Referencing] {
+    func newReferences(in store: ThreadRecord) -> [Referencing] {
         guard referencesOutput else { return [] }
         let calls = store.calls
         return store.entries.compactMap { entry in
@@ -276,7 +276,7 @@ public struct ContextComposer: Sendable {
             else { return nil }
             return Referencing(
                 entry: entry.id, tool: output.toolName, result: entry.sources.first,
-                bytes: ConversationStore.text(of: entry.value).utf8.count, referenceBytes: reference.utf8.count)
+                bytes: ThreadRecord.text(of: entry.value).utf8.count, referenceBytes: reference.utf8.count)
         }
     }
 
@@ -284,15 +284,15 @@ public struct ContextComposer: Sendable {
     /// one of that turn's tool outputs, by `Presentation.spans`. None when `cutsPresentation` is off.
     ///
     /// - Parameters:
-    ///   - store: The conversation's store, with the turn's entries recorded.
+    ///   - store: The thread's record, with the turn's entries recorded.
     ///   - turn: The turn whose replies are judged.
     /// - Returns: The cuts, in store order.
-    func presentation(in store: ConversationStore, turn: Int) -> [PresentationCut] {
+    func presentation(in store: ThreadRecord, turn: Int) -> [PresentationCut] {
         guard cutsPresentation else { return [] }
         let mine = store.entries.filter { $0.origin == .turn && $0.turn == turn }
         let outputs = mine.filter { $0.kind == .toolOutput }
         guard !outputs.isEmpty else { return [] }
-        let texts = outputs.map { ConversationStore.text(of: $0.value) }
+        let texts = outputs.map { ThreadRecord.text(of: $0.value) }
         var found: [PresentationCut] = []
         for entry in mine where entry.kind == .response {
             guard case .response(let response) = entry.value else { continue }
@@ -302,7 +302,7 @@ public struct ContextComposer: Sendable {
                     let output = outputs[span.output]
                     var tool = "tool"
                     if case .toolOutput(let value) = output.value { tool = value.toolName }
-                    let cut = ConversationStore.Cut(
+                    let cut = ThreadRecord.Cut(
                         segment: index, start: span.range.lowerBound, end: span.range.upperBound, output: output.id,
                         tool: tool)
                     found.append(
@@ -327,11 +327,11 @@ public struct ContextComposer: Sendable {
     ///
     /// - Parameters:
     ///   - prompt: The prompt about to be sent.
-    ///   - store: The conversation's store.
+    ///   - store: The thread's record.
     ///   - used: Tokens the active view occupies: the last request's reported usage, or the model's count.
     ///   - window: The model's context window.
     /// - Returns: The condensation to apply, or nil.
-    func ahead(of prompt: String, in store: ConversationStore, used: Int, window: Int) -> Condensation? {
+    func ahead(of prompt: String, in store: ThreadRecord, used: Int, window: Int) -> Condensation? {
         guard case .condense(let keepTurns) = policy, used > 0 else { return nil }
         let estimate = used + prompt.utf8.count / Self.bytesPerToken
         guard Double(estimate) >= Double(window) * budget else { return nil }
@@ -344,9 +344,9 @@ public struct ContextComposer: Sendable {
     /// Condensing after the window overflowed, to retry the prompt once; nil under `.failFast`. It applies
     /// even when no turn would go, since it also sheds the failed attempt, as a rebuilt session always did.
     ///
-    /// - Parameter store: The conversation's store, as it was before the failed prompt.
+    /// - Parameter store: The thread's record, as it was before the failed prompt.
     /// - Returns: The condensation to apply, or nil.
-    func overflow(in store: ConversationStore) -> Condensation? {
+    func overflow(in store: ThreadRecord) -> Condensation? {
         guard case .condense(let keepTurns) = policy else { return nil }
         let before = literal(store)
         return Condensation(before: before, after: before.condensed(keepTurns: keepTurns), estimate: nil)

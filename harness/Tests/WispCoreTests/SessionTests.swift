@@ -122,22 +122,22 @@ import Testing
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home.root) }
         let (session, sink) = try begin(.init(entryPoint: .respond, autoApprove: true), home: home)
-        let conversation = try session.conversation(id: "t", approver: DenyingApprover(reason: "must not be asked"))
-        try await conversation.gate.clear(command: "rm -rf build", workingDirectory: home.root.path)
+        let thread = try session.thread(id: "t", approver: DenyingApprover(reason: "must not be asked"))
+        try await thread.gate.clear(command: "rm -rf build", workingDirectory: home.root.path)
         #expect(sink.events.last?.details["decision"] == "approved")
     }
 
-    @Test func aThreadConversationRecordsItsOwnSessionStart() throws {
+    @Test func aThreadRecordsItsOwnSessionStart() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home.root) }
         let (session, sink) = try begin(.init(entryPoint: .mcp, unsafe: true), home: home)
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "thread-1", approver: DenyingApprover(reason: "x"), instructions: "be brief",
             tools: .named(["read_file"]),
             model: .privateCloud)
-        #expect(conversation.prompting.instructions == "be brief")
-        #expect(conversation.model == .privateCloud)
-        #expect(conversation.tools.map(\.name) == ["read_file"])
+        #expect(thread.prompting.instructions == "be brief")
+        #expect(thread.model == .privateCloud)
+        #expect(thread.tools.map(\.name) == ["read_file"])
         let start = sink.events.last
         #expect(start?.kind == .sessionStart)
         #expect(start?.session == "thread-1")

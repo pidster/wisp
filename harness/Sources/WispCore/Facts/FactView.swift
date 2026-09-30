@@ -142,7 +142,7 @@ enum FactComposition {
         var now: [FactView.Group] = []
         let permanent = view.groups.filter { $0.winner.identity.scope == .permanent }
         earlier += permanent
-        for group in view.groups where group.winner.identity.scope == .conversation {
+        for group in view.groups where group.winner.identity.scope == .thread {
             if group.key.subject == "task" {
                 now.append(group)
                 continue

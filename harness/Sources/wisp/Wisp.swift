@@ -192,11 +192,11 @@ extension Wisp {
     /// - Returns: The judge.
     /// - Throws: `Session.Failure` if the conversation cannot be set up.
     static func judge(session: Session, prefix: String, model: ModelSelection? = nil) throws -> Triage.Judge {
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "\(prefix)-" + ShortID.make(), approver: DenyingApprover(reason: "no commands run here"),
             tools: .none, model: model)
         let schema = try OutputSchema(json: ModelSweep.schemaJSON)
-        return { prompt in try await conversation.openAgent().respond(to: prompt, schema: schema).text }
+        return { prompt in try await thread.openAgent().respond(to: prompt, schema: schema).text }
     }
 
     /// A judge for the thorough pass of `wisp scan` and `wisp redact`: on the model named with
@@ -347,7 +347,7 @@ struct Chat: AsyncParsableCommand {
             Self.note("could not start \(frontEnd.path); continuing with the plain chat")
         }
         // Read before the session starts, so `session.start` can name the sessions the transcript links to.
-        let saved = try resume.map { name in try Wisp.usage { try store.loadConversation(name) } }
+        let saved = try resume.map { name in try Wisp.usage { try store.loadThread(name) } }
         let session = try Wisp.begin(
             try options.request(
                 entryPoint: .chat, autoApprove: yes, resume: resume, carriedFrom: saved?.links.sessions ?? []))
@@ -936,7 +936,7 @@ struct Draft: AsyncParsableCommand {
         let session = try Wisp.begin(
             .init(entryPoint: .draft, model: try model.map(Wisp.parseModel), autoApprove: yes))
         defer { session.end() }
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "draft-" + ShortID.make(), approver: TerminalApprover(style: .plain), tools: .none)
         let directory = FileManager.default.currentDirectoryPath
         let source: Triage.Source
@@ -948,7 +948,7 @@ struct Draft: AsyncParsableCommand {
         } else {
             source = .command("git diff --cached", workingDirectory: directory)
             let runner = CommandRunner(
-                options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
+                options: session.config.runner, audit: thread.audit, approval: thread.gate)
             captured = Triage.Captured(try await runner.run("git diff --cached", in: directory))
         }
         let summarySchema = try OutputSchema(json: DiffSummary.schemaJSON)
@@ -958,14 +958,14 @@ struct Draft: AsyncParsableCommand {
             explicit: try model.map(Wisp.parseModel), inputBytes: bytes, ladder: session.config.routingLadder,
             opens: { model in
                 do {
-                    _ = try conversation.openAgent(model: model)
+                    _ = try thread.openAgent(model: model)
                     return nil
                 } catch {
                     return "\(error)"
                 }
             })
         if let routed {
-            conversation.audit.record(
+            thread.audit.record(
                 .modelRouted,
                 details: AuditEvent.Details.modelRouted(
                     task: ChangeDraft.routingTask, inputBytes: bytes, decision: routed))
@@ -976,9 +976,9 @@ struct Draft: AsyncParsableCommand {
             let draft = try await ChangeDraft.draft(
                 kind, from: captured, source: source,
                 summarise: {
-                    try await conversation.openAgent(model: chosen).respond(to: $0, schema: summarySchema).text
+                    try await thread.openAgent(model: chosen).respond(to: $0, schema: summarySchema).text
                 },
-                write: { try await conversation.openAgent(model: chosen).respond(to: $0, schema: draftSchema).text })
+                write: { try await thread.openAgent(model: chosen).respond(to: $0, schema: draftSchema).text })
             print(draft.text)
         } catch let failure as ChangeDraft.Failure {
             throw ValidationError("\(failure)")
@@ -1036,15 +1036,15 @@ struct Watch: AsyncParsableCommand {
         let session = try Wisp.begin(
             .init(entryPoint: .watch, model: try model.map(Wisp.parseModel), autoApprove: yes))
         defer { session.end() }
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "watch-" + ShortID.make(), approver: TerminalApprover(style: .plain), tools: .none)
         let directory = directory ?? FileManager.default.currentDirectoryPath
         let source = Triage.Source.command(command, workingDirectory: directory)
         var runner = CommandRunner(
-            options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
+            options: session.config.runner, audit: thread.audit, approval: thread.gate)
         runner.options.maxOutputBytes = Triage.Options().maxOutputBytes
         let schema = try OutputSchema(json: Triage.schemaJSON)
-        let triage = Triage { prompt in try await conversation.openAgent().respond(to: prompt, schema: schema).text }
+        let triage = Triage { prompt in try await thread.openAgent().respond(to: prompt, schema: schema).text }
         // The command line never changes, so it is classified and approved once, here; every run after
         // still passes the policy and the sandbox and is audited.
         let authorized = try await runner.authorize(command, in: directory)
@@ -1081,14 +1081,14 @@ struct Watch: AsyncParsableCommand {
             options: .init(notify: notify, triage: !noTriage, maxRuns: maxRuns),
             execute: { Triage.Captured(try await authorized.run()) },
             triage: { captured in try await triage.run(captured, from: source).findings },
-            notify: { message in _ = session.notifier.post(message, source: .watch, audit: conversation.audit) },
+            notify: { message in _ = session.notifier.post(message, source: .watch, audit: thread.audit) },
             report: { run in
                 print("[\(Date().formatted(clock))] \(run.summary)")
                 for finding in run.findings ?? [] {
                     print("  \(finding.kind)  \(finding.location ?? "-")  \(finding.message)")
                 }
                 fflush(stdout)
-                conversation.audit.record(.watchRun, details: AuditEvent.Details.watchRun(run, command: command))
+                thread.audit.record(.watchRun, details: AuditEvent.Details.watchRun(run, command: command))
             }
         ).run(triggers)
     }

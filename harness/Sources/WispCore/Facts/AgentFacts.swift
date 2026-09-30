@@ -46,7 +46,7 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
     /// The fact is already where the person asked to move it.
     case alreadyThere(String, FactTarget)
     /// Another conversation's proposal cannot move into this conversation.
-    case otherConversation(String)
+    case otherThread(String)
     /// The value is empty.
     case emptyValue
     /// The shared store could not be written.
@@ -63,7 +63,7 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
         case .noSuchProposal(let reference):
             "no proposal \(reference) awaiting approval; /inspect facts lists those of other conversations"
         case .alreadyThere(let id, let target): "fact \(id) is already in scope \(target.rawValue)"
-        case .otherConversation(let id):
+        case .otherThread(let id):
             "\(id) is another conversation's proposal; it can be moved to permanent or session"
         case .emptyValue: "a fact needs a value"
         case .unwritable(let reason): reason
@@ -109,13 +109,13 @@ extension Agent {
 
     /// The conversation's name among the process's proposals: its audit session, which for an MCP thread is
     /// the `thread_id`, with `.N` after the Nth `reset` (chat's `/new`), whose store numbers its facts afresh.
-    public var conversationID: String { (audit?.session ?? "unaudited") + (generation == 0 ? "" : ".\(generation)") }
+    public var threadID: String { (audit?.session ?? "unaudited") + (generation == 0 ? "" : ".\(generation)") }
 
     /// The proposed permanent facts of the process's other conversations that await the person, oldest first.
     public var proposalsElsewhere: [FactProposal] {
         guard let facts else { return [] }
-        let own = conversationID
-        return facts.proposals.awaiting.filter { $0.conversation != own }
+        let own = threadID
+        return facts.proposals.awaiting.filter { $0.threadID != own }
     }
 
     /// Mirrors the conversation's current proposals into the process's registry, and marks superseded any that
@@ -124,7 +124,7 @@ extension Agent {
     public func syncProposals() {
         guard let facts else { return }
         let current = store.facts.current.filter(\.proposed)
-        let moved = facts.proposals.sync(conversation: conversationID, audit: audit, current: current)
+        let moved = facts.proposals.sync(thread: threadID, audit: audit, current: current)
         for (id, admitted) in moved { store.facts.supersede(id, by: admitted) }
     }
 
@@ -172,11 +172,11 @@ extension Agent {
         guard let facts else { return nil }
         var assertion = assertion
         if assertion.identity.scope == .permanent, assertion.source.rank < FactSource.person.rank {
-            assertion.identity.scope = .conversation
+            assertion.identity.scope = .thread
         }
         let change: FactBook.Change
         switch assertion.identity.scope {
-        case .conversation:
+        case .thread:
             change = store.facts.record(assertion)
             store.facts.trimHistory(to: SharedFacts.historyLimit)
         case .session:
@@ -228,7 +228,7 @@ extension Agent {
     ///   - leaving: The store entries a condensation is about to drop.
     ///   - staying: The entries it keeps, whose prompts the distiller reads for the latest values.
     nonisolated(nonsending) func distil(
-        _ leaving: [ConversationStore.Entry], staying: [ConversationStore.Entry] = []
+        _ leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry] = []
     )
         async
     {

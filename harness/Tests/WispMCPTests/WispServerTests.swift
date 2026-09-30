@@ -6,22 +6,22 @@ import WispTestSupport
 
 @testable import WispMCP
 
-/// A thread factory whose threads run a `ScriptedModel` through the real `ConversationThread` and
+/// A thread factory whose threads run a `ScriptedModel` through the real `ThreadActor` and
 /// `Agent`, so the server is tested over the same objects it uses in production, with no model. Each
 /// new thread says its id, then "again", then "done".
 func scriptedThreads(
     _ session: Session, _ approver: any Approver, _ id: String, _ instructions: String?, _ tools: ToolSelection,
     _ model: ModelSelection?
 ) throws -> OpenThread {
-    let conversation = try session.conversation(
+    let thread = try session.thread(
         id: id, approver: approver, instructions: instructions, tools: tools, model: model)
     let agent = Agent(
-        instructions: conversation.prompting.rendered, tools: conversation.tools,
+        instructions: thread.prompting.rendered, tools: thread.tools,
         model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("\(id):"), .say("again")])),
-        audit: conversation.audit)
+        audit: thread.audit)
     return OpenThread(
-        thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-        receipts: conversation.receipts)
+        thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+        receipts: thread.receipts)
 }
 
 /// A session over a scratch home, with a memory audit sink and a denying approver.
@@ -63,10 +63,10 @@ func scratchSession(
         }
         let session = try scratchSession()
         // Two threads opened from the same session share one store and one session-approval set.
-        let first = try session.conversation(id: "a", approver: Grant())
+        let first = try session.thread(id: "a", approver: Grant())
         try await first.gate.clear(command: "touch a", workingDirectory: "/repo")
         #expect(await session.store.find(pattern: "touch *", directory: "/repo")?.source == "mcp")
-        let second = try session.conversation(id: "b", approver: DenyingApprover(reason: "must not ask"))
+        let second = try session.thread(id: "b", approver: DenyingApprover(reason: "must not ask"))
         try await second.gate.clear(command: "touch b", workingDirectory: "/repo")
     }
 

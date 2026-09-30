@@ -67,8 +67,8 @@ import WispTestSupport
             stdout:
                  425 harness/Sources/WispCore/Session/Agent.swift
                   79 harness/Sources/WispCore/Session/ContextComposer.swift
-                 224 harness/Sources/WispCore/Session/ConversationStore.swift
-                 108 harness/Sources/WispCore/Session/ConversationStoreSnapshot.swift
+                 224 harness/Sources/WispCore/Session/ThreadRecord.swift
+                 108 harness/Sources/WispCore/Session/ThreadRecordSnapshot.swift
                  170 harness/Sources/WispCore/Session/Introspection.swift
                  463 harness/Sources/WispCore/Session/Session.swift
                 1469 total
@@ -80,8 +80,8 @@ import WispTestSupport
             | --- | --- |
             | 425 | harness/Sources/WispCore/Session/Agent.swift |
             | 79 | harness/Sources/WispCore/Session/ContextComposer.swift |
-            | 224 | harness/Sources/WispCore/Session/ConversationStore.swift |
-            | 108 | harness/Sources/WispCore/Session/ConversationStoreSnapshot.swift |
+            | 224 | harness/Sources/WispCore/Session/ThreadRecord.swift |
+            | 108 | harness/Sources/WispCore/Session/ThreadRecordSnapshot.swift |
             | 170 | harness/Sources/WispCore/Session/Introspection.swift |
             | 463 | harness/Sources/WispCore/Session/Session.swift |
             | 1469 | total |
@@ -102,8 +102,8 @@ import WispTestSupport
             stdout:
                  425 harness/Sources/WispCore/Session/Agent.swift
                   79 harness/Sources/WispCore/Session/ContextComposer.swift
-                 224 harness/Sources/WispCore/Session/ConversationStore.swift
-                 108 harness/Sources/WispCore/Session/ConversationStoreSnapshot.swift
+                 224 harness/Sources/WispCore/Session/ThreadRecord.swift
+                 108 harness/Sources/WispCore/Session/ThreadRecordSnapshot.swift
                  170 harness/Sources/WispCore/Session/Introspection.swift
                  463 harness/Sources/WispCore/Session/Session.swift
             """
@@ -112,8 +112,8 @@ import WispTestSupport
             | --- | --- |
             | Agent.swift | 425 |
             | ContextComposer.swift | 79 |
-            | ConversationStore.swift | 224 |
-            | ConversationStoreSnapshot.swift | 108 |
+            | ThreadRecord.swift | 224 |
+            | ThreadRecordSnapshot.swift | 108 |
             | Introspection.swift | 170 |
             | Session.swift | 463 |
             """
@@ -285,7 +285,7 @@ import WispTestSupport
     /// The text of the last response entry in `transcript`.
     private func lastReply(_ transcript: Transcript) -> String {
         guard let entry = transcript.last(where: { if case .response = $0 { true } else { false } }) else { return "" }
-        return ConversationStore.text(of: entry)
+        return ThreadRecord.text(of: entry)
     }
 
     @Test func theAgentCutsARetypedFileFromLaterRequestsAndAuditsTheCut() async throws {
@@ -295,18 +295,18 @@ import WispTestSupport
         try home.ensure()
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "show", approver: DenyingApprover(reason: "not in tests"), tools: .named(["read_file"]))
         let shown = "Here it is:\n\n```\n{tool}\n```\n\nTwo tables."
         let model = ScriptedModel(steps: [
             .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say(shown), .say("next"),
         ])
-        let agent = try conversation.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
         let reply = try await agent.respond(to: "Show me \(file.path)")
         // The person sees the reply whole, and the store keeps it whole.
         #expect(reply.text.contains("[profile.photos]") && reply.text.hasPrefix("Here it is:"))
         let stored = try #require(agent.store.entries.last { $0.kind == .response })
-        #expect(ConversationStore.text(of: stored.value) == reply.text)
+        #expect(ThreadRecord.text(of: stored.value) == reply.text)
         #expect(stored.cuts.count == 1)
         let output = try #require(agent.store.entries.last { $0.kind == .toolOutput })
         #expect(stored.cuts.first?.output == output.id && stored.cuts.first?.tool == "read_file")
@@ -334,7 +334,7 @@ import WispTestSupport
             at: dir.appending(path: "transcripts"), withIntermediateDirectories: true)
         let transcripts = TranscriptStore(directory: dir.appending(path: "transcripts"))
         try transcripts.save(agent.store, as: "show")
-        let saved = try transcripts.loadConversation("show")
+        let saved = try transcripts.loadThread("show")
         #expect(lastReply(saved.transcript) == "next")
         let resumed = Agent(
             transcript: saved.transcript, tools: agent.tools,
@@ -342,7 +342,7 @@ import WispTestSupport
         #expect(resumed.store.entries.first { $0.id == stored.id }?.cuts == stored.cuts)
         #expect(resumed.transcript.map(\.id) == agent.transcript.map(\.id))
         #expect(
-            resumed.transcript.map(ConversationStore.text(of:)) == agent.transcript.map(ConversationStore.text(of:)))
+            resumed.transcript.map(ThreadRecord.text(of:)) == agent.transcript.map(ThreadRecord.text(of:)))
     }
 
     @Test func withCuttingOffTheReplyIsSentAsStoredAndNothingIsAudited() async throws {
@@ -377,7 +377,7 @@ import WispTestSupport
             .prompt(.init(segments: [segment("again from memory")])),
             .response(.init(assetIDs: [], segments: [segment(PresentationTests.config)])),
         ]
-        var store = ConversationStore(carrying: Transcript(entries: [entries[0]]))
+        var store = ThreadRecord(carrying: Transcript(entries: [entries[0]]))
         for (index, entry) in entries.enumerated().dropFirst() {
             store.record(entry, origin: .turn, turn: index < 4 ? 1 : 2, sources: [])
         }
@@ -391,7 +391,7 @@ import WispTestSupport
         store.cut(4, found.map(\.cut))
         store.cut(99, found.map(\.cut))
         let composed = composer.compose(store)
-        #expect(ConversationStore.text(of: Array(composed)[3]) == "(showed the person the read_file output, entry 3)")
+        #expect(ThreadRecord.text(of: Array(composed)[3]) == "(showed the person the read_file output, entry 3)")
         #expect(Array(composed)[3].id == entries[3].id)
         #expect(store.active == Transcript(entries: entries))
         composer.cutsPresentation = false

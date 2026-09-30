@@ -1007,7 +1007,7 @@ go here as they arise.
    under "Evaluation" (on-device 0 of 6, granite at 8,192 1 of 6, granite with nothing dropped 6 of 6).
 2. The store and the composer, reproducing today's behaviour exactly (literal turns only), so the change
    of structure is proven before behaviour changes. Done 2026-09-29:
-   - `ConversationStore`: every entry once, in order, by a stable id, with its kind, origin, state
+   - `ThreadRecord`: every entry once, in order, by a stable id, with its kind, origin, state
      (active, or dropped by a named `context.condensation`), and references into the audit log.
    - Audit events gained an `id` for the store to point to (D8), so the store holds no second copy on
      disk. It keeps the framework's entries in memory as a cache of the conversation's own entries, so
@@ -1157,7 +1157,7 @@ go here as they arise.
      a record, each fact one line with its source in brackets and a note when another source disagrees,
      both within `factsShare` of the window (0.1, never below 1 KiB). `ContextEquivalenceTests` still
      matches the phase 2 snapshots without re-recording: an agent made directly keeps no facts, and the
-     one opened through `Conversation.openAgent` there has them switched off.
+     one opened through `WispThread.openAgent` there has them switched off.
    - **The eval** gained `FactsStrategy` and `budget-50` variants of it and of `ReferencingStrategy`;
      figures under "Evaluation", "Facts, 2026-09-30". At half the window, with one condensation that
      drops every early turn, facts took the on-device model from 1 to 5 of 6 and granite from 1 to 5.

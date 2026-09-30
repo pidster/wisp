@@ -22,7 +22,7 @@ the caller.
 
 ### The store and the composer
 
-`Agent` keeps each conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
+`Agent` keeps each conversation in a `ThreadRecord` and asks a `ContextComposer` for the transcript
 each request carries, rather than continuing one session and letting its transcript grow. This is phase 2
 of the [layered-context proposal](proposals/2026-09-29-layered-context.md): the structure the later phases
 build on, reproducing the behaviour below exactly. Phases 3 and 3b add output handling, below.
@@ -72,7 +72,7 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
   carried them. Chat's `/inspect context N`, `wisp-tui`'s context panel, and the MCP resource
   `wisp://threads/{thread_id}/context/{turn}` show it ([mcp.md](mcp.md), [wisp.md](wisp.md)).
 - **Linking tool entries.** The tools record their own events, which the agent does not see, so every
-  `Conversation` also tees its audit log into a `ToolEventTrail`. After each turn, succeeded or failed, the
+  `WispThread` also tees its audit log into a `ToolEventTrail`. After each turn, succeeded or failed, the
   agent stores the entries the session added and links each tool call to the latest `tool.call` event of
   the same tool and arguments, and each output to its call's `tool.result`. An agent built without a
   conversation (tests, the context eval) links prompts and replies only.
@@ -83,7 +83,7 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
 
 Equivalence is tested, with cutting off: `ContextEquivalenceTests` drives scripted conversations (tools, condensing ahead
 and on overflow, a failed turn, fail-fast, a model that counts, reset and resume, a chat with `/model`,
-`/inspect context`, and `/save`, and an MCP thread through `Session.conversation`) and compares every
+`/inspect context`, and `/save`, and an MCP thread through `Session.thread`) and compares every
 request the model received, every audit event, every reply, every saved context file, and chat's output
 with a snapshot recorded from the code before the store existed. With cutting on, the same scenarios
 also match, since none of their scripted replies reproduces 24 words of an output; the cut behaviour is
@@ -183,17 +183,17 @@ for are not built; D12 made them unnecessary.
 
 Phase 4a of the proposal keeps facts, so what was said outlives the turns that said it (decisions D1, D2,
 D3, D6, and D12). A fact is a short versioned assertion about an identity, `{scope, subject, name}`, such
-as `{conversation, tests, swift test}`: who asserted it (`person`, `caller`, `tool`, or `model`), its
+as `{thread, tests, swift test}`: who asserted it (`person`, `caller`, `tool`, or `model`), its
 version from that source, its value, its temporal class, the store entries it came from (and through them
 the audit events, D8), when it was recorded, what superseded it, and whether it is current, superseded, or
-deleted. A conversation opened through `Conversation.openAgent` (chat, `respond`, MCP threads) keeps facts
+deleted. A thread opened through `WispThread.openAgent` (chat, `respond`, MCP threads) keeps facts
 unless `facts.enabled` is false; an `Agent` made directly keeps none, and composes exactly as before.
 
 **Where facts live, by temporal class:**
 
 | Class | For | Held in | Saved |
 | --- | --- | --- | --- |
-| `dynamic` | The state of the work: the task, tests, files, the branch, the working directory | The conversation's store (`ConversationStore.facts`, ids `c…`) | With the store in `transcripts/<name>.store`; `--resume` restores them |
+| `dynamic` | The state of the work: the task, tests, files, the branch, the working directory | The conversation's store (`ThreadRecord.facts`, ids `c…`) | With the store in `transcripts/<name>.store`; `--resume` restores them |
 | `ephemeral` | The machine now: services, ports, memory | The session (`Session.sessionFacts`, ids `s…`), shared by every conversation of one process, so an MCP server's threads share them | Never; gone when the process ends |
 | `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and written on each change | Always |
 

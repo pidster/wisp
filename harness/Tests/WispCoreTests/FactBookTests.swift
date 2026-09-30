@@ -8,7 +8,7 @@ import Testing
 /// disagreement is a conflict.
 @Suite struct FactBookTests {
     /// The CI identity the eval's changed fact uses.
-    static let ci = FactIdentity(scope: .conversation, subject: "tests", name: "ci")
+    static let ci = FactIdentity(scope: .thread, subject: "tests", name: "ci")
 
     /// An assertion about `identity` from `source`.
     static func assertion(
@@ -21,7 +21,7 @@ import Testing
     }
 
     @Test func aChangedFactSupersedesTheOldVersionWhichStaysAsHistory() throws {
-        var book = FactBook(scope: .conversation)
+        var book = FactBook(scope: .thread)
         let failing = book.record(Self.assertion("failed (exit status 1)", turn: 2))
         #expect(failing == .recorded(failing.fact) && failing.fact.id == "c1" && failing.fact.version == 1)
         // The same value again adds nothing.
@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func sourcesStandSideBySideAndThePersonWins() {
-        var book = FactBook(scope: .conversation)
+        var book = FactBook(scope: .thread)
         book.record(Self.assertion("passed", source: .model, time: Date(timeIntervalSince1970: 3000)))
         book.record(Self.assertion("failed", source: .tool, time: Date(timeIntervalSince1970: 2000)))
         var view = FactView(book.current)
@@ -56,14 +56,14 @@ import Testing
         book.record(Self.assertion("flaky", source: .caller, time: Date(timeIntervalSince1970: 4000)))
         #expect(FactView(book.current).groups[0].winner.source == .caller)
         // Values that differ only in case and spacing agree.
-        var agreeing = FactBook(scope: .conversation)
+        var agreeing = FactBook(scope: .thread)
         agreeing.record(Self.assertion("Passed  now", source: .tool))
         agreeing.record(Self.assertion("passed now", source: .model))
         #expect(FactView(agreeing.current).conflicts.isEmpty)
     }
 
     @Test func deletingAndAdmittingAndTrimming() throws {
-        var book = FactBook(scope: .conversation)
+        var book = FactBook(scope: .thread)
         let first = book.record(Self.assertion("a")).fact
         #expect(book.delete(first.id)?.state == .deleted && book.current.isEmpty)
         #expect(book.delete(first.id) == nil, "only a current fact can be deleted")
@@ -75,7 +75,7 @@ import Testing
         let entity = FactIdentity(scope: .permanent, subject: "entity", name: "codename")
         shared.record(Self.assertion("RED FOX", about: entity, source: .model))
         var proposal = Self.assertion(
-            "BLUE HERON", about: FactIdentity(scope: .conversation, subject: "entity", name: "codename"), source: .model
+            "BLUE HERON", about: FactIdentity(scope: .thread, subject: "entity", name: "codename"), source: .model
         )
         proposal.temporalClass = .permanent
         let proposed = book.record(proposal).fact

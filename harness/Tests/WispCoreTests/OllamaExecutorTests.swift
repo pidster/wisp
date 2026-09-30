@@ -261,7 +261,7 @@ final class FakeOllama: URLProtocol {
         #expect(resumed.transcript.turnCount == 1)
         #expect(sink.events.first?.details["model"] == "ollama:q")
         // A thread conversation resolves the same way.
-        let thread = try session.conversation(id: "t", approver: DenyingApprover(reason: "x"))
+        let thread = try session.thread(id: "t", approver: DenyingApprover(reason: "x"))
         #expect(try await thread.openAgent().respond(to: "hi").text == "ok")
         // An embedding model cannot hold a conversation: it is refused at resolution, with the reason.
         FakeOllama.serve("/api/show", body: #"{"capabilities":["embedding"]}"#)
@@ -280,7 +280,7 @@ final class FakeOllama: URLProtocol {
             #expect(model == "ollama:q" && capability == "tool calling" && declaredBy == .runtime)
             #expect(hint.contains("no tools"))
         }
-        let textOnly = try session.conversation(
+        let textOnly = try session.thread(
             id: "t2", approver: DenyingApprover(reason: "x"), tools: ToolSelection.none)
         #expect(textOnly.tools.isEmpty)
         #expect(try await textOnly.openAgent().respond(to: "hi").text == "ok")

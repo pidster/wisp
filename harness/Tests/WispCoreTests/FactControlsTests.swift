@@ -32,7 +32,7 @@ import WispTestSupport
         let tool = try #require(
             agent.record(
                 FactBook.Assertion(
-                    identity: FactIdentity(scope: .conversation, subject: "tests", name: "swift test"), source: .tool,
+                    identity: FactIdentity(scope: .thread, subject: "tests", name: "swift test"), source: .tool,
                     value: "failed (exit status 1)", temporalClass: .dynamic, method: .extracted, detail: "run_command")
             ))
         agent.refreshFacts()
@@ -73,7 +73,7 @@ import WispTestSupport
                 FactBook.Assertion(
                     identity: FactIdentity(scope: .permanent, subject: "entity", name: "codename"), source: .model,
                     value: "BLUE HERON", temporalClass: .permanent, method: .distilled)))
-        #expect(proposal.identity.scope == .conversation && proposal.proposed && proposal.id == "c1")
+        #expect(proposal.identity.scope == .thread && proposal.proposed && proposal.id == "c1")
         #expect(!FileManager.default.fileExists(atPath: home.factsFile.path))
         let admitted = try agent.setFactScope(proposal.id, to: .permanent)
         #expect(admitted.id == "p1" && admitted.identity.scope == .permanent && admitted.approved != nil)
@@ -146,7 +146,7 @@ import WispTestSupport
         try agent.setTask("the task")
         let store = TranscriptStore(directory: dir)
         try store.save(agent.store, as: "kept")
-        let saved = try store.loadConversation("kept")
+        let saved = try store.loadThread("kept")
         #expect(saved.links.facts?.current.map(\.value) == ["the task"])
         let resumed = Agent(
             transcript: saved.transcript, tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()),
@@ -170,7 +170,7 @@ import WispTestSupport
         )
         agent.record(
             FactBook.Assertion(
-                identity: FactIdentity(scope: .conversation, subject: "tests", name: "ci"), source: .tool,
+                identity: FactIdentity(scope: .thread, subject: "tests", name: "ci"), source: .tool,
                 value: "failing", temporalClass: .dynamic, method: .extracted, detail: "run_command"))
         try agent.stateFact(subject: "tests", name: "ci", value: "green")
         try agent.stateFact(subject: "tests", name: "ci", value: "green again")

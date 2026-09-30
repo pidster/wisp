@@ -3,7 +3,7 @@ import FoundationModels
 
 /// A tool-using agent over the on-device Apple Foundation Model.
 ///
-/// `Agent` keeps the conversation in a `ConversationStore` and asks a `ContextComposer` for the transcript
+/// `Agent` keeps the conversation in a `ThreadRecord` and asks a `ContextComposer` for the transcript
 /// each request carries. A `LanguageModelSession` over that transcript runs the tool-call loop: the model
 /// requests a tool, the framework invokes the matching `Tool`, and the result is fed back until the model
 /// replies; the turn's new entries then go into the store, linked to the audit events that recorded them.
@@ -16,7 +16,7 @@ public final class Agent {
     /// The tools the model may call.
     public let tools: [any Tool]
     /// Every entry of the conversation, active or dropped, with the audit events that recorded it.
-    public internal(set) var store: ConversationStore
+    public internal(set) var store: ThreadRecord
     /// Builds each request's transcript from `store`.
     var composer: ContextComposer
     /// The live session, over the last composed transcript. A request whose composition is what the session
@@ -54,7 +54,7 @@ public final class Agent {
     /// read for facts without a model, turns leaving the active view are distilled into facts by the model,
     /// and each request carries the facts in force as a record on the prompt side (`FactFrame`). Nil, the
     /// default for an agent made directly, keeps none, and requests are composed exactly as without facts;
-    /// `Conversation.openAgent` sets them from the config.
+    /// `WispThread.openAgent` sets them from the config.
     public var facts: FactSettings? {
         didSet { refreshFacts(quietly: true) }
     }
@@ -64,7 +64,7 @@ public final class Agent {
     /// The ids of the facts recorded or changed since the current turn began (`factsChangedThisTurn`).
     var turnFactIDs: [String] = []
     /// How many times `reset` has started a fresh conversation; each is a conversation of its own among the
-    /// process's proposals (`conversationID`), since its store numbers its facts from `c1` again.
+    /// process's proposals (`threadID`), since its store numbers its facts from `c1` again.
     private(set) var generation = 0
     /// The share of the context window the facts may take in a request (`ContextComposer.factsShare`).
     public var factsShare: Double {
@@ -89,7 +89,7 @@ public final class Agent {
     /// Where each turn's time and outcome are recorded for `/stats`; nil records nothing.
     public var stats: CallStats?
     /// The conversation's tool events, so the store can link tool calls and outputs to them; set by
-    /// `Conversation.openAgent`. Nil leaves tool entries without sources.
+    /// `WispThread.openAgent`. Nil leaves tool entries without sources.
     public var toolEvents: ToolEventTrail?
 
     /// Creates an agent on a model.
@@ -112,7 +112,7 @@ public final class Agent {
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
         session = self.model.session(tools: tools, instructions: instructions)
-        store = ConversationStore(carrying: session.transcript)
+        store = ThreadRecord(carrying: session.transcript)
     }
 
     /// Creates an agent on an already resolved model, such as a custom one; cannot fail.
@@ -135,7 +135,7 @@ public final class Agent {
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = model.contextSize
         session = model.session(tools: tools, instructions: instructions)
-        store = ConversationStore(carrying: session.transcript)
+        store = ThreadRecord(carrying: session.transcript)
     }
 
     /// Creates an agent that continues a saved conversation on an already resolved model; cannot fail.
@@ -153,7 +153,7 @@ public final class Agent {
     public init(
         transcript: Transcript, tools: [any Tool], model: ResolvedModel, contextPolicy: ContextPolicy = .default,
         audit: AuditLog? = nil, turns: TurnClock? = nil,
-        links: ConversationStore.Snapshot? = nil
+        links: ThreadRecord.Snapshot? = nil
     ) {
         self.model = model
         self.tools = tools
@@ -162,10 +162,10 @@ public final class Agent {
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = model.contextSize
         session = model.session(tools: tools, transcript: transcript)
-        store = ConversationStore(carrying: session.transcript, restoring: links)
+        store = ThreadRecord(carrying: session.transcript, restoring: links)
     }
 
-    /// Creates an agent that continues a conversation's store on an already resolved model, as chat's
+    /// Creates an agent that continues a thread's record on an already resolved model, as chat's
     /// `/model` does; cannot fail. The new model's first request carries what the store's active view
     /// holds, and the store keeps every entry and its audit references.
     ///
@@ -177,7 +177,7 @@ public final class Agent {
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     public init(
-        store: ConversationStore, tools: [any Tool], model: ResolvedModel, contextPolicy: ContextPolicy = .default,
+        store: ThreadRecord, tools: [any Tool], model: ResolvedModel, contextPolicy: ContextPolicy = .default,
         audit: AuditLog? = nil, turns: TurnClock? = nil
     ) {
         self.model = model
@@ -204,7 +204,7 @@ public final class Agent {
     public init(
         transcript: Transcript, tools: [any Tool], model: ModelSelection = .default,
         contextPolicy: ContextPolicy = .default, audit: AuditLog? = nil, turns: TurnClock? = nil,
-        links: ConversationStore.Snapshot? = nil
+        links: ThreadRecord.Snapshot? = nil
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
@@ -213,7 +213,7 @@ public final class Agent {
         self.turns = turns ?? audit?.turns ?? TurnClock()
         contextSize = self.model.contextSize
         session = self.model.session(tools: tools, transcript: transcript)
-        store = ConversationStore(carrying: session.transcript, restoring: links)
+        store = ThreadRecord(carrying: session.transcript, restoring: links)
     }
 
     /// The transcript the next request carries: the store's active view, composed. Suitable for saving and
@@ -269,7 +269,7 @@ public final class Agent {
     /// store, and records it as a `session.start` with reason `new`.
     public func reset() {
         generation += 1
-        store = ConversationStore(carrying: transcript.condensed(keepTurns: 0))
+        store = ThreadRecord(carrying: transcript.condensed(keepTurns: 0))
         store.firstTurn = turns.current
         refreshFacts(quietly: true)
         materialise(fresh: true)
@@ -399,7 +399,7 @@ public final class Agent {
         let added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
         let turn = turns.current
         let events = toolEvents?.take(turn: turn) ?? []
-        let sources = ConversationStore.sources(
+        let sources = ThreadRecord.sources(
             for: added, prompt: prompt, response: response, toolEvents: events)
         let now = Date()
         for (entry, references) in zip(added, sources) {
@@ -416,7 +416,7 @@ public final class Agent {
         refreshFacts()
     }
 
-    /// The context composed for the start of `turn` in this conversation's store, entry by entry
+    /// The context composed for the start of `turn` in this thread's record, entry by entry
     /// (`ContextComposer.composition(_:atTurn:)`), or, with no turn, what the next request carries. Nil for a
     /// turn the store cannot show: one not yet begun, or one before the store's first (a `/new` began it
     /// later).

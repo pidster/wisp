@@ -68,7 +68,7 @@ public struct ChatView: Equatable, Sendable {
     public enum Failure: Error, Equatable, CustomStringConvertible {
         /// The argument is not `next`, `turns`, or a number.
         case usage
-        /// No such turn in the conversation's store.
+        /// No such turn in the thread's record.
         case noSuchTurn(Int, first: Int, last: Int)
 
         /// What chat says.

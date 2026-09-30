@@ -16,10 +16,10 @@ paths:
 
 - Fix data-race diagnostics by restructuring. Never `@unchecked Sendable`, never `nonisolated(unsafe)`.
 - `LanguageModelSession` is not `Sendable`. `Agent` owns it as a plain `final class` and its async methods
-  are `nonisolated(nonsending)`, so an actor (`ConversationThread`) can own an `Agent`. New async APIs on
+  are `nonisolated(nonsending)`, so an actor (`ThreadActor`) can own an `Agent`. New async APIs on
   types that hold a session follow the same pattern.
 - Actor when operations suspend or a change is a multi-step sequence that must not interleave
-  (`ApprovalGate`, `ApprovalStore`, `ThreadStore`); `final class` with a `Mutex` when every operation is a
+  (`ApprovalGate`, `ApprovalStore`, `ThreadRegistry`); `final class` with a `Mutex` when every operation is a
   short synchronous critical section (`TurnClock`, `AuditLog`, `SessionApprovals`). `docs/design.md`
   "Concurrency" has the rule; follow it rather than choosing per file.
 - Shared mutable state uses `Mutex` from `Synchronization`. `Mutex` is non-copyable: hold it in a
@@ -57,7 +57,7 @@ paths:
 
 - swift-testing (`@Suite`, `@Test`, `#expect`). `#expect`'s message argument is a `Comment`: write
   `"\(value)"`, not a `String` variable.
-- Tests never need the model. Put logic in pure functions or generic types (`ThreadStore<Thread>`,
+- Tests never need the model. Put logic in pure functions or generic types (`ThreadRegistry<Thread>`,
   `Transcript.condensed`, `CommandRunner.tail`) and test those. `ModelEvalTests` is the one exception and
   runs only under `WISP_MODEL_TESTS=1` (`scripts/check eval`).
 - Tests drive the real Seatbelt sandbox: write only under the working directory and

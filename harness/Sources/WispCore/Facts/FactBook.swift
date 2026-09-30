@@ -6,7 +6,7 @@ import Foundation
 /// from the same source supersedes the older one, which stays as history; assertions from different sources
 /// stand side by side, and `FactView` orders them by precedence and shows where they disagree.
 ///
-/// A value type: the conversation's book lives in its `ConversationStore` and is saved with it; the session's
+/// A value type: the conversation's book lives in its `ThreadRecord` and is saved with it; the session's
 /// and the shared store's are held behind a lock (`SessionFacts`, `PermanentFacts`).
 public struct FactBook: Codable, Sendable, Equatable {
     /// One assertion to record: an identity, its source, and what it says.

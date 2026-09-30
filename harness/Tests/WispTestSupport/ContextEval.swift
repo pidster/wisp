@@ -292,7 +292,7 @@ public enum ContextEval {
 /// A conversation under test: the one operation the scenario needs, and a reading of how full the
 /// window is. Later designs (layers without recall, the full design, D5's cap and floor variants, D7's
 /// repeated facts) conform with their own composer; the scenario and scoring do not change.
-public protocol ContextConversation: AnyObject {
+public protocol ContextThread: AnyObject {
     /// Sends one user turn and returns the reply text.
     ///
     /// - Parameter prompt: The user's message.
@@ -323,9 +323,9 @@ public protocol ContextStrategy: Sendable {
     func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
+        -> any ContextThread
 
-    /// Whether the conversation's agent is given the run's tool events, as `Conversation.openAgent` gives a
+    /// Whether the conversation's agent is given the run's tool events, as `WispThread.openAgent` gives a
     /// face's agent its `ToolEventTrail`, so tool entries link to their audit events and facts can be
     /// extracted from them. False by default, so the earlier strategies run as they were measured.
     var linksToolEvents: Bool { get }
@@ -352,12 +352,12 @@ public struct DroppingStrategy: ContextStrategy {
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
+        -> any ContextThread
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
-        return AgentConversation(agent)
+        return AgentThread(agent)
     }
 }
 
@@ -378,12 +378,12 @@ public struct CuttingStrategy: ContextStrategy {
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
+        -> any ContextThread
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.cutsPresentation = true
         agent.referencesOutput = false
-        return AgentConversation(agent)
+        return AgentThread(agent)
     }
 }
 
@@ -411,13 +411,13 @@ public struct ReferencingStrategy: ContextStrategy {
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
+        -> any ContextThread
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.contextBudget = budget
         agent.cutsPresentation = true
         agent.referencesOutput = true
-        return AgentConversation(agent)
+        return AgentThread(agent)
     }
 }
 
@@ -454,7 +454,7 @@ public struct FactsStrategy: ContextStrategy {
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
+        -> any ContextThread
     {
         let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
         agent.cutsPresentation = true
@@ -462,12 +462,12 @@ public struct FactsStrategy: ContextStrategy {
         agent.contextBudget = budget
         agent.factsShare = share
         agent.facts = FactSettings()
-        return AgentConversation(agent)
+        return AgentThread(agent)
     }
 }
 
 /// An `Agent` as a conversation under test.
-public final class AgentConversation: ContextConversation {
+public final class AgentThread: ContextThread {
     /// The agent, unchanged.
     public let agent: Agent
 
@@ -498,7 +498,7 @@ extension ContextEval {
         public var failed: Bool
         /// Wall time of the turn, not counting the token reading after it.
         public var seconds: Double
-        /// Tokens occupied after the turn (`ContextConversation.occupiedTokens`).
+        /// Tokens occupied after the turn (`ContextThread.occupiedTokens`).
         public var tokens: Int?
         /// The reason of each condensation during the turn (`budget`, `overflow`), from the audit.
         public var condensations: [String]
@@ -727,9 +727,9 @@ extension ContextEval {
         let sink = MemoryAuditSink()
         let trail = ToolEventTrail()
         let audit = AuditLog(session: "context-eval", sink: TeeAuditSink([sink, trail]))
-        let conversation = strategy.open(
+        let thread = strategy.open(
             model: model, tools: tools(audit), instructions: instructions, audit: audit)
-        if strategy.linksToolEvents, let agent = (conversation as? AgentConversation)?.agent {
+        if strategy.linksToolEvents, let agent = (thread as? AgentThread)?.agent {
             agent.toolEvents = trail
         }
         let loadAtStart = loadAverage()
@@ -744,7 +744,7 @@ extension ContextEval {
             var reply: String
             var failed = false
             do {
-                reply = try await conversation.send(prompt)
+                reply = try await thread.send(prompt)
             } catch {
                 reply = "error: \(error)"
                 failed = true
@@ -754,7 +754,7 @@ extension ContextEval {
             let events = sink.events.dropFirst(first)
             var turn = Turn(
                 number: turns.count + 1, label: label, reply: reply, failed: failed, seconds: seconds,
-                tokens: await conversation.occupiedTokens(),
+                tokens: await thread.occupiedTokens(),
                 condensations: events.filter { $0.kind == .condensation }.map {
                     $0.details["reason"]?.stringValue ?? "?"
                 },

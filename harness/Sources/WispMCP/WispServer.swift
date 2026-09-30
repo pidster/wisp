@@ -7,7 +7,7 @@ import WispCore
 
 /// Serves wisp's capabilities to MCP clients over stdio.
 ///
-/// Conversations are kept as threads in a `ThreadStore` for the life of the
+/// Conversations are kept as threads in a `ThreadRegistry` for the life of the
 /// process. Stdout is the protocol channel; nothing else in the process may
 /// write to it while the server runs.
 public struct WispServer: Sendable {
@@ -19,7 +19,7 @@ public struct WispServer: Sendable {
     /// The session every thread shares: policy, store, session approvals, audit, and the elicitation approver.
     let session: Session
     /// Live conversations by `thread_id`, each with its gate and audit log.
-    let threads: ThreadStore<OpenThread>
+    let threads: ThreadRegistry<OpenThread>
     /// What the server remembers of every thread it has opened, for `wisp://threads`.
     let directory = ThreadDirectory()
     /// The MCP server; created up front so the approver can reach the client.
@@ -39,10 +39,10 @@ public struct WispServer: Sendable {
     /// The command-approval effect of `host`.
     private var approver: any Approver { host.approver }
     /// Opens the agent that judges one chunk for a condensing tool; tests inject one over a scripted model.
-    private let makeTriageAgent: @Sendable (Conversation, ModelSelection?) throws -> Agent
+    private let makeTriageAgent: @Sendable (WispThread, ModelSelection?) throws -> Agent
 
     /// Creates a server over a session begun by the CLI. Threads are opened through
-    /// `Session.conversation` with an elicitation approver, so every face of wisp shares one
+    /// `Session.thread` with an elicitation approver, so every face of wisp shares one
     /// set-up path and differs only in how it asks.
     ///
     /// - Parameters:
@@ -54,14 +54,14 @@ public struct WispServer: Sendable {
     public init(
         session: Session,
         makeThread: @escaping ThreadFactory = { session, approver, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             return OpenThread(
-                thread: ConversationThread(id: id, agent: try conversation.openAgent()), gate: conversation.gate,
-                audit: conversation.audit, receipts: conversation.receipts, relay: conversation.relay,
-                model: conversation.model.description, tools: conversation.tools.map(\.name))
+                thread: ThreadActor(id: id, agent: try thread.openAgent()), gate: thread.gate,
+                audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
+                model: thread.model.description, tools: thread.tools.map(\.name))
         },
-        makeTriageAgent: @escaping @Sendable (Conversation, ModelSelection?) throws -> Agent = {
+        makeTriageAgent: @escaping @Sendable (WispThread, ModelSelection?) throws -> Agent = {
             try $0.openAgent(model: $1)
         }
     ) {
@@ -72,7 +72,7 @@ public struct WispServer: Sendable {
         self.session = session
         let timeout = session.config.approvalTimeout
         host = SessionHost(approver: ElicitationApprover(server: server, client: client, timeout: timeout))
-        threads = ThreadStore(capacity: session.config.maxThreads)
+        threads = ThreadRegistry(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
     }
@@ -309,7 +309,7 @@ public struct WispServer: Sendable {
     /// (D9 of the layered-context proposal).
     private func respond(_ request: RespondRequest) async -> CallTool.Result {
         let id = request.threadID ?? UUID().uuidString.lowercased()
-        let opened: ThreadStore<OpenThread>.Opened
+        let opened: ThreadRegistry<OpenThread>.Opened
         do {
             opened = try await threads.findOrCreate(id: id) {
                 try makeThread(
@@ -382,16 +382,16 @@ public struct WispServer: Sendable {
     private func triage(_ request: TriageRequest) async -> CallTool.Result {
         let id = "triage-" + ShortID.make()
         do {
-            let conversation = try session.conversation(id: id, approver: approver, tools: .none, model: request.model)
-            defer { conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
+            let thread = try session.thread(id: id, approver: approver, tools: .none, model: request.model)
+            defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let schema = try OutputSchema(json: Triage.schemaJSON)
             let makeAgent = makeTriageAgent
             let triage = Triage(options: .init(maxFindings: request.maxFindings)) { prompt in
-                try await makeAgent(conversation, nil).respond(to: prompt, schema: schema).text
+                try await makeAgent(thread, nil).respond(to: prompt, schema: schema).text
             }
             let runner = CommandRunner(
-                options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
-            let captured = try await triage.capture(request.source, runner: runner, gate: conversation.gate)
+                options: session.config.runner, audit: thread.audit, approval: thread.gate)
+            let captured = try await triage.capture(request.source, runner: runner, gate: thread.gate)
             let report = try await triage.run(captured, from: request.source)
             let structured: Value? = Value(json: report.json)  // the typed init, not the throwing generic one
             return .init(
@@ -406,16 +406,16 @@ public struct WispServer: Sendable {
     private func summariseDiff(_ request: SummariseDiffRequest) async -> CallTool.Result {
         let id = "summarise-" + ShortID.make()
         do {
-            let conversation = try session.conversation(id: id, approver: approver, tools: .none, model: request.model)
-            defer { conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
+            let thread = try session.thread(id: id, approver: approver, tools: .none, model: request.model)
+            defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let schema = try OutputSchema(json: DiffSummary.schemaJSON)
             let makeAgent = makeTriageAgent
             let summary = DiffSummary(options: .init(maxFiles: request.maxFiles)) { prompt in
-                try await makeAgent(conversation, nil).respond(to: prompt, schema: schema).text
+                try await makeAgent(thread, nil).respond(to: prompt, schema: schema).text
             }
             let runner = CommandRunner(
-                options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
-            let captured = try await summary.capture(request.source, runner: runner, gate: conversation.gate)
+                options: session.config.runner, audit: thread.audit, approval: thread.gate)
+            let captured = try await summary.capture(request.source, runner: runner, gate: thread.gate)
             let report = try await summary.run(captured, from: request.source)
             let structured: Value? = Value(json: report.json)
             return .init(
@@ -431,19 +431,19 @@ public struct WispServer: Sendable {
     private func scanSecrets(_ request: ScanSecretsRequest) async -> CallTool.Result {
         let routed = request.options.thorough ? secretsModel(explicit: request.model) : nil
         return await condense(prefix: "scan", source: request.source, model: routed?.model ?? request.model) {
-            conversation, captured in
+            thread, captured in
             let text = captured.text
             if let routed {
-                conversation.audit.record(
+                thread.audit.record(
                     .modelRouted,
                     details: AuditEvent.Details.modelRouted(
                         task: "secrets", inputBytes: text.utf8.count, decision: routed))
             }
-            let judge = request.options.thorough ? self.judge(on: conversation, schema: ModelSweep.schemaJSON) : nil
+            let judge = request.options.thorough ? self.judge(on: thread, schema: ModelSweep.schemaJSON) : nil
             let report = try await SecretScan(
                 options: request.options, judge: judge, classifier: PersonalDataClassifier.shipped
             ).run(text, from: request.source)
-            conversation.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
+            thread.audit.record(.secretScan, details: AuditEvent.Details.secretScan(report))
             return (report.rendered, report.json)
         }
     }
@@ -453,17 +453,17 @@ public struct WispServer: Sendable {
     private func redact(_ request: RedactRequest) async -> CallTool.Result {
         let routed = request.options.thorough ? secretsModel(explicit: request.model) : nil
         return await condense(prefix: "redact", source: request.source, model: routed?.model ?? request.model) {
-            conversation, captured in
+            thread, captured in
             let text = captured.text
             if let routed {
-                conversation.audit.record(
+                thread.audit.record(
                     .modelRouted,
                     details: AuditEvent.Details.modelRouted(
                         task: "secrets", inputBytes: text.utf8.count, decision: routed))
             }
-            let judge = request.options.thorough ? self.judge(on: conversation, schema: ModelSweep.schemaJSON) : nil
+            let judge = request.options.thorough ? self.judge(on: thread, schema: ModelSweep.schemaJSON) : nil
             let report = try await Redaction(options: request.options, judge: judge).run(text, from: request.source)
-            conversation.audit.record(.redaction, details: AuditEvent.Details.redaction(report))
+            thread.audit.record(.redaction, details: AuditEvent.Details.redaction(report))
             return (report.summary + "\n\n" + report.text, report.json)
         }
     }
@@ -476,30 +476,30 @@ public struct WispServer: Sendable {
 
     /// Summarises the diff per file, then drafts from the summary, on one conversation `draft-<id>`.
     private func draftChange(_ request: DraftChangeRequest) async -> CallTool.Result {
-        await condense(prefix: "draft", source: request.source, model: request.model) { conversation, captured in
+        await condense(prefix: "draft", source: request.source, model: request.model) { thread, captured in
             let bytes = captured.text.utf8.count
             let routed = ChangeDraft.route(
                 explicit: request.model, inputBytes: bytes, ladder: config.routingLadder,
                 opens: { model in
                     do {
-                        _ = try makeTriageAgent(conversation, model)
+                        _ = try makeTriageAgent(thread, model)
                         return nil
                     } catch {
                         return "\(error)"
                     }
                 })
             if let routed {
-                conversation.audit.record(
+                thread.audit.record(
                     .modelRouted,
                     details: AuditEvent.Details.modelRouted(
                         task: ChangeDraft.routingTask, inputBytes: bytes, decision: routed))
             }
             let draft = try await ChangeDraft.draft(
                 request.kind, from: captured, source: request.source,
-                summarise: judge(on: conversation, schema: DiffSummary.schemaJSON, model: routed?.model),
-                write: judge(on: conversation, schema: ChangeDraft.schemaJSON, model: routed?.model))
+                summarise: judge(on: thread, schema: DiffSummary.schemaJSON, model: routed?.model),
+                write: judge(on: thread, schema: ChangeDraft.schemaJSON, model: routed?.model))
             var fields = draft.json.objectValue ?? [:]
-            fields["model"] = .string((routed?.model ?? conversation.model).description)
+            fields["model"] = .string((routed?.model ?? thread.model).description)
             fields["routing"] = routed.map { .string($0.reason) } ?? .null
             return (draft.text, .object(fields))
         }
@@ -523,10 +523,10 @@ public struct WispServer: Sendable {
             }
         case .unified(let query):
             do {
-                let conversation = try session.conversation(
+                let thread = try session.thread(
                     id: "log-" + ShortID.make(), approver: approver, tools: .none)
                 defer {
-                    conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
+                    thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
                 }
                 let read = try UnifiedLog.read(query, maxBytes: CondenseLogRequest.maxBytes)
                 let result = digest(Triage.Captured(text: read.text, truncated: read.truncated))
@@ -581,10 +581,10 @@ public struct WispServer: Sendable {
     /// run several times in one conversation, so an approval given for the first run covers the rest.
     private func flakyTests(_ request: FlakyTestsRequest) async -> CallTool.Result {
         do {
-            let conversation = try session.conversation(id: "flaky-" + ShortID.make(), approver: approver, tools: .none)
-            defer { conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
+            let thread = try session.thread(id: "flaky-" + ShortID.make(), approver: approver, tools: .none)
+            defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let runner = CommandRunner(
-                options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
+                options: session.config.runner, audit: thread.audit, approval: thread.gate)
             let sources: [Triage.Source]
             switch request.runs {
             case .paths(let paths): sources = paths.map { .path($0) }
@@ -593,7 +593,7 @@ public struct WispServer: Sendable {
             var outputs: [String] = []
             for source in sources {
                 let captured = try await Triage.capture(
-                    source, runner: runner, gate: conversation.gate, maxOutputBytes: CondenseLogRequest.maxBytes)
+                    source, runner: runner, gate: thread.gate, maxOutputBytes: CondenseLogRequest.maxBytes)
                 outputs.append(captured.text)
             }
             let report = try FlakyTests().run(outputs)
@@ -613,18 +613,18 @@ public struct WispServer: Sendable {
     private func condense(
         prefix: String, source: Triage.Source, model: ModelSelection?,
         maxBytes: Int = Triage.Options().maxOutputBytes, flagFailure: Bool = true,
-        _ body: (Conversation, Triage.Captured) async throws -> (text: String, json: JSONValue)
+        _ body: (WispThread, Triage.Captured) async throws -> (text: String, json: JSONValue)
     ) async -> CallTool.Result {
         do {
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: "\(prefix)-" + ShortID.make(), approver: approver, tools: .none, model: model)
-            defer { conversation.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
+            defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let runner = CommandRunner(
-                options: session.config.runner, audit: conversation.audit, approval: conversation.gate)
-            let result = try await relaying(conversation.relay) {
+                options: session.config.runner, audit: thread.audit, approval: thread.gate)
+            let result = try await relaying(thread.relay) {
                 let captured = try await Triage.capture(
-                    source, runner: runner, gate: conversation.gate, maxOutputBytes: maxBytes)
-                return Self.withExitStatus(try await body(conversation, captured), of: captured, warn: flagFailure)
+                    source, runner: runner, gate: thread.gate, maxOutputBytes: maxBytes)
+                return Self.withExitStatus(try await body(thread, captured), of: captured, warn: flagFailure)
             }
             let structured: Value? = Value(json: result.json)
             return .init(
@@ -656,10 +656,10 @@ public struct WispServer: Sendable {
 
     /// A judge that answers each prompt in a fresh turn on `conversation`, shaped by `schema`, on `model`
     /// when routing chose one and the conversation's own otherwise.
-    private func judge(on conversation: Conversation, schema: JSONValue, model: ModelSelection? = nil) -> Triage.Judge {
+    private func judge(on thread: WispThread, schema: JSONValue, model: ModelSelection? = nil) -> Triage.Judge {
         let makeAgent = makeTriageAgent
         return { prompt in
-            try await makeAgent(conversation, model).respond(to: prompt, schema: try OutputSchema(json: schema)).text
+            try await makeAgent(thread, model).respond(to: prompt, schema: try OutputSchema(json: schema)).text
         }
     }
 

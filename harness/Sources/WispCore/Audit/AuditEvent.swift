@@ -7,7 +7,7 @@ public enum WispVersion {
 }
 
 /// Where one audit event is: its session and turn, to narrow a search of the audit files, and its id.
-/// A conversation's store holds these instead of copies of what the events recorded.
+/// A thread's record holds these instead of copies of what the events recorded.
 public struct AuditReference: Codable, Hashable, Sendable {
     /// The event's session.
     public var session: String
@@ -35,8 +35,8 @@ public struct AuditReference: Codable, Hashable, Sendable {
 /// Every event carries enough identity to reconstruct an interaction: the
 /// session (a CLI run, a chat, or an MCP thread), the turn within it, and for
 /// tool activity the call id that pairs a call with its result. Each event also
-/// has its own id, which a conversation's store refers to instead of copying the
-/// content (`ConversationStore`; the audit log stays the one verbatim record).
+/// has its own id, which a thread's record refers to instead of copying the
+/// content (`ThreadRecord`; the audit log stays the one verbatim record).
 public struct AuditEvent: Codable, Equatable, Sendable {
     /// What happened. The string values are the `kind` field in the file. A kind this build does not know
     /// (written by another release) reads as `.unknown` with its text kept, so `wisp logs` and the audit

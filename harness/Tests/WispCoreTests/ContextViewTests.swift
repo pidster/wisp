@@ -74,7 +74,7 @@ import WispTestSupport
 
     @Test func theTurnListSaysWhatChangedAndTheViewMarksEachEntry() throws {
         // Turn 2 dropped entries and referenced an output; turn 3 followed a reply with a cut.
-        var store = ConversationStore()
+        var store = ThreadRecord()
         let text = { (content: String) in Transcript.Segment.text(.init(content: content)) }
         store.record(
             .prompt(.init(segments: [text("first\nprompt | with a pipe")])), origin: .turn, turn: 1, sources: [])
@@ -82,7 +82,7 @@ import WispTestSupport
             .toolOutput(.init(id: "o", toolName: "notify", segments: [text(String(repeating: "x", count: 900))])),
             origin: .turn, turn: 1, sources: [])
         store.record(.response(.init(assetIDs: [], segments: [text("r")])), origin: .turn, turn: 1, sources: [])
-        store.cut(3, [ConversationStore.Cut(segment: 0, start: 0, end: 1, output: 2, tool: "notify")])
+        store.cut(3, [ThreadRecord.Cut(segment: 0, start: 0, end: 1, output: 2, tool: "notify")])
         store.record(.prompt(.init(segments: [text("second")])), origin: .turn, turn: 2, sources: [])
         store.reference(2, from: 2)
         let composer = ContextComposer()

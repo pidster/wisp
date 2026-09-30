@@ -42,6 +42,6 @@ wisp "Use inspect with what: audit, last: 5, kind: command.outcome and tell me w
 ## Implementation
 
 `InspectTool` in `harness/Sources/WispCore/Tools/InspectTool.swift` renders `Introspection`
-(`Session/Introspection.swift`), which a `Conversation` builds with the session's home, config, store,
+(`Session/Introspection.swift`), which a `WispThread` builds with the session's home, config, store,
 and a status closure. Tested in `IntrospectionTests` and, through the MCP server with a scripted model,
 in `WispServerWireTests`.

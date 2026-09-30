@@ -35,7 +35,7 @@ public enum ContextView {
     /// How many characters of a prompt a turn row shows.
     static let promptCharacters = 60
 
-    /// The turns `agent`'s store can show, oldest first: those since its first (`ConversationStore.firstTurn`)
+    /// The turns `agent`'s store can show, oldest first: those since its first (`ThreadRecord.firstTurn`)
     /// up to the current one.
     ///
     /// - Parameter agent: The conversation.
@@ -45,7 +45,7 @@ public enum ContextView {
         guard agent.turns.current > store.firstTurn else { return [] }
         return ((store.firstTurn + 1)...agent.turns.current).map { number in
             let prompt = store.entries.first { $0.origin == .turn && $0.turn == number && $0.kind == .prompt }
-            let text = prompt.map { ConversationStore.text(of: $0.value) } ?? ""
+            let text = prompt.map { ThreadRecord.text(of: $0.value) } ?? ""
             let flat = text.split(whereSeparator: \.isNewline).joined(separator: " ")
             let before = (agent.composition(atTurn: number) ?? []).filter { !$0.own || $0.entry.kind == .prompt }
             return Turn(
@@ -65,7 +65,7 @@ public enum ContextView {
     /// - Returns: The estimate.
     static func estimatedTokens(_ entries: [Transcript.Entry]) -> Int {
         entries.reduce(0) { total, entry in
-            var bytes = ConversationStore.text(of: entry).utf8.count
+            var bytes = ThreadRecord.text(of: entry).utf8.count
             switch entry {
             case .instructions(let instructions): bytes += ContextArchive.text(instructions.segments).utf8.count
             case .toolCalls(let calls):
@@ -97,7 +97,7 @@ public enum ContextView {
             if entry.kind == .facts {
                 sections.append(
                     "## facts · a record on the prompt side, not instructions\n\n"
-                        + ConversationStore.text(of: item.sent))
+                        + ThreadRecord.text(of: item.sent))
                 continue
             }
             var head = "## \(entry.id)"
@@ -109,18 +109,18 @@ public enum ContextView {
                 body = ContextArchive.text(instructions.segments)
             case .prompt:
                 head += " · prompt"
-                body = ConversationStore.text(of: item.sent)
+                body = ThreadRecord.text(of: item.sent)
             case .toolCalls(let calls):
                 head += " · tool call" + (calls.count == 1 ? "" : "s")
                 body = calls.map { "\($0.toolName) \($0.arguments.jsonString)" }.joined(separator: "\n")
             case .toolOutput(let output):
                 head += " · tool output: \(output.toolName)"
                 if item.referenced { head += " (sent as a reference)" }
-                body = ConversationStore.text(of: item.sent)
+                body = ThreadRecord.text(of: item.sent)
             case .response:
                 head += " · reply"
                 if item.cut { head += " (presentational text cut)" }
-                body = ConversationStore.text(of: item.sent)
+                body = ThreadRecord.text(of: item.sent)
             default:
                 head += " · \(entry.kind.rawValue)"
                 body = ""

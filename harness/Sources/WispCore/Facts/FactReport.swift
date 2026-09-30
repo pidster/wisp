@@ -66,7 +66,7 @@ public enum FactReport {
             let fact = proposal.fact
             let cells = [
                 proposal.reference, fact.identity.subject, fact.identity.name.isEmpty ? "-" : fact.identity.name,
-                fact.value, source(fact), proposal.conversation, "",
+                fact.value, source(fact), proposal.threadID, "",
             ]
             rows.append("| " + cells.map(cell).joined(separator: " | ") + " |")
         }

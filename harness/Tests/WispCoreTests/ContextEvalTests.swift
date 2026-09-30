@@ -203,7 +203,7 @@ import WispTestSupport
             guard let request = next(model),
                 let reply = request.transcript.last(where: { if case .response = $0 { true } else { false } })
             else { return "" }
-            return ConversationStore.text(of: reply)
+            return ThreadRecord.text(of: reply)
         }
         #expect(carried(cutModel).hasPrefix("Here it is:\n\n(showed the person the read_file output, entry "))
         #expect(carried(keptModel).contains("delete_extraneous"))
@@ -233,7 +233,7 @@ import WispTestSupport
         // A request after a later read's call carries the earlier read as a reference and its own read whole.
         let requests = model.script.requests.withLock { $0 }
         let outputs = requests.map { request in
-            request.transcript.compactMap { if case .toolOutput = $0 { ConversationStore.text(of: $0) } else { nil } }
+            request.transcript.compactMap { if case .toolOutput = $0 { ThreadRecord.text(of: $0) } else { nil } }
         }
         let referenced = outputs.first { $0.count == 2 && $0[0].hasPrefix("[output of entry ") }
         #expect(referenced?[1].hasPrefix("[output of entry ") == false)
@@ -275,7 +275,7 @@ import WispTestSupport
         #expect(run.measurement().notes.contains("1 facts recorded, 1 distillation ("))
         let question = model.script.requests.withLock { $0.last.map { Array($0.transcript) } } ?? []
         #expect(question.count > 1 && FactFrame.isFrame(question[1]))
-        #expect(ConversationStore.text(of: question[1]).contains("- entity release codename: BLUE HERON"))
+        #expect(ThreadRecord.text(of: question[1]).contains("- entity release codename: BLUE HERON"))
         #expect(FactsStrategy().summary.contains("distilled") && FactsStrategy().share == 0.1)
         #expect(FactsStrategy().linksToolEvents && !ReferencingStrategy().linksToolEvents)
     }
@@ -307,7 +307,7 @@ struct FailingStrategy: ContextStrategy {
     let summary = "every turn throws"
 
     /// A conversation that always throws.
-    final class Conversation: ContextConversation {
+    final class FakeThread: ContextThread {
         /// The failure every turn throws.
         struct Failure: Error {}
 
@@ -322,6 +322,6 @@ struct FailingStrategy: ContextStrategy {
     func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
-        -> any ContextConversation
-    { Conversation() }
+        -> any ContextThread
+    { FakeThread() }
 }

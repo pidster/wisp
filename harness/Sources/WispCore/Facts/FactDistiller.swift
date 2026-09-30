@@ -82,18 +82,18 @@ enum FactDistiller {
     ///
     /// - Parameter entries: The store entries leaving the active view.
     /// - Returns: The turns.
-    static func turns(in entries: [ConversationStore.Entry]) -> [Turn] {
+    static func turns(in entries: [ThreadRecord.Entry]) -> [Turn] {
         var turns: [Turn] = []
         for entry in entries {
             switch entry.kind {
             case .prompt:
                 turns.append(
                     Turn(
-                        number: entry.turn ?? turns.count + 1, prompt: ConversationStore.text(of: entry.value),
+                        number: entry.turn ?? turns.count + 1, prompt: ThreadRecord.text(of: entry.value),
                         reply: ""))
             case .response:
                 guard !turns.isEmpty else { continue }
-                let text = ConversationStore.text(of: entry.presented)
+                let text = ThreadRecord.text(of: entry.presented)
                 turns[turns.count - 1].reply += (turns[turns.count - 1].reply.isEmpty ? "" : "\n") + text
             default:
                 continue

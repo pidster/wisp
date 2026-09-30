@@ -42,7 +42,7 @@ extension Transcript {
     }
 
     /// The positions `condensed(keepTurns:)` keeps, in order, for entries of these kinds: the first if it is
-    /// instructions, then every non-instructions entry of the last `keepTurns` turns. `ConversationStore`
+    /// instructions, then every non-instructions entry of the last `keepTurns` turns. `ThreadRecord`
     /// condenses through the same function, so the two cannot disagree.
     static func kept(_ kinds: [Kind], keepTurns: Int) -> [Int] {
         precondition(keepTurns >= 0, "keepTurns must not be negative")

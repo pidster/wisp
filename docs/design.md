@@ -13,9 +13,9 @@ flowchart TD
     json --> begin
     client["MCP client"] -->|stdio| server["WispServer"]
     server --> begin
-    begin -->|"one per face, or per thread_id"| conv["Conversation: gate, tools, prompting"]
+    begin -->|"one per face, or per thread_id"| conv["WispThread: gate, tools, prompting"]
     conv --> agent["Agent"]
-    agent -->|"ContextComposer, from ConversationStore"| lms["LanguageModelSession"]
+    agent -->|"ContextComposer, from ThreadRecord"| lms["LanguageModelSession"]
     lms -->|"tool call"| audited["AuditedTool"]
     audited --> tools["run_command, read_file, edit_file, and the rest"]
     tools -->|run_command| runner["CommandRunner"]
@@ -47,7 +47,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, conversation, agent, conversation store, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, and the agent's fact operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, thread, agent, thread record, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, and the agent's fact operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -62,7 +62,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 Local runtimes are `ModelBackend`s in the `ModelBackends` registry, keyed by scheme; `ModelSelection.local`
 is spelled `<backend>:<name>` and resolves through the registry. A `ResolvedModel` carries the model's
-declared capabilities and their source, and `Conversation.openAgent` refuses a request that needs tool
+declared capabilities and their source, and `WispThread.openAgent` refuses a request that needs tool
 calling the model did not declare, then records `model.resolved`; see
 [ADR 0019](decisions/0019-model-backends.md). Any `LanguageModel` can be wrapped by
 `ResolvedModel(selection:custom:)`. `OllamaModel` is the first backend:
@@ -79,7 +79,7 @@ makers and an optional token counter. See [ADR 0013](decisions/0013-model-select
 
 ### `Agent`
 
-Keeps the conversation in a `ConversationStore` and asks a `ContextComposer` for each request's
+Keeps the conversation in a `ThreadRecord` and asks a `ContextComposer` for each request's
 transcript, which a `LanguageModelSession` created by a `ResolvedModel` then runs; `resolve()` checks
 availability and throws `ModelSelection.Failure.unavailable` rather than letting the first request fail
 obscurely. An agent can also start from a saved `Transcript`, or from another agent's store (`/model`).
@@ -96,7 +96,7 @@ obscurely. An agent can also start from a saved `Transcript`, or from another ag
 - `transcript` (the composed view the next request carries), `store`, `contextTokens()`, and `reset()`
   support saving, budgeting, and starting over.
 
-### `ConversationStore` and `ContextComposer`
+### `ThreadRecord` and `ContextComposer`
 
 The layered-context proposal separates the conversation as stored from the context each request carries
 ([proposal](proposals/2026-09-29-layered-context.md); phase 2 built the structure, phases 3 and 3b output
@@ -123,7 +123,7 @@ handling). One turn, as the agent runs it:
 5. The entries the session added, whether the turn succeeded or failed, go into the store, each with
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
    it, and its time. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every
-   `Conversation` tees its log into. The frame's entries are not stored. From the same tool events the
+   `WispThread` tees its log into. The frame's entries are not stored. From the same tool events the
    agent extracts facts without a model (`FactExtraction`) and records them, then renders the frame again.
 6. After a turn that succeeded, the composer looks in each of its replies for presentational text:
    a stretch that reproduces one of the turn's tool outputs exactly, formatting aside (`Presentation`).
@@ -150,10 +150,10 @@ oldest first, the now block (ephemeral facts, the task), then the request: D12's
 the summary of phase 4b to come beside the dynamic facts.
 
 **Facts** (phase 4a; [context-management.md](context-management.md), "Facts") are `Fact` values in a
-`FactBook` per scope: the conversation's in `ConversationStore.facts`, a value saved with the store's
+`FactBook` per scope: the conversation's in `ThreadRecord.facts`, a value saved with the store's
 links; the session's ephemeral facts and the shared permanent ones in `SharedFacts`, a `final class` with
 a `Mutex` since every operation is one short critical section, the permanent one written to
-`~/.wisp/facts.json` on each change. `Session` owns both shared books, and `Conversation.setUp` hands them,
+`~/.wisp/facts.json` on each change. `Session` owns both shared books, and `WispThread.setUp` hands them,
 with the config's `SubjectKinds`, to each agent as `FactSettings`, so an MCP server's threads share the
 session's facts. `FactView` merges the current facts of the three books by `{subject, name}` and orders
 each group's heads by precedence; `FactComposition` renders the frame within `factsShare` of the window;
@@ -208,12 +208,12 @@ classifier split` and `TrainingSetsTests`.
 `WispServer` record at their boundaries; the CLI records session start and end. `Diagnostics` wraps
 `os.Logger` per category with optional stderr mirroring. See [logging.md](logging.md) and
 [ADR 0010](decisions/0010-audit-and-diagnostic-logging.md). Every event has its own random `id`, which
-`AuditLog.record` returns as an `AuditReference`. Every `Conversation` tees its audit into a
+`AuditLog.record` returns as an `AuditReference`. Every `WispThread` tees its audit into a
 `ReceiptCollector`, for the `respond` receipt, an `EventRelay`, which passes events to whoever is
 listening at the moment, and a `ToolEventTrail`, which the agent links its store's tool entries to. The MCP server listens while a call that carried a `progressToken` runs.
 `AuditTail` follows the log file, across rotation, for `wisp logs --follow`.
 
-### `Session` and `Conversation`
+### `Session` and `WispThread`
 
 `Session.begin` is the one place an entry point's flags become a running configuration: it loads
 `config.json`, applies `--instructions`, `--model`, and `--unsafe`, checks `--tool` names, opens the
@@ -228,7 +228,7 @@ classifier `approval.classifier` names (the on-device model, or a Core ML model 
 rules only with a memory sink. Every unit test passes `testing()`, which is how "tests never need the
 model" holds for sessions as well as for gates.
 
-A `Conversation` is one gate plus the tools wired to it and the `Prompting` the agent starts with, built by
+A `WispThread` is one gate plus the tools wired to it and the `Prompting` the agent starts with, built by
 one function for every face of wisp. `Prompting` renders three layers into the framework's instructions:
 wisp's own system prompt (the file `Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension` from config, and the caller's
@@ -241,7 +241,7 @@ flag means the same everywhere. The three faces are overlays on this core:
 | --- | --- |
 | `respond` | `session.openAgent(approver:)` with a denying approver that explains `--yes` and `chat` |
 | `chat` | `session.openAgent(approver:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store |
-| `mcp` | `session.conversation(id:approver:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadStore`, so they are created and dropped together |
+| `mcp` | `session.thread(id:approver:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together |
 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a
 "this project" answer on one MCP thread is written once and a "this session" answer covers every thread.
@@ -251,7 +251,7 @@ The MCP tests build real sessions over a scratch home and check that two threads
 
 Read-only views of wisp's own state, built once and rendered three ways: the model's `inspect` tool,
 the MCP `wisp://config|status|approvals|audit` resources, and `wisp config` and `wisp logs`. It
-holds the home, the effective config, the approval store, and a status closure the `Conversation`
+holds the home, the effective config, the approval store, and a status closure the `WispThread`
 supplies (session id, turn, tools, model, session approvals); the MCP server adds live thread ids and
 the standing-approval count to the status resource. Audit reads go through the same file walk `logs`
 uses. See [ADR 0018](decisions/0018-introspection.md).
@@ -315,10 +315,10 @@ prompt from the tool's own `WispTool` conformance, so a changed default shows up
 The request types decode and validate arguments as pure, testable values; see
 [ADR 0006](decisions/0006-mcp-server-over-stdio.md).
 
-`respond` runs on a conversation thread. `ThreadStore` is an actor keeping threads by id with LRU eviction;
-`ConversationThread` is an actor owning one `Agent`, so calls on a thread serialise while threads run
+`respond` runs on a conversation thread. `ThreadRegistry` is an actor keeping threads by id with LRU eviction;
+`ThreadActor` is an actor owning one `Agent`, so calls on a thread serialise while threads run
 concurrently. Results carry `structuredContent.thread_id`; see
-[ADR 0007](decisions/0007-conversation-threads.md). Each `Conversation` tees its audit log into a
+[ADR 0007](decisions/0007-conversation-threads.md). Each `WispThread` tees its audit log into a
 `ReceiptCollector`, a bounded in-memory sink; after a turn the server folds that turn's events into a
 `Receipt` for `structuredContent.receipt` ([ADR 0021](decisions/0021-receipts.md)), so the result and
 the log never disagree. The same events fold into `TurnCalls` for `structuredContent.calls` (the
@@ -329,7 +329,7 @@ Everything else about a thread is under `wisp://threads` too (`ThreadResources`,
 `ThreadDirectory` remembers each thread the server opened (model, tools, turns, open or closed, bounded
 at 256 records) so its summary, tool calls, and audit stay readable after it closes, and the context
 resources compose a live thread's context from its agent's store through `RespondingThread.context`, at
-no model cost (the proposal's D12). `ThreadStore.peek` reads a thread without marking it used. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
+no model cost (the proposal's D12). `ThreadRegistry.peek` reads a thread without marking it used. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
 `DynamicGenerationSchema`, `Agent.respond(to:schema:)` runs guided generation after checking the model
 declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and
@@ -381,8 +381,8 @@ sandbox, audit) or reads a file after the gate clears it, chunks it, judges each
 schema-shaped turn on a conversation of its own, and merges the findings
 ([ADR 0023](decisions/0023-condensing-tools.md)).
 
-A `respond` call goes from `WispServer` to the `ThreadStore`, which finds or creates the
-`ConversationThread` for its `thread_id`, and on to that thread's `Agent`; `close_thread` removes the
+A `respond` call goes from `WispServer` to the `ThreadRegistry`, which finds or creates the
+`ThreadActor` for its `thread_id`, and on to that thread's `Agent`; `close_thread` removes the
 thread from the store. The overview diagram above shows the rest of the path.
 
 ### CLI
@@ -402,7 +402,7 @@ audited events, each tool's output included (`ChatEvents.shownOutput`, folded pa
 which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
 in a terminal and in the TUI. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
-`Session.begin` creates and every `Conversation` hands to its `Agent`, which records each turn's time,
+`Session.begin` creates and every `WispThread` hands to its `Agent`, which records each turn's time,
 outcome, and reported prompt tokens; the classifier is wrapped in `TimedRiskClassifier` unless it is the
 rules alone, and a classifier's fallback verdict carries `RiskAssessment.failureKey` so it counts as a
 failure. `ChatActivity` follows a turn's events to say what it is doing now (waiting for the model,
@@ -431,13 +431,13 @@ place a bad-input failure from the core becomes a usage error (exit 64). Entry p
 
 Swift 6 strict concurrency is enabled. `LanguageModelSession` is not `Sendable`, so `Agent` is a plain
 `final class` used from one task at a time, and its async methods are `nonisolated(nonsending)` so they run
-in the caller's isolation. That is what lets `ConversationThread` (an actor) own an `Agent`. Do not move
+in the caller's isolation. That is what lets `ThreadActor` (an actor) own an `Agent`. Do not move
 session work into detached tasks.
 
 Actor or `Mutex` is chosen by one rule. A type is an actor when its operations suspend (awaiting a human,
 the model, or another actor) or when a change is a multi-step sequence that must not interleave, such as
-the approval store's load-mutate-save: `ApprovalGate`, `ApprovalStore`, `ThreadStore`,
-`ConversationThread`. A type is a `final class` holding a `Mutex` when every operation is a short
+the approval store's load-mutate-save: `ApprovalGate`, `ApprovalStore`, `ThreadRegistry`,
+`ThreadActor`. A type is a `final class` holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`.
 
@@ -455,6 +455,6 @@ Everything else is internal; tests reach it through `@testable import`.
   reach it through `run_command` or give it a dedicated Swift `Tool` whose description tells the model when to
   use it.
 - New MCP tool: add a `Tool` to `ToolCatalog`, a request type, and a case in `WispServer.call`.
-- Thread persistence or context management: extend `ConversationThread`; record the choice in an ADR.
+- Thread persistence or context management: extend `ThreadActor`; record the choice in an ADR.
 - Session persistence and structured output have shipped (`TranscriptStore`, `Agent.respond(to:schema:)`); a
   new output shape goes through `OutputSchema`.

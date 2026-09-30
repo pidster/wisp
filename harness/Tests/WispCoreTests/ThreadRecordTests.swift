@@ -5,9 +5,9 @@ import WispTestSupport
 
 @testable import WispCore
 
-/// The conversation store, the composer, and the audit ids the store refers to (layered-context proposal,
+/// The thread record, the composer, and the audit ids the store refers to (layered-context proposal,
 /// phase 2). `ContextEquivalenceTests` proves the agent over them behaves as before; these pin the parts.
-@Suite struct ConversationStoreTests {
+@Suite struct ThreadRecordTests {
     private func text(_ s: String) -> Transcript.Segment { .text(.init(content: s)) }
     private func prompt(_ s: String) -> Transcript.Entry { .prompt(.init(segments: [text(s)])) }
     private func response(_ s: String) -> Transcript.Entry { .response(.init(assetIDs: [], segments: [text(s)])) }
@@ -47,7 +47,7 @@ import WispTestSupport
 
     @Test func aStoreCarriesRecordsAndDropsWithoutForgetting() {
         let entries = [instructions, prompt("p1"), response("r1"), prompt("p2"), response("r2")]
-        var store = ConversationStore(carrying: Transcript(entries: entries))
+        var store = ThreadRecord(carrying: Transcript(entries: entries))
         #expect(store.entries.map(\.id) == [1, 2, 3, 4, 5])
         #expect(store.entries.map(\.kind) == [.instructions, .prompt, .response, .prompt, .response])
         #expect(store.entries.allSatisfy { $0.origin == .carried && $0.sources.isEmpty && $0.turn == nil })
@@ -65,7 +65,7 @@ import WispTestSupport
         #expect(store.entries.map(\.state).filter { $0 == .dropped(by: reference) }.count == 4)
         #expect(store.entries[0].state == .active && store.entries[5].state == .active)
         #expect(store.contains(asked) && !store.contains(prompt("never stored")))
-        #expect(ConversationStore().active.isEmpty)
+        #expect(ThreadRecord().active.isEmpty)
     }
 
     @Test func sourcesLinkPromptsRepliesAndToolActivityToTheirEvents() throws {
@@ -89,7 +89,7 @@ import WispTestSupport
         ]
         let asked = AuditReference(session: "s", turn: 1, event: "p")
         let replied = AuditReference(session: "s", turn: 1, event: "r")
-        let sources = ConversationStore.sources(for: entries, prompt: asked, response: replied, toolEvents: events)
+        let sources = ThreadRecord.sources(for: entries, prompt: asked, response: replied, toolEvents: events)
         #expect(sources[0] == [asked])
         #expect(sources[1].isEmpty)  // text before a tool call is in no event of its own
         #expect(sources[2] == [AuditReference(events[2])])
@@ -99,7 +99,7 @@ import WispTestSupport
         // event, the tool's name is enough.
         let other = Transcript.ToolCall(id: "c2", toolName: "notify", arguments: arguments)
         let bare = event(.toolCall, call: "k", tool: "read_file")
-        let failed = ConversationStore.sources(
+        let failed = ThreadRecord.sources(
             for: [prompt("x"), .toolCalls(.init([other, call])), response("partial")], prompt: asked, response: nil,
             toolEvents: [bare])
         #expect(failed[1] == [AuditReference(bare)] && failed[2].isEmpty)
@@ -107,7 +107,7 @@ import WispTestSupport
 
     @Test func theComposerCondensesAheadOnlyPastTheBudgetAndWhenATurnWouldGo() {
         let entries = [instructions, prompt("p1"), response("r1"), prompt("p2"), response("r2")]
-        let store = ConversationStore(carrying: Transcript(entries: entries))
+        let store = ThreadRecord(carrying: Transcript(entries: entries))
         let composer = ContextComposer(policy: .condense(keepTurns: 1))
         #expect(composer.compose(store).map(\.id) == entries.map(\.id))
         #expect(composer.condensesAhead && !ContextComposer(policy: .failFast).condensesAhead)
@@ -125,7 +125,7 @@ import WispTestSupport
         #expect(ContextComposer(policy: .failFast).ahead(of: "x", in: store, used: 99, window: 10) == nil)
     }
 
-    @Test func anAgentOpenedThroughAConversationLinksItsStoreToTheAuditAndKeepsItAcrossASwitch() async throws {
+    @Test func anAgentOpenedThroughAThreadLinksItsStoreToTheAuditAndKeepsItAcrossASwitch() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-store-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir)
@@ -134,12 +134,12 @@ import WispTestSupport
         try Data("alpha\n".utf8).write(to: file)
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: "t", approver: DenyingApprover(reason: "not in tests"), tools: .named(["read_file"]))
         let model = ScriptedModel(steps: [
             .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("it says {tool}"), .say("two"),
         ])
-        let agent = try conversation.openAgent(
+        let agent = try thread.openAgent(
             on: ResolvedModel(selection: .system, custom: model), transcript: nil)
         _ = try await agent.respond(to: "read it")
         let byID = Dictionary(sink.events.compactMap { event in event.id.map { ($0, event) } }) { first, _ in first }
@@ -153,7 +153,7 @@ import WispTestSupport
         let windowed = Agent(
             store: agent.store, tools: agent.tools,
             model: ResolvedModel(selection: .system, custom: model, contextSize: 10),
-            contextPolicy: .condense(keepTurns: 0), audit: conversation.audit)
+            contextPolicy: .condense(keepTurns: 0), audit: thread.audit)
         _ = try await windowed.respond(to: "a prompt long enough to pass the budget")
         let condensation = try #require(sink.events.last { $0.kind == .condensation })
         #expect(windowed.store.entries.count == agent.store.entries.count + 2)

@@ -84,7 +84,7 @@ extension Doctor {
             return Finding(name: name, ok: false, detail: "cannot list \(home.transcripts.path)")
         }
         guard !names.isEmpty else { return Finding(name: name, ok: true, detail: "none saved") }
-        let stuck = names.filter { (try? store.loadConversation($0)) == nil }
+        let stuck = names.filter { (try? store.loadThread($0)) == nil }
         guard stuck.isEmpty else {
             return Finding(
                 name: name, ok: false,

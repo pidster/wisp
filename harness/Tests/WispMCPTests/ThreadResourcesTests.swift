@@ -22,15 +22,15 @@ func threadServer(steps: [ScriptedModel.Step]) throws -> WispServer {
         })
     let session = try scratchSession(dependencies: dependencies)
     return WispServer(session: session) { session, approver, id, instructions, tools, model in
-        let conversation = try session.conversation(
+        let thread = try session.thread(
             id: id, approver: approver, instructions: instructions, tools: tools, model: model)
         let agent = Agent(
-            instructions: conversation.prompting.rendered, tools: conversation.tools,
-            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: conversation.audit)
+            instructions: thread.prompting.rendered, tools: thread.tools,
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit)
         return OpenThread(
-            thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-            receipts: conversation.receipts, relay: conversation.relay, model: conversation.model.description,
-            tools: conversation.tools.map(\.name))
+            thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+            receipts: thread.receipts, relay: thread.relay, model: thread.model.description,
+            tools: thread.tools.map(\.name))
     }
 }
 

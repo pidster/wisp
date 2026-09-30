@@ -12,7 +12,7 @@ import Foundation
 public struct TurnCalls: Equatable, Sendable {
     /// One tool call of the turn.
     public struct Call: Equatable, Sendable {
-        /// The `tool.result` event's id: the audit reference a conversation's store keeps for the output,
+        /// The `tool.result` event's id: the audit reference a thread's record keeps for the output,
         /// and what a reference resolves. Nil when the call threw before a result.
         public var id: String?
         /// The audit call id that pairs the `tool.call` event with its result.

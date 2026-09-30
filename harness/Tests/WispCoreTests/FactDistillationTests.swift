@@ -52,7 +52,7 @@ import WispTestSupport
             return
         }
         #expect(ContextArchive.text(instructions.segments).hasPrefix("You keep a record of a conversation"))
-        let prompt = ConversationStore.text(of: try #require(asked.last))
+        let prompt = ThreadRecord.text(of: try #require(asked.last))
         #expect(prompt.contains("- entity: A named thing") && prompt.contains("Turn 1, the person: The codename is"))
         #expect(!prompt.contains("- file:"), "kinds whose facts come from tools are not offered")
         #expect(prompt.contains("Turn 1, the assistant: Noted.") && !prompt.contains("Turn 2, the assistant"))
@@ -71,13 +71,13 @@ import WispTestSupport
         // The question's request carries them, after the instructions and the kept turn, as a record.
         let question = Array(requests[3].transcript)
         #expect(FactFrame.isFrame(question[1]))
-        let earlier = ConversationStore.text(of: question[1])
+        let earlier = ThreadRecord.text(of: question[1])
         #expect(earlier.contains("- entity release codename: BLUE HERON [model, distilled: the person said, turn 1]"))
         #expect(earlier.contains("- tests ci: green again"))
         let now = try #require(question.last { FactFrame.isFrame($0) })
-        #expect(ConversationStore.text(of: now).contains("- task: add a --dry-run flag to harbour sync"))
+        #expect(ThreadRecord.text(of: now).contains("- task: add a --dry-run flag to harbour sync"))
         // The distilling call is not in the conversation, and it is audited with what it recorded.
-        #expect(!agent.store.entries.contains { ConversationStore.text(of: $0.value).contains("You keep a record") })
+        #expect(!agent.store.entries.contains { ThreadRecord.text(of: $0.value).contains("You keep a record") })
         let event = try #require(sink.events.first { $0.kind == .distillation })
         #expect(event.details["turns"] == [1] && event.details["entries"] == 2 && event.details["failure"] == nil)
         #expect(event.details["facts"]?.arrayValue?.count == 3)
@@ -125,7 +125,7 @@ import WispTestSupport
     }
 
     @Test func turnsAreReadFromPromptsAndReplies() {
-        let store = ConversationStore(
+        let store = ThreadRecord(
             carrying: Transcript(entries: [
                 .instructions(.init(segments: [.text(.init(content: "i"))], toolDefinitions: [])),
                 .prompt(.init(segments: [.text(.init(content: "q1"))])),

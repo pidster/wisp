@@ -39,22 +39,22 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let session = try scratchSession(dependencies: dependencies, config: config)
         let triageModel = ScriptedModel(steps: triageSteps, capabilities: [.guidedGeneration])
         let server = WispServer(session: session) { session, _, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             let agent = Agent(
-                instructions: conversation.prompting.rendered, tools: conversation.tools,
-                model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: conversation.audit
+                instructions: thread.prompting.rendered, tools: thread.tools,
+                model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit
             )
             return OpenThread(
-                thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts, relay: conversation.relay)
-        } makeTriageAgent: { conversation, model in
+                thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts, relay: thread.relay)
+        } makeTriageAgent: { thread, model in
             if let model, model == unopenable {
                 throw ModelSelection.Failure.unavailable(model: model.description, reason: "no Ollama server")
             }
             return Agent(
                 instructions: "x", tools: [], model: ResolvedModel(selection: model ?? .system, custom: triageModel),
-                audit: conversation.audit)
+                audit: thread.audit)
         }
         let transports = await InMemoryTransport.createConnectedPair()
         try await server.serve(transport: transports.server)
@@ -340,15 +340,15 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
             .say("{tool}"),
         ]
         let server = WispServer(session: session) { session, approver, id, instructions, tools, model in
-            let conversation = try session.conversation(
+            let thread = try session.thread(
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             let agent = Agent(
-                instructions: "x", tools: conversation.tools,
-                model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: conversation.audit
+                instructions: "x", tools: thread.tools,
+                model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit
             )
             return OpenThread(
-                thread: ConversationThread(id: id, agent: agent), gate: conversation.gate, audit: conversation.audit,
-                receipts: conversation.receipts)
+                thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts)
         }
         let transports = await InMemoryTransport.createConnectedPair()
         try await server.serve(transport: transports.server)
