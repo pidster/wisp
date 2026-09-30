@@ -10,12 +10,37 @@ import Synchronization
 /// as `/help` prints), `delta` (streamed reply text), `turn` (`start`/`end`), `event` (an audit event of
 /// the conversation, raw, with the line the terminal chat would show for it as `text`), `approval` (a
 /// request the front end must answer), `choice` (a question a chat command asks, such as `/config set`),
-/// `completions` (the answer to a `complete`), `exit`. Inbound: `message` (a chat line, slash commands
-/// included), `answer` (to an approval, by id), `choose` (to a choice, by id; no value is no answer), and
-/// `complete` (the input line and cursor to complete, by id).
+/// `completions` (the answer to a `complete`), `notify` (a notification for the front end to post, only
+/// when its `hello` declared `notify`), `exit`. Inbound: `hello` (the first line, optional: the effects the
+/// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
+/// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
+/// and cursor to complete, by id).
 public enum ChatProtocol {
+    /// What a front end declared in its `hello`: the host effects it carries (`approve`, `notify`), and
+    /// who it is.
+    public struct Hello: Equatable, Sendable {
+        /// The effects, as sent; unknown ones are kept and ignored.
+        public var effects: [String]
+        /// The front end's name, such as `wisp-tui`.
+        public var client: String?
+        /// Its version.
+        public var version: String?
+
+        /// Creates a declaration.
+        public init(effects: [String], client: String? = nil, version: String? = nil) {
+            self.effects = effects
+            self.client = client
+            self.version = version
+        }
+
+        /// Whether it declared `effect`.
+        public func declares(_ effect: String) -> Bool { effects.contains(effect) }
+    }
+
     /// What the front end sends.
     public enum Inbound: Equatable, Sendable {
+        /// The front end's declaration of the effects it carries.
+        case hello(Hello)
         /// A chat input line.
         case message(String)
         /// An answer to an approval request: `once`, `session`, `project`, `always`, or `no`.
@@ -33,6 +58,11 @@ public enum ChatProtocol {
                 return
             }
             switch type {
+            case "hello":
+                self = .hello(
+                    Hello(
+                        effects: object["effects"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                        client: object["client"]?.stringValue, version: object["version"]?.stringValue))
             case "answer":
                 self = .answer(id: object["id"]?.stringValue ?? "", decision: object["decision"]?.stringValue ?? "no")
             case "complete":
@@ -171,6 +201,14 @@ public enum ChatProtocol {
         ["id": .string(id), "from": .int(result.from), "candidates": .array(result.candidates.map { .string($0) })]
     }
 
+    /// The `notify` line's fields: the notification as `Notifier` bounded it, for the front end to post.
+    public static func notify(_ message: Notifier.Message) -> [String: JSONValue] {
+        [
+            "title": .string(message.title), "subtitle": message.subtitle.map { .string($0) } ?? .null,
+            "body": .string(message.body), "sound": .bool(message.sound),
+        ]
+    }
+
     /// The `approval` line's fields.
     public static func approval(id: String, _ request: ApprovalRequest) -> [String: JSONValue] {
         [
@@ -194,6 +232,20 @@ public final class LineRouter: Sendable {
     private let state = Mutex(State())
     private let available = DispatchSemaphore(value: 0)
     private let completer = Mutex<(@Sendable (String, String, Int?) -> Void)?>(nil)
+    private let declared = Mutex<ChatProtocol.Hello?>(nil)
+    private let greeted = Mutex<(@Sendable (ChatProtocol.Hello) -> Void)?>(nil)
+
+    /// What the front end declared in its `hello`; nil when it sent none, which keeps today's behaviour:
+    /// approvals over the protocol, notifications posted by wisp.
+    public var hello: ChatProtocol.Hello? { declared.withLock { $0 } }
+
+    /// Whether the front end's `hello` declared `effect`; false when it sent no `hello`.
+    public func declares(_ effect: String) -> Bool { hello?.declares(effect) ?? false }
+
+    /// Sets what is told of a `hello` when it arrives, such as the audit.
+    public func onHello(_ handle: @escaping @Sendable (ChatProtocol.Hello) -> Void) {
+        greeted.withLock { $0 = handle }
+    }
 
     /// Sets what answers `complete` requests: called with the id, the text, and the cursor, off the
     /// chat loop, which may be waiting for input meanwhile.
@@ -207,6 +259,9 @@ public final class LineRouter: Sendable {
     /// Takes one line from the front end.
     public func receive(_ line: String) {
         switch ChatProtocol.Inbound(line: line) {
+        case .hello(let hello):
+            declared.withLock { $0 = hello }
+            greeted.withLock { $0 }?(hello)
         case .message(let text):
             state.withLock { $0.messages.append(text) }
             available.signal()
@@ -271,8 +326,12 @@ public struct JSONApprover: Approver {
         self.send = send
     }
 
-    /// Sends the request and maps the answer; silence within the timeout is unanswered.
+    /// Sends the request and maps the answer; silence within the timeout is unanswered. A front end whose
+    /// `hello` did not declare `approve` cannot ask, so the request is denied without being sent.
     public func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
+        if router.hello != nil, !router.declares("approve") {
+            return .denied("the front end declared no approve effect in its hello")
+        }
         let id = ShortID.make()
         send(ChatProtocol.encode("approval", ChatProtocol.approval(id: id, request)))
         let router = router

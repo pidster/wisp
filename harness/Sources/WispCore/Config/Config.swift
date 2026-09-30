@@ -171,11 +171,15 @@ public struct Config: Codable, Equatable, Sendable {
         public var enabled: Bool?
         /// At most this many in any minute; default 5.
         public var perMinute: Int?
+        /// Whether to post through the terminal app by bundle identifier (ADR 0044's third route); default
+        /// false until a probe shows the banner attributed to the app.
+        public var viaTerminalApp: Bool?
 
         /// Creates settings; nil fields take defaults.
-        public init(enabled: Bool? = nil, perMinute: Int? = nil) {
+        public init(enabled: Bool? = nil, perMinute: Int? = nil, viaTerminalApp: Bool? = nil) {
             self.enabled = enabled
             self.perMinute = perMinute
+            self.viaTerminalApp = viaTerminalApp
         }
     }
 
@@ -366,6 +370,7 @@ public struct Config: Codable, Equatable, Sendable {
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
+            notificationsViaTerminalApp: notifications?.viaTerminalApp ?? false,
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
             routingLadder: routing?.ladder ?? [],
             taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
@@ -420,6 +425,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var notificationsEnabled: Bool = true
         /// At most this many notifications a minute.
         public var notificationsPerMinute: Int = 5
+        /// Whether a notification may be sent to the terminal app by bundle identifier.
+        public var notificationsViaTerminalApp: Bool = false
         /// Built-in tools not registered.
         public var disabledTools: Set<String> = []
         /// The user's own tools, validated.

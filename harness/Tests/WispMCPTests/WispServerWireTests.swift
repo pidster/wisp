@@ -40,7 +40,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let triageModel = ScriptedModel(steps: triageSteps, capabilities: [.guidedGeneration])
         let server = WispServer(session: session) { session, _, id, instructions, tools, model in
             let thread = try session.thread(
-                id: id, approver: approver, instructions: instructions, tools: tools, model: model)
+                id: id, host: session.host(approver: approver), instructions: instructions, tools: tools, model: model)
             let agent = Agent(
                 instructions: thread.prompting.rendered, tools: thread.tools,
                 model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit
@@ -339,9 +339,9 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
                 arguments: #"{"command":"touch marker.txt && echo approved","workingDirectory":"\#(dir.path)"}"#),
             .say("{tool}"),
         ]
-        let server = WispServer(session: session) { session, approver, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
             let thread = try session.thread(
-                id: id, approver: approver, instructions: instructions, tools: tools, model: model)
+                id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = Agent(
                 instructions: "x", tools: thread.tools,
                 model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit

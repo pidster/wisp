@@ -276,7 +276,7 @@ import WispTestSupport
         // The real conversation set-up with the tap observing; the model is scripted through a custom
         // agent over the same tools and audit, as the wire tests do.
         let thread = try WispThread.setUp(
-            session: session, audit: session.audit, approver: DenyingApprover(reason: "x"),
+            session: session, audit: session.audit, host: session.host(approver: DenyingApprover(reason: "x")),
             prompting: session.prompting,
             toolNames: ["current_date"], model: .system, observer: tap)
         let agent = Agent(

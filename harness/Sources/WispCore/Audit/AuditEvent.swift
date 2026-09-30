@@ -53,6 +53,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case commandOutcome
         case fileWrite
         case notification
+        case hostHello
         case secretScan
         case redaction
         case watchRun
@@ -91,6 +92,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .commandOutcome,
             .fileWrite,
             .notification,
+            .hostHello,
             .secretScan,
             .redaction,
             .watchRun,
@@ -129,6 +131,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .commandOutcome: "command.outcome"
             case .fileWrite: "file.write"
             case .notification: "notification"
+            case .hostHello: "host.hello"
             case .secretScan: "secrets.scan"
             case .redaction: "redaction"
             case .watchRun: "watch.run"

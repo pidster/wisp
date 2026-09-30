@@ -23,7 +23,8 @@ public struct ToolRegistry: Sendable {
     ///   - audit: Where tool calls are recorded; nil records nothing.
     ///   - approval: The gate risky tools consult; nil never asks.
     ///   - introspection: What `inspect` shows; the default sees the default home and config.
-    ///   - notifier: Posts `notify`'s notifications; the session shares one across conversations.
+    ///   - host: The face's effects; `notify` posts through it. Nil gives one with only the process routes
+    ///     and a notifier of its own.
     ///   - disabled: Built-in tools to leave out (`tools.disabled`).
     ///   - custom: The user's own tools (`tools.custom`), appended after the built-ins; each runs through
     ///     `run_command`'s runner and gate.
@@ -31,7 +32,7 @@ public struct ToolRegistry: Sendable {
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
-        notifier: Notifier = Notifier(), disabled: Set<String> = [], custom: [CustomTool.Definition] = []
+        host: SessionHost? = nil, disabled: Set<String> = [], custom: [CustomTool.Definition] = []
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
         let commandRunner = CommandRunner(options: runner, audit: audit, approval: approval)
@@ -42,7 +43,10 @@ public struct ToolRegistry: Sendable {
             AuditedTool(
                 EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit),
             AuditedTool(InspectTool(introspection: introspection), audit: audit),
-            AuditedTool(NotifyTool(notifier: notifier, audit: audit), audit: audit),
+            AuditedTool(
+                NotifyTool(
+                    host: host ?? SessionHost(approver: DenyingApprover(reason: "no host"), notifier: Notifier()),
+                    audit: audit), audit: audit),
             AuditedTool(SystemInfoTool(runner: commandRunner), audit: audit),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework

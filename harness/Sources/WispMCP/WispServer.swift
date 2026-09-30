@@ -29,15 +29,14 @@ public struct WispServer: Sendable {
     /// Builds the record for a new `thread_id` from the conversation the session sets up for it.
     public typealias ThreadFactory =
         @Sendable (
-            _ session: Session, _ approver: any Approver, _ id: String, _ instructions: String?,
+            _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?,
             _ tools: ToolSelection, _ model: ModelSelection?
         ) throws -> OpenThread
     private let makeThread: ThreadFactory
-    /// What the client's user can be asked through elicitation (ADR 0044): commands, which `--yes` sessions
-    /// approve inside the gate instead.
+    /// The MCP face's effects (ADR 0044): commands are asked through elicitation (`--yes` sessions approve
+    /// inside the gate instead); notifications take the process routes, since the client owns the terminal
+    /// and MCP has no notification.
     let host: SessionHost
-    /// The command-approval effect of `host`.
-    private var approver: any Approver { host.approver }
     /// Opens the agent that judges one chunk for a condensing tool; tests inject one over a scripted model.
     private let makeTriageAgent: @Sendable (WispThread, ModelSelection?) throws -> Agent
 
@@ -53,9 +52,9 @@ public struct WispServer: Sendable {
     ///     scripted model.
     public init(
         session: Session,
-        makeThread: @escaping ThreadFactory = { session, approver, id, instructions, tools, model in
+        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model in
             let thread = try session.thread(
-                id: id, approver: approver, instructions: instructions, tools: tools, model: model)
+                id: id, host: host, instructions: instructions, tools: tools, model: model)
             return OpenThread(
                 thread: ThreadActor(id: id, agent: try thread.openAgent()), gate: thread.gate,
                 audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
@@ -71,7 +70,8 @@ public struct WispServer: Sendable {
                 resources: .init(subscribe: false, listChanged: false), tools: .init(listChanged: false)))
         self.session = session
         let timeout = session.config.approvalTimeout
-        host = SessionHost(approver: ElicitationApprover(server: server, client: client, timeout: timeout))
+        host = session.host(
+            approver: ElicitationApprover(server: server, client: client, timeout: timeout), face: .mcp)
         threads = ThreadRegistry(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
@@ -313,7 +313,7 @@ public struct WispServer: Sendable {
         do {
             opened = try await threads.findOrCreate(id: id) {
                 try makeThread(
-                    session, approver, id, request.instructions, request.tools, request.model)
+                    session, host, id, request.instructions, request.tools, request.model)
             }
         } catch {
             return failure(String(describing: error))
@@ -382,7 +382,7 @@ public struct WispServer: Sendable {
     private func triage(_ request: TriageRequest) async -> CallTool.Result {
         let id = "triage-" + ShortID.make()
         do {
-            let thread = try session.thread(id: id, approver: approver, tools: .none, model: request.model)
+            let thread = try session.thread(id: id, host: host, tools: .none, model: request.model)
             defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let schema = try OutputSchema(json: Triage.schemaJSON)
             let makeAgent = makeTriageAgent
@@ -406,7 +406,7 @@ public struct WispServer: Sendable {
     private func summariseDiff(_ request: SummariseDiffRequest) async -> CallTool.Result {
         let id = "summarise-" + ShortID.make()
         do {
-            let thread = try session.thread(id: id, approver: approver, tools: .none, model: request.model)
+            let thread = try session.thread(id: id, host: host, tools: .none, model: request.model)
             defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let schema = try OutputSchema(json: DiffSummary.schemaJSON)
             let makeAgent = makeTriageAgent
@@ -524,7 +524,7 @@ public struct WispServer: Sendable {
         case .unified(let query):
             do {
                 let thread = try session.thread(
-                    id: "log-" + ShortID.make(), approver: approver, tools: .none)
+                    id: "log-" + ShortID.make(), host: host, tools: .none)
                 defer {
                     thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
                 }
@@ -581,7 +581,7 @@ public struct WispServer: Sendable {
     /// run several times in one conversation, so an approval given for the first run covers the rest.
     private func flakyTests(_ request: FlakyTestsRequest) async -> CallTool.Result {
         do {
-            let thread = try session.thread(id: "flaky-" + ShortID.make(), approver: approver, tools: .none)
+            let thread = try session.thread(id: "flaky-" + ShortID.make(), host: host, tools: .none)
             defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let runner = CommandRunner(
                 options: session.config.runner, audit: thread.audit, approval: thread.gate)
@@ -617,7 +617,7 @@ public struct WispServer: Sendable {
     ) async -> CallTool.Result {
         do {
             let thread = try session.thread(
-                id: "\(prefix)-" + ShortID.make(), approver: approver, tools: .none, model: model)
+                id: "\(prefix)-" + ShortID.make(), host: host, tools: .none, model: model)
             defer { thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed")) }
             let runner = CommandRunner(
                 options: session.config.runner, audit: thread.audit, approval: thread.gate)

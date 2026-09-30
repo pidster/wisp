@@ -100,9 +100,11 @@ struct Respond: AsyncParsableCommand {
         let session = try Wisp.begin(try options.request(entryPoint: .respond, autoApprove: yes))
         defer { session.end() }
         let agent = try session.openAgent(
-            approver: DenyingApprover(
-                reason: "approval required; re-run with --yes, use wisp chat to be asked, or lower approval.threshold"
-            ))
+            host: session.host(
+                approver: DenyingApprover(
+                    reason:
+                        "approval required; re-run with --yes, use wisp chat to be asked, or lower approval.threshold"),
+                face: .terminal))
         if let schema {
             print(try await agent.respond(to: text, schema: schema).text)
         } else if stream {
@@ -193,7 +195,8 @@ extension Wisp {
     /// - Throws: `Session.Failure` if the conversation cannot be set up.
     static func judge(session: Session, prefix: String, model: ModelSelection? = nil) throws -> Triage.Judge {
         let thread = try session.thread(
-            id: "\(prefix)-" + ShortID.make(), approver: DenyingApprover(reason: "no commands run here"),
+            id: "\(prefix)-" + ShortID.make(),
+            host: session.host(approver: DenyingApprover(reason: "no commands run here"), face: .terminal),
             tools: .none, model: model)
         let schema = try OutputSchema(json: ModelSweep.schemaJSON)
         return { prompt in try await thread.openAgent().respond(to: prompt, schema: schema).text }
@@ -359,14 +362,14 @@ struct Chat: AsyncParsableCommand {
         }
         let style = Style.detect(isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
         let tap = ChatEvents.Tap()
+        let host = session.host(approver: TerminalApprover(style: style), face: .terminal)
         var agent: Agent
         if let resume, let saved {
             agent = try session.openAgent(
-                approver: TerminalApprover(style: style), transcript: saved.transcript, links: saved.links,
-                observer: tap)
+                host: host, transcript: saved.transcript, links: saved.links, observer: tap)
             Self.note("resumed '\(resume)' (\(agent.transcript.turnCount) turns)")
         } else {
-            agent = try session.openAgent(approver: TerminalApprover(style: style), observer: tap)
+            agent = try session.openAgent(host: host, observer: tap)
         }
         let directory = FileManager.default.currentDirectoryPath
         let views = session.introspection
@@ -386,8 +389,7 @@ struct Chat: AsyncParsableCommand {
                     await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
                 },
                 openModel: { selection, store in
-                    try session.openAgent(
-                        approver: TerminalApprover(style: style), store: store, observer: tap, model: selection)
+                    try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines),
@@ -492,19 +494,28 @@ struct Chat: AsyncParsableCommand {
                 send(ChatProtocol.encode("completions", ChatProtocol.completions(id: id, result)))
             }
         }
+        let audit = session.audit
+        router.onHello { audit.record(.hostHello, details: AuditEvent.Details.hostHello($0)) }
         let reader = Thread {
             while let line = readLine() { router.receive(line) }
             router.close()
         }
         reader.start()
         let tap = ChatEvents.Tap()
-        let approver = JSONApprover(router: router, timeout: session.config.approvalTimeout, send: send)
+        // The front end posts notifications itself when its hello declared notify (ADR 0044); wisp never
+        // writes to the terminal it owns.
+        let host = session.host(
+            approver: JSONApprover(router: router, timeout: session.config.approvalTimeout, send: send),
+            face: .frontEnd(
+                .init(
+                    declared: { router.declares("notify") },
+                    send: { send(ChatProtocol.encode("notify", ChatProtocol.notify($0))) })))
         var agent: Agent
         if let saved {
             agent = try session.openAgent(
-                approver: approver, transcript: saved.transcript, links: saved.links, observer: tap)
+                host: host, transcript: saved.transcript, links: saved.links, observer: tap)
         } else {
-            agent = try session.openAgent(approver: approver, observer: tap)
+            agent = try session.openAgent(host: host, observer: tap)
         }
         let views = session.introspection
         let activity = ChatActivity()
@@ -521,7 +532,7 @@ struct Chat: AsyncParsableCommand {
                     await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
                 },
                 openModel: { selection, store in
-                    try session.openAgent(approver: approver, store: store, observer: tap, model: selection)
+                    try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines),
@@ -788,7 +799,8 @@ struct Models: AsyncParsableCommand {
 }
 
 /// Posts a macOS notification from the command line, through the same notifier the model's `notify`
-/// tool uses: bounded, rate-limited, audited as `notification` with source `user`.
+/// tool uses and the terminal face's routes: bounded, rate-limited, audited as `notification` with source
+/// `user` and the route taken.
 struct Notify: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Show a macOS notification.",
@@ -806,12 +818,32 @@ struct Notify: ParsableCommand {
     @Flag(name: .long, help: "Play the default notification sound.")
     var sound = false
 
+    @Option(
+        name: .long,
+        help: ArgumentHelp(
+            "Use only this route: host, terminal, app, or osascript. app is tried even when "
+                + "notifications.viaTerminalApp is off, to probe which app the banner is attributed to.",
+            valueName: "route"))
+    var route: String?
+
+    func validate() throws {
+        if let route, NotificationRoute(rawValue: route) == nil {
+            throw ValidationError("--route must be host, terminal, app, or osascript")
+        }
+    }
+
     func run() throws {
         let session = try Wisp.begin(.init(entryPoint: .notify))
         defer { session.end() }
-        let outcome = session.notifier.post(
+        let host = session.host(
+            approver: DenyingApprover(reason: "wisp notify runs no commands"), face: .terminal,
+            only: route.flatMap(NotificationRoute.init(rawValue:)))
+        let outcome = host.notify(
             .init(title: title, body: message, subtitle: subtitle, sound: sound), source: .user, audit: session.audit)
-        if case .refused(let reason) = outcome { throw ValidationError("notification not shown: \(reason)") }
+        switch outcome {
+        case .posted(let route): if self.route != nil { Wisp.note("posted via \(route.rawValue)") }
+        case .refused(let reason): throw ValidationError("notification not shown: \(reason)")
+        }
     }
 }
 
@@ -937,7 +969,9 @@ struct Draft: AsyncParsableCommand {
             .init(entryPoint: .draft, model: try model.map(Wisp.parseModel), autoApprove: yes))
         defer { session.end() }
         let thread = try session.thread(
-            id: "draft-" + ShortID.make(), approver: TerminalApprover(style: .plain), tools: .none)
+            id: "draft-" + ShortID.make(),
+            host: session.host(approver: TerminalApprover(style: .plain), face: .terminal),
+            tools: .none)
         let directory = FileManager.default.currentDirectoryPath
         let source: Triage.Source
         let captured: Triage.Captured
@@ -1036,8 +1070,8 @@ struct Watch: AsyncParsableCommand {
         let session = try Wisp.begin(
             .init(entryPoint: .watch, model: try model.map(Wisp.parseModel), autoApprove: yes))
         defer { session.end() }
-        let thread = try session.thread(
-            id: "watch-" + ShortID.make(), approver: TerminalApprover(style: .plain), tools: .none)
+        let host = session.host(approver: TerminalApprover(style: .plain), face: .terminal)
+        let thread = try session.thread(id: "watch-" + ShortID.make(), host: host, tools: .none)
         let directory = directory ?? FileManager.default.currentDirectoryPath
         let source = Triage.Source.command(command, workingDirectory: directory)
         var runner = CommandRunner(
@@ -1081,7 +1115,7 @@ struct Watch: AsyncParsableCommand {
             options: .init(notify: notify, triage: !noTriage, maxRuns: maxRuns),
             execute: { Triage.Captured(try await authorized.run()) },
             triage: { captured in try await triage.run(captured, from: source).findings },
-            notify: { message in _ = session.notifier.post(message, source: .watch, audit: thread.audit) },
+            notify: { message in _ = host.notify(message, source: .watch, audit: thread.audit) },
             report: { run in
                 print("[\(Date().formatted(clock))] \(run.summary)")
                 for finding in run.findings ?? [] {

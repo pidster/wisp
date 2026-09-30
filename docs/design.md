@@ -233,15 +233,31 @@ one function for every face of wisp. `Prompting` renders three layers into the f
 wisp's own system prompt (the file `Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension` from config, and the caller's
 conversation instructions; see [ADR 0017](decisions/0017-three-layer-instructions.md).
-The approver is the one thing that differs between faces, so it is given when a conversation is opened,
-not when the session begins; a `--yes` request replaces it with `AutoApprover` inside the core, so the
-flag means the same everywhere. The three faces are overlays on this core:
+What differs between faces is what the face that owns the person's screen can do for a tool, so it is
+given when a conversation is opened, not when the session begins, as a `SessionHost`
+([ADR 0044](decisions/0044-host-effects.md); Foundation already has a `Host`). A host carries the face's
+effects: the command `approver` (request and answer) and the notification routes (fire and forget),
+beside the session's `Notifier`. `Session.host(approver:face:)` builds one for each face; the gate asks
+`host.approver`, and `NotifyTool`, `wisp notify`, and `wisp watch` post through `host.notify`, so no tool
+calls a face directly. A `--yes` request replaces the approver with `AutoApprover` inside the core, so the
+flag means the same everywhere. The faces are overlays on this core:
 
-| Face | How it opens its conversation |
-| --- | --- |
-| `respond` | `session.openAgent(approver:)` with a denying approver that explains `--yes` and `chat` |
-| `chat` | `session.openAgent(approver:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store |
-| `mcp` | `session.thread(id:approver:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together |
+| Face | How it opens its conversation | Notification routes (`NotificationRoutes.Face`) |
+| --- | --- | --- |
+| `respond` | `session.openAgent(host:)` with a denying approver that explains `--yes` and `chat` | `.terminal` |
+| `chat` | `session.openAgent(host:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store | `.terminal` |
+| `chat --json` | The same, with `JSONApprover` | `.frontEnd`: the front end when its `hello` declared `notify` |
+| `mcp` | `session.thread(id:host:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together | `.mcp`: the process routes only |
+
+`Notifier` applies the off switch, the bounds, and the per-minute limit across the process, then hands the
+bounded message to the face's `NotificationRoutes`, which try ADR 0044's routes in order and return the
+first that works with the reasons the earlier ones were skipped: `host` (the front end's `notify` line),
+`terminal` (the escape sequence `TerminalNotification` builds for the terminal `TERM_PROGRAM` or `TERM`
+names, written to `/dev/tty`; only the `.terminal` face, since under `--json` the front end and under MCP
+the client own the terminal), `app` (`display notification` sent to `__CFBundleIdentifier`'s app, only with
+`notifications.viaTerminalApp`), and `osascript`. The plan is a pure function of the face, the environment,
+and the setting (`NotificationRoutes.steps`), which the tests and `wisp doctor` read; the terminal writer
+and the `osascript` runner are injected.
 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a
 "this project" answer on one MCP thread is written once and a "this session" answer covers every thread.
@@ -292,9 +308,9 @@ tool can change no more than a command could. Each edit is cleared by the gate a
 `edit_file <mode> <path>` and recorded as `file.write` ([ADR 0024](decisions/0024-edit-file.md)). The
 tools do not share one control path: `run_command` passes the policy patterns, the gate, and Seatbelt;
 `edit_file` the writable list and the gate; `read_file` the gate's rules only; `inspect` and
-`current_date` none. `NotifyTool` posts through the session's `Notifier` (`osascript` with the text in
-`argv`), bounded, rate-limited, and audited as `notification`, without the gate
-([ADR 0030](decisions/0030-notifications.md)).
+`current_date` none. `NotifyTool` posts through the session's host (above), bounded, rate-limited, and
+audited as `notification` with the route taken, without the gate
+([ADR 0030](decisions/0030-notifications.md), [ADR 0044](decisions/0044-host-effects.md)).
 
 `RunCommandTool` is the generic exec tool. It delegates to `CommandRunner`, which checks the
 `CommandPolicy` patterns, consults `ApprovalGate` (rules plus a classifier, the shipped Core ML one by default, ask at
@@ -410,7 +426,9 @@ running a command, waiting for approval). The terminal chat redraws that as a wo
 sends it as `activity` lines. `ChatLoop.history` keeps the latest 100 typed lines for `/history`; `wisp-tui` keeps its own
 list for Up and Down. `wisp chat --json` is the same loop with its IO mapped onto a JSON Lines protocol
 (`ChatProtocol`, `LineRouter`, `JSONApprover`), so a front end in another process, `tools/wisp-tui`,
-can own the screen while the session stays here. `/config` shows the configuration as YAML through
+can own the screen while the session stays here. The front end's optional first line, `hello`, declares
+the host effects it carries; `LineRouter` keeps it (`declares`), the host's notification routes ask it at
+each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. `/config` shows the configuration as YAML through
 `YAMLText`; `/config set` and `wisp config set` go through
 `ConfigSettings` (the settings that can change, and what each takes) and `ConfigEdit` (one path set or
 removed, the result validated as start-up would before it is written); a chat command that needs an

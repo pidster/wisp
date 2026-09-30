@@ -1,6 +1,6 @@
 # ADR 0044: Host effects: what a tool asks the front end to do
 
-Date: 2026-09-30. Status: accepted; the build follows. Amended 2026-09-30: fact approval, the second
+Date: 2026-09-30. Status: accepted; built 2026-09-30 (see "Built" at the end). Amended 2026-09-30: fact approval, the second
 request-and-answer effect, and its MCP mapping (below); amended again the same day, withdrawing that effect
 (the last amendment below). Amends
 [ADR 0011](0011-risk-classifier-and-approval.md) (approvers) and [ADR 0030](0030-notifications.md) (how a
@@ -153,3 +153,38 @@ passes an instruction back to the controller, which has, in effect, a tool of it
 - Tests without the model: route selection for each face and environment (terminal names, no tty, no
   bundle identifier, a `hello` with and without `notify`), the sequences written, the protocol lines
   both ways, and the `route` field in the audit.
+
+## Built
+
+Built 2026-09-30. `SessionHost` carries the command `approver` and the notification routes
+(`NotificationRoutes`) beside the session's `Notifier`; `Session.host(approver:face:)` builds one for plain
+chat and the one-shot commands (`.terminal`), `wisp chat --json` (`.frontEnd`), and `wisp mcp` (`.mcp`).
+The gate asks `host.approver`; `NotifyTool`, `wisp notify`, and `wisp watch` post through `host.notify`.
+`hello` is `{"type":"hello","effects":[…],"client":…,"version":…}`, recorded as the audit kind
+`host.hello`; `notify` is `{"type":"notify","title":…,"subtitle":…,"body":…,"sound":…}`. The
+`notification` event gains `route` and `skipped` (one `route: reason` per route passed over). Where the
+build chose, and why:
+
+- **`wisp-tui` declares `notify` only when its terminal has a sequence** (Ghostty, iTerm2, WezTerm, kitty,
+  by `TERM_PROGRAM`, else `TERM`). The alternatives were a reply saying it could not post, which makes a
+  fire-and-forget effect a request and answer, or the front end running `osascript` itself, which puts
+  policy in the front end. Declaring only what it can do keeps the effect one-way: in Terminal.app or tmux
+  the front end leaves `notify` out, and wisp falls through to the routes of its own process.
+- **Never the terminal route under MCP.** The Decision allows it "when `/dev/tty` opens". Probed on this Mac
+  on 2026-09-30: `wisp mcp` spawned by Claude Code running in a terminal has that terminal (`ttys006`) as its
+  controlling terminal, so `/dev/tty` opens, while Claude Code draws on it; one spawned by the Claude
+  desktop app has none. A sequence written from the server would interleave with the client's frames,
+  the hazard the Context names for `wisp-tui`. MCP takes the app and `osascript` routes only. Whether a
+  client that owns no terminal should ever let the server write to one is for a later decision.
+- **A `hello` without `approve` denies every approval without asking**, with the reason, as "a host that
+  cannot ask denies with a reason" says. No `hello` asks over the protocol as before.
+- **The app route is behind `notifications.viaTerminalApp`, off**, and `wisp notify --route app` probes it
+  (it is tried even with the setting off); `--route` takes any route alone. The probe needs a person to
+  look at the banner, so the default stays off until one has (`docs/tools/notify.md`, "Probing the app
+  route").
+- **Sequence text** is sanitised again for the terminal on top of `Notifier`'s cleaning: every C0 and C1
+  control character and DEL becomes a space and `;` becomes `,`, in Swift (`TerminalNotification`) and in
+  `wisp-tui` (`notify.rs`) alike. OSC 9 is `ESC ] 9 ; title — subtitle: body BEL`; OSC 99 is a title chunk
+  (`i=<id>:d=0:p=title`) and a body chunk (`i=<id>:p=body`), each ended by `ESC \`.
+- **Not probed here:** that each terminal shows the banner. The sequences follow each terminal's
+  documentation; the tests check the bytes, not a banner.

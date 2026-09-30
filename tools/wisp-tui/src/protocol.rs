@@ -55,6 +55,8 @@ pub enum Outbound {
         #[serde(default)]
         candidates: Vec<String>,
     },
+    /// A notification for the front end to post (ADR 0044), sent only when `hello` declared `notify`.
+    Notify(Notice),
     /// wisp is exiting.
     Exit,
     /// Anything this version does not know.
@@ -224,10 +226,37 @@ pub struct Approval {
     pub reasons: Vec<String>,
 }
 
+/// A notification wisp asks the front end to post: already bounded and rate-limited by wisp, but
+/// sanitised again before it goes into an escape sequence.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct Notice {
+    /// The first line.
+    #[serde(default)]
+    pub title: String,
+    /// A second line under the title, when there is one.
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    /// The message.
+    #[serde(default)]
+    pub body: String,
+    /// Whether wisp would play a sound; the terminal sequences have no use for it.
+    #[serde(default)]
+    pub sound: bool,
+}
+
 /// One line to wisp.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Inbound {
+    /// The first line: which effects this front end carries for wisp (ADR 0044), and who it is.
+    Hello {
+        /// `approve`, and `notify` when the terminal can post a notification.
+        effects: Vec<String>,
+        /// The front end's name.
+        client: String,
+        /// Its version.
+        version: String,
+    },
     /// A chat line, slash commands included.
     Message {
         /// The text.
@@ -268,6 +297,19 @@ impl Outbound {
 }
 
 impl Inbound {
+    /// This front end's `hello`: it answers approvals, and posts notifications when `notify` is true.
+    pub fn hello(notify: bool) -> Self {
+        let mut effects = vec![String::from("approve")];
+        if notify {
+            effects.push(String::from("notify"));
+        }
+        Self::Hello {
+            effects,
+            client: String::from("wisp-tui"),
+            version: String::from(env!("CARGO_PKG_VERSION")),
+        }
+    }
+
     /// The line to write, newline included.
     pub fn line(&self) -> String {
         let mut text = serde_json::to_string(self).unwrap_or_else(|_| String::from("{}"));
@@ -400,6 +442,37 @@ mod tests {
             Outbound::Note {
                 text: "plain text".into()
             }
+        );
+    }
+
+    #[test]
+    fn parses_a_notify_line_and_writes_hello() {
+        assert_eq!(
+            Outbound::parse(
+                r#"{"type":"notify","title":"Build","subtitle":null,"body":"done","sound":false}"#
+            ),
+            Outbound::Notify(Notice {
+                title: "Build".into(),
+                subtitle: None,
+                body: "done".into(),
+                sound: false
+            })
+        );
+        assert!(matches!(
+            Outbound::parse(r#"{"type":"notify","body":"b","subtitle":"s"}"#),
+            Outbound::Notify(Notice { subtitle: Some(s), .. }) if s == "s"
+        ));
+        let version = env!("CARGO_PKG_VERSION");
+        assert_eq!(
+            Inbound::hello(true).line(),
+            format!(
+                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
+            )
+        );
+        assert!(
+            Inbound::hello(false)
+                .line()
+                .contains("\"effects\":[\"approve\"],")
         );
     }
 

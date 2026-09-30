@@ -322,19 +322,31 @@ extension AuditEvent {
             ]
         }
 
-        /// `notification`: what was asked to be shown, by whom, and whether it was.
+        /// `notification`: what was asked to be shown, by whom, whether it was and by which route, and why
+        /// the earlier routes were not taken (ADR 0044).
         public static func notification(
-            title: String, body: String, source: String, outcome: Notifier.Outcome
+            title: String, body: String, source: String, outcome: Notifier.Outcome, skipped: [String] = []
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "title": .string(title), "body": .string(body), "source": .string(source),
             ]
             switch outcome {
-            case .posted: details["outcome"] = "posted"
+            case .posted(let route):
+                details["outcome"] = "posted"
+                details["route"] = .string(route.rawValue)
             case .refused(let reason):
                 details["outcome"] = "refused"
                 details["reason"] = .string(reason)
             }
+            if !skipped.isEmpty { details["skipped"] = .array(skipped.map { .string($0) }) }
+            return details
+        }
+
+        /// `host.hello`: what a `wisp chat --json` front end declared it carries, and who it is.
+        public static func hostHello(_ hello: ChatProtocol.Hello) -> [String: JSONValue] {
+            var details: [String: JSONValue] = ["effects": .array(hello.effects.map { .string($0) })]
+            if let client = hello.client { details["client"] = .string(client) }
+            if let version = hello.version { details["version"] = .string(version) }
             return details
         }
 
@@ -414,7 +426,8 @@ extension AuditEvent {
         case .policyDecision: ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested"]
         case .commandOutcome: ["command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds"]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]
-        case .notification: ["title", "body", "source", "outcome", "reason"]
+        case .notification: ["title", "body", "source", "outcome", "reason", "route", "skipped"]
+        case .hostHello: ["effects", "client", "version"]
         case .secretScan: ["source", "bytes", "diff", "thorough", "findings", "kinds", "failedChunks", "classifier"]
         case .redaction: ["source", "bytes", "bytesOut", "truncated", "thorough", "replaced", "failedChunks"]
         case .modelRouted: ["task", "inputBytes", "model", "reason"]

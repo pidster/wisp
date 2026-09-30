@@ -13,9 +13,9 @@ import WispTestSupport
 @Suite struct FactStoreResourcesTests {
     /// A server whose threads keep facts, opened as the faces open them, over a scripted model.
     private func server() throws -> WispServer {
-        WispServer(session: try scratchSession()) { session, approver, id, instructions, tools, model in
+        WispServer(session: try scratchSession()) { session, host, id, instructions, tools, model in
             let thread = try session.thread(
-                id: id, approver: approver, instructions: instructions, tools: .none, model: model)
+                id: id, host: host, instructions: instructions, tools: .none, model: model)
             let agent = try thread.openAgent(
                 on: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok"), .say("ok")])))
             return OpenThread(

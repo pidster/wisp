@@ -69,6 +69,7 @@ public struct Introspection: Sendable {
             "shownOutputLines": .int(config.shownOutputLines),
             "notifications": .object([
                 "enabled": .bool(config.notificationsEnabled), "perMinute": .int(config.notificationsPerMinute),
+                "viaTerminalApp": .bool(config.notificationsViaTerminalApp),
             ]),
             "tools": .object([
                 "disabled": .array(config.disabledTools.sorted().map { .string($0) }),

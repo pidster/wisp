@@ -13,7 +13,7 @@ use crate::editor::{Edit, Editor};
 use crate::markdown;
 use crate::palette;
 use crate::picker::Picker;
-use crate::protocol::{Approval, Inbound, Outbound, Status, ToolOutput, View};
+use crate::protocol::{Approval, Inbound, Notice, Outbound, Status, ToolOutput, View};
 
 /// Rows the band occupies with a one-row input: reply in progress, dialog, a half-height strip, the
 /// input, a half-height strip, status. The strips are rows of half-block glyphs in the tint, which read
@@ -284,6 +284,8 @@ pub struct App {
     pub panel: Option<Panel>,
     /// Whether an `/inspect context` request from a key is awaiting its view.
     pub context_asked: bool,
+    /// Notifications wisp asked to be posted, written to the terminal between frames.
+    pub notices: Vec<Notice>,
     /// The width the band was last sized for, so scrolling knows how the text wraps.
     band_width: Cell<u16>,
 }
@@ -397,6 +399,7 @@ impl App {
                 from,
                 candidates,
             } => self.completed(&id, from, candidates),
+            Outbound::Notify(notice) => self.notices.push(notice),
             Outbound::Exit => self.exited = true,
             Outbound::Unknown => {}
         }
@@ -585,6 +588,11 @@ impl App {
     /// Takes the lines to insert above the band.
     pub fn take_pending(&mut self) -> Vec<HistoryLine> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// The notifications wisp has asked for since the last call, oldest first.
+    pub fn take_notices(&mut self) -> Vec<Notice> {
+        std::mem::take(&mut self.notices)
     }
 
     /// A character typed.
@@ -1190,7 +1198,7 @@ fn dialog_width(width: u16) -> usize {
 
 /// What a dialog says, each line fitted to `width` cells: the command, wrapped; the line it is part
 /// of, when it is one part of one; the directory; the reasons; the pattern the answer is remembered
-/// under; and the keys, worded as `wisp chat` words them.
+/// under; an empty row; and the keys, worded as `wisp chat` words them.
 fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
     let mut command = Editor::default();
     command.set(&approval.command);
@@ -1220,6 +1228,8 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
         )));
     }
     lines.push(muted(format!("remembered as {}", approval.pattern)));
+    // One empty row sets the keys apart from what they answer.
+    lines.push(Line::default());
     lines.push(Line::from(Span::styled(
         fit("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o", width),
         palette::body(),
@@ -1914,8 +1924,8 @@ mod tests {
             "git add -A && git push",
             &["changes repository state", "reaches the network"],
         )));
-        // Reply row, border, command, line, directory, two reasons, pattern, keys, border, status.
-        assert_eq!(app.band_height(60), 11);
+        // Reply row, border, command, line, directory, two reasons, pattern, a space, keys, border, status.
+        assert_eq!(app.band_height(60), 12);
         let rows = drawn(&app, 60);
         assert!(rows[1].starts_with(" ╭ approve · dangerous "), "{rows:?}");
         assert_eq!(rows[2].trim_end_matches([' ', '│']), " │ git push");
@@ -1924,12 +1934,15 @@ mod tests {
         assert!(rows[5].contains("- changes repository state"));
         assert!(rows[6].contains("- reaches the network"));
         assert!(rows[7].contains("remembered as git push *"));
-        assert!(rows[8].contains("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o"));
-        assert!(rows[9].starts_with(" ╰"));
-        assert!(rows[10].contains("system"));
-        // A command that is its whole line has no "part of" row: command, directory, pattern, keys.
+        // The keys stand one empty row below the pattern, inside the border.
+        assert!(rows[8].starts_with(" │"), "{rows:?}");
+        assert!(rows[8].trim_matches([' ', '│']).is_empty(), "{rows:?}");
+        assert!(rows[9].contains("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o"));
+        assert!(rows[10].starts_with(" ╰"));
+        assert!(rows[11].contains("system"));
+        // A command that is its whole line has no "part of" row: command, directory, pattern, space, keys.
         let only_command = approval("git push", "git push", &[]);
-        assert_eq!(dialog_lines(&only_command, 50).len(), 4);
+        assert_eq!(dialog_lines(&only_command, 50).len(), 5);
         // Answering gives the band back to the input.
         app.type_char('n');
         app.busy = false;

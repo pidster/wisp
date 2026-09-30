@@ -21,6 +21,9 @@ Breaking:
 
 Changed:
 
+- `wisp-tui`'s approval dialog has an empty line between what it asks about and the keys that answer it.
+- The `notify` tool now tells the model which route posted the notification (`notification posted via
+  terminal`) where it said `notification shown`.
 - Unknown audit event kinds are shown rather than skipped: `wisp logs`, the `inspect` tool, and the audit
   resources now print a line written by another release whose `kind` this build does not know, as it is,
   where they used to leave it out. `wisp logs --kind` still accepts only the kinds listed in
@@ -46,6 +49,19 @@ Changed:
 
 Added:
 
+- Notifications come from your terminal in Ghostty, iTerm2, WezTerm, and kitty: the `notify` tool,
+  `wisp notify`, and `wisp watch` write the terminal's own notification sequence, so the banner carries the
+  terminal's name and icon and clicking it returns to it, instead of Script Editor. `wisp-tui` does the
+  same in those terminals. Elsewhere (Terminal.app, tmux, `wisp mcp`) they are posted as before. The
+  `notification` audit event records the route taken (`host`, `terminal`, `app`, `osascript`) and why
+  earlier ones were skipped, and `wisp doctor` names the route it would take.
+- `notifications.viaTerminalApp` (off by default) sends a notification to your terminal app by its bundle
+  identifier when the terminal has no sequence; `wisp notify --route app "probe"` shows whether macOS
+  credits the banner to the app, before you turn it on. `--route` takes `host`, `terminal`, `app`, or
+  `osascript` to use one route alone.
+- `wisp chat --json` accepts a first `hello` line declaring what the front end does (`approve`, `notify`);
+  with `notify`, wisp sends `notify` lines for the front end to post. A front end that sends none works as
+  before.
 - `wisp doctor` checks the facts store (parses, mode 600, counts), the subject kinds, that every saved
   transcript can be resumed, the numeric settings' ranges, and the configured model's context window and
   how it is known.

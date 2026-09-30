@@ -10,11 +10,11 @@ import WispTestSupport
 /// `Agent`, so the server is tested over the same objects it uses in production, with no model. Each
 /// new thread says its id, then "again", then "done".
 func scriptedThreads(
-    _ session: Session, _ approver: any Approver, _ id: String, _ instructions: String?, _ tools: ToolSelection,
+    _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?, _ tools: ToolSelection,
     _ model: ModelSelection?
 ) throws -> OpenThread {
     let thread = try session.thread(
-        id: id, approver: approver, instructions: instructions, tools: tools, model: model)
+        id: id, host: host, instructions: instructions, tools: tools, model: model)
     let agent = Agent(
         instructions: thread.prompting.rendered, tools: thread.tools,
         model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("\(id):"), .say("again")])),
@@ -63,10 +63,10 @@ func scratchSession(
         }
         let session = try scratchSession()
         // Two threads opened from the same session share one store and one session-approval set.
-        let first = try session.thread(id: "a", approver: Grant())
+        let first = try session.thread(id: "a", host: session.host(approver: Grant()))
         try await first.gate.clear(command: "touch a", workingDirectory: "/repo")
         #expect(await session.store.find(pattern: "touch *", directory: "/repo")?.source == "mcp")
-        let second = try session.thread(id: "b", approver: DenyingApprover(reason: "must not ask"))
+        let second = try session.thread(id: "b", host: session.host(approver: DenyingApprover(reason: "must not ask")))
         try await second.gate.clear(command: "touch b", workingDirectory: "/repo")
     }
 

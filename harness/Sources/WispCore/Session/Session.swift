@@ -147,7 +147,8 @@ public struct Session: Sendable {
     public let toolNames: [String]
     /// The classifier every conversation's gate uses.
     let classifier: any RiskClassifier
-    /// Posts notifications for every conversation, so the rate limit covers them all.
+    /// Bounds and rate-limits notifications for every conversation, so the limit covers them all; each
+    /// face's `SessionHost` posts through it by its own routes.
     public let notifier: Notifier
     /// The recent model turns and classifier calls of every conversation of this session, for `/stats`.
     public let stats: CallStats
@@ -296,10 +297,48 @@ public struct Session: Sendable {
         return names
     }
 
+    /// The host for a face of this session: its approver, the session's notifier, and the face's
+    /// notification routes with `notifications.viaTerminalApp` from the config. Every face builds one
+    /// (ADR 0044).
+    ///
+    /// - Parameters:
+    ///   - approver: How the face asks a human.
+    ///   - face: Which face, for the notification routes; `.headless` has only the process routes.
+    ///   - only: A single notification route, for `wisp notify --route`.
+    /// - Returns: The host.
+    public func host(
+        approver: any Approver, face: NotificationRoutes.Face = .headless, only: NotificationRoute? = nil
+    ) -> SessionHost {
+        SessionHost(
+            approver: approver, notifier: notifier,
+            notifications: NotificationRoutes(
+                face: face, viaTerminalApp: config.notificationsViaTerminalApp, only: only))
+    }
+
+    /// Opens the session's own conversation over a headless host with `approver`; for tests and callers
+    /// with no screen of their own.
+    func openAgent(
+        approver: any Approver, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
+        store: ThreadRecord? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil
+    ) throws -> Agent {
+        try openAgent(
+            host: host(approver: approver), transcript: transcript, links: links, store: store, observer: observer,
+            model: model)
+    }
+
+    /// Sets up a further conversation over a headless host with `approver`; for tests.
+    func thread(
+        id: String, approver: any Approver, instructions: String? = nil, tools: ToolSelection = .all,
+        model: ModelSelection? = nil
+    ) throws -> WispThread {
+        try thread(id: id, host: host(approver: approver), instructions: instructions, tools: tools, model: model)
+    }
+
     /// Opens the session's own conversation: `respond` and `chat` call this once.
     ///
     /// - Parameters:
-    ///   - approver: How the face asks a human; replaced by `AutoApprover` when the request said `--yes`.
+    ///   - host: The face's effects: how it asks a human (its approver is replaced by `AutoApprover` when the
+    ///     request said `--yes`) and how it posts a notification.
     ///   - transcript: A saved conversation to resume, or nil to start fresh.
     ///   - links: The store links saved with `transcript` (`TranscriptStore.Saved.links`), if any.
     ///   - store: The store of an agent being replaced, which the new agent continues; chat's `/model`
@@ -310,11 +349,11 @@ public struct Session: Sendable {
     /// - Returns: The agent over the session's tools, recording to the session's audit log.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
     public func openAgent(
-        approver: any Approver, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
+        host: SessionHost, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
         store: ThreadRecord? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil
     ) throws -> Agent {
         let thread = try WispThread.setUp(
-            session: self, audit: audit, approver: approver, prompting: prompting, toolNames: toolNames,
+            session: self, audit: audit, host: host, prompting: prompting, toolNames: toolNames,
             model: model ?? config.model, observer: observer)
         return try thread.openAgent(transcript: transcript, links: links, store: store)
     }
@@ -325,21 +364,21 @@ public struct Session: Sendable {
     ///
     /// - Parameters:
     ///   - id: The conversation's id; its audit events carry it as the session.
-    ///   - approver: How the face asks a human; replaced by `AutoApprover` when the request said `--yes`.
+    ///   - host: The face's effects; its approver is replaced by `AutoApprover` when the request said `--yes`.
     ///   - instructions: The thread's own instructions (layer 3); nil takes the session's.
     ///   - tools: Tool selection; `.all` takes the session's.
     ///   - model: Model override; nil takes the session's.
     /// - Returns: The conversation, ready to open.
     /// - Throws: `Failure.unknownTools`.
     public func thread(
-        id: String, approver: any Approver, instructions: String? = nil, tools: ToolSelection = .all,
+        id: String, host: SessionHost, instructions: String? = nil, tools: ToolSelection = .all,
         model: ModelSelection? = nil
     ) throws -> WispThread {
         let audit = self.audit.log(forSession: id)
         var prompting = self.prompting
         if let instructions { prompting.instructions = instructions }
         let thread = try WispThread.setUp(
-            session: self, audit: audit, approver: approver, prompting: prompting,
+            session: self, audit: audit, host: host, prompting: prompting,
             toolNames: tools.resolved(or: toolNames), model: model ?? config.model)
         audit.record(
             .sessionStart,

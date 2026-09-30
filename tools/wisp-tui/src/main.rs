@@ -8,6 +8,7 @@
 mod app;
 mod editor;
 mod markdown;
+mod notify;
 mod palette;
 mod picker;
 mod protocol;
@@ -34,7 +35,8 @@ use ratatui::{Terminal, TerminalOptions, Viewport};
 use app::{Action, App, BAND_HEIGHT, HistoryLine, LineKind, MARGIN};
 use editor::Edit;
 use markdown::Tone;
-use protocol::Outbound;
+use notify::Sequence;
+use protocol::{Inbound, Outbound};
 
 /// What the main loop waits on.
 enum Incoming {
@@ -58,6 +60,12 @@ fn main() -> Result<()> {
     let stdout = child.stdout.take().context("wisp stdout")?;
     let stderr = child.stderr.take().context("wisp stderr")?;
     let mut stdin = child.stdin.take().context("wisp stdin")?;
+    // The first line says what this front end does for wisp: it answers approvals, and posts
+    // notifications when the terminal it runs in has a sequence for them (ADR 0044). Declaring `notify`
+    // only then keeps the route simple: wisp never sends a notification this terminal cannot post.
+    let sequence = notify::detect(|key| std::env::var(key).ok());
+    stdin.write_all(Inbound::hello(sequence.is_some()).line().as_bytes())?;
+    stdin.flush()?;
     let (tx, rx) = mpsc::channel::<Incoming>();
     let out_tx = tx.clone();
     thread::spawn(move || {
@@ -98,7 +106,7 @@ fn main() -> Result<()> {
     });
     // Bracketed paste delivers a paste as one event, so its newlines and keys cannot submit or edit.
     let _ = execute!(std::io::stdout(), EnableBracketedPaste);
-    let result = run(&mut terminal, &rx, &mut stdin);
+    let result = run(&mut terminal, &rx, &mut stdin, sequence);
     let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::restore();
     let _ = child.wait();
@@ -129,8 +137,10 @@ fn run(
     terminal: &mut ratatui::DefaultTerminal,
     rx: &mpsc::Receiver<Incoming>,
     stdin: &mut impl Write,
+    sequence: Option<Sequence>,
 ) -> Result<()> {
     let mut app = App::default();
+    let mut posted = 0;
     let mut height = BAND_HEIGHT;
     let mut shown_label: Option<String> = None;
     terminal.draw(|frame| app.render(frame, frame.area()))?;
@@ -207,9 +217,21 @@ fn run(
         let frame = paint(terminal, &mut app, &mut height);
         let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
         frame?;
+        // Between frames, so a sequence is never split by one of the frame's own.
+        post_notices(&mut std::io::stdout(), &mut app, sequence, &mut posted);
         if app.exited {
             return Ok(());
         }
+    }
+}
+
+/// Writes the notifications wisp asked for since the last frame, when the terminal has a sequence for
+/// them; they are dropped otherwise (wisp sends none unless `hello` declared `notify`). A failed write
+/// loses a banner, never the session.
+fn post_notices(out: &mut impl Write, app: &mut App, sequence: Option<Sequence>, posted: &mut u64) {
+    let notices = app.take_notices();
+    if let Some(sequence) = sequence {
+        let _ = notify::post(out, sequence, &notices, posted);
     }
 }
 
@@ -430,8 +452,9 @@ fn wrapped_height(text: &str, width: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Edit, Incoming, Key, KeyCode, KeyModifiers, TermEvent, changes_the_band, command_for,
-        next_height, version_requested, wrapped_height,
+        App, Edit, Incoming, Key, KeyCode, KeyModifiers, Outbound, Sequence, TermEvent,
+        changes_the_band, command_for, next_height, post_notices, version_requested,
+        wrapped_height,
     };
     use super::{HistoryLine, Line, LineKind, palette, styled};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
@@ -582,6 +605,30 @@ mod tests {
             "the tint runs edge to edge"
         );
         assert_eq!(buffer[(0, 0)].fg, palette::SENT);
+    }
+
+    #[test]
+    fn notices_are_written_after_the_frame_and_only_once() {
+        let mut app = App::default();
+        app.handle(Outbound::parse(
+            r#"{"type":"notify","title":"Build","subtitle":null,"body":"done","sound":false}"#,
+        ));
+        // A notify line changes nothing on screen but is a line, so a frame is painted and the notice
+        // written after it.
+        assert!(changes_the_band(Some(&Incoming::Line(String::new()))));
+        let mut out = Vec::new();
+        let mut posted = 0;
+        post_notices(&mut out, &mut app, Some(Sequence::Osc9), &mut posted);
+        assert_eq!(out, b"\x1b]9;Build: done\x07");
+        post_notices(&mut out, &mut app, Some(Sequence::Osc9), &mut posted);
+        assert_eq!(out.len(), b"\x1b]9;Build: done\x07".len(), "drained");
+        // Without a sequence nothing is written, and the queue still drains.
+        app.handle(Outbound::parse(
+            r#"{"type":"notify","title":"t","body":"b"}"#,
+        ));
+        let mut none = Vec::new();
+        post_notices(&mut none, &mut app, None, &mut posted);
+        assert!(none.is_empty() && app.notices.is_empty());
     }
 
     #[test]

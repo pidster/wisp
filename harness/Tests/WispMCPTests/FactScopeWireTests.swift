@@ -47,9 +47,9 @@ import WispTestSupport
     private func connected() async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
         let sink = MemoryAuditSink()
         let session = try scratchSession(dependencies: .testing(sink: sink))
-        let server = WispServer(session: session) { session, approver, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
             let thread = try session.thread(
-                id: id, approver: approver, instructions: instructions, tools: .none, model: model)
+                id: id, host: host, instructions: instructions, tools: .none, model: model)
             let agent = try thread.openAgent(
                 on: ResolvedModel(
                     selection: .system, custom: ScriptedModel(steps: Array(repeating: .say("ok"), count: 6))))

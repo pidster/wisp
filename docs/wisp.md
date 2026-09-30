@@ -237,9 +237,18 @@ Out, to the front end:
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
+| `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
 | `exit` | | The loop has ended. |
 
-In, from the front end: `{"type":"message","text":"…"}` for a chat line, slash commands included, and
+In, from the front end: first, optionally, `{"type":"hello","effects":["approve","notify"],"client":"wisp-tui","version":"0.15.0"}`,
+the host effects the front end carries ([ADR 0044](decisions/0044-host-effects.md)). `approve`: it
+answers `approval` lines; a `hello` without it has every approval denied without being asked.
+`notify`: it posts notifications itself, so wisp sends `notify` lines and never writes to the terminal.
+Unknown effects are ignored; `client` and `version` are for the audit (`host.hello`). A front end that
+sends no `hello` keeps the behaviour from before it existed: approvals over the protocol, notifications
+posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
+`approve`, and `notify` when its terminal has a notification sequence (Ghostty, iTerm2, WezTerm, kitty).
+Then `{"type":"message","text":"…"}` for a chat line, slash commands included, and
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval, and
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, and
 `{"type":"complete","id":"…","text":"…","cursor":N}` to ask for completions of the input at character
@@ -260,6 +269,7 @@ The order in which the lines pass, from the banner to `exit`:
 sequenceDiagram
     participant tui as wisp-tui
     participant wisp as wisp chat --json
+    tui->>wisp: hello, optional: approve, notify
     wisp->>tui: note: the banner and the help line
     loop until /quit or end of input
         wisp->>tui: status
@@ -273,6 +283,9 @@ sequenceDiagram
             opt a risky command
                 wisp->>tui: approval
                 tui->>wisp: answer
+            end
+            opt a notification, when hello declared notify
+                wisp->>tui: notify
             end
             wisp->>tui: an empty output line ends the reply
             wisp->>tui: turn, phase end
@@ -371,7 +384,7 @@ wisp config unset approval.timeoutSeconds
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400. |
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576. |
 | `tools.disabled` | Built-in tool names. |
-| `notifications.enabled`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
+| `notifications.enabled`, `notifications.viaTerminalApp`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
 | `notifications.perMinute` | 1 to 60. |
 | `ollama.baseURL`, `systemPromptExtension` | Text. |
 | `ollama.contextLength` | 1,024 to 1,048,576, for every Ollama model; unset, each model's window is sized from its shape and the Mac's memory. |
@@ -403,15 +416,23 @@ state, so an ok that needs a caveat carries it in its detail.
 | `facts store` | `~/.wisp/facts.json` does not parse (wisp then starts with no permanent facts) or is readable by others (fix: `chmod 600 <path>`). Absent is ok; present, the detail counts the current permanent facts by subject. |
 | `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
 | `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
+| `notify` | Notifications are on and no route can post one (no terminal sequence, the app route off or without a bundle identifier, and no `/usr/bin/osascript`). Otherwise it names the route `wisp notify` would take here and why, and the routes passed over: `terminal: Ghostty posts OSC 9 notifications`, or `osascript: banners come from Script Editor; terminal: Terminal.app has no notification sequence; app: off (notifications.viaTerminalApp)`. Nothing is posted: the terminal route is judged by whether `/dev/tty` opens. `off (notifications.enabled)` when turned off. `wisp-tui` posts through its own terminal whatever this says. |
 
 ### `wisp notify <message>`
 
 Shows a macOS notification: `--title` (default `wisp`), `--subtitle`, `--sound`. The same notifier as the
-model's `notify` tool, so the same bounds, per-minute limit, and off switch apply, and the request is
-audited as `notification` with source `user`. Exits non-zero with the reason when it is refused.
+model's `notify` tool, so the same bounds, per-minute limit, and off switch apply, and the same routes: in
+Ghostty, iTerm2, WezTerm, or kitty the terminal posts it, elsewhere `osascript` does
+([tools/notify.md](tools/notify.md)). The request is audited as `notification` with source `user` and the
+route taken. Exits non-zero with the reason when it is refused.
+
+`--route host|terminal|app|osascript` uses that route alone, says which on stderr, and fails with the
+reason when it cannot be used; `app` is tried even with `notifications.viaTerminalApp` off, which is how
+to probe it (below).
 
 ```
 make test && wisp notify "Tests pass" --title "Build" --sound
+wisp notify --route app "probe"      # is the banner attributed to your terminal app?
 ```
 
 ### `wisp scan [<file>…]`
@@ -578,7 +599,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). A definition that breaks the rules makes the config malformed. |
-| `notifications` | `{ "enabled": true, "perMinute": 5 }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process; see [tools/notify.md](tools/notify.md). |
+| `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": false }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` turns on the third route, `display notification` sent to the terminal app by its bundle identifier, which is off until a probe (`wisp notify --route app`) shows macOS attributing the banner to that app; see [tools/notify.md](tools/notify.md). |
 | `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {} }` | Where MLX model directories live for `mlx:<name>` models, and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). Needs a build with `--traits MLX`. See [backends.md](backends.md). |
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |

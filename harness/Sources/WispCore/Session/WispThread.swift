@@ -28,11 +28,12 @@ public struct WispThread: Sendable {
     /// The facts the agent keeps, from the session's; nil when `facts.enabled` is false.
     let facts: FactSettings?
 
-    /// Builds the gate and the tool registry for one thread of `session`.
+    /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
+    /// asks its approver, and `notify` posts through it.
     ///
     /// - Throws: `Session.Failure.unknownTools` for names not in the registry.
     static func setUp(
-        session: Session, audit: AuditLog, approver: any Approver, prompting: Prompting, toolNames: [String],
+        session: Session, audit: AuditLog, host: SessionHost, prompting: Prompting, toolNames: [String],
         model: ModelSelection, observer: (any AuditSink)? = nil
     ) throws -> WispThread {
         let receipts = ReceiptCollector()
@@ -41,13 +42,13 @@ public struct WispThread: Sendable {
         var audit = audit.alsoRecording(to: receipts).alsoRecording(to: relay).alsoRecording(to: toolEvents)
         if let observer { audit = audit.alsoRecording(to: observer) }
         let gate = ApprovalGate(
-            classifier: session.classifier, approver: session.request.autoApprove ? AutoApprover() : approver,
+            classifier: session.classifier, approver: session.request.autoApprove ? AutoApprover() : host.approver,
             threshold: session.config.approvalThreshold, audit: audit, store: session.store,
             source: session.entryPoint, sessionApprovals: session.sessionApprovals)
         let registry = ToolRegistry(
             runner: session.config.runner, audit: audit, approval: gate,
             introspection: session.introspection(for: audit, tools: toolNames, model: model),
-            notifier: session.notifier, disabled: session.config.disabledTools, custom: session.config.customTools)
+            host: host, disabled: session.config.disabledTools, custom: session.config.customTools)
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
         return WispThread(

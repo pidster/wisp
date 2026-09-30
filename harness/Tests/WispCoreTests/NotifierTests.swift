@@ -46,8 +46,8 @@ import Testing
         let recorder = Recorder()
         let now = Mutex(Date(timeIntervalSince1970: 1000))
         let notifier = Notifier(perMinute: 2, run: recorder.run, clock: { now.withLock { $0 } })
-        #expect(notifier.post(.init(title: "t", body: "one"), source: .model, audit: audit) == .posted)
-        #expect(notifier.post(.init(title: "t", body: "two"), source: .user, audit: audit) == .posted)
+        #expect(notifier.post(.init(title: "t", body: "one"), source: .model, audit: audit) == .posted(.osascript))
+        #expect(notifier.post(.init(title: "t", body: "two"), source: .user, audit: audit) == .posted(.osascript))
         // A third within the minute is refused and never reaches osascript.
         #expect(
             notifier.post(.init(title: "t", body: "three"), source: .model, audit: audit)
@@ -55,7 +55,7 @@ import Testing
         #expect(recorder.count == 2)
         // A minute later there is room again.
         now.withLock { $0 = $0.addingTimeInterval(60) }
-        #expect(notifier.post(.init(title: "t", body: "four"), source: .model, audit: audit) == .posted)
+        #expect(notifier.post(.init(title: "t", body: "four"), source: .model, audit: audit) == .posted(.osascript))
         // An empty message is refused without spending the limit.
         #expect(
             notifier.post(.init(title: "t", body: " \n "), source: .model, audit: audit)
@@ -63,6 +63,7 @@ import Testing
         let events = sink.events.filter { $0.kind == .notification }
         #expect(events.count == 5)
         #expect(events[0].details["outcome"] == "posted" && events[0].details["source"] == "model")
+        #expect(events[0].details["route"] == "osascript" && events[2].details["route"] == nil)
         #expect(events[1].details["source"] == "user")
         #expect(events[2].details["outcome"] == "refused" && events[2].details["reason"] != nil)
         #expect(events[0].summary.hasSuffix("notification session=n: posted from model: t"))
@@ -90,8 +91,12 @@ import Testing
 
     @Test func theToolRepliesInTextAndTheConfigResolves() async {
         let recorder = Recorder()
-        let tool = NotifyTool(notifier: Notifier(perMinute: 1, run: recorder.run))
-        #expect(await tool.call(arguments: .init(title: "Done", message: "Tests pass.")) == "notification shown")
+        let tool = NotifyTool(
+            host: SessionHost(
+                approver: DenyingApprover(reason: "none"), notifier: Notifier(perMinute: 1, run: recorder.run)))
+        #expect(
+            await tool.call(arguments: .init(title: "Done", message: "Tests pass."))
+                == "notification posted via osascript")
         #expect(
             await tool.call(arguments: .init(title: "Done", message: "Again."))
                 == "error: notification not shown: at most 1 notifications a minute; try again shortly")

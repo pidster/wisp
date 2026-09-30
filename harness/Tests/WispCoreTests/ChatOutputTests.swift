@@ -87,7 +87,8 @@ import WispTestSupport
         let session = try Session.begin(.init(entryPoint: .chat), home: home, dependencies: .testing(sink: sink))
         let tap = ChatEvents.Tap()
         let thread = try WispThread.setUp(
-            session: session, audit: session.audit, approver: DenyingApprover(reason: "not in tests"),
+            session: session, audit: session.audit,
+            host: session.host(approver: DenyingApprover(reason: "not in tests")),
             prompting: session.prompting, toolNames: ["read_file"], model: .system, observer: tap)
         let model = ScriptedModel(steps: [
             .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("Thirty lines."), .say("ok"),
