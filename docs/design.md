@@ -99,36 +99,48 @@ obscurely. An agent can also start from a saved `Transcript`, or from another ag
 ### `ConversationStore` and `ContextComposer`
 
 The layered-context proposal separates the conversation as stored from the context each request carries
-([proposal](proposals/2026-09-29-layered-context.md); phase 2 built the structure, phase 3 output
+([proposal](proposals/2026-09-29-layered-context.md); phase 2 built the structure, phases 3 and 3b output
 handling). One turn, as the agent runs it:
 
-1. The prompt is audited; the composer decides whether to condense ahead of the window, and the agent
-   applies it: saves the archive, records `context.condensation`, and marks the dropped entries in the
-   store with that event.
-2. The composer builds the request's transcript: the store's active entries, with each reply's cut
-   presentational text replaced by its marker (step 5).
-3. The agent puts the session over it, continuing the live session when it already holds exactly that,
-   and starting a new one otherwise. The framework runs the tool loop; an overflow condenses the active
-   view as it was before the prompt and retries once.
-4. The entries the session added, whether the turn succeeded or failed, go into the store, each with
+1. The prompt is audited. Every stored tool output not yet sent as a reference becomes one from this turn
+   on (`ContextComposer.newReferences`): the agent marks it in the store (`referencedAt`, this turn) and
+   records `context.reference`. An output no longer than its reference stays whole.
+2. The composer decides whether to condense ahead of the window, and the agent applies it: saves the
+   archive, records `context.condensation`, and marks the dropped entries in the store with that event
+   and this turn (`droppedAt`). For a model that reports usage, the estimate subtracts what step 1 saved.
+3. The composer builds the request's transcript: the store's active entries, with each reply's cut
+   presentational text replaced by its marker (step 6) and each tool output replaced by its reference
+   (`OutputReference`: tool, entry, time, status, size, the call's arguments, first and last lines).
+4. The agent puts the session over it, continuing the live session when it already holds exactly that,
+   and starting a new one otherwise. The framework runs the tool loop, which carries this turn's own
+   outputs whole; an overflow condenses the active view as it was before the prompt and retries once.
+5. The entries the session added, whether the turn succeeded or failed, go into the store, each with
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
-   it. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every `Conversation`
-   tees its log into.
-5. After a turn that succeeded, the composer looks in each of its replies for presentational text:
-   a stretch that reproduces one of the turn's tool outputs (`Presentation`, by word-sequence overlap).
+   it, and its time. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every
+   `Conversation` tees its log into.
+6. After a turn that succeeded, the composer looks in each of its replies for presentational text:
+   a stretch that reproduces one of the turn's tool outputs exactly, formatting aside (`Presentation`).
    The agent marks each stretch on the reply's store entry as a `Cut` (segment, byte range, the output's
    store id) and records `context.cut`. The reply returned to the caller and the entry's value stay
-   whole; from the next request on, the composer sends the marker instead. Because the rewritten reply
-   keeps its id, the agent compares replies by content as well as ids when deciding whether the live
-   session still holds the composition.
+   whole; from the next request on, the composer sends the marker instead. Because a rewritten reply or
+   output keeps its id, the agent compares replies and outputs by content as well as ids when deciding
+   whether the live session still holds the composition.
 
 The store is a value type the agent owns, in memory only: it caches each entry's framework value so
 composing never reads the audit files, and the audit log remains the only verbatim record on disk
 (decision D8). The composer is pure; it holds the `ContextPolicy`, the budget, and whether it cuts
-presentational text (`cutsPresentation`, on by default; `ContextEquivalenceTests` runs with it off to
-prove phase 2's structure unchanged). Cuts are saved with the store's links (`transcripts/<name>.store`),
-so a resumed conversation composes them again; the saved transcript holds the replies whole. Later phases
-add facts and summaries that cite store entries by id.
+presentational text (`cutsPresentation`) and sends outputs as references (`referencesOutput`), both on by
+default; `ContextEquivalenceTests` runs with both off to prove phase 2's structure unchanged. Cuts,
+times, and the turns entries were dropped or referenced from are saved with the store's links
+(`transcripts/<name>.store`), so a resumed conversation composes them again; the saved transcript holds
+the replies and outputs whole. Because the store knows the turn of each change,
+`ContextComposer.composition(_:atTurn:)` rebuilds the context of any earlier turn; `ContextView` renders
+a composition, or the list of turns, as Markdown for chat's `/inspect context next|N|turns`, `wisp-tui`, and the MCP context
+resources, and `Paging` bounds it. The order is fixed by the framework and the composer: the instructions
+entry (wisp's prompt, the operator's extension, the caller's instructions, and the tool definitions) first
+and unchanged for the conversation, then the turns oldest first, then the request; the stability order
+of the proposal's D12 lands in full with facts (phase 4). Later phases add facts and summaries that cite
+store entries by id.
 
 ### Risk classification and approval
 
@@ -275,8 +287,13 @@ concurrently. Results carry `structuredContent.thread_id`; see
 `Receipt` for `structuredContent.receipt` ([ADR 0021](decisions/0021-receipts.md)), so the result and
 the log never disagree. The same events fold into `TurnCalls` for `structuredContent.calls` (the
 proposal's D9): each tool call with its output as the tool returned it, inline up to `inlineOutputBytes`
-and otherwise as a `wisp://output/{thread_id}/{id}` reference, which the server resolves from the audit
-log by the `tool.result` event's id, the reference the conversation's store keeps for that output. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
+and otherwise as a `wisp://threads/{thread_id}/output/{id}` reference, which the server resolves from the audit
+log by the `tool.result` event's id, the reference the conversation's store keeps for that output.
+Everything else about a thread is under `wisp://threads` too (`ThreadResources`, `ContextResources`): a
+`ThreadDirectory` remembers each thread the server opened (model, tools, turns, open or closed, bounded
+at 256 records) so its summary, tool calls, and audit stay readable after it closes, and the context
+resources compose a live thread's context from its agent's store through `RespondingThread.context`, at
+no model cost (the proposal's D12). `ThreadStore.peek` reads a thread without marking it used. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
 `DynamicGenerationSchema`, `Agent.respond(to:schema:)` runs guided generation after checking the model
 declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and
@@ -336,7 +353,7 @@ thread from the store. The overview diagram above shows the rest of the path.
 
 `wisp` mirrors `fm respond` where semantics match: positional prompt or stdin, `--instructions`,
 `--[no-]stream`, repeatable `--tool`. `wisp chat` is a line-oriented REPL with slash commands parsed by
-`ChatInput` (`/help`, `/tools`, `/tokens`, `/status`, `/approvals`, `/audit`, `/inspect`, `/last`,
+`ChatInput` (`/help`, `/tools`, `/tokens`, `/status`, `/approvals`, `/audit`, `/inspect`, `/last`, `/show`,
 `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`), `--resume <name>`, and `--save <name>`.
 `wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`.
 Exit codes follow swift-argument-parser conventions (64 for usage errors). The chat loop itself is
@@ -344,7 +361,9 @@ Exit codes follow swift-argument-parser conventions (64 for usage errors). The c
 terminal to it and `ChatLoopTests` runs the whole loop over a scripted model. Chat shows tool activity
 live through `ChatEvents.Tap`, an `AuditSink` the conversation is opened with (`Session.openAgent(observer:)`
 tees it beside the log and the receipt collector), so the lines the user sees are rendered from the
-audited events; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
+audited events, each tool's output included (`ChatEvents.shownOutput`, folded past `shownOutputLines`;
+`ChatView.output` finds one again for `/show`); `ChatView` carries a view shown whole (`/inspect context next`, `N`, `turns`),
+which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
 in a terminal and in the TUI. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
 `Session.begin` creates and every `Conversation` hands to its `Agent`, which records each turn's time,

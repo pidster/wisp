@@ -97,8 +97,8 @@ func scratchSession(
     @Test func servesTheToolCatalogueAsResources() async throws {
         #expect(
             ToolCatalog.resources.map(\.uri) == [
-                "wisp://tools", "wisp://tools.md", "wisp://config", "wisp://status", "wisp://approvals",
-                "wisp://audit", "wisp://measurements",
+                "wisp://tools", "wisp://tools.md", "wisp://config", "wisp://status", "wisp://threads",
+                "wisp://approvals", "wisp://audit", "wisp://measurements",
             ])
         let json = try await server.read(.init(uri: "wisp://tools"))
         #expect(json.contents.first?.text?.contains("\"name\" : \"read_file\"") == true)

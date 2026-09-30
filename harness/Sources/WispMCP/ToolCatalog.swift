@@ -488,15 +488,32 @@ public enum ToolCatalog {
     public static let auditResourceURI = "wisp://audit"
     /// URI of the measurements: what the eval harness found each delegated task achieves.
     public static let measurementsResourceURI = "wisp://measurements"
-    /// Template for one session's or thread's audit events.
+    /// Template for the audit events of one session that is not a `respond` thread (the server's own, a
+    /// condensing tool's, a CLI run's); a thread's are under `threadAuditTemplate`.
     public static let auditTemplate = "wisp://audit/{session}"
-    /// URI prefix of one tool call's output in a thread, as a `respond` result's `outputURI` names it.
-    public static let outputResourceURI = "wisp://output"
+    /// URI of the server's `respond` threads, open or not.
+    public static let threadsResourceURI = "wisp://threads"
+    /// Template for one thread's summary.
+    public static let threadTemplate = "wisp://threads/{thread_id}"
+    /// Template for a thread's tool calls.
+    public static let threadOutputListTemplate = "wisp://threads/{thread_id}/output"
     /// Template for one tool call's output in a thread, by the `id` a `respond` result's `calls` give it.
-    public static let outputTemplate = "wisp://output/{thread_id}/{id}"
+    public static let outputTemplate = "wisp://threads/{thread_id}/output/{id}"
+    /// Template for a thread's audit events.
+    public static let threadAuditTemplate = "wisp://threads/{thread_id}/audit"
+
+    /// The URI of thread `id`'s summary; its other resources are under it.
+    public static func threadURI(_ id: String) -> String { "\(threadsResourceURI)/\(id)" }
 
     /// The URI of the output with audit event `id` in `thread`.
-    public static func outputURI(thread: String, id: String) -> String { "\(outputResourceURI)/\(thread)/\(id)" }
+    public static func outputURI(thread: String, id: String) -> String { "\(threadURI(thread))/output/\(id)" }
+
+    /// Template for a thread's turns, with what changed in the model's context at each.
+    public static let contextListTemplate = "wisp://threads/{thread_id}/context"
+    /// Template for the context composed at the start of one turn.
+    public static let contextTurnTemplate = "wisp://threads/{thread_id}/context/{turn}"
+    /// Template for the context the thread's next request carries.
+    public static let contextNextTemplate = "wisp://threads/{thread_id}/context/next"
 
     /// The resources wisp advertises.
     public static let resources: [Resource] = [
@@ -515,7 +532,14 @@ public enum ToolCatalog {
             mimeType: "application/json"),
         Resource(
             name: "wisp status", uri: statusResourceURI, title: "Server status",
-            description: "The server session, live threads with their turn counts, and approvals in force.",
+            description: "The server session, how many threads are open (wisp://threads lists them), and "
+                + "approvals in force.",
+            mimeType: "application/json"),
+        Resource(
+            name: "wisp threads", uri: threadsResourceURI, title: "The server's respond threads",
+            description:
+                "Each thread's id, model, turns, when it was created and last active, whether it is open, and its "
+                + "URI; most recently active first, paged with ?page=N.",
             mimeType: "application/json"),
         Resource(
             name: "wisp approvals", uri: approvalsResourceURI, title: "Standing command approvals",
@@ -538,9 +562,24 @@ public enum ToolCatalog {
     public static let resourceTemplates: [Resource.Template] = [
         Resource.Template(
             uriTemplate: auditTemplate, name: "wisp audit for one session",
-            title: "Audit events of one session or thread",
-            description: "Every event of the given session or thread id (a respond thread_id), as JSON Lines.",
+            title: "Audit events of one session that is not a thread",
+            description:
+                "Every event of the given session id (the server's, a condensing tool's such as triage-<id>, a CLI "
+                + "run's), as JSON Lines; a respond thread's are at wisp://threads/{thread_id}/audit.",
             mimeType: "application/x-ndjson"),
+        Resource.Template(
+            uriTemplate: threadTemplate, name: "wisp thread", title: "One respond thread",
+            description:
+                "The thread's model, tools, whether it has instructions, turns, whether it is open, and the URIs "
+                + "of its context, output, and audit.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: threadOutputListTemplate, name: "wisp thread tool calls",
+            title: "A thread's tool calls",
+            description:
+                "Each call's turn, tool, arguments or command, exit status, size, and its output's URI, from the "
+                + "audit log; paged with ?page=N.",
+            mimeType: "application/json"),
         Resource.Template(
             uriTemplate: outputTemplate, name: "wisp tool output",
             title: "One tool call's output in a respond thread",
@@ -548,6 +587,30 @@ public enum ToolCatalog {
                 "The output a tool returned, verbatim from the audit log, by the id a respond result's calls give "
                 + "it; the result names this URI as outputURI when the output was too large to inline.",
             mimeType: "text/plain"),
+        Resource.Template(
+            uriTemplate: threadAuditTemplate, name: "wisp thread audit", title: "Audit events of one respond thread",
+            description: "Every event of the thread, as JSON Lines, for reconstructing what a delegated task did.",
+            mimeType: "application/x-ndjson"),
+        Resource.Template(
+            uriTemplate: contextListTemplate, name: "wisp thread context turns",
+            title: "The turns of a thread's model context",
+            description:
+                "Each turn with its time, the start of its prompt, the tokens composed for it, what changed since "
+                + "the turn before (condensed, cut, referenced), and its URI; paged with ?page=N.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: contextTurnTemplate, name: "wisp thread context at a turn",
+            title: "The model's context at the start of one turn",
+            description:
+                "The context wisp composed for the turn, entry by entry under its store id, with the turn's own "
+                + "entries marked; composed from the thread's store, at no model cost. Paged with ?page=N.",
+            mimeType: "text/markdown"),
+        Resource.Template(
+            uriTemplate: contextNextTemplate, name: "wisp thread next context",
+            title: "The context the thread's next request carries",
+            description:
+                "What chat's /inspect context saves, for a thread: the next request's context, entry by entry.",
+            mimeType: "text/markdown"),
     ]
 }
 

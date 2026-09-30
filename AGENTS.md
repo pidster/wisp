@@ -180,7 +180,8 @@ Which model to pass as `model` when a thread starts (measured in the Ollama sect
 
 If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
-and `wisp://audit/{thread_id}` show its state. Commands the model runs need approval through MCP
+and `wisp://threads` show its state, and `wisp://threads/{thread_id}` a thread's: its `context` (what the
+model carries, per turn), `output`, and `audit`. Commands the model runs need approval through MCP
 elicitation; a client without it gets a refusal.
 
 ## Harness-specific notes

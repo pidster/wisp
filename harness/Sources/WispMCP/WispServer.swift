@@ -17,9 +17,11 @@ public struct WispServer: Sendable {
     public static let version = WispVersion.current
 
     /// The session every thread shares: policy, store, session approvals, audit, and the elicitation approver.
-    private let session: Session
+    let session: Session
     /// Live conversations by `thread_id`, each with its gate and audit log.
-    private let threads: ThreadStore<OpenThread>
+    let threads: ThreadStore<OpenThread>
+    /// What the server remembers of every thread it has opened, for `wisp://threads`.
+    let directory = ThreadDirectory()
     /// The MCP server; created up front so the approver can reach the client.
     private let server: Server
     /// Set from the initialize hook when the client advertises elicitation.
@@ -53,7 +55,8 @@ public struct WispServer: Sendable {
                 id: id, approver: approver, instructions: instructions, tools: tools, model: model)
             return OpenThread(
                 thread: ConversationThread(id: id, agent: try conversation.openAgent()), gate: conversation.gate,
-                audit: conversation.audit, receipts: conversation.receipts, relay: conversation.relay)
+                audit: conversation.audit, receipts: conversation.receipts, relay: conversation.relay,
+                model: conversation.model.description, tools: conversation.tools.map(\.name))
         },
         makeTriageAgent: @escaping @Sendable (Conversation, ModelSelection?) throws -> Agent = {
             try $0.openAgent(model: $1)
@@ -70,7 +73,7 @@ public struct WispServer: Sendable {
         self.makeTriageAgent = makeTriageAgent
     }
 
-    private var config: Config.Resolved { session.config }
+    var config: Config.Resolved { session.config }
     private var audit: AuditLog { session.audit }
 
     /// Starts serving on stdin/stdout and returns when the client disconnects.
@@ -252,36 +255,24 @@ public struct WispServer: Sendable {
             return json(views.configuration)
         case ToolCatalog.statusResourceURI:
             var status = views.status()
-            status["threads"] = .array(await threads.ids.map { .string($0) })
+            status["threadCount"] = .int(await threads.ids.count)
+            status["threadsURI"] = .string(ToolCatalog.threadsResourceURI)
             status["standingApprovals"] = .int(await session.store.all.count)
             return json(.object(status))
         case ToolCatalog.approvalsResourceURI:
             return json(await views.approvals())
         case ToolCatalog.auditResourceURI:
             return try lines(try views.audit(AuditQuery(last: 100)))
-        case let uri where uri.hasPrefix(ToolCatalog.outputResourceURI + "/"):
-            let parts = uri.dropFirst(ToolCatalog.outputResourceURI.count + 1).split(
-                separator: "/", omittingEmptySubsequences: false)
-            guard parts.count == 2, SafeName.isValid(String(parts[0])), Self.isEventID(parts[1]) else {
-                throw MCPError.invalidParams("expected wisp://output/{thread_id}/{id} with an id from a respond result")
-            }
-            let thread = String(parts[0])
-            let id = String(parts[1])
-            guard
-                let event = try views.audit(AuditQuery(session: thread, kinds: [.toolResult])).last(where: {
-                    $0.id == id
-                })
-            else {
-                throw MCPError.invalidParams(
-                    "no tool output \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
-            }
-            return .init(
-                contents: [.text(event.details["output"]?.stringValue ?? "", uri: params.uri, mimeType: "text/plain")])
         case let uri where uri.hasPrefix(ToolCatalog.auditResourceURI + "/"):
             let id = String(uri.dropFirst(ToolCatalog.auditResourceURI.count + 1))
             guard SafeName.isValid(id) else { throw MCPError.invalidParams("session id must be \(SafeName.rule)") }
+            guard directory.record(id) == nil else {
+                throw MCPError.invalidParams(
+                    "\(id) is a respond thread; read \(ToolCatalog.threadURI(id))/audit for its events")
+            }
             return try lines(try views.audit(AuditQuery(session: id)))
         default:
+            if let result = try await readThread(params.uri) { return result }
             throw MCPError.invalidParams("Unknown resource: \(params.uri)")
         }
     }
@@ -319,7 +310,13 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
+        if opened.created {
+            directory.opened(
+                id: id, model: opened.thread.model, tools: opened.thread.tools,
+                instructions: request.instructions != nil)
+        }
         if let evicted = opened.evicted {
+            directory.ended(id: evicted.id, as: .evicted)
             evicted.thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "evicted"))
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
@@ -338,6 +335,7 @@ public struct WispServer: Sendable {
             }
             let refusals = await opened.thread.gate.takeRefusals()
             let turn = opened.thread.audit.currentTurn
+            directory.used(id: id, turns: turn)
             let events = opened.thread.receipts.takeEvents(turn: turn)
             let receipt = Receipt(events: events, turn: turn)
             let auditEnabled = config.auditEnabled
@@ -653,6 +651,7 @@ public struct WispServer: Sendable {
     private func closeThread(_ request: CloseThreadRequest) async -> CallTool.Result {
         do {
             let closed = try await threads.close(request.threadID)
+            directory.ended(id: request.threadID, as: .closed)
             closed.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
             return success("closed \(request.threadID)")
         } catch {

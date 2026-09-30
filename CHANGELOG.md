@@ -15,12 +15,43 @@ Changed:
   the largest window whose cache fits half of what is free (never more than three quarters of the Mac's
   memory). `granite4.1:8b` got 24,576 tokens on a 48 GB Mac, so conversations condense far less often.
   Setting `ollama.contextLength` still fixes one window for every model.
+- MCP resources about `respond` threads moved under `wisp://threads/{thread_id}`. A thread's audit events
+  are now `wisp://threads/{thread_id}/audit`; `wisp://audit/{session}` still serves every other session
+  (the server's own, `triage-<id>` and the other condensing tools', CLI runs') and refuses a thread's id
+  with a pointer to the new place. A tool call's output is `wisp://threads/{thread_id}/output/{id}`, and
+  `respond`'s `outputURI` gives that form. `wisp://status` no longer lists the threads: it gives
+  `threadCount` and `threadsURI`, and `wisp://threads` lists them.
+- Chat, `wisp-tui`, and MCP show you each tool's output as the tool returned it, so the model no longer
+  needs to retype it: wisp's system prompt now tells the model that you see the output and that it should
+  comment on it rather than repeat it, unless asked to.
+- A reply's copy of a tool output is left out of later requests only when it is an exact copy (formatting
+  aside). A copy with changes, such as a proposed edit shown as a changed file, is kept for the model.
 
 Added:
 
+- Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
+  `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.
+  `/show` prints an output whole, by that id or by its entry number.
+- `wisp-tui` shows each tool's output folded in the scrollback; Ctrl-O opens the last one whole in a
+  scrollable panel.
+- The model's context is viewable at any time, at no cost to the model: `/inspect context next` in chat shows
+  what the next request carries, `/inspect context N` what was composed at the start of turn N, and
+  `/inspect context turns` what changed at each turn (a bare `/inspect context` still saves the files); `wisp-tui` shows the same in a panel (Ctrl-T, with Left and Right stepping
+  through turns); and MCP callers read `wisp://threads/{thread_id}/context`, `…/context/{turn}`, and
+  `…/context/next`.
+- MCP resources `wisp://threads` (the server's threads, open or closed), `wisp://threads/{thread_id}` (one
+  thread's model, tools, turns, and links), and `wisp://threads/{thread_id}/output` (its tool calls with
+  each output's URI). Collections are paged with `?page=N`.
+- In a long conversation, each tool's output is sent to the model whole only in the turn that produced
+  it; later requests carry a short reference instead (the tool, when it ran, whether it succeeded, its
+  size, its first and last lines, and the call to run again), so far more turns fit before older ones are
+  dropped. Each switch is audited as `context.reference`.
+- `wisp chat --json` adds the output, its size, and the fold size to each `tool.result` event
+  (`output`), and a `view` line that answers `/inspect context next`, `N`, or `turns`.
+
 - MCP `respond` results list the turn's tool calls in `structuredContent.calls`: each call's tool,
   arguments, command and exit status, and output size, with the output itself inline when it is at most
-  1 KiB, and otherwise a `wisp://output/{thread_id}/{id}` reference. Read that resource template for the
+  1 KiB, and otherwise a `wisp://threads/{thread_id}/output/{id}` reference. Read that resource template for the
   output verbatim, from the audit log. The output is what the tool returned, not the model's account of
   it. The new `inlineOutputBytes` setting changes the threshold.
 - In a long conversation, a reply that retyped a tool's output (a file shown in full, a table of a

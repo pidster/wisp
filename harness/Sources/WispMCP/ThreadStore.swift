@@ -6,6 +6,22 @@ import WispCore
 public protocol RespondingThread: Sendable {
     /// Sends one user turn and returns the reply; with `schema`, the reply's text is JSON of that shape.
     func respond(to prompt: String, schema: OutputSchema?) async throws -> Agent.Reply
+
+    /// The model's context as `/inspect context <argument>` shows it (`ChatView.context(_:of:)`): the next
+    /// request's for `next`, or the one composed at the start of a numbered turn; nil when the thread cannot
+    /// show its context.
+    func context(_ argument: String) async -> Result<ChatView, ChatView.Failure>?
+
+    /// The thread's turns with what changed at each (`ContextView.turns(of:)`); nil when it cannot show them.
+    func contextTurns() async -> [ContextView.Turn]?
+}
+
+extension RespondingThread {
+    /// None: a thread without a conversation store cannot show its context.
+    public func context(_ argument: String) async -> Result<ChatView, ChatView.Failure>? { nil }
+
+    /// None, as for `context(_:)`.
+    public func contextTurns() async -> [ContextView.Turn]? { nil }
 }
 
 /// One conversation with the on-device model, addressable by id across MCP calls.
@@ -29,6 +45,14 @@ public actor ConversationThread: RespondingThread {
         if let schema { return try await agent.respond(to: prompt, schema: schema) }
         return try await agent.respond(to: prompt)
     }
+
+    /// The agent's context, composed from its store without a model call.
+    public func context(_ argument: String) async -> Result<ChatView, ChatView.Failure>? {
+        ChatView.context(argument, of: agent)
+    }
+
+    /// The agent's turns, from its store.
+    public func contextTurns() async -> [ContextView.Turn]? { ContextView.turns(of: agent) }
 }
 
 /// Everything the server keeps for one open `thread_id`: the thread, the gate its tools consult, and
@@ -44,12 +68,19 @@ public struct OpenThread: Sendable {
     public let receipts: ReceiptCollector
     /// The same events as they happen, relayed to a caller that asked for progress.
     public let relay: EventRelay
+    /// The model the thread runs on, as `ModelSelection` spells it; nil when unknown.
+    public let model: String?
+    /// The tools its model may call.
+    public let tools: [String]
 
     /// Creates the record.
     public init(
         thread: any RespondingThread, gate: ApprovalGate, audit: AuditLog,
-        receipts: ReceiptCollector = ReceiptCollector(), relay: EventRelay = EventRelay()
+        receipts: ReceiptCollector = ReceiptCollector(), relay: EventRelay = EventRelay(), model: String? = nil,
+        tools: [String] = []
     ) {
+        self.model = model
+        self.tools = tools
         self.thread = thread
         self.gate = gate
         self.audit = audit
@@ -139,6 +170,10 @@ public actor ThreadStore<Thread: Sendable> {
         let made = try create(id: id, make)
         return Opened(thread: made.thread, created: true, evicted: made.evicted)
     }
+
+    /// Returns the thread with `id` without marking it used, or nil: for reading about a thread, which is
+    /// not using it.
+    public func peek(_ id: String) -> Thread? { threads[id] }
 
     /// Returns the thread with `id`, marking it most recently used, or nil.
     public func find(_ id: String) -> Thread? {

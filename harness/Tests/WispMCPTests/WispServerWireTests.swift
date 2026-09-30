@@ -77,8 +77,8 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let resources = try await pair.client.listResources().resources
         #expect(
             resources.map(\.uri) == [
-                "wisp://tools", "wisp://tools.md", "wisp://config", "wisp://status", "wisp://approvals",
-                "wisp://audit", "wisp://measurements",
+                "wisp://tools", "wisp://tools.md", "wisp://config", "wisp://status", "wisp://threads",
+                "wisp://approvals", "wisp://audit", "wisp://measurements",
             ])
         let json = try await pair.client.readResource(uri: "wisp://tools")
         #expect(json.first?.mimeType == "application/json")
@@ -97,15 +97,25 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(config.contains("\"version\" : \"\(WispVersion.current)\""))
         #expect(config.contains("\"threshold\" : \"moderate\""))
         let status = try await pair.client.readResource(uri: "wisp://status").first?.text ?? ""
-        #expect(status.contains("\"threads\" : [\n    \"intro\"\n  ]"), "\(status)")
+        #expect(status.contains("\"threadCount\" : 1") && status.contains("\"threadsURI\" : \"wisp://threads\""))
         #expect(status.contains("\"entryPoint\" : \"mcp\""))
         #expect(try await pair.client.readResource(uri: "wisp://approvals").first?.text == "[\n\n]")
         let templates = try await pair.client.send(ListResourceTemplates.request(.init())).value.templates
-        #expect(templates.map(\.uriTemplate) == ["wisp://audit/{session}", "wisp://output/{thread_id}/{id}"])
+        #expect(
+            templates.map(\.uriTemplate) == [
+                "wisp://audit/{session}", "wisp://threads/{thread_id}", "wisp://threads/{thread_id}/output",
+                "wisp://threads/{thread_id}/output/{id}", "wisp://threads/{thread_id}/audit",
+                "wisp://threads/{thread_id}/context", "wisp://threads/{thread_id}/context/{turn}",
+                "wisp://threads/{thread_id}/context/next",
+            ])
         // The audit resources read the file, and the test session writes to a memory sink, so they are
-        // empty here; the shape and the id check are what the wire test pins.
-        let thread = try await pair.client.readResource(uri: "wisp://audit/intro")
+        // empty here; the shape and the id check are what the wire test pins. A thread's events are under
+        // the thread, not under wisp://audit/{session}.
+        let thread = try await pair.client.readResource(uri: "wisp://threads/intro/audit")
         #expect(thread.first?.mimeType == "application/x-ndjson")
+        let other = try await pair.client.readResource(uri: "wisp://audit/triage-1234")
+        #expect(other.first?.mimeType == "application/x-ndjson")
+        await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://audit/intro") }
         await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://audit/bad id") }
         await pair.client.disconnect()
         await pair.server.stop()
@@ -192,7 +202,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let id = try #require(calls[1]["id"]?.stringValue)
         #expect(calls[1]["output"] == nil && (calls[1]["bytes"]?.intValue ?? 0) > 1024)
         let uri = try #require(calls[1]["outputURI"]?.stringValue)
-        #expect(uri == "wisp://output/calls/\(id)")
+        #expect(uri == "wisp://threads/calls/output/\(id)")
         let read = try await pair.client.readResource(uri: uri)
         #expect(read.first?.mimeType == "text/plain")
         #expect(read.first?.text?.hasPrefix("1\tline 1 of a file") == true)
@@ -205,13 +215,18 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(receipt?["tools"]?.arrayValue?.count == 3)
         // Unknown ids, other threads, and malformed URIs are protocol errors.
         await #expect(throws: MCPError.self) {
-            _ = try await pair.client.readResource(uri: "wisp://output/calls/0123456789abcdef")
+            _ = try await pair.client.readResource(uri: "wisp://threads/calls/output/0123456789abcdef")
         }
         await #expect(throws: MCPError.self) {
-            _ = try await pair.client.readResource(uri: "wisp://output/other/\(id)")
+            _ = try await pair.client.readResource(uri: "wisp://threads/other/output/\(id)")
         }
-        await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://output/calls") }
-        await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://output/calls/NOPE") }
+        await #expect(throws: MCPError.self) {
+            _ = try await pair.client.readResource(uri: "wisp://threads/calls/output/NOPE")
+        }
+        // The old place is gone.
+        await #expect(throws: MCPError.self) {
+            _ = try await pair.client.readResource(uri: "wisp://output/calls/\(id)")
+        }
         await pair.client.disconnect()
         await pair.server.stop()
     }

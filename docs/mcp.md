@@ -47,23 +47,46 @@ Both are generated from the live registry, so they cannot drift from what the mo
 
 ## Inspecting wisp
 
-Five more resources and two templates let a client read wisp's own state without spending a model turn
+More resources let a client read wisp's own state without spending a model turn
 ([ADR 0018](decisions/0018-introspection.md)). They are read-only and show the same views as the model's
-[`inspect`](tools/inspect.md) tool and `wisp config`.
+[`inspect`](tools/inspect.md) tool, `wisp config`, and chat's `/inspect context`. Everything about a `respond`
+thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed as resource templates
+(`resources/templates/list`).
 
 | URI | Content |
 | --- | --- |
 | `wisp://config` | JSON: every setting with defaults applied, the model, the `run_command` policy, and the paths under `~/.wisp`. |
-| `wisp://status` | JSON: the server session id, entry point, model, tools, live `threads` (most recent first), approvals in force for the session, and the count of standing approvals. |
+| `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, and the count of standing approvals. |
 | `wisp://approvals` | JSON: the standing approvals with pattern, directory, scope, level, expiry, and source. |
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
-| `wisp://audit/{session}` | JSON Lines: every event of one session or thread id (a `respond` `thread_id`), for reconstructing what a delegated task did. Listed as a resource template. |
-| `wisp://output/{thread_id}/{id}` | Plain text: one tool call's output in a thread, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). Listed as a resource template. |
+| `wisp://audit/{session}` | JSON Lines: every event of one session that is not a `respond` thread: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here with a pointer to its `…/audit` below. |
+| `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `model`, `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
+| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (null until the proposal's phase 4), and `resources`, the URIs below. |
+| `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. |
+| `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
+| `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
+| `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
+| `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
+| `wisp://threads/{thread_id}/audit` | JSON Lines: every event of the thread, for reconstructing what a delegated task did. |
+
+Collections are paged at 50 rows: append `?page=N` (from 1); each page gives `page`, `pages`, `total`, and
+`next`, the next page's URI or null. A context longer than 16 KiB is paged the same way, and each page
+after the first begins with a line saying which page it is. A page past the last, a turn the thread has
+not had, and a malformed URI are protocol errors (`invalidParams`).
+
+The context resources compose the view from the thread's store, in memory, at no cost to the model
+(decision D12 of the [layered-context proposal](proposals/2026-09-29-layered-context.md)). They are
+served only while the thread is open: a closed or evicted thread's context went with it, and reading it
+says so, while its summary, output, and audit remain. A thread's turns are numbered as its audit events
+number them, from 1. A thread resumed from a saved conversation (chat's `--resume`; MCP threads are not
+resumed today) shows its earlier session's entries as carried into every turn of its own, with the
+references and cuts the saving session last sent; the contexts of the saving session's own turns can be
+composed only as far as the saved sidecar allows, and are not addressable here.
 
 The audit and output resources read the audit file, so they are empty (and an output reference is not
-given) when `audit.enabled` is false. Reading them is
-not itself audited (the model's `inspect` calls are, as tool calls).
+given) when `audit.enabled` is false. Reading any resource is not itself audited (the model's `inspect`
+calls are, as tool calls).
 `wisp tools --json` and `wisp tools --markdown` print the same text on the command line. The `respond`
 tool description points at `wisp://tools`.
 
@@ -121,7 +144,7 @@ delegated work without reading the log ([ADR 0021](decisions/0021-receipts.md)):
 
 | Field | Meaning |
 | --- | --- |
-| `turn` | The thread's turn number, which `wisp://audit/{thread_id}` events carry as `turn`. |
+| `turn` | The thread's turn number, which `wisp://threads/{thread_id}/audit` events carry as `turn`, and `wisp://threads/{thread_id}/context/{turn}` shows the context of. |
 | `tools` | Every tool call in order: `name`, the model's `arguments` JSON, and the result's `bytes` and `seconds`; a call that threw has `error` instead. |
 | `files` | Every file `edit_file` wrote: `path`, `mode`, `created`, `bytes` after the edit. |
 | `commands` | Every command that ran: `exitStatus`, `timedOut`, `truncated`, `seconds`. Output is not repeated; the audit log has it verbatim. |
@@ -144,7 +167,7 @@ only if it wants to spend its own context on it:
   { "id": "3f9c0a1b2c3d4e5f", "tool": "run_command", "arguments": "{\"command\":\"git status --short\"}",
     "command": "git status --short", "exitStatus": 0, "bytes": 58, "output": "exit status: 0\nstdout:\n M docs/mcp.md\n" },
   { "id": "8a7b6c5d4e3f2a1b", "tool": "read_file", "arguments": "{\"path\":\"docs/mcp.md\"}", "bytes": 3981,
-    "outputURI": "wisp://output/git/8a7b6c5d4e3f2a1b" }
+    "outputURI": "wisp://threads/git/output/8a7b6c5d4e3f2a1b" }
 ]
 ```
 
@@ -155,12 +178,21 @@ only if it wants to spend its own context on it:
 | `command`, `exitStatus` | For `run_command`: the command line and, when it ran, its exit status. A command the policy or the gate turned away has no `exitStatus`; its output is the refusal. |
 | `bytes` | The output's size in UTF-8 bytes. |
 | `output` | The output verbatim, when `bytes` is at most `inlineOutputBytes`. |
-| `outputURI` | Otherwise, `wisp://output/{thread_id}/{id}`: `resources/read` returns the output verbatim, from the audit log. Absent when `audit.enabled` is false, since there is no log to serve it from. |
+| `outputURI` | Otherwise, `wisp://threads/{thread_id}/output/{id}`: `resources/read` returns the output verbatim, from the audit log. Absent when `audit.enabled` is false, since there is no log to serve it from. |
 | `error` | The error, when the tool threw. |
 
 The output is what the tool returned to the model: `run_command`'s rendering of the exit status and the
 tail of each stream, `read_file`'s numbered page, each already bounded by the tool. The list holds at most
 64 calls. `receipt` is unchanged beside it.
+
+This is the same rule chat follows (decision D12): the transcript carries every tool's real output, from
+the same `tool.result` audit event, whatever the model's reply says, and only the rendering differs by
+face. Chat prints it under the call's note and folds past `shownOutputLines`; `wisp-tui` folds it and
+expands it in a panel; `respond` inlines it up to `inlineOutputBytes` and gives a reference above that.
+The model is told the person sees the output, so its reply comments on it rather than repeating it,
+unless the prompt asks for a copy. Within the thread's own context, each output is whole only in the turn
+that produced it and a compact reference in every later request ([context-management.md](context-management.md),
+"Output handling"); `wisp://threads/{thread_id}/context/next` shows what the model will carry.
 
 `condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a

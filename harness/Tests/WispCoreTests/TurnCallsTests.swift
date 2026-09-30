@@ -38,12 +38,12 @@ import Testing
         #expect(folded.calls[0].id == events[3].id && folded.calls[0].call == "c1")
         #expect(folded.calls[2].command == "rm -rf /" && folded.calls[2].exitStatus == nil)
         #expect(folded.calls[3].error == "boom" && folded.calls[3].id == nil && folded.calls[3].bytes == nil)
-        let json = folded.json(inlineBytes: 1024) { "wisp://output/t/\($0)" }
+        let json = folded.json(inlineBytes: 1024) { "wisp://threads/t/output/\($0)" }
         let calls = try #require(json.arrayValue).compactMap(\.objectValue)
         #expect(calls[0]["output"] == .string("a\nb") && calls[0]["outputURI"] == nil && calls[0]["bytes"] == .int(3))
         #expect(calls[0]["command"] == .string("ls") && calls[0]["exitStatus"] == .int(0))
         #expect(calls[1]["output"] == nil && calls[1]["bytes"] == .int(2000))
-        #expect(calls[1]["outputURI"] == .string("wisp://output/t/\(events[5].id ?? "")"))
+        #expect(calls[1]["outputURI"] == .string("wisp://threads/t/output/\(events[5].id ?? "")"))
         #expect(calls[3]["error"] == .string("boom") && calls[3]["id"] == .null && calls[3]["bytes"] == nil)
         // With nothing to resolve a reference from, large output is left out, its size kept.
         let unresolvable = try #require(folded.json(inlineBytes: 1024) { _ in nil }.arrayValue)
