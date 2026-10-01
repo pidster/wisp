@@ -5,18 +5,8 @@ item becomes an ADR when it is picked up.
 
 ## Planned for the next releases
 
-Agreed for the releases after 0.15.0, which ships layered context and host effects:
-
-- **Host effects over MCP.** [ADR 0044](decisions/0044-host-effects.md) gave each face a `SessionHost`;
-  under `wisp mcp` only approval reaches the client (elicitation), and notifications take the process
-  routes. Open there: notifications, and approval for a client without elicitation (the paused
-  escalations question below).
-- **Permanent facts over MCP.** `set_fact_scope` moves a thread's fact between `thread` and `session`
-  only; how a caller proposes or keeps a permanent fact is for the operator to decide
-  ([ADR 0045](decisions/0045-layered-context.md), "Open"; [mcp.md](mcp.md)).
-- **`! <command>` in chat**, a command typed at the input, its line in the scrollback styled like the
-  input box, as sent messages are.
-- **`wisp watch --settle`**, waiting for changes to settle before a rerun, 1 s by default.
+The releases after 0.15.0, and what each carries, are in [roadmap.md](roadmap.md). This page keeps the
+agreed work that is not yet scheduled, and what has shipped, marked done and dated.
 
 ## Context
 

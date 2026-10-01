@@ -64,7 +64,8 @@
 | [decisions/0017-three-layer-instructions.md](decisions/0017-three-layer-instructions.md) | wisp's system prompt (a resource file), the operator's extension, and the caller's instructions, rendered in order |
 | [decisions/0016-local-runtimes-through-an-executor.md](decisions/0016-local-runtimes-through-an-executor.md) | Locally installed models plug in through a wisp-supplied executor; what the spike measured; `ollama:<name>` built |
 | [release.md](release.md) | How a release is cut: tag, tarball, GitHub release, Homebrew tap formula |
-| [backlog.md](backlog.md) | Agreed work, done and planned: what is next (host effects and permanent facts over MCP, chat's `!` commands, `wisp watch --settle`), further condensing tools, sampling, deferred backends |
+| [roadmap.md](roadmap.md) | The releases planned after 0.15.0 (0.16.0 to 0.20.0), each with its larger and smaller items, and what is not yet scheduled |
+| [backlog.md](backlog.md) | Agreed work not yet scheduled, and what has shipped, done and dated; the release plan is in roadmap.md |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate, and CI |
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
 | [decisions/](decisions/) | Architecture Decision Records, one per significant decision |
