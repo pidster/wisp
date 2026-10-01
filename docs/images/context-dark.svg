@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540" role="img" aria-labelledby="title desc">
+  <title id="title">How wisp composes the model's context</title>
+  <desc id="desc">The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, the literal turns with tool output whole in its own turn and a short reference after it, and last the task, ephemeral facts, and the request. The model sees only that, and its memory tool recalls or notes material. You see the transcript, built from the audit log: prompts, replies, and every tool's full output, the same in chat, wisp-tui, and over MCP. Showing an output, inspecting the context at any turn, and seeing or changing facts cost the model no context.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#4493f8"/>
+    </marker>
+    <marker id="arrow-record" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#656c76"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #e6edf3; }
+    .title { font-size: 15px; font-weight: 600; }
+    .body { font-size: 13px; fill: #9198a1; }
+    .small { font-size: 12px; fill: #9198a1; }
+    .layer { font-size: 12px; fill: #e6edf3; }
+    .label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; fill: #4493f8; }
+    .you-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; fill: #d29922; }
+    .box { fill: #151b23; stroke: #3d444d; stroke-width: 1.5; }
+    .band { fill: #0d1117; stroke: #3d444d; stroke-width: 1.2; }
+    .chip { fill: #0d1117; stroke: #d29922; stroke-width: 1.2; }
+    .you { fill: #2e2a1a; stroke: #d29922; stroke-width: 1.5; }
+    .flow { fill: none; stroke: #4493f8; stroke-width: 1.5; }
+    .record { fill: none; stroke: #656c76; stroke-width: 1.5; stroke-dasharray: 3 4; }
+    .caller { fill: none; stroke: #d29922; stroke-width: 1.5; }
+  </style>
+
+  <rect x="0" y="0" width="960" height="540" fill="#0d1117"/>
+
+  <!-- Every turn is written to the audit log -->
+  <path class="record" d="M853 60 V30 H115 V58" marker-end="url(#arrow-record)"/>
+  <text class="small" x="484" y="24" text-anchor="middle">every prompt, tool call, output, and reply is written once</text>
+
+  <!-- The source of truth -->
+  <rect class="box" x="20" y="60" width="190" height="236" rx="10"/>
+  <text class="label" x="40" y="90">SOURCE OF TRUTH</text>
+  <text class="title" x="40" y="116">Audit log</text>
+  <text class="body" x="40" y="142">every prompt, tool call,</text>
+  <text class="body" x="40" y="162">output, and reply,</text>
+  <text class="body" x="40" y="182">verbatim, append-only</text>
+
+  <!-- The sources, referring into the log -->
+  <rect class="box" x="240" y="60" width="200" height="236" rx="10"/>
+  <text class="label" x="260" y="90">SOURCES</text>
+  <text class="title" x="260" y="116">Thread record</text>
+  <text class="body" x="260" y="146">• entries, by id</text>
+  <text class="body" x="260" y="170">• facts, versioned</text>
+  <text class="body" x="260" y="194">• running summary</text>
+  <text class="body" x="260" y="218">• references to output</text>
+  <text class="small" x="260" y="256">each linked to the audit</text>
+  <text class="small" x="260" y="274">events it came from</text>
+
+  <!-- The composed context, most stable first -->
+  <rect class="box" x="470" y="60" width="280" height="236" rx="10"/>
+  <text class="label" x="490" y="90">COMPOSED FOR EACH REQUEST</text>
+  <rect class="band" x="486" y="102" width="248" height="28" rx="6"/>
+  <text class="layer" x="498" y="121">Instructions and tool catalogue</text>
+  <rect class="band" x="486" y="136" width="248" height="28" rx="6"/>
+  <text class="layer" x="498" y="155">Permanent facts</text>
+  <rect class="band" x="486" y="170" width="248" height="28" rx="6"/>
+  <text class="layer" x="498" y="189">Dynamic facts and the summary</text>
+  <rect class="band" x="486" y="204" width="248" height="42" rx="6"/>
+  <text class="layer" x="498" y="222">Recent turns, word for word</text>
+  <text class="small" x="498" y="238">tool output whole, then a reference</text>
+  <rect class="band" x="486" y="252" width="248" height="28" rx="6"/>
+  <text class="layer" x="498" y="271">Task, ephemeral facts, the request</text>
+
+  <!-- The model -->
+  <rect class="box" x="780" y="60" width="160" height="236" rx="10"/>
+  <text class="label" x="800" y="90">THE MODEL</text>
+  <text class="title" x="800" y="116">Sees only</text>
+  <text class="title" x="800" y="136">the composed</text>
+  <text class="title" x="800" y="156">context</text>
+  <text class="body" x="800" y="200">memory tool:</text>
+  <text class="body" x="800" y="220">recall earlier</text>
+  <text class="body" x="800" y="240">material, note</text>
+  <text class="body" x="800" y="260">a fact</text>
+
+  <!-- Flow -->
+  <path class="record" d="M240 178 H212" marker-end="url(#arrow-record)"/>
+  <path class="flow" d="M440 178 H468" marker-end="url(#arrow)"/>
+  <path class="flow" d="M750 178 H778" marker-end="url(#arrow)"/>
+  <text class="small" x="610" y="314" text-anchor="middle">most stable first, condensed to a target</text>
+
+  <!-- What you see -->
+  <path class="flow" d="M115 296 V346" marker-end="url(#arrow)"/>
+  <rect class="you" x="20" y="348" width="920" height="120" rx="10"/>
+  <text class="you-label" x="40" y="376">YOU</text>
+  <text class="title" x="40" y="400">The transcript</text>
+  <text class="body" x="40" y="424">prompts, replies, and every tool's</text>
+  <text class="body" x="40" y="444">full output, from the audit log</text>
+
+  <rect class="chip" x="320" y="366" width="136" height="32" rx="6"/>
+  <text class="layer" x="388" y="387" text-anchor="middle">/show ID</text>
+  <rect class="chip" x="466" y="366" width="200" height="32" rx="6"/>
+  <text class="layer" x="566" y="387" text-anchor="middle">/inspect context [turn]</text>
+  <rect class="chip" x="676" y="366" width="248" height="32" rx="6"/>
+  <text class="layer" x="800" y="387" text-anchor="middle">/inspect facts · /fact · /task</text>
+  <rect class="chip" x="320" y="408" width="236" height="32" rx="6"/>
+  <text class="layer" x="438" y="429" text-anchor="middle">wisp://threads/{id}/context, facts</text>
+  <text class="small" x="572" y="429">none of these costs the model any context</text>
+
+  <!-- The callers -->
+  <path class="caller" d="M180 468 V488 M480 468 V488 M780 468 V488"/>
+  <rect class="box" x="80" y="490" width="200" height="36" rx="8"/>
+  <text class="body" x="180" y="513" text-anchor="middle">inline: wisp "…"</text>
+  <rect class="box" x="380" y="490" width="200" height="36" rx="8"/>
+  <text class="body" x="480" y="513" text-anchor="middle">chat and wisp-tui</text>
+  <rect class="box" x="680" y="490" width="200" height="36" rx="8"/>
+  <text class="body" x="780" y="513" text-anchor="middle">MCP: your coding agent</text>
+</svg>

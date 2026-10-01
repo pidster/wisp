@@ -17,6 +17,15 @@ before it touches your Mac:
   <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP both open one wisp session. The session runs the model, on device or through Ollama, with its seven tools. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
+The model never carries the whole conversation. The audit log keeps everything, and wisp composes each
+request from it, most stable first, while you see every tool's full output whatever the model carries
+([context-management.md](docs/context-management.md), [ADR 0045](docs/decisions/0045-layered-context.md)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/context-dark.svg">
+  <img alt="The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, recent turns word for word with tool output whole and then a reference, and last the task, ephemeral facts, and the request. The model sees only that, and its memory tool recalls earlier material or notes a fact. You see the transcript, built from the audit log, with every tool's full output; /show, /inspect context, /inspect facts, /fact, /task, and the wisp://threads resources cost the model no context. You reach it inline, in chat and wisp-tui, and through your coding agent over MCP." src="docs/images/context-light.svg" width="960">
+</picture>
+
 ## What you can do with it
 
 ### At the terminal
