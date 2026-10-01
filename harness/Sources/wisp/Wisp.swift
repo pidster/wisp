@@ -270,9 +270,15 @@ extension Wisp {
 struct Mcp: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Serve wisp's tools to an MCP client over stdio.",
-        discussion: "Exposes 'respond' (run a task on the model, on a named thread), the condensing tools, and "
-            + "'close_thread', with resources for wisp's tools, config, status, approvals, measurements, and audit "
-            + "(docs/mcp.md). Stdout carries the protocol; diagnostics go to stderr.")
+        discussion: "Exposes 'respond' (run a task on the model, on a named thread), \(Mcp.toolNames), with "
+            + "resources for wisp's tools, config, status, approvals, measurements, and audit, each thread's context, "
+            + "output, audit, and facts, and the permanent and session facts (docs/mcp.md). Stdout carries the "
+            + "protocol; diagnostics go to stderr.")
+
+    /// Every tool `ToolCatalog` declares but `respond`, named for the help text so it cannot go stale.
+    static var toolNames: String {
+        ToolCatalog.all.map(\.name).filter { $0 != "respond" }.map { "'\($0)'" }.joined(separator: ", ")
+    }
 
     @OptionGroup var options: SessionOptions
 

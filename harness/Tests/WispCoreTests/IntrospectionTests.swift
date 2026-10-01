@@ -12,6 +12,56 @@ import Testing
         return home
     }
 
+    /// Where each `Config` field appears in the rendered configuration, as a path of keys; a field the file
+    /// has and the rendering does not is a bug the next test catches.
+    private static let rendered: [String: [String]] = [
+        "systemPromptExtension": ["systemPromptExtension"], "instructions": ["systemPromptExtension"],
+        "model": ["model"], "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
+        "commandMaxOutputBytes": ["runCommand", "maxOutputBytes"], "maxThreads": ["maxThreads"],
+        "inlineOutputBytes": ["inlineOutputBytes"], "shownOutputLines": ["shownOutputLines"],
+        "commandPolicy": ["runCommand", "policy"], "audit": ["audit"], "approval": ["approval"],
+        "ollama": ["backends", "ollama"], "coreai": ["backends"], "mlx": ["backends"],
+        "notifications": ["notifications"], "tools": ["tools"], "routing": ["routing"], "facts": ["facts"],
+        "assessment": ["assessment"], "context": ["context"],
+    ]
+
+    private func renderedConfiguration() throws -> JSONValue {
+        let home = try scratchHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        return Introspection(home: home, config: Config().resolved).configuration
+    }
+
+    @Test func configurationShowsEverySectionOfTheConfigFile() throws {
+        let top = try renderedConfiguration()
+        for field in Mirror(reflecting: Config()).children.compactMap(\.label) {
+            guard let path = Self.rendered[field] else {
+                Issue.record("Config.\(field) is not in IntrospectionTests.rendered: render it, then list it")
+                continue
+            }
+            let node = path.reduce(Optional(top)) { $0?.objectValue?[$1] }
+            #expect(node != nil, "Config.\(field) is not shown at \(path.joined(separator: "."))")
+        }
+    }
+
+    @Test func configurationShowsEverySettableKeyWithItsDefault() throws {
+        let top = try renderedConfiguration()
+        let moved: [String: [String]] = [
+            "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
+            "commandMaxOutputBytes": ["runCommand", "maxOutputBytes"],
+        ]
+        for setting in ConfigSettings.all {
+            var path = moved[setting.path] ?? setting.path.split(separator: ".").map(String.init)
+            if path.first == "ollama" { path.insert("backends", at: 0) }
+            let node = path.reduce(Optional(top)) { $0?.objectValue?[$1] }
+            #expect(node != nil, "\(setting.path) is not shown at \(path.joined(separator: "."))")
+        }
+        let facts = top.objectValue?["facts"]?.objectValue
+        #expect(facts?["enabled"] == true && facts?["share"] == .double(0.1))
+        #expect(top.objectValue?["assessment"]?.objectValue?["tools"] == "request")
+        #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.5))
+        #expect(Introspection.render(top).utf8.count < 6_000, "the configuration view stays bounded")
+    }
+
     @Test func configurationShowsEffectiveValuesAndPaths() throws {
         let home = try scratchHome()
         defer { try? FileManager.default.removeItem(at: home.root) }

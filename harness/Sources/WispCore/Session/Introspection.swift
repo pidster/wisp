@@ -85,6 +85,26 @@ public struct Introspection: Sendable {
                 "ladder": .array(config.routingLadder.map { .string($0.description) }),
                 "tasks": .object(config.taskModels.mapValues { .string($0.description) }),
             ]),
+            "facts": .object([
+                "enabled": .bool(config.factsEnabled), "distil": .bool(config.factsDistil),
+                "share": .double(config.factsShare), "summary": .bool(config.factsSummary),
+                "summaryShare": .double(config.summaryShare),
+                "kinds": .array(
+                    config.subjectKinds.kinds.map { kind in
+                        .object([
+                            "name": .string(kind.name), "temporalClass": .string(kind.temporalClass.rawValue),
+                            "distil": .bool(kind.distils),
+                        ])
+                    }),
+                "testCommands": .array(config.subjectKinds.testCommands.map { .string($0) }),
+            ]),
+            "assessment": .object([
+                "enabled": .bool(config.assessmentEnabled), "tools": .string(config.assessmentTools.rawValue),
+            ]),
+            "context": .object([
+                "target": .double(config.contextTarget.share),
+                "headroomTurns": .int(config.contextTarget.headroomTurns),
+            ]),
             "backends": .object(
                 Dictionary(
                     uniqueKeysWithValues: ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) })),

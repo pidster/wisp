@@ -190,6 +190,12 @@ Added:
 
 Fixed:
 
+- `wisp help mcp` named only some of the MCP tools and resources. It now lists every tool the server
+  declares (taken from the same list, so it cannot fall behind) and the thread, fact, and session-fact
+  resources.
+- `wisp config show`, the `wisp://config` resource, and the `inspect` tool's `config` view left out the
+  `facts`, `assessment`, and `context` settings. They now show them with defaults applied, and a test
+  fails when a section of `config.json` or a setting `wisp config list` names is not shown.
 - `/inspect context` and `/tokens` in chat now say "1 turn" and "1 time" for a count of one, not "1 turns".
 - Long conversations on the on-device model are condensed again instead of failing with "Provided N
   tokens, but the maximum allowed is 8,192". That model reports no token usage and reports an overflow
