@@ -121,10 +121,21 @@ coverage_baseline() {
 # measurement into the embedded measurements.json, to commit; a plain eval (what a release runs)
 # leaves the file alone, since the sets are small and a rerun re-rolls the numbers.
 eval_() {
-    echo "==> eval (on-device model; not part of the gate)"
+    # The context suite is a measurement for design decisions (ADR 0045), run on purpose with
+    # `eval context`; the plain eval, which a release runs, covers every other suite and its floors.
     record=""
-    if [ "${1:-}" = "record" ]; then record="$ROOT/harness/Sources/WispCore/Resources/measurements.json"; fi
-    (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX 2>&1 \
+    scope="--skip ContextEvalTests"
+    label="every suite but the context eval"
+    for arg in "$@"; do
+        case "$arg" in
+            record) record="$ROOT/harness/Sources/WispCore/Resources/measurements.json" ;;
+            context) scope="--filter ContextEvalTests"; label="the context eval only" ;;
+            *) echo "usage: scripts/check eval [context] [record]" >&2; exit 64 ;;
+        esac
+    done
+    echo "==> eval (on-device model; not part of the gate): $label"
+    # shellcheck disable=SC2086 # $scope is two words on purpose
+    (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $scope 2>&1 \
         | grep -E 'model classifier|measured:|eval:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run')
     if [ -n "$record" ]; then
         echo "==> measurements recorded in harness/Sources/WispCore/Resources/measurements.json; commit them"
@@ -212,9 +223,9 @@ case "${1:-all}" in
     coverage-gate) coverage_gate ;;
     coverage-baseline) coverage_baseline ;;
     classifier-default) classifier_default ;;
-    eval) eval_ "${2:-}" ;;
+    eval) shift; eval_ "$@" ;;
     hygiene) hygiene ;;
     all) hygiene; lint; build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [record]|hygiene|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context] [record]|hygiene|all|install-hooks]" >&2; exit 64 ;;
 esac

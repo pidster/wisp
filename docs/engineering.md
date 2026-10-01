@@ -14,7 +14,7 @@ recorded as [decisions](decisions/).
 | `scripts/check build` | `swift build -Xswiftc -warnings-as-errors`; `cargo build` with `RUSTFLAGS=-D warnings` |
 | `scripts/check test` | `swift test`; then the `CommandRunner` suites again inside an outer Seatbelt sandbox to exercise the nested-sandbox fallback; `cargo test --workspace` |
 | `scripts/check format` | Auto-fix formatting with swift-format and rustfmt |
-| `scripts/check eval` | Runs the on-device model evaluation (the separate `harness/Evals` package, so the gate never builds it; `WISP_MODEL_TESTS=1` is set for you); reports classifier accuracy and every miss, asserts no dangerous command rated safe (not in the gate) |
+| `scripts/check eval [context]` | Runs the on-device model evaluation (the separate `harness/Evals` package, so the gate never builds it; `WISP_MODEL_TESTS=1` is set for you): every suite but the context eval, or with `context` only the context eval, which is a measurement for design decisions (ADR 0045) and takes hours; reports classifier accuracy and every miss, asserts no dangerous command rated safe (not in the gate) |
 | `scripts/check coverage` | `swift test --enable-code-coverage` plus an `llvm-cov` per-file line report for the harness sources (not in the gate) |
 | `scripts/check hygiene` | Staged-file checks: conflict markers, trailing whitespace, files over 1 MiB (one named exception, ADR 0042), commit author uses a GitHub noreply address |
 | `scripts/check all` | Everything above, in that order |

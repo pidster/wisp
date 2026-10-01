@@ -62,7 +62,8 @@ measurement per size band, each with `maxInputBytes`, the largest input among it
 evidence for inputs up to that size and no further. `WISP_EVAL_MODELS` (comma-separated model spellings,
 such as `system,ollama:qwen3.8:27b`) measures each named model in turn, so a ladder's rungs all have
 numbers; without it the eval measures the configured model only. A plain `scripts/check eval`, which
-is what a release runs, asserts the floors and records nothing: the sets are small, a rerun re-rolls
+is what a release runs, covers every suite but the context eval (`scripts/check eval context` runs that
+one, on purpose, for a design decision), asserts the floors, and records nothing: the sets are small, a rerun re-rolls
 the numbers (on 2026-09-22 two consecutive runs gave 5 and 6 of 6 for the same task), and the file
 should change only when someone means it to. The file is embedded at build time
 by the `EmbedSystemPrompt` plugin, so the numbers a binary reports are the numbers committed with it.

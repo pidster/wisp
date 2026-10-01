@@ -40,7 +40,7 @@ scripts/check install-hooks        # once per clone
 scripts/check                      # hygiene + strict lint + warnings-as-errors build + tests (the gate)
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
-scripts/check eval [record]        # on-device model evaluation (harness/Evals package); slow; not in the gate; record rewrites measurements.json
+scripts/check eval [context] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it; record rewrites measurements.json
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md)
 
 cd harness && swift build                                        # -> .build/debug/wisp
