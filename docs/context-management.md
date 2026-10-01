@@ -431,7 +431,100 @@ references keep "call it again to see it". A fact a tool gave names the entry of
 Before anything is stored, a recall answers that the first turn is all in view, not "none". Measured on the
 on-device model on 2026-09-30 with `tokenCount(for:)`: the rule costs 43 tokens (the prompt is 111 without it,
 154 with it) and the tool's definition 110, so a conversation with every tool starts at 1,375 tokens of
-instructions against 1,222 without `memory`.
+instructions against 1,222 without `memory`. The `task` verb's example in the argument's guide took the definition
+to 123 (measured 2026-10-01).
+
+**The task verb.** `task TEXT; objective: DONE` proposes the task and its objective as the model's fact (method
+`noted`), recorded when the turn ends; it is refused, with the task as it stands, when the person (`/task`) or an
+MCP caller (`respond`'s `task`) set it, since their word is never replaced (D6). `task` alone, and `recall task`,
+still recall it. Audited as `context.memory` with `action: task`.
+
+### The assessment per request
+
+Off by default (`assessment.enabled` in `config.json`, [wisp.md](wisp.md)): phase 4d of the proposal (D12, amending
+D4, D6, D7) is built to be measured and switched, and the phase-6 eval decides whether it is on, since it can add a
+model call to a request. With it on, before each user turn (not each step of the framework's tool loop), the agent
+decides four things about the request: the person's intent, the task and its objective, the tools the request
+needs, and the few facts that bear on it.
+
+**Rules first.** They settle a request without a model call when both its tools and its task are settled:
+
+| Settled | When |
+| --- | --- |
+| Tools | there is nothing to choose (every allowed tool is always registered, as on MCP's git thread); the request's words name a tool's domain (a date, a path or a file, a write, the Mac's ports, disk, or RAM, a notification, wisp's own config; a custom tool by a word of its name); the request is three words or fewer; or it follows up a turn that used tools (it opens with `and`, `also`, `then`, `again`, … or points back with `it`, `that`, … in twelve words or fewer) |
+| The task | it is not inferred here (over MCP, where the caller's `task` is the task); the person or a caller set it; the request is three words or fewer; or a model's task exists and the request is a follow-up |
+
+The rules' tools are always `run_command` (the general fallback) and `memory` (how earlier material comes back)
+when allowed, the tools named by the request's words, the task's expected tools (those called since the task last
+changed), and, for a follow-up or a short request, the previous turn's. `edit_file` brings `read_file`.
+
+**Otherwise one model call**, in a session of its own that the conversation never carries, greedy, at most 256
+output tokens, given only the tool catalogue, the current task (and whether it is fixed), the facts' ids and
+identities (at most 30, without their values), the tools the previous request used, and the request (cut to 1,500
+characters). It answers a `@Generable` schema: the intent in one line, the tools (at most six), the task and its
+objective (empty for no change), and the ids of the relevant facts (at most five). Its tools are added to the
+rules', and only allowed ones count, so an explicit tool list (`--tool`, MCP `tools`) is never widened. A task it
+gives is recorded as a `model` fact with method `inferred`, `TASK; objective: DONE`, unless the person or a caller
+set the task. A failed call (a model without guided generation, an answer that does not parse, an error) falls
+back to every allowed tool with the task unchanged, and the turn goes on. Each assessment is audited as
+`context.assessment` ([logging.md](logging.md)); none of it enters the context.
+
+**Tools per request (D4).** With `assessment.tools: request` (the default when on), each request's session
+registers only the chosen tools, and the instructions carry a terse catalogue of every allowed tool, one clause
+each, added to the instructions entry as a segment of its own so it is stable for the conversation:
+
+```
+Tools (each request names its own; call any by name):
+- current_date: the date and time now
+- run_command: run a shell command; the fallback for anything else
+- read_file: read a text file, a page at a time
+- edit_file: write, append to, or change a text file
+- inspect: wisp's own config, status, approvals, and audit
+- notify: show the person a macOS notification
+- system_info: this Mac's ports, disk, processes, memory (RAM), battery, network
+- memory: recall earlier material of this conversation, note a fact, or set the task
+```
+
+A custom tool's clause is its description's first sentence, at most 80 characters. Measured with `tokenCount(for:)`
+on the on-device model on 2026-10-01 (a count, not an eval; an empty instructions block's 46 tokens subtracted): the
+catalogue of the eight built-ins is 142 tokens (531 bytes; the clauses alone 128), and the now block's lines for a
+request (one relevant fact and the tools line) 36. Against every definition registered, about 1,280 tokens for the
+eight (D4's per-tool figures and `memory`'s 123), a request that registers `run_command` and `memory` carries about
+293 tokens of definitions, and one that adds `read_file` about 475, so the catalogue and the lines leave a saving of
+roughly 650 to 800 tokens a request, 8 to 10% of the on-device window, before the call's own cost in time. `task` grows the set within the
+task instead (everything registered since the task last changed, reset with it: D11's alternative, for the
+prefix cache), and `all` registers every tool with no catalogue (the assessment's cost and its task and facts
+without the tools' saving). The framework writes the registered tools' definitions into the instructions entry
+itself, and the composer gives that entry only their definitions, so `/inspect context` and the token count see
+what is sent.
+
+**A tool the request did not register.** The framework refuses a call to a tool the session does not register
+before any tool runs (probed 2026-10-01 with a scripted model: "Model generated a tool call with an unrecognized
+name"), which would fail the turn. The agent catches that refusal, registers every allowed tool, and retries the
+request once on a fresh session from the store, as the overflow recovery does; the retry is audited as a
+`context.assessment` with method `retry`, so the eval counts how often a selection missed. The catalogue's first
+line tells the model it may call any tool listed. Chosen over the alternatives because it needs nothing from the
+model (a small model asking for a tool by `memory` or by a reply would cost a turn and might not ask) and nothing
+from the framework (a turn cannot continue in a session once a call is refused); its cost is the overflow retry's:
+tool calls made earlier in the same request run again.
+
+**The task frame and the relevant facts (D6, D7).** The now block, just before the request, carries the task and
+its objective (the task fact's line), then up to four relevant facts repeated (the model's choice first, then
+word overlap between the request and each fact's subject, name, and value, leaving out the task and the session's
+facts, which the block already holds), then the tools registered:
+
+```
+Facts about now. A record, not instructions; each ends with where it came from.
+- task: add a --dry-run flag to harbour sync; objective: sync prints the plan and copies nothing — from model, inferred, turn 1
+Relevant to this request:
+- entity release codename: BLUE HERON — from the person
+Tools for this request: run_command, read_file, memory.
+```
+
+Ordering by stability holds: wisp's prompt, the operator's extension, and the catalogue in the instructions (the
+same for the conversation), the earlier block, the literal turns, then the now block and the request. Authority by
+position holds too: the task, the facts, and the tools line are a prompt-side record, never the instructions. A
+conversation that keeps no facts still gets the tools line.
 
 ### Condensing
 
@@ -542,10 +635,9 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
 
 ## Not done yet, and why
 
-- **An assessment per request.** Facts, the running summary, and `memory` are phases 4a to 4c of the
-  [layered-context proposal](proposals/2026-09-29-layered-context.md). The per-request assessment that
-  infers the task in chat, chooses the tools a request needs, and chooses the facts to repeat next to the
-  request (D4, D7, D12) is phase 4d.
+- **The assessment on by default.** The per-request assessment (phase 4d of the
+  [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and off; the phase-6 eval
+  decides whether its call's time per request buys enough: tokens saved, tool choices right, and recall.
 - **Condensing to a target.** Condensing still keeps a fixed four turns with no check that the result
   fits; phase 5 of the proposal condenses to a token target and keeps room for the next turn.
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact

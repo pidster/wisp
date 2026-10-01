@@ -1,6 +1,6 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 4c built. Becomes an
+Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 4d built (4d off by default). Becomes an
 ADR with the eval's figures.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
@@ -1457,7 +1457,78 @@ go here as they arise.
      the turn's extracted facts: it reaches the model's facts from the next request and the person's list of
      the turn's new facts. Audited as `context.memory` and, when recorded, `fact.recorded`.
 4d. The assessment per request (D12): the task inferred in chat (D6), the tools a request needs (D4), and
-   the facts to repeat next to the request (D7).
+   the facts to repeat next to the request (D7). Built 2026-10-01, **off by default** (`assessment.enabled`): it
+   adds a model call to every request the rules do not settle, and the operator decided that evals for design
+   decisions run separately, so phase 6 decides whether it is on. No model eval was run for it.
+   [context-management.md](../context-management.md), "The assessment per request", is the reference.
+   - **When.** Once per user turn, after the prompt is audited and the turn's references are made, before the
+     facts frame and any condensation; not on each step of the framework's tool loop.
+   - **Rules first** (`AssessmentRules`, pure). The tools are settled when there is nothing to choose (every
+     allowed tool is always registered, as on MCP's git thread), when the request's words name a tool's domain
+     (a table of patterns per built-in tool, and a custom tool by a word of its name), when the request is three
+     words or fewer, or when it follows up a turn that used tools (an opening word such as `and`, `again`, `then`,
+     or a word pointing back in twelve words or fewer). The task is settled when it is not inferred (MCP), when the
+     person or a caller set it, when the request is short, or when a model's task exists and the request is a
+     follow-up. Both settled: no call. The rules' tools: `run_command` and `memory` always (when allowed), the
+     named ones, the task's expected tools (those called since the task last changed), and the previous turn's
+     for a follow-up or a short request; `edit_file` brings `read_file`.
+   - **Otherwise one call** (`Assessor`), in a session of its own, never in the conversation: the catalogue, the
+     task (marked fixed when it may not change), the facts' ids and identities without values (at most 30), the
+     tools the previous request used, and the request (cut to 1,500 characters); greedy, at most 256 output
+     tokens; a `@Generable` answer of the intent (one line), the tools (at most 6), a task and its objective
+     (empty for none), and fact ids (at most 5). Its tools are added to the rules', filtered to the allowed ones,
+     so an explicit list is never widened. A task is recorded as a `model` fact with a new method, `inferred`,
+     value `TASK; objective: DONE`, unless the person's or a caller's task stands. A failure (no guided
+     generation, an answer that does not parse, any error) falls back to every allowed tool and the task
+     unchanged, audited, and the turn goes on.
+   - **Tools per request.** `assessment.tools`: `request` (D4, the default when on), `task` (the selection grown
+     since the task last changed, reset with it: D11's alternative), or `all` (every tool, no catalogue: the
+     assessment's task and facts without the tools' saving, for measuring the call alone). The framework writes
+     the session's tools into the instructions entry itself (probed 2026-10-01 with a scripted model: a session
+     over a transcript whose instructions list two tools, created with one, sends one); the composer gives the
+     entry only the registered definitions too (`ContextComposer.registered`), so the token count and
+     `/inspect context` see what is sent, and the agent starts a new session when the set changes.
+   - **The catalogue** (`ToolCatalogue`), hand-written, one clause per built-in tool, a custom tool's first
+     sentence, added to the instructions entry as a segment with a stable id (`wisp.catalogue`) so it is stable
+     for the conversation and not doubled on resume. Measured with `tokenCount(for:)` on the on-device model on
+     2026-10-01 (a count, not an eval): 142 tokens, 531 bytes, for the eight built-ins (the clauses 128, the
+     header 14; a longer header saying how registration works took 25 and was cut). D4's hand-written seven took
+     103. With D4's per-tool figures and `memory`'s 123, every definition comes to about 1,280 tokens; a request
+     registering `run_command` and `memory` carries about 293, and with `read_file` about 475, so the saving is
+     roughly 650 to 800 tokens a request on the on-device window.
+   - **A tool the model needs but the request did not register.** The framework refuses the call before any tool
+     runs ("Model generated a tool call with an unrecognized name", the same probe), which would fail the turn.
+     Chosen: the agent catches that refusal, registers every allowed tool, and retries the request once on a fresh
+     session from the store, as the overflow retry does, audited as `context.assessment` with method `retry`; the
+     catalogue's header says any listed tool may be called by name. Considered: the model asking through `memory`
+     or a short reply (a turn lost, and a small model may not ask), and the next turn's assessment adding it (the
+     turn fails first). The retry's cost is the overflow retry's: tool calls made earlier in that request run again.
+   - **The now block** ends with the request's own lines, after the ephemeral facts and the task: up to four
+     relevant facts repeated (the model's choice first, then word overlap with each fact's subject, name, and value;
+     the task and the session's facts are already there), and `Tools for this request: run_command, read_file,
+     memory.` (36 tokens for one fact and the tools line). The task and its objective are the task fact's line.
+     Order by stability and authority by position are unchanged: the catalogue is in the instructions, everything
+     per request is a prompt-side record before the request. A conversation without facts still gets the tools line.
+   - **`memory "task …"`** (the verb 4c left room for): `task THE TASK; objective: DONE` records the model's task
+     (method `noted`) when the turn ends; refused, naming the task, when the person or a caller set it; `task` alone
+     and `recall task` recall it. Its example in the argument's guide took the tool from 110 to 123 tokens.
+   - **Audit.** `context.assessment`: `method` (`rules`, `model`, `fallback`, `retry`), `tools`, `ruleTools`,
+     `registered`, `taskChanged`, `task`, `facts`, `seconds`, `bytes`, `model`, `intent`, `failure`. The intent is
+     audited and never sent. The inferred task is a `fact.recorded` and in the turn's list of new facts.
+   - **Tests, without the model**: `AssessmentRulesTests` (the rules, overlap, the catalogue, the prompt's
+     bounds, the answer applied) and `AssessmentTests` over `ScriptedModel` (rules without a call; the answer's
+     tools, task, and facts applied; a failed call's fallback; an explicit list never widened; the person's task
+     never replaced; the retry for an unregistered tool; nothing of the assessment in the composed transcript, and
+     the task and facts on the prompt side; the three tool sets; the config); `MemoryTaskTests`.
+     `ContextEquivalenceTests` matches the phase 2 snapshots without re-recording: the assessment is off.
+   - **The eval** gained `AssessingStrategy` (`MemoryStrategy` with the assessment; `tools` and `infersTask` as
+     parameters) and each turn's assessments in its line. **What phase 6 must measure**, on the on-device model and
+     on Ollama: the call's time per request against the tokens it saves (and how many requests the rules settle);
+     tool-choice accuracy (the `retry` rate, tools registered but not called, and turns whose outcome changed);
+     D11's per-request against grown tool sets (`assessing` against `assessing-task`: time per turn, tokens per
+     request, how often a new session starts); recall and the return to the task with the inferred task and the
+     repeated facts against `MemoryStrategy` (D7's trial: dropped if it does not help the on-device model); and
+     `assessing-all`, to separate the call's cost from the tools' saving.
 5. Condensing's guarantees, which today are missing: `ContextComposer.ahead` and `overflow` condense to a
    fixed four turns (`ContextPolicy.default`) with no check that the result fits; ahead of the window,
    nothing happens when there are four turns or fewer, even over budget; the overflow retry fails when four

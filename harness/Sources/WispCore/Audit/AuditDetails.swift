@@ -238,6 +238,50 @@ extension AuditEvent {
             return details
         }
 
+        /// `context.memory` for the `task` verb: the task the model proposed, as kept, or why it was refused.
+        public static func memoryTask(request: String, value: String?, failure: String?) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "request": .string(request), "action": "task", "noted": .bool(failure == nil),
+            ]
+            if let value { details["value"] = .string(value) }
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
+        /// `context.assessment`: what one request's assessment decided (phase 4d, decision D12), and how. Never in the
+        /// model's context; the eval relates its time to the tokens it saved and scores its choices.
+        ///
+        /// - Parameters:
+        ///   - method: `rules`, `model`, `fallback`, or `retry`.
+        ///   - tools: The tools chosen, in the agent's order.
+        ///   - ruleTools: The tools the rules gave on their own.
+        ///   - registered: The tools the request's session registers; nil for every tool.
+        ///   - intent: The person's intent, as the model put it.
+        ///   - task: The task fact recorded, when the assessment changed the task.
+        ///   - facts: The facts repeated next to the request.
+        ///   - seconds: How long it took.
+        ///   - bytes: The model call's prompt, in bytes; 0 when no call was made.
+        ///   - model: The model asked, when one was.
+        ///   - failure: Why the call failed, or why the request was retried.
+        /// - Returns: The details.
+        public static func assessment(
+            method: String, tools: [String], ruleTools: [String], registered: [String]?, intent: String?,
+            task: String?, facts: [String], seconds: Double, bytes: Int, model: ModelSelection?, failure: String?
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "method": .string(method), "tools": .array(tools.map { .string($0) }),
+                "ruleTools": .array(ruleTools.map { .string($0) }),
+                "registered": registered.map { .array($0.map { .string($0) }) } ?? .string("all"),
+                "taskChanged": .bool(task != nil), "facts": .array(facts.map { .string($0) }),
+                "seconds": .double((seconds * 1000).rounded() / 1000), "bytes": .int(bytes),
+            ]
+            if let intent { details["intent"] = .string(intent) }
+            if let task { details["task"] = .string(task) }
+            if let model { details["model"] = .string(model.description) }
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
         /// `fact.recorded`: a new fact, or a new version of one, with what it superseded.
         public static func factRecorded(_ fact: Fact, supersedes: String?) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
@@ -525,6 +569,11 @@ extension AuditEvent {
             [
                 "request", "action", "target", "found", "entries", "facts", "summaries", "events", "from", "offset",
                 "bytes", "noted", "subject", "name", "value", "class", "failure",
+            ]
+        case .assessment:
+            [
+                "method", "tools", "ruleTools", "registered", "intent", "taskChanged", "task", "facts", "seconds",
+                "bytes", "model", "failure",
             ]
         case .factRecorded:
             [

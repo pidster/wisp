@@ -159,7 +159,7 @@ the agent: the framework calls `MemoryTool` on its own task, so the agent publis
 fact it sees, the subject kinds, and the turn into a `MemorySource` (a `final class` with a `Mutex`, one per
 `WispThread`) before every request, and takes the notes the tool left there when the turn ends, recording them
 as the model's facts (method `noted`) in `remember`, beside the turn's extracted facts. `Memory` is pure: it
-reads the verb (`recall`, `note`; none is a recall) and a note's form and rules. `Recall` is pure too: it reads
+reads the verb (`recall`, `note`, `task`; none is a recall) and a note's or a task's form and rules. `Recall` is pure too: it reads
 what follows `recall` (`entry 7`, `turn 3`, `task`, `summary`, `fact …`, with `from line N`), gathers the
 material, and pages it at 4 KiB. An entry's content is read from the audit event its store entry refers to,
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
@@ -168,6 +168,22 @@ its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); t
 `WispThread.openAgent` wires it and renders the prompt with its rule
 (`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each
 call records `context.memory`.
+
+**The assessment** (phase 4d; [context-management.md](context-management.md), "The assessment per request") is
+off unless `Agent.assessment` holds `AssessmentSettings` (which `WispThread.openAgent` sets from `assessment.enabled`,
+with `infersTask` only for chat). Between step 1 and step 2 the agent assesses the request (`Agent.assess`):
+`AssessmentRules`, pure, decide the tools and whether the request is settled; otherwise `Assessor`'s one call, in a
+session of its own with a `@Generable` answer, adds tools (only allowed ones), a task (recorded as the model's, method
+`inferred`, never over the person's or a caller's), and fact ids; a failure falls back to every tool. The agent sets
+`ContextComposer.registered` (the request's tools) and keeps what the next request's rules need in an
+`AssessmentState` (the previous turn's tools, the task's, and the grown set). The composer adds the catalogue
+(`ContextComposer.catalogue`, `ToolCatalogue`) to the instructions entry as a segment with a stable id and limits the
+entry's definitions to the registered tools (`instructed`), and the agent builds each session with only those tools
+(`registeredTools`), starting a new session when the set changes. The now block gains the relevant facts and the tools
+line (`requestNotes`, `FactFrame.addingNow`). `withToolRecovery`, outside the overflow recovery, retries a request
+once with every tool when the framework refuses a call to an unregistered tool. Each assessment and retry records
+`context.assessment`; the store keeps each turn's tool set (`ThreadRecord.toolSets`, in memory) so an earlier turn's
+context shows the definitions it carried.
 
 **Facts** (phase 4a; [context-management.md](context-management.md), "Facts") are `Fact` values in a
 `FactBook` per scope: the conversation's in `ThreadRecord.facts`, a value saved with the store's

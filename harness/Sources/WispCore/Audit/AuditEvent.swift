@@ -69,6 +69,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case distillation
         case summary
         case memory
+        case assessment
         case factRecorded
         case factSuperseded
         case factDeleted
@@ -110,6 +111,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .distillation,
             .summary,
             .memory,
+            .assessment,
             .factRecorded,
             .factSuperseded,
             .factDeleted,
@@ -151,6 +153,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .distillation: "context.distillation"
             case .summary: "context.summary"
             case .memory: "context.memory"
+            case .assessment: "context.assessment"
             case .factRecorded: "fact.recorded"
             case .factSuperseded: "fact.superseded"
             case .factDeleted: "fact.deleted"

@@ -12,6 +12,8 @@ import FoundationModels
 /// - `note SUBJECT NAME = VALUE` records a fact as the model, method `noted`, when the turn ends: below the
 ///   person's and a tool's (D2), of a subject kind the distiller may use, and a proposal only when the kind is
 ///   permanent, since only the person admits a permanent fact. At most `Memory.notesPerTurn` a turn.
+/// - `task TEXT; objective: DONE` proposes the task and its objective as the model's (phase 4d, D6), recorded when
+///   the turn ends, and refused when the person or a caller set the task. `task` alone recalls the task.
 ///
 /// One string, because the references and markers the model reads already spell a recall (`memory "recall entry
 /// 7"`), and a small model copies a phrase more reliably than it picks among optional fields; every tool's schema
@@ -36,8 +38,8 @@ public struct MemoryTool: WispTool {
         /// A verb and its object, as `Memory.command(_:)` reads it.
         @Guide(
             description:
-                "\"recall entry 7\", \"recall turn 3\", \"recall task\", \"recall fact codename\", or \"note entity "
-                + "release codename = BLUE HERON\".")
+                "\"recall entry 7\", \"recall turn 3\", \"recall task\", \"recall fact codename\", \"note entity "
+                + "release codename = BLUE HERON\", or \"task fix the CI build; objective: swift test passes\".")
         public var request: String
     }
 
@@ -82,6 +84,7 @@ public struct MemoryTool: WispTool {
         switch Memory.command(arguments.request) {
         case .recall(let what): return recall(what, request: arguments.request, in: material)
         case .note(let text): return note(text, request: arguments.request, in: material)
+        case .task(let text): return task(text, request: arguments.request, in: material)
         }
     }
 
@@ -97,6 +100,23 @@ public struct MemoryTool: WispTool {
                 facts: found.facts, summaries: found.summaries, events: found.events, from: found.from,
                 offset: offset, bytes: page.utf8.count))
         return page
+    }
+
+    /// Keeps the task `text` proposes for the agent to record when the turn ends, or says why not; audited.
+    private func task(_ text: String, request: String, in material: MemorySource.Material) -> String {
+        var kept: FactBook.Assertion?
+        var refusal: Memory.Refusal?
+        switch Memory.task(text, in: material) {
+        case .success(let assertion):
+            if source.add(assertion) { kept = assertion } else { refusal = .full }
+        case .failure(let reason):
+            refusal = reason
+        }
+        audit?.record(
+            .memory,
+            details: AuditEvent.Details.memoryTask(request: request, value: kept?.value, failure: refusal?.reason))
+        guard let kept else { return (refusal ?? .shape).description }
+        return "noted the task: \(kept.value)"
     }
 
     /// Keeps the note `text` makes for the agent to record when the turn ends, or says why not; audited.

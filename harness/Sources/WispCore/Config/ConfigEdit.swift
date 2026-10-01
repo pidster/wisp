@@ -83,6 +83,12 @@ public enum ConfigSettings {
             summary: "the context window asked of every Ollama model; unset sizes each from memory",
             kind: .integer(1024...1_048_576)),
         Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
+        Setting(
+            path: "assessment.enabled",
+            summary: "assess each request: its tools, task, and relevant facts (adds a model call)", kind: .flag),
+        Setting(
+            path: "assessment.tools", summary: "which tools an assessed request registers",
+            kind: .choice(AssessmentSettings.ToolSets.allCases.map(\.rawValue))),
     ]
 
     /// The setting at `path`, or nil.
@@ -114,6 +120,8 @@ public enum ConfigSettings {
         case "audit.enabled": return .bool(d.auditEnabled)
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
+        case "assessment.enabled": return .bool(d.assessmentEnabled)
+        case "assessment.tools": return .string(d.assessmentTools.rawValue)
         default: return nil
         }
     }

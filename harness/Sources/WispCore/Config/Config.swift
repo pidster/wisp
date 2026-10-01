@@ -41,6 +41,24 @@ public struct Config: Codable, Equatable, Sendable {
     public var routing: RoutingConfig?
     /// Facts: whether they are kept, distilled, and composed, and the subject kinds.
     public var facts: FactsConfig?
+    /// The assessment of each request: whether it runs, and which tools each request registers.
+    public var assessment: AssessmentConfig?
+
+    /// Assessment settings in the file (phase 4d of the
+    /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), decision D12). Off by
+    /// default until the eval decides, since it adds a model call to many requests.
+    public struct AssessmentConfig: Codable, Equatable, Sendable {
+        /// Whether each request is assessed; default false.
+        public var enabled: Bool?
+        /// Which tools each request registers when it is: `request` (the default), `task`, or `all`.
+        public var tools: AssessmentSettings.ToolSets?
+
+        /// Creates settings; nil fields take defaults.
+        public init(enabled: Bool? = nil, tools: AssessmentSettings.ToolSets? = nil) {
+            self.enabled = enabled
+            self.tools = tools
+        }
+    }
 
     /// Fact settings in the file ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md),
     /// decisions D1 and D2).
@@ -387,7 +405,8 @@ public struct Config: Codable, Equatable, Sendable {
             factsEnabled: facts?.enabled ?? true, factsDistil: facts?.distil ?? true,
             factsShare: min(0.5, max(0, facts?.share ?? 0.1)), factsSummary: facts?.summary ?? true,
             summaryShare: min(0.5, max(0, facts?.summaryShare ?? 0.05)),
-            subjectKinds: SubjectKinds.defaults.applying(facts)
+            subjectKinds: SubjectKinds.defaults.applying(facts),
+            assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request
         )
     }
 
@@ -460,5 +479,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var summaryShare = 0.05
         /// The subject kinds and test commands in force.
         public var subjectKinds = SubjectKinds.defaults
+        /// Whether each request is assessed (phase 4d); off by default.
+        public var assessmentEnabled = false
+        /// Which tools each assessed request registers.
+        public var assessmentTools = AssessmentSettings.ToolSets.request
     }
 }

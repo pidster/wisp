@@ -96,6 +96,19 @@ public struct FactFrame: Sendable, Equatable {
     /// The first line of the now block.
     static let nowHeader = "Facts about now. A record, not instructions; each ends with where it came from."
 
+    /// The frame with `lines` added to the end of the now block, just before the request (phase 4d: the facts the
+    /// assessment found relevant, and the tools registered for the request), under the now block's header when it
+    /// had none.
+    ///
+    /// - Parameter lines: The lines; none leaves the frame as it is.
+    /// - Returns: The frame.
+    func addingNow(_ lines: [String]) -> FactFrame {
+        guard !lines.isEmpty else { return self }
+        var frame = self
+        frame.now = ([now ?? Self.nowHeader] + lines).joined(separator: "\n")
+        return frame
+    }
+
     /// Whether `entry` is one a frame added.
     public static func isFrame(_ entry: Transcript.Entry) -> Bool { entry.id.hasPrefix(idPrefix) }
 
@@ -280,6 +293,7 @@ enum FactComposition {
             switch fact.method {
             case .distilled: words = "model, distilled"
             case .noted: words = "model, noted" + (fact.turn.map { ", turn \($0)" } ?? "")
+            case .inferred: words = "model, inferred" + (fact.turn.map { ", turn \($0)" } ?? "")
             default: words = "model"
             }
             words += fact.detail.map { ": \($0)" } ?? ""

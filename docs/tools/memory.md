@@ -3,7 +3,8 @@
 The conversation's memory, for the model: one tool with verbs, as the person's chat commands have them.
 `recall` restores, for the current turn, earlier material that the model's context holds only as a
 reference, a marker, a summary, or a fact. `note` records a fact the model wants kept, as the model's, below
-the person's and a tool's. It reads only the conversation's own record and the audit log it refers to, writes
+the person's and a tool's. `task` proposes the conversation's task and its objective, never over the person's or
+a caller's. It reads only the conversation's own record and the audit log it refers to, writes
 only the conversation's facts, runs no command, and needs no approval. This is phase 4c of the
 [layered-context proposal](../proposals/2026-09-29-layered-context.md) ("Recall", decisions D2, D8, and D12),
 widened from a `recall` tool to `memory` on 2026-09-30.
@@ -29,24 +30,24 @@ nothing stored, and a recall before anything is stored says the first turn is al
 
 | Name | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `request` | string | yes | A verb and its object: `recall entry 7`, `recall turn 3`, `recall task`, `recall summary`, `recall fact codename`, or `note entity release codename = BLUE HERON`. A later page adds `from line N` to a recall. |
+| `request` | string | yes | A verb and its object: `recall entry 7`, `recall turn 3`, `recall task`, `recall summary`, `recall fact codename`, `note entity release codename = BLUE HERON`, or `task fix the CI build; objective: swift test passes`. A later page adds `from line N` to a recall. |
 
 One text argument, because the references and markers the model reads already spell a recall (`to see it:
 memory "recall entry 7"`, `(showed the person the read_file output, entry 7)`, and the entries named in facts'
 sources, such as `from tool read_file, turn 2, entry 4`), and a small model copies a phrase more reliably than
 it fills optional fields. Every tool's schema is in every request (decision D4 measured them), so the schema
 has one field. The first word is the verb; `remember` is taken as `note`, and a request with no verb is a
-recall, so `entry 7` alone works. `task` is kept for phase 4d; today `task` alone recalls the task.
+recall, so `entry 7` alone works. `task` followed by text proposes the task (below); `task` alone recalls it.
 
 Tool definition as the model sees it (description, then the argument's guide):
 
 ```
 This conversation's memory, not the Mac's RAM (that is system_info): recall earlier material in full, or note a fact to keep.
-request: "recall entry 7", "recall turn 3", "recall task", "recall fact codename", or "note entity release codename = BLUE HERON".
+request: "recall entry 7", "recall turn 3", "recall task", "recall fact codename", "note entity release codename = BLUE HERON", or "task fix the CI build; objective: swift test passes".
 ```
 
-It costs 110 tokens in every request's instructions, measured with `tokenCount(for:)` on the on-device model
-on 2026-09-30 (`recall` alone cost 103).
+It costs 123 tokens in every request's instructions, measured with `tokenCount(for:)` on the on-device model
+on 2026-10-01 (110 before the `task` example was added on that date; `recall` alone cost 103).
 
 ## recall
 
@@ -134,13 +135,37 @@ error: at most 12 notes a turn; the rest were not kept
 
 In facts' lines a noted fact's source reads `model, noted, turn 4`.
 
+## task
+
+```
+task THE TASK; objective: WHAT DONE LOOKS LIKE
+```
+
+Proposes the conversation's task as the model's fact (subject `task`, source `model`, method `noted`), with its
+objective after `objective:` (also `. Objective:` or `, objective:`), kept as one value, `THE TASK; objective: WHAT
+DONE LOOKS LIKE`. It is recorded when the turn ends and shown next to each request from the next one (decision
+D6). The task the person set with `/task`, or an MCP caller with `respond`'s `task`, is never replaced: the request
+is refused and the result names the task as it stands. `task` alone, and `recall task`, recall the task. A task
+counts towards the turn's 12 notes, and is cut to 300 characters.
+
+```
+noted the task: add a --dry-run flag to harbour sync; objective: sync prints the plan and copies nothing
+error: the person set the task, and it stays: fix the CI build
+error: write task THE TASK; objective: WHAT DONE LOOKS LIKE
+```
+
+With the per-request assessment on, the model's task is also inferred before each request in chat
+([context-management.md](../context-management.md), "The assessment per request"); a task the model proposed
+either way is the model's, method `noted` here and `inferred` there.
+
 ## Audit
 
 Each call is a `tool.call` and `tool.result` like any tool's, and a `context.memory` event with the `request`
 and its `action`. A recall names what was restored: the target, the entries, facts, and summary versions, the
 audit events read, and whether the content came from the audit log, the store, or both. A note names the
-subject, name, value, and class kept, or the `failure`; each note kept is also a `fact.recorded` (method
-`noted`) when its turn ends ([logging.md](../logging.md)).
+subject, name, value, and class kept, or the `failure`; a task names the `value` kept or the `failure` (`pinned`
+when the person or a caller set it); each note or task kept is also a `fact.recorded` (method `noted`) when its
+turn ends ([logging.md](../logging.md)).
 
 ## Limits
 

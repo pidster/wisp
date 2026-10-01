@@ -88,12 +88,15 @@ enum Memory {
         case recall(String)
         /// Record a fact from the rest (`Memory.note`).
         case note(String)
+        /// Propose the rest as the task, with its objective (`Memory.task`; phase 4d).
+        case task(String)
 
         /// The verb, as the audit records it (`context.memory`'s `action`).
         var action: String {
             switch self {
             case .recall: "recall"
             case .note: "note"
+            case .task: "task"
             }
         }
     }
@@ -115,16 +118,23 @@ enum Memory {
     /// The example every refusal of a note repeats, so the model's next call has the shape to copy.
     static let noteExample = "note entity release codename = BLUE HERON"
 
-    /// What `request` asks for: its first word as the verb (`recall`, or `note` and its synonym `remember`), and
-    /// the rest as the object; anything else is a recall of the whole text. Quotes around the request are dropped.
+    /// What `request` asks for: its first word as the verb (`recall`; `note` and its synonym `remember`; `task`), and
+    /// the rest as the object; anything else is a recall of the whole text. `task` alone, with nothing after it, is a
+    /// recall of the task, as it was before the verb existed. Quotes around the request are dropped.
     ///
     /// - Parameter request: The argument, as the model wrote it.
     /// - Returns: The command.
     static func command(_ request: String) -> Command {
         let text = request.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`")))
-        guard let match = text.firstMatch(of: #/^(?i)(recall|note|remember)\b[\s:]*/#) else { return .recall(text) }
+        guard let match = text.firstMatch(of: #/^(?i)(recall|note|remember|task)\b[\s:=]*/#) else {
+            return .recall(text)
+        }
         let rest = String(text[match.range.upperBound...])
-        return match.1.lowercased() == "recall" ? .recall(rest) : .note(rest)
+        switch match.1.lowercased() {
+        case "recall": return .recall(rest)
+        case "task": return rest.trimmingCharacters(in: .whitespaces).isEmpty ? .recall("task") : .task(rest)
+        default: return .note(rest)
+        }
     }
 
     /// The note in `text`: `SUBJECT NAME = VALUE`, or `SUBJECT: NAME = VALUE`, or without `=`, `SUBJECT NAME:
@@ -158,6 +168,10 @@ enum Memory {
         case off
         /// The turn already has `notesPerTurn`.
         case full
+        /// The person or a caller set the task, which the model never replaces (D6).
+        case pinned(String)
+        /// A `task` request with no task before its objective.
+        case taskShape
 
         /// The tool's result.
         var description: String {
@@ -170,6 +184,8 @@ enum Memory {
                 "error: say which \(subject) it is before the =, such as \(Memory.noteExample)"
             case .off: "error: this conversation keeps no facts, so nothing can be noted"
             case .full: "error: at most \(Memory.notesPerTurn) notes a turn; the rest were not kept"
+            case .pinned(let task): "error: the person set the task, and it stays: \(task)"
+            case .taskShape: "error: write task THE TASK; objective: WHAT DONE LOOKS LIKE"
             }
         }
 
@@ -181,8 +197,44 @@ enum Memory {
             case .name: "name"
             case .off: "off"
             case .full: "full"
+            case .pinned: "pinned"
+            case .taskShape: "shape"
             }
         }
+    }
+
+    /// The task the model proposes with `task TEXT` (phase 4d): the text, with an objective after `objective:` (or
+    /// `; objective:`) kept as the assessment writes it (`Assessor.taskValue`), as a model fact of the `task` kind,
+    /// method `noted`. Refused when the person or a caller set the current task: their word is never replaced (D6).
+    ///
+    /// - Parameters:
+    ///   - text: What follows `task`.
+    ///   - material: The conversation's record and facts, as published.
+    ///   - time: When.
+    /// - Returns: The assertion, or the refusal.
+    static func task(
+        _ text: String, in material: MemorySource.Material, time: Date = Date()
+    ) -> Result<FactBook.Assertion, Refusal> {
+        guard let kinds = material.kinds else { return .failure(.off) }
+        let current = FactView(material.facts).group(FactIdentity.Key(subject: "task", name: ""))?.winner
+        if let current, current.rank >= FactSource.person.rank { return .failure(.pinned(current.value)) }
+        let flat = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\"'`")))
+        var task = flat
+        var objective = ""
+        if let match = flat.firstMatch(of: #/(?i)[;,.]?\s*objective\s*[:=-]\s*/#) {
+            task = String(flat[..<match.range.lowerBound])
+            objective = String(flat[match.range.upperBound...])
+        }
+        let value = Assessor.taskValue(task, objective: objective)
+        guard !value.isEmpty, let (identity, temporalClass) = kinds.identity(subject: "task", name: "") else {
+            return .failure(.taskShape)
+        }
+        return .success(
+            FactBook.Assertion(
+                identity: identity, source: .model,
+                value: OutputReference.shortened(value, to: Assessor.taskCharacters),
+                temporalClass: temporalClass, method: .noted, time: time, turn: material.turn))
     }
 
     /// The subject kinds a note may name: those the distiller may use, since the kinds tools fill (`file`,

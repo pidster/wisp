@@ -53,6 +53,14 @@ Changed:
 
 Added:
 
+- An assessment of each request, off by default (`assessment.enabled` in `config.json`, or `wisp config set
+  assessment.enabled true`): before each turn, rules or one call to the model outside its context choose the
+  tools the request registers (with a one-line-per-tool catalogue in the instructions), the facts repeated next
+  to the request, and, in chat, the task and its objective, never replacing one you set with `/task` or an MCP
+  caller's `task`. `assessment.tools` picks `request`, `task`, or `all`. Each is audited as `context.assessment`.
+  It is there to be measured; whether it is on by default waits for the eval.
+- `memory "task …"`: the model can propose the conversation's task and its objective (`task fix the CI build;
+  objective: swift test passes`), as its own fact, never over yours. `memory "task"` still recalls the task.
 - Notifications come from your terminal in Ghostty, iTerm2, WezTerm, and kitty: the `notify` tool,
   `wisp notify`, and `wisp watch` write the terminal's own notification sequence, so the banner carries the
   terminal's name and icon and clicking it returns to it, instead of Script Editor. `wisp-tui` does the

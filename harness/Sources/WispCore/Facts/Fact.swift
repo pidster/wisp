@@ -73,6 +73,9 @@ public enum FactMethod: String, Codable, Sendable {
     case distilled
     /// Noted by the model while it worked, with the `memory` tool's `note`; recorded when its turn ends.
     case noted
+    /// Inferred by the model in the per-request assessment (phase 4d, decision D12): the task and its objective, in
+    /// chat, recorded before the request it was inferred for.
+    case inferred
 }
 
 /// What a fact is about: `{scope, subject, name}`, such as `{thread, tests, swift test}` (D2).

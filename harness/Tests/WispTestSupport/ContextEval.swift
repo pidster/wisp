@@ -644,6 +644,64 @@ public struct MemoryStrategy: ContextStrategy {
     }
 }
 
+/// The assessment per request (phase 4d of the proposal, decision D12) on top of `MemoryStrategy`: before each
+/// request, rules or one model call outside the context choose the tools the request registers (D4), infer the task
+/// and its objective (D6), and pick the facts repeated next to the request (D7); the instructions carry the tool
+/// catalogue. `tools` chooses D11's alternatives: per request, grown within the task, or every tool (the assessment's
+/// cost and its task and facts without the tools' saving). The phase-6 eval runs it against `MemoryStrategy`.
+public struct AssessingStrategy: ContextStrategy {
+    /// `assessing`, then `-task` or `-all` for the other tool sets.
+    public var name: String {
+        switch tools {
+        case .request: "assessing"
+        case .task: "assessing-task"
+        case .all: "assessing-all"
+        }
+    }
+    /// What it does.
+    public var summary: String {
+        "memory, with each request assessed (rules, else one model call) for its tools, task, and relevant facts; "
+            + "tools registered "
+            + (tools == .request ? "per request" : tools == .task ? "as grown within the task" : "all, every request")
+    }
+    /// Which tools each request registers.
+    public var tools: AssessmentSettings.ToolSets
+    /// Whether the task is inferred, as in chat.
+    public var infersTask: Bool
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
+    /// Yes: facts are extracted from the turn's tool events.
+    public var linksToolEvents: Bool { true }
+    /// Yes: the conversation has `memory`.
+    public var hasMemory: Bool { true }
+
+    /// Creates the strategy.
+    ///
+    /// - Parameters:
+    ///   - tools: Which tools each request registers; per request by default (D4).
+    ///   - infersTask: Whether the task is inferred; yes, as in chat.
+    ///   - budget: When to condense; the default is the agent's, 85%.
+    public init(tools: AssessmentSettings.ToolSets = .request, infersTask: Bool = true, budget: Double = 0.85) {
+        self.tools = tools
+        self.infersTask = infersTask
+        self.budget = budget
+    }
+
+    /// Opens an `Agent` as `MemoryStrategy` does, with the assessment on.
+    public func open(
+        model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
+    )
+        -> any ContextThread
+    {
+        let thread = MemoryStrategy(budget: budget).open(
+            model: model, tools: tools, instructions: instructions, audit: audit)
+        if let agent = (thread as? AgentThread)?.agent {
+            agent.assessment = AssessmentSettings(tools: self.tools, infersTask: infersTask)
+        }
+        return thread
+    }
+}
+
 /// An `Agent` as a conversation under test.
 public final class AgentThread: ContextThread {
     /// The agent, unchanged.
@@ -698,6 +756,9 @@ extension ContextEval {
         /// Each `memory` call during the turn (`context.memory` events): a recall as `request -> target` with
         /// `found` or `none`, a note as `request -> noted` or `refused (reason)`.
         public var memoryCalls: [String] = []
+        /// Each assessment during the turn (`context.assessment` events), as `method tools (seconds)`, with
+        /// `retry` when a selection missed a tool the model called; empty when the strategy assesses nothing.
+        public var assessments: [String] = []
 
         /// Creates a turn record.
         public init(
@@ -734,6 +795,7 @@ extension ContextEval {
                 + (distilled.isEmpty ? "" : ", distilled [\(distilled.joined(separator: "; "))]")
                 + (summaries.isEmpty ? "" : ", summarised " + summaries.map(\.words).joined(separator: "+"))
                 + (memoryCalls.isEmpty ? "" : ", memory [\(memoryCalls.joined(separator: "; "))]")
+                + (assessments.isEmpty ? "" : ", assessed [\(assessments.joined(separator: "; "))]")
                 + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
@@ -956,6 +1018,24 @@ extension ContextEval {
         return getloadavg(&loads, 3) > 0 ? loads[0] : 0
     }
 
+    /// One `context.assessment` event as the eval's turn line shows it: the method, the tools chosen, the tools
+    /// registered when they differ, and the time.
+    ///
+    /// - Parameter event: The event.
+    /// - Returns: The line.
+    static func assessmentLine(_ event: AuditEvent) -> String {
+        func names(_ value: JSONValue?) -> String {
+            guard case .array(let items)? = value else { return value?.stringValue ?? "?" }
+            return items.compactMap(\.stringValue).joined(separator: ",")
+        }
+        let chosen = names(event.details["tools"])
+        let registered = names(event.details["registered"])
+        return "\(event.details["method"]?.stringValue ?? "?") \(chosen)"
+            + (registered == chosen ? "" : " registered \(registered)")
+            + (event.details["taskChanged"] == true ? " task" : "")
+            + String(format: " (%.1f s)", event.details["seconds"]?.doubleValue ?? 0)
+    }
+
     /// Runs `scenario` through `strategy`: each step, then each question, one turn at a time. A turn that
     /// throws is recorded with its error as the reply and the run continues, so every question is scored.
     ///
@@ -1026,6 +1106,7 @@ extension ContextEval {
                     + (event.details["noted"] == true
                         ? "noted" : "refused (\(event.details["failure"]?.stringValue ?? "?"))")
             }
+            turn.assessments = events.filter { $0.kind == .assessment }.map(Self.assessmentLine)
             turn.summaries = events.filter { $0.kind == .summary }.map {
                 SummaryCall(
                     seconds: $0.details["seconds"]?.doubleValue ?? 0, combined: $0.details["combined"] == true,

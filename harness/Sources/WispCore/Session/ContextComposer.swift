@@ -71,6 +71,14 @@ public struct ContextComposer: Sendable {
     /// drops a turn or two before almost every prompt, it bounds the summary's calls to one in every few
     /// condensations and the turns missing from it to two, which the facts cover.
     public var summaryBatchTurns = 3
+    /// The terse tool catalogue the instructions carry when requests register only the tools they need (phase 4d,
+    /// decision D4), added to the instructions entry as a segment of its own (`ToolCatalogue.segmentID`); nil, the
+    /// default, adds nothing. Stable for the conversation, so the prefix stays the same.
+    public var catalogue: String?
+    /// The tools the next request registers, by name (phase 4d, D4): the instructions entry carries only their
+    /// definitions, as the session the agent builds over it registers only them. Nil, the default, keeps the entry's
+    /// definitions as stored: every tool.
+    public var registered: [String]?
 
     /// A decision to cut one stretch of a reply.
     struct PresentationCut: Sendable, Equatable {
@@ -133,7 +141,9 @@ public struct ContextComposer: Sendable {
     /// - Parameter store: The thread's record.
     /// - Returns: The transcript.
     func literal(_ store: ThreadRecord) -> Transcript {
-        guard cutsPresentation || referencesOutput else { return store.active }
+        guard cutsPresentation || referencesOutput || catalogue != nil || registered != nil else {
+            return store.active
+        }
         return Transcript(entries: literalComposition(store, atTurn: nil).map(\.sent))
     }
 
@@ -213,9 +223,10 @@ public struct ContextComposer: Sendable {
         let calls = referencesOutput ? store.calls : [:]
         guard let turn else {
             return store.entries.filter { $0.state == .active }.map {
-                Composed(entry: $0, sent: rendered($0, calls: calls, whole: false), own: false)
+                Composed(entry: $0, sent: rendered($0, calls: calls, whole: false, tools: registered), own: false)
             }
         }
+        let tools = store.toolSets[turn]
         var composed: [Composed] = []
         for entry in store.entries {
             let recorded = entry.origin == .turn ? entry.turn ?? 0 : 0
@@ -226,23 +237,30 @@ public struct ContextComposer: Sendable {
                 continue
             }
             let referenced = entry.referencedAt.map { $0 <= turn } ?? false
-            composed.append(Composed(entry: entry, sent: rendered(entry, calls: calls, whole: !referenced), own: false))
+            composed.append(
+                Composed(
+                    entry: entry, sent: rendered(entry, calls: calls, whole: !referenced, tools: tools), own: false))
         }
         return composed
     }
 
     /// `entry` as a request after its turn carries it: a reply with its cuts, a tool output as its
-    /// reference unless `whole` or it is no longer than the reference, anything else as stored.
+    /// reference unless `whole` or it is no longer than the reference, the instructions with the catalogue and only
+    /// the registered tools' definitions (`instructed(_:tools:)`), anything else as stored.
     ///
     /// - Parameters:
     ///   - entry: The stored entry.
     ///   - calls: The store's calls by output id (`ThreadRecord.calls`).
     ///   - whole: Whether a tool output goes whole.
+    ///   - tools: The tools the request registers; nil for every tool.
     /// - Returns: The entry to send, under the same id.
     func rendered(
-        _ entry: ThreadRecord.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool
+        _ entry: ThreadRecord.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool,
+        tools: [String]? = nil
     ) -> Transcript.Entry {
         switch entry.value {
+        case .instructions(let instructions):
+            return .instructions(instructed(instructions, tools: tools))
         case .response:
             return cutsPresentation ? entry.presented : entry.value
         case .toolOutput(let output):
@@ -255,6 +273,25 @@ public struct ContextComposer: Sendable {
         default:
             return entry.value
         }
+    }
+
+    /// The instructions entry as a request carries it: the catalogue added as a segment of its own, unless the
+    /// entry already carries it (a resumed transcript saved with it), and the tool definitions limited to `tools`.
+    /// Unchanged when there is no catalogue and no selection, so a composer without an assessment composes as before.
+    ///
+    /// - Parameters:
+    ///   - instructions: The stored entry.
+    ///   - tools: The tools the request registers; nil for every tool.
+    /// - Returns: The entry, under the same id.
+    func instructed(_ instructions: Transcript.Instructions, tools: [String]?) -> Transcript.Instructions {
+        guard catalogue != nil || tools != nil else { return instructions }
+        var segments = instructions.segments
+        if let catalogue, !segments.contains(where: { $0.id == ToolCatalogue.segmentID }) {
+            segments.append(.text(Transcript.TextSegment(id: ToolCatalogue.segmentID, content: "\n\n" + catalogue)))
+        }
+        let definitions = tools.map { names in instructions.toolDefinitions.filter { names.contains($0.name) } }
+        return Transcript.Instructions(
+            id: instructions.id, segments: segments, toolDefinitions: definitions ?? instructions.toolDefinitions)
     }
 
     /// The reference that stands for tool output `entry`, or nil when it is not a tool output or is no

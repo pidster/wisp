@@ -158,6 +158,10 @@ public struct ThreadRecord: Sendable {
     /// The facts each turn's requests carried, by turn, so the context of an earlier turn can be shown as it
     /// was sent; this session's turns only, and not saved.
     var frames: [Int: FactFrame] = [:]
+    /// The tools each turn's requests registered, by turn, when an assessment selected them (phase 4d, D4), so the
+    /// context of an earlier turn shows the definitions it carried; this session's turns only, and not saved. A turn
+    /// with no entry registered every tool.
+    var toolSets: [Int: [String]] = [:]
     /// The running summary's versions, oldest first (phase 4b, decision D1): the last is current, each earlier
     /// one superseded by the next. Saved with the store; at most `RunningSummary.historyLimit` are kept.
     public internal(set) var summaries: [RunningSummary] = []

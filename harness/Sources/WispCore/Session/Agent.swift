@@ -26,6 +26,8 @@ public final class Agent {
     /// What the sessions this agent has replaced had counted, so `tokensUsed` never falls when a new session
     /// starts from zero. Added to only by `replaceSession(with:)`.
     private var carried = TurnTokens(input: 0, output: 0)
+    /// The names of the tools the live session registers, in order; every tool until an assessment selects fewer.
+    private var sessionTools: [String]
 
     /// What happens when a prompt no longer fits the context window.
     public var contextPolicy: ContextPolicy { composer.policy }
@@ -88,6 +90,21 @@ public final class Agent {
             publishMemory()
         }
     }
+    /// The assessment of each request (phase 4d of the layered-context proposal, decision D12): before each user turn,
+    /// rules or one model call outside the context decide the tools the request registers (D4), the task and its
+    /// objective (D6), and the facts repeated next to the request (D7), audited as `context.assessment`. Nil, the
+    /// default, assesses nothing: every tool every request, and requests composed exactly as before. With tool
+    /// selection (`AssessmentSettings.selectsTools`) the instructions carry the tool catalogue.
+    public var assessment: AssessmentSettings? {
+        didSet {
+            composer.catalogue = assessment?.selectsTools == true ? ToolCatalogue.text(tools) : nil
+            composer.registered = nil
+            assessed = AssessmentState()
+            refreshFacts(quietly: true)
+        }
+    }
+    /// What the assessment carries from one request to the next.
+    var assessed = AssessmentState()
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public private(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
@@ -122,6 +139,7 @@ public final class Agent {
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
+        sessionTools = tools.map(\.name)
         composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
@@ -144,6 +162,7 @@ public final class Agent {
     ) {
         self.model = model
         self.tools = tools
+        sessionTools = tools.map(\.name)
         composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
@@ -171,6 +190,7 @@ public final class Agent {
     ) {
         self.model = model
         self.tools = tools
+        sessionTools = tools.map(\.name)
         composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
@@ -196,6 +216,7 @@ public final class Agent {
     ) {
         self.model = model
         self.tools = tools
+        sessionTools = tools.map(\.name)
         composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
@@ -222,6 +243,7 @@ public final class Agent {
     ) throws {
         self.model = try model.resolve()
         self.tools = tools
+        sessionTools = tools.map(\.name)
         composer = ContextComposer(policy: contextPolicy)
         self.audit = audit
         self.turns = turns ?? audit?.turns ?? TurnClock()
@@ -259,6 +281,13 @@ public final class Agent {
     private func replaceSession(with next: LanguageModelSession) {
         carried = tokensUsed
         session = next
+    }
+
+    /// The tools the next request's session registers: those the assessment selected (`ContextComposer.registered`),
+    /// in the agent's order, or every tool.
+    var registeredTools: [any Tool] {
+        guard let names = composer.registered else { return tools }
+        return tools.filter { names.contains($0.name) }
     }
 
     /// Tokens the current transcript occupies: counted by the model when it can, else the runtime's
@@ -300,6 +329,8 @@ public final class Agent {
         generation += 1
         store = ThreadRecord(carrying: transcript.condensed(keepTurns: 0))
         store.firstTurn = turns.current
+        assessed = AssessmentState()
+        composer.registered = nil
         refreshFacts(quietly: true)
         materialise(fresh: true)
         audit?.record(
@@ -360,19 +391,25 @@ public final class Agent {
     /// presentational text was cut, and a tool output sent as a reference, keep their ids, so those two
     /// kinds are compared by content as well; only those, since they are the ones a composer rewrites, and
     /// a tool call's arguments need not compare equal to themselves after a save and resume.
-    private func materialise(fresh: Bool = false) {
+    func materialise(fresh: Bool = false) {
         publishMemory()
         let composed = transcript
         let held = session.transcript
+        let catalogued = composer.catalogue != nil
         let rewritten = zip(composed, held).contains { mine, theirs in
-            switch mine {
-            case .response, .toolOutput: mine != theirs
+            switch (mine, theirs) {
+            case (.response, _), (.toolOutput, _): mine != theirs
+            case (.instructions(let ours), .instructions(let theirs)): catalogued && ours.segments != theirs.segments
             default: false
             }
         }
         store.frames[turns.current] = composer.facts.isEmpty ? nil : composer.facts
-        guard fresh || rewritten || composed.map(\.id) != held.map(\.id) else { return }
-        replaceSession(with: model.session(tools: tools, transcript: composed))
+        store.toolSets[turns.current] = composer.registered
+        let registering = registeredTools
+        let names = registering.map(\.name)
+        guard fresh || rewritten || names != sessionTools || composed.map(\.id) != held.map(\.id) else { return }
+        replaceSession(with: model.session(tools: registering, transcript: composed))
+        sessionTools = names
     }
 
     /// Gives `memory` the store, facts, and subject kinds as they stand, so a call during the next request reads
@@ -450,6 +487,7 @@ public final class Agent {
         }
         extractFacts(from: events, turn: turn)
         for note in memory?.takeNotes() ?? [] { record(note) }
+        noteCalls(in: added)
         refreshFacts()
     }
 
@@ -580,10 +618,11 @@ public final class Agent {
         let started = Date()
         let before = condensations
         let referenced = referenceOutputs()
+        if assessment != nil { await assess(prompt) }
         refreshFacts()
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
-            let text = try await withOverflowRecovery(operation)
+            let text = try await withToolRecovery { try await withOverflowRecovery(operation) }
             var reply = Reply(text: text, condensed: condensations > before)
             recordStats(started: started, failure: nil)
             let responded = audit?.record(

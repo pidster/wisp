@@ -143,12 +143,13 @@ extension Agent {
     ///   switched on over a resumed store.
     func refreshFacts(quietly: Bool = false) {
         guard facts != nil else {
-            composer.facts = .empty
+            composer.facts = requestNotes(.empty, view: nil)
             return
         }
         syncProposals()
         let view = factView
-        composer.facts = composer.factFrame(view, store: store, window: contextSize ?? Self.assumedWindow)
+        composer.facts = requestNotes(
+            composer.factFrame(view, store: store, window: contextSize ?? Self.assumedWindow), view: view)
         let now = view.conflicts
         defer { factConflicts = now }
         guard !quietly else { return }

@@ -31,6 +31,8 @@ public struct WispThread: Sendable {
     /// `memory`. A thread has it when it was given every tool, or a list that names it: an explicit list is exactly
     /// that list, so MCP's `tools: ["run_command"]` stays `run_command` alone.
     let memory: MemorySource?
+    /// Whether an assessment may infer the task (decision D6): in chat; over MCP the caller's `task` is the task.
+    let infersTask: Bool
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
@@ -66,7 +68,8 @@ public struct WispThread: Sendable {
                     permanent: session.permanentFacts, distils: session.config.factsDistil,
                     proposals: session.factProposals)
                 : nil,
-            memory: selection.tools.contains { $0.name == MemoryTool.toolName } ? memory : nil)
+            memory: selection.tools.contains { $0.name == MemoryTool.toolName } ? memory : nil,
+            infersTask: session.entryPoint == .chat)
     }
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
@@ -128,6 +131,9 @@ public struct WispThread: Sendable {
         agent.summaryShare = config.summaryShare
         agent.facts = facts
         agent.memory = memory
+        if config.assessmentEnabled {
+            agent.assessment = AssessmentSettings(tools: config.assessmentTools, infersTask: infersTask)
+        }
         if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent
     }
