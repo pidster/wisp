@@ -1,14 +1,24 @@
 #!/bin/sh
 # Cut a release: preflight, build, package, tag, GitHub release, Homebrew tap formula.
-# Usage: scripts/release X.Y.Z [--dry-run]
+# Usage: scripts/release X.Y.Z [--dry-run] [--skip-eval]
 # See docs/release.md. Remote steps (tag push, release, tap push) are printed, not run, with --dry-run.
+# --skip-eval leaves out the model eval, for a release whose eval already passed on the same code (a dry
+# run just before, with only docs changed since); say so in the release notes or the commit that follows.
 set -eu
 
 VERSION="${1:-}"
-DRY_RUN="${2:-}"
-[ -n "$VERSION" ] || { echo "usage: scripts/release X.Y.Z [--dry-run]" >&2; exit 64; }
+[ -n "$VERSION" ] || { echo "usage: scripts/release X.Y.Z [--dry-run] [--skip-eval]" >&2; exit 64; }
 case "$VERSION" in *[!0-9.]*|.*|*.|*..*) echo "version must be X.Y.Z" >&2; exit 64 ;; esac
-[ -z "$DRY_RUN" ] || [ "$DRY_RUN" = "--dry-run" ] || { echo "unknown flag $DRY_RUN" >&2; exit 64; }
+shift
+DRY_RUN=""
+SKIP_EVAL=""
+for flag in "$@"; do
+    case "$flag" in
+        --dry-run) DRY_RUN="--dry-run" ;;
+        --skip-eval) SKIP_EVAL=1 ;;
+        *) echo "unknown flag $flag" >&2; exit 64 ;;
+    esac
+done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -60,7 +70,11 @@ NOTES="$(awk -v v="$VERSION" '
 [ -n "$NOTES" ] || { echo "CHANGELOG.md has no section '## $VERSION'; write the release notes first" >&2; exit 1; }
 scripts/check all
 scripts/check coverage-gate
-scripts/check eval
+if [ -n "$SKIP_EVAL" ]; then
+    echo "==> eval skipped (--skip-eval): it must have passed on this code already" >&2
+else
+    scripts/check eval
+fi
 if [ -n "$(git status --porcelain harness/Sources/WispCore/Resources/measurements.json)" ]; then
     echo "the eval changed harness/Sources/WispCore/Resources/measurements.json; commit it (the binary must carry the numbers that are committed) and rerun" >&2
     exit 1

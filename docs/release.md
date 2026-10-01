@@ -44,7 +44,8 @@ every local step and prints the remote ones instead of executing them.
 1. Preflight: every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, `WispVersion.current` equals `X.Y.Z`, no existing tag, `gh` is
    authenticated, `CHANGELOG.md` has a non-empty `## X.Y.Z` section, `scripts/check` passes (the full
    test run), `scripts/check coverage-gate` passes, and `scripts/check eval` passes: every suite but the context eval, which is a measurement for design decisions
-   (ADR 0045) and runs on purpose with `scripts/check eval context`. The release's eval only asserts the
+   (ADR 0045) and runs on purpose with `scripts/check eval context`. `--skip-eval` leaves the eval out, for a release whose eval already
+   passed on the same code (a dry run just before, with only docs changed since); 0.15.0 was the first. The release's eval only asserts the
    floors; it does not rewrite `harness/Sources/WispCore/Resources/measurements.json`, because the sets
    are small and every run re-rolls the numbers. Record deliberately with `scripts/check eval record`
    and commit the file; the binary embeds it, so a release carries the numbers that were committed.
