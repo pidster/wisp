@@ -21,6 +21,10 @@ Breaking:
 
 Changed:
 
+- `wisp tools`, `wisp models`, and `wisp approvals` lay out their listings like `wisp --help` on a terminal:
+  aligned columns, with descriptions and long cells wrapped to the terminal's width. Piped, they print the
+  same tab-separated lines as before, so scripts keep working.
+
 - Conversations condense less often and further. Instead of dropping to the last four turns whenever the
   window passed 85%, wisp now condenses when the context, your next message, and a turn of average size
   would pass 85%, and then brings the context down to half the window: earlier tool output as references,

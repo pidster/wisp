@@ -46,10 +46,16 @@ public enum ModelListing {
 
     /// One line per usable model, the current one marked `*`; with `all`, excluded models follow with
     /// the reason. A backend that did not answer gets one line either way, so a short list is explained.
+    /// With a `width` (standard output is a terminal) the lines are the aligned layout of `terminal`
+    /// instead; without one they stay tab-separated for scripts.
     public static func lines(
-        config: Config.Resolved, home: Home, current: ModelSelection, tools: [any Tool], all: Bool = false
+        config: Config.Resolved, home: Home, current: ModelSelection, tools: [any Tool], all: Bool = false,
+        width: Int? = nil
     ) async -> [String] {
         let listed = await entries(config: config, home: home, tools: tools)
+        if let width {
+            return terminal(listed.entries, unreachable: listed.unreachable, current: current, all: all, width: width)
+        }
         var lines: [String] = []
         for entry in listed.entries where entry.problem == nil {
             let facts = ([entry.detail] + [entry.capabilities.joined(separator: ", ")]).filter { !$0.isEmpty }
@@ -90,6 +96,39 @@ public enum ModelListing {
                     ]
                 })
         lines += unreachable.map { "  (\($0))" }
+        return lines
+    }
+
+    /// `wisp models` on a terminal: the marker and name, parameter count, size, and capabilities as
+    /// aligned columns under a header, wrapped to `width`; with `all`, a model that cannot be used has an
+    /// empty capabilities cell and its reason on the lines under it, indented and wrapped to the full width. Notes for backends that did not answer follow, wrapped under a hanging indent.
+    static func terminal(
+        _ entries: [Entry], unreachable: [String], current: ModelSelection, all: Bool, width: Int
+    ) -> [String] {
+        let shown = entries.filter { all || $0.problem == nil }
+        let split = shown.map { entry -> (params: String, size: String) in
+            guard let match = entry.detail.wholeMatch(of: /(\d[\d.]*[KMBT]) +(.+)/) else { return ("", entry.detail) }
+            return (String(match.1), String(match.2))
+        }
+        let rows = zip(shown, split).map { entry, detail in
+            [
+                "\(entry.selection == current ? "*" : " ") \(entry.selection)", detail.params, detail.size,
+                entry.problem == nil ? entry.capabilities.joined(separator: ", ") : "",
+            ]
+        }
+        var lines = [noUsableModel]
+        if !shown.isEmpty {
+            let groups = TerminalTable.renderGroups(
+                header: ["  MODEL", "PARAMS", "SIZE", "CAPABILITIES"], rows: rows, width: width)
+            lines = groups[0]
+            for (group, entry) in zip(groups.dropFirst(), shown) {
+                lines += group
+                if let problem = entry.problem {
+                    lines += TerminalTable.note("not usable: \(problem)", indent: 4, width: width)
+                }
+            }
+        }
+        for note in unreachable { lines += TerminalTable.note("(\(note))", indent: 2, width: width) }
         return lines
     }
 

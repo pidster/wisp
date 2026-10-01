@@ -87,4 +87,54 @@ private struct ListingBackend: ModelBackend {
         #expect(entries.entries.first { $0.selection == .local(backend: "listing", name: "text") }?.problem == nil)
         #expect(entries.unreachable.contains { $0.hasPrefix("ollama: ") })
     }
+
+    @Test func aTerminalGetsAlignedColumnsAndPipedKeepsTabs() async {
+        let current = ModelSelection.local(backend: "listing", name: "tools")
+        let tools: [any Tool] = [CurrentDateTool()]
+        let piped = await ModelListing.lines(config: config, home: home, current: current, tools: tools, width: nil)
+        #expect(piped == (await ModelListing.lines(config: config, home: home, current: current, tools: tools)))
+        #expect(piped.contains("* listing:tools\ttools detail; toolCalling, guidedGeneration"))
+        let lines = await ModelListing.lines(config: config, home: home, current: current, tools: tools, width: 100)
+        #expect(lines.first?.hasPrefix("  MODEL") == true && lines.first?.contains("CAPABILITIES") == true)
+        #expect(!lines.contains { $0.contains("\t") })
+        #expect(lines.contains { $0.hasPrefix("* listing:tools") && $0.hasSuffix("toolCalling, guidedGeneration") })
+        #expect(lines.contains { $0.hasPrefix("  (ollama: ") })
+        #expect(!lines.contains { $0.contains("listing:text") })
+    }
+
+    @Test func theTerminalTableSplitsDetailAndWrapsReasons() {
+        let tool = ModelSelection.local(backend: "x", name: "big")
+        let embed = ModelSelection.local(backend: "x", name: "embed")
+        let entries = [
+            ModelListing.Entry(selection: .system, detail: "", capabilities: ["toolCalling", "vision"], problem: nil),
+            ModelListing.Entry(
+                selection: tool, detail: "27.3B 17.74 GB", capabilities: ["toolCalling"], problem: nil),
+            ModelListing.Entry(
+                selection: embed, detail: "274.3 MB", capabilities: [],
+                problem: "it cannot hold a conversation and has no other use at all here"),
+        ]
+        let usable = ModelListing.terminal(entries, unreachable: [], current: tool, all: false, width: 80)
+        #expect(
+            usable == [
+                "  MODEL   PARAMS  SIZE      CAPABILITIES",
+                "  system                    toolCalling, vision",
+                "* x:big   27.3B   17.74 GB  toolCalling",
+            ])
+        let all = ModelListing.terminal(
+            entries, unreachable: ["ollama: down"], current: tool, all: true, width: 60)
+        #expect(all.first == "  MODEL    PARAMS  SIZE      CAPABILITIES")
+        // The reason sits on its own lines under the model, indented four and wrapped to the full width.
+        #expect(
+            all.suffix(4) == [
+                "  x:embed          274.3 MB",
+                "    not usable: it cannot hold a conversation and has no",
+                "    other use at all here",
+                "  (ollama: down)",
+            ])
+        #expect(all.allSatisfy { $0.count <= 58 })
+        #expect(all.last == "  (ollama: down)")
+        #expect(
+            ModelListing.terminal([], unreachable: [], current: .system, all: false, width: 80)
+                == ["no usable model; wisp models --all shows why"])
+    }
 }

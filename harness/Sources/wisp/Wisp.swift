@@ -129,7 +129,8 @@ struct Respond: AsyncParsableCommand {
     }
 }
 
-/// Prints the registered tools as `name<TAB>description`, or the full catalogue as JSON or Markdown.
+/// Prints the registered tools, laid out like `--help` on a terminal and as `name<TAB>description` when
+/// piped, or the full catalogue as JSON or Markdown.
 struct Tools: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "List the tools available to the model.")
 
@@ -148,9 +149,8 @@ struct Tools: ParsableCommand {
         } else if markdown {
             print(registry.descriptionsMarkdown)
         } else {
-            for tool in registry.all {
-                print("\(tool.name)\t\(tool.description)")
-            }
+            let tools = registry.all.map { (name: $0.name, description: $0.description) }
+            for line in ListingLayout.tools(tools, width: TerminalTable.detectWidth()) { print(line) }
         }
     }
 }
@@ -793,7 +793,8 @@ struct Models: AsyncParsableCommand {
             noTools
             ? [] : ToolRegistry(runner: config.runner, disabled: config.disabledTools, custom: config.customTools).all
         let lines = await ModelListing.lines(
-            config: config, home: Wisp.home, current: config.model, tools: tools, all: all)
+            config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
+            width: TerminalTable.detectWidth())
         for line in lines { print(line) }
     }
 }
@@ -1166,12 +1167,7 @@ struct Approvals: AsyncParsableCommand {
                 print("no standing approvals")
                 return
             }
-            for entry in entries {
-                let where_ = entry.workingDirectory ?? "any directory"
-                print(
-                    "\(entry.id)\t\(entry.scope.rawValue)\texpires \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))\t\(where_)\t\(entry.pattern)"
-                )
-            }
+            for line in ListingLayout.approvals(entries, width: TerminalTable.detectWidth()) { print(line) }
         }
     }
 

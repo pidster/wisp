@@ -298,7 +298,21 @@ sequenceDiagram
 
 ### `wisp tools`
 
-Prints each registered tool as `name<TAB>description`. `--json` prints the full catalogue (description,
+On a terminal, lists the registered tools the way `wisp --help` lists subcommands: a `TOOLS:` heading,
+each name in a column, its description wrapped to the terminal's width (from the terminal, else
+`COLUMNS`, else 80), and a pointer to the full catalogue:
+
+```
+TOOLS:
+  current_date  Returns the current local date and time.
+  run_command   Runs a shell command on this Mac and returns its exit status
+                and output. Use it to build or test software, list or read
+                files, and inspect the system.
+
+  See 'wisp tools --markdown' (or --json) for parameters and example prompts.
+```
+
+Piped or redirected, it prints one `name<TAB>description` line per tool, for scripts. `--json` prints the full catalogue (description,
 JSON Schema arguments, limits, example prompt) and `--markdown` the same as Markdown; these are the texts
 served to MCP clients as `wisp://tools` and `wisp://tools.md`. See [tools/](tools/README.md).
 
@@ -324,7 +338,9 @@ serves, each shown only if it can serve a conversation. That is decided by logic
 the model must resolve (installed, reachable, entitled, and able to converse; an Ollama model that does
 not report `completion`, such as an embedding model, cannot) and must declare tool calling, since a
 conversation has tools. The configured default is marked with `*`; each line gives the backend's detail
-and the declared capabilities. A backend that does not answer gets one line in parentheses.
+and the declared capabilities. A backend that does not answer gets one line in parentheses. On a
+terminal the listing is aligned columns under a header (model, parameter count, size, capabilities),
+wrapped to the terminal's width; piped, it is the tab-separated lines shown below, for scripts.
 
 | Flag | Effect |
 | --- | --- |
@@ -332,11 +348,30 @@ and the declared capabilities. A backend that does not answer gets one line in p
 | `--all` | Add the excluded models, each with the reason it cannot be used |
 
 ```
+  MODEL                      PARAMS  SIZE      CAPABILITIES
+* system                                       toolCalling, guidedGeneration, vision
+  ollama:qwen3-coder:latest  30.5B   18.56 GB  toolCalling, guidedGeneration
+```
+
+Piped:
+
+```
 * system	toolCalling, guidedGeneration, vision
   ollama:qwen3-coder:latest	30.5B 18.56 GB; toolCalling, guidedGeneration
 ```
 
-With `--all`, on the same Mac on 2026-09-23:
+With `--all` on a terminal, a model that cannot be used has an empty capabilities cell and its reason on
+the lines under it, indented and wrapped to the full width:
+
+```
+  MODEL                            PARAMS  SIZE      CAPABILITIES
+  ollama:nomic-embed-text:latest   137M    274.3 MB
+    not usable: model 'ollama:nomic-embed-text:latest' is unavailable: Ollama
+    reports it cannot hold a conversation (capabilities: embedding)
+  ollama:qwen3-coder:latest        30.5B   18.56 GB  toolCalling, guidedGeneration
+```
+
+With `--all`, piped, on the same Mac on 2026-09-23:
 
 ```
   private-cloud	not usable: … lacks the com.apple.developer.private-cloud-compute entitlement, …
@@ -560,7 +595,15 @@ Three hidden subcommands serve the repository rather than users:
 ### `wisp approvals`
 
 `wisp approvals` (or `approvals list`) prints standing approvals: id, scope, expiry, directory, pattern
-(such as `head *`).
+(such as `head *`). On a terminal they are aligned columns under a header, the pattern last and wrapped
+to the terminal's width; piped, each is one tab-separated line, for scripts.
+
+```
+ID        SCOPE    EXPIRES      WHERE               PATTERN
+a1b2c3d4  project  31 Oct 2026  /Users/me/src/wisp  git push *
+e5f6a7b8  always   29 Oct 2026  any directory       head *
+```
+
 `wisp approvals revoke <id>` removes one; `wisp approvals clear` removes all. See
 [approval.md](approval.md).
 
