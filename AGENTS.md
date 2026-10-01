@@ -54,7 +54,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help, /status, /approvals, /audit, /config, /models, /model, /stats, /history, /tokens, /inspect context, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: /status, /approvals, /audit, /config, /models, /model, /stats, /tokens, /inspect context|facts, /fact, /task, /show, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -67,14 +67,17 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 
 `Agent` wraps one `LanguageModelSession` created by a `ResolvedModel` (`ModelSelection`: `system` or
 `private-cloud`, or `ollama:<name>` through wisp's own executor, ADR 0016; adapters are obsoleted on macOS 27, ADR 0013); the framework runs the tool loop. `ToolRegistry` is the single
-list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`), each wrapped by `AuditedTool`.
+list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`.
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
-through an `Approver` per entry point), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files.
-`Home`, `Config`, and `TranscriptStore` are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
+through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files.
+`Home`, `Config`, `TranscriptStore`, and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
 file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension`, and the caller's instructions (ADR 0017). `AuditLog` writes JSON Lines; `Diagnostics` wraps
-unified logging. `ContextPolicy` recovers from context overflow by dropping old turns. `Session.begin` is
+unified logging. `Agent` keeps each conversation in a `ThreadRecord` that refers to the audit log, and
+`ContextComposer` composes every request from it: facts (`Facts/`), a running summary, recent turns with
+earlier tool output as references, and the request; `ContextPolicy` condenses it to a token target ahead
+of the window and on overflow, and the model's `memory` tool recalls what was dropped (ADR 0045). `Session.begin` is
 the single set-up path for every face; `respond` and `chat` open the session's own `WispThread`, and
 `WispMCP` opens one per `thread_id` through `Session.thread` (threads held by
 `ThreadRegistry`/`ThreadActor` actors), so all of them share one config, approval store, and

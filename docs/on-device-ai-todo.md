@@ -1,6 +1,6 @@
 # TODO: on-device task assessment, routing and audit
 
-Date: 2026-09-19, updated 2026-09-29. Status: a living backlog. Items are ticked only where the code and a
+Date: 2026-09-19, updated 2026-10-01. Status: a living backlog. Items are ticked only where the code and a
 measurement show them done; each track's progress note links the decisions that did it.
 
 ## Goal and scope
@@ -24,8 +24,8 @@ backlog are listed in section 7.
 "Optimal" means matching the model type, capability and execution settings to the request's complexity,
 urgency and nature. It does not mean always selecting the fastest or largest model.
 
-**Progress.** wisp routes by what it can measure before anything runs, not yet by an assessment of the
-request:
+**Progress.** wisp routes by what it can measure before anything runs. An assessment of each request
+exists but stays off (below), and it chooses tools, not models:
 - **By input size.** A task's measured size bands pick a model from `routing.ladder`
   ([ADR 0037](decisions/0037-routing-by-input-size.md)).
 - **By task.** `routing.tasks` sets a default model per task, and wisp ships measured defaults, such as
@@ -34,6 +34,10 @@ request:
   ([ADR 0043](decisions/0043-context-window-from-memory.md)).
 - **A measured catalogue.** Every eval task records results per model
   ([ADR 0026](decisions/0026-task-catalogue.md), [measurements.md](measurements.md)).
+- **The assessment per request**, built 2026-10-01 and off by default (`assessment.enabled`): rules, or one
+  model call, choose the tools a request registers, the facts repeated beside it, and in chat the task. At
+  the phase-6 checkpoint it scored lower on both models and cost 2 to 4 s a call
+  ([ADR 0045](decisions/0045-layered-context.md)).
 
 - [ ] Define a request profile covering intent, task type, modalities, complexity, urgency, requested
   reasoning effort, required capabilities, constraints and uncertainty.
@@ -58,16 +62,20 @@ request:
 
 ## 2. Dynamic context assembly
 
-**Progress.** The design is now the
-[layered-context proposal](proposals/2026-09-29-layered-context.md). It defines stored, active, and
-shown views; a context composed for each request from fixed instructions, a summary and facts, literal
-recent turns, and the task; recall; and display decoupled from context. Eleven questions are open.
+**Progress.** Built and recorded in [ADR 0045](decisions/0045-layered-context.md) on 2026-10-01, from the
+[layered-context proposal](proposals/2026-09-29-layered-context.md): a store that refers to the audit log;
+a context composed for each request from the instructions, facts and a running summary, literal recent
+turns with tool output as a reference after its turn, and the task; `memory` to recall; condensing to a
+token target with headroom; and display decoupled from context. At the default budget the design kept
+everything in view for 22 turns where dropping lost every early fact (6/7 on device and 7/7 on granite,
+against 0/7 and 1/7).
 - **Condensing works on the on-device model** since 2026-09-29. It counts the transcript and recognises
   the overflow message ([ADR 0025](decisions/0025-context-estimation.md), amendment).
 - **The consequences were measured.** A planted fact was lost with the first condensation, and the model
   confidently misreported what came first ([context-management.md](context-management.md)).
 - **The context can be inspected.** `/inspect context` saves the exact context, and every condensation
-  saves the transcript before and after it.
+  saves the transcript before and after it; `/inspect context next|N|turns`, `wisp-tui`'s panel, and
+  `wisp://threads/{thread_id}/context` show it at no model cost.
 
 - [ ] Evaluate selection of relevant history, files, passages and tool results for the assessed request.
 - [ ] Compare deterministic retrieval, embedding models, rerankers and generative models where applicable.
@@ -75,15 +83,16 @@ recent turns, and the task; recall; and display decoupled from context. Eleven q
   evidence and uncertainty in assembled context.
 - [ ] Fit context to the selected model's actual tokenizer and budget, reserving space for tools and output.
   *Partly:* the window is known per model (framework, sized, or configured), and the on-device model's
-  transcript is counted with its own tokenizer. Tool output is still a fixed 4 KiB whatever the window
-  (proposal, question 9).
+  transcript is counted with its own tokenizer. Tool output stays bounded at 4 KiB in its own turn and is a
+  reference after it, which answered question 9 instead of sizing it to the window (ADR 0045).
 - [ ] Record which evidence was selected, omitted or compressed, and the context assembler's version.
-  *Partly:* condensations save the context before and after, and name both files in the audit.
+  *Partly:* condensations save the context before and after, name both files in the audit, and record
+  their steps; cuts, references, distillations, summaries, recalls, and assessments are audited
+  (`context.*`).
 - [ ] Measure evidence retention, irrelevant content, assembly latency, token reduction and downstream
   answer accuracy. Include cases where an omitted detail changes the correct answer. *Partly:* the
-  proposal's eval, `ContextEvalTests`, measures recall of planted and changed facts, order, and return to
-  the task. Today's dropping scored 0 of 6 on device, and 6 of 6 on granite with nothing dropped
-  (2026-09-29).
+  proposal's eval, `ContextEvalTests` (now in `harness/Evals`), measures recall of planted and changed
+  facts, order, and return to the task, for each phase and at the phase-6 checkpoint (ADR 0045).
 
 ## 3. Tool approval escalation classification
 
@@ -139,9 +148,9 @@ recent turns, and the task; recall; and display decoupled from context. Eleven q
 
 ## 5. Prompt-linked transcript and audit records
 
-Audit events carry `session`, `turn` and an optional `call`. `Agent` records the prompt before invoking the
-model, and `TranscriptStore` saves the Foundation Models transcript separately. A link from an audit
-event to a transcript entry is still missing. See [logging](logging.md),
+Audit events carry `id`, `session`, `turn` and an optional `call`. `Agent` records the prompt before
+invoking the model, and the conversation's store links each entry to the audit events that recorded it,
+saved with a transcript as `<name>.store` (since 2026-09-29). See [logging](logging.md),
 [Agent](../harness/Sources/WispCore/Session/Agent.swift),
 [AuditEvent](../harness/Sources/WispCore/Audit/AuditEvent.swift) and
 [TranscriptStore](../harness/Sources/WispCore/Config/TranscriptStore.swift).
@@ -151,9 +160,13 @@ event to a transcript entry is still missing. See [logging](logging.md),
 - **`model.routed`** records a routing choice with why.
 - **`context.condensation`** names the saved context before and after.
 - **`wisp logs --follow`** and `/audit sessions` let a person follow any session, MCP threads included.
+- **Every event has an `id`**, and a store entry, an MCP `calls` item, and `memory`'s recall point to the
+  event that holds the prompt, reply, or output; `session.start` names the sessions a resumed one came from
+  (`carriedFrom`).
 
 - [ ] Define stable prompt identity and its mapping to the transcript prompt entry. Support assessment
-  before generation and failures that occur before a framework prompt entry exists.
+  before generation and failures that occur before a framework prompt entry exists. *Partly:* each store
+  entry refers to its audit event by id, including a failed turn's entries.
 - [ ] Link the request profile and routing decision to that prompt ID in the persisted transcript/audit
   representation. Choose the storage mechanism without assuming the framework transcript accepts custom
   entries or arbitrary metadata.
@@ -190,52 +203,42 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 - [ ] Validate combinations with tools, schema output and streaming, rather than independent flags alone.
 - [ ] Audit requested and resolved controls against the prompt/attempt, and evaluate their actual effects.
 
-## 7. Current work and backlog (2026-09-29)
+## 7. Current work and backlog (2026-10-01)
 
-### In progress
+### Committed, not yet released (0.15.0)
 
-- **Private Cloud Compute's window at resolution.** The framework reports the window, but whether an
-  unsigned build without the entitlement can read it is being checked. This is the gap
-  [ADR 0043](decisions/0043-context-window-from-memory.md) left.
-- **Status-line tones.** The branch, tokens written, and a context use of 50–80% in the glow tone.
+`CHANGELOG.md`, "Unreleased", lists each change. In outline:
+- **Layered context**, phases 1 to 6 ([ADR 0045](decisions/0045-layered-context.md)): the store and composer,
+  tool output as references, cut copies, facts, the running summary, `memory`, the assessment (off),
+  condensing to a target and its guard.
+- **Host effects** ([ADR 0044](decisions/0044-host-effects.md)): approval and notifications through the face's
+  `SessionHost`; notifications from the terminal; `hello` in `wisp chat --json`.
+- **MCP:** thread resources under `wisp://threads`, `calls` and `facts` in `respond`, `task`, the facts
+  resources, and `set_fact_scope`.
+- **CLI and chat:** `/inspect context` and `facts`, `/fact`, `/task`, `/show`, tool output shown under each
+  call; `wisp doctor`'s new checks; `--help`-style tables for `tools`, `models`, and `approvals`.
+- **Fixes and smaller changes:** condensing on the on-device model, Private Cloud Compute's window read when
+  selected, Ollama windows sized from memory, token counts across a replaced session, status-line tones,
+  `system_info`'s blank folder.
+- **Repository:** the model evals moved to their own package, `harness/Evals`.
 
-### Committed, not yet released
+### Planned next
 
-- **Fixes:**
-  - condensing on the on-device model;
-  - `system_info` taking a blank folder as home, and flagging partial sizes;
-  - "1 turn" and "1 time" in chat's notes;
-  - a flaky training test.
-- **Features:**
-  - `/inspect context`, with the context saved around each condensation;
-  - Ollama context windows sized from shape and memory.
-- **Docs and appearance:**
-  - the 8,192-token window wording;
-  - the tokens-out colour;
-  - the functional self-test guide and its README note;
-  - the layered-context proposal.
-- **Before the release:** record the raised coverage baseline, and do the docs sweep.
+From the [backlog](backlog.md): host effects over MCP; permanent facts over MCP; `! <command>` in chat
+with the input box's styling; `wisp watch --settle`, 1 s by default.
 
-### Designed or proposed, not built
+### Open from the layered context
 
-- **Layered context** ([proposal](proposals/2026-09-29-layered-context.md)). Reviewed on 2026-09-29;
-  every open question is settled and recorded as D1 to D11 in the proposal:
-  - stored, active, and shown views, with the audit log as the one verbatim record (D8);
-  - facts as versioned assertions under a composite key, with source precedence, visible conflicts,
-    and temporal classes that set their scope; permanent facts in a shared store, admitted only by the
-    person (D2, D3);
-  - distilling by source (D1); the task as an inferred dynamic fact in chat, an explicit argument over
-    MCP (D6);
-  - a terse tool catalogue in the instructions and tools registered per request by a selection step
-    (D4); the window shared demand first, with tool output sized from the literal share (D5);
-  - relevant facts repeated next to the request, as a trial (D7); MCP results with small output inline
-    and references for the rest (D9); a model switch recomposes (D10); prefix caching measured (D11).
+- the guard's 50% variants re-run, and the target and headroom tuned;
+- the assessment, if reconsidered: a task that changes only when the request restates it;
+- a specialised distiller, once reviewed pairs exist;
+- D10's model switch evaluated;
+- window sizing for Core AI and MLX, from their bundles' metadata (ADR 0043).
 
-  Next: the eval against today's dropping, then the store and composer (the proposal's phasing).
-- **Window sizing for Core AI and MLX**, from their bundles' metadata (ADR 0043).
-- **Offered, not started:**
-  - a gate check that keeps the Rust and Swift palettes in step;
-  - a test for the singular form of `/tokens`.
+### Offered, not started
+
+- a gate check that keeps the Rust and Swift palettes in step;
+- a test for the singular form of `/tokens`.
 
 ### Carried over
 

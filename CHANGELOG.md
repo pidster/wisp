@@ -18,6 +18,8 @@ Breaking:
   (the server's own, `triage-<id>` and the other condensing tools', CLI runs') and refuses a thread's id
   with a pointer to the new place. `wisp://status` no longer lists the threads: it gives `threadCount`
   and `threadsURI`, and `wisp://threads` lists them.
+- `memory` is now a built-in tool's name, so a custom tool named `memory` in `config.json`'s `tools.custom`
+  makes the file malformed (`is a built-in tool's name`), so wisp refuses it; rename the custom tool.
 
 Changed:
 
@@ -27,7 +29,6 @@ Changed:
 - `context.target` is capped below the condensing trigger, at the context budget less 0.2 (0.65 of the
   window at the default 85%). A target at or near the budget made wisp condense, and distil facts, on almost
   every turn; the default of 0.5 is unaffected, and `wisp doctor` says when your setting is used as the cap.
-
 - Conversations condense less often and further. Instead of dropping to the last four turns whenever the
   window passed 85%, wisp now condenses when the context, your next message, and a turn of average size
   would pass 85%, and then brings the context down to half the window: earlier tool output as references,
@@ -60,14 +61,6 @@ Changed:
 - Chat, `wisp-tui`, and MCP show you each tool's output as the tool returned it, so the model no longer
   needs to retype it: wisp's system prompt now tells the model that you see the output and that it should
   comment on it rather than repeat it, unless asked to.
-- A reply's copy of a tool output is left out of later requests only when it is an exact copy (formatting
-  aside). A copy with changes, such as a proposed edit shown as a changed file, is kept for the model.
-- MCP facts resources moved under what owns them. `wisp://threads/{thread_id}/facts` now lists only the
-  thread's own facts (its task, the state of the work, its proposals); the permanent facts are at
-  `wisp://facts` (one, with its history, at `wisp://facts/{fact_id}`), and the session's at
-  `wisp://session/facts`. `…/facts/{fact_id}` under a thread refuses a `p…` or `s…` id and says where it
-  is. `wisp://threads/{thread_id}/context/next` still shows every fact as the model is given it. The thread
-  summary links all of them.
 
 Added:
 
@@ -111,8 +104,11 @@ Added:
   and `/fact ID permanent|thread|session` delete one or move it to another scope; `/task [text]` shows or
   sets the conversation's task. `wisp-tui` shows the facts in its panel.
 - MCP `respond` takes an optional `task`, kept as the thread's task and shown to the model next to each
-  request; `wisp://threads/{thread_id}/facts` lists a thread's facts and `…/facts/{fact_id}` one fact's
-  history, and the thread summary's `task` is filled in.
+  request, and the thread summary's `task` is filled in. Facts resources, each under what owns it:
+  `wisp://threads/{thread_id}/facts` lists the thread's own facts (its task, the state of the work, its
+  proposals) and `…/facts/{fact_id}` one fact's history; the permanent facts are at `wisp://facts` (one, with
+  its history, at `wisp://facts/{fact_id}`), the proposed ones at `wisp://facts/proposed`, and the session's at
+  `wisp://session/facts`. `wisp://threads/{thread_id}/context/next` shows every fact as the model is given it.
 - New audit events: `context.distillation`, `fact.recorded`, `fact.superseded`, `fact.deleted`,
   `fact.scope.changed`, `fact.conflict.raised`, and `fact.conflict.resolved`.
 - Facts are listed after each turn, and their scope is yours to change by command. Chat prints a quiet note
@@ -153,7 +149,6 @@ Added:
   BLUE HERON — from the person`, rather than in brackets, which the models copied into their replies. A
   fact a tool gave names the output it came from (`from tool read_file, turn 2, entry 4`), so the model can
   recall it once the turn is gone.
-
 - Chat prints each tool's output under the call's line, in the quiet tone, up to 20 lines (the new
   `shownOutputLines` setting; `0` for none), with a fold line naming `/show <id>` when there is more.
   `/show` prints an output whole, by that id or by its entry number.
@@ -173,16 +168,16 @@ Added:
   dropped. Each switch is audited as `context.reference`.
 - `wisp chat --json` adds the output, its size, and the fold size to each `tool.result` event
   (`output`), and a `view` line that answers `/inspect context next`, `N`, or `turns`.
-
 - MCP `respond` results list the turn's tool calls in `structuredContent.calls`: each call's tool,
   arguments, command and exit status, and output size, with the output itself inline when it is at most
   1 KiB, and otherwise a `wisp://threads/{thread_id}/output/{id}` reference. Read that resource template for the
   output verbatim, from the audit log. The output is what the tool returned, not the model's account of
   it. The new `inlineOutputBytes` setting changes the threshold.
-- In a long conversation, a reply that retyped a tool's output (a file shown in full, a table of a
-  command's results) is sent to the model on later turns as a short note such as "(showed the person the
-  read_file output, entry 7)", saving the window for what matters. What you see is unchanged. Each cut is
-  audited as `context.cut`; `/inspect context` shows the note.
+- In a long conversation, a reply that retyped a tool's output exactly, formatting aside (a file shown in
+  full, a table of a command's results), is sent to the model on later turns as a short note such as
+  "(showed the person the read_file output, entry 7)", saving the window for what matters. What you see
+  is unchanged. Each cut is audited as `context.cut`; `/inspect context` shows the note. A copy with changes, such as a proposed edit
+  shown as a changed file, is kept for the model.
 - `/save` writes a second file beside a saved transcript, `transcripts/<name>.store`, holding the links from
   each conversation entry (dropped ones too) to the audit events that recorded it. `--resume` reads it, so a
   resumed conversation stays connected to the log, and `session.start` gains `carriedFrom`, the sessions it
@@ -196,11 +191,9 @@ Added:
 Fixed:
 
 - `/inspect context` and `/tokens` in chat now say "1 turn" and "1 time" for a count of one, not "1 turns".
-
 - Long conversations on the on-device model are condensed again instead of failing with "Provided N
   tokens, but the maximum allowed is 8,192". That model reports no token usage and reports an overflow
   differently from the framework's documented error, so neither safeguard fired.
-
 - The `respond` tool told MCP callers the on-device model's window is about 4k tokens; it is 8,192 on
   macOS 27, and the docs now say so throughout.
 - `system_info`'s folder sizes treat a blank `path` as the home folder, as an absent one already was;

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 960 380" width="960" height="380" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 960 400" width="960" height="400" role="img" aria-labelledby="title desc">
   <title id="title">How wisp is put together</title>
-  <desc id="desc">You at the terminal, and your coding agent over MCP, both open one wisp session. The session runs the model, on device or through Ollama, with its seven tools. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
+  <desc id="desc">You at the terminal (wisp, wisp chat, wisp-tui), and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread), both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device or through Ollama, with its eight tools. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#0969da"/>
@@ -29,20 +29,21 @@
   <text class="body" x="40" y="140">wisp, wisp chat,</text>
   <text class="body" x="40" y="160">wisp-tui</text>
 
-  <rect class="box" x="20" y="204" width="190" height="120" rx="10"/>
-  <text class="label" x="40" y="234">OVER MCP</text>
-  <text class="title" x="40" y="260">Your coding agent</text>
-  <text class="body" x="40" y="284">respond, and ten</text>
-  <text class="body" x="40" y="304">condensing tools</text>
+  <rect class="box" x="20" y="200" width="190" height="144" rx="10"/>
+  <text class="label" x="40" y="230">OVER MCP</text>
+  <text class="title" x="40" y="256">Your coding agent</text>
+  <text class="body" x="40" y="280">respond, ten condensing</text>
+  <text class="body" x="40" y="300">tools, set_fact_scope,</text>
+  <text class="body" x="40" y="320">close_thread</text>
 
   <!-- One session -->
-  <rect class="box" x="242" y="132" width="140" height="120" rx="10"/>
-  <text class="title" x="312" y="178" text-anchor="middle">One session</text>
-  <text class="body" x="312" y="202" text-anchor="middle">config, approvals,</text>
-  <text class="body" x="312" y="222" text-anchor="middle">threads</text>
+  <rect class="box" x="242" y="142" width="140" height="120" rx="10"/>
+  <text class="title" x="312" y="188" text-anchor="middle">One session</text>
+  <text class="body" x="312" y="212" text-anchor="middle">config, approvals,</text>
+  <text class="body" x="312" y="232" text-anchor="middle">threads, facts</text>
 
   <!-- The model and its tools -->
-  <rect class="box" x="414" y="60" width="170" height="264" rx="10"/>
+  <rect class="box" x="414" y="60" width="170" height="284" rx="10"/>
   <text class="title" x="434" y="90">The model</text>
   <text class="body" x="434" y="112">on device, or Ollama</text>
   <line class="rule" x1="434" y1="128" x2="564" y2="128"/>
@@ -54,37 +55,38 @@
   <text class="body" x="434" y="256">notify</text>
   <text class="body" x="434" y="276">inspect</text>
   <text class="body" x="434" y="296">current_date</text>
+  <text class="body" x="434" y="316">memory</text>
 
   <!-- The gate, in the order the code checks -->
-  <rect class="gate" x="616" y="60" width="170" height="264" rx="10"/>
+  <rect class="gate" x="616" y="60" width="170" height="284" rx="10"/>
   <text class="gate-label" x="636" y="90">THE GATE</text>
   <rect class="step" x="632" y="106" width="138" height="42" rx="8"/>
   <text class="body" x="701" y="132" text-anchor="middle">Policy deny list</text>
-  <rect class="step" x="632" y="160" width="138" height="42" rx="8"/>
-  <text class="body" x="701" y="186" text-anchor="middle">Risk classifier</text>
-  <rect class="you" x="632" y="214" width="138" height="42" rx="8"/>
-  <text class="title" x="701" y="240" text-anchor="middle" style="font-size:13px">You, when it matters</text>
-  <rect class="step" x="632" y="268" width="138" height="42" rx="8"/>
-  <text class="body" x="701" y="294" text-anchor="middle">Seatbelt sandbox</text>
+  <rect class="step" x="632" y="166" width="138" height="42" rx="8"/>
+  <text class="body" x="701" y="192" text-anchor="middle">Risk classifier</text>
+  <rect class="you" x="632" y="226" width="138" height="42" rx="8"/>
+  <text class="title" x="701" y="252" text-anchor="middle" style="font-size:13px">You, when it matters</text>
+  <rect class="step" x="632" y="286" width="138" height="42" rx="8"/>
+  <text class="body" x="701" y="312" text-anchor="middle">Seatbelt sandbox</text>
 
-  <path class="step-link" d="M701 148 V160 M701 202 V214 M701 256 V268"/>
+  <path class="step-link" d="M701 148 V166 M701 208 V226 M701 268 V286"/>
 
   <!-- Your Mac -->
-  <rect class="box" x="818" y="132" width="122" height="120" rx="10"/>
-  <text class="title" x="879" y="186" text-anchor="middle">Your Mac</text>
-  <text class="body" x="879" y="210" text-anchor="middle">commands, files</text>
+  <rect class="box" x="818" y="142" width="122" height="120" rx="10"/>
+  <text class="title" x="879" y="196" text-anchor="middle">Your Mac</text>
+  <text class="body" x="879" y="220" text-anchor="middle">commands, files</text>
 
   <!-- Flow -->
-  <path class="flow" d="M210 120 H226 V180 H240" marker-end="url(#arrow)"/>
-  <path class="flow" d="M210 264 H226 V204 H240" marker-end="url(#arrow)"/>
-  <path class="flow" d="M382 192 H412" marker-end="url(#arrow)"/>
-  <path class="flow" d="M584 192 H614" marker-end="url(#arrow)"/>
-  <path class="flow" d="M786 192 H816" marker-end="url(#arrow)"/>
+  <path class="flow" d="M210 120 H226 V190 H240" marker-end="url(#arrow)"/>
+  <path class="flow" d="M210 272 H226 V214 H240" marker-end="url(#arrow)"/>
+  <path class="flow" d="M382 202 H412" marker-end="url(#arrow)"/>
+  <path class="flow" d="M584 202 H614" marker-end="url(#arrow)"/>
+  <path class="flow" d="M786 202 H816" marker-end="url(#arrow)"/>
 
   <!-- The audit log -->
-  <path class="record" d="M312 252 V356"/>
-  <path class="record" d="M499 324 V356"/>
-  <path class="record" d="M701 324 V356"/>
-  <rect class="box" x="242" y="356" width="698" height="44" rx="10"/>
-  <text x="262" y="383"><tspan class="title" style="font-size:13px">Audit log</tspan><tspan class="body" dx="10">every prompt, reply, tool call, verdict, approval, and outcome, verbatim</tspan></text>
+  <path class="record" d="M312 262 V376"/>
+  <path class="record" d="M499 344 V376"/>
+  <path class="record" d="M701 344 V376"/>
+  <rect class="box" x="242" y="376" width="698" height="44" rx="10"/>
+  <text x="262" y="403"><tspan class="title" style="font-size:13px">Audit log</tspan><tspan class="body" dx="10">every prompt, reply, tool call, verdict, approval, and outcome, verbatim</tspan></text>
 </svg>

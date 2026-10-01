@@ -2,7 +2,8 @@
 
 **wisp** is a small AI agent that runs on your Mac and stays there. It drives Apple's on-device
 Foundation Model, the one behind Apple Intelligence, and gives it tools: it can run a command, read
-and edit a file, report on the machine, and send you a notification. You use it from the terminal, as
+and edit a file, report on the machine, send you a notification, and recall what its context no longer
+holds. You use it from the terminal, as
 a command or a chat, and your coding agent uses it as an MCP server, handing it the local chores that
 would otherwise fill the agent's context: run the tests and return the failures, condense a log,
 summarise a diff, scan a commit for secrets. Every command the model runs passes a policy, a sandbox,
@@ -14,7 +15,7 @@ before it touches your Mac:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.svg">
-  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP both open one wisp session. The session runs the model, on device or through Ollama, with its seven tools. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
+  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device or through Ollama, with its eight tools. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
 The model never carries the whole conversation. The audit log keeps everything, and wisp composes each
@@ -41,7 +42,9 @@ wisp chat                              # a conversation; /help lists the command
 
 Running tests changes state, so it counts as a `moderate` action: `chat` asks you before doing it, and
 plain `wisp "…"` cannot ask, so it refuses unless you pass `--yes`. In `chat` you answer each request
-once, for the session, for this project, or always, and `/model` switches models mid-conversation. On a
+once, for the session, for this project, or always, and `/model` switches models mid-conversation. A
+long conversation keeps short facts (a codename, the task, whether the tests pass) and a summary of the
+turns it had to drop; `/inspect facts` shows them and `/fact` corrects one. On a
 terminal the chat runs in `wisp-tui`, installed beside `wisp`: the conversation scrolls in your
 terminal's own history above a pinned input and status line, with the model's tool calls shown as they
 happen.
@@ -77,8 +80,8 @@ For Claude Code, in `.mcp.json`:
 ```
 
 The agent then has `respond`, which runs a task on the local model with wisp's tools and returns the
-reply with a receipt of what it did, and ten condensing tools that read something large on your Mac
-and return something small:
+reply with a receipt of what it did; ten condensing tools that read something large on your Mac and
+return something small; and two that manage `respond`'s threads:
 
 | Tool | Gives back |
 | --- | --- |
@@ -135,7 +138,7 @@ logs` reads it, and `respond` returns each turn's receipt folded from the same e
 agent can check delegated work without reading the log. [trust.md](docs/trust.md) states in one page
 what wisp can and cannot do to your Mac.
 
-**It is a microharness.** One binary, one session, a registry of seven tools, and the smallest correct
+**It is a microharness.** One binary, one session, a registry of eight tools, and the smallest correct
 agent loop; the framework runs the loop and wisp puts the care around it. Your own tools are command
 templates in `~/.wisp/config.json`, run through the same gate as everything else
 ([tools/custom.md](docs/tools/custom.md)). State is a directory, `~/.wisp`, that you can read, edit,
@@ -147,12 +150,13 @@ An Apple silicon Mac on macOS 27 or later with Apple Intelligence enabled, and H
 
 ```bash
 brew install pidster/tap/wisp   # installs wisp and wisp-tui
-wisp doctor                     # checks the model, sandbox, classifier, config, and home directory
+wisp doctor                     # checks the model, sandbox, classifier, config, home, and notifications
 wisp "What is the date in Tokyo?"
 ```
 
 State lives in `~/.wisp`: an optional `config.json` (change it with `wisp config set` or `/config set`
-in chat), saved transcripts, remembered approvals, the audit log, and the classifier versions. Upgrade
+in chat), saved transcripts, remembered approvals, the facts you keep (`facts.json`), the audit log, and
+the classifier versions. Upgrade
 with `brew upgrade pidster/tap/wisp`; remove with `brew uninstall wisp` and `rm -rf ~/.wisp`.
 
 ## Documentation
@@ -169,15 +173,15 @@ Everything is under [docs/](docs/README.md). Start with the row that matches you
 | Connect it to another harness over MCP | [mcp.md](docs/mcp.md) |
 | Know what it can do to your Mac, what it remembers, and how to undo | [trust.md](docs/trust.md) |
 | Know how commands are confined and when you are asked | [tools/run_command.md](docs/tools/run_command.md), [approval.md](docs/approval.md) |
+| Know what the model carries in a long conversation: facts, the summary, references, condensing | [context-management.md](docs/context-management.md), [tools/memory.md](docs/tools/memory.md) |
 | Read or query the audit log, or debug wisp itself | [logging.md](docs/logging.md) |
 | Understand how the code is put together | [design.md](docs/design.md) |
 | Know why a decision was made | [decisions/](docs/decisions/) (one record per decision) |
 | Work on the code to the project's standard | [engineering.md](docs/engineering.md) |
 | Cut a release | [release.md](docs/release.md) |
 
-Two background pages record what we learned about the platform:
-[context-management.md](docs/context-management.md) on living inside a small context window, and
-[policy-and-sandboxing.md](docs/policy-and-sandboxing.md) on what macOS and the framework offer for
+A background page records what we learned about the platform:
+[policy-and-sandboxing.md](docs/policy-and-sandboxing.md), on what macOS and the framework offer for
 confinement.
 
 ## Developing wisp
@@ -214,6 +218,7 @@ check, not a measurement; `scripts/check eval` measures the model.
 | Path | What it is |
 | --- | --- |
 | `harness/` | The Swift package: the `wisp` binary, `WispCore`, `WispMCP`, and the model backends |
+| `harness/Evals/` | The model evaluations, a package of their own that `scripts/check eval` runs |
 | `tools/` | The Cargo workspace: `wisp-tui`, the terminal front end over `wisp chat --json` |
 | `docs/` | Documentation and decision records |
 | `training/` | Labelled training sets for the fast classifiers, with their reviews |

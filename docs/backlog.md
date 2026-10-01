@@ -1,6 +1,32 @@
 # Backlog
 
-Work agreed but not started, in rough priority order. Each item becomes an ADR when it is picked up.
+Work agreed but not started, in rough priority order, with what has shipped marked done and dated. Each
+item becomes an ADR when it is picked up.
+
+## Planned for the next releases
+
+Agreed for the releases after 0.15.0, which ships layered context and host effects:
+
+- **Host effects over MCP.** [ADR 0044](decisions/0044-host-effects.md) gave each face a `SessionHost`;
+  under `wisp mcp` only approval reaches the client (elicitation), and notifications take the process
+  routes. Open there: notifications, and approval for a client without elicitation (the paused
+  escalations question below).
+- **Permanent facts over MCP.** `set_fact_scope` moves a thread's fact between `thread` and `session`
+  only; how a caller proposes or keeps a permanent fact is for the operator to decide
+  ([ADR 0045](decisions/0045-layered-context.md), "Open"; [mcp.md](mcp.md)).
+- **`! <command>` in chat**, a command typed at the input, its line in the scrollback styled like the
+  input box, as sent messages are.
+- **`wisp watch --settle`**, waiting for changes to settle before a rerun, 1 s by default.
+
+## Context
+
+- Done 2026-10-01: layered context ([ADR 0045](decisions/0045-layered-context.md), the
+  [proposal](proposals/2026-09-29-layered-context.md) phases 1 to 6). Each request is composed from a store
+  that refers to the audit log: tool output as a reference after its turn, retyped output cut, facts
+  (2026-09-30), the running summary (2026-09-30), the `memory` tool (2026-09-30), and condensing to a token
+  target with headroom and its guard (2026-10-01). The per-request assessment is built and off. Open: the
+  guard re-measured at 50%, the target and headroom tuned, a specialised distiller, and D10's model switch
+  evaluated ([context-management.md](context-management.md), "Not done yet").
 
 ## Policy
 
@@ -70,8 +96,10 @@ Done 2026-09-26 too: `/config` as YAML and `/config get`; `/status`, `/approvals
 `/audit` in place of `/inspect`, kept as an alias, with Tab completing them and approval ids; and sent
 lines styled in the scrollback like the input box. Done 2026-09-29, in both front ends: the gate's
 decision for each command, each turn's time and tokens, a live line for what the turn is doing, and
-`/audit sessions` and `/audit <id>`. Nothing further is planned for the front end; tables and links in
-replies are shown as typed.
+`/audit sessions` and `/audit <id>`. Done 2026-09-30: each tool's output folded in the scrollback with
+Ctrl-O for the last one whole, the model's context in a panel (Ctrl-T), facts in that panel, and the
+`hello` line with notifications posted through the terminal ([ADR 0044](decisions/0044-host-effects.md)).
+Planned: `! <command>` (above). Tables and links in replies are shown as typed.
 
 ## When wisp can be signed
 
@@ -80,8 +108,11 @@ Two things wait on a Developer ID or App Store signature rather than on code.
 - **A notification helper app.** `Wisp Notifier.app`, a tiny agent bundle (`LSUIElement`) in the
   formula's `libexec`, posting through `UserNotifications` instead of `osascript`
   ([ADR 0030](decisions/0030-notifications.md)). Gains: banners as "Wisp" with its own icon and its
-  own row in Notification settings, action buttons and click-through ("Show" opening the audit or the
-  terminal), and no Script Editor attribution. `wisp notify` and the `notify` tool launch the helper
+  own row in Notification settings, and action buttons ("Show" opening the audit). Done 2026-09-30
+  without signing ([ADR 0044](decisions/0044-host-effects.md)): banners come from the terminal (its
+  notification sequence in Ghostty, iTerm2, WezTerm, and kitty, or `display notification` sent to the
+  terminal app), so they carry its name and icon and a click returns to it; Script Editor remains only
+  as the last route. `wisp notify` and the `notify` tool launch the helper
   when it is installed and authorised, and fall back to `osascript` otherwise. The open fact to settle
   first: whether macOS grants notification authorisation to the bundle as shipped; signing removes
   that doubt.

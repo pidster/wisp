@@ -6,9 +6,12 @@ here is enforced by code and covered by tests; the linked pages hold the detail.
 
 ## What runs, and where
 
-The model has seven tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `edit_file`,
-and `run_command`. Only the last two change anything; `notify` shows a banner, at most a few a minute,
-and changes nothing ([notify](tools/notify.md)); `system_info` runs fixed read-only commands wisp chooses,
+The model has eight tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`,
+`edit_file`, and `run_command`. Only the last two change anything on the Mac; `notify` shows a banner, at
+most a few a minute, through your terminal or `osascript`, and changes nothing ([notify](tools/notify.md));
+`memory` reads only the conversation's own record and the audit log, and writes only the model's own facts
+about the conversation, which rank below yours and a tool's and never reach the shared store without you
+([memory](tools/memory.md)); `system_info` runs fixed read-only commands wisp chooses,
 under the sandbox but without asking, since the model supplies no command ([system_info](tools/system_info.md)).
 Tools you declare yourself in `~/.wisp/config.json` run their command through `run_command`'s policy,
 classifier, approval, and sandbox, so they grant nothing `run_command` does not; a project cannot
@@ -73,7 +76,9 @@ remembered as ([logging](logging.md)).
 ## Undoing
 
 - Revoke a remembered approval: `wisp approvals revoke <id>` or `wisp approvals clear`.
-- Forget a conversation: delete `~/.wisp/transcripts/<name>.json`.
+- Forget a conversation: delete `~/.wisp/transcripts/<name>.json` and `<name>.store`.
+- Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
+  Only you put facts there: what a tool or the model proposes waits for you to move it.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
   writable set.
 - Uninstall: `brew uninstall wisp`.
@@ -85,5 +90,7 @@ remembered as ([logging](logging.md)).
 | `~/.wisp/config.json` | your settings, written by you or by `wisp config set` and chat's `/config set` | yours; user-only once wisp writes it |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
-| `~/.wisp/transcripts/*.json` | saved chats | user-only |
+| `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
+| `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
+| `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |
 | `~/.wisp/classifiers/risk/` | risk classifier versions: the release's default and those `wisp classifier train` makes | models read-only |

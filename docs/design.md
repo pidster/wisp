@@ -37,7 +37,8 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Path | Contents |
 | --- | --- |
-| `harness/` | Swift package: the `wisp` binary and `WispCore` |
+| `harness/` | Swift package: the `wisp` binary, `WispCore`, `WispMCP`, and the model backends |
+| `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`), which `scripts/check eval` runs and the gate never builds |
 | `tools/` | Cargo workspace: one crate per Rust tool binary |
 | `docs/` | This documentation and the ADRs |
 | `training/` | Labelled train, dev, and test sets for the fast classifiers; only `risk/train.tsv` is built in, as `Resources/risk-examples.tsv` |
@@ -47,13 +48,13 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session, thread, agent, thread record, context composer, and presentational-text finder, model selection, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, and the agent's fact and summary operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (doctor and chat input, here so they are testable), `Support/` (timeout, ids, names). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session and session host, thread, agent and its condensing and assessment, thread record, context composer, target condensing, output references, context view and archive, the presentational-text finder, memory and recall, model selection, listing, routing, and context sizing, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, and the agent's fact and summary operations), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (the chat loop, its input, completion, events, status, and JSON Lines protocol, doctor, and the table layouts, here so they are testable), `Support/` (timeout, ids, names, paging, the notifier and its routes, the file watcher, process and memory state). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
 | `wisp` | executable | Argument parsing and stdin/stdout only. Subcommands `respond` (default), `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`. Session set-up is `Session.begin` in `WispCore`. |
 | `EmbedSystemPrompt` | build-tool plugin | Embeds `Resources/system-prompt.md` into `WispCore` as a string constant at build time. |
-| `WispTestSupport` | library, tests only | `ScriptedModel`: a `LanguageModel` that answers from a script, so the agent, tool loop, and MCP server run in tests with no model. |
+| `WispTestSupport` | library, tests only | `ScriptedModel`: a `LanguageModel` that answers from a script, so the agent, tool loop, and MCP server run in tests with no model; and `ContextEval`, the context eval's scenarios and fixtures, which `ModelEvalTests` in `harness/Evals` drives on a real model. |
 | `WispCoreTests`, `WispMCPTests` | tests | swift-testing suites for model-independent logic; `WispServerWireTests` drives the server through a real MCP client on an in-memory transport. |
 
 ## Components
@@ -311,16 +312,17 @@ The MCP tests build real sessions over a scratch home and check that two threads
 Read-only views of wisp's own state, built once and rendered three ways: the model's `inspect` tool,
 the MCP `wisp://config|status|approvals|audit` resources, and `wisp config` and `wisp logs`. It
 holds the home, the effective config, the approval store, and a status closure the `WispThread`
-supplies (session id, turn, tools, model, session approvals); the MCP server adds live thread ids and
-the standing-approval count to the status resource. Audit reads go through the same file walk `logs`
+supplies (session id, turn, tools, model, session approvals); the MCP server adds the thread count, a link to
+`wisp://threads`, and the standing-approval count to the status resource. Audit reads go through the same file walk `logs`
 uses. See [ADR 0018](decisions/0018-introspection.md).
 
 ### Home, config, transcripts
 
-`Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `approvals.json`, `logs/`,
-`transcripts/`, and `classifiers/`.
+`Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `approvals.json`, `facts.json`, `logs/`,
+`transcripts/`, `context/`, and `classifiers/`.
 `Config` is optional JSON (system prompt extension, model, `run_command` limits, MCP thread capacity) with defaults applied by
-`resolved`. `TranscriptStore` saves and loads transcripts as `<name>.json`. Commands that write (audit log,
+`resolved`. `TranscriptStore` saves and loads transcripts as `<name>.json`, with the store's links to the audit log in
+`<name>.store`, which resuming requires. Commands that write (audit log,
 transcripts, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` never create the directory.
 
 ### `ToolRegistry`
@@ -450,8 +452,9 @@ thread from the store. The overview diagram above shows the rest of the path.
 
 `wisp` mirrors `fm respond` where semantics match: positional prompt or stdin, `--instructions`,
 `--[no-]stream`, repeatable `--tool`. `wisp chat` is a line-oriented REPL with slash commands parsed by
-`ChatInput` (`/help`, `/tools`, `/tokens`, `/status`, `/approvals`, `/audit`, `/inspect`, `/last`, `/show`,
-`/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`), `--resume <name>`, and `--save <name>`.
+`ChatInput` (`/help`, `/tools`, `/tokens`, `/inspect`, `/status`, `/approvals`, `/audit`, `/fact`, `/task`, `/last`,
+`/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`; `ChatInput.helpEntries` is the
+list `/help` prints), `--resume <name>`, and `--save <name>`.
 `wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`.
 Exit codes follow swift-argument-parser conventions (64 for usage errors). The chat loop itself is
 `ChatLoop` in `WispCore`, with its input and output injected, so the executable only wires the
@@ -462,7 +465,9 @@ audited events, each tool's output included (`ChatEvents.shownOutput`, folded pa
 `ChatView.output` finds one again for `/show`); `ChatView` carries a view shown whole (`/inspect context next`, `N`, `turns`),
 which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
-in a terminal and in the TUI. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
+in a terminal and in the TUI. `TerminalTable` and `ListingLayout` lay out `wisp tools`, `models`, and
+`approvals` like `wisp --help` when standard output is a terminal, wrapped to its width, and keep the
+tab-separated lines when it is piped. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
 `Session.begin` creates and every `WispThread` hands to its `Agent`, which records each turn's time,
 outcome, and reported prompt tokens; the classifier is wrapped in `TimedRiskClassifier` unless it is the
 rules alone, and a classifier's fallback verdict carries `RiskAssessment.failureKey` so it counts as a

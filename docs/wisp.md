@@ -56,7 +56,7 @@ in both.
 | Ctrl-U, Ctrl-K | Delete to the start or to the end. |
 | Alt-Enter | A newline, for a message of several lines. |
 | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
-| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect` (and `all` after `/inspect facts`), a subject kind or `delete` and `approve` after `/fact`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
+| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect` (`next` or `turns` after `/inspect context`, `all` after `/inspect facts`), a subject kind, a fact id, or `delete` after `/fact`, a fact id after `/fact delete`, and a scope after `/fact ID`, and a session id after `/audit`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
 
 Two keys open a panel over the band, a rounded border around up to 16 rows, with its keys in the bottom
 border: Up and Down scroll a row, PageUp and PageDown a page, and Esc (or the key that opened it) closes
@@ -659,7 +659,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `context` | `{ "target": 0.5, "headroomTurns": 8 }` | Condensing, as [context-management.md](context-management.md) ("Condensing") describes it. A condensation is due when the context, the next prompt, and a turn of average size would pass 85% of the model's window; it then condenses, in steps, until the context is at or below `target` of the window (and low enough that the prompt and an average turn fit under 85%), keeping at least the last turn. `target` is from 0.1 to 0.8, and is used at no more than 0.65 (the budget less 0.2; see `context.target` above); `headroomTurns` is how many of the latest turns the average covers, from 0 to 64 (1 is the last turn alone; 0 keeps no room, so condensing waits until the context and the prompt alone pass 85%). When even the last turn and the request are above the target, the turn goes on and you are told (chat prints a note; MCP `respond` returns `contextNote`). Settable with `wisp config set context.target 0.6` and `/config set`. |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
-| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |
+| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |
 
 Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
 stderr.
@@ -691,12 +691,18 @@ a name, or a `share` outside 0 to 0.5 makes the config malformed.
 ## Context window
 
 The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is sized
-from its shape and the Mac's memory when it is selected, or is `contextLength` when that is set. Before a prompt that would pass 85% of the window, and again when a request overflows,
-wisp drops older turns (keeping the instructions and the last four turns); after an overflow it retries
-once. `chat` prints a note when this happens; MCP results
-carry `condensed: true`. Before the turns go, the model distils what was said in them into facts, and the
-facts are given to the model on every later request, so a codename or the task outlives the turns that
-stated it. See [context-management.md](context-management.md).
+from its shape and the Mac's memory when it is selected, or is `contextLength` when that is set.
+
+The model does not carry the whole conversation. Each request is composed from the conversation's store:
+the instructions, the facts and the running summary, the recent turns with each tool's output whole in its
+own turn and a short reference after it, and the request ([ADR 0045](decisions/0045-layered-context.md)).
+When the context, your next message, and a turn of average size would pass 85% of the window, wisp
+condenses to `context.target` (half the window by default): earlier output as references, then the oldest
+turns distilled into facts and the summary and dropped, measuring after each step and always keeping the
+last turn. A request that overflows anyway is condensed the same way and retried once. `chat` prints a note
+when this happens, and MCP results carry `condensed: true`. The model's `memory` tool brings back what the
+context holds only as a reference, a summary, or a fact ([tools/memory.md](tools/memory.md)). See
+[context-management.md](context-management.md).
 
 ## Exit codes
 

@@ -5,18 +5,18 @@
 | [trust.md](trust.md) | What wisp can do to your Mac, what leaves it, what it remembers, how to see and undo |
 | [objective.md](objective.md) | What wisp is for and what "done" looks like |
 | [wisp.md](wisp.md) | Command reference: subcommands, flags, `~/.wisp`, `config.json`, exit codes |
-| [tools/](tools/README.md) | One page per model-facing tool: contract, result format, limits |
+| [tools/](tools/README.md) | One page per model-facing tool (the eight built-in, `memory` among them, and custom tools): contract, result format, limits |
 | [measurements.md](measurements.md) | What the eval harness found each delegated task achieves, how it is recorded, and where it is published |
-| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond`, the condensing tools, structured output, receipts, progress, errors |
-| [design.md](design.md) | Architecture: components, data flow, extension points |
+| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond` and its threads, the condensing tools, `set_fact_scope`, the thread, context, and facts resources, structured output, receipts, calls, progress, errors |
+| [design.md](design.md) | Architecture: components (the thread record and composer, facts, the session host), data flow, extension points |
 | [fm-cli.md](fm-cli.md) | What the Apple `fm` command family does and does not offer, as observed |
 | [local-model-evaluation.md](local-model-evaluation.md) | Local-model research, candidate shortlist, and agreed workload/delegation evaluation design |
 | [local-model-installation.md](local-model-installation.md) | Selected model revisions, local installation, offline smoke results, and remaining integration work |
-| [on-device-ai-todo.md](on-device-ai-todo.md) | Living backlog for on-device AI: routing, context assembly, approval classification, local generation, audit, model controls; progress per track, and current work |
+| [on-device-ai-todo.md](on-device-ai-todo.md) | Living backlog for on-device AI: routing, context assembly, approval classification, local generation, audit, model controls; progress per track, what shipped since the last release, and what is planned |
 | [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output |
 | [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, eval results |
 | [logging.md](logging.md) | The audit log (format, kinds, `wisp logs`) and diagnostics (`WISP_LOG`, unified logging) |
-| [context-management.md](context-management.md) | The small context window: framework APIs, what wisp does, design rules |
+| [context-management.md](context-management.md) | The small context window: the store and the composer, output handling, facts, the running summary, `memory`, the assessment, condensing to a target, design rules, and what was measured |
 | [policy-and-sandboxing.md](policy-and-sandboxing.md) | Survey of tool policy and sandboxing options and which layers are implemented |
 | [decisions/0013-model-selection.md](decisions/0013-model-selection.md) | Which model a session runs on (`system` or `private-cloud`), and why the default stays on device |
 | [decisions/0015-per-command-approval.md](decisions/0015-per-command-approval.md) | Approve each simple command in a line, remembered by its program |
@@ -64,7 +64,7 @@
 | [decisions/0017-three-layer-instructions.md](decisions/0017-three-layer-instructions.md) | wisp's system prompt (a resource file), the operator's extension, and the caller's instructions, rendered in order |
 | [decisions/0016-local-runtimes-through-an-executor.md](decisions/0016-local-runtimes-through-an-executor.md) | Locally installed models plug in through a wisp-supplied executor; what the spike measured; `ollama:<name>` built |
 | [release.md](release.md) | How a release is cut: tag, tarball, GitHub release, Homebrew tap formula |
-| [backlog.md](backlog.md) | Agreed work not yet started: further condensing tools, sampling, deferred backends |
+| [backlog.md](backlog.md) | Agreed work, done and planned: what is next (host effects and permanent facts over MCP, chat's `!` commands, `wisp watch --settle`), further condensing tools, sampling, deferred backends |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate, and CI |
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
 | [decisions/](decisions/) | Architecture Decision Records, one per significant decision |

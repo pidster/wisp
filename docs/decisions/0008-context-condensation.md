@@ -1,6 +1,9 @@
 # ADR 0008: Recover from context overflow by condensing to recent turns
 
-Date: 2026-09-17. Status: accepted.
+Date: 2026-09-17. Status: accepted. Amended by [ADR 0025](0025-context-estimation.md) (condensing
+ahead of the window) and [ADR 0045](0045-layered-context.md): condensing now brings the composed context
+to a token target, distilling facts and a summary from the turns it drops, rather than keeping the last
+four turns.
 
 ## Context
 
