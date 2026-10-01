@@ -142,6 +142,23 @@ import WispTestSupport
         #expect(run.turns[0].line.hasPrefix("turn 1 plant: ") && run.turns[5].line.contains("condensed budget"))
     }
 
+    @Test func droppingTakesABudgetAndKeepsItsName() throws {
+        let model = ResolvedModel(selection: .system, custom: ScriptedModel(steps: []), contextSize: 8192)
+        for (strategy, budget) in [(DroppingStrategy(), 0.85), (DroppingStrategy(budget: 0.5), 0.5)] {
+            let thread = strategy.open(
+                model: model, tools: [], instructions: "x", audit: AuditLog(session: "t", sink: MemoryAuditSink()))
+            let agent = try #require((thread as? AgentThread)?.agent)
+            #expect(strategy.name == "dropping" && strategy.budget == budget)
+            #expect(agent.contextBudget == budget && !agent.referencesOutput && !agent.cutsPresentation)
+        }
+    }
+
+    @Test func theAssessingStrategiesAreNamedForTheirToolSetsAndPolicy() {
+        #expect(AssessingStrategy().name == "assessing" && AssessingStrategy(tools: .task).name == "assessing-task")
+        #expect(AssessingStrategy(tools: .all, policy: .default).name == "assessing-all-target")
+        #expect(MemoryStrategy(policy: .default).name == "memory-target" && AssessingStrategy().hasMemory)
+    }
+
     @Test func theShowingScenarioAddsOneShownFileAfterTheTaskFiles() {
         let baseline = ContextEval.baseline()
         let showing = ContextEval.showing()

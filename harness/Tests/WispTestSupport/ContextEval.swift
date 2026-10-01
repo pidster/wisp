@@ -414,9 +414,16 @@ public struct DroppingStrategy: ContextStrategy {
     public let name = "dropping"
     /// What it does.
     public let summary = "today's Agent: whole oldest turns dropped to the last four at 85% of the window"
+    /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
+    public var budget: Double
 
     /// Creates the strategy.
-    public init() {}
+    ///
+    /// - Parameter budget: When to condense; the default is the agent's, 85%. The phase-6 checkpoint also runs it
+    ///   at half the window, beside the full design at the same budget.
+    public init(budget: Double = 0.85) {
+        self.budget = budget
+    }
 
     /// Opens an `Agent` with phase 2's context policy and presentational text kept.
     public func open(
@@ -426,6 +433,7 @@ public struct DroppingStrategy: ContextStrategy {
     {
         let agent = Agent(
             instructions: instructions, tools: tools, model: model, contextPolicy: .fixed, audit: audit)
+        agent.contextBudget = budget
         agent.cutsPresentation = false
         agent.referencesOutput = false
         return AgentThread(agent)

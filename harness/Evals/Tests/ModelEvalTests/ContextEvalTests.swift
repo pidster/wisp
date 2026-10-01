@@ -37,11 +37,14 @@ struct ContextEvalTests {
     }
 
     /// Runs `scenario` (the baseline by default) on `model` through `strategy` (dropping by default), prints
-    /// each turn and the summary, and reports the measurement.
+    /// each turn and the summary, and reports the measurement. The model has `read_file` alone (and `memory` when the
+    /// strategy adds it), as every run before phase 6 had; `allTools` offers every built-in tool instead, as chat
+    /// does, so the assessment's choice of tools (phase 4d) has something to save.
     static func measure(
         _ model: ResolvedModel, variant: String? = nil, strategy: some ContextStrategy = DroppingStrategy(),
-        scenario: ContextEval.Scenario = ContextEval.baseline()
+        scenario: ContextEval.Scenario = ContextEval.baseline(), allTools: Bool = false
     ) async throws {
+        let names = allTools ? ToolRegistry.builtInNames.filter { $0 != MemoryTool.toolName } : ["read_file"]
         let run = await ContextEval.run(
             scenario, strategy: strategy, model: model,
             instructions: Prompting().rendered(toolsAvailable: true, memory: strategy.hasMemory),
@@ -50,7 +53,7 @@ struct ContextEvalTests {
                     classifier: RuleRiskClassifier.standard,
                     approver: DenyingApprover(reason: "not during the eval"), threshold: .level(.moderate),
                     audit: audit)
-                return ToolRegistry(audit: audit, approval: gate).select(["read_file"]).tools
+                return ToolRegistry(audit: audit, approval: gate).select(names).tools
             },
             onTurn: { print("context eval: \(strategy.name) \(model.selection) \(variant ?? ""): \($0.line)") })
         for line in run.report { print("context eval: \(line)") }
@@ -284,5 +287,128 @@ struct ContextEvalTests {
         try await Self.measure(
             model, variant: "noting.window-8192.budget-50", strategy: SummaryStrategy(together: true, budget: 0.5),
             scenario: ContextEval.noting())
+    }
+
+    // The phase-6 checkpoint (the proposal's "Phasing", 6): the integrated design against today's dropping, phase 5's
+    // condensing to a target against phase 2's fixed four turns, the assessment per request (phase 4d) in its three
+    // tool sets against the same stack without it, and memory under the target policy, all on the recalling
+    // scenario at a window of 8,192. `--filter ContextEvalTests/checkpoint` runs them all; each name is a substring
+    // of no other, so one filter runs one test.
+
+    /// The on-device model.
+    static func onDevice() throws -> ResolvedModel { try ModelSelection.system.resolve() }
+
+    /// The whole default stack: memory, facts, the summary, references, and condensing to the default target.
+    static let stack = MemoryStrategy(policy: .default)
+
+    /// The same at half the window.
+    static let stack50 = MemoryStrategy(budget: 0.5, policy: .default)
+
+    @Test func checkpointDroppingOnTheOnDeviceModel() async throws {
+        try await Self.measure(try Self.onDevice(), variant: "recalling", scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointDroppingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(model, variant: "recalling.window-8192", scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointStackOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try Self.onDevice(), variant: "recalling", strategy: Self.stack, scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointStackOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192", strategy: Self.stack, scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointHalfDroppingOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try Self.onDevice(), variant: "recalling.budget-50", strategy: DroppingStrategy(budget: 0.5),
+            scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointHalfDroppingOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192.budget-50", strategy: DroppingStrategy(budget: 0.5),
+            scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointHalfStackOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try Self.onDevice(), variant: "recalling.budget-50", strategy: Self.stack50,
+            scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointHalfStackOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192.budget-50", strategy: Self.stack50,
+            scenario: ContextEval.recalling())
+    }
+
+    // Phase 2's fixed four turns with the same stack at half the window are `recallingWithMemory…` above.
+
+    @Test func checkpointHalfNoMemoryOnTheOnDeviceModel() async throws {
+        try await Self.measure(
+            try Self.onDevice(), variant: "recalling.budget-50",
+            strategy: SummaryStrategy(together: true, budget: 0.5, policy: .default), scenario: ContextEval.recalling())
+    }
+
+    @Test func checkpointHalfNoMemoryOnGraniteAtTheOnDeviceWindow() async throws {
+        guard let model = Self.granite(contextLength: 8192) else { return }
+        try await Self.measure(
+            model, variant: "recalling.window-8192.budget-50",
+            strategy: SummaryStrategy(together: true, budget: 0.5, policy: .default), scenario: ContextEval.recalling())
+    }
+
+    /// Runs the assessment's comparison: the stack at half the window with every built-in tool offered, through
+    /// `strategy`, on the on-device model or granite at its window.
+    static func assessed(_ strategy: some ContextStrategy, onGranite: Bool) async throws {
+        if onGranite {
+            guard let model = Self.granite(contextLength: 8192) else { return }
+            try await Self.measure(
+                model, variant: "recalling.window-8192.budget-50.all-tools", strategy: strategy,
+                scenario: ContextEval.recalling(), allTools: true)
+        } else {
+            try await Self.measure(
+                try Self.onDevice(), variant: "recalling.budget-50.all-tools", strategy: strategy,
+                scenario: ContextEval.recalling(), allTools: true)
+        }
+    }
+
+    @Test func checkpointToolsUnassessedOnTheOnDeviceModel() async throws {
+        try await Self.assessed(Self.stack50, onGranite: false)
+    }
+
+    @Test func checkpointToolsUnassessedOnGraniteAtTheOnDeviceWindow() async throws {
+        try await Self.assessed(Self.stack50, onGranite: true)
+    }
+
+    @Test func checkpointToolsPerRequestOnTheOnDeviceModel() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .request, budget: 0.5, policy: .default), onGranite: false)
+    }
+
+    @Test func checkpointToolsPerRequestOnGraniteAtTheOnDeviceWindow() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .request, budget: 0.5, policy: .default), onGranite: true)
+    }
+
+    @Test func checkpointToolsPerTaskOnTheOnDeviceModel() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .task, budget: 0.5, policy: .default), onGranite: false)
+    }
+
+    @Test func checkpointToolsPerTaskOnGraniteAtTheOnDeviceWindow() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .task, budget: 0.5, policy: .default), onGranite: true)
+    }
+
+    @Test func checkpointToolsAllAssessedOnTheOnDeviceModel() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .all, budget: 0.5, policy: .default), onGranite: false)
+    }
+
+    @Test func checkpointToolsAllAssessedOnGraniteAtTheOnDeviceWindow() async throws {
+        try await Self.assessed(AssessingStrategy(tools: .all, budget: 0.5, policy: .default), onGranite: true)
     }
 }
