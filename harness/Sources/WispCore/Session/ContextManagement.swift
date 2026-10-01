@@ -25,7 +25,8 @@ public struct ContextTarget: Sendable, Equatable {
     /// on the on-device model's 8,192 tokens the instructions with every tool (about 1,400) and the earlier block
     /// at its cap (15%) take about a third of the window, so half leaves about 1,500 tokens of literal turns
     /// (several turns whose output is a reference of at most 640 bytes) and 35% of the window for the turns before
-    /// the next condensation; a larger window keeps proportionally more of both. Phase 6's eval tunes it.
+    /// the next condensation; a larger window keeps proportionally more of both. Kept at the phase-6 checkpoint (ADR
+    /// 0045), which also found that a share at or near the budget condenses on nearly every turn.
     public var share: Double
     /// How many of the latest turns the headroom kept for the next turn averages: a condensation is due when
     /// the context, the prompt, and a turn of that average size would pass the budget, and it condenses until

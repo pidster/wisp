@@ -48,6 +48,7 @@
 | [decisions/0042-personal-data-classifier.md](decisions/0042-personal-data-classifier.md) | A personal-data classifier flags lines beside the rules in `scan_secrets`; the trained file, not the training, ships |
 | [decisions/0043-context-window-from-memory.md](decisions/0043-context-window-from-memory.md) | An Ollama model's context window is sized from its shape and the Mac's memory when it is selected, unless configured |
 | [decisions/0044-host-effects.md](decisions/0044-host-effects.md) | A tool asks the host (the face on the person's screen) for effects such as approval and notifications; each face declares what it carries, and `notify` routes to the front end or terminal before `osascript` |
+| [decisions/0045-layered-context.md](decisions/0045-layered-context.md) | The model's context is composed for each request from a store that keeps everything: instructions, an earlier block of facts and a summary, literal turns with tool output as references after their turn, and the request; condensing to a token target; `memory` to recall; the assessment built and off; with the phase 6 checkpoint's figures |
 | [decisions/0029-tui-front-end.md](decisions/0029-tui-front-end.md) | The terminal chat is a Rust front end (`wisp-tui`, ratatui) over a headless `wisp chat --json`; one palette for both faces |
 | [decisions/0028-rename-to-wisp.md](decisions/0028-rename-to-wisp.md) | The project is wisp; one mechanical rename, no compatibility layer, a new Homebrew tap |
 | [decisions/0027-verb-patterns.md](decisions/0027-verb-patterns.md) | Approval patterns include the verb for programs like git and cargo, from an embedded list; old patterns still count |
@@ -68,7 +69,7 @@
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
 | [decisions/](decisions/) | Architecture Decision Records, one per significant decision |
 | [proposals/2026-09-22-tui-spike.md](proposals/2026-09-22-tui-spike.md) | Spike: a ratatui front end over a headless `wisp chat --json`; what was built, what was answered, what needs a real terminal |
-| [proposals/2026-09-29-layered-context.md](proposals/2026-09-29-layered-context.md) | Reviewed, decisions D1 to D12 recorded, phases 1 to 4d built: stored, active, and shown views of a conversation; a context composed for each request from literal turns, a summary, facts, and recall; display decoupled from context by output handling |
+| [proposals/2026-09-29-layered-context.md](proposals/2026-09-29-layered-context.md) | Done, recorded in ADR 0045; the detailed record of decisions D1 to D12 and every evaluation, phases 1 to 6: stored, active, and shown views of a conversation; a context composed for each request from literal turns, a summary, facts, and recall; display decoupled from context by output handling |
 | [proposals/2026-09-20-escalations.md](proposals/2026-09-20-escalations.md) | For review: two escalation verbs (approval, inquiry) and a choice of channels, including a non-blocking hand-off to the calling agent |
 | [reviews/](reviews/) | Dated code and documentation reviews with their todo lists and status |
 

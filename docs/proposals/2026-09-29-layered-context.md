@@ -1,7 +1,8 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 5 built (4d off by default). Becomes an
-ADR with the eval's figures.
+Date: 2026-09-29. Status: done; decisions D1 to D12 recorded; phases 1 to 6 done (4d built and off by default);
+recorded in [ADR 0045](../decisions/0045-layered-context.md), with the checkpoint's figures. This proposal stays the
+detailed record: every decision's reasoning and every evaluation.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
 [ADR 0017](../decisions/0017-three-layer-instructions.md) unchanged.
@@ -450,7 +451,8 @@ After the operator widened `recall` to `memory` (phasing, 4c), measured on this 
 swift test --filter ContextEvalTests/<test>`, one run at a time, window 8,192, budget 50%, recorded in
 `measurements.json` as `context.memory.<scenario>[.window-8192].budget-50` and, without `memory`,
 `context.summary.<scenario>[.window-8192].budget-50` (these replace the first build's `context.recall.*` and
-`context.summary.recalling.*` rows). `MemoryStrategy` is `SummaryStrategy` with `memory` and its rule. The
+`context.summary.recalling.*` rows; the `memory` rows of the `recalling` scenario were replaced in turn by the
+checkpoint's run 5 on each model, under "Checkpoint, 2026-10-01"). `MemoryStrategy` is `SummaryStrategy` with `memory` and its rule. The
 `noting` scenario is `recalling` with "Keep this in mind for later: the release date moved to 14 November."
 said at the eighth incident review, and an eighth question, "When is the release date?". An answer that
 repeats a fact's source (a bracket, `— from …`, or `(source: …)`) is counted as an echo. The one-minute load
@@ -499,6 +501,141 @@ What it shows:
   drop is variance or the load of 35 to 43 at the time).
 - **One run each, and variance is large**, as before: the on-device `recalling` runs with `memory` scored 5
   and 4 on builds that differ only in the facts' line.
+
+### Checkpoint, 2026-10-01
+
+Phase 6's matrix: the whole design against today's dropping, phase 5's target against phase 2's fixed four
+turns, the assessment in its three tool sets against the same stack without it, and `memory` under the target
+policy. Measured on this Mac with `WISP_MODEL_TESTS=1 swift test --package-path harness/Evals --filter
+ContextEvalTests/<test>`, one test at a time, on-device first and then `ollama:granite4.1:8b` at a configured
+8,192-token window; the tests are `checkpoint…` and `recallingWithMemory…` in `ContextEvalTests`. All twenty use
+the `recalling` scenario (15 turns, then 7 questions: 22 turns) at a window of 8,192. "The stack" is
+`MemoryStrategy` with condensing to the default target (`memory-target`): references, exact-copy cutting, facts,
+the summary in the facts' call, and `memory`. The one-minute load average was 1 to 5 throughout, rising to 7 to
+10 during the last granite run, so times are comparable. Recorded in `measurements.json` as
+`context.<strategy>.recalling[.window-8192][.budget-50][.all-tools]`; runs 5 and 15 replace phase 4c's
+`context.memory.recalling[.window-8192].budget-50`. One run each, and none was rerun: no run crashed, and no
+model read files under a wrong path. In two answers a model failed rather than answered (granite's CI answer in
+run 19, "Session ended without producing a response"; the on-device model's "I am Wisp" in run 1, as in the
+baseline); both are scored wrong, as the scenario scores them.
+
+| # | Strategy | Budget | Tools offered | On-device | Wrong | granite4.1:8b | Wrong |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | dropping | 85% | `read_file` | 0/7 | all | 1/7 | all but CI |
+| 2 | the stack | 85% | `read_file`, `memory` | 6/7 | detail | 7/7 | none |
+| 3 | dropping | 50% | `read_file` | 0/7 | all | 0/7 | all |
+| 4 | the stack | 50% | `read_file`, `memory` | 3/7 | ticket, preference, first file, detail | 4/7 | first file, task, detail |
+| 5 | the stack, fixed four turns (`memory`) | 50% | `read_file`, `memory` | 4/7 | ticket, preference, detail | 7/7 | none |
+| 6 | the stack without `memory` (`summary-target`) | 50% | `read_file` | 5/7 | ticket, first file | 5/7 | first file, detail |
+| 7 | the stack | 50% | every built-in | 4/7 | ticket, preference, detail | 5/7 | first file, detail |
+| 8 | assessed, tools per request | 50% | every built-in | 3/7 | ticket, preference, first file, detail | 3/7 | codename, preference, first file, task |
+| 9 | assessed, tools grown per task | 50% | every built-in | 2/7 | codename, ticket, preference, CI (stale), detail | 4/7 | CI, first file, task |
+| 10 | assessed, every tool registered | 50% | every built-in | 4/7 | CI, task, detail | 4/7 | first file, task, detail |
+
+| # | On-device: condensations (first at) | Tokens after a turn, median (max) | Time per turn, median (p95) | granite: condensations (first at) | Tokens, median (max) | Time, median (p95) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 8 (8) | 6,066 (8,002) | 13.7 s (20.3 s) | 4 (8) | 6,277 (8,021) | 5.1 s (15.2 s) |
+| 2 | 0 | 4,214 (6,239) | 10.4 s (13.4 s) | 0 | 4,511 (6,511) | 9.2 s (11.3 s) |
+| 3 | 13 (6) | 5,185 (7,154) | 10.6 s (18.7 s) | 13 (6) | 4,440 (6,220) | 10.4 s (18.4 s) |
+| 4 | 7 (11) | 3,720 (3,982) | 6.9 s (33.6 s) | 7 (10) | 3,147 (4,446) | 8.8 s (42.7 s) |
+| 5 | 2 (12) | 3,143 (4,280) | 9.3 s (22.9 s) | 1 (14) | 3,179 (5,077) | 6.1 s (9.5 s) |
+| 6 | 5 (11) | 2,977 (3,563) | 8.2 s (33.8 s) | 5 (11) | 3,294 (4,718) | 6.0 s (42.6 s) |
+| 7 | 9 (8) | 3,741 (4,161) | 7.5 s (27.6 s) | 9 (8) | 3,151 (4,347) | 6.7 s (40.7 s) |
+| 8 | 9 (9) | 3,427 (3,833) | 11.2 s (29.0 s) | 8 (8) | 3,777 (4,598) | 12.8 s (49.0 s) |
+| 9 | 10 (7) | 3,692 (4,167) | 10.1 s (26.7 s) | 9 (8) | 3,920 (4,777) | 13.5 s (40.9 s) |
+| 10 | 10 (7) | 3,512 (3,836) | 9.5 s (25.8 s) | 8 (8) | 3,772 (4,260) | 12.9 s (35.5 s) |
+
+Condensing to the target, in every run that condensed under it (runs 4 and 6 to 10); the turns between
+condensations are `Run.condensationGaps`:
+
+| # | On-device: fill after, median | Turns between condensations | Distillations (total) | granite: fill after, median | Turns between | Distillations (total) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4 | 3,524 (43%) | 1, 1, 1, 1, 1, 6 | 9 (95 s) | 2,940 (36%) | 1, 1, 1, 1, 1, 1 | 8 (148 s) |
+| 5, fixed | not recorded | 4 | 2 (42 s) | not recorded | none (one condensation) | 1 (19 s) |
+| 6 | 2,799 (34%) | 1, 1, 1, 2 | 7 (88 s) | 2,875 (35%) | 1, 1, 1, 1 | 8 (133 s) |
+| 7 | 3,523 (43%) | 1 (eight times) | 9 (116 s) | 2,903 (35%) | 1 (eight times) | 12 (186 s) |
+| 8 | 3,157 (39%) | 1, 1, 1, 1, 1, 1, 4, 3 | 11 (116 s) | 2,834 (35%) | 1, 1, 2, 1, 1, 1, 1 | 11 (175 s) |
+| 9 | 3,381 (41%) | 1, 1, 1, 2, 2, 1, 2, 2, 3 | 10 (86 s) | 2,820 (34%) | 1, 1, 2, 1, 1, 1, 1, 1 | 12 (192 s) |
+| 10 | 3,299 (40%) | 1, 1, 1, 1, 1, 1, 1, 2, 4 | 11 (91 s) | 3,546 (43%) | 1, 1, 2, 1, 1, 1, 1 | 10 (150 s) |
+
+The assessment (runs 8 to 10), against the same stack without it (run 7):
+
+| # | Model | Requests the rules settled | Model calls, mean time (total) | Task rewritten | Tokens after turn 1 / turn 6 | `retry` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7 | on-device | (no assessment) | none | no | 1,643 / 3,415 | none |
+| 8 | on-device | 9 of 22 | 13, 2.3 s (31 s) | 8 times | 981 / 3,110 | none |
+| 9 | on-device | 10 of 22 | 12, 2.2 s (26 s) | 11 times | 1,450 / 3,885 | none |
+| 10 | on-device | 10 of 22 | 12, 2.1 s (25 s) | 11 times | 1,626 / 3,748 | none |
+| 7 | granite | (no assessment) | none | no | 1,406 / 3,837 | none |
+| 8 | granite | 10 of 22 | 12, 4.3 s (52 s) | 10 times | 994 / 3,777 | none |
+| 9 | granite | 10 of 22 | 12, 3.3 s (40 s) | 8 times | 985 / 3,817 | none |
+| 10 | granite | 10 of 22 | 12, 3.8 s (45 s) | 9 times | 1,465 / 3,636 | none |
+
+"Task rewritten" counts the assessments that changed the task.
+
+What it shows:
+- **The whole design keeps everything in view at the default budget.** At 85%, the stack never condensed on
+  either model in 22 turns (6,239 and 6,511 tokens at most, against dropping's 8,002 and 8,021) and scored 6/7
+  and 7/7 against dropping's 0/7 and 1/7. The one miss, the on-device model's detail, came after it recalled the
+  right read (`entry 8`) and still said the file named no temporary file; granite recalled `entry 6` and quoted
+  `.harbour-tmp-<random>`. Time per turn fell on the on-device model (10.4 s median against 13.7 s) and rose on
+  granite (9.2 s against 5.1 s), as in phase 3b: each turn after a tool-using one starts a new session, and a
+  context that never condenses stays larger. Dropping's p95 was higher on both.
+- **At half the window every strategy of the design beat dropping** (3 to 7 of 7 against 0 of 7 on both models),
+  but the target policy condensed far more often than the fixed one: 7 against 2 on-device and 7 against 1 on
+  granite, scoring 3/7 against 4/7 and 4/7 against 7/7. The cause is the variant, not the policy. These runs set
+  the budget to 0.5, the target's share. The goal is the share or, when less, the budget less the prompt and the
+  headroom; with the share at the budget the second always wins (the goals were 2,922 to 3,954 tokens, 36% to
+  48%, every one below the 4,096 the share gives), so a condensation ends exactly a headroom below the point
+  that triggers the next. The first turn that adds anything lasting triggers it again: 70 of the 84 gaps between
+  condensations under the target were one turn, and most of the rest fell among the questions, whose turns add little. The fixed policy has no
+  headroom in its trigger, so after dropping to four turns (about 3,000 tokens, close to the target's fill) it
+  ran four turns or more before the next. Read as a stress test of a target at the budget, not as a verdict on
+  the policy at 85%. There the goal is the share, 2,867 tokens below the budget; less the prompt and the
+  headroom (150 to 1,200 tokens in these runs, from the goals), that leaves 1,700 to 2,700 tokens, four to seven
+  turns at the 330 to 400 tokens a reading turn added here once its output was a reference. That is arithmetic,
+  not measured: the 85% runs never condensed.
+- **Condensing every turn costs time and facts.** Each condensation distils: 7 to 12 distillations a run under
+  the target (86 to 116 s on-device, 133 to 192 s on granite) against 1 or 2 under the fixed policy (42 s and
+  19 s). The turns that condensed took 8 to 55 s, and they are most of the p95 column. And
+  each distillation is another chance to garble a fact: in run 4 the on-device distiller recorded `entity release
+  codename = 4127` and then `= release codename` before restoring BLUE HERON, and the ticket and preference were
+  lost.
+- **Phase 5's guarantees held on the models.** In 96 condensations under the target, the fill after was at or
+  below the goal every time (by 1% to 31%), the floor was never reached, and no request overflowed.
+- **The assessment did not pay, and its task inference misled.** It scored 3, 2, and 4 of 7 on-device against
+  4 without it, and 3, 4, and 4 on granite against 5. Its call took 2.1 to 2.3 s on-device and 3.3 to 4.3 s on
+  granite, on 12 or 13 of 22 requests; the rules settled the digression's follow-ups and the first question,
+  and every other question went to the model. Time per turn rose from 7.5 to 9.5 to 11.2 s on-device and from
+  6.7 to 12.8 to 13.5 s on granite. Registering fewer tools saved 412 to 662 tokens at the first turn, falling to
+  60 to 305 by the sixth as the now block's repeated facts and tools line grew, and it did not change how often
+  the context condensed (9 against 9 on-device, 8 against 9 on granite). The inferred task was rewritten on 8 to
+  11 of 22 requests, every question among them, and the return to the task failed in all three granite runs
+  (the task became "summarize each postmortem file", Maria's preference, and "determine the earliest file
+  reading action") and in one of three on-device runs; without the assessment both models returned to it.
+  No run needed the `retry` for an unregistered tool. `inspect` was registered on most requests from turn 2 and
+  called once in the four per-request and per-task runs; the rules registered `system_info` for the disk-full
+  postmortem. The tools line seemed to invite tool calls when answering: 5, 4, and 2 calls in the on-device
+  questions against 1 without it.
+- **Per request against per task (D11) made no difference** beyond the noise of one run: 3 against 2 of 7 and
+  11.2 against 10.1 s on-device, 3 against 4 and 12.8 against 13.5 s on granite. Granite's per-task set grew to
+  every tool at the first-file question, when the assessment asked for `edit_file`, `notify`, and `system_info`.
+- **D7's repeated facts did not improve recall on the on-device model**, its own condition for keeping them;
+  these runs cannot separate them from the task inference.
+- **`memory` under the target policy** (run 4 against 6) scored 3 against 5 of 7 on-device and 4 against 5 on
+  granite, but the runs with `memory` condensed 7 times against 5 on both models: the tool's definition and the
+  rule (about 150 tokens) bring the trigger closer, and under a target at the budget each extra condensation is
+  another distillation. With `memory`, granite scored 7/7 under the fixed policy (run 5) and at 85% (run 2), and the on-device model
+  4/7 and 6/7. The detail question was answered in 5 of 20 runs: twice by recalling the right entry
+  (granite, runs 2 and 9), three times by reading the file again (runs 6, 5 on granite, and 8 on granite). The
+  on-device model noted the codename in its first turn in five of seven runs with `memory`, correctly.
+- **Echoes of a fact's source** came only once facts were shown: none in the 85% runs, where nothing condensed,
+  and from 0 to 7 of 7 under condensing with no pattern by strategy (on-device, 7 in run 4 and none in run 7,
+  which differ only in the tools offered).
+
+Recorded in [ADR 0045](../decisions/0045-layered-context.md), with the recommendations: keep the target policy
+and its defaults at the 85% budget with a guard that keeps the target well below the budget; keep the
+assessment off; keep `memory`.
 
 ## Decisions
 
@@ -1459,7 +1596,8 @@ go here as they arise.
 4d. The assessment per request (D12): the task inferred in chat (D6), the tools a request needs (D4), and
    the facts to repeat next to the request (D7). Built 2026-10-01, **off by default** (`assessment.enabled`): it
    adds a model call to every request the rules do not settle, and the operator decided that evals for design
-   decisions run separately, so phase 6 decides whether it is on. No model eval was run for it.
+   decisions run separately, so phase 6 decides whether it is on. No model eval was run for it. Phase 6 kept it off
+   ("Checkpoint, 2026-10-01").
    [context-management.md](../context-management.md), "The assessment per request", is the reference.
    - **When.** Once per user turn, after the prompt is audited and the turn's references are made, before the
      facts frame and any condensation; not on each step of the framework's tool loop.
@@ -1608,4 +1746,12 @@ go here as they arise.
      return to the task at the target's default against 0.4 and 0.6; the headroom over 8 turns against the
      last turn alone (`headroomTurns: 1`) and none; how often the floor is reached and on what; the time a
      condensation costs, now that one can count more than once and distil in more than one pass.
-6. The ADR, with the eval's figures.
+   - **Measured at the checkpoint** ("Checkpoint, 2026-10-01"): the fill after each condensation and the turns
+     between condensations, against `.fixed`, at a 50% budget, where a target at the budget condenses on nearly
+     every turn; the floor was never reached in 96 condensations, and a distillation call took 1.7 to 29 s. The
+     target at 0.4 and 0.6 and the headroom over one turn or none were not run.
+6. The checkpoint and the ADR. Done 2026-10-01: twenty runs of the `recalling` scenario at a window of 8,192, on
+   the on-device model and on granite, figures and findings under "Evaluation", "Checkpoint, 2026-10-01"; recorded in
+   [ADR 0045](../decisions/0045-layered-context.md). No default changed: the assessment stays off, and the target
+   policy keeps its defaults at the 85% budget, with a guard that keeps the target well below the budget proposed
+   as a follow-up to phase 5.

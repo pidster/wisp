@@ -442,8 +442,10 @@ still recall it. Audited as `context.memory` with `action: task`.
 ### The assessment per request
 
 Off by default (`assessment.enabled` in `config.json`, [wisp.md](wisp.md)): phase 4d of the proposal (D12, amending
-D4, D6, D7) is built to be measured and switched, and the phase-6 eval decides whether it is on, since it can add a
-model call to a request. With it on, before each user turn (not each step of the framework's tool loop), the agent
+D4, D6, D7) is built to be measured and switched. The phase-6 checkpoint kept it off
+([ADR 0045](decisions/0045-layered-context.md)): with it, both models scored lower, its call took 2 to 4 s on more
+than half the requests, the inferred task drifted to the latest question, and the tokens it saved did not reduce
+condensing. With it on, before each user turn (not each step of the framework's tool loop), the agent
 decides four things about the request: the person's intent, the task and its objective, the tools the request
 needs, and the few facts that bear on it.
 
@@ -584,10 +586,18 @@ need about N of W tokens; shorten the request or start a new conversation`), not
 together. A target of half leaves about 1,500 tokens of literal turns, several turns of file reading once
 their output is a reference (at most 640 bytes, about 160 tokens, each), and 35% of the window, about 2,900
 tokens, for the turns before the next condensation, less the headroom; a larger window keeps proportionally
-more of both. These are reasoned from the window's arithmetic, not yet measured on a model. The headroom averages eight turns rather than taking the last one (D5's floor, `headroomTurns: 1`) so
+more of both. These are reasoned from the window's arithmetic. The headroom averages eight turns rather than taking the last one (D5's floor, `headroomTurns: 1`) so
 that one short or one long turn does not swing when condensing starts; it counts output whole, since a
-turn's own output is whole until the turn ends. Both are settings because phase 6's eval tunes them; it
-records the fill after each condensation and the turns until the next.
+turn's own output is whole until the turn ends.
+
+**What the checkpoint measured** ([ADR 0045](decisions/0045-layered-context.md); the proposal's "Checkpoint,
+2026-10-01"). At the default budget the whole design never condensed in the eval's 22 turns at 8,192 tokens, on
+either model, so the defaults stand unmeasured there. At a budget of 0.5, equal to the target, every goal was the
+budget less the prompt and the headroom, so each condensation ended just below the point that triggers the next:
+70 of 84 gaps between condensations were a single turn, each condensation distilled, and the runs scored below
+phase 2's fixed four turns. The fill after was at or below the goal in all 96 condensations, and the floor was
+never reached. A target at or near the budget is therefore a configuration to prevent; a guard is the follow-up
+(below).
 
 `Agent.contextTokens()` exposes the framework's count for the current transcript, or, for a model
 that cannot count, the token usage the runtime reported for the last request; `chat` shows it with
@@ -695,11 +705,17 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
 ## Not done yet, and why
 
 - **The assessment on by default.** The per-request assessment (phase 4d of the
-  [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and off; the phase-6 eval
-  decides whether its call's time per request buys enough: tokens saved, tool choices right, and recall.
-- **The target and the headroom tuned.** Condensing to a target is built with defaults reasoned from the
-  window's arithmetic (above), not yet measured on a model; phase 6's eval records the fill after each
-  condensation and the turns until the next, and sets them.
+  [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and stays off: at the phase-6
+  checkpoint its call's time bought nothing measurable (the tokens it saved did not reduce condensing, and
+  scores fell), and its inferred task drifted with each question ([ADR 0045](decisions/0045-layered-context.md)). Reconsidering it starts with a task that changes only
+  when the request restates it.
+- **A guard on the target.** Nothing stops `context.target` from being set at or above the budget, where
+  condensing runs on nearly every turn (measured at the checkpoint). Proposed in
+  [ADR 0045](decisions/0045-layered-context.md): clamp the target to at most the budget less 0.2, or derive the goal
+  from the budget so that a few average turns fit before the next condensation, with a gate test for it.
+- **The target and the headroom tuned.** The defaults are reasoned from the window's arithmetic (above); the
+  checkpoint's default-budget runs never condensed, and the target at 0.4 and 0.6 and the headroom over one turn
+  or none were not run.
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact
   but costs a model call. The ahead check uses the free usage report where a runtime gives one, and counts
   only for a model that reports nothing (ADR 0025, amendment of 2026-09-29).

@@ -1,9 +1,9 @@
 # ADR 0025: Condense ahead of a known window from the usage the runtime reports
 
-Date: 2026-09-20. Status: accepted. Amended by the
-[layered-context proposal](../proposals/2026-09-29-layered-context.md), phase 5 (2026-10-01): the ahead check
-adds a headroom for the next turn to the estimate, and condenses to a token target, verified after each step,
-rather than to the policy's turns; the ADR for the whole design follows with phase 6's figures.
+Date: 2026-09-20. Status: accepted. Amended by [ADR 0045](0045-layered-context.md), which records phase 5 of the
+[layered-context proposal](../proposals/2026-09-29-layered-context.md) (2026-10-01): the ahead check adds a
+headroom for the next turn to the estimate, and condenses to a token target, verified after each step, rather
+than to the policy's turns; the overflow retry condenses the same way.
 
 ## Context
 

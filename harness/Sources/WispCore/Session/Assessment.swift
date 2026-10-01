@@ -6,7 +6,7 @@ import FoundationModels
 /// before each user turn, one assessment infers the person's intent, the task and its objective, the tools the
 /// request needs, and the facts that bear on it. Rules decide first; otherwise one call to the conversation's model,
 /// outside the conversation's context. Off unless an agent is given settings (`Agent.assessment`), since the call
-/// costs time on every request and the phase-6 eval decides whether it pays.
+/// costs time on every request; the phase-6 checkpoint (ADR 0045) found that it did not pay, so it stays off.
 public struct AssessmentSettings: Sendable, Equatable {
     /// Which tools each request's session registers (D4 and D11).
     public enum ToolSets: String, Sendable, Equatable, Codable, CaseIterable {

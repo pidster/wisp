@@ -1,7 +1,11 @@
 # ADR 0043: Size a local model's context window from its shape and the Mac's memory
 
 Date: 2026-09-29. Status: accepted. Amends [ADR 0016](0016-local-runtimes-through-an-executor.md) (Ollama's
-settings) and [ADR 0025](0025-context-estimation.md) (the window the agent condenses against).
+settings) and [ADR 0025](0025-context-estimation.md) (the window the agent condenses against). Amended by
+[ADR 0045](0045-layered-context.md): the window also sets the target condensing brings the context down to and the
+caps of the earlier block (facts and the summary, as shares of it); open question 9, cited under Consequences, is
+answered by tool output sent as a reference after its turn rather than sized to the window, so tool results keep
+their 4 KiB bound within their own turn.
 
 ## Context
 
