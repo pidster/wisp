@@ -141,6 +141,12 @@ import WispTestSupport
         try Data(#"{"facts": {"share": 0.9}}"#.utf8).write(to: home.configFile)
         let refused = doctor.settingsInRange()
         #expect(!refused.ok && refused.detail.contains("facts.share 0.9 must be between 0 and 0.5"))
+        try Data(#"{"context": {"target": 0.95, "headroomTurns": 100}}"#.utf8).write(to: home.configFile)
+        let context = doctor.settingsInRange()
+        #expect(!context.ok && context.detail.contains("context.target 0.95 must be between 0.1 and 0.8"))
+        #expect(context.detail.contains("context.headroomTurns 100 must be between 0 and 64"))
+        try Data(#"{"context": {"target": 0.6}}"#.utf8).write(to: home.configFile)
+        #expect(doctor.settingsInRange().ok && doctor.settingsInRange().detail.contains("context.headroomTurns 8"))
     }
 
     @Test func theContextWindowSaysHowItIsKnown() throws {

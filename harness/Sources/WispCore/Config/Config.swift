@@ -43,6 +43,43 @@ public struct Config: Codable, Equatable, Sendable {
     public var facts: FactsConfig?
     /// The assessment of each request: whether it runs, and which tools each request registers.
     public var assessment: AssessmentConfig?
+    /// Condensing: the target it condenses to and the headroom it keeps for the next turn.
+    public var context: ContextConfig?
+
+    /// Condensing settings in the file (phase 5 of the
+    /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)).
+    public struct ContextConfig: Codable, Equatable, Sendable {
+        /// The share of the window a condensation brings the context down to; default 0.5, from 0.1 to 0.8.
+        public var target: Double?
+        /// How many of the latest turns the next turn's headroom averages; default 8, 0 for none, 1 for the last
+        /// turn alone.
+        public var headroomTurns: Int?
+
+        /// Creates settings; nil fields take defaults.
+        public init(target: Double? = nil, headroomTurns: Int? = nil) {
+            self.target = target
+            self.headroomTurns = headroomTurns
+        }
+
+        /// The range `target` must be in: above 0.8 a condensation would leave too little below the 0.85 budget
+        /// for the next turn, and below 0.1 it would leave nothing but the instructions.
+        public static let targetRange = 0.1...0.8
+        /// The range `headroomTurns` must be in.
+        public static let headroomRange = 0...64
+
+        /// Checks both fields' ranges.
+        ///
+        /// - Throws: `DecodingError.dataCorrupted` naming the problem.
+        public func validate() throws {
+            func fail(_ message: String) -> DecodingError {
+                .dataCorrupted(.init(codingPath: [], debugDescription: "context: \(message)"))
+            }
+            if let target, !Self.targetRange.contains(target) { throw fail("target must be between 0.1 and 0.8") }
+            if let headroomTurns, !Self.headroomRange.contains(headroomTurns) {
+                throw fail("headroomTurns must be between 0 and 64")
+            }
+        }
+    }
 
     /// Assessment settings in the file (phase 4d of the
     /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), decision D12). Off by
@@ -322,8 +359,9 @@ public struct Config: Codable, Equatable, Sendable {
         audit: AuditConfig? = nil, approval: ApprovalConfig? = nil, ollama: OllamaConfig? = nil,
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
-        shownOutputLines: Int? = nil, facts: FactsConfig? = nil
+        shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil
     ) {
+        self.context = context
         self.facts = facts
         self.inlineOutputBytes = inlineOutputBytes
         self.shownOutputLines = shownOutputLines
@@ -354,6 +392,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.commandPolicy?.validate()
         try config.tools?.validate()
         try config.facts?.validate()
+        try config.context?.validate()
         return config
     }
 
@@ -406,7 +445,10 @@ public struct Config: Codable, Equatable, Sendable {
             factsShare: min(0.5, max(0, facts?.share ?? 0.1)), factsSummary: facts?.summary ?? true,
             summaryShare: min(0.5, max(0, facts?.summaryShare ?? 0.05)),
             subjectKinds: SubjectKinds.defaults.applying(facts),
-            assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request
+            assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request,
+            contextTarget: ContextTarget(
+                share: context?.target ?? ContextTarget.default.share,
+                headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns)
         )
     }
 
@@ -483,5 +525,7 @@ public struct Config: Codable, Equatable, Sendable {
         public var assessmentEnabled = false
         /// Which tools each assessed request registers.
         public var assessmentTools = AssessmentSettings.ToolSets.request
+        /// What condensing aims for: the target share of the window and the next turn's headroom.
+        public var contextTarget = ContextTarget.default
     }
 }

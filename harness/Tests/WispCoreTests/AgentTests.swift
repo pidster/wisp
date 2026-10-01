@@ -65,7 +65,10 @@ import WispTestSupport
         let agent = agent(steps: [.say("Hello again")], overflowOnce: true, partial: "Hel")
         var seen: [String] = []
         let reply = try await agent.stream("hi") { seen.append($0) }
-        #expect(reply == .init(text: "Hello again", condensed: true))
+        #expect(reply.text == "Hello again" && reply.condensed)
+        // The scripted overflow reports a 10-token window, which even the floor cannot fit under its target, so
+        // the reply carries the note for the person; the retry, the one exact check, still answers.
+        #expect(reply.contextNote?.hasPrefix("The context could not be condensed to its target") == true)
         #expect(seen.joined() == "Hello again")
         #expect(agent.condensations == 1)
     }

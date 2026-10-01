@@ -361,6 +361,20 @@ extension AuditEvent {
             return details
         }
 
+        /// What a condensation to a target adds to `context.condensation` (phase 5 of the layered-context
+        /// proposal): the goal, the fill before and after, the headroom kept for the next turn, all in tokens, the
+        /// steps in words, and `floor` only when the floor could not reach the goal.
+        static func targeting(
+            goal: Int, fillBefore: Int, fillAfter: Int, headroom: Int, steps: [String], floor: Bool
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "target": .int(goal), "fillBefore": .int(fillBefore), "fillAfter": .int(fillAfter),
+                "headroom": .int(headroom), "steps": .array(steps.map { .string($0) }),
+            ]
+            if floor { details["floor"] = .bool(true) }
+            return details
+        }
+
         /// `mcp.request`; `arguments` is the call's JSON.
         public static func mcpRequest(tool: String, arguments: String) -> [String: JSONValue] {
             ["tool": .string(tool), "arguments": .string(arguments)]
@@ -555,7 +569,10 @@ extension AuditEvent {
                 "findings", "triageError", "notified",
             ]
         case .condensation:
-            ["turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason", "savedBefore", "savedAfter"]
+            [
+                "turnsBefore", "turnsAfter", "contextSize", "tokenCount", "reason", "savedBefore", "savedAfter",
+                "target", "fillBefore", "fillAfter", "headroom", "steps", "floor",
+            ]
         case .presentationCut:
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]

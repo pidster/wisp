@@ -240,6 +240,46 @@ import WispTestSupport
         #expect(ReferencingStrategy().summary.contains("reference"))
     }
 
+    @Test func aTargetStrategyRecordsTheFillAfterEachCondensationAndTheTurnsBetween() async throws {
+        let scenario = ContextEval.showing()
+        var steps: [ScriptedModel.Step] = []
+        for step in scenario.steps {
+            if let file = step.file {
+                let path = scenario.fixtures.appending(path: file).path
+                steps.append(.call(name: "read_file", arguments: #"{"path":"\#(path)"}"#))
+            }
+            steps.append(.say("Noted."))
+        }
+        // A model that counts at four bytes a token and reports nothing, on a window the scenario overflows.
+        let model = ScriptedModel(steps: steps, reportsUsage: false)
+        let resolved = ResolvedModel(
+            selection: .system, custom: model, contextSize: 2000,
+            countTokens: { ContextComposer.bytes(of: $0) / ContextComposer.bytesPerToken })
+        let strategy = ReferencingStrategy(policy: .default)
+        #expect(strategy.name == "referencing-target" && ReferencingStrategy().name == "referencing")
+        let run = await ContextEval.run(
+            scenario, strategy: strategy, model: resolved, instructions: "x",
+            tools: { ToolRegistry(audit: $0).select(["read_file"]).tools })
+        let condensed = run.turns.filter { !$0.condensations.isEmpty }
+        #expect(condensed.count >= 2 && run.fills.count == run.condensations, "\(run.report)")
+        #expect(condensed.allSatisfy { zip($0.fills, $0.targets).allSatisfy { $0 <= $1 } })
+        #expect(condensed[0].line.contains("fill after ") && condensed[0].line.contains(" of target "))
+        #expect(run.condensationGaps == zip(condensed, condensed.dropFirst()).map { $1.number - $0.number })
+        #expect(run.report[1].contains("fill after condensing median "), "\(run.report)")
+        #expect(run.report[1].contains("% of the window), turns between condensations ["))
+        #expect(run.measurement().notes.contains("turns between condensations ["))
+        #expect(run.measurement().task == "context.referencing-target")
+        // Phase 2's fixed turns record no fill, and the report says nothing of it.
+        let fixed = ContextEval.Run(
+            strategy: "x", model: "m", window: 100,
+            turns: [
+                .init(
+                    number: 1, label: "l", reply: "r", failed: false, seconds: 1, tokens: 1, condensations: ["budget"],
+                    tools: [])
+            ], answers: [])
+        #expect(fixed.fills.isEmpty && fixed.condensationGaps.isEmpty && !fixed.report[1].contains("fill after"))
+    }
+
     @Test func factsDistilTheDroppedTurnsAndTheQuestionCarriesThem() async throws {
         let plant = { (text: String) in
             ContextEval.Step(kind: .plant, prompt: text + " Please reply in one short line.")

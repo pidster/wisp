@@ -12,9 +12,10 @@ import FoundationModels
 /// keeps the reply whole. Phase 3b (decision D12) adds `referencesOutput` (also on by default): a tool
 /// output is sent whole only within the turn that produced it, which the framework's tool loop carries,
 /// and every later request carries a compact structured reference in its place (`OutputReference`), under
-/// the same entry id. Condensing keeps the instructions and the policy's last turns
-/// (`Transcript.condensed(keepTurns:)`), ahead of the window at `budget` or on overflow, and the store marks
-/// the rest dropped rather than forgetting them. Phase 4a adds the facts (`facts`, a `FactFrame` the agent
+/// the same entry id. Condensing keeps the instructions and the last turns (`Transcript.condensed(keepTurns:)`),
+/// ahead of the window at `budget` or on overflow, and the store marks the rest dropped rather than forgetting
+/// them: under phase 2's `.condense(keepTurns:)` a fixed count (`ahead`, `overflow`), under the default
+/// `.target` (phase 5) as many as `TargetCondensing` finds bring the context to its goal (`goal`, `headroom`). Phase 4a adds the facts (`facts`, a `FactFrame` the agent
 /// renders), and phase 4b the running summary of the dropped turns at the end of the earlier block
 /// (`summarises`, `summaryShare`, `summaryBatchTurns`). The composer is pure: it decides, and `Agent` counts
 /// tokens, saves the archive, records the audit events, and applies the result.
@@ -32,10 +33,15 @@ public struct ContextComposer: Sendable {
     /// Bytes of prompt per token assumed when estimating a new prompt's cost.
     static let bytesPerToken = 4
 
-    /// What happens when a prompt no longer fits the context window.
-    public let policy: ContextPolicy
-    /// The fraction of the context window a turn may start at before the transcript is condensed first.
+    /// What happens when a prompt no longer fits the context window, and how condensing ahead of it works.
+    public var policy: ContextPolicy
+    /// The fraction of the context window a turn may start at before the transcript is condensed first: the
+    /// high-water mark. Under `.target`, the turn's headroom counts toward it (`isOverBudget`).
     public var budget = 0.85
+    /// Whether the earlier block is squeezed below its cap for this turn: the facts at their 1 KiB floor and no
+    /// summary. Set by a condensation to a target that reached its floor (D5's second cut); the agent clears it
+    /// at the start of every turn.
+    public var squeezesEarlier = false
     /// Whether presentational text is cut from later requests. Off, every entry is sent as stored, which
     /// is phase 2's behaviour exactly (`ContextEquivalenceTests` runs with it off).
     public var cutsPresentation = true
@@ -161,8 +167,9 @@ public struct ContextComposer: Sendable {
     /// - Returns: The frame.
     func factFrame(_ view: FactView, store: ThreadRecord, window: Int) -> FactFrame {
         let active = Set(store.entries.filter { $0.state == .active }.map(\.id))
-        let budget = max(Self.factsFloorBytes, Int(Double(window) * factsShare) * Self.bytesPerToken)
-        let summary = summarises ? store.summary : nil
+        let share = max(Self.factsFloorBytes, Int(Double(window) * factsShare) * Self.bytesPerToken)
+        let budget = squeezesEarlier ? Self.factsFloorBytes : share
+        let summary = summarises && !squeezesEarlier ? store.summary : nil
         return FactComposition.frame(
             view, active: active, budgetBytes: budget, summary: summary,
             summaryBytes: SummaryWriter.capBytes(share: summaryShare, window: window))
@@ -381,12 +388,15 @@ public struct ContextComposer: Sendable {
 
     /// Whether this composer ever condenses ahead of the window; the agent counts tokens only when it does.
     var condensesAhead: Bool {
-        if case .condense = policy { return true }
-        return false
+        switch policy {
+        case .condense, .target: true
+        case .failFast: false
+        }
     }
 
-    /// Condensing before a prompt, when the tokens the conversation uses plus a rough cost for the prompt
-    /// (four bytes a token) reach `budget` of `window`, and condensing would drop a turn; nil otherwise.
+    /// Condensing before a prompt under `.condense(keepTurns:)`, when the tokens the conversation uses plus a
+    /// rough cost for the prompt (four bytes a token) reach `budget` of `window`, and condensing would drop a turn;
+    /// nil otherwise, and always under `.target`, which `TargetCondensing` handles.
     ///
     /// - Parameters:
     ///   - prompt: The prompt about to be sent.
@@ -404,7 +414,8 @@ public struct ContextComposer: Sendable {
         return Condensation(before: before, after: after, estimate: estimate)
     }
 
-    /// Condensing after the window overflowed, to retry the prompt once; nil under `.failFast`. It applies
+    /// Condensing after the window overflowed under `.condense(keepTurns:)`, to retry the prompt once; nil under
+    /// `.failFast` and `.target` (`Agent.retryToTarget`). It applies
     /// even when no turn would go, since it also sheds the failed attempt, as a rebuilt session always did.
     ///
     /// - Parameter store: The thread's record, as it was before the failed prompt.

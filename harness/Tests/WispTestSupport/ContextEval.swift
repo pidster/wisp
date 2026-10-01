@@ -406,8 +406,8 @@ extension ContextStrategy {
     public var hasMemory: Bool { false }
 }
 
-/// The baseline: an `Agent` with its default policy and output handling off, whose composer sends the
-/// store's active turns literally and condenses to the last four ahead of an 85% budget or on overflow,
+/// The baseline: an `Agent` with phase 2's policy (`ContextPolicy.fixed`) and output handling off, whose composer
+/// sends the store's active turns literally and condenses to the last four ahead of an 85% budget or on overflow,
 /// which is what phase 2 of the proposal built and phase 1 measured.
 public struct DroppingStrategy: ContextStrategy {
     /// `dropping`.
@@ -418,13 +418,14 @@ public struct DroppingStrategy: ContextStrategy {
     /// Creates the strategy.
     public init() {}
 
-    /// Opens an `Agent` with the default context policy and presentational text kept.
+    /// Opens an `Agent` with phase 2's context policy and presentational text kept.
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
         -> any ContextThread
     {
-        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        let agent = Agent(
+            instructions: instructions, tools: tools, model: model, contextPolicy: .fixed, audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
         return AgentThread(agent)
@@ -444,13 +445,14 @@ public struct CuttingStrategy: ContextStrategy {
     /// Creates the strategy.
     public init() {}
 
-    /// Opens an `Agent` with the default context policy and output handling on.
+    /// Opens an `Agent` with phase 2's context policy and presentational text cut.
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
         -> any ContextThread
     {
-        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        let agent = Agent(
+            instructions: instructions, tools: tools, model: model, contextPolicy: .fixed, audit: audit)
         agent.cutsPresentation = true
         agent.referencesOutput = false
         return AgentThread(agent)
@@ -461,29 +463,34 @@ public struct CuttingStrategy: ContextStrategy {
 /// `DroppingStrategy` does, cutting limited to exact copies, and each tool output sent whole only in the
 /// turn that produced it and as a compact reference in every later request.
 public struct ReferencingStrategy: ContextStrategy {
-    /// `referencing`.
-    public let name = "referencing"
+    /// `referencing`, with `-target` when it condenses to a target.
+    public var name: String { "referencing" + ContextEval.suffix(policy) }
     /// What it does.
     public let summary =
         "dropping, with exact copies of tool output cut and each output a reference after its own turn"
 
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
+    /// How it condenses (`Agent.contextPolicy`).
+    public var policy: ContextPolicy
 
     /// Creates the strategy.
     ///
-    /// - Parameter budget: When to condense; the default is the agent's, 85%.
-    public init(budget: Double = 0.85) {
+    /// - Parameters:
+    ///   - budget: When to condense; the default is the agent's, 85%.
+    ///   - policy: How it condenses; phase 2's four turns by default, as the recorded figures were measured.
+    public init(budget: Double = 0.85, policy: ContextPolicy = .fixed) {
         self.budget = budget
+        self.policy = policy
     }
 
-    /// Opens an `Agent` with the default context policy and both kinds of output handling on.
+    /// Opens an `Agent` with the strategy's context policy and both kinds of output handling on.
     public func open(
         model: ResolvedModel, tools: [any Tool], instructions: String, audit: AuditLog
     )
         -> any ContextThread
     {
-        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        let agent = Agent(instructions: instructions, tools: tools, model: model, contextPolicy: policy, audit: audit)
         agent.contextBudget = budget
         agent.cutsPresentation = true
         agent.referencesOutput = true
@@ -496,8 +503,8 @@ public struct ReferencingStrategy: ContextStrategy {
 /// the facts in force composed into each request on the prompt side, capped at `share` of the window. Every
 /// fact is kept in memory, so a run neither reads nor writes `~/.wisp/facts.json`.
 public struct FactsStrategy: ContextStrategy {
-    /// `facts`.
-    public let name = "facts"
+    /// `facts`, with `-target` when it condenses to a target.
+    public var name: String { "facts" + ContextEval.suffix(policy) }
     /// What it does.
     public let summary =
         "referencing, with facts extracted from tool output, the dropped turns' prose distilled into facts at each "
@@ -506,6 +513,8 @@ public struct FactsStrategy: ContextStrategy {
     public var share: Double
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
+    /// How it condenses (`Agent.contextPolicy`).
+    public var policy: ContextPolicy
     /// Yes: facts are extracted from the turn's tool events.
     public var linksToolEvents: Bool { true }
 
@@ -515,9 +524,11 @@ public struct FactsStrategy: ContextStrategy {
     ///   - share: The facts' share of the window; the default is the composer's.
     ///   - budget: When to condense; the default is the agent's, 85%. A lower budget makes a run condense
     ///     earlier, so distillation is measured on a model whose reads happen to fit.
-    public init(share: Double = 0.1, budget: Double = 0.85) {
+    ///   - policy: How it condenses; phase 2's four turns by default, as the recorded figures were measured.
+    public init(share: Double = 0.1, budget: Double = 0.85, policy: ContextPolicy = .fixed) {
         self.share = share
         self.budget = budget
+        self.policy = policy
     }
 
     /// Opens an `Agent` with output handling on and facts kept in memory.
@@ -526,7 +537,7 @@ public struct FactsStrategy: ContextStrategy {
     )
         -> any ContextThread
     {
-        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        let agent = Agent(instructions: instructions, tools: tools, model: model, contextPolicy: policy, audit: audit)
         agent.cutsPresentation = true
         agent.referencesOutput = true
         agent.contextBudget = budget
@@ -542,8 +553,9 @@ public struct FactsStrategy: ContextStrategy {
 /// block carries after the facts, capped at `summaryShare` of the window. `together` writes the summary in the
 /// facts' call; otherwise it has a call of its own.
 public struct SummaryStrategy: ContextStrategy {
-    /// `summary`, or `summary-separate` when the summary has a call of its own.
-    public var name: String { together ? "summary" : "summary-separate" }
+    /// `summary`, or `summary-separate` when the summary has a call of its own, with `-target` when it condenses
+    /// to a target.
+    public var name: String { (together ? "summary" : "summary-separate") + ContextEval.suffix(policy) }
     /// What it does.
     public var summary: String {
         "facts, with the turns condensing drops added to a running summary in the earlier block"
@@ -559,6 +571,8 @@ public struct SummaryStrategy: ContextStrategy {
     public var together: Bool
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
+    /// How it condenses (`Agent.contextPolicy`).
+    public var policy: ContextPolicy
     /// Yes: facts are extracted from the turn's tool events.
     public var linksToolEvents: Bool { true }
 
@@ -570,10 +584,12 @@ public struct SummaryStrategy: ContextStrategy {
     ///   - batchTurns: Dropped turns that wait for the summary; the default is the composer's.
     ///   - together: Whether the summary is written in the facts' call; the default is `FactSettings`'s.
     ///   - budget: When to condense; the default is the agent's, 85%.
+    ///   - policy: How it condenses; phase 2's four turns by default, as the recorded figures were measured.
     public init(
         share: Double = 0.1, summaryShare: Double = 0.05, batchTurns: Int = 3,
-        together: Bool = FactSettings.summaryWithFactsDefault, budget: Double = 0.85
+        together: Bool = FactSettings.summaryWithFactsDefault, budget: Double = 0.85, policy: ContextPolicy = .fixed
     ) {
+        self.policy = policy
         self.share = share
         self.summaryShare = summaryShare
         self.batchTurns = batchTurns
@@ -587,7 +603,7 @@ public struct SummaryStrategy: ContextStrategy {
     )
         -> any ContextThread
     {
-        let agent = Agent(instructions: instructions, tools: tools, model: model, audit: audit)
+        let agent = Agent(instructions: instructions, tools: tools, model: model, contextPolicy: policy, audit: audit)
         agent.cutsPresentation = true
         agent.referencesOutput = true
         agent.contextBudget = budget
@@ -605,14 +621,16 @@ public struct SummaryStrategy: ContextStrategy {
 /// turn it asks in, and note facts as it works; references name it (`to see it: memory "recall entry 7"`) instead
 /// of a second call. The full design of the proposal short of the per-request assessment (phase 4d).
 public struct MemoryStrategy: ContextStrategy {
-    /// `memory`.
-    public let name = "memory"
+    /// `memory`, with `-target` when it condenses to a target.
+    public var name: String { "memory" + ContextEval.suffix(policy) }
     /// What it does.
     public let summary =
         "summary (in the facts' call), with the memory tool recalling stored entries, turns, the task, and facts' "
         + "histories and noting facts, and references naming it"
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
+    /// How it condenses (`Agent.contextPolicy`).
+    public var policy: ContextPolicy
     /// Yes: facts are extracted from the turn's tool events.
     public var linksToolEvents: Bool { true }
     /// Yes: the conversation has `memory`.
@@ -620,9 +638,12 @@ public struct MemoryStrategy: ContextStrategy {
 
     /// Creates the strategy.
     ///
-    /// - Parameter budget: When to condense; the default is the agent's, 85%.
-    public init(budget: Double = 0.85) {
+    /// - Parameters:
+    ///   - budget: When to condense; the default is the agent's, 85%.
+    ///   - policy: How it condenses; phase 2's four turns by default, as the recorded figures were measured.
+    public init(budget: Double = 0.85, policy: ContextPolicy = .fixed) {
         self.budget = budget
+        self.policy = policy
     }
 
     /// Opens an `Agent` as `SummaryStrategy` does, with `memory` added to its tools and wired to it.
@@ -633,7 +654,8 @@ public struct MemoryStrategy: ContextStrategy {
     {
         let source = MemorySource()
         let memory = ToolRegistry(audit: audit, memory: source).select([MemoryTool.toolName]).tools
-        let agent = Agent(instructions: instructions, tools: tools + memory, model: model, audit: audit)
+        let agent = Agent(
+            instructions: instructions, tools: tools + memory, model: model, contextPolicy: policy, audit: audit)
         agent.cutsPresentation = true
         agent.referencesOutput = true
         agent.contextBudget = budget
@@ -650,13 +672,15 @@ public struct MemoryStrategy: ContextStrategy {
 /// catalogue. `tools` chooses D11's alternatives: per request, grown within the task, or every tool (the assessment's
 /// cost and its task and facts without the tools' saving). The phase-6 eval runs it against `MemoryStrategy`.
 public struct AssessingStrategy: ContextStrategy {
-    /// `assessing`, then `-task` or `-all` for the other tool sets.
+    /// `assessing`, then `-task` or `-all` for the other tool sets, and `-target` when it condenses to a target.
     public var name: String {
-        switch tools {
-        case .request: "assessing"
-        case .task: "assessing-task"
-        case .all: "assessing-all"
-        }
+        let base =
+            switch tools {
+            case .request: "assessing"
+            case .task: "assessing-task"
+            case .all: "assessing-all"
+            }
+        return base + ContextEval.suffix(policy)
     }
     /// What it does.
     public var summary: String {
@@ -670,6 +694,8 @@ public struct AssessingStrategy: ContextStrategy {
     public var infersTask: Bool
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
+    /// How it condenses (`Agent.contextPolicy`).
+    public var policy: ContextPolicy
     /// Yes: facts are extracted from the turn's tool events.
     public var linksToolEvents: Bool { true }
     /// Yes: the conversation has `memory`.
@@ -681,10 +707,15 @@ public struct AssessingStrategy: ContextStrategy {
     ///   - tools: Which tools each request registers; per request by default (D4).
     ///   - infersTask: Whether the task is inferred; yes, as in chat.
     ///   - budget: When to condense; the default is the agent's, 85%.
-    public init(tools: AssessmentSettings.ToolSets = .request, infersTask: Bool = true, budget: Double = 0.85) {
+    ///   - policy: How it condenses; phase 2's four turns by default, as `MemoryStrategy`'s.
+    public init(
+        tools: AssessmentSettings.ToolSets = .request, infersTask: Bool = true, budget: Double = 0.85,
+        policy: ContextPolicy = .fixed
+    ) {
         self.tools = tools
         self.infersTask = infersTask
         self.budget = budget
+        self.policy = policy
     }
 
     /// Opens an `Agent` as `MemoryStrategy` does, with the assessment on.
@@ -693,7 +724,7 @@ public struct AssessingStrategy: ContextStrategy {
     )
         -> any ContextThread
     {
-        let thread = MemoryStrategy(budget: budget).open(
+        let thread = MemoryStrategy(budget: budget, policy: policy).open(
             model: model, tools: tools, instructions: instructions, audit: audit)
         if let agent = (thread as? AgentThread)?.agent {
             agent.assessment = AssessmentSettings(tools: self.tools, infersTask: infersTask)
@@ -722,6 +753,16 @@ public final class AgentThread: ContextThread {
 }
 
 extension ContextEval {
+    /// What a strategy's name adds for its condensing policy: `-target` for a token target (phase 5), nothing for
+    /// phase 2's fixed turns, under which every recorded figure before phase 5 was measured.
+    ///
+    /// - Parameter policy: The policy.
+    /// - Returns: The suffix.
+    public static func suffix(_ policy: ContextPolicy) -> String {
+        if case .target = policy { return "-target" }
+        return ""
+    }
+
     /// What one turn of a run did.
     public struct Turn: Sendable, Equatable {
         /// 1-based position in the conversation.
@@ -736,7 +777,8 @@ extension ContextEval {
         public var seconds: Double
         /// Tokens occupied after the turn (`ContextThread.occupiedTokens`).
         public var tokens: Int?
-        /// The reason of each condensation during the turn (`budget`, `overflow`), from the audit.
+        /// The reason of each condensation during the turn (`budget`, `overflow`), from the audit, with `:floor`
+        /// when a condensation to a target could not reach its target.
         public var condensations: [String]
         /// The tools called during the turn, in order.
         public var tools: [String]
@@ -759,6 +801,11 @@ extension ContextEval {
         /// Each assessment during the turn (`context.assessment` events), as `method tools (seconds)`, with
         /// `retry` when a selection missed a tool the model called; empty when the strategy assesses nothing.
         public var assessments: [String] = []
+        /// The tokens the context took after each condensation to a target during the turn (`fillAfter`); empty
+        /// under phase 2's fixed turns, whose events carry no fill.
+        public var fills: [Int] = []
+        /// The goal each of those condensations aimed for, in tokens (`target`), in the same order.
+        public var targets: [Int] = []
 
         /// Creates a turn record.
         public init(
@@ -796,6 +843,10 @@ extension ContextEval {
                 + (summaries.isEmpty ? "" : ", summarised " + summaries.map(\.words).joined(separator: "+"))
                 + (memoryCalls.isEmpty ? "" : ", memory [\(memoryCalls.joined(separator: "; "))]")
                 + (assessments.isEmpty ? "" : ", assessed [\(assessments.joined(separator: "; "))]")
+                + (fills.isEmpty
+                    ? ""
+                    : ", fill after "
+                        + zip(fills, targets).map { "\($0) of target \($1)" }.joined(separator: "+"))
                 + (failed ? ", FAILED" : "")
                 + " | \(shown)"
         }
@@ -941,6 +992,27 @@ extension ContextEval {
                     + distillations.map { String(format: "%.1f s", $0) }.joined(separator: ", ") + ")"
         }
 
+        /// The tokens the context took after each condensation to a target, over the whole run.
+        public var fills: [Int] { turns.flatMap(\.fills) }
+
+        /// For each condensation but the last, how many turns later the next one came: the turns a condensation
+        /// bought. Several condensations in one turn count once.
+        public var condensationGaps: [Int] {
+            let at = turns.filter { !$0.condensations.isEmpty }.map(\.number)
+            return zip(at, at.dropFirst()).map { $1 - $0 }
+        }
+
+        /// The fill after condensing and the turns between condensations in words, for the report and the notes:
+        /// empty when there were no fills to report.
+        var condensing: String {
+            guard !fills.isEmpty else { return "" }
+            let median = ContextEval.percentile(fills.map(Double.init), 0.5).map { Int($0) } ?? 0
+            let share =
+                window.map { String(format: " (%.0f%% of the window)", 100 * Double(median) / Double($0)) } ?? ""
+            let gaps = condensationGaps.map(String.init).joined(separator: ",")
+            return "fill after condensing median \(median)\(share), turns between condensations [\(gaps)]"
+        }
+
         /// The number of the first turn during which a condensation happened; nil when none did. The turns
         /// before it all fit in the window.
         public var firstCondensation: Int? { turns.first { !$0.condensations.isEmpty }?.number }
@@ -961,6 +1033,7 @@ extension ContextEval {
                 "\(condensations) condensations (first at turn \(firstCondensation.map(String.init) ?? "none")), "
                     + "\(cuts) cuts, \(references) references, \(self.facts) facts recorded, "
                     + (summaries.isEmpty ? "" : "\(summarised), ") + (recalled.isEmpty ? "" : "\(recalled), ")
+                    + (condensing.isEmpty ? "" : "\(condensing), ")
                     + "and \(distilled) over \(turns.count) turns; "
                     + "tokens after a turn median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?"), max "
@@ -996,6 +1069,7 @@ extension ContextEval {
                     + "\(firstCondensation.map(String.init) ?? "none")), \(cuts) cuts, \(references) references, "
                     + (self.facts == 0 && distillations.isEmpty ? "" : "\(self.facts) facts recorded, \(distilled), ")
                     + (summaries.isEmpty ? "" : "\(summarised), ") + (recalled.isEmpty ? "" : "\(recalled), ")
+                    + (condensing.isEmpty ? "" : "\(condensing), ")
                     + "median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
@@ -1083,7 +1157,7 @@ extension ContextEval {
                 number: turns.count + 1, label: label, reply: reply, failed: failed, seconds: seconds,
                 tokens: await thread.occupiedTokens(),
                 condensations: events.filter { $0.kind == .condensation }.map {
-                    $0.details["reason"]?.stringValue ?? "?"
+                    ($0.details["reason"]?.stringValue ?? "?") + ($0.details["floor"] == true ? ":floor" : "")
                 },
                 tools: events.filter { $0.kind == .toolCall }.map { $0.details["tool"]?.stringValue ?? "?" },
                 cuts: events.filter { $0.kind == .presentationCut }.count,
@@ -1107,6 +1181,9 @@ extension ContextEval {
                         ? "noted" : "refused (\(event.details["failure"]?.stringValue ?? "?"))")
             }
             turn.assessments = events.filter { $0.kind == .assessment }.map(Self.assessmentLine)
+            let targeted = events.filter { $0.kind == .condensation && $0.details["fillAfter"] != nil }
+            turn.fills = targeted.compactMap { $0.details["fillAfter"]?.intValue }
+            turn.targets = targeted.compactMap { $0.details["target"]?.intValue }
             turn.summaries = events.filter { $0.kind == .summary }.map {
                 SummaryCall(
                     seconds: $0.details["seconds"]?.doubleValue ?? 0, combined: $0.details["combined"] == true,

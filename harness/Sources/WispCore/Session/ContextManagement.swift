@@ -4,11 +4,49 @@ import FoundationModels
 public enum ContextPolicy: Sendable, Equatable {
     /// Surface `LanguageModelError.contextSizeExceeded` to the caller.
     case failFast
-    /// Rebuild the session keeping the instructions and the last `keepTurns` turns, then retry once.
+    /// Phase 2's condensing: keep the instructions and the last `keepTurns` turns, with no check that the result
+    /// fits, ahead of the window and on overflow (then retry once). Kept for the equivalence suite and for tests
+    /// that pin a turn count; `fixed` is the four turns that were the default.
     case condense(keepTurns: Int)
+    /// Condense to a token target (phase 5 of the layered-context proposal): references, then the dropped
+    /// turns distilled, then the oldest turns dropped, each step verified, until the context is at or below the
+    /// target and the next turn fits under the budget (`TargetCondensing`).
+    case target(ContextTarget)
 
-    /// Keep the last four turns.
-    public static let `default` = ContextPolicy.condense(keepTurns: 4)
+    /// Condense to the default target.
+    public static let `default` = ContextPolicy.target(.default)
+    /// Phase 2's default: the last four turns.
+    public static let fixed = ContextPolicy.condense(keepTurns: 4)
+}
+
+/// What condensing to a target aims for (`ContextPolicy.target`).
+public struct ContextTarget: Sendable, Equatable {
+    /// The low-water mark: the share of the window a condensation brings the context down to. 0.5 by default:
+    /// on the on-device model's 8,192 tokens the instructions with every tool (about 1,400) and the earlier block
+    /// at its cap (15%) take about a third of the window, so half leaves about 1,500 tokens of literal turns
+    /// (several turns whose output is a reference of at most 640 bytes) and 35% of the window for the turns before
+    /// the next condensation; a larger window keeps proportionally more of both. Phase 6's eval tunes it.
+    public var share: Double
+    /// How many of the latest turns the headroom kept for the next turn averages: a condensation is due when
+    /// the context, the prompt, and a turn of that average size would pass the budget, and it condenses until
+    /// one more such turn fits. 8 by default; 1 makes it D5's floor (the last whole turn); 0 keeps no headroom,
+    /// as phase 2 did.
+    public var headroomTurns: Int
+
+    /// Creates a target.
+    ///
+    /// - Parameters:
+    ///   - share: The low-water mark, as a share of the window.
+    ///   - headroomTurns: How many latest turns the headroom averages.
+    public init(share: Double = 0.5, headroomTurns: Int = 8) {
+        self.share = share
+        self.headroomTurns = headroomTurns
+    }
+
+    /// Half the window, with the average of the last eight turns as headroom.
+    public static let `default` = ContextTarget()
+    /// The fewest literal turns a condensation keeps: the last whole turn (D5's floor).
+    public static let floorTurns = 1
 }
 
 extension Transcript {
@@ -69,6 +107,24 @@ extension Transcript {
         reduce(0) { count, entry in
             if case .prompt = entry { return count + 1 }
             return count
+        }
+    }
+}
+
+/// Why a request could not be fitted into the model's window after condensing (phase 5 of the layered-context
+/// proposal): the overflow retry either sends something that fits or reports this.
+public enum ContextFailure: Error, CustomStringConvertible, Equatable {
+    /// Condensed to its floor, the instructions, the last turn, and the request still need `tokens` of a
+    /// `window`-token window, as the model counted them or wisp estimated them.
+    case doesNotFit(tokens: Int, window: Int)
+
+    /// Human-readable explanation, with what the person can do.
+    public var description: String {
+        switch self {
+        case .doesNotFit(let tokens, let window):
+            "the request does not fit the model's context window: with earlier turns condensed, the instructions, "
+                + "the last turn, and the request still need about \(tokens) of \(window) tokens; shorten the "
+                + "request or start a new conversation"
         }
     }
 }

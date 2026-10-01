@@ -126,6 +126,7 @@ public struct WispThread: Sendable {
             }
         agent.stats = stats
         agent.toolEvents = toolEvents
+        agent.contextPolicy = .target(config.contextTarget)
         agent.factsShare = config.factsShare
         agent.summarises = config.factsSummary
         agent.summaryShare = config.summaryShare

@@ -22,17 +22,24 @@ public final class Agent {
     /// The live session, over the last composed transcript. A request whose composition is what the session
     /// already holds continues it, keeping the runtime's processed prefix and the session's token totals;
     /// any other composition starts a new session. Replaced, never mutated.
-    private var session: LanguageModelSession
+    private(set) var session: LanguageModelSession
     /// What the sessions this agent has replaced had counted, so `tokensUsed` never falls when a new session
     /// starts from zero. Added to only by `replaceSession(with:)`.
     private var carried = TurnTokens(input: 0, output: 0)
     /// The names of the tools the live session registers, in order; every tool until an assessment selects fewer.
     private var sessionTools: [String]
 
-    /// What happens when a prompt no longer fits the context window.
-    public var contextPolicy: ContextPolicy { composer.policy }
+    /// What happens when a prompt no longer fits the context window: condensing to a target by default
+    /// (`ContextPolicy.target`), phase 2's fixed turns, or failing fast.
+    public var contextPolicy: ContextPolicy {
+        get { composer.policy }
+        set { composer.policy = newValue }
+    }
+    /// The note for the person when a condensation this turn could not bring the context to its target even at
+    /// its floor (`TargetCondensing`); nil otherwise. Cleared at the start of every turn and carried on the reply.
+    public internal(set) var contextNote: String?
     /// How many times the transcript has been condensed, to recover from overflow or ahead of it.
-    public private(set) var condensations = 0
+    public internal(set) var condensations = 0
     /// The fraction of the context window a turn may start at before the transcript is condensed
     /// first. Runtimes such as Ollama truncate silently instead of failing, so the estimate is the
     /// only warning; the framework's models fail loudly and this merely saves the failed call.
@@ -106,7 +113,7 @@ public final class Agent {
     /// What the assessment carries from one request to the next.
     var assessed = AssessmentState()
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
-    public private(set) var contextSize: Int?
+    public internal(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
     /// cannot bound; the cap turns a runaway into a prompt error instead of a full window (probed
     /// 2026-09-21: one chunk ran 8193 tokens and six minutes before this).
@@ -314,6 +321,9 @@ public final class Agent {
         guard composer.condensesAhead, let contextSize else { return false }
         let reported = max(0, lastInputTokens - referenced / ContextComposer.bytesPerToken)
         let used = lastInputTokens > 0 ? reported : ((try? await model.tokenCount(for: transcript)) ?? 0)
+        if case .target = composer.policy {
+            return await condenseToTarget(before: prompt, used: used, window: contextSize)
+        }
         guard let condensation = composer.ahead(of: prompt, in: store, used: used, window: contextSize) else {
             return false
         }
@@ -345,6 +355,9 @@ public final class Agent {
         } catch {
             guard let overflow = Self.overflow(in: error) else { throw error }
             contextSize = overflow.contextSize
+            if case .target = composer.policy {
+                return try await retryToTarget(overflow, operation)
+            }
             guard let condensation = composer.overflow(in: store) else { throw error }
             await apply(
                 condensation, contextSize: overflow.contextSize, tokenCount: overflow.tokenCount, reason: "overflow",
@@ -447,6 +460,15 @@ public final class Agent {
     private func referenceOutputs() -> Int {
         let found = composer.newReferences(in: store)
         guard !found.isEmpty else { return 0 }
+        return markReferenced(found)
+    }
+
+    /// Marks `found` as sent by reference from this turn on, and records a `context.reference` event for each.
+    ///
+    /// - Parameter found: The outputs (`ContextComposer.newReferences(in:)`).
+    /// - Returns: The bytes the references save, net of their own size.
+    @discardableResult
+    func markReferenced(_ found: [ContextComposer.Referencing]) -> Int {
         let turn = turns.current
         for output in found {
             store.reference(output.entry, from: turn)
@@ -469,6 +491,9 @@ public final class Agent {
     ///   - response: The turn's `response` event; nil when the turn failed.
     ///   - started: When the prompt was sent: the prompt entry's time.
     private func remember(prompt: AuditReference?, response: AuditReference?, started: Date) {
+        // A squeezed earlier block lasts for the turn that needed it; the next request is composed in full and
+        // squeezed again only if its own condensation reaches the floor.
+        composer.squeezesEarlier = false
         let added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
         let turn = turns.current
         let events = toolEvents?.take(turn: turn) ?? []
@@ -505,7 +530,7 @@ public final class Agent {
 
     /// Saves the transcript before and after a condensation to `archive`, returning both paths for the
     /// audit record; nil when there is no archive or saving failed, which never stops the turn.
-    private func saveCondensation(_ before: Transcript, _ after: Transcript) -> (before: String, after: String)? {
+    func saveCondensation(_ before: Transcript, _ after: Transcript) -> (before: String, after: String)? {
         guard let archive else { return nil }
         let label = "turn\(turns.current)-condensed\(condensations)"
         do {
@@ -543,12 +568,16 @@ public final class Agent {
         /// The facts the turn recorded or changed that are still in force, from its tools and the model, for
         /// the person to see and to move to another scope; empty when facts are off or the turn added none.
         public var facts: [Fact]
+        /// Why the context could not be condensed to its target this turn, for the person (`Agent.contextNote`);
+        /// nil when it could, or nothing was condensed.
+        public var contextNote: String?
 
         /// Creates a reply.
-        public init(text: String, condensed: Bool, facts: [Fact] = []) {
+        public init(text: String, condensed: Bool, facts: [Fact] = [], contextNote: String? = nil) {
             self.text = text
             self.condensed = condensed
             self.facts = facts
+            self.contextNote = contextNote
         }
     }
 
@@ -614,6 +643,8 @@ public final class Agent {
     ) async throws -> Reply {
         turns.advance()
         turnFactIDs = []
+        contextNote = nil
+        composer.squeezesEarlier = false
         let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
@@ -623,7 +654,7 @@ public final class Agent {
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
             let text = try await withToolRecovery { try await withOverflowRecovery(operation) }
-            var reply = Reply(text: text, condensed: condensations > before)
+            var reply = Reply(text: text, condensed: condensations > before, contextNote: contextNote)
             recordStats(started: started, failure: nil)
             let responded = audit?.record(
                 .response,

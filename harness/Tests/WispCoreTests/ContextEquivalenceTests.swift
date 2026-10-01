@@ -25,7 +25,9 @@ import WispTestSupport
 /// runs with every layer switched off (`RunningSummaryTests` and `SummaryWriterTests` test it). Phase 4c
 /// added `memory`, which a thread given a list of tools has only when the list names it; the thread here names
 /// `read_file` alone, so its tools and instructions are phase 2's (`MemoryTests` tests it). Its config still
-/// disables `memory`, as the recorded session start expects.
+/// disables `memory`, as the recorded session start expects. Phase 5 made condensing to a token target the
+/// default policy; every agent here runs with phase 2's fixed four turns (`ContextPolicy.fixed`), or the turn
+/// count its scenario pins (`TargetCondensingTests` tests the target).
 ///
 /// wisp's system prompt is not what this suite checks: phase 3b changed its wording (D12's standing rule
 /// that the person sees tool output), so the prompt in force is written back as the phase 2 text before
@@ -216,7 +218,8 @@ import WispTestSupport
         // more passes the 85% budget, so long prompts condense ahead once there are more than four turns.
         let agent = Agent(
             instructions: "Be brief.", tools: ToolRegistry(audit: audit).select(["read_file"]).tools,
-            model: ResolvedModel(selection: .system, custom: model, contextSize: 60), audit: audit)
+            model: ResolvedModel(selection: .system, custom: model, contextSize: 60), contextPolicy: .fixed,
+            audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
         agent.summarises = false
@@ -318,7 +321,7 @@ import WispTestSupport
         let model = ScriptedModel(steps: [.say("one"), .say("two"), .say("three")])
         let agent = Agent(
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: model, contextSize: 60),
-            audit: audit)
+            contextPolicy: .fixed, audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
         agent.summarises = false
@@ -333,7 +336,7 @@ import WispTestSupport
         let next = ScriptedModel(steps: [.say("resumed"), .say("again")])
         let resumed = Agent(
             transcript: saved, tools: [], model: ResolvedModel(selection: .system, custom: next, contextSize: 60),
-            audit: audit)
+            contextPolicy: .fixed, audit: audit)
         resumed.cutsPresentation = false
         resumed.referencesOutput = false
         resumed.summarises = false
@@ -364,7 +367,8 @@ import WispTestSupport
         ])
         let agent = Agent(
             instructions: "Be brief.", tools: tools,
-            model: ResolvedModel(selection: .system, custom: first, contextSize: 60), audit: audit)
+            model: ResolvedModel(selection: .system, custom: first, contextSize: 60), contextPolicy: .fixed,
+            audit: audit)
         agent.cutsPresentation = false
         agent.referencesOutput = false
         agent.summarises = false
@@ -374,7 +378,8 @@ import WispTestSupport
             openModel: { selection, store in
                 let switched = Agent(
                     store: store, tools: tools,
-                    model: ResolvedModel(selection: selection, custom: second, contextSize: 60), audit: audit)
+                    model: ResolvedModel(selection: selection, custom: second, contextSize: 60), contextPolicy: .fixed,
+                    audit: audit)
                 switched.cutsPresentation = false
                 switched.referencesOutput = false
                 switched.summarises = false
@@ -424,6 +429,7 @@ import WispTestSupport
         ])
         let agent = try thread.openAgent(
             on: ResolvedModel(selection: .system, custom: model, contextSize: 60))
+        agent.contextPolicy = .fixed
         agent.cutsPresentation = false
         agent.referencesOutput = false
         agent.summarises = false

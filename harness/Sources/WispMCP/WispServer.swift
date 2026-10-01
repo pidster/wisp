@@ -367,6 +367,7 @@ public struct WispServer: Sendable {
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
                     "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
                     "output": schema == nil ? .null : Self.parse(reply.text),
+                    "contextNote": reply.contextNote.map { .string($0) } ?? .null,
                 ]),
                 isError: false
             )

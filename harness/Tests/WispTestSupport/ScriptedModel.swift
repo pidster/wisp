@@ -26,6 +26,10 @@ public struct ScriptedModel: LanguageModel {
         public let requests = Mutex<[LanguageModelExecutorGenerationRequest]>([])
         /// Whether the next request throws context overflow.
         public let overflowOnce: Mutex<Bool>
+        /// How many requests, after `overflowOnce`'s, throw context overflow too: 1 makes a retry overflow again.
+        public let overflows = Mutex(0)
+        /// The window and the request's size a scripted overflow reports.
+        public let overflowSize = Mutex((contextSize: 10, tokenCount: 11))
         /// Text streamed before the scripted overflow, so a retry starts from a non-prefix.
         public let partialBeforeOverflow: String
         /// Input tokens the last request reported; the model plays a runtime that reports usage.
@@ -69,14 +73,23 @@ public struct ScriptedModel: LanguageModel {
         ) async throws {
             let script = model.script
             script.requests.withLock { $0.append(request) }
-            if script.overflowOnce.withLock({
-                let value = $0; $0 = false; return value
-            }) {
+            let overflowing =
+                script.overflowOnce.withLock {
+                    let value = $0; $0 = false; return value
+                }
+                || script.overflows.withLock {
+                    let value = $0 > 0; $0 = max(0, $0 - 1); return value
+                }
+            if overflowing {
                 if !script.partialBeforeOverflow.isEmpty {
                     await channel.send(.response(action: .appendText(script.partialBeforeOverflow, tokenCount: 1)))
                 }
+                let size = script.overflowSize.withLock { $0 }
                 throw LanguageModelError.contextSizeExceeded(
-                    .init(contextSize: 10, tokenCount: 11, debugDescription: "scripted overflow", metadata: [:]))
+                    .init(
+                        contextSize: size.contextSize, tokenCount: size.tokenCount,
+                        debugDescription: "scripted overflow",
+                        metadata: [:]))
             }
             let step = script.steps.withLock { $0.isEmpty ? nil : $0.removeFirst() } ?? .say("done")
             switch step {

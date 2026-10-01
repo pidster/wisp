@@ -90,9 +90,10 @@ obscurely. An agent can also start from a saved `Transcript`, or from another ag
   already shown, a newline separates the two. It is a callback
   rather than an `AsyncSequence` for a concurrency reason recorded in
   [ADR 0003](decisions/0003-callback-streaming.md).
-- On context overflow the `ContextPolicy` (default: keep the last four turns) rebuilds the session from a
-  condensed transcript and retries once; `condensations` counts recoveries. See
-  [context-management.md](context-management.md) and [ADR 0008](decisions/0008-context-condensation.md).
+- On context overflow the `ContextPolicy` (default: condense to a token target, `TargetCondensing`; phase 2's
+  fixed four turns remain as `.fixed`) rebuilds the session from a condensed transcript and retries once;
+  `condensations` counts recoveries. See [context-management.md](context-management.md) and
+  [ADR 0008](decisions/0008-context-condensation.md).
 - `transcript` (the composed view the next request carries), `store`, `contextTokens()`, and `reset()`
   support saving, budgeting, and starting over.
 
@@ -113,7 +114,11 @@ handling). One turn, as the agent runs it:
    (`ContextComposer.summaryBatchTurns`), writes the facts and the updated running summary in that one call
    instead (`SummaryWriter`, audited as `context.distillation` and `context.summary`; `Agent.handOn`), marks the dropped entries in the store with the condensation and this turn
    (`droppedAt`), and renders the frame again. For a model that reports usage, the estimate subtracts what
-   step 1 saved.
+   step 1 saved. Under the default policy the decision and the steps are `TargetCondensing`'s: due when the
+   context, the prompt, and the next turn's headroom reach the budget; then references, distilling, and
+   dropping the oldest turns, each measured, until the context is at or below its target or only the last
+   turn is left (the floor), where the earlier block is squeezed and, if that is not enough, the person is told
+   (`Agent.contextNote`). The agent is the loop's `CondensingHost`; the event is recorded after the steps.
 3. The composer builds the request's transcript: the store's active entries, with each reply's cut
    presentational text replaced by its marker (step 6) and each tool output replaced by its reference
    (`OutputReference`: tool, entry, time, status, size, the call's arguments, first and last lines), and

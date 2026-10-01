@@ -95,8 +95,9 @@ extension Doctor {
         return Finding(name: name, ok: true, detail: "\(names.count) saved, each with a matching .store")
     }
 
-    /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0 and
-    /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, which loading the config enforces.
+    /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,
+    /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target` and
+    /// `context.headroomTurns` within their ranges, which loading the config enforces.
     func settingsInRange() -> Finding {
         let name = "settings"
         var config = Config()
@@ -118,11 +119,19 @@ extension Doctor {
             problems.append(
                 "facts.summaryShare \(share) must be between 0 and 0.5; wisp refuses to load this config")
         }
+        if let target = config.context?.target, !Config.ContextConfig.targetRange.contains(target) {
+            problems.append("context.target \(target) must be between 0.1 and 0.8; wisp refuses to load this config")
+        }
+        if let turns = config.context?.headroomTurns, !Config.ContextConfig.headroomRange.contains(turns) {
+            problems.append(
+                "context.headroomTurns \(turns) must be between 0 and 64; wisp refuses to load this config")
+        }
         guard problems.isEmpty else { return Finding(name: name, ok: false, detail: problems.joined(separator: "; ")) }
         let resolved = resolvedConfig
         let state =
             "inlineOutputBytes \(resolved.inlineOutputBytes), shownOutputLines \(resolved.shownOutputLines), "
-            + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare)"
+            + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare), "
+            + "context.target \(resolved.contextTarget.share), context.headroomTurns \(resolved.contextTarget.headroomTurns)"
         let clamped = notes.isEmpty ? "" : " (clamped: " + notes.joined(separator: "; ") + ")"
         return Finding(name: name, ok: true, detail: "in range: " + state + clamped)
     }

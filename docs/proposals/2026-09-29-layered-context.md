@@ -1,6 +1,6 @@
 # Proposal: layered context, composed for each request
 
-Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 4d built (4d off by default). Becomes an
+Date: 2026-09-29. Status: reviewed; decisions D1 to D12 recorded; phases 1 to 5 built (4d off by default). Becomes an
 ADR with the eval's figures.
 It would reverse design rule 4 of [context-management.md](../context-management.md) ("the transcript stays
 a faithful record"), amend [ADR 0025](../decisions/0025-context-estimation.md), and leave
@@ -1529,11 +1529,11 @@ go here as they arise.
      request, how often a new session starts); recall and the return to the task with the inferred task and the
      repeated facts against `MemoryStrategy` (D7's trial: dropped if it does not help the on-device model); and
      `assessing-all`, to separate the call's cost from the tools' saving.
-5. Condensing's guarantees, which today are missing: `ContextComposer.ahead` and `overflow` condense to a
+5. Condensing's guarantees, which were missing: `ContextComposer.ahead` and `overflow` condensed to a
    fixed four turns (`ContextPolicy.default`) with no check that the result fits; ahead of the window,
-   nothing happens when there are four turns or fewer, even over budget; the overflow retry fails when four
-   turns still exceed the window; and the 85% estimate (usage plus the prompt at four bytes a token) leaves
-   no room for the next turn's reply and tool output. Phase 5:
+   nothing happened when there were four turns or fewer, even over budget; the overflow retry failed when four
+   turns still exceeded the window; and the 85% estimate (usage plus the prompt at four bytes a token) left
+   no room for the next turn's reply and tool output. The operator's scope:
    1. Condense to a token target, a low-water mark as a share of the window taken from the eval, in the
       order references, then distilled facts, then dropping the oldest turns, verifying the composed result
       after each step (by count or estimate) and condensing further while it is above the target.
@@ -1543,4 +1543,69 @@ go here as they arise.
    4. An invariant test without the model: for any sequence of turn sizes, the context composed after a
       condensation is at or below the target, and an average turn fits.
    5. The eval records the fill after each condensation and the turns until the next.
+
+   Done 2026-10-01; no model eval was run for it. [context-management.md](../context-management.md),
+   "Condensing", is the reference.
+   - **The policy.** `ContextPolicy.target(ContextTarget)` is the default; phase 2's `.condense(keepTurns:)`
+     stays, with `.fixed` for its four turns, for the equivalence suite, the eval's earlier strategies, and
+     tests that pin a count. `ContextEquivalenceTests` pins `.fixed` and still matches phase 2's snapshots
+     without re-recording: the target policy changes when and how far it condenses, so it cannot reproduce
+     them, and the old behaviour is kept behind the policy as the off switch.
+   - **When.** Due when the context, the prompt, and the headroom reach the budget (85%, unchanged). The
+     headroom is the running average of the latest `context.headroomTurns` (8) turns' size: tool calls, tool
+     output whole, and reply, at four bytes a token; the prompt is counted on its own. Chosen over D5's floor
+     (the last turn alone, `headroomTurns: 1`) so that one short or long turn does not swing the start of
+     condensing; it counts output whole because a turn's own output is whole until it ends. 0 keeps no headroom.
+   - **How far.** To the goal: `context.target` (0.5) of the window, or less when the prompt and the headroom
+     need more room under the budget, so an average turn always fits after it. 0.5 because on the on-device
+     window the instructions with every tool (about 1,400 tokens) and the earlier block at its cap (15%) take
+     about a third, which leaves about 1,500 tokens of literal turns and 35% of the window before the budget;
+     a larger window keeps proportionally more of both. Reasoned from that arithmetic, not measured; phase 6
+     tunes it.
+   - **The steps** (`TargetCondensing`, generic over a `CondensingHost`, which `Agent` is): references, which
+     the turn's start has normally made already, so the step is the guarantee; then the fewest oldest turns
+     whose dropping brings the estimate to the goal, handed to the distiller (facts, and the summary when a
+     batch is due, as 4a and 4b do) and dropped; measured after each, and a further pass drops more when the
+     distilled facts or a fact the dropped turns no longer show put it back above the goal. Never fewer than
+     one literal turn (D5's floor). At the floor, the earlier block is squeezed below its cap (facts to 1 KiB,
+     no summary) for the turn, D5's second cut; the floor turn's output is already at its slice, its reference
+     (with references off it stays whole: that switch is kept for comparison). The request and the
+     instructions are never cut. Each pass drops a turn or stops, so it terminates.
+   - **Measuring.** By the model's count when it can count (the on-device model: one count per step); otherwise
+     an estimate anchored on the runtime's figure (Ollama's reported usage, less the references' saving) plus
+     the change in bytes at four bytes a token. On overflow, the anchor is the overflow's own count less the
+     bytes the failed request added.
+   - **The floor, said.** Still above the goal at the floor: the turn goes on; `context.condensation` carries
+     `floor: true`; chat prints `(context at its floor: the instructions and the last turn take N of W tokens,
+     above the G that leave room for this request and a reply; this turn may run out of room, and /new starts
+     afresh)` (and `wisp-tui` through the event's text); MCP `respond` returns `contextNote`.
+   - **The overflow retry** condenses the same way from the overflow's count and retries once, even at the
+     floor, since the retry is the one exact check; a second overflow is `ContextFailure.doesNotFit`, which
+     says how many tokens of the window the request needed and what to do. An overflow counts as a
+     condensation even when nothing could be dropped, as phase 2's did, since the retry sheds the failed attempt.
+   - **Audit.** `context.condensation` gains `target`, `fillBefore`, `fillAfter`, `headroom`, `steps`
+     (`referenced N`, `distilled N turns`, `dropped N turns`, `squeezed earlier`), and `floor`; it is recorded
+     after the steps, so the distillation and summary events come before it, and the entries it dropped are
+     attributed to it once it exists.
+   - **Settings.** `context.target` (0.1 to 0.8) and `context.headroomTurns` (0 to 64), in `config.json` and
+     through `wisp config set` and `/config set`.
+   - **Tests, without the model** (`TargetCondensingTests`): the arithmetic; the invariant over 200 generated
+     conversations (seeded SplitMix64: windows of 2,048 to 32,768 tokens, targets 0.4 to 0.6, headroom over 0,
+     1, 4, or 8 turns, instructions up to half the window, 4 to 40 turns of random prompt, read, and reply sizes,
+     references on or off, facts growing a simulated earlier block or not, measured by count or by the anchored
+     estimate), checking at every condensation that it ends, that the store keeps every entry, that the
+     measurement matches what a model would count, and either that the context is at or below the goal with
+     the prompt and an average turn fitting under the budget, or that it is at the floor (one literal turn,
+     the earlier block squeezed or empty); the overflow path over 200 more from an overflow's count; the step
+     order; and, through `Agent` on the scripted model, fewer condensations than `.fixed` on turns that crowd
+     the window, the audit fields, the floor's note, and `doesNotFit` after a second overflow.
+   - **The eval** gives every strategy from `referencing` on a `policy` (phase 2's `.fixed` by default, under
+     which their recorded figures were measured; `.target` adds `-target` to the name), records each turn's
+     `fills` and `targets` from the condensations during it, and reports the median fill after condensing (and
+     its share of the window) and the turns between condensations (`Run.condensationGaps`).
+   - **What phase 6 must measure**, on the on-device model and on Ollama: the fill after each condensation and
+     the turns between condensations, against `.fixed` (`memory` against `memory-target`); recall and the
+     return to the task at the target's default against 0.4 and 0.6; the headroom over 8 turns against the
+     last turn alone (`headroomTurns: 1`) and none; how often the floor is reached and on what; the time a
+     condensation costs, now that one can count more than once and distil in more than one pass.
 6. The ADR, with the eval's figures.

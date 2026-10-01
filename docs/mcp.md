@@ -127,7 +127,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "output": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "output": null, "contextNote": null }
 ```
 
 `facts` lists the facts the turn recorded or changed that are still in force, from its tools and the model
@@ -220,7 +220,12 @@ as `source: caller`, so the audit and the facts resource say who set it. It is t
 in this version. Deleting a fact is chat's, and so is making one permanent: the caller can move a fact
 between `thread` and `session` with `set_fact_scope` (below), never to `permanent`.
 
-`condensed` is true when older turns were dropped to fit the window on this call. Threads live in memory for
+`condensed` is true when older turns were dropped to fit the window on this call. `contextNote` is null
+unless condensing could not bring the thread's context to its target even with only the last turn left
+(the instructions, the last turn, and the request are too large for the window's target): then it says so
+in a sentence, with the figures, and the call still answers. A request that cannot fit the window at all
+fails with `the request does not fit the model's context window: …` and what to do
+([context-management.md](context-management.md), "Condensing"). Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
 `session.end` with reason `evicted`. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
 in order; different threads run concurrently.

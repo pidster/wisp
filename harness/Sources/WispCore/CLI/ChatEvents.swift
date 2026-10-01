@@ -45,13 +45,38 @@ public enum ChatEvents {
                 "  · \(d["task"]?.stringValue ?? "task") runs on \(d["model"]?.stringValue ?? "?"): "
                     + (d["reason"]?.stringValue ?? ""))
         case .condensation:
-            let reason = d["reason"]?.stringValue ?? ""
-            return style.muted(
-                "(context condensed, \(reason): \(d["turnsBefore"]?.intValue ?? 0) → \(d["turnsAfter"]?.intValue ?? 0) turns)"
-            )
+            return condensation(d, style: style)
         default:
             return nil
         }
+    }
+
+    /// The note for a `context.condensation` event: the turns before and after, and for a condensation to a target
+    /// the tokens before and after against the window; at the floor, a second line that says the context could not
+    /// reach its target and what to do.
+    ///
+    /// - Parameters:
+    ///   - d: The event's details.
+    ///   - style: Styling.
+    /// - Returns: The note.
+    static func condensation(_ d: [String: JSONValue], style: Style) -> String {
+        let reason = d["reason"]?.stringValue ?? ""
+        let turns = "\(d["turnsBefore"]?.intValue ?? 0) → \(d["turnsAfter"]?.intValue ?? 0) turns"
+        guard let after = d["fillAfter"]?.intValue else {
+            return style.muted("(context condensed, \(reason): \(turns))")
+        }
+        let window = d["contextSize"]?.intValue ?? 0
+        let fill = "\(d["fillBefore"]?.intValue ?? 0) → \(after) of \(window) tokens"
+        let changed = !(d["steps"]?.arrayValue ?? []).isEmpty || reason == "overflow"
+        var lines = changed ? [style.muted("(context condensed, \(reason): \(turns), \(fill))")] : []
+        if d["floor"]?.boolValue == true {
+            lines.append(
+                style.ember(
+                    "(context at its floor: the instructions and the last turn take \(after) of \(window) tokens, "
+                        + "above the \(d["target"]?.intValue ?? 0) that leave room for this request and a reply; this "
+                        + "turn may run out of room, and /new starts afresh)"))
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// The most bytes of a tool's output chat shows under its note, whatever the line setting.

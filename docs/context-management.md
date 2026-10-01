@@ -530,15 +530,64 @@ conversation that keeps no facts still gets the tools line.
 
 `Agent` has a `ContextPolicy`:
 
-- `.failFast`: the error propagates.
-- `.condense(keepTurns:)` (default, four turns): on overflow, the store's active view as it was before
-  the failing prompt is condensed with `Transcript.condensed(keepTurns:)`, the dropped entries are marked,
-  and the prompt is retried once on a new session. If it fails again, the error propagates.
+- `.target(ContextTarget)` (default): condense to a token target, below. Phase 5 of the
+  [layered-context proposal](proposals/2026-09-29-layered-context.md).
+- `.condense(keepTurns:)`, and `.fixed` for its old default of four: phase 2's condensing, which keeps the
+  instructions and the last N turns with no check that the result fits. Ahead of the window it does nothing
+  when there are N turns or fewer, however full they are. It stays for the equivalence suite
+  (`ContextEquivalenceTests`), the eval's earlier strategies, and tests that pin a turn count.
+- `.failFast`: the overflow error propagates.
 
 `condensed(keepTurns:)` keeps the leading `.instructions` entry and the last N turns, where a turn is a
 `.prompt` plus everything up to the next prompt, so tool calls and outputs stay with the prompt that caused
-them. It is pure and tested. `Agent.condensations` counts recoveries so callers can tell the user; `chat`
-prints a note and MCP `respond` sets `structuredContent.condensed`.
+them. It is pure and tested, and the target policy drops turns through it too. `Agent.condensations`
+counts condensations so callers can tell the user; `chat` prints a note and MCP `respond` sets
+`structuredContent.condensed`.
+
+**Condensing to a target.** Two marks, both shares of the window: the budget, 85% (`contextBudget`), and the
+target, 50% (`context.target`). A request is due a condensation when the context, the prompt (four bytes a
+token), and the **headroom** reach the budget. The headroom is the room the next turn needs: the average
+size of the latest eight turns (`context.headroomTurns`), each its tool calls, its tool output whole (as its
+own turn carries it), and its reply. The condensation then brings the context down to the **goal**: the
+target, or less when the prompt and the headroom need more room under the budget. In order, measuring the
+composed context after each step (`TargetCondensing`):
+
+1. **References.** Every earlier tool output still whole is sent as its reference. The agent already does
+   this at the start of each turn, so the step is the guarantee rather than a saving.
+2. **Distil, then drop.** The fewest oldest turns whose dropping brings the estimate to the goal are distilled
+   into facts, and into the running summary when a batch is due, then dropped. Distilling adds to the earlier
+   block, so it is measured with the drop; when what it added puts the context back above the goal, the next
+   pass drops more.
+3. **The floor.** Never fewer than one literal turn, the last whole one (the proposal's D5). If that is still
+   above the goal, the earlier block is squeezed below its cap (the facts to 1 KiB, the summary left out) for
+   this turn. The request and the instructions are never cut; the last turn's tool output is already its
+   reference. If the context is still above the goal, the condensation reports the **floor**: the event says
+   `floor: true`, chat prints a note (`context at its floor: the instructions and the last turn take N of W
+   tokens, …; this turn may run out of room, and /new starts afresh`), MCP `respond` returns it as
+   `contextNote`, and the turn goes on.
+
+A measurement is the model's own count when it can count (the on-device model), and otherwise an estimate
+anchored on the last figure the runtime gave (the last request's reported usage, less what this turn's new
+references saved, for Ollama): that figure plus the change in bytes, at four bytes a token. Every pass drops
+at least one turn or stops, so a condensation ends. `context.condensation` records the goal (`target`), the
+fill before and after, the headroom, and the steps ([logging.md](logging.md)).
+
+**On overflow** the same steps run over the store as it was before the failed request, measured from the
+overflow's own count (the failed request's tokens, less the bytes of the prompt and of what the turn had
+added), and the request is retried once on a new session, even at the floor: the retry is the one exact
+check. If it overflows again, the error is `ContextFailure.doesNotFit` (`the request does not fit the
+model's context window: with earlier turns condensed, the instructions, the last turn, and the request still
+need about N of W tokens; shorten the request or start a new conversation`), not the framework's.
+
+**Why these defaults.** On the on-device model's 8,192 tokens, the instructions with every tool take about
+1,400 tokens and the earlier block at its cap 15% (facts 10%, summary 5%), about a third of the window
+together. A target of half leaves about 1,500 tokens of literal turns, several turns of file reading once
+their output is a reference (at most 640 bytes, about 160 tokens, each), and 35% of the window, about 2,900
+tokens, for the turns before the next condensation, less the headroom; a larger window keeps proportionally
+more of both. These are reasoned from the window's arithmetic, not yet measured on a model. The headroom averages eight turns rather than taking the last one (D5's floor, `headroomTurns: 1`) so
+that one short or one long turn does not swing when condensing starts; it counts output whole, since a
+turn's own output is whole until the turn ends. Both are settings because phase 6's eval tunes them; it
+records the fill after each condensation and the turns until the next.
 
 `Agent.contextTokens()` exposes the framework's count for the current transcript, or, for a model
 that cannot count, the token usage the runtime reported for the last request; `chat` shows it with
@@ -552,27 +601,32 @@ of the window ([ADR 0025](decisions/0025-context-estimation.md)): a runtime repo
 request used, wisp's executors keep the last request's figure on the model (`UsageReporting`;
 `LanguageModelSession.usage` accumulates across requests, so it cannot serve), and before each prompt
 the agent adds a rough cost for the new prompt (four bytes per token) to that figure. A model that reports no usage but can count its transcript (the on-device model) is
-counted instead. If that reaches `contextBudget` (85%) of a known window, the transcript is condensed to the
-policy's turns first and the condensation is audited with reason `budget`. The window is known when the
+counted instead. Under the default policy the headroom for the next turn is added too; if the sum reaches
+`contextBudget` (85%) of a known window, the context is condensed to its target first, as above, and the
+condensation is audited with reason `budget` (under `.condense(keepTurns:)`, to the policy's turns). The
+window is known when the
 model states it (`SystemLanguageModel.contextSize`, or `PrivateCloudComputeLanguageModel.contextSize` read when the model is resolved; for Ollama, the window wisp sized for the model or the
 configured `contextLength`, sent as `num_ctx` so the server's default cannot differ from what it condenses
 against; [ADR 0043](decisions/0043-context-window-from-memory.md)) or once an
 overflow error has reported it. Nothing happens for a window nobody knows.
 
-Both paths, for one prompt under the default `.condense` policy:
+Both paths, for one prompt under the default policy:
 
 ```mermaid
 flowchart TD
-    prompt["A new prompt"] --> ahead{"Window known, and the estimate at 85% or more?"}
-    ahead -->|yes| budget["Condense to the last four turns, reason budget"]
+    prompt["A new prompt"] --> ahead{"Window known, and context + prompt + headroom at 85% or more?"}
+    ahead -->|yes| budget["Condense to the target, reason budget"]
     ahead -->|no| send["Send it to the model"]
-    budget --> send
+    budget --> floor{"Still above the target with one turn left?"}
+    floor -->|yes| note["Note to the person, event says floor"]
+    floor -->|no| send
+    note --> send
     send --> overflow{"contextSizeExceeded?"}
     overflow -->|no| reply["The reply"]
-    overflow -->|yes| rebuild["Rebuild from the transcript before the prompt, condensed, reason overflow"]
+    overflow -->|yes| rebuild["Condense the context before the prompt to the target, reason overflow"]
     rebuild --> retry{"Retried once: overflow again?"}
     retry -->|no| reply
-    retry -->|yes| error["The error propagates"]
+    retry -->|yes| error["ContextFailure.doesNotFit"]
 ```
 
 Tools are the other half of the answer. `run_command` keeps only the tail of output and `read_file` pages a
@@ -593,6 +647,11 @@ file, so a single tool result cannot fill the window.
 5. Facts and the running summary reach the model only on the prompt side, each labelled as a record with
    its source, and never in the instructions. Only the person deletes a fact or admits one to the shared
    store.
+6. Condensing is measured, not counted in turns: it starts when the context and a turn of average size would
+   pass the budget, takes the cheapest step first (references, then distilling and dropping the oldest
+   turns, then squeezing the earlier block), checks the result after each, and stops at the target or at the
+   floor of one literal turn. It never cuts the request or the instructions, and when it cannot reach the
+   target it says so to the person and in the audit rather than failing silently.
 
 ## On the on-device model, and what condensing costs
 
@@ -638,8 +697,9 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
 - **The assessment on by default.** The per-request assessment (phase 4d of the
   [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and off; the phase-6 eval
   decides whether its call's time per request buys enough: tokens saved, tool choices right, and recall.
-- **Condensing to a target.** Condensing still keeps a fixed four turns with no check that the result
-  fits; phase 5 of the proposal condenses to a token target and keeps room for the next turn.
+- **The target and the headroom tuned.** Condensing to a target is built with defaults reasoned from the
+  window's arithmetic (above), not yet measured on a model; phase 6's eval records the fill after each
+  condensation and the turns until the next, and sets them.
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact
   but costs a model call. The ahead check uses the free usage report where a runtime gives one, and counts
   only for a model that reports nothing (ADR 0025, amendment of 2026-09-29).

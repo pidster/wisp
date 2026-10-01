@@ -21,6 +21,17 @@ Breaking:
 
 Changed:
 
+- Conversations condense less often and further. Instead of dropping to the last four turns whenever the
+  window passed 85%, wisp now condenses when the context, your next message, and a turn of average size
+  would pass 85%, and then brings the context down to half the window: earlier tool output as references,
+  the turns that go distilled into facts and the summary, the oldest turns dropped, checking the size after
+  each step and always keeping the last turn. `context.target` and `context.headroomTurns` in `config.json`
+  (or `wisp config set`) change the half and the eight turns the average covers. When even the last turn and
+  your message are too large for that, the turn goes on and you are told: chat prints a note, and MCP
+  `respond` returns `contextNote`. A request that cannot fit the window at all now fails with `the request
+  does not fit the model's context window: …`, saying how large it was and what to do, after one retry.
+  `context.condensation` in the audit log gains the target, the size before and after, the headroom, the
+  steps taken, and `floor`.
 - `/help` lists every chat command as it is now: `/inspect facts` with the summary of earlier turns and
   proposals from other conversations, the forms of `/fact` and `/show` IDs, `/inspect` as the general form
   of `/status`, `/audit`, and `/approvals`, and the `/?`, `/q`, `help`, and `exit` aliases. Long usages put

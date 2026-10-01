@@ -89,6 +89,13 @@ public enum ConfigSettings {
         Setting(
             path: "assessment.tools", summary: "which tools an assessed request registers",
             kind: .choice(AssessmentSettings.ToolSets.allCases.map(\.rawValue))),
+        Setting(
+            path: "context.target", summary: "the share of the window condensing brings the context down to",
+            kind: .number(Config.ContextConfig.targetRange)),
+        Setting(
+            path: "context.headroomTurns",
+            summary: "the latest turns whose average size is kept free for the next turn; 0 for none",
+            kind: .integer(Config.ContextConfig.headroomRange)),
     ]
 
     /// The setting at `path`, or nil.
@@ -122,6 +129,8 @@ public enum ConfigSettings {
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "assessment.enabled": return .bool(d.assessmentEnabled)
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
+        case "context.target": return .double(d.contextTarget.share)
+        case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
         default: return nil
         }
     }

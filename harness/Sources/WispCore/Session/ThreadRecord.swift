@@ -265,6 +265,18 @@ public struct ThreadRecord: Sendable {
         }
     }
 
+    /// Attributes the entries with store ids `ids`, dropped during a condensation to a target before its event
+    /// was recorded, to that event.
+    ///
+    /// - Parameters:
+    ///   - ids: The dropped entries' store ids.
+    ///   - condensation: The `context.condensation` event.
+    mutating func attribute(_ ids: [Int], to condensation: AuditReference?) {
+        for id in ids where id >= 1 && id <= entries.count && entries[id - 1].id == id {
+            entries[id - 1].state = .dropped(by: condensation)
+        }
+    }
+
     /// Marks the tool output with store id `id` as sent by reference from `turn` on; an unknown id, or an
     /// entry already marked, changes nothing.
     ///
