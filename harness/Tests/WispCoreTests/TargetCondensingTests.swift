@@ -136,6 +136,73 @@ import WispTestSupport
         #expect(ContextComposer(policy: .fixed).goal(window: 100, prompt: 10, headroom: 10) == 100)
     }
 
+    @Test func theTargetShareIsCappedBelowTheBudgetByTheMargin() {
+        func composer(_ share: Double, budget: Double = 0.85) -> ContextComposer {
+            var composer = ContextComposer(policy: .target(ContextTarget(share: share, headroomTurns: 8)))
+            composer.budget = budget
+            return composer
+        }
+        // The default share is untouched; one near the budget is capped at the budget less the margin.
+        #expect(composer(0.5).effectiveShare(of: ContextTarget(share: 0.5)) == 0.5)
+        #expect(composer(0.65).effectiveShare(of: ContextTarget(share: 0.65)) == 0.65)
+        #expect(composer(0.8).effectiveShare(of: ContextTarget(share: 0.8)) == 0.65)
+        #expect(composer(1).effectiveShare(of: ContextTarget(share: 1)) == 0.65)
+        // It follows the budget, and never goes below 0.
+        #expect(composer(0.5, budget: 0.5).effectiveShare(of: ContextTarget(share: 0.5)) == 0.3)
+        #expect(composer(0.5, budget: 0.1).effectiveShare(of: ContextTarget(share: 0.5)) == 0)
+        // The goal uses the capped share, for a target built in code as well.
+        #expect(composer(0.8).goal(window: 10_000, prompt: 0, headroom: 0) == 6500)
+        #expect(composer(0.5).goal(window: 10_000, prompt: 0, headroom: 0) == 5000)
+    }
+
+    @Test func noTargetCondensesOnTwoConsecutiveTurnsWhileTurnsOfAverageSizeArrive() async {
+        let window = 8192
+        for step in 0...20 {
+            let share = Double(step) / 20
+            for headroomTurns in [1, 4, 8] {
+                var rng = Seeded(state: UInt64(step * 10 + headroomTurns))
+                var composer = ContextComposer(
+                    policy: .target(ContextTarget(share: share, headroomTurns: headroomTurns)))
+                composer.cutsPresentation = false
+                let host = Host(
+                    store: Self.store(instructions: 600, &rng), composer: composer, keepsFacts: true, window: window)
+                var condensedAt: [Int] = []
+                var condensations = 0
+                for number in 1...60 {
+                    host.condensingTurn = number
+                    host.composer.squeezesEarlier = false
+                    host.refreshFrame()
+                    host.referenced(host.composer.newReferences(in: host.store))
+                    let fill = Self.trueTokens(host.composer.compose(host.store), definitions: 800)
+                    let promptBytes = Int.random(in: 200...600, using: &rng)
+                    let headroom = host.composer.headroom(in: host.store)
+                    if host.composer.isOverBudget(
+                        used: fill, prompt: (promptBytes + 1) / 4, headroom: headroom, window: window)
+                    {
+                        let goal = host.composer.goal(window: window, prompt: (promptBytes + 1) / 4, headroom: headroom)
+                        _ = await TargetCondensing.run(host, fill: fill, goal: goal)
+                        condensedAt.append(number)
+                        condensations += 1
+                    }
+                    // Turns of about the same size: a read of up to 3 KiB (a reference after this turn) and a reply.
+                    let output = Bool.random(using: &rng) ? Int.random(in: 500...3000, using: &rng) : 0
+                    for entry in Self.turn(
+                        number, prompt: promptBytes, output: output, reply: Int.random(in: 200...600, using: &rng),
+                        &rng)
+                    {
+                        host.store.record(entry, origin: .turn, turn: number, sources: [])
+                    }
+                }
+                let adjacent = zip(condensedAt, condensedAt.dropFirst()).filter { $1 - $0 == 1 }
+                #expect(
+                    adjacent.isEmpty,
+                    "share \(share), headroom \(headroomTurns): condensed on turns \(condensedAt)")
+                // The generated conversation is long enough to condense at all.
+                #expect(condensations > 0, "share \(share), headroom \(headroomTurns)")
+            }
+        }
+    }
+
     @Test func theHeadroomAveragesTheLatestTurnsWithoutTheirPrompts() {
         var rng = Seeded(state: 1)
         var store = Self.store(instructions: 100, &rng)

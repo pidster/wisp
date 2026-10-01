@@ -97,7 +97,8 @@ extension Doctor {
 
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,
     /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target` and
-    /// `context.headroomTurns` within their ranges, which loading the config enforces.
+    /// `context.headroomTurns` within their ranges, which loading the config enforces; a `context.target` above the
+    /// budget less `ContextComposer.targetMargin` is accepted and reported as used at that cap.
     func settingsInRange() -> Finding {
         let name = "settings"
         var config = Config()
@@ -132,6 +133,15 @@ extension Doctor {
             "inlineOutputBytes \(resolved.inlineOutputBytes), shownOutputLines \(resolved.shownOutputLines), "
             + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare), "
             + "context.target \(resolved.contextTarget.share), context.headroomTurns \(resolved.contextTarget.headroomTurns)"
+        let composer = ContextComposer()
+        let configured = config.context?.target ?? resolved.contextTarget.share
+        let effective = composer.effectiveShare(of: ContextTarget(share: configured))
+        if effective < configured {
+            notes.append(
+                "context.target \(configured) is used as \(effective), the context budget "
+                    + "\(composer.budget) less \(ContextComposer.targetMargin), so a condensation leaves room before "
+                    + "the next")
+        }
         let clamped = notes.isEmpty ? "" : " (clamped: " + notes.joined(separator: "; ") + ")"
         return Finding(name: name, ok: true, detail: "in range: " + state + clamped)
     }

@@ -147,6 +147,11 @@ import WispTestSupport
         #expect(context.detail.contains("context.headroomTurns 100 must be between 0 and 64"))
         try Data(#"{"context": {"target": 0.6}}"#.utf8).write(to: home.configFile)
         #expect(doctor.settingsInRange().ok && doctor.settingsInRange().detail.contains("context.headroomTurns 8"))
+        #expect(!doctor.settingsInRange().detail.contains("is used as"))
+        // A target near the budget is accepted, and reported as the cap it is used at.
+        try Data(#"{"context": {"target": 0.8}}"#.utf8).write(to: home.configFile)
+        let capped = doctor.settingsInRange()
+        #expect(capped.ok && capped.detail.contains("context.target 0.8 is used as 0.65"), "\(capped.detail)")
     }
 
     @Test func theContextWindowSaysHowItIsKnown() throws {

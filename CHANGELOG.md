@@ -24,6 +24,9 @@ Changed:
 - `wisp tools`, `wisp models`, and `wisp approvals` lay out their listings like `wisp --help` on a terminal:
   aligned columns, with descriptions and long cells wrapped to the terminal's width. Piped, they print the
   same tab-separated lines as before, so scripts keep working.
+- `context.target` is capped below the condensing trigger, at the context budget less 0.2 (0.65 of the
+  window at the default 85%). A target at or near the budget made wisp condense, and distil facts, on almost
+  every turn; the default of 0.5 is unaffected, and `wisp doctor` says when your setting is used as the cap.
 
 - Conversations condense less often and further. Instead of dropping to the last four turns whenever the
   window passed 85%, wisp now condenses when the context, your next message, and a turn of average size

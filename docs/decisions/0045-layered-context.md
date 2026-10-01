@@ -150,6 +150,15 @@ condenses on consecutive turns while turns of average size arrive, and the 50% e
 0.5 on an 8,192 window either form may reach the floor, which says that a 50% budget is too tight for that window
 rather than that the guard is wrong.
 
+Built 2026-10-01. The first form: the share is capped at the budget less 0.2
+(`ContextComposer.targetMargin`, `effectiveShare(of:)`), applied where the goal is computed so a `ContextTarget`
+built in code is capped as well as `context.target`; the derived-goal form was not needed. The default 0.5 is
+unchanged. `wisp doctor` reports a capped setting (ok, with a note), and the `context.condensation` event's
+`target` is the goal in tokens, so it already records the capped share. A gate test runs generated conversations
+at every target from 0 to 1 in steps of 0.05 and asserts that no two condensations fall on consecutive turns
+while turns of average size arrive (it fails with the margin at 0). The 50% eval variants have not been re-run
+under the guard.
+
 ## Consequences
 
 - **The store, not the transcript, is the record**, and `/inspect context`, `wisp-tui`'s panel, and

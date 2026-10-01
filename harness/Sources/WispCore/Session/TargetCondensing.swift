@@ -207,8 +207,29 @@ extension ContextComposer {
         return sizes.reduce(0, +) / sizes.count / Self.bytesPerToken
     }
 
-    /// The tokens a condensation brings the context to: the target's share of the window, or less when the
-    /// prompt and the headroom need more room under the budget; never below 0.
+    /// How far below the budget a target's share is kept, as a share of the window: the room between one
+    /// condensation and the next. A share at or near the budget leaves the context just under the point that
+    /// triggers the next condensation, so it condenses on almost every turn and each one distils (the phase 6
+    /// checkpoint of ADR 0045 measured 70 of 84 gaps at a single turn, and distillations that corrupted facts).
+    /// 0.2 of the window is several turns of lasting growth at the on-device model's 8,192 tokens, and leaves the
+    /// default share (0.5) alone at the default budget (0.85).
+    static let targetMargin = 0.2
+
+    /// The share of the window a condensation brings the context to: the target's `share`, capped at the budget
+    /// less `targetMargin` (never below 0). Applied where the goal is computed, so it covers a `ContextTarget`
+    /// built in code as well as one loaded from `context.target`, and follows the budget it is paired with.
+    ///
+    /// - Parameter target: The configured target.
+    /// - Returns: The effective share.
+    func effectiveShare(of target: ContextTarget) -> Double {
+        // Rounded so 0.85 less 0.2 is 0.65, not 0.6499999999999999.
+        let cap = ((budget - Self.targetMargin) * 1_000_000).rounded() / 1_000_000
+        return min(target.share, max(0, cap))
+    }
+
+    /// The tokens a condensation brings the context to: the target's effective share of the window
+    /// (`effectiveShare(of:)`), or less when the prompt and the headroom need more room under the budget; never
+    /// below 0.
     ///
     /// - Parameters:
     ///   - window: The model's window.
@@ -217,7 +238,7 @@ extension ContextComposer {
     /// - Returns: The goal, in tokens.
     func goal(window: Int, prompt: Int, headroom: Int) -> Int {
         guard case .target(let target) = policy else { return window }
-        let low = Int(Double(window) * target.share)
+        let low = Int(Double(window) * effectiveShare(of: target))
         let room = Int(Double(window) * budget) - prompt - headroom
         return max(0, min(low, room))
     }

@@ -551,7 +551,11 @@ target, 50% (`context.target`). A request is due a condensation when the context
 token), and the **headroom** reach the budget. The headroom is the room the next turn needs: the average
 size of the latest eight turns (`context.headroomTurns`), each its tool calls, its tool output whole (as its
 own turn carries it), and its reply. The condensation then brings the context down to the **goal**: the
-target, or less when the prompt and the headroom need more room under the budget. In order, measuring the
+target, or less when the prompt and the headroom need more room under the budget. The target is **guarded**:
+it is used at no more than the budget less 0.2 (`ContextComposer.targetMargin`), 65% at the default, so at least a
+fifth of the window separates one condensation from the next. The cap is applied where the goal is computed
+(`ContextComposer.goal`), so a target set in code is capped too. The audit's `target` is the goal in tokens, so it
+already records the capped share; `wisp doctor` reports a configured value that is used as the cap. In order, measuring the
 composed context after each step (`TargetCondensing`):
 
 1. **References.** Every earlier tool output still whole is sent as its reference. The agent already does
@@ -596,8 +600,7 @@ either model, so the defaults stand unmeasured there. At a budget of 0.5, equal 
 budget less the prompt and the headroom, so each condensation ended just below the point that triggers the next:
 70 of 84 gaps between condensations were a single turn, each condensation distilled, and the runs scored below
 phase 2's fixed four turns. The fill after was at or below the goal in all 96 condensations, and the floor was
-never reached. A target at or near the budget is therefore a configuration to prevent; a guard is the follow-up
-(below).
+never reached. A target at or near the budget is therefore a configuration to prevent; the guard above followed.
 
 `Agent.contextTokens()` exposes the framework's count for the current transcript, or, for a model
 that cannot count, the token usage the runtime reported for the last request; `chat` shows it with
@@ -709,10 +712,10 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
   checkpoint its call's time bought nothing measurable (the tokens it saved did not reduce condensing, and
   scores fell), and its inferred task drifted with each question ([ADR 0045](decisions/0045-layered-context.md)). Reconsidering it starts with a task that changes only
   when the request restates it.
-- **A guard on the target.** Nothing stops `context.target` from being set at or above the budget, where
-  condensing runs on nearly every turn (measured at the checkpoint). Proposed in
-  [ADR 0045](decisions/0045-layered-context.md): clamp the target to at most the budget less 0.2, or derive the goal
-  from the budget so that a few average turns fit before the next condensation, with a gate test for it.
+- **The guard re-measured.** The target is capped at the budget less 0.2 (above), with a gate test that no
+  target condenses on consecutive turns while turns of average size arrive; the 50% eval variants have not been
+  re-run under it ([ADR 0045](decisions/0045-layered-context.md)). At a 50% budget on an 8,192 window the cap
+  (30%) may reach the floor, which says that budget is too tight for that window.
 - **The target and the headroom tuned.** The defaults are reasoned from the window's arithmetic (above); the
   checkpoint's default-budget runs never condensed, and the target at 0.4 and 0.6 and the headroom over one turn
   or none were not run.
