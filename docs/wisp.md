@@ -428,6 +428,7 @@ wisp config unset approval.timeoutSeconds
 | `assessment.tools` | `request`, `task`, or `all`. |
 | `context.target` | A number from 0.1 to 0.8: the share of the window condensing brings the context down to. It is used at no more than the context budget (85%) less 0.2, so 0.65 at most: a target at or near the budget would leave the context just under the point that triggers the next condensation, which would then run on almost every turn, each one distilling. `wisp doctor` says when a configured value is used as the cap. |
 | `context.headroomTurns` | 0 to 64: how many of the latest turns' average size is kept free for the next turn; 0 keeps none. |
+| `watch.settle` | Seconds, 0 to 60 (decimals allowed): how long file changes must be quiet before `wisp watch` runs; 0 runs on every change batch. |
 
 Each change is checked before it is written: an unknown setting, a value the setting does not take, or
 a file that would no longer load is refused with the reason, and nothing changes. The rest of the file,
@@ -540,6 +541,9 @@ triaged again. Changes under `.git`, `.build`, `.swiftpm`, `target`, `node_modul
 `.venv`, `__pycache__`, `dist`, `.next`, and `.cache`, and editor scratch files, are ignored. The command is
 classified and, when risky, approved once, before the first run; every run still passes the policy and
 runs under the sandbox, and approving the watch covers its reruns ([ADR 0033](decisions/0033-watch-mode.md)).
+A burst of changes (a checkout, a formatter, save-all) starts one run, after the changes have been quiet for
+the settle period, so a run does not start part-way through the burst; changes during a run still collapse
+into one pending run.
 
 | Flag | Meaning |
 | --- | --- |
@@ -547,6 +551,7 @@ runs under the sandbox, and approving the watch covers its reruns ([ADR 0033](de
 | `--path <dir>` (repeatable) | Directories to watch. Default: `--directory`. |
 | `--no-files` | Do not watch files; needs `--every`. |
 | `--every <seconds>` | Also run on this interval (at least 1). |
+| `--settle <seconds>` | A file-triggered run starts only once no change has arrived for this long, 0 to 60; `0` runs on every change batch, as before 0.16.0. Default: `watch.settle`, 1. The first run and `--every` runs are never delayed. |
 | `--notify <when>` | `change` (default: when it starts or stops failing, and on a first run that fails), `failure`, `always`, `never`. |
 | `--no-triage` | Do not triage failing output. |
 | `--max-runs <n>` | Stop after this many runs. |
@@ -657,6 +662,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `facts` | `{ "enabled": true, "distil": true, "share": 0.1, "summary": true, "summaryShare": 0.05 }` | Facts, as [context-management.md](context-management.md) ("Facts") describes them. `enabled: false` keeps none: no extraction, no distillation, no summary, nothing added to requests. `distil: false` keeps the mechanical facts from tool output but makes no model call to distil facts when turns leave the window. `share` is the most of the window the facts may take in a request, from 0 to 0.5 (never less than 1 KiB). `summary: false` writes no running summary of the turns condensing drops ("The running summary" there); `summaryShare` is the most of the window the summary may take, on top of `share`, from 0 to 0.5 (never less than 512 bytes). `kinds` adds subject kinds or changes wisp's (below); `testCommands` replaces the list of command prefixes whose exit status is a `tests` fact (`swift test`, `swift build`, `cargo test`, `cargo build`, `scripts/check`, `npm test`, `npm run test`, `pytest`, `go test`, `make test`). |
 | `assessment` | `{ "enabled": false, "tools": "request" }` | The assessment of each request, as [context-management.md](context-management.md) ("The assessment per request") describes it: before each turn, rules or one call to the conversation's model (outside its context, audited as `context.assessment`) choose the tools the request registers, the facts repeated next to it, and, in chat, the task and its objective. Off by default until the eval decides, since the call costs time on requests the rules do not settle. `tools` is which tools an assessed request registers: `request` (those chosen, with `run_command` and `memory` always, and a one-line-per-tool catalogue in the instructions), `task` (those chosen since the task last changed), or `all` (every tool, no catalogue). Settable with `wisp config set assessment.enabled true` and `/config set`. |
 | `context` | `{ "target": 0.5, "headroomTurns": 8 }` | Condensing, as [context-management.md](context-management.md) ("Condensing") describes it. A condensation is due when the context, the next prompt, and a turn of average size would pass 85% of the model's window; it then condenses, in steps, until the context is at or below `target` of the window (and low enough that the prompt and an average turn fit under 85%), keeping at least the last turn. `target` is from 0.1 to 0.8, and is used at no more than 0.65 (the budget less 0.2; see `context.target` above); `headroomTurns` is how many of the latest turns the average covers, from 0 to 64 (1 is the last turn alone; 0 keeps no room, so condensing waits until the context and the prompt alone pass 85%). When even the last turn and the request are above the target, the turn goes on and you are told (chat prints a note; MCP `respond` returns `contextNote`). Settable with `wisp config set context.target 0.6` and `/config set`. |
+| `watch` | `{ "settle": 1 }` | `wisp watch`: seconds without a file change before a run starts, 0 to 60; `0` runs on every change batch. `--settle` overrides it. Settable with `wisp config set watch.settle 2`. |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
 | `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |

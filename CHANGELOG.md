@@ -6,6 +6,13 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Added:
+
+- `wisp watch --settle <seconds>`, and `watch.settle` in `config.json` (1 s by default, 0 for none): a run
+  triggered by file changes starts only once no change has arrived for the settle period, so a checkout, a
+  formatter, or save-all gives one run after the burst instead of a spurious failure part-way through it.
+  The first run and `--every` runs are not delayed.
+
 Fixed:
 
 - A tool output's reference no longer shows `read_file`'s paging hint as its last line or a fragment as its

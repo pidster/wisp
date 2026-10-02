@@ -22,7 +22,7 @@ import Testing
         "commandPolicy": ["runCommand", "policy"], "audit": ["audit"], "approval": ["approval"],
         "ollama": ["backends", "ollama"], "coreai": ["backends"], "mlx": ["backends"],
         "notifications": ["notifications"], "tools": ["tools"], "routing": ["routing"], "facts": ["facts"],
-        "assessment": ["assessment"], "context": ["context"],
+        "assessment": ["assessment"], "context": ["context"], "watch": ["watch"],
     ]
 
     private func renderedConfiguration() throws -> JSONValue {

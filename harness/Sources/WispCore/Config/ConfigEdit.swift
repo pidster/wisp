@@ -96,6 +96,10 @@ public enum ConfigSettings {
             path: "context.headroomTurns",
             summary: "the latest turns whose average size is kept free for the next turn; 0 for none",
             kind: .integer(Config.ContextConfig.headroomRange)),
+        Setting(
+            path: "watch.settle",
+            summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
+            kind: .number(Config.WatchConfig.settleRange)),
     ]
 
     /// The setting at `path`, or nil.
@@ -131,6 +135,7 @@ public enum ConfigSettings {
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
         case "context.target": return .double(d.contextTarget.share)
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
+        case "watch.settle": return .double(d.watchSettle)
         default: return nil
         }
     }

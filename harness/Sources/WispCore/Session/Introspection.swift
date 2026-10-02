@@ -105,6 +105,7 @@ public struct Introspection: Sendable {
                 "target": .double(config.contextTarget.share),
                 "headroomTurns": .int(config.contextTarget.headroomTurns),
             ]),
+            "watch": .object(["settle": .double(config.watchSettle)]),
             "backends": .object(
                 Dictionary(
                     uniqueKeysWithValues: ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) })),

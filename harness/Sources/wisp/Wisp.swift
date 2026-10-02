@@ -1055,6 +1055,11 @@ struct Watch: AsyncParsableCommand {
     @Option(name: .long, help: "Also run every this many seconds.")
     var every: Double?
 
+    @Option(
+        name: .long,
+        help: "Seconds without a file change before a run starts; 0 runs on every change. Default: watch.settle, 1.")
+    var settle: Double?
+
     @Option(name: .long, help: "When to notify: change (default), failure, always, never.")
     var notify: Watcher.NotifyPolicy = .change
 
@@ -1073,6 +1078,9 @@ struct Watch: AsyncParsableCommand {
     func validate() throws {
         if noFiles && every == nil { throw ValidationError("--no-files needs --every, or nothing would rerun it") }
         if let every, every < 1 { throw ValidationError("--every must be at least 1 second") }
+        if let settle, !Config.WatchConfig.settleRange.contains(settle) {
+            throw ValidationError("--settle must be between 0 and 60 seconds")
+        }
         if let maxRuns, maxRuns < 1 { throw ValidationError("--max-runs must be at least 1") }
     }
 
@@ -1094,24 +1102,28 @@ struct Watch: AsyncParsableCommand {
         let authorized = try await runner.authorize(command, in: directory)
         let (triggers, continuation) = AsyncStream.makeStream(
             of: Watcher.Trigger.self, bufferingPolicy: .bufferingNewest(1))
-        continuation.yield(.start)
+        // Bursts of file changes settle into one trigger; the start and the interval are never delayed.
+        let settler = TriggerSettler(
+            settle: .seconds(settle ?? session.config.watchSettle), clock: ContinuousClock(),
+            continuation: continuation)
+        settler.start()
         let watcher =
             noFiles
             ? nil
             : FileWatcher(paths: paths.isEmpty ? [directory] : paths) {
-                continuation.yield(.change)
+                settler.fileChanged()
             }
         if !noFiles && watcher == nil { throw ValidationError("cannot watch \(paths.isEmpty ? [directory] : paths)") }
         let interval = every.map { seconds in
             Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(seconds))
-                    continuation.yield(.interval)
+                    settler.interval()
                 }
             }
         }
         defer { interval?.cancel() }
-        let stop = Wisp.stopOnInterrupt { continuation.finish() }
+        let stop = Wisp.stopOnInterrupt { settler.finish() }
         defer { stop.cancel() }
         let command = command
         let clock = Date.FormatStyle(date: .omitted, time: .standard)

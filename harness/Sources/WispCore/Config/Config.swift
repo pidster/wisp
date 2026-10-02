@@ -45,6 +45,34 @@ public struct Config: Codable, Equatable, Sendable {
     public var assessment: AssessmentConfig?
     /// Condensing: the target it condenses to and the headroom it keeps for the next turn.
     public var context: ContextConfig?
+    /// `wisp watch`: how long file changes must be quiet before a run starts.
+    public var watch: WatchConfig?
+
+    /// `wisp watch` settings in the file.
+    public struct WatchConfig: Codable, Equatable, Sendable {
+        /// Seconds without a file change before a run starts; default 1, 0 runs on every change batch.
+        public var settle: Double?
+
+        /// Creates settings; nil fields take defaults.
+        public init(settle: Double? = nil) {
+            self.settle = settle
+        }
+
+        /// The range `settle` must be in, in seconds.
+        public static let settleRange = 0.0...60.0
+        /// What `settle` is when the file does not say.
+        public static let defaultSettle = 1.0
+
+        /// Checks the field's range.
+        ///
+        /// - Throws: `DecodingError.dataCorrupted` naming the problem.
+        public func validate() throws {
+            if let settle, !Self.settleRange.contains(settle) {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "watch: settle must be between 0 and 60"))
+            }
+        }
+    }
 
     /// Condensing settings in the file (phase 5 of the
     /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)).
@@ -359,8 +387,10 @@ public struct Config: Codable, Equatable, Sendable {
         audit: AuditConfig? = nil, approval: ApprovalConfig? = nil, ollama: OllamaConfig? = nil,
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
-        shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil
+        shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
+        watch: WatchConfig? = nil
     ) {
+        self.watch = watch
         self.context = context
         self.facts = facts
         self.inlineOutputBytes = inlineOutputBytes
@@ -393,6 +423,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.tools?.validate()
         try config.facts?.validate()
         try config.context?.validate()
+        try config.watch?.validate()
         return config
     }
 
@@ -448,7 +479,8 @@ public struct Config: Codable, Equatable, Sendable {
             assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request,
             contextTarget: ContextTarget(
                 share: context?.target ?? ContextTarget.default.share,
-                headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns)
+                headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
+            watchSettle: watch?.settle ?? WatchConfig.defaultSettle
         )
     }
 
@@ -527,5 +559,7 @@ public struct Config: Codable, Equatable, Sendable {
         public var assessmentTools = AssessmentSettings.ToolSets.request
         /// What condensing aims for: the target share of the window and the next turn's headroom.
         public var contextTarget = ContextTarget.default
+        /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
+        public var watchSettle = WatchConfig.defaultSettle
     }
 }

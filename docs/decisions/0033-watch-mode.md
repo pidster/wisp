@@ -61,3 +61,14 @@ runs under the sandbox, and records `policy.decision` and `command.outcome`; app
 any scope, covers its reruns. Measured the same day: runs of `ls 2>&1 | wc -l` fell from 1.3 s to under
 0.1 s each, and the classifier ran once for four runs (`CommandRunnerPolicyTests` asserts one
 classification for three runs).
+
+## Amendment, 2026-10-02: settle before a run
+
+Amended 2026-10-02: a run triggered by file changes starts only once no change has arrived for the settle
+period, `--settle <seconds>` or `watch.settle` in `config.json`, 1 s by default and 0 to turn it off. FSEvents
+gathers changes over a fixed 0.5 s, so a long burst (a checkout, a formatter, save-all) could start a run
+part-way through it, which failed and then passed once the burst ended. The debounce is a trailing one,
+`TriggerSettler`, where the triggers are produced: it takes a `Clock` (a scripted one in tests,
+`ContinuousClock` in `wisp watch`) and turns a burst of changes into one `.change`. `Watcher` stays free of
+time. The first run and `--every` runs are not delayed; changes during a run still collapse into one pending
+run through the stream's buffer of one.
