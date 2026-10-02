@@ -68,106 +68,137 @@ public enum ChatInput: Equatable, Sendable {
         let parts = trimmed.dropFirst().split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
         let command = parts.first.map(String.init) ?? ""
         let argument = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : nil
-        switch command {
-        case "quit", "exit", "q": self = .quit
-        case "help", "?": self = .help
-        case "tools": self = .tools
-        case "save": self = .save(argument)
-        case "new": self = .new
-        case "tokens": self = .tokens
-        case "inspect" where argument?.lowercased() == "context": self = .context
-        case "inspect" where argument?.lowercased() == "facts": self = .facts(all: false)
-        case "inspect" where argument?.lowercased() == "facts all": self = .facts(all: true)
-        case "inspect" where argument?.lowercased().hasPrefix("context ") == true:
-            self = .view(
-                String(argument?.dropFirst("context ".count) ?? "").trimmingCharacters(in: .whitespaces))
-        case "inspect": self = .inspect(argument ?? "status")
-        case "status": self = .inspect("status")
-        case "audit": self = .inspect(argument.map { "audit \($0)" } ?? "audit")
-        case "approvals": self = .approvals(ApprovalsRequest(argument))
-        case "last": self = .last
-        case "show": self = .show(argument)
-        case "fact": self = .fact(FactRequest(argument))
-        case "task": self = .task(argument)
-        case "models": self = .models
-        case "model": self = .model(argument)
-        case "stats": self = .stats
-        case "history": self = .history
-        case "config": self = .config(ConfigRequest(argument))
-        default: self = .unknown(command)
+        // The help's table is the only list of commands: a word with no entry is not a command.
+        if let build = Self.helpEntries.first(where: { $0.names.contains(command) })?.command {
+            self = build(argument)
+        } else {
+            self = .unknown(command)
         }
     }
 
-    /// One line of `/help`: how a command is typed, what it does, and the words the parser accepts for it.
-    struct HelpEntry: Equatable, Sendable {
+    /// `/inspect`'s argument: a view of wisp's state, or of the model's context or facts.
+    private static func inspect(_ argument: String?) -> ChatInput {
+        guard let argument else { return .inspect("status") }
+        let lowered = argument.lowercased()
+        if lowered == "context" { return .context }
+        if lowered == "facts" { return .facts(all: false) }
+        if lowered == "facts all" { return .facts(all: true) }
+        if lowered.hasPrefix("context ") {
+            return .view(String(argument.dropFirst("context ".count)).trimmingCharacters(in: .whitespaces))
+        }
+        return .inspect(argument)
+    }
+
+    /// One line of `/help`: how a command is typed, what it does, and, for a line that names a command, the
+    /// words that reach it and what each produces. The parser reads these, so a command exists only where it is
+    /// listed.
+    struct HelpEntry: Sendable {
         /// How it is typed, such as `/fact delete ID`.
         let usage: String
         /// What it does, short; `helpText` moves it under a usage too long for the column.
         let about: String
-        /// The slash words (without the slash) that reach this command.
+        /// The slash words (without the slash) that reach this command; empty for a line that only shows
+        /// another command's form, such as `/fact delete ID`, which `/fact` parses.
         let names: [String]
+        /// The command a word produces, given what followed it (trimmed, nil when nothing did); nil exactly
+        /// when `names` is empty.
+        let command: (@Sendable (String?) -> ChatInput)?
+
+        /// A command: its words, and what they produce from the argument.
+        init(
+            usage: String, about: String, names: [String], command: @escaping @Sendable (String?) -> ChatInput
+        ) {
+            self.usage = usage
+            self.about = about
+            self.names = names
+            self.command = command
+        }
+
+        /// A line that only shows another command's form.
+        init(usage: String, about: String) {
+            self.usage = usage
+            self.about = about
+            self.names = []
+            self.command = nil
+        }
     }
 
     /// Every command `/help` lists, in order. The one list `helpText` renders and the tests check against the
     /// parser in `init(line:)`, so a command cannot be parsed without being listed.
     static let helpEntries: [HelpEntry] = [
-        HelpEntry(usage: "/help, /?", about: "this list (also a bare help or ?)", names: ["help", "?"]),
-        HelpEntry(usage: "/tools", about: "the tools the model can call", names: ["tools"]),
-        HelpEntry(usage: "/tokens", about: "how much of the context window the conversation uses", names: ["tokens"]),
+        HelpEntry(
+            usage: "/help, /?", about: "this list (also a bare help or ?)", names: ["help", "?"],
+            command: { _ in .help }),
+        HelpEntry(
+            usage: "/tools", about: "the tools the model can call", names: ["tools"],
+            command: { _ in .tools }),
+        HelpEntry(
+            usage: "/tokens", about: "how much of the context window the conversation uses",
+            names: ["tokens"], command: { _ in .tokens }),
         HelpEntry(
             usage: "/inspect [VIEW]",
             about: "wisp's own state: status (the default), config, approvals, audit, context, facts",
-            names: ["inspect"]),
+            names: ["inspect"], command: inspect),
         HelpEntry(
-            usage: "/status", about: "short for /inspect status: model, tools, policy, session", names: ["status"]),
+            usage: "/status", about: "short for /inspect status: model, tools, policy, session", names: ["status"],
+            command: { _ in .inspect("status") }),
         HelpEntry(
-            usage: "/approvals [revoke [ID]]", about: "list standing approvals, or remove one", names: ["approvals"]),
+            usage: "/approvals [revoke [ID]]", about: "list standing approvals, or remove one", names: ["approvals"],
+            command: { .approvals(ApprovalsRequest($0)) }),
         HelpEntry(
             usage: "/audit [sessions|ID]",
             about: "latest audit events of every session; sessions lists them, an ID shows one",
-            names: ["audit"]),
+            names: ["audit"],
+            command: { .inspect($0.map { "audit \($0)" } ?? "audit") }),
         HelpEntry(
-            usage: "/inspect context", about: "save the exact context the next request carries to ~/.wisp/context",
-            names: []),
+            usage: "/inspect context", about: "save the exact context the next request carries to ~/.wisp/context"),
         HelpEntry(
             usage: "/inspect context next|N|turns",
-            about: "show the next request's context, the one composed at turn N's start, or a row per turn",
-            names: []),
+            about: "show the next request's context, the one composed at turn N's start, or a row per turn"),
         HelpEntry(
             usage: "/inspect facts [all]",
             about: "the facts the model is given, the running summary of earlier turns, and proposals from other "
-                + "conversations; all adds history",
-            names: []),
+                + "conversations; all adds history"),
         HelpEntry(
             usage: "/fact SUBJECT [NAME] = VALUE", about: "state a fact as you; it outranks a tool's and the model's",
-            names: ["fact"]),
+            names: ["fact"], command: { .fact(FactRequest($0)) }),
         HelpEntry(
             usage: "/fact ID permanent|thread|session",
-            about: "move a fact to that scope; ID is cN, sN, pN, or CONV/cN for another conversation's proposal",
-            names: []),
-        HelpEntry(usage: "/fact delete ID", about: "delete a fact", names: []),
-        HelpEntry(usage: "/task [text]", about: "show the task and its history, or set it", names: ["task"]),
+            about: "move a fact to that scope; ID is cN, sN, pN, or CONV/cN for another conversation's proposal"),
+        HelpEntry(usage: "/fact delete ID", about: "delete a fact"),
         HelpEntry(
-            usage: "/last", about: "the last tool result in full", names: ["last"]),
+            usage: "/task [text]", about: "show the task and its history, or set it", names: ["task"],
+            command: { .task($0) }),
+        HelpEntry(
+            usage: "/last", about: "the last tool result in full", names: ["last"], command: { _ in .last }),
         HelpEntry(
             usage: "/show [ID]", about: "a tool output in full: an entry number or an event-id prefix (4+ characters)",
-            names: ["show"]),
-        HelpEntry(usage: "/models", about: "the models this Mac can run for this conversation", names: ["models"]),
+            names: ["show"], command: { .show($0) }),
+        HelpEntry(
+            usage: "/models", about: "the models this Mac can run for this conversation",
+            names: ["models"], command: { _ in .models }),
         HelpEntry(
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
-            names: ["model"]),
-        HelpEntry(usage: "/stats", about: "timings of recent model turns and classifier calls", names: ["stats"]),
-        HelpEntry(usage: "/history", about: "what you have typed this session", names: ["history"]),
+            names: ["model"], command: { .model($0) }),
+        HelpEntry(
+            usage: "/stats", about: "timings of recent model turns and classifier calls",
+            names: ["stats"], command: { _ in .stats }),
+        HelpEntry(
+            usage: "/history", about: "what you have typed this session", names: ["history"],
+            command: { _ in .history }),
         HelpEntry(
             usage: "/config [list|get KEY|set KEY VALUE|unset KEY]", about: "show or change ~/.wisp/config.json",
-            names: ["config"]),
-        HelpEntry(usage: "/save [name]", about: "save the transcript to ~/.wisp/transcripts", names: ["save"]),
+            names: ["config"], command: { .config(ConfigRequest($0)) }),
         HelpEntry(
-            usage: "/new", about: "start a fresh conversation with the same instructions and tools", names: ["new"]),
+            usage: "/save [name]", about: "save the transcript to ~/.wisp/transcripts", names: ["save"],
+            command: { .save($0) }),
+        HelpEntry(
+            usage: "/new", about: "start a fresh conversation with the same instructions and tools", names: ["new"],
+            command: { _ in .new }),
         HelpEntry(
             usage: "/quit, /exit, /q", about: "exit (also a bare exit, quit, or q, and Ctrl-D)",
-            names: ["quit", "exit", "q"]),
+            names: ["quit", "exit", "q"], command: { _ in .quit }),
     ]
 
     /// The width of the usage column; a longer usage puts its description on the next line.

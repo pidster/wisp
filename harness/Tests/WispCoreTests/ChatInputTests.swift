@@ -47,6 +47,39 @@ import WispTestSupport
             ChatInput.helpText.contains("a bare help or ?") && ChatInput.helpText.contains("a bare exit, quit, or q"))
     }
 
+    @Test func theHelpsTableIsTheParser() {
+        // Every command word in the table parses to a command, with and without an argument.
+        let words = ChatInput.helpEntries.flatMap(\.names)
+        #expect(!words.isEmpty && Set(words).count == words.count, "a word is listed twice")
+        for entry in ChatInput.helpEntries {
+            // A line has parser words exactly when it names a command.
+            #expect(entry.names.isEmpty == (entry.command == nil), "\(entry.usage)")
+            for name in entry.names {
+                #expect(ChatInput(line: "/\(name)") != .unknown(name), "/\(name)")
+                #expect(ChatInput(line: "/\(name) x") != .unknown(name), "/\(name) x")
+            }
+        }
+        // A word that is not in the table is not a command, whatever it is spelled like.
+        for word in ["nope", "Help", "inspectx", "fac"] {
+            #expect(ChatInput(line: "/\(word)") == .unknown(word), "/\(word)")
+            #expect(ChatInput(line: "/\(word) with an argument") == .unknown(word), "/\(word)")
+        }
+        #expect(ChatInput(line: "/") == .unknown(""))
+        // What a word produces comes from its entry: aliases share one, and arguments reach the closure.
+        #expect(ChatInput(line: "/q") == .quit && ChatInput(line: "/exit") == .quit && ChatInput(line: "/?") == .help)
+        #expect(ChatInput(line: "/save  notes ") == .save("notes") && ChatInput(line: "/save") == .save(nil))
+        #expect(ChatInput(line: "/inspect") == .inspect("status") && ChatInput(line: "/status") == .inspect("status"))
+        #expect(ChatInput(line: "/inspect Context") == .context)
+        #expect(ChatInput(line: "/inspect context  next ") == .view("next"))
+        #expect(ChatInput(line: "/inspect facts all") == .facts(all: true))
+        #expect(ChatInput(line: "/inspect facts") == .facts(all: false))
+        #expect(ChatInput(line: "/inspect config") == .inspect("config"))
+        #expect(ChatInput(line: "/audit git") == .inspect("audit git") && ChatInput(line: "/last") == .last)
+        #expect(ChatInput(line: "/show 4") == .show("4") && ChatInput(line: "/task do it") == .task("do it"))
+        #expect(ChatInput(line: "/config set a b") == .config(.set(path: "a", value: "b")))
+        #expect(ChatInput(line: "/approvals revoke 3") == .approvals(.revoke("3")))
+    }
+
     @Test func helpIsAColumnWithLongUsagesOverTheirDescription() {
         let lines = ChatInput.helpText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let column = 28

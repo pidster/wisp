@@ -455,7 +455,7 @@ thread from the store. The overview diagram above shows the rest of the path.
 `--[no-]stream`, repeatable `--tool`. `wisp chat` is a line-oriented REPL with slash commands parsed by
 `ChatInput` (`/help`, `/tools`, `/tokens`, `/inspect`, `/status`, `/approvals`, `/audit`, `/fact`, `/task`, `/last`,
 `/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`; `ChatInput.helpEntries` is the
-list `/help` prints), `--resume <name>`, and `--save <name>`.
+list `/help` prints and the table the parser looks each command word up in), `--resume <name>`, and `--save <name>`.
 `wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`.
 Exit codes follow swift-argument-parser conventions (64 for usage errors). The chat loop itself is
 `ChatLoop` in `WispCore`, with its input and output injected, so the executable only wires the
