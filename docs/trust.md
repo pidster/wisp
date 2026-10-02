@@ -45,8 +45,19 @@ on-device classifier, by default the Core ML classifier the release ships, or th
 (`approval.classifier`); a short list of
 read-only commands the rules know, such as `ls` or `git status`, is `safe` without asking a classifier
 ([approval](approval.md)). At `moderate` and above a person is asked: on the terminal in
-`chat`, through a dialog in your MCP client, and never in plain `wisp "…"`, which refuses instead
-unless you pass `--yes`.
+`chat`, in `wisp-tui`'s dialog, and never in plain `wisp "…"`, which refuses instead unless you pass
+`--yes`. Under `wisp mcp` you are asked through your MCP client's dialog when it has one and, at the same
+time, by a notification: answer with `wisp approvals approve <id>` or `deny <id>` in a terminal, or in a
+running `wisp-tui`, and the first answer wins.
+
+**Who can approve, and where.** Only you, in one of wisp's own faces: the chat's prompt, `wisp-tui`'s
+dialog, `wisp approvals` at a terminal, or your MCP client's dialog. The agent that called wisp cannot:
+nothing in the MCP conversation approves a command, and the answer is bound to the exact command,
+directory, and thread you were shown. wisp's own model cannot: its commands cannot write `~/.wisp` from
+the sandbox, and the default policy refuses `wisp approvals approve|deny`. `wisp approvals approve` and
+`deny` refuse to run without a terminal on standard input, which an agent's shell tool does not give; that
+is a hurdle, not a wall, so keep your agent's own approval for shell commands on
+([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)).
 
 Your answer has a scope. "This turn" covers the rest of the current prompt. "This session" covers the
 process. "This project" and "Always" are written to `~/.wisp/approvals.json` for 30 days, keyed by the
@@ -90,6 +101,7 @@ remembered as ([logging](logging.md)).
 | `~/.wisp/config.json` | your settings, written by you or by `wisp config set` and chat's `/config set` | yours; user-only once wisp writes it |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
+| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |

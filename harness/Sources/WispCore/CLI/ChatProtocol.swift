@@ -11,7 +11,9 @@ import Synchronization
 /// the conversation, raw, with the line the terminal chat would show for it as `text`), `approval` (a
 /// request the front end must answer), `choice` (a question a chat command asks, such as `/config set`),
 /// `completions` (the answer to a `complete`), `notify` (a notification for the front end to post, only
-/// when its `hello` declared `notify`), `exit`. Inbound: `hello` (the first line, optional: the effects the
+/// when its `hello` declared `notify`), `withdrawn` (an approval the front end was shown that no longer
+/// waits, answered another way), `exit`. A front end whose `hello` declares `approve-mcp` is also sent the
+/// commands waiting for approval in `wisp mcp` servers, as `approval` lines with `source: "mcp"` (ADR 0046). Inbound: `hello` (the first line, optional: the effects the
 /// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
 /// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
 /// and cursor to complete, by id).
@@ -218,6 +220,18 @@ public enum ChatProtocol {
             "reasons": .array(request.assessment.reasons.map { .string($0) }),
         ]
     }
+
+    /// The `approval` line for a command waiting in a `wisp mcp` server: the usual fields, with `source`
+    /// `mcp`, the `thread` and `client` it came from, and the pending request's id.
+    public static func approval(id: String, pending request: PendingApprovals.Request) -> [String: JSONValue] {
+        [
+            "id": .string(id), "command": .string(request.command), "line": .string(request.line),
+            "pattern": .string(request.pattern), "directory": .string(request.directory),
+            "level": .string(request.level.rawValue), "reasons": .array(request.reasons.map { .string($0) }),
+            "source": .string("mcp"), "thread": request.thread.map { .string($0) } ?? .null,
+            "client": request.client.map { .string($0) } ?? .null, "request": .string(request.id),
+        ]
+    }
 }
 
 /// Routes the front end's lines: messages queue for the chat loop, answers resume whoever is waiting
@@ -226,7 +240,7 @@ public final class LineRouter: Sendable {
     private struct State {
         var messages: [String] = []
         var closed = false
-        var waiting: [String: CheckedContinuation<String, Never>] = [:]
+        var waiting: [String: CheckedContinuation<String?, Never>] = [:]
         var early: [String: String] = [:]
     }
     private let state = Mutex(State())
@@ -268,7 +282,7 @@ public final class LineRouter: Sendable {
         case .complete(let id, let text, let cursor):
             completer.withLock { $0 }?(id, text, cursor)
         case .answer(let id, let decision):
-            let waiter = state.withLock { state -> CheckedContinuation<String, Never>? in
+            let waiter = state.withLock { state -> CheckedContinuation<String?, Never>? in
                 if let waiter = state.waiting.removeValue(forKey: id) { return waiter }
                 state.early[id] = decision
                 return nil
@@ -295,8 +309,13 @@ public final class LineRouter: Sendable {
         }
     }
 
-    /// The decision for approval `id`, waiting for the front end's answer.
+    /// The decision for approval `id`, waiting for the front end's answer; a withdrawn approval is `no`.
     public func answer(for id: String) async -> String {
+        await answerUnlessWithdrawn(for: id) ?? "no"
+    }
+
+    /// The decision for approval `id`, waiting for the front end's answer, or nil once `withdraw(id)` is called.
+    public func answerUnlessWithdrawn(for id: String) async -> String? {
         await withCheckedContinuation { continuation in
             let early = state.withLock { state -> String? in
                 if let decision = state.early.removeValue(forKey: id) { return decision }
@@ -305,6 +324,15 @@ public final class LineRouter: Sendable {
             }
             if let early { continuation.resume(returning: early) }
         }
+    }
+
+    /// Stops waiting for an answer to approval `id`: whoever waits gets nil, and a later answer is dropped.
+    public func withdraw(_ id: String) {
+        let waiter = state.withLock { state -> CheckedContinuation<String?, Never>? in
+            state.early.removeValue(forKey: id)
+            return state.waiting.removeValue(forKey: id)
+        }
+        waiter?.resume(returning: nil)
     }
 }
 

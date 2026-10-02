@@ -12,6 +12,26 @@ Added:
   triggered by file changes starts only once no change has arrived for the settle period, so a checkout, a
   formatter, or save-all gives one run after the burst instead of a spurious failure part-way through it.
   The first run and `--every` runs are not delayed.
+- Approval over MCP for every client ([ADR 0046](docs/decisions/0046-approval-and-notifications-over-mcp.md)).
+  A command the model runs under `wisp mcp` that needs approval is also filed in `~/.wisp/pending` and
+  announced by a notification ("wisp: approval needed", naming the command and `wisp approvals approve
+  <id>`). Answer it from a terminal with `wisp approvals approve <id> [--scope once|session|project|always]`
+  or `wisp approvals deny <id>`, or in a running `wisp-tui`, which shows it as its approval dialog. A client
+  without elicitation, such as the Claude mobile app, can now be approved; with a client that has a dialog,
+  both are asked and the first answer wins, which is also the way out when the dialog sticks. The calling
+  agent cannot answer.
+- `wisp approvals pending` lists the commands waiting for approval in `wisp mcp` servers.
+- `respond`'s result lists the notifications its turn posted, as `structuredContent.notifications`.
+- `approval.outOfBand` (on by default): `false` asks through the MCP client's dialog alone, as before.
+- `wisp doctor` checks `~/.wisp/pending`: absent, or a directory only you can open, and how many requests
+  wait.
+
+Changed:
+
+- A client without elicitation is no longer refused at once: the command waits for an answer from
+  `wisp approvals` or `wisp-tui`, up to `approval.timeoutSeconds`, then is refused as before.
+- The default `run_command` policy refuses `wisp approvals approve` and `deny`: the model never answers an
+  approval.
 
 Fixed:
 

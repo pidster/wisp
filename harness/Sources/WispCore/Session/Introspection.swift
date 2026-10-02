@@ -59,6 +59,7 @@ public struct Introspection: Sendable {
                 "coremlMinimumConfidence": .double(config.coremlMinimumConfidence),
                 "timeoutSeconds": config.approvalTimeout.map { .int(Int($0.components.seconds)) } ?? .int(0),
                 "persistDays": .int(Int(config.approvalLifetime.components.seconds / 86400)),
+                "outOfBand": .bool(config.approvalOutOfBand),
             ]),
             "audit": .object([
                 "enabled": .bool(config.auditEnabled), "maxFileBytes": .int(config.auditLimits.maxFileBytes),

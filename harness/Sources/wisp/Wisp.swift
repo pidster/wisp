@@ -507,6 +507,14 @@ struct Chat: AsyncParsableCommand {
             router.close()
         }
         reader.start()
+        // A front end that declares approve-mcp is shown the commands waiting in wisp mcp servers (ADR 0046).
+        let relay = Task {
+            while router.hello == nil, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
+            guard router.declares("approve-mcp") else { return }
+            await PendingRelay(channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, send: send)
+                .run()
+        }
+        defer { relay.cancel() }
         let tap = ChatEvents.Tap()
         // The front end posts notifications itself when its hello declared notify (ADR 0044); wisp never
         // writes to the terminal it owns.
@@ -1166,13 +1174,17 @@ struct DoctorCommand: ParsableCommand {
     }
 }
 
-/// Lists and revokes standing command approvals in ~/.wisp/approvals.json.
+/// Lists and revokes standing command approvals in ~/.wisp/approvals.json, and answers commands waiting for
+/// approval under `wisp mcp` (ADR 0046).
 struct Approvals: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Show or revoke standing command approvals.",
+        abstract: "Show or revoke standing command approvals, and answer commands waiting for approval.",
         discussion:
-            "Project and always approvals outlive the process. They are remembered by program and verb (git push *), expire, and never cover dangerous commands.",
-        subcommands: [List.self, Revoke.self, Clear.self], defaultSubcommand: List.self)
+            "Project and always approvals outlive the process. They are remembered by program and verb (git push *), expire, and never cover dangerous commands. "
+            + "A command the model runs under wisp mcp that needs approval waits in ~/.wisp/pending: 'pending' lists "
+            + "them, and 'approve' or 'deny' answers one from a terminal.",
+        subcommands: [List.self, Revoke.self, Clear.self, Pending.self, Approve.self, Deny.self],
+        defaultSubcommand: List.self)
 
     /// Prints live approvals, newest first.
     struct List: AsyncParsableCommand {
@@ -1212,7 +1224,122 @@ struct Approvals: AsyncParsableCommand {
             print("cleared")
         }
     }
+
+    /// Lists the commands waiting for approval under `wisp mcp`, removing stale ones first.
+    struct Pending: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List commands waiting for approval in wisp mcp servers.")
+
+        func run() async throws {
+            let channel = PendingApprovals(home: Wisp.home)
+            Approvals.sweep(channel)
+            let requests = channel.waiting()
+            guard !requests.isEmpty else {
+                print("no commands waiting for approval")
+                return
+            }
+            for line in ListingLayout.pending(requests, width: TerminalTable.detectWidth()) { print(line) }
+        }
+    }
+
+    /// Approves one waiting command.
+    struct Approve: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Approve a command waiting for approval, from a terminal.",
+            discussion:
+                "The scope is how long the approval lasts, as in chat: once (the rest of the turn), session (the "
+                + "server's process), project (30 days, this command in this directory), or always (30 days). "
+                + "A dangerous command is never remembered beyond the session.")
+
+        @Argument(help: "The id shown by 'wisp approvals pending' and in the notification.")
+        var id: String
+
+        @Option(name: .long, help: "once, session, project, or always.")
+        var scope: ApprovalScope = .once
+
+        func run() async throws {
+            try Approvals.answer(id, decision: scope.rawValue)
+        }
+    }
+
+    /// Denies one waiting command.
+    struct Deny: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Deny a command waiting for approval.")
+
+        @Argument(help: "The id shown by 'wisp approvals pending' and in the notification.")
+        var id: String
+
+        func run() async throws {
+            try Approvals.answer(id, decision: "no")
+        }
+    }
+
+    /// Removes stale requests and records each as settled `stale`, under a session of its own.
+    static func sweep(_ channel: PendingApprovals) {
+        let removed = channel.sweep()
+        guard !removed.isEmpty, let session = try? Wisp.begin(.init(entryPoint: .approvals)) else { return }
+        for request in removed {
+            session.audit.record(
+                .approvalSettled,
+                details: AuditEvent.Details.approvalSettled(
+                    request, outcome: "stale", reason: "its server stopped or its wait expired"))
+        }
+        session.end()
+    }
+
+    /// Writes the person's answer to request `id` and reports whether the waiting server took it. Only from a
+    /// terminal: an agent's shell, which has none, cannot answer for the person.
+    ///
+    /// - Throws: A validation error when not at a terminal or when the request cannot be answered.
+    static func answer(_ id: String, decision: String) throws {
+        guard isatty(STDIN_FILENO) != 0 else {
+            throw ValidationError(
+                "wisp approvals approve and deny answer for the person, so they run only from a terminal; "
+                    + "answer in the terminal, or in wisp-tui")
+        }
+        let channel = PendingApprovals(home: Wisp.home)
+        sweep(channel)
+        let session = try Wisp.begin(.init(entryPoint: .approvals))
+        defer { session.end() }
+        let request: PendingApprovals.Request
+        do {
+            request = try channel.answer(id, decision: decision, via: "cli")
+        } catch let failure as PendingApprovals.Failure {
+            session.audit.record(
+                .approvalAnswered,
+                details: AuditEvent.Details.approvalAnswered(
+                    request: id, try? channel.request(id: id), decision: decision, via: "cli", delivery: "refused",
+                    reason: "\(failure)"))
+            throw ValidationError("\(failure)")
+        }
+        // The server looks every 200 ms; give it a few seconds to take the answer.
+        var delivery = channel.delivery(of: id)
+        for _ in 0..<15 where delivery == .waiting {
+            usleep(200_000)
+            delivery = channel.delivery(of: id)
+        }
+        let text: String =
+            switch delivery {
+            case .taken: "taken"
+            case .tooLate: "too-late"
+            case .waiting: "waiting"
+            }
+        session.audit.record(
+            .approvalAnswered,
+            details: AuditEvent.Details.approvalAnswered(
+                request: id, request, decision: decision, via: "cli", delivery: text))
+        let verb = decision == "no" ? "denied" : "approved (\(decision))"
+        let from = request.thread.map { " for thread \($0)" } ?? ""
+        switch delivery {
+        case .taken: print("\(verb): \(request.command)\(from)")
+        case .waiting: print("\(verb): \(request.command)\(from); wisp has not read the answer yet")
+        case .tooLate:
+            throw ValidationError("\(request.command) was answered another way first; your answer was not used")
+        }
+    }
 }
+
+extension ApprovalScope: ExpressibleByArgument {}
 
 /// Trains and measures the fast, specialised classifiers the approval gate can use (ADR 0038).
 struct ClassifierCommand: AsyncParsableCommand {

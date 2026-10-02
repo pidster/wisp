@@ -28,7 +28,7 @@ a route that took the notification has done its part.
 | Off switch | `notifications.enabled: false` in `config.json`; every request is then refused |
 | Approval | None: a banner changes nothing on the Mac. Leave the tool out of a conversation with `--tool` or `tools` if it should not notify |
 | Terminal text | For the escape sequences, every control character (ESC, BEL, the C1 terminators) becomes a space and `;` becomes `,`, on top of the cleaning above, so the text can neither end a sequence nor be read as its parameters |
-| Audit | Every request, posted or refused, is a `notification` event with the title, body, source (`model`, `user`, or `watch` for `wisp watch`), outcome, the route taken, and why earlier routes were skipped ([logging.md](../logging.md)) |
+| Audit | Every request, posted or refused, is a `notification` event with the title, body, source (`model`, `user`, `watch` for `wisp watch`, or `approval` for a command waiting under `wisp mcp`), outcome, the route taken, and why earlier routes were skipped ([logging.md](../logging.md)) |
 
 ## How it is posted
 
@@ -41,6 +41,15 @@ in this order:
 | `terminal` | Plain chat and the one-shot commands (`wisp notify`, `wisp watch`, `wisp "…"`), when `/dev/tty` opens and `TERM_PROGRAM` (or, when unset, `TERM`) names a terminal with a notification sequence: Ghostty, iTerm2, and WezTerm post OSC 9 (`ESC ] 9 ; title: message BEL`), kitty OSC 99 (the title and the message as two chunks). Written to `/dev/tty`, never to stdout. Never under `--json` (the front end owns the terminal) or `wisp mcp` (the client does) | The terminal, under its name and icon; clicking it returns to the terminal |
 | `app` | With `notifications.viaTerminalApp` on (the default) and `__CFBundleIdentifier` set: `display notification` sent to that app (`tell application id …`); macOS asks once for Automation consent per app | The terminal app (probed 2026-09-30 in Terminal.app and Ghostty) |
 | `osascript` | Always, last | Script Editor |
+
+**Under `wisp mcp`**, MCP has no notification primitive, so the server posts from its own process: the
+`host` and `terminal` routes are skipped (the client owns the terminal, and a sequence written from the
+server would interleave with its frames; [ADR 0044](../decisions/0044-host-effects.md)), and the `app`
+route posts under the client terminal's bundle identifier when the server inherited one, `osascript`
+otherwise. The calling agent is told: `respond`'s result lists each notification its turn posted or tried
+to, with the route taken, as `structuredContent.notifications` ([mcp.md](../mcp.md)). A command waiting
+for approval posts one too, source `approval`, naming the command and the `wisp approvals approve` line
+that answers it ([ADR 0046](../decisions/0046-approval-and-notifications-over-mcp.md)).
 
 **iTerm2 shows OSC 9 only with a setting on:** Settings, Profiles, Terminal, Notification Center Alerts,
 Filter Alerts, "Send escape sequence-generated alerts" (per Claude Code's documentation, which uses the

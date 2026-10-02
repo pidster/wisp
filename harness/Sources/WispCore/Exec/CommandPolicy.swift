@@ -93,6 +93,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"\|\s*(ba|z|da)?sh(\s|$)"#,
         #"(^|[\s;&|(])(mkfs|diskutil\s+erase|newfs_)"#,
         #"(^|[\s;&|(])dd\s.*\bof=/dev/"#,
+        // Answering a pending approval is the person's alone (ADR 0046); the model never answers its own.
+        #"(^|[\s;&|(/])wisp\s+approvals\s+(approve|deny)\b"#,
     ]
 
     /// Checks that every pattern compiles.

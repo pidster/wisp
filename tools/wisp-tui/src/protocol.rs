@@ -57,6 +57,11 @@ pub enum Outbound {
     },
     /// A notification for the front end to post (ADR 0044), sent only when `hello` declared `notify`.
     Notify(Notice),
+    /// An approval shown earlier that no longer waits: answered another way, withdrawn, or expired.
+    Withdrawn {
+        /// The approval's id.
+        id: String,
+    },
     /// wisp is exiting.
     Exit,
     /// Anything this version does not know.
@@ -206,8 +211,9 @@ pub struct Choice {
     pub accepts_text: bool,
 }
 
-/// An approval request.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+/// An approval request: this conversation's, or (with `source` `mcp`) a command waiting in a `wisp mcp`
+/// server, which wisp sends because `hello` declared `approve-mcp` (ADR 0046).
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 pub struct Approval {
     /// The id to answer with.
     pub id: String,
@@ -224,6 +230,22 @@ pub struct Approval {
     /// Why.
     #[serde(default)]
     pub reasons: Vec<String>,
+    /// `mcp` for a command waiting in a `wisp mcp` server; absent for this conversation's own.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// For `mcp`, the thread it is for.
+    #[serde(default)]
+    pub thread: Option<String>,
+    /// For `mcp`, the client that called.
+    #[serde(default)]
+    pub client: Option<String>,
+}
+
+impl Approval {
+    /// Whether it waits in a `wisp mcp` server rather than in this conversation.
+    pub fn is_mcp(&self) -> bool {
+        self.source.as_deref() == Some("mcp")
+    }
 }
 
 /// A notification wisp asks the front end to post: already bounded and rate-limited by wisp, but
@@ -297,9 +319,10 @@ impl Outbound {
 }
 
 impl Inbound {
-    /// This front end's `hello`: it answers approvals, and posts notifications when `notify` is true.
+    /// This front end's `hello`: it answers approvals, its own and those waiting in `wisp mcp` servers,
+    /// and posts notifications when `notify` is true.
     pub fn hello(notify: bool) -> Self {
-        let mut effects = vec![String::from("approve")];
+        let mut effects = vec![String::from("approve"), String::from("approve-mcp")];
         if notify {
             effects.push(String::from("notify"));
         }
@@ -466,13 +489,30 @@ mod tests {
         assert_eq!(
             Inbound::hello(true).line(),
             format!(
-                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
+                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"approve-mcp\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
             )
         );
         assert!(
             Inbound::hello(false)
                 .line()
-                .contains("\"effects\":[\"approve\"],")
+                .contains("\"effects\":[\"approve\",\"approve-mcp\"],")
+        );
+    }
+
+    #[test]
+    fn parses_an_mcp_approval_and_a_withdrawal() {
+        let line = r#"{"type":"approval","id":"mcp-a1b2c3d4","command":"git push","line":"git push","pattern":"git push *","directory":"/r","level":"moderate","reasons":[],"source":"mcp","thread":"git","client":"claude-code","request":"a1b2c3d4"}"#;
+        let Outbound::Approval(approval) = Outbound::parse(line) else {
+            panic!("not an approval");
+        };
+        assert!(approval.is_mcp());
+        assert_eq!(approval.thread.as_deref(), Some("git"));
+        assert_eq!(approval.client.as_deref(), Some("claude-code"));
+        assert_eq!(
+            Outbound::parse(r#"{"type":"withdrawn","id":"mcp-a1b2c3d4"}"#),
+            Outbound::Withdrawn {
+                id: "mcp-a1b2c3d4".into()
+            }
         );
     }
 

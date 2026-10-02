@@ -26,6 +26,8 @@ public struct WispServer: Sendable {
     private let server: Server
     /// Set from the initialize hook when the client advertises elicitation.
     private let client = ClientCapabilityFlags()
+    /// The approval dialogs in flight, so one answered another way can be withdrawn.
+    private let tracker = ElicitationTracker()
     /// Builds the record for a new `thread_id` from the conversation the session sets up for it.
     public typealias ThreadFactory =
         @Sendable (
@@ -69,9 +71,15 @@ public struct WispServer: Sendable {
             capabilities: .init(
                 resources: .init(subscribe: false, listChanged: false), tools: .init(listChanged: false)))
         self.session = session
-        let timeout = session.config.approvalTimeout
+        let elicitation = ElicitationApprover(
+            server: server, client: client, timeout: session.config.approvalTimeout, tracker: tracker)
+        let client = client
+        // ADR 0046: the client's dialog, and the pending channel that wisp approvals and wisp-tui answer, at
+        // once; without either, the elicitation approver's denial says why.
         host = session.host(
-            approver: ElicitationApprover(server: server, client: client, timeout: timeout), face: .mcp)
+            approver: session.mcpApprover(
+                elicitation: { elicitation.ask }, fallback: elicitation, client: { client.name.withLock { $0 } }),
+            face: .mcp)
         threads = ThreadRegistry(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
@@ -88,6 +96,9 @@ public struct WispServer: Sendable {
         try await serve(transport: StdioTransport(logger: DiagnosticsLogHandler.logger()))
         await server.waitUntilCompleted()
         Diagnostics.mcp.info("client disconnected")
+        // Requests this process filed and never settled (a call still waiting at disconnect) are stale now.
+        let pid = getpid()
+        PendingApprovals(home: session.home).sweep { $0 != pid && PendingApprovals.isAlive($0) }
     }
 
     /// Registers the method handlers and starts the server on `transport`, wrapped in
@@ -96,7 +107,7 @@ public struct WispServer: Sendable {
     ///
     /// - Throws: Transport errors from the MCP SDK.
     func serve(transport: any Transport) async throws {
-        let transport = CompatibilityTransport(transport)
+        let transport = CompatibilityTransport(transport, tracker: tracker)
         await server.withMethodHandler(ListTools.self) { _ in .init(tools: ToolCatalog.all) }
         await server.withMethodHandler(CallTool.self) { params in try await self.call(params) }
         await server.withMethodHandler(ListResources.self) { _ in
@@ -110,6 +121,7 @@ public struct WispServer: Sendable {
         try await server.start(transport: transport) { info, capabilities in
             let supported = capabilities.elicitation != nil
             client.elicitation.withLock { $0 = supported }
+            client.name.withLock { $0 = info.name }
             Diagnostics.mcp.info(
                 "client \(info.name) \(info.version); elicitation \(supported ? "supported" : "unsupported")")
         }
@@ -366,6 +378,7 @@ public struct WispServer: Sendable {
                         refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
                     "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
+                    "notifications": Value(json: Self.notifications(in: events)),
                     "output": schema == nil ? .null : Self.parse(reply.text),
                     "contextNote": reply.contextNote.map { .string($0) } ?? .null,
                 ]),
@@ -376,6 +389,24 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
+    }
+
+    /// The notifications a turn posted, or tried to, from its `notification` events: MCP has no notification
+    /// primitive, so the caller learns of them here (ADR 0046). Each is `{title, body, source, outcome,
+    /// route, reason, time}`; `route` is null when nothing was posted, `reason` null when something was.
+    ///
+    /// - Parameter events: The turn's audit events.
+    /// - Returns: The list, in order.
+    static func notifications(in events: [AuditEvent]) -> JSONValue {
+        .array(
+            events.filter { $0.kind == .notification }.map { event in
+                let d = event.details
+                return .object([
+                    "title": d["title"] ?? .null, "body": d["body"] ?? .null, "source": d["source"] ?? .null,
+                    "outcome": d["outcome"] ?? .null, "route": d["route"] ?? .null, "reason": d["reason"] ?? .null,
+                    "time": .string(event.time.ISO8601Format()),
+                ])
+            })
     }
 
     /// Captures the output on a conversation of its own (so the command, the file read, and every

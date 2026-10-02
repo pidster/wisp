@@ -130,7 +130,7 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), notifyRoute(), homeWritable(),
+            subjectKinds(), savedTranscripts(), notifyRoute(), homeWritable(), pendingApprovals(),
         ]
         // The window follows the model checks, so it can say "not checked" when they failed.
         let modelProblem = model == .system ? probes.systemModel() : nil

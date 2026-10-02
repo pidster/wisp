@@ -235,7 +235,8 @@ Out, to the front end:
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show: `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, or `facts`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
-| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. |
+| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a command waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
+| `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals`, another `wisp-tui`), timed out, or its server stopped. Drop the dialog; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
@@ -245,10 +246,15 @@ In, from the front end: first, optionally, `{"type":"hello","effects":["approve"
 the host effects the front end carries ([ADR 0044](decisions/0044-host-effects.md)). `approve`: it
 answers `approval` lines; a `hello` without it has every approval denied without being asked.
 `notify`: it posts notifications itself, so wisp sends `notify` lines and never writes to the terminal.
+`approve-mcp`: it also answers commands waiting for approval in `wisp mcp` servers, so wisp lists
+`~/.wisp/pending` every half second and sends each as an `approval` line with `source: "mcp"`, and a
+`withdrawn` line when it no longer waits.
 Unknown effects are ignored; `client` and `version` are for the audit (`host.hello`). A front end that
 sends no `hello` keeps the behaviour from before it existed: approvals over the protocol, notifications
 posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
-`approve`, and `notify` when its terminal has a notification sequence (Ghostty, iTerm2, WezTerm, kitty).
+`approve` and `approve-mcp`, and `notify` when its terminal has a notification sequence (Ghostty, iTerm2,
+WezTerm, kitty). It queues an approval that arrives while another is shown, and marks one from
+`wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its title.
 Then `{"type":"message","text":"…"}` for a chat line, slash commands included, and
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval, and
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, and
@@ -612,6 +618,29 @@ e5f6a7b8  always   29 Oct 2026  any directory       head *
 `wisp approvals revoke <id>` removes one; `wisp approvals clear` removes all. See
 [approval.md](approval.md).
 
+`wisp approvals pending` lists the commands waiting for approval in `wisp mcp` servers, oldest first, after
+removing stale ones (a server that stopped, a wait that expired). Piped, each is one tab-separated line:
+id, level, seconds waited, client/thread, directory, command.
+
+```
+ID        LEVEL     WAITING  FROM             IN       COMMAND
+a1b2c3d4  moderate  12 s     claude-code/git  ~/src/x  git push origin main
+```
+
+`wisp approvals approve <id> [--scope once|session|project|always]` approves one (`once`, the rest of
+the turn, by default; scopes as in chat, and a dangerous command is never remembered beyond the session);
+`wisp approvals deny <id>` refuses it. Both run only from a terminal, so an agent's shell cannot answer for
+you, and wait up to three seconds for the server to take the answer:
+
+```
+$ wisp approvals approve a1b2c3d4 --scope session
+approved (session): git push origin main for thread git
+```
+
+An id that is unknown, stale, already answered, or whose request file was altered is refused with the
+reason; one answered another way first says so and exits 1. The notification that announced the request
+names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md); [mcp.md](mcp.md), "Approval").
+
 ### `wisp mcp`
 
 Serves the Model Context Protocol over stdio until the client closes the pipe. See [mcp.md](mcp.md).
@@ -639,6 +668,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, or moved there with `/fact ID permanent`. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
+| `pending/` | Commands waiting for approval under `wisp mcp`: `<id>.request.json` from the server, `<id>.answer.json` from `wisp approvals` or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
 
@@ -665,7 +695,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `watch` | `{ "settle": 1 }` | `wisp watch`: seconds without a file change before a run starts, 0 to 60; `0` runs on every change batch. `--settle` overrides it. Settable with `wisp config set watch.settle 2`. |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
-| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), and how long persisted approvals last; see [approval.md](approval.md). |
+| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30, "outOfBand": true }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), how long persisted approvals last, and whether `wisp mcp` also files each waiting command for `wisp approvals` and `wisp-tui`, with a notification (`outOfBand`; `false` asks through the client's dialog alone); see [approval.md](approval.md). |
 
 Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
 stderr.

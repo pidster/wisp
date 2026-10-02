@@ -521,6 +521,65 @@ extension AuditEvent {
             { $1 }
         }
 
+        /// `approval.pending`: a command waiting under `wisp mcp` was filed for another face to answer
+        /// (`outcome` `filed`), or could not be (`failed`, with `reason`). `alongside` is `elicitation` when
+        /// the client's dialog asks at the same time.
+        public static func approvalPending(
+            _ request: PendingApprovals.Request, outcome: String, alongside: String?, reason: String? = nil
+        ) -> [String: JSONValue] {
+            var details = approvalSubject(command: request.command, pattern: request.pattern, line: request.line)
+            details["request"] = .string(request.id)
+            details["directory"] = .string(request.directory)
+            details["level"] = .string(request.level.rawValue)
+            details["outcome"] = .string(outcome)
+            if let thread = request.thread { details["thread"] = .string(thread) }
+            if let client = request.client { details["client"] = .string(client) }
+            if let expires = request.expiresAt { details["expiresAt"] = .string(expires.ISO8601Format()) }
+            if let alongside { details["alongside"] = .string(alongside) }
+            if let reason { details["reason"] = .string(reason) }
+            return details
+        }
+
+        /// `approval.answered`: the person answered a waiting request in this process (`via` `cli` or `tui`).
+        /// `delivery` is `taken` (the server took it), `too-late` (the request went another way first),
+        /// `waiting` (not yet read), or `refused` (not written, with `reason`).
+        public static func approvalAnswered(
+            request id: String, _ request: PendingApprovals.Request?, decision: String, via: String,
+            delivery: String, reason: String? = nil
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "request": .string(id), "decision": .string(decision), "via": .string(via),
+                "delivery": .string(delivery),
+            ]
+            if let request {
+                details["command"] = .string(request.command)
+                details["pattern"] = .string(request.pattern)
+                details["directory"] = .string(request.directory)
+                if let thread = request.thread { details["thread"] = .string(thread) }
+            }
+            if let reason { details["reason"] = .string(reason) }
+            return details
+        }
+
+        /// `approval.settled`: how a filed request ended. `outcome` is `answered` (with `via`: `elicitation`,
+        /// `cli`, or `tui`, and the `decision`), `timed-out`, `abandoned` (the caller cancelled the call),
+        /// `failed` (no way left to ask, with `reason`), or `stale` (removed by a sweep after its server
+        /// stopped or its wait expired).
+        public static func approvalSettled(
+            _ request: PendingApprovals.Request, outcome: String, via: String? = nil, decision: String? = nil,
+            reason: String? = nil, seconds: TimeInterval? = nil
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "request": .string(request.id), "command": .string(request.command), "outcome": .string(outcome),
+            ]
+            if let thread = request.thread { details["thread"] = .string(thread) }
+            if let via { details["via"] = .string(via) }
+            if let decision { details["decision"] = .string(decision) }
+            if let reason { details["reason"] = .string(reason) }
+            if let seconds { details["seconds"] = .double(seconds) }
+            return details
+        }
+
         /// `approval.decided`. `decision` is `approved`, `denied`, `timed-out`, `cached`, `cached-turn`,
         /// `cached-project`, or `cached-always`; the optionals apply as documented for each.
         public static func approvalDecided(
@@ -609,6 +668,14 @@ extension AuditEvent {
         case .classifierTrained: ["path", "examplesSource", "examples", "perLevel", "trainingAccuracy", "seconds"]
         case .configChange: ["path", "old", "new", "source"]
         case .approvalRequested: ["command", "pattern", "line", "level"]
+        case .approvalPending:
+            [
+                "request", "command", "pattern", "line", "directory", "level", "thread", "client", "expiresAt",
+                "alongside", "outcome", "reason",
+            ]
+        case .approvalAnswered:
+            ["request", "command", "pattern", "directory", "thread", "decision", "via", "delivery", "reason"]
+        case .approvalSettled: ["request", "command", "thread", "outcome", "via", "decision", "reason", "seconds"]
         case .approvalDecided:
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",

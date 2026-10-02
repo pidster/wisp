@@ -36,6 +36,8 @@ public struct Home: Sendable, Equatable {
     public var approvalsFile: URL { root.appending(path: "approvals.json") }
     /// The shared store of permanent facts, which only the person admits facts to.
     public var factsFile: URL { root.appending(path: "facts.json") }
+    /// Commands waiting for approval under `wisp mcp`, answered from another face (`PendingApprovals`).
+    public var pending: URL { root.appending(path: "pending", directoryHint: .isDirectory) }
     /// Model assets kept under the home, one subdirectory per backend.
     public var models: URL { root.appending(path: "models", directoryHint: .isDirectory) }
 

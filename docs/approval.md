@@ -161,7 +161,7 @@ not an audit log is attached, and the refusals `respond` reports are those of th
 | --- | --- | --- |
 | `wisp respond` | denying, unless `--yes` | Non-interactive: risky commands are refused with a message naming the three ways forward. `--yes` approves everything. |
 | `wisp chat` | terminal | Prints the command, level, and reasons on stderr; reads `y` (this turn), `s` (session), `p` (project), `a` (always), or `n`. |
-| `wisp mcp` | MCP elicitation, unless `--yes` | For commands the model runs inside `respond`: asks the client's user through the protocol. Accept runs it with the scope picked (this turn by default, or session, project, always); Decline or silence for `approval.timeoutSeconds` refuses. If the client did not advertise elicitation, denies with a message telling the calling harness to run the command itself, start wisp with `--yes`, or lower the threshold. |
+| `wisp mcp` | out of band and MCP elicitation, unless `--yes` | For commands the model runs inside `respond` and the condensing tools: files the request in `~/.wisp/pending`, posts a notification, and, when the client advertised elicitation, asks through its dialog at the same time; the first answer wins and the other is withdrawn. The person answers with `wisp approvals approve ID [--scope …]` or `deny ID` from a terminal, or in a running `wisp-tui`; never through the MCP conversation. Silence for `approval.timeoutSeconds` refuses. With `approval.outOfBand` false: elicitation only, and a client without it is refused with a message telling the calling harness to run the command itself, start wisp with `--yes`, or lower the threshold ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
 
 ## Configuration
 
@@ -178,8 +178,26 @@ not an audit log is attached, and the refusals `respond` reports are those of th
 | `coremlMinimumConfidence` | `0.6` | For `coreml`: below this top-label probability the verdict is raised to at least `moderate`. |
 | `timeoutSeconds` | `600` | How long an approval may go unanswered before it counts as declined; `0` waits forever. |
 | `persistDays` | `30` | Lifetime of `project` and `always` approvals. |
+| `outOfBand` | `true` | Under `wisp mcp`, also file each waiting command for `wisp approvals` and `wisp-tui`, with a notification; the first answer, there or in the client's dialog, wins. `false` asks through elicitation only. |
 
-How approval should reach clients that do not render elicitation at all remains an open design question.
+## Approval over MCP through another face
+
+A client that does not render elicitation (the Claude mobile app), or whose dialog sticks, can still be
+answered ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). The waiting server writes the
+request to `~/.wisp/pending/<id>.request.json` (directory 0700, file 0600) and posts a banner:
+
+```
+wisp: approval needed
+moderate risk · claude-code, thread git
+git push origin main — wisp approvals approve a1b2c3d4
+```
+
+The person answers from a terminal or `wisp-tui`; the answer is a second file, bound by a SHA-256 to the
+exact command, line, directory, thread, and server process shown, so it approves only what was shown and
+only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next
+`wisp approvals pending`. The calling agent cannot answer: nothing in MCP approves, wisp's own model is
+refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox, and
+the commands refuse to run without a terminal on standard input.
 
 `never` still classifies and audits; it just does not ask.
 

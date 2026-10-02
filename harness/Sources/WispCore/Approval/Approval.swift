@@ -13,16 +13,20 @@ public struct ApprovalRequest: Equatable, Sendable {
     public var workingDirectory: String
     /// Why it needs approval.
     public var assessment: RiskAssessment
+    /// The conversation asking (its audit session: the MCP `thread_id`), when the gate knows it.
+    public var thread: String?
 
     /// Creates a request.
     public init(
-        command: String, line: String? = nil, pattern: String, workingDirectory: String, assessment: RiskAssessment
+        command: String, line: String? = nil, pattern: String, workingDirectory: String, assessment: RiskAssessment,
+        thread: String? = nil
     ) {
         self.command = command
         self.line = line ?? command
         self.pattern = pattern
         self.workingDirectory = workingDirectory
         self.assessment = assessment
+        self.thread = thread
     }
 }
 
@@ -40,6 +44,17 @@ public enum ApprovalDecision: Equatable, Sendable {
 public protocol Approver: Sendable {
     /// Decides. Must not throw: a channel that fails should deny with a reason.
     func decide(_ request: ApprovalRequest) async -> ApprovalDecision
+
+    /// Decides, recording what the channel itself does (a request filed, a notification posted) on the
+    /// asking conversation's `audit`. The gate calls this one; the default ignores `audit`.
+    func decide(_ request: ApprovalRequest, audit: AuditLog?) async -> ApprovalDecision
+}
+
+extension Approver {
+    /// Decides without auditing anything of its own.
+    public func decide(_ request: ApprovalRequest, audit: AuditLog?) async -> ApprovalDecision {
+        await decide(request)
+    }
 }
 
 /// Approves everything (`--yes`).
@@ -328,7 +343,8 @@ public actor ApprovalGate {
         let decision = await approver.decide(
             ApprovalRequest(
                 command: segment.text, line: line, pattern: segment.pattern, workingDirectory: workingDirectory,
-                assessment: assessment))
+                assessment: assessment, thread: audit?.session),
+            audit: audit)
         switch decision {
         case .approved(let requested):
             // A dangerous command is never remembered beyond the session, whatever was chosen.

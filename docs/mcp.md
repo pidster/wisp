@@ -34,6 +34,10 @@ as a map of strings and fails the whole request with `-32603`. Each object value
 compact JSON text (`"{}"`), nothing else in the message changes, and wisp never reads the field. Found
 and fixed on 2026-09-20 against 0.1.4; the captured request is a regression test.
 
+The same wrapper sees every outgoing message, so it records the JSON-RPC id of each approval dialog
+(`elicitation/create` with `_meta` `wisp/approval`), which the SDK does not return; that is how a dialog
+answered another way first is withdrawn with `notifications/cancelled` ("Approval", below).
+
 ## Discovering the model's tools
 
 wisp's own tools are not MCP tools, so a client learns about them from two resources:
@@ -127,8 +131,21 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "notifications": [ … ], "output": null, "contextNote": null }
 ```
+
+`notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
+calls and the banner wisp posts when a command waits for approval. MCP has no notification primitive, so
+wisp posts through its own process (below, "Notifications") and tells the caller here:
+
+```json
+[{ "title": "Build", "body": "The build passed.", "source": "model", "outcome": "posted", "route": "app",
+   "reason": null, "time": "2026-10-02T09:14:03Z" }]
+```
+
+`source` is `model` or `approval`; `outcome` is `posted` or `refused`, with `route` (`app` or `osascript`)
+when posted and `reason` when refused (notifications off, over the per-minute limit). Empty when the turn
+posted none.
 
 `facts` lists the facts the turn recorded or changed that are still in force, from its tools and the model
 (a test command's status, a distilled codename): each `{ "id", "scope", "subject", "name", "value",
@@ -295,8 +312,25 @@ The audit `prompt` event carries the schema. Example:
 
 ## Approval
 
-Commands the model runs inside `respond` that are risky (by default `moderate` and above) need approval.
-If the client advertised elicitation at initialize, wisp asks the client's user through the protocol. The command, directory, risk level, and
+Commands the model runs inside `respond`, or that a condensing tool captures, that are risky (by default
+`moderate` and above) need approval. wisp asks the person two ways at once, and the first answer wins
+([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)):
+
+- **Through another of wisp's faces.** The request is filed in `~/.wisp/pending` and a notification says
+  what waits and how to answer it ("wisp: approval needed", "git push origin main — wisp approvals approve
+  a1b2c3d4"). The person answers from a terminal with `wisp approvals approve ID [--scope
+  once|session|project|always]` or `wisp approvals deny ID`, or in a running `wisp-tui`, which shows the
+  request as its approval dialog ([wisp.md](wisp.md)). This works for every client, with or without
+  elicitation, and is the way out when a client's dialog sticks.
+- **Through the client's dialog,** when the client advertised elicitation at initialize.
+
+When one answers, the other is withdrawn: the request file is removed, or the dialog is cancelled with
+`notifications/cancelled` (whether a client closes it then is the client's; the specification says it
+should). **The calling agent cannot approve:** nothing in MCP answers a request, wisp's own model is
+refused `wisp approvals approve|deny`, and those commands run only from a terminal. Set
+`approval.outOfBand` to `false` for the client's dialog alone, as before 0.16.0.
+
+In the client's dialog, the command, directory, risk level, and
 reasons appear in the title, the message, and the field descriptions, because clients render different
 parts; the full command leads the description so it is never trimmed. **Accept runs the command with the
 scope picked in the form (this turn by default; session; project, 30 days in this directory; always, 30
@@ -304,10 +338,17 @@ days anywhere); Decline or Cancel refuses it; no answer within `approval.timeout
 waits forever) refuses it.** Persisted scopes never apply to dangerous commands
 ([approval.md](approval.md)). Approvals given here share the process: a "this session" answer covers every
 thread, and "project" and "always" are written to `~/.wisp/approvals.json` exactly as from the CLI.
-Without elicitation, the model's tool call is refused with
+With `approval.outOfBand` off and no elicitation, the model's tool call is refused with
 `command not approved: … this client does not support elicitation …`; the reply reports that in prose and
 `structuredContent.refusals` carries it structurally. The calling harness should run the command itself
 or start wisp with `--yes`. See [approval.md](approval.md).
+
+**The call waits for the answer**, as it does for the dialog, up to `approval.timeoutSeconds`. A client's
+own tool-call timeout may end the call first: Claude Code's is `MCP_TOOL_TIMEOUT`. A client that then
+sends `notifications/cancelled` cancels the call: wisp withdraws the request, refuses the command, and
+audits `approval.settled` with outcome `abandoned`. A client that stops waiting without cancelling leaves
+the request waiting until it is answered or times out, and the result goes nowhere; set the client's
+timeout above `approval.timeoutSeconds` when delegating commands that need approval.
 
 One `respond` call in which the model runs a command that needs approval, as the server handles it:
 
@@ -323,10 +364,15 @@ sequenceDiagram
     model->>run: run_command: command, directory
     run->>run: policy, split, classify each part
     opt at or above the threshold, and no approval held
-        run->>client: elicitation, through the server: command, level, reasons, scope
-        client->>person: approval dialog
-        person->>client: Accept with a scope, or Decline
-        client->>run: the answer, or silence until the timeout
+        run->>run: file the request in ~/.wisp/pending, post a notification
+        par the client's dialog, when it has elicitation
+            run->>client: elicitation: command, level, reasons, scope
+            client->>person: approval dialog
+            person->>client: Accept with a scope, or Decline
+        and another face
+            person->>run: wisp approvals approve or deny, or wisp-tui's dialog
+        end
+        run->>run: first answer wins and the other is withdrawn, silence until the timeout denies
     end
     alt cleared
         run->>run: run under Seatbelt, audit the outcome
@@ -682,12 +728,26 @@ notification's `message` is a line chat would show for the call's events:
 - `⚙ run_command git status` when the model calls a tool;
 - `· safe by rules: a known read-only command (0.2 ms)`, the gate's rating of each command;
 - `waiting for approval [moderate]: git push`, while the approval dialog is open in the client;
+- `· also waiting in wisp approvals pending and wisp-tui`, when the request is filed for another face, and
+  `· answered in wisp-tui` (or `wisp approvals`, or `the client's dialog`) when it is answered; the request's
+  id is not sent;
 - `· approved (session)`, `· allowed by your standing approval`, `· denied`, or `· blocked by policy: …`;
 - `↳ exit 0`, or a tool's result.
 
 `progress` counts the notifications from 1 in order, with no `total`, since a turn's length is not known
 ahead. All of them are sent before the result. A caller that sends no token gets none. The model pass of
 the condensing tools reports nothing per chunk yet.
+
+## Notifications
+
+MCP has no notification primitive. A notification under `wisp mcp` (the model's `notify` tool, or the
+banner for a command waiting for approval) is posted by wisp's own process: to the terminal app by its
+bundle identifier when `notifications.viaTerminalApp` is on and the server inherited
+`__CFBundleIdentifier` from a client started in a terminal, so the banner comes from that terminal, and
+through `osascript` otherwise ([tools/notify.md](tools/notify.md)). Never through the terminal's escape
+sequence: a server started by a client in a terminal shares that terminal, and a sequence written from the
+server would interleave with the client's frames ([ADR 0044](decisions/0044-host-effects.md)). `respond`
+lists what its turn posted in `notifications`, above.
 
 ## Audit
 

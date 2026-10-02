@@ -1,7 +1,9 @@
 # ADR 0011: Classify command risk with rules plus the on-device model, and ask above a threshold
 
 Date: 2026-09-17. Status: accepted. Amended by [ADR 0044](0044-host-effects.md): approval is the first
-request-and-answer host effect; approvers are what a face carries for it.
+request-and-answer host effect; approvers are what a face carries for it. Amended by
+[ADR 0046](0046-approval-and-notifications-over-mcp.md): under `wisp mcp` a command waiting for approval is
+also answerable from `wisp approvals` and `wisp-tui`, so a client without elicitation can be approved.
 
 ## Context
 

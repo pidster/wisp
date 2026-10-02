@@ -40,7 +40,7 @@ configured under `commandPolicy` in `config.json`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…` | Regexes; a match rejects the command. Patterns are compiled once per process. |
+| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046) | Regexes; a match rejects the command. Patterns are compiled once per process. |
 | `allow` | `[]` | Regexes; when non-empty the command must match one. Deny wins. |
 | `sandbox.enabled` | `true` | Run under `sandbox-exec`. |
 | `sandbox.allowNetwork` | `true` | Set `false` to deny all networking inside the sandbox. |

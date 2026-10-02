@@ -345,13 +345,17 @@ public struct Config: Codable, Equatable, Sendable {
         public var timeoutSeconds: Int?
         /// Days a persisted (project or always) approval lasts.
         public var persistDays: Int?
+        /// Under `wisp mcp`, whether a waiting command is also filed for `wisp approvals` and `wisp-tui`, with a
+        /// notification (ADR 0046); default true.
+        public var outOfBand: Bool?
 
         /// Creates settings; nil fields take defaults.
         public init(
             threshold: ApprovalThreshold? = nil, classifier: RiskClassifierChoice? = nil, useModel: Bool? = nil,
             coremlModel: String? = nil, coremlMinimumConfidence: Double? = nil, timeoutSeconds: Int? = nil,
-            persistDays: Int? = nil
+            persistDays: Int? = nil, outOfBand: Bool? = nil
         ) {
+            self.outOfBand = outOfBand
             self.threshold = threshold
             self.classifier = classifier
             self.useModel = useModel
@@ -459,6 +463,7 @@ public struct Config: Codable, Equatable, Sendable {
             coremlModel: approval?.coremlModel, coremlMinimumConfidence: approval?.coremlMinimumConfidence ?? 0.6,
             approvalTimeout: (approval?.timeoutSeconds ?? 600) == 0 ? nil : .seconds(approval?.timeoutSeconds ?? 600),
             approvalLifetime: .seconds((approval?.persistDays ?? 30) * 24 * 3600),
+            approvalOutOfBand: approval?.outOfBand ?? true,
             ollama: OllamaSettings(
                 baseURL: ollama?.baseURL.flatMap(URL.init(string:)) ?? OllamaSettings.default.baseURL,
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
@@ -518,6 +523,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var approvalTimeout: Duration?
         /// How long a persisted approval lasts.
         public var approvalLifetime: Duration
+        /// Under `wisp mcp`, whether a waiting command is also filed for another face to answer.
+        public var approvalOutOfBand: Bool = true
         /// Where Ollama is for `ollama:<name>` models.
         public var ollama: OllamaSettings
         /// Where Core AI bundles live, as configured; nil means `<home>/models/coreai`.

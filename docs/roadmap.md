@@ -19,12 +19,13 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 ## 0.16.0
 
-- **Host effects over MCP** (larger). [ADR 0044](decisions/0044-host-effects.md) gave each face a
-  `SessionHost`; under `wisp mcp` only approval reaches the client, through elicitation, and
-  notifications take the process routes. To settle: notifications, for which MCP has no primitive;
-  approval for a client without elicitation (the question paused since 2026-09-17, in
-  [backlog.md](backlog.md)); and whether the terminal route is ever allowed under MCP, which ADR 0044
-  refuses today because a server started by a client in a terminal shares that terminal.
+- **Host effects over MCP** (larger). Built 2026-10-02,
+  [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md). A command waiting for approval under
+  `wisp mcp` is filed in `~/.wisp/pending` and announced by a notification; the person answers with
+  `wisp approvals approve|deny` or in `wisp-tui`, never through the MCP conversation; with elicitation as
+  well, both are asked at once and the first answer wins (`approval.outOfBand`, on by default).
+  Notifications keep the process routes and are listed in `respond`'s `notifications`; the terminal
+  route stays refused under MCP.
 - **`wisp watch --settle`**, `watch.settle` in `config.json`, 1 s by default: a run starts only once no
   file change has arrived for the settle period. FSEvents' fixed 0.5 s batch can start a run part-way
   through a long burst (a checkout, a formatter, save-all), which gives a spurious failure and then a

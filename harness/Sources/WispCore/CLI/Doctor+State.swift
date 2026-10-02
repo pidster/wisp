@@ -182,3 +182,25 @@ extension Doctor {
         return "\(tokens), sized from memory (ADR 0043): \(note)"
     }
 }
+
+extension Doctor {
+    /// `~/.wisp/pending`, where commands waiting for approval under `wisp mcp` are answered from another face
+    /// (ADR 0046): absent until first used, or a directory of this user's that no one else can open, with how
+    /// many requests wait and how many are stale.
+    func pendingApprovals() -> Finding {
+        let name = "pending approvals"
+        let channel = PendingApprovals(home: home)
+        let path = channel.directory.path
+        guard FileManager.default.fileExists(atPath: path) else {
+            return Finding(name: name, ok: true, detail: "no \(path) yet; made when wisp mcp first waits for approval")
+        }
+        if let problem = PendingApprovals.problem(with: path) { return Finding(name: name, ok: false, detail: problem) }
+        let waiting = channel.waiting().count
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+        let stale = files.filter { $0.hasSuffix(".request.json") }.count - waiting
+        let staleNote = stale > 0 ? "; \(stale) stale, removed by the next 'wisp approvals pending'" : ""
+        return Finding(
+            name: name, ok: true, detail: "\(path) is mode 700; \(waiting) waiting (wisp approvals pending)\(staleNote)"
+        )
+    }
+}

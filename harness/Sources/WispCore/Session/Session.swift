@@ -53,14 +53,18 @@ public struct Session: Sendable {
         public var makeClassifier: @Sendable (Config.Resolved, Home) -> any RiskClassifier
         /// Builds the audit sink; called only when the audit log is enabled.
         public var makeSink: @Sendable (Home, Config.Resolved) throws -> any AuditSink
+        /// Runs `osascript` for the notifier's app and `osascript` routes.
+        public var notify: Notifier.Runner
 
         /// Creates dependencies.
         public init(
             makeClassifier: @escaping @Sendable (Config.Resolved, Home) -> any RiskClassifier,
-            makeSink: @escaping @Sendable (Home, Config.Resolved) throws -> any AuditSink
+            makeSink: @escaping @Sendable (Home, Config.Resolved) throws -> any AuditSink,
+            notify: @escaping Notifier.Runner = Notifier.osascript
         ) {
             self.makeClassifier = makeClassifier
             self.makeSink = makeSink
+            self.notify = notify
         }
 
         /// The real thing: the classifier `approval.classifier` names beside the rules (the rules alone, the
@@ -85,9 +89,11 @@ public struct Session: Sendable {
                 return try FileAuditSink(url: home.auditFile, limits: config.auditLimits)
             })
 
-        /// Rules-only classification and the given sink, for tests: no model, no audit file.
+        /// Rules-only classification and the given sink, for tests: no model, no audit file, and notifications
+        /// that report success without posting anything.
         public static func testing(sink: any AuditSink = MemoryAuditSink()) -> Dependencies {
-            Dependencies(makeClassifier: { _, _ in RuleRiskClassifier.standard }, makeSink: { _, _ in sink })
+            Dependencies(
+                makeClassifier: { _, _ in RuleRiskClassifier.standard }, makeSink: { _, _ in sink }, notify: { _ in 0 })
         }
     }
 
@@ -263,7 +269,9 @@ public struct Session: Sendable {
                 ? classifier
                 : CachingRiskClassifier(
                     TimedRiskClassifier(classifier, name: config.approvalClassifier.rawValue, stats: stats)),
-            notifier: Notifier(enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute),
+            notifier: Notifier(
+                enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute,
+                run: dependencies.notify),
             stats: stats, permanentFacts: .permanent(home: home))
     }
 
@@ -313,6 +321,28 @@ public struct Session: Sendable {
             approver: approver, notifier: notifier,
             notifications: NotificationRoutes(
                 face: face, viaTerminalApp: config.notificationsViaTerminalApp, only: only))
+    }
+
+    /// The approver for `wisp mcp` (ADR 0046): with `approval.outOfBand` on, a waiting command is filed in the
+    /// home's `pending/` channel for `wisp approvals` and `wisp-tui`, announced by a notification through the
+    /// MCP face's routes, and asked through `elicitation` too when the client has it, the first answer winning;
+    /// with it off, `elicitation` alone, or `fallback` when the client has none.
+    ///
+    /// - Parameters:
+    ///   - elicitation: The client's dialog now, or nil when it has none.
+    ///   - fallback: What decides when nothing can ask: a denial that says why.
+    ///   - client: The client's name.
+    /// - Returns: The approver.
+    public func mcpApprover(
+        elicitation: @escaping @Sendable () -> OutOfBandApprover.Ask?, fallback: any Approver,
+        client: @escaping @Sendable () -> String? = { nil }
+    ) -> any Approver {
+        guard config.approvalOutOfBand else { return ElicitationOnly(ask: elicitation, fallback: fallback) }
+        let host = host(approver: fallback, face: .mcp)
+        return OutOfBandApprover(
+            channel: PendingApprovals(home: home), timeout: config.approvalTimeout, alongside: elicitation,
+            client: client,
+            notify: { message, audit in host.notify(message, source: .approval, audit: audit) })
     }
 
     /// Opens the session's own conversation over a headless host with `approver`; for tests and callers

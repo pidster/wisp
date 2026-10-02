@@ -4,7 +4,8 @@ Date: 2026-09-30. Status: accepted; built 2026-09-30 (see "Built" at the end). A
 request-and-answer effect, and its MCP mapping (below); amended again the same day, withdrawing that effect
 (the last amendment below). Amends
 [ADR 0011](0011-risk-classifier-and-approval.md) (approvers) and [ADR 0030](0030-notifications.md) (how a
-notification is posted).
+notification is posted). Amended by [ADR 0046](0046-approval-and-notifications-over-mcp.md): approval for an
+MCP client without elicitation, through another face, and the notifications a `respond` turn posted.
 
 ## Context
 

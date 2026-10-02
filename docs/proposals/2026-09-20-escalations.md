@@ -1,6 +1,10 @@
 # Proposal: escalations, with two verbs and a choice of channels
 
 Date: 2026-09-20. Status: for review. Becomes the next ADR (amending ADR 0011 and 0014) when accepted.
+Update 2026-10-02: approval for clients without elicitation was settled by
+[ADR 0046](../decisions/0046-approval-and-notifications-over-mcp.md), through another of wisp's faces; the
+`result` channel below was considered and rejected there, because the calling agent could redeem the id
+without asking anyone. The inquiry verb is still open.
 
 ## Problem
 

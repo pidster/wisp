@@ -224,7 +224,25 @@ adds to the turn's end (and as a `note`), and `respond` returns as `structuredCo
 
 `ApprovalGate` (an actor, one per conversation) takes an `ApprovalThreshold` (a level, or `never`) and runs a `RiskClassifier` (`CompositeRiskClassifier` over
 `RuleRiskClassifier` and `ModelRiskClassifier`) and, at or above the configured threshold, asks an
-`Approver` (`TerminalApprover`, `DenyingApprover`, `AutoApprover`, or the MCP `ElicitationApprover`).
+`Approver` (`TerminalApprover`, `DenyingApprover`, `AutoApprover`, `JSONApprover`, or, under `wisp mcp`,
+`OutOfBandApprover` with the `ElicitationApprover` beside it). The gate calls `decide(_:audit:)` with the
+asking conversation's log, and puts the conversation's id on the request (`ApprovalRequest.thread`), so an
+approver that does work of its own (filing a request, posting a banner) audits it where the question was
+asked.
+
+**Approval through another face** ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Under `wisp mcp`,
+`Session.mcpApprover` composes `OutOfBandApprover` from the configuration: it files the request in the
+`PendingApprovals` channel (`~/.wisp/pending`, a directory of user-only files, each request bound to its
+command, directory, thread, and server process by a SHA-256), posts a notification through the MCP host's
+routes, and races two legs: a 200 ms poll of the channel for an answer file, and, when the client has it,
+the elicitation dialog. The first answer settles the race; the other leg is cancelled without being
+awaited (a dialog in flight ignores cancellation, as `Timeout` records), the request file removed or the
+dialog withdrawn with `notifications/cancelled`, whose JSON-RPC id the server's `CompatibilityTransport`
+learned from the dialog's `_meta` key (`ElicitationTracker`). A leg that fails leaves the other asking;
+cancelling the call settles the race as abandoned. Answers come from other processes:
+`wisp approvals approve|deny` writes the answer file, and `wisp chat --json`'s `PendingRelay` shows a
+front end that declared `approve-mcp` each waiting request and writes its answer. With
+`approval.outOfBand` off, `ElicitationOnly` asks through the dialog alone.
 `CommandRunner` consults the gate after the policy check. See [approval.md](approval.md) and
 [ADR 0011](decisions/0011-risk-classifier-and-approval.md). The model beside the rules is
 `CoreMLRiskClassifier` (a Core ML text classifier under contract 1 or 2; the default, with the version
@@ -291,7 +309,7 @@ flag means the same everywhere. The faces are overlays on this core:
 | `respond` | `session.openAgent(host:)` with a denying approver that explains `--yes` and `chat` | `.terminal` |
 | `chat` | `session.openAgent(host:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store | `.terminal` |
 | `chat --json` | The same, with `JSONApprover` | `.frontEnd`: the front end when its `hello` declared `notify` |
-| `mcp` | `session.thread(id:host:…)` per `thread_id` with the elicitation approver, its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together | `.mcp`: the process routes only |
+| `mcp` | `session.thread(id:host:…)` per `thread_id` with `Session.mcpApprover` (the out-of-band channel and the client's dialog, ADR 0046), its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together | `.mcp`: the process routes only |
 
 `Notifier` applies the off switch, the bounds, and the per-minute limit across the process, then hands the
 bounded message to the face's `NotificationRoutes`, which try ADR 0044's routes in order and return the
@@ -479,7 +497,9 @@ list for Up and Down. `wisp chat --json` is the same loop with its IO mapped ont
 (`ChatProtocol`, `LineRouter`, `JSONApprover`), so a front end in another process, `tools/wisp-tui`,
 can own the screen while the session stays here. The front end's optional first line, `hello`, declares
 the host effects it carries; `LineRouter` keeps it (`declares`), the host's notification routes ask it at
-each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. `/config` shows the configuration as YAML through
+each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. A
+`hello` that declares `approve-mcp` starts a `PendingRelay`, which sends the commands waiting in
+`wisp mcp` servers as `approval` lines (`source: "mcp"`) and `withdrawn` when they stop waiting. `/config` shows the configuration as YAML through
 `YAMLText`; `/config set` and `wisp config set` go through
 `ConfigSettings` (the settings that can change, and what each takes) and `ConfigEdit` (one path set or
 removed, the result validated as start-up would before it is written); a chat command that needs an

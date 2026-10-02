@@ -57,6 +57,9 @@ public enum ConfigSettings {
         Setting(
             path: "approval.persistDays", summary: "days a project or always approval lasts", kind: .integer(1...365)),
         Setting(
+            path: "approval.outOfBand",
+            summary: "under wisp mcp, also ask through wisp approvals and wisp-tui, with a notification", kind: .flag),
+        Setting(
             path: "routing.ladder", summary: "models to route to by input size, least capable first", kind: .models),
         Setting(
             path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
@@ -119,6 +122,7 @@ public enum ConfigSettings {
         case "approval.coremlMinimumConfidence": return .double(d.coremlMinimumConfidence)
         case "approval.timeoutSeconds": return .int(Int(d.approvalTimeout?.components.seconds ?? 0))
         case "approval.persistDays": return .int(Int(d.approvalLifetime.components.seconds / 86_400))
+        case "approval.outOfBand": return .bool(d.approvalOutOfBand)
         case "routing.ladder": return .array(d.routingLadder.map { .string($0.description) })
         case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))

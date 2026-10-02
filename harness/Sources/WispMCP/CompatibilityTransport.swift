@@ -15,11 +15,14 @@ actor CompatibilityTransport: Transport {
     private let base: any Transport
     /// The logger the SDK uses for this transport.
     nonisolated let logger: Logger
+    /// Sees every outgoing message, to learn the ids of approval dialogs.
+    private let tracker: ElicitationTracker?
 
     /// Wraps `base`.
-    init(_ base: any Transport, logger: Logger = DiagnosticsLogHandler.logger()) {
+    init(_ base: any Transport, logger: Logger = DiagnosticsLogHandler.logger(), tracker: ElicitationTracker? = nil) {
         self.base = base
         self.logger = logger
+        self.tracker = tracker
     }
 
     /// Connects the base transport.
@@ -28,8 +31,11 @@ actor CompatibilityTransport: Transport {
     /// Disconnects the base transport.
     func disconnect() async { await base.disconnect() }
 
-    /// Sends unchanged.
-    func send(_ data: Data) async throws { try await base.send(data) }
+    /// Sends unchanged, letting the tracker see it first.
+    func send(_ data: Data) async throws {
+        tracker?.observe(data)
+        try await base.send(data)
+    }
 
     /// Receives from the base transport, normalising each message.
     func receive() -> AsyncThrowingStream<Data, Swift.Error> {

@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
@@ -253,6 +254,9 @@ pub struct App {
     pub status: Option<Status>,
     /// An approval awaiting an answer.
     pub approval: Option<Approval>,
+    /// Approvals that arrived while one was shown, oldest first: commands waiting in `wisp mcp` servers can
+    /// arrive at any time, beside this conversation's own.
+    pub queued: VecDeque<Approval>,
     /// A choice awaiting an answer.
     pub picker: Option<Picker>,
     /// The id of the completion asked for and not yet answered.
@@ -380,11 +384,8 @@ impl App {
                     self.show_output(output);
                 }
             }
-            Outbound::Approval(approval) => {
-                self.flush_partial();
-                self.panel = None;
-                self.approval = Some(approval);
-            }
+            Outbound::Approval(approval) => self.arrived(approval),
+            Outbound::Withdrawn { id } => self.withdrawn(&id),
             Outbound::Choice(choice) => {
                 self.flush_partial();
                 self.panel = None;
@@ -402,6 +403,37 @@ impl App {
             Outbound::Notify(notice) => self.notices.push(notice),
             Outbound::Exit => self.exited = true,
             Outbound::Unknown => {}
+        }
+    }
+
+    /// Shows an approval in place of any panel, or queues it behind the one shown.
+    fn arrived(&mut self, approval: Approval) {
+        self.flush_partial();
+        self.panel = None;
+        if self.approval.is_some() {
+            self.queued.push_back(approval);
+        } else {
+            self.approval = Some(approval);
+        }
+    }
+
+    /// Drops an approval that no longer waits: the dialog shown is replaced by the next queued one, with a
+    /// note, and a queued one is removed quietly.
+    fn withdrawn(&mut self, id: &str) {
+        if self
+            .approval
+            .as_ref()
+            .is_some_and(|approval| approval.id == id)
+        {
+            if let Some(approval) = self.approval.take() {
+                self.push(
+                    &format!("⚠ answered elsewhere: {}", approval.command),
+                    LineKind::Note,
+                );
+            }
+            self.approval = self.queued.pop_front();
+        } else {
+            self.queued.retain(|approval| approval.id != id);
         }
     }
 
@@ -608,7 +640,7 @@ impl App {
             };
             let id = approval.id.clone();
             self.push(&answered(&approval.command, decision), LineKind::Note);
-            self.approval = None;
+            self.approval = self.queued.pop_front();
             return Action::Send(Inbound::Answer {
                 id,
                 decision: decision.to_string(),
@@ -793,6 +825,7 @@ impl App {
         }
         if let Some(approval) = self.approval.take() {
             self.push(&answered(&approval.command, "no"), LineKind::Note);
+            self.approval = self.queued.pop_front();
             return Action::Send(Inbound::Answer {
                 id: approval.id,
                 decision: "no".into(),
@@ -884,7 +917,11 @@ impl App {
             .border_type(BorderType::Rounded)
             .border_style(palette::level(&approval.level))
             .title(Span::styled(
-                format!(" approve · {} ", approval.level),
+                if approval.is_mcp() {
+                    format!(" approve · {} · wisp mcp ", approval.level)
+                } else {
+                    format!(" approve · {} ", approval.level)
+                },
                 palette::level(&approval.level),
             ))
             .padding(Padding::horizontal(1));
@@ -1217,6 +1254,14 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
         })
         .collect();
     let muted = |text: String| Line::from(Span::styled(fit(&text, width), palette::muted()));
+    if approval.is_mcp() {
+        let client = approval.client.as_deref().unwrap_or("an MCP client");
+        let thread = approval
+            .thread
+            .as_deref()
+            .map_or(String::new(), |thread| format!(", thread {thread}"));
+        lines.push(muted(format!("waiting in wisp mcp for {client}{thread}")));
+    }
     if approval.line != approval.command {
         lines.push(muted(format!("part of: {}", approval.line)));
     }
@@ -1860,6 +1905,7 @@ mod tests {
             directory: "/r".into(),
             level: "dangerous".into(),
             reasons: vec!["changes repository state".into()],
+            ..Approval::default()
         }));
         // The reasons are in the dialog, not the scrollback.
         assert!(app.take_pending().is_empty());
@@ -1888,7 +1934,84 @@ mod tests {
             directory: "/repo".into(),
             level: "dangerous".into(),
             reasons: reasons.iter().map(|r| (*r).to_string()).collect(),
+            ..Approval::default()
         }
+    }
+
+    fn mcp_approval(id: &str, command: &str) -> Approval {
+        Approval {
+            id: id.into(),
+            command: command.into(),
+            line: command.into(),
+            pattern: "git push *".into(),
+            directory: "/repo".into(),
+            level: "moderate".into(),
+            source: Some("mcp".into()),
+            thread: Some("git".into()),
+            client: Some("claude-code".into()),
+            ..Approval::default()
+        }
+    }
+
+    #[test]
+    fn approvals_from_wisp_mcp_queue_behind_the_one_shown_and_can_be_withdrawn() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Approval(approval("git push", "git push", &[])));
+        app.handle(Outbound::Approval(mcp_approval("mcp-1", "git tag v1")));
+        app.handle(Outbound::Approval(mcp_approval("mcp-2", "git push --tags")));
+        assert_eq!(app.queued.len(), 2);
+        // Answering the one shown brings up the next.
+        assert_eq!(
+            app.type_char('y'),
+            Action::Send(Inbound::Answer {
+                id: "a".into(),
+                decision: "once".into()
+            })
+        );
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-1"));
+        // A queued one answered elsewhere leaves quietly; the one shown leaves with a note.
+        app.handle(Outbound::Withdrawn { id: "mcp-2".into() });
+        assert!(app.queued.is_empty());
+        app.take_pending();
+        app.handle(Outbound::Withdrawn { id: "mcp-1".into() });
+        assert!(app.approval.is_none());
+        assert_eq!(
+            app.take_pending()[0].text,
+            "⚠ answered elsewhere: git tag v1"
+        );
+        // An unknown id changes nothing.
+        app.handle(Outbound::Withdrawn { id: "mcp-9".into() });
+        assert!(app.approval.is_none());
+    }
+
+    #[test]
+    fn an_mcp_approval_says_where_it_waits() {
+        let lines: Vec<String> = dialog_lines(&mcp_approval("mcp-1", "git push"), 60)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        assert!(
+            lines.contains(&"waiting in wisp mcp for claude-code, thread git".to_string()),
+            "{lines:?}"
+        );
+        let own: Vec<String> = dialog_lines(&approval("git push", "git push", &[]), 60)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        assert!(!own.iter().any(|line| line.contains("wisp mcp")));
     }
 
     fn drawn(app: &App, width: u16) -> Vec<String> {
@@ -2039,6 +2162,7 @@ mod tests {
             directory: "/".into(),
             level: "moderate".into(),
             reasons: vec![],
+            ..Approval::default()
         });
         app.edit(&Edit::Backspace);
         assert_eq!(app.editor.text(), ">git log\n-3");

@@ -23,6 +23,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case config
     /// `wisp classifier`, a risk classifier trained or measured.
     case classifier
+    /// `wisp approvals pending`, `approve`, or `deny`: the person answering a command waiting under `wisp mcp`.
+    case approvals
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {

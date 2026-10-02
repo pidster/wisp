@@ -35,4 +35,36 @@ public enum ListingLayout {
         guard let width else { return rows.map { $0.joined(separator: "\t") } }
         return TerminalTable.render(header: ["ID", "SCOPE", "EXPIRES", "WHERE", "PATTERN"], rows: rows, width: width)
     }
+
+    /// The `wisp approvals pending` lines for `requests`.
+    ///
+    /// - Parameters:
+    ///   - requests: The waiting requests, oldest first.
+    ///   - width: The terminal's width, or nil when piped.
+    ///   - now: The time, for how long each has waited.
+    /// - Returns: `id<TAB>level<TAB>seconds<TAB>thread<TAB>directory<TAB>command` lines when piped; aligned
+    ///   columns under a header on a terminal, the command last so it takes the room left.
+    public static func pending(_ requests: [PendingApprovals.Request], width: Int?, now: Date = Date()) -> [String] {
+        let rows = requests.map { request in
+            let waited = max(0, Int(now.timeIntervalSince(request.createdAt)))
+            let from = [request.client, request.thread].compactMap(\.self).joined(separator: "/")
+            return [
+                request.id, request.level.rawValue, width == nil ? "\(waited)" : waitedText(waited),
+                from.isEmpty ? "-" : from, width == nil ? request.directory : ChatStatus.abbreviated(request.directory),
+                request.command,
+            ]
+        }
+        guard let width else { return rows.map { $0.joined(separator: "\t") } }
+        return TerminalTable.render(
+            header: ["ID", "LEVEL", "WAITING", "FROM", "IN", "COMMAND"], rows: rows, width: width)
+    }
+
+    /// `42 s`, `3 min`, or `2 h`.
+    static func waitedText(_ seconds: Int) -> String {
+        switch seconds {
+        case ..<60: "\(seconds) s"
+        case ..<3600: "\(seconds / 60) min"
+        default: "\(seconds / 3600) h"
+        }
+    }
 }
