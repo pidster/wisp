@@ -10,7 +10,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table |
+| 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table; two reference bugs; `read_file` on a wildcard |
 | 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
@@ -31,6 +31,14 @@ release's preflight still runs the eval's floors, as a guard against regressions
   pass. Changes during a run already collapse into one pending run.
 - **The chat parser driven by the help's table**, so a command added to the parser cannot be missing
   from `/help`; today a test checks the help's words parse, but a new parser case is not caught.
+- **Two bugs in output references** (`OutputReference`), seen in a saved context on 2026-10-02: a
+  reference's "last line" can be `read_file`'s paging hint ("[more: call again with offset 94]") rather
+  than the output's last line, and its "first line" can be a fragment where the output was bounded
+  mid-line ("ize."). Both mislead every model; the fix takes the first and last whole lines of content
+  and keeps the paging hint apart.
+- **`read_file` on a wildcard.** Given `test*.wisp`, it answers "file not found", and a small model
+  retried the same path three times. A directive error instead: no wildcards here; list matches with
+  `run_command` (`ls *.wisp`).
 
 ## 0.17.0
 
@@ -90,6 +98,9 @@ The release given to measurement, once the four before it are out:
   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model
   fallback, one context scenario), with `WISP_EVAL_MODELS`. It may change the default model for
   delegation (AGENTS.md, [backends.md](backends.md)). The models were pulled on 2026-10-01.
+  Early evidence, not measured: in a chat on 2026-10-02 `llama3.2:3b` wrote tool calls as JSON text
+  instead of making them, kept a wrong path through three corrections, and claimed a plan had run when
+  it had only read the file.
 
 ## 0.21.0
 
