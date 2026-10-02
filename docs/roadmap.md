@@ -4,7 +4,8 @@ The releases planned after 0.15.0, agreed with the operator on 2026-10-01. Each 
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
-scheduled stays in [backlog.md](backlog.md).
+scheduled stays in [backlog.md](backlog.md). Analysis, evals, and tuning wait for a round of their own
+after 0.20.0 (the operator, 2026-10-02); no release before it runs an eval to decide or tune anything.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
@@ -12,7 +13,8 @@ scheduled stays in [backlog.md](backlog.md).
 | 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
-| 0.20.0 | Context checkpoint 2 | The assessment reconsidered, if wanted |
+| 0.20.0 | To be chosen | |
+| After 0.20.0 | A round of analysis, evals, and tuning | |
 
 ## 0.16.0
 
@@ -65,13 +67,19 @@ scheduled stays in [backlog.md](backlog.md).
   memory as [ADR 0043](decisions/0043-context-window-from-memory.md) does for Ollama; exact token counts
   with the model's tokenizer, and usage reported; reusing the processed prefix, which an in-process
   runtime controls directly, so composing each request ([ADR 0045](decisions/0045-layered-context.md),
-  D11) costs little; fetching `mlx-community` models, with the person's approval; and an eval of MLX
-  against Ollama for the same models.
+  D11) costs little; and fetching `mlx-community` models, with the person's approval. Measuring MLX
+  against Ollama waits for the round after 0.20.0.
 - **Core AI's context window** from its bundle's metadata, by the same path.
 
 ## 0.20.0
 
-- **Context checkpoint 2** (larger), the open items of
+The larger item is still to be chosen, from the unscheduled list below or new work.
+
+## After 0.20.0: analysis, evals, and tuning
+
+A round given to measurement, once the five releases are out:
+
+- **Context checkpoint 2**, the open items of
   [ADR 0045](decisions/0045-layered-context.md): a scenario long enough to condense at the default
   budget, to tune the target and headroom; the 50% variants again, now that the target is capped below
   the trigger; a model switch mid-conversation (D10); and whether `memory` helps. By then the context
@@ -79,15 +87,14 @@ scheduled stays in [backlog.md](backlog.md).
 - **The assessment reconsidered, if wanted.** It stays off: the checkpoint found it rewrote the inferred
   task on 8 to 11 of 22 requests. A version that changes the task only when a request restates it is the
   starting point.
+- **MLX against Ollama**, for the same models, once 0.19.0 has MLX on a par.
+- **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`,
+  and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
+  (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model
+  fallback, one context scenario), with `WISP_EVAL_MODELS`. It may change the default model for
+  delegation (AGENTS.md, [backends.md](backends.md)). The models were pulled on 2026-10-01.
 
 ## Not scheduled
-
-- **The local-model comparison**, on a day set aside for it rather than in a release (the operator,
-  2026-10-02; the models were pulled on 2026-10-01): `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`,
-  `ministral-3:8b`, and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that
-  decide delegation (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the
-  classifier's model fallback, one context scenario), with `WISP_EVAL_MODELS`. It may change the
-  default model for delegation (AGENTS.md, [backends.md](backends.md)).
 
 Waiting on data, a signing set-up, or someone asking; each is described in [backlog.md](backlog.md):
 
