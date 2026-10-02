@@ -8,7 +8,7 @@ scheduled stays in [backlog.md](backlog.md).
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table; the local-model comparison |
+| 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table |
 | 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
@@ -28,11 +28,6 @@ scheduled stays in [backlog.md](backlog.md).
   pass. Changes during a run already collapse into one pending run.
 - **The chat parser driven by the help's table**, so a command added to the parser cannot be missing
   from `/help`; today a test checks the help's words parse, but a new parser case is not caught.
-- **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`, and
-  `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation (tool
-  calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model fallback,
-  one context scenario), with `WISP_EVAL_MODELS`. It may change the default model for delegation
-  (AGENTS.md, [backends.md](backends.md)).
 
 ## 0.17.0
 
@@ -87,7 +82,14 @@ scheduled stays in [backlog.md](backlog.md).
 
 ## Not scheduled
 
-Waiting on data, a signing set-up, or someone asking. Each is described in [backlog.md](backlog.md):
+- **The local-model comparison**, on a day set aside for it rather than in a release (the operator,
+  2026-10-02; the models were pulled on 2026-10-01): `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`,
+  `ministral-3:8b`, and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that
+  decide delegation (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the
+  classifier's model fallback, one context scenario), with `WISP_EVAL_MODELS`. It may change the
+  default model for delegation (AGENTS.md, [backends.md](backends.md)).
+
+Waiting on data, a signing set-up, or someone asking; each is described in [backlog.md](backlog.md):
 
 - a small specialised distiller, and a tool-choice classifier, once the audit log holds enough labelled
   pairs;
