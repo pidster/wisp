@@ -45,6 +45,7 @@ to leave `read_file` out of a conversation that should not read at all.
 | Line length | A single line longer than the budget is cut to the budget, on a character boundary | same |
 | Binary files | Rejected if the first chunk contains a NUL byte | not configurable |
 | Directories, missing files, `offset`/`limit` below 1 | Errors | |
+| Wildcards (`*`, `?`, `[`) in a path that does not exist | `error: read_file takes one path, not a pattern: …; list matches with run_command, e.g. ls …`, so the model lists the files instead of retrying the path. A file really named with a wildcard character is read. | |
 
 CRLF line endings are handled; the returned lines never include `\n` or `\r`.
 

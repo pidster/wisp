@@ -4,6 +4,16 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- A tool output's reference no longer shows `read_file`'s paging hint as its last line or a fragment as its
+  first: both lines are whole lines of content, a line next to a cut is marked with `…`, and the hint is
+  kept as its own `paging: more from offset N` line.
+- `read_file` given a wildcard path that matches no file now says it takes one path and to list matches with
+  `run_command`, where it said "file not found" and a small model retried the same path.
+
 ## 0.15.0
 
 Breaking:

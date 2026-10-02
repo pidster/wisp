@@ -42,7 +42,7 @@ import WispTestSupport
         #expect(first.hasPrefix("# The context composed at the start of turn 1"))
         #expect(first.contains("line 40 of a file") && first.contains("tool output: read_file · this turn's"))
         let second = try await text(server, "wisp://threads/ctx/context/2")
-        #expect(second.contains("(sent as a reference)") && !second.contains("line 40 of a file"))
+        #expect(second.contains("(sent as a reference)") && !second.contains("line 20 of a file"))
         let next = try await text(server, "wisp://threads/ctx/context/next")
         #expect(next.hasPrefix("# The context the next request carries") && next.contains("[output of entry "))
         // Turns that do not exist, pages past the last, and closed threads are protocol errors.

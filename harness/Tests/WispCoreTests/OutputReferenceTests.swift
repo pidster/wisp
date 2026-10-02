@@ -24,12 +24,47 @@ import WispTestSupport
         let failed = OutputReference.notes(on: "error: file not found: /x", tool: "read_file")
         #expect(failed.status == "failed" && failed.first == "error: file not found: /x" && failed.last == nil)
         let file = OutputReference.notes(on: Self.page, tool: "read_file")
-        #expect(file.status == "ok" && file.lines == 41 && file.last == "[end of file]")
+        #expect(file.status == "ok" && file.lines == 41 && file.more == nil)
+        #expect(file.last?.hasPrefix("40\tline 40 of the overview") == true)
         #expect(file.first?.hasPrefix("1\tline 1 of the overview") == true)
         let empty = OutputReference.notes(on: "", tool: "notify")
         #expect(empty.first == nil && empty.last == nil && empty.lines == 1 && empty.bytes == 0)
         // A command that printed nothing has only its status.
         #expect(OutputReference.notes(on: "exit status: 0", tool: "run_command").first == nil)
+    }
+
+    @Test func aPagingHintIsNotTheLastLineAndIsKeptApart() {
+        let page = (1...3).map { "\($0)\tline \($0)" }.joined(separator: "\n") + "\n[more: call again with offset 94]"
+        let notes = OutputReference.notes(on: page, tool: "read_file")
+        #expect(notes.first == "1\tline 1" && notes.last == "3\tline 3" && notes.more == "more from offset 94")
+        #expect(notes.lines == 4)
+        let text = OutputReference.text(tool: "read_file", entry: 2, time: nil, arguments: nil, output: page)
+        #expect(text.contains("last line: 3\tline 3") && text.hasSuffix("paging: more from offset 94"))
+        #expect(!text.contains("[more:"))
+    }
+
+    @Test func aBoundedCommandOutputMarksItsFragmentFirstLine() {
+        let output =
+            "exit status: 0\noutput truncated: only the tail of each stream is shown\nstdout:\nize.\nnext line\ndone"
+        let notes = OutputReference.notes(on: output, tool: "run_command")
+        #expect(notes.status == "exit status 0" && notes.first == "…ize." && notes.last == "done")
+        // The bound's marker is a trailer, and the line before it was cut.
+        let cut = "alpha\nbeta\ngam\n[truncated: 9000 bytes, showing 4096]"
+        let bounded = OutputReference.notes(on: cut, tool: "run_command")
+        #expect(bounded.first == "alpha" && bounded.last == "gam…" && bounded.more == nil)
+        // A timed-out system_info note is a trailer too.
+        #expect(
+            OutputReference.notes(on: "a\nb\n(timed out; partial)", tool: "system_info").last == "b")
+    }
+
+    @Test func oneLineAndEmptyOutputsHaveOnlyWhatTheyHave() {
+        let one = OutputReference.notes(on: "only line", tool: "inspect")
+        #expect(one.first == "only line" && one.last == nil && one.more == nil && one.lines == 1)
+        let read = OutputReference.notes(on: "1\tx\n[end of file]", tool: "read_file")
+        #expect(read.first == "1\tx" && read.last == nil)
+        let empty = OutputReference.notes(on: "", tool: "read_file")
+        #expect(empty.first == nil && empty.last == nil && empty.more == nil)
+        #expect(OutputReference.notes(on: "[more: call again with offset 5]", tool: "read_file").first == nil)
     }
 
     @Test func theReferenceNamesTheCallAndStaysBounded() throws {
@@ -43,7 +78,7 @@ import WispTestSupport
                 == "[output of entry 7 not repeated: read_file at 14:05:12, ok, 41 lines, \(Self.page.utf8.count) bytes; "
                 + "call it again to see it]")
         #expect(lines[1] == #"arguments: {"path":"/work/overview.md"}"#)
-        #expect(lines[2].hasPrefix("first line: 1\tline 1") && lines[3] == "last line: [end of file]")
+        #expect(lines[2].hasPrefix("first line: 1\tline 1") && lines[3].hasPrefix("last line: 40\tline 40"))
         // Long arguments and lines are shortened; the whole never passes the bound.
         let huge = OutputReference.text(
             tool: String(repeating: "t", count: 300), entry: 1, time: nil,
@@ -125,7 +160,7 @@ import WispTestSupport
         let reference = ThreadRecord.text(of: carried)
         #expect(reference.hasPrefix("[output of entry \(output.id) not repeated: read_file at "))
         #expect(reference.contains(#"arguments: {"path": "\#(file.path)"}"#))
-        #expect(reference.contains("41 lines") && reference.contains("last line: [end of file]"))
+        #expect(reference.contains("41 lines") && reference.contains("last line: 40\tline 40"))
         #expect(agent.store.entries.first { $0.id == output.id }?.referencedAt == 2)
         let event = try #require(sink.events.first { $0.kind == .outputReferenced })
         #expect(Set(event.details.keys) == AuditEvent.fields(for: .outputReferenced))

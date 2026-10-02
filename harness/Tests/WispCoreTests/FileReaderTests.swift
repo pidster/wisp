@@ -86,6 +86,25 @@ import Testing
         #expect(throws: FileReader.Failure.invalidRange) { try FileReader().read(path: binary, offset: 0) }
     }
 
+    @Test func aWildcardThatMatchesNoFileIsADirectiveNotANotFound() throws {
+        let failure = FileReader.Failure.pattern("test*.wisp")
+        #expect(
+            failure.description
+                == "read_file takes one path, not a pattern: test*.wisp; list matches with run_command, e.g. ls test*.wisp"
+        )
+        for path in ["/nonexistent/test*.wisp", "/nonexistent/a?.txt", "/nonexistent/[ab].txt"] {
+            #expect(throws: FileReader.Failure.pattern(path)) { try FileReader().read(path: path) }
+        }
+        // A file really named with a wildcard character is read.
+        let directory = FileManager.default.temporaryDirectory.appending(path: "wisp-star-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let named = directory.appending(path: "a*b.txt")
+        try Data("hi\n".utf8).write(to: named)
+        #expect(try FileReader().read(path: named.path).lines == ["hi"])
+        #expect(ToolOutput.error(failure).hasPrefix("error: read_file takes one path"))
+    }
+
     @Test func lineScannerSplitsAcrossFeeds() {
         var scanner = LineScanner()
         #expect(scanner.feed(Data("ab".utf8)).isEmpty)

@@ -14,7 +14,8 @@ import Foundation
 /// [output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; to see it: memory "recall entry 7"]
 /// arguments: {"path":"/work/harbour/docs/overview.md"}
 /// first line: 1	# harbour sync: overview
-/// last line: [end of file]
+/// last line: 100\tthe last whole line of the page
+/// paging: more from offset 101
 /// ```
 enum OutputReference {
     /// The longest a note line's quoted text may be, in characters.
@@ -32,16 +33,31 @@ enum OutputReference {
         var lines: Int
         /// UTF-8 bytes in the output.
         var bytes: Int
-        /// The first line of content, shortened; nil when there is none.
+        /// The first line of content, shortened; nil when there is none. Written with a leading `…` when
+        /// the output was bounded so that the line may be a fragment.
         var first: String?
-        /// The last line of content, shortened; nil when it is the first or there is none.
+        /// The last line of content, shortened; nil when it is the first or there is none. Written with a
+        /// trailing `…` when the output was cut after it.
         var last: String?
+        /// Where the tool says the output continues (`more from offset 94`), kept apart from the content;
+        /// nil when it does not.
+        var more: String?
     }
 
     /// Lines of a `run_command` result that frame its streams rather than carry content.
     private static let commandFrames = ["stdout:", "stderr:"]
 
+    /// What `read_file`'s continuation line starts with; a number and `]` follow.
+    private static let pagingPrefix = "[more: call again with offset "
+    /// The notes a `system_info` command adds after its output when it timed out.
+    private static let partialTrailers = ["(timed out; partial)", "(timed out; sizes are partial)"]
+
     /// The notes on `output`, from `tool`.
+    ///
+    /// The first and last lines are the first and last whole lines of content: the trailers tools append
+    /// (`read_file`'s `[more: …]` and `[end of file]`, the bound's `[truncated: …]`, a timeout note) and a
+    /// command's header and stream frames are not content. Where the output was bounded, the line next to
+    /// the cut is marked with `…`; `read_file`'s continuation is kept as `more`.
     ///
     /// - Parameters:
     ///   - output: The output's text, as the tool returned it.
@@ -51,17 +67,40 @@ enum OutputReference {
         let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
         var status = output.hasPrefix("error:") ? "failed" : "ok"
         var content = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var cutStart = false
+        var cutEnd = false
+        var more: String?
         if tool == "run_command", let head = content.first,
             let match = head.firstMatch(of: #/^exit status: (-?\d+)$/#)
         {
             status = "exit status \(match.1)"
-            content = content.dropFirst().filter {
-                !commandFrames.contains($0) && !$0.hasPrefix("timed out:") && !$0.hasPrefix("output truncated:")
+            content = content.dropFirst().filter { !commandFrames.contains($0) && !$0.hasPrefix("timed out:") }
+            // A command's streams are bounded to their tails, so a stream's first line may be a fragment.
+            if let note = content.firstIndex(where: { $0.hasPrefix("output truncated:") }) {
+                content.remove(at: note)
+                cutStart = true
             }
         }
-        let first = content.first.map { shortened($0, to: lineCharacters) }
-        let last = content.count > 1 ? content.last.map { shortened($0, to: lineCharacters) } : nil
-        return Notes(status: status, lines: lines.count, bytes: output.utf8.count, first: first, last: last)
+        // Strip trailers from the end: the bound's `[truncated: …]` marker (`ToolOutput.bounded`), `read_file`'s
+        // paging line, and the timeout note `system_info` adds.
+        while let last = content.last {
+            if last.hasPrefix("[truncated: "), last.hasSuffix("]"), last.contains(" bytes, showing ") {
+                cutEnd = true
+            } else if tool == "read_file", last.hasPrefix(pagingPrefix), last.hasSuffix("]"),
+                let next = Int(last.dropFirst(pagingPrefix.count).dropLast())
+            {
+                more = "more from offset \(next)"
+            } else if !partialTrailers.contains(last), !(tool == "read_file" && last == "[end of file]") {
+                break
+            }
+            content.removeLast()
+        }
+        var first = content.first.map { shortened($0, to: lineCharacters) }
+        if cutStart, let line = first { first = "…" + line }
+        var last = content.count > 1 ? content.last.map { shortened($0, to: lineCharacters) } : nil
+        if cutEnd, let line = last { last = line + "…" }
+        return Notes(
+            status: status, lines: lines.count, bytes: output.utf8.count, first: first, last: last, more: more)
     }
 
     /// The reference's text.
@@ -91,6 +130,7 @@ enum OutputReference {
         if let arguments { lines.append("arguments: " + shortened(flat(arguments), to: argumentCharacters)) }
         if let first = notes.first { lines.append("first line: " + first) }
         if let last = notes.last { lines.append("last line: " + last) }
+        if let more = notes.more { lines.append("paging: " + more) }
         return ToolOutput.bounded(lines.joined(separator: "\n"), maxBytes: maxBytes - 64)
     }
 

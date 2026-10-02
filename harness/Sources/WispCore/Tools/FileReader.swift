@@ -37,6 +37,8 @@ public struct FileReader: Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         /// No regular file exists at the path.
         case notFound(String)
+        /// The path is a wildcard pattern, not a file: it has `*`, `?` or `[` and no file has that name.
+        case pattern(String)
         /// The path is a directory.
         case isDirectory(String)
         /// The file contains NUL bytes and is treated as binary.
@@ -50,6 +52,8 @@ public struct FileReader: Sendable {
         public var description: String {
             switch self {
             case .notFound(let path): "file not found: \(path)"
+            case .pattern(let path):
+                "read_file takes one path, not a pattern: \(path); list matches with run_command, e.g. ls \(path)"
             case .isDirectory(let path): "path is a directory: \(path)"
             case .binary(let path): "file appears to be binary: \(path)"
             case .invalidRange: "offset and limit must be at least 1"
@@ -71,12 +75,13 @@ public struct FileReader: Sendable {
 
     /// Reads up to `limit` lines starting at 1-based line `offset`.
     ///
-    /// - Throws: `Failure` for missing, directory, or binary files, or a bad range.
+    /// - Throws: `Failure` for missing (or wildcard), directory, or binary files, or a bad range.
     public func read(path: String, offset: Int = 1, limit: Int = 100) throws -> Window {
         guard offset >= 1, limit >= 1 else { throw Failure.invalidRange }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            throw Failure.notFound(path)
+            // A file can really be named with a wildcard character, so only a path that does not exist is a pattern.
+            throw path.contains(where: { "*?[".contains($0) }) ? Failure.pattern(path) : Failure.notFound(path)
         }
         guard !isDirectory.boolValue else { throw Failure.isDirectory(path) }
         guard let handle = FileHandle(forReadingAtPath: path) else { throw Failure.notFound(path) }
