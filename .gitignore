@@ -9,3 +9,6 @@ target/
 .vscode/
 # Compiler diagnostic dumps a coverage build can leave beside generated sources
 *.dia
+
+# Claude Code subagent worktrees
+.claude/worktrees/
