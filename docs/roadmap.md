@@ -58,7 +58,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
   drift apart.
 - **`memory`'s `task` example**, which adds 13 tokens to every conversation that has `memory`: keep it,
   shorten it, or drop it.
-- **The commit in `--version` for builds that are not releases**, e.g. `0.16.0+5886d33` or
+- **The commit in `--version` for builds that are not releases** (built 2026-10-03), e.g. `0.16.0+5886d33` or
   `0.16.0-dev+5886d33 (modified)`, so a build from `main` (such as the one `.mcp.json` runs) is not
   mistaken for the release whose number it still carries. A release build prints the bare version,
   which the release script and the Homebrew formula's test check.

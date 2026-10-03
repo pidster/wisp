@@ -82,8 +82,8 @@ fi
 
 echo "==> build"
 unchanged
-(cd harness && swift build -c release)
-(cd tools && cargo build --release -q -p wisp-tui)
+(cd harness && WISP_RELEASE=1 swift build -c release)
+(cd tools && WISP_RELEASE=1 cargo build --release -q -p wisp-tui)
 BIN="harness/.build/release/wisp"
 TUI="tools/target/release/wisp-tui"
 rm -rf "$OUT"; mkdir -p "$OUT/stage"

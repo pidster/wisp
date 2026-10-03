@@ -53,7 +53,15 @@ enum Incoming {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if version_requested(&args) {
-        println!("{}", env!("CARGO_PKG_VERSION"));
+        println!(
+            "{}",
+            version_display(
+                env!("CARGO_PKG_VERSION"),
+                env!("WISP_BUILD_COMMIT"),
+                env!("WISP_BUILD_MODIFIED") == "true",
+                env!("WISP_BUILD_RELEASE") == "true",
+            )
+        );
         return Ok(());
     }
     let mut child = spawn(&args)?;
@@ -111,6 +119,20 @@ fn main() -> Result<()> {
     ratatui::restore();
     let _ = child.wait();
     result
+}
+
+/// The version `--version` prints, the same rule as `WispVersion.display` in the harness: the bare version
+/// for a release build; otherwise `-dev`, `+` and the commit when one is known, and ` (modified)` when the
+/// working tree had changes.
+fn version_display(version: &str, commit: &str, modified: bool, release: bool) -> String {
+    if release {
+        return version.to_string();
+    }
+    if commit.is_empty() {
+        return format!("{version}-dev");
+    }
+    let suffix = if modified { " (modified)" } else { "" };
+    format!("{version}-dev+{commit}{suffix}")
 }
 
 /// Whether the only argument asks for the version; the front end's version is wisp's.
@@ -453,8 +475,8 @@ fn wrapped_height(text: &str, width: u16) -> u16 {
 mod tests {
     use super::{
         App, Edit, Incoming, Key, KeyCode, KeyModifiers, Outbound, Sequence, TermEvent,
-        changes_the_band, command_for, next_height, post_notices, version_requested,
-        wrapped_height,
+        changes_the_band, command_for, next_height, post_notices, version_display,
+        version_requested, wrapped_height,
     };
     use super::{HistoryLine, Line, LineKind, palette, styled};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
@@ -629,6 +651,21 @@ mod tests {
         let mut none = Vec::new();
         post_notices(&mut none, &mut app, None, &mut posted);
         assert!(none.is_empty() && app.notices.is_empty());
+    }
+
+    #[test]
+    fn version_display_covers_release_clean_modified_and_unknown() {
+        assert_eq!(version_display("1.2.3", "abc1234", true, true), "1.2.3");
+        assert_eq!(version_display("1.2.3", "", false, true), "1.2.3");
+        assert_eq!(
+            version_display("1.2.3", "abc1234", false, false),
+            "1.2.3-dev+abc1234"
+        );
+        assert_eq!(
+            version_display("1.2.3", "abc1234", true, false),
+            "1.2.3-dev+abc1234 (modified)"
+        );
+        assert_eq!(version_display("1.2.3", "", true, false), "1.2.3-dev");
     }
 
     #[test]

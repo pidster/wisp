@@ -13,7 +13,7 @@ struct Wisp: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wisp",
         abstract: "An on-device, tool-using AI microharness over Apple's Foundation Models.",
-        version: WispVersion.current,
+        version: WispVersion.display,
         subcommands: [
             Respond.self, Chat.self, Tools.self, Models.self, Mcp.self, Logs.self, ConfigCommand.self,
             DoctorCommand.self,
@@ -381,7 +381,7 @@ struct Chat: AsyncParsableCommand {
         let views = session.introspection
         let activity = ChatActivity()
         let banner =
-            "wisp \(WispVersion.current) · \(agent.model.selection) · \(agent.tools.count) tools · "
+            "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools · "
             + "audit \(ChatStatus.abbreviated(Wisp.home.auditFile.path)) session \(session.audit.session)"
         var loop = ChatLoop(
             agent: agent, store: store, saveName: save ?? resume, tap: tap,
@@ -541,7 +541,7 @@ struct Chat: AsyncParsableCommand {
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
                 git: GitState.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
-                banner: "wisp \(WispVersion.current) · \(agent.model.selection) · \(agent.tools.count) tools",
+                banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
                 models: { current, tools in
                     await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
                 },
@@ -1168,7 +1168,7 @@ struct DoctorCommand: ParsableCommand {
         let config = try? Session.loadConfig(home: Wisp.home)
         let findings = Doctor(home: Wisp.home, model: config?.model ?? .default, config: config ?? Config().resolved)
             .run()
-        print("wisp \(WispVersion.current)")
+        print("wisp \(WispVersion.display)")
         print(Doctor.render(findings))
         guard Doctor.allPassed(findings) else { throw ExitCode.failure }
     }

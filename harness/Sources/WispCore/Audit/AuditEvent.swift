@@ -2,8 +2,29 @@ import Foundation
 
 /// The running wisp's version, stamped on every audit event.
 public enum WispVersion {
-    /// Semantic version of this build.
+    /// Semantic version of this build. The audit log, classifier versions, and the MCP handshake use this
+    /// bare form, which is compared and parsed; `display` is for people.
     public static let current = "0.16.0"
+
+    /// What `--version` and the banners print: the bare version for a release build, otherwise the version,
+    /// `-dev`, and the commit it was built from (`0.16.0-dev+4ab6eec`), with `(modified)` after it when the
+    /// working tree had changes. `BuildInfo` is written by the `EmbedSystemPrompt` plugin before each build.
+    public static let display = format(
+        version: current, commit: BuildInfo.commit, modified: BuildInfo.modified, release: BuildInfo.release)
+
+    /// Formats a version for display.
+    ///
+    /// - Returns: The bare version, or the version with `-dev`, the commit, and `(modified)` as they apply.
+    /// - Parameters:
+    ///   - version: The bare version.
+    ///   - commit: The abbreviated commit, or nil where `git` could not say (a source archive).
+    ///   - modified: Whether the working tree had uncommitted changes.
+    ///   - release: Whether this is a release build, which prints the bare version whatever else is known.
+    static func format(version: String, commit: String?, modified: Bool, release: Bool) -> String {
+        if release { return version }
+        guard let commit else { return "\(version)-dev" }
+        return "\(version)-dev+\(commit)" + (modified ? " (modified)" : "")
+    }
 }
 
 /// Where one audit event is: its session and turn, to narrow a search of the audit files, and its id.

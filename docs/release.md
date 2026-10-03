@@ -55,7 +55,7 @@ every local step and prints the remote ones instead of executing them.
    runs.** The binary is built from the working tree, so before building and again before publishing
    the script checks that `HEAD` and the tree are as preflight found them, and stops if not. 0.13.0
    shipped an edit made while its evals ran; 0.13.1 is the build that matches its source.
-2. Build: `swift build -c release` and `cargo build --release -p wisp-tui`, `strip` both, verify
+2. Build: `swift build -c release` and `cargo build --release -p wisp-tui`, each run with `WISP_RELEASE=1` (only the release script sets it; without it a build prints `X.Y.Z-dev+<commit>`, see `docs/wisp.md`), `strip` both, verify
    `wisp --version` and `wisp-tui --version` print `X.Y.Z` (the crate version in `tools/wisp-tui/Cargo.toml`
    is bumped with `WispVersion.current`) and `wisp doctor` passes on the build machine. The release is built without the `MLX` trait: MLX needs a Metal library
    bundle beside the binary at run time, which the one-file tarball and formula do not carry

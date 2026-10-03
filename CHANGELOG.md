@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Changed:
+
+- `wisp --version` and `wisp-tui --version` print the commit for a build that is not a release:
+  `0.16.0-dev+4ab6eec`, with ` (modified)` when the working tree had changes, so a build from `main` is not
+  mistaken for the release whose number it carries. A release prints the bare version. The audit log's
+  `version` stays bare.
+
 ## 0.16.0
 
 Added:

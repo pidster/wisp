@@ -53,7 +53,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain); otherwise registered but refusing with the reason. |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
 | `wisp` | executable | Argument parsing and stdin/stdout only. Subcommands `respond` (default), `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`. Session set-up is `Session.begin` in `WispCore`. |
-| `EmbedSystemPrompt` | build-tool plugin | Embeds `Resources/system-prompt.md` into `WispCore` as a string constant at build time. |
+| `EmbedSystemPrompt` | build-tool plugin | Embeds `Resources/system-prompt.md` (and the other text resources) into `WispCore` as string constants at build time, and, before every build, writes `BuildInfo` (the `git` commit, whether the tree is modified, whether `WISP_RELEASE=1`) which `WispVersion.display` formats for `--version`. `wisp-tui`'s `build.rs` does the same for its own `--version`. |
 | `WispTestSupport` | library, tests only | `ScriptedModel`: a `LanguageModel` that answers from a script, so the agent, tool loop, and MCP server run in tests with no model; and `ContextEval`, the context eval's scenarios and fixtures, which `ModelEvalTests` in `harness/Evals` drives on a real model. |
 | `WispCoreTests`, `WispMCPTests` | tests | swift-testing suites for model-independent logic; `WispServerWireTests` drives the server through a real MCP client on an in-memory transport. |
 
