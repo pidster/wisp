@@ -108,7 +108,9 @@ gives nothing a poll of one file does not.
   - `wisp approvals approve|deny` answer only from a terminal (standard input a TTY), which an agent's
     shell tool does not have. This is a speed bump, not a wall: a process can obtain a pseudo-terminal.
     The wall for an agent's own shell is the agent's harness, which asks the person before running a
-    command of its own.
+    command of its own. Kept by the operator on 2026-10-03, to be judged in use; the stronger
+    alternative, an answer token given only in the notification and kept out of the listing, is the
+    next step if it proves too weak.
 - **Clean-up.** The server removes its request when it stops waiting for any reason, and sweeps its own
   leftovers when the client disconnects. `wisp approvals pending` and `approve` sweep stale requests,
   orphaned answers, and temporary files first, and audit each stale request as `approval.settled` with
