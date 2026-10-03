@@ -14,6 +14,22 @@ import WispTestSupport
         #expect(Doctor.allPassed([findings[0]]))
     }
 
+    @Test func placesBackendFindingsAfterTheModelChecks() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let probes = Doctor.Probes(
+            systemModel: { nil }, configuredModel: { _, _, _ in nil },
+            backends: { [Doctor.Finding(name: "MLX", ok: false, detail: "no library")] })
+        let findings = Doctor(home: Home(root: root), probes: probes).run()
+        #expect(
+            Array(findings.map(\.name).prefix(6)) == [
+                "macOS", "model", "classifier", "context window", "MLX", "sandbox",
+            ])
+        #expect(!Doctor.allPassed(findings))
+        // A backend without a finding of its own adds nothing.
+        #expect(ModelBackends.backend(for: "ollama")?.doctorFinding() == nil)
+    }
+
     @Test func checksConfigAndHomeWithoutTheModel() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

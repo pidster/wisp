@@ -37,6 +37,8 @@ public struct Doctor: Sendable {
         public var terminalOpens: @Sendable () -> Bool
         /// Whether `/usr/bin/osascript` can run, for the `notify` finding.
         public var osascriptPresent: @Sendable () -> Bool
+        /// Findings the registered backends report about themselves (MLX's Metal library), in scheme order.
+        public var backends: @Sendable () -> [Finding]
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -69,7 +71,8 @@ public struct Doctor: Sendable {
                 return ContextWindow(size: resolved.contextSize, note: resolved.contextNote)
             },
             environment: { ProcessInfo.processInfo.environment }, terminalOpens: TerminalNotification.ttyOpens,
-            osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") })
+            osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") },
+            backends: { ModelBackends.all.compactMap { $0.doctorFinding() } })
 
         /// Creates probes.
         public init(
@@ -81,7 +84,8 @@ public struct Doctor: Sendable {
             },
             environment: @escaping @Sendable () -> [String: String] = { [:] },
             terminalOpens: @escaping @Sendable () -> Bool = { false },
-            osascriptPresent: @escaping @Sendable () -> Bool = { true }
+            osascriptPresent: @escaping @Sendable () -> Bool = { true },
+            backends: @escaping @Sendable () -> [Finding] = { [] }
         ) {
             self.systemModel = systemModel
             self.configuredModel = configuredModel
@@ -90,6 +94,7 @@ public struct Doctor: Sendable {
             self.environment = environment
             self.terminalOpens = terminalOpens
             self.osascriptPresent = osascriptPresent
+            self.backends = backends
         }
     }
 
@@ -142,6 +147,9 @@ public struct Doctor: Sendable {
         }
         findings.insert(contextWindow(unavailable: configuredProblem ?? modelProblem), at: model == .system ? 2 : 3)
         if resolvedConfig.approvalClassifier == .coreml { findings.insert(classifier(), at: 2) }
+        // The backends' own findings follow the model checks, just ahead of the sandbox.
+        let afterModels = findings.firstIndex { $0.name == "sandbox" } ?? findings.endIndex
+        findings.insert(contentsOf: probes.backends(), at: afterModels)
         return findings
     }
 

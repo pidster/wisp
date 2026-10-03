@@ -180,10 +180,10 @@ Candidates recorded on 2026-09-20 with the MLX and Core AI work, not implemented
 HTTP API, so the Ollama executor's transcript-to-chat mapping is most of a shared HTTP executor for them,
 parameterised by base URL, auth, and the request dialect. Embeddings, reranking, and other
 non-conversational models are not `LanguageModel`s and need task-specific interfaces (an `embed` tool, a
-`rerank` tool) rather than a backend; that is a separate design. Packaging chores, wanted only when
-someone asks for MLX from the tap: shipping MLX in the Homebrew release, which means carrying
-`mlx-swift_Cmlx.bundle` beside the binary (libexec plus a symlink, or a bundle-aware formula); and making
-the MLX live test find the Metal library under the test runner.
+`rerank` tool) rather than a backend; that is a separate design. The MLX packaging chores are done
+(2026-10-03, [ADR 0047](decisions/0047-mlx-in-the-release.md)): the release carries `mlx.metallib` beside
+the binary, in the formula's `libexec`, and `scripts/check mlx-live` places it beside the test bundle so
+the live test runs.
 
 ## Upstream
 

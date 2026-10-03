@@ -56,6 +56,7 @@ unchanged() {
 }
 grep -q "^version = \"$VERSION\"" tools/wisp-tui/Cargo.toml || { echo "tools/wisp-tui/Cargo.toml version is not $VERSION" >&2; exit 1; }
 command -v cargo >/dev/null || { echo "cargo is needed to build wisp-tui" >&2; exit 1; }
+xcrun -f metal >/dev/null 2>&1 || { echo "the Metal toolchain is needed to build MLX: xcodebuild -downloadComponent MetalToolchain" >&2; exit 1; }
 CURRENT="$(sed -n 's/.*public static let current = "\([^"]*\)".*/\1/p' harness/Sources/WispCore/Audit/AuditEvent.swift)"
 [ "$CURRENT" = "$VERSION" ] || { echo "WispVersion.current is $CURRENT, not $VERSION; bump it first" >&2; exit 1; }
 SHIPPED="$(sed -n 's/^ *"version" : "\([^"]*\)",*$/\1/p' harness/Sources/WispCore/Resources/risk-default.json | head -1)"
@@ -82,25 +83,39 @@ fi
 
 echo "==> build"
 unchanged
-(cd harness && WISP_RELEASE=1 swift build -c release)
+# With MLX (ADR 0047): MLX loads its Metal library at run time, first as mlx.metallib beside the binary.
+# WISP_RELEASE=1 makes --version print the bare version (the build plugin reads it).
+(cd harness && WISP_RELEASE=1 swift build -c release --traits MLX)
 (cd tools && WISP_RELEASE=1 cargo build --release -q -p wisp-tui)
-BIN="harness/.build/release/wisp"
+BIN_DIR="$(cd harness && WISP_RELEASE=1 swift build -c release --traits MLX --show-bin-path)"
+BIN="$BIN_DIR/wisp"
 TUI="tools/target/release/wisp-tui"
+METALLIB=""
+for candidate in "$BIN_DIR/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+    "$BIN_DIR/mlx-swift_Cmlx.bundle/default.metallib"; do
+    if [ -f "$candidate" ]; then METALLIB="$candidate"; break; fi
+done
+[ -n "$METALLIB" ] || { echo "no default.metallib in $BIN_DIR/mlx-swift_Cmlx.bundle; was MLX built?" >&2; exit 1; }
 rm -rf "$OUT"; mkdir -p "$OUT/stage"
 cp "$BIN" "$OUT/stage/wisp"
 cp "$TUI" "$OUT/stage/wisp-tui"
+cp "$METALLIB" "$OUT/stage/mlx.metallib"
 strip "$OUT/stage/wisp" "$OUT/stage/wisp-tui"
 cp LICENSE "$OUT/stage/LICENSE"
 [ "$("$OUT/stage/wisp" --version)" = "$VERSION" ] || { echo "built binary reports $("$OUT/stage/wisp" --version)" >&2; exit 1; }
 [ "$("$OUT/stage/wisp-tui" --version)" = "$VERSION" ] || { echo "wisp-tui reports $("$OUT/stage/wisp-tui" --version); set version in tools/wisp-tui/Cargo.toml" >&2; exit 1; }
 "$OUT/stage/wisp" doctor
+# The staged binary, away from the build's bundle, must find the staged library.
+STAGE_REAL="$(cd "$OUT/stage" && pwd -P)"
+"$OUT/stage/wisp" doctor | grep -qxF "ok   MLX: Metal library $STAGE_REAL/mlx.metallib loads" \
+    || { echo "the staged wisp does not load the staged mlx.metallib (wisp doctor's MLX finding)" >&2; exit 1; }
 
 echo "==> package"
 {
     printf '%s\n\n' "$NOTES"
     printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
 } > "$OUT/notes.md"
-(cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui LICENSE)
+(cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib LICENSE)
 (cd "$OUT" && shasum -a 256 "$TARBALL" > "$TARBALL.sha256")
 SHA="$(cut -d' ' -f1 "$OUT/$TARBALL.sha256")"
 ls -la "$OUT/$TARBALL"; echo "sha256 $SHA"
@@ -127,12 +142,17 @@ class Wisp < Formula
   depends_on macos: :golden_gate
 
   def install
-    bin.install "wisp", "wisp-tui"
+    # MLX finds mlx.metallib beside the binary's real path (dladdr resolves Homebrew's links), so both
+    # live in libexec and bin links to the binary (ADR 0047).
+    libexec.install "wisp", "mlx.metallib"
+    bin.install_symlink libexec/"wisp"
+    bin.install "wisp-tui"
   end
 
   test do
     assert_equal "$VERSION", shell_output("#{bin}/wisp --version").strip
     assert_equal "$VERSION", shell_output("#{bin}/wisp-tui --version").strip
+    assert_path_exists libexec/"mlx.metallib"
   end
 end
 RUBY

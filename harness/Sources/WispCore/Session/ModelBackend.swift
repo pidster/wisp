@@ -39,6 +39,14 @@ public protocol ModelBackend: Sendable {
     func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel]
     /// This backend's effective settings, for `wisp config` and the `inspect` tool.
     func settings(in config: Config.Resolved, home: Home) -> JSONValue
+    /// What `wisp doctor` should report about this runtime on this install, or nil for nothing beyond the
+    /// configured-model check (MLX reports its Metal library).
+    func doctorFinding() -> Doctor.Finding?
+}
+
+extension ModelBackend {
+    /// No finding of its own: the configured-model check covers the backend.
+    public func doctorFinding() -> Doctor.Finding? { nil }
 }
 
 /// The backends this process knows, by scheme. Ollama is built in; the executable registers the

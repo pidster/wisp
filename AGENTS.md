@@ -41,6 +41,7 @@ scripts/check                      # hygiene + strict lint + warnings-as-errors 
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
 scripts/check eval [context] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it; record rewrites measurements.json
+scripts/check mlx-live <model dir> # MLX live test on real weights, built with --traits MLX; not in the gate
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code
 
 cd harness && swift build                                        # -> .build/debug/wisp

@@ -6,6 +6,13 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Added:
+
+- MLX models (`mlx:<name>`) in the release: the Homebrew install is built with MLX and carries its Metal
+  library, `mlx.metallib`, beside `wisp` in the Cellar's `libexec`, so MLX models run without building wisp
+  yourself ([ADR 0047](docs/decisions/0047-mlx-in-the-release.md)). The download grows by about 6 MB.
+  `wisp doctor` has an `MLX` finding: the Metal library it found and that it loads, or what is missing.
+
 Changed:
 
 - `wisp --version` and `wisp-tui --version` print the commit for a build that is not a release:

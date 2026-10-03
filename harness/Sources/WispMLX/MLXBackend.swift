@@ -3,6 +3,7 @@ import FoundationModels
 import WispCore
 
 #if MLX
+    import Metal
     import MLXFoundationModels
     import MLXHuggingFace
     import MLXLLM
@@ -139,6 +140,31 @@ public struct MLXBackend: ModelBackend {
             return InstalledModel(selection: .local(backend: scheme, name: name), detail: parts.joined(separator: " "))
         }
     }
+
+    /// The `MLX` finding for `wisp doctor`: whether this build carries MLX and, if so, whether MLX's Metal
+    /// library is where MLX looks for it and loads.
+    public func doctorFinding() -> Doctor.Finding? {
+        #if MLX
+            let search = MetalLibrary.Search(
+                imageDirectory: MetalLibrary.imageDirectory(), mainBundleDirectory: Bundle.main.bundleURL)
+            return MetalLibrary.finding(compiledIn: true, search: search, load: Self.loadMetalLibrary)
+        #else
+            return MetalLibrary.finding(compiledIn: false, search: nil)
+        #endif
+    }
+
+    #if MLX
+        /// Loads the library at `url` on the default GPU, the step MLX takes first; nil when it loads.
+        private static func loadMetalLibrary(_ url: URL) -> String? {
+            guard let device = MTLCreateSystemDefaultDevice() else { return "no Metal device" }
+            do {
+                _ = try device.makeLibrary(URL: url)
+                return nil
+            } catch {
+                return "\(error.localizedDescription)"
+            }
+        }
+    #endif
 
     /// The models directory, the declared models, and whether the bridge is compiled in.
     public func settings(in config: Config.Resolved, home: Home) -> WispCore.JSONValue {

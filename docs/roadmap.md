@@ -48,12 +48,12 @@ release's preflight still runs the eval's floors, as a guard against regressions
 - **Permanent facts over MCP** (larger). `set_fact_scope` moves a thread's fact between `thread` and
   `session` only; how a caller proposes or keeps a permanent fact, which only the person admits today
   ([ADR 0045](decisions/0045-layered-context.md)), is to be decided.
-- **MLX in the release.** The release is built without the `MLX` trait because MLX loads its Metal
-  library at run time ([backends.md](backends.md)). MLX looks first for `mlx.metallib` in the binary's
-  own directory (`mlx/backend/metal/device.cpp`), so the release can carry that one file beside `wisp`.
-  A probe first: the file's size, the binary's growth, whether Homebrew's link to the Cellar changes the
-  directory MLX sees, and whether the same file beside the test bundle lets the MLX live test run. Then
-  the release build with the trait, the package and formula, a `wisp doctor` finding, and the docs.
+- **MLX in the release.** Built 2026-10-03 ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The
+  release is built with the `MLX` trait and carries MLX's Metal library as `mlx.metallib` beside `wisp`
+  (3.8 MB; the stripped binary grows from 15.1 to 32.8 MB, the download by about 6 MB). MLX finds it
+  through the binary's real path, so Homebrew's links need no wrapper: the formula installs both in
+  `libexec`. `wisp doctor` has an `MLX` finding, which the release checks on the staged binary, and
+  `scripts/check mlx-live <model>` runs the live test with the library beside the test bundle.
 - **A palette check in the gate** (built 2026-10-03), so `Style.Palette` in Swift and `palette.rs` in `wisp-tui` cannot
   drift apart.
 - **`memory`'s `task` example**, which adds 13 tokens to every conversation that has `memory`: keep it,

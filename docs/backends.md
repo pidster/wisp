@@ -180,16 +180,31 @@ several GB.
 ## MLX Swift
 
 [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm)'s `MLXLanguageModel` bridge runs models in
-MLX or Hugging Face safetensors layout in wisp's own process on the GPU. MLX compiles Metal kernels at
+MLX or Hugging Face safetensors layout in wisp's own process on the GPU. MLX compiles its Metal kernels at
 build time, so the bridge is behind the `MLX` package trait: the ordinary build and the sandboxed
 pre-commit hook never need the Metal toolchain, and a build without the trait refuses every `mlx:` model
-with a message saying so. The Homebrew release is built without the trait, because MLX looks for its
-Metal library in a `mlx-swift_Cmlx.bundle` beside the executable at run time and the one-file release
-does not carry it; MLX is a self-build option. To build with it:
+with a message saying so. The release is built with the trait ([ADR 0047](decisions/0047-mlx-in-the-release.md)),
+so `brew install pidster/tap/wisp` runs MLX models.
+
+MLX loads its compiled kernels, one Metal library, when the GPU is first used. It looks for
+`mlx.metallib` in the directory of the binary holding its code (the real path, after links), then
+`Resources/mlx.metallib` there, then `default.metallib` in a `mlx-swift_Cmlx.bundle` beside the binary
+(what `swift build` leaves), then `Resources/default.metallib`. The release ships the build's library as
+`mlx.metallib` beside `wisp` (3.8 MB); the Homebrew formula installs both in the Cellar's `libexec` and
+links `bin/wisp` to it. `wisp doctor` repeats the search and loads what it finds; in that layout,
+reproduced under a scratch prefix on 2026-10-03, it reads:
 
 ```
-xcodebuild -downloadComponent MetalToolchain     # once; several GB
-cd harness && swift build -c release --traits MLX
+ok   MLX: Metal library <prefix>/Cellar/wisp/0.17.0/libexec/mlx.metallib loads
+```
+
+A self-build with the trait finds the bundle beside the built binary and needs nothing more; a copy of the
+binary elsewhere needs the library copied beside it as `mlx.metallib`, which the doctor's failure says. A
+build without the trait reports `not in this build` and passes. To build with it:
+
+```
+xcodebuild -downloadComponent MetalToolchain     # once, if xcrun -f metal fails; 868 MB installed
+swift build --package-path harness -c release --traits MLX
 ```
 
 Preparing an asset: a model directory holding `config.json`, the `*.safetensors`, and the tokenizer files
@@ -219,10 +234,9 @@ Verified on 2026-09-20 with `mlx-community/Qwen3-1.7B-4bit` (a Hugging Face cach
 on an M4 Max, through the CLI built with `--traits MLX`: undeclared, a text-only reply in 2.5 s
 including the weight load; declared `toolCalling`, the `current_date` loop ran 3 of 3 attempts, about
 4 s each, with the right arguments; undeclared with tools requested, refused before generation with the
-hint. The live test (`WISP_MLX_TESTS=1 WISP_MLX_MODEL=<directory> swift test --traits MLX --filter
-MLXLiveTests`) cannot run under `swift test` today: MLX looks for its Metal library beside the main
-executable, which in the test runner is Xcode's, and fails with "Failed to load the default metallib";
-verify through the binary instead, as above.
+hint. The live test runs with `scripts/check mlx-live <model directory>`, which builds with the trait in its
+own scratch path and copies the library beside the test bundle's binary, where MLX looks under `swift
+test`; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3.
 
 Errors: `this build has no MLX support` when the trait is off; `no MLX model at <path> (no config.json);
 models under <dir>: …` when the name points nowhere; `unknown capability '<x>'` for a bad declaration; the

@@ -1,17 +1,18 @@
 # Releasing wisp
 
-wisp ships as one arm64 binary through a Homebrew tap. This page is the procedure; the decision is
+wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Homebrew tap. This page is the procedure; the decision is
 [ADR 0012](decisions/0012-homebrew-release.md).
 
 ## What a release is
 
 - A git tag `vX.Y.Z` on `main` whose version equals `WispVersion.current` (semver, from 0.1.0).
-- A GitHub release for that tag with `wisp-X.Y.Z-arm64.tar.gz` (the stripped release binary and the
-  LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
+- A GitHub release for that tag with `wisp-X.Y.Z-arm64.tar.gz` (the stripped `wisp` and `wisp-tui`,
+  `mlx.metallib`, and the LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
   `CHANGELOG.md` followed by the install line.
 - A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
-  checksum. Users run `brew install pidster/tap/wisp`, which installs to Homebrew's prefix
-  (`/opt/homebrew/bin/wisp`), already on `PATH`.
+  checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp` and `mlx.metallib` in the
+  Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
+  beside the binary's real path ([ADR 0047](decisions/0047-mlx-in-the-release.md)).
 
 The binary is unsigned for now; Homebrew does not quarantine what it downloads, so Gatekeeper does not
 intervene. A signed and notarised `.pkg` is a possible later channel.
@@ -41,7 +42,7 @@ Commit it as "Bring the docs up to date for X.Y.Z", or "Docs sweep for X.Y.Z: no
 `scripts/release X.Y.Z` does all of it and refuses to continue at the first problem. `--dry-run` performs
 every local step and prints the remote ones instead of executing them.
 
-1. Preflight: every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, `WispVersion.current` equals `X.Y.Z`, no existing tag, `gh` is
+1. Preflight: every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag, `gh` is
    authenticated, `CHANGELOG.md` has a non-empty `## X.Y.Z` section, `scripts/check` passes (the full
    test run), `scripts/check coverage-gate` passes, and `scripts/check eval` passes: every suite but the context eval, which is a measurement for design decisions
    (ADR 0045) and runs on purpose with `scripts/check eval context`. `--skip-eval` leaves the eval out, for a release whose eval already
@@ -55,15 +56,18 @@ every local step and prints the remote ones instead of executing them.
    runs.** The binary is built from the working tree, so before building and again before publishing
    the script checks that `HEAD` and the tree are as preflight found them, and stops if not. 0.13.0
    shipped an edit made while its evals ran; 0.13.1 is the build that matches its source.
-2. Build: `swift build -c release` and `cargo build --release -p wisp-tui`, each run with `WISP_RELEASE=1` (only the release script sets it; without it a build prints `X.Y.Z-dev+<commit>`, see `docs/wisp.md`), `strip` both, verify
-   `wisp --version` and `wisp-tui --version` print `X.Y.Z` (the crate version in `tools/wisp-tui/Cargo.toml`
-   is bumped with `WispVersion.current`) and `wisp doctor` passes on the build machine. The release is built without the `MLX` trait: MLX needs a Metal library
-   bundle beside the binary at run time, which the one-file tarball and formula do not carry
-   (`docs/backends.md`); MLX is a self-build option until that packaging is decided.
-3. Package: tarball with `wisp` and `LICENSE`; SHA-256 file.
+2. Build: `swift build -c release --traits MLX` and `cargo build --release -p wisp-tui`, each run with
+   `WISP_RELEASE=1` (only the release script sets it; without it a build prints `X.Y.Z-dev+<commit>`); copy the build's
+   `mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib` into the stage as `mlx.metallib`, `strip`
+   both binaries, verify `wisp --version` and `wisp-tui --version` print `X.Y.Z` (the crate version in
+   `tools/wisp-tui/Cargo.toml` is bumped with `WispVersion.current`) and `wisp doctor` passes on the build
+   machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle. MLX
+   adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
+3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file.
 4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with both assets and generated notes.
 5. Tap: clone or update `pidster/homebrew-tap`, write `Formula/wisp.rb` from the template with the new
-   URL and checksum, commit, push.
+   URL and checksum, commit, push. The formula puts `wisp` and `mlx.metallib` in `libexec` with a link
+   in `bin`, and its test checks both versions and that the library is installed.
 6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`.
 
 Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.
@@ -99,5 +103,6 @@ the shipped classifier's version in preflight make a mismatch impossible to ship
 ## First-run support
 
 `wisp doctor` checks what a new install needs: the on-device model is available and enabled, macOS
-is 27 or later, `sandbox-exec` exists, `~/.wisp/config.json` parses, and the home directory is writable.
+is 27 or later, `sandbox-exec` exists, MLX's Metal library loads, `~/.wisp/config.json` parses, and the home
+directory is writable.
 It is the first thing to ask for when someone reports a problem.

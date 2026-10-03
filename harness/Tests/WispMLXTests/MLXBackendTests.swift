@@ -70,9 +70,9 @@ import WispCore
 }
 
 /// Runs real weights. Needs `WISP_MLX_TESTS=1`, a build with `--traits MLX`, and `WISP_MLX_MODEL`
-/// set to a model directory; never in the gate. Known not to work under `swift test` today: MLX looks
-/// for its Metal library beside the main executable, which is Xcode's test runner, and fails with
-/// "Failed to load the default metallib"; verify through the `wisp` binary as docs/backends.md shows.
+/// set to a model directory; never in the gate. Run it with `scripts/check mlx-live <model directory>`,
+/// which places `mlx.metallib` beside the test bundle's binary, where MLX looks for it; without that,
+/// MLX fails with "Failed to load the default metallib" (ADR 0047).
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MLX_TESTS"] == "1" && MLXBackend.isCompiledIn))
 struct MLXLiveTests {
     static let directory = ProcessInfo.processInfo.environment["WISP_MLX_MODEL"] ?? ""

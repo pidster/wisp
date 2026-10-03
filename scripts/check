@@ -142,6 +142,27 @@ eval_() {
     fi
 }
 
+# mlx-live <model directory>: the MLX live test, which runs real weights (not part of the gate). Built with
+# the MLX trait in a scratch path of its own, so the gate's build is not rebuilt; MLX loads its Metal library
+# from beside the binary holding its code, which under `swift test` is the test bundle's (ADR 0047), so the
+# build's default.metallib is copied there as mlx.metallib first.
+mlx_live() {
+    [ $# -eq 1 ] || { echo "usage: scripts/check mlx-live <model directory>" >&2; exit 64; }
+    scratch="$ROOT/harness/.build/mlx"
+    echo "==> MLX live test (needs the Metal toolchain and a model; not part of the gate)"
+    swift build --package-path harness $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$scratch"
+    bin="$(swift build --package-path harness --build-tests --traits MLX --scratch-path "$scratch" --show-bin-path)"
+    metallib=""
+    for candidate in "$bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+        "$bin/mlx-swift_Cmlx.bundle/default.metallib"; do
+        if [ -f "$candidate" ]; then metallib="$candidate"; break; fi
+    done
+    [ -n "$metallib" ] || { echo "no default.metallib in $bin/mlx-swift_Cmlx.bundle" >&2; exit 1; }
+    for dir in "$bin"/*.xctest/Contents/MacOS; do cp "$metallib" "$dir/mlx.metallib"; done
+    WISP_MLX_TESTS=1 WISP_MLX_MODEL="$1" swift test --package-path harness $SWIFT_SANDBOX --traits MLX \
+        --scratch-path "$scratch" --skip-build --filter 'MLXLiveTests|MetalLibraryTests'
+}
+
 # classifier-default: copy the risk train set into the bundled examples, then train the risk classifier
 # this version ships from them into the embedded resource; run after WispVersion.current is bumped, and
 # commit both resources with the bump. The shipped file is what the release carries, measured by the eval.
@@ -286,9 +307,10 @@ case "${1:-all}" in
     coverage-baseline) coverage_baseline ;;
     classifier-default) classifier_default ;;
     eval) shift; eval_ "$@" ;;
+    mlx-live) shift; mlx_live "$@" ;;
     hygiene) hygiene ;;
     palette) palette ;;
     all) hygiene; palette; lint; build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context] [record]|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context] [record]|mlx-live <model directory>|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
 esac
