@@ -43,11 +43,13 @@ Tool definition as the model sees it (description, then the argument's guide):
 
 ```
 This conversation's memory, not the Mac's RAM (that is system_info): recall earlier material in full, or note a fact to keep.
-request: "recall entry 7", "recall turn 3", "recall task", "recall fact codename", "note entity release codename = BLUE HERON", or "task fix the CI build; objective: swift test passes".
+request: "recall entry 7", "recall turn 3", "recall task", "recall fact codename", or "note entity release codename = BLUE HERON".
 ```
 
-It costs 123 tokens in every request's instructions, measured with `tokenCount(for:)` on the on-device model
-on 2026-10-01 (110 before the `task` example was added on that date; `recall` alone cost 103).
+It costs 110 tokens in every request's instructions, measured with `tokenCount(for:)` on the on-device model
+on 2026-10-01 for this text (`recall` alone cost 103). The `task` verb is not among the guide's examples: one
+added on 2026-10-01 ("task fix the CI build; objective: swift test passes") took the definition to 123 tokens
+in every conversation with `memory`, and was dropped on 2026-10-03; the verb works as before (below).
 
 ## recall
 

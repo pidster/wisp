@@ -38,8 +38,8 @@ public struct MemoryTool: WispTool {
         /// A verb and its object, as `Memory.command(_:)` reads it.
         @Guide(
             description:
-                "\"recall entry 7\", \"recall turn 3\", \"recall task\", \"recall fact codename\", \"note entity "
-                + "release codename = BLUE HERON\", or \"task fix the CI build; objective: swift test passes\".")
+                "\"recall entry 7\", \"recall turn 3\", \"recall task\", \"recall fact codename\", or \"note entity "
+                + "release codename = BLUE HERON\".")
         public var request: String
     }
 
