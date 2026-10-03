@@ -90,7 +90,9 @@ extension WispServer {
                         ? "; the session's are at \(ToolCatalog.sessionFactsResourceURI)" : ""
                 throw MCPError.invalidParams("no fact \(fact) in thread \(id); \(base) lists them\(elsewhere)")
             }
-            return try history(of: fact, in: own, missing: "", view: view)
+            return Self.with(
+                try history(of: fact, in: own, missing: "", view: view), "request",
+                keepRequest(thread: id, fact: fact))
         }
         var listing = try listing(own, page: page, all: all, base: base, view: view)
         let keys = Set(own.filter { $0.state == .current }.map(\.identity.key))
@@ -162,14 +164,15 @@ extension WispServer {
     }
 
     /// `wisp://facts/proposed`: the proposals awaiting the person, oldest first, each with its conversation,
-    /// the reference chat's `/fact` takes, and the thread fact's URI when the conversation is a thread of this
-    /// server.
+    /// the reference chat's `/fact` takes, the thread fact's URI when the conversation is a thread of this
+    /// server, and the latest request to keep it (ADR 0048), or null.
     private func proposedFacts(page: Int) throws -> JSONValue {
         let view = FactView([])
         let rows = session.factProposals.awaiting.map { proposal -> JSONValue in
             var row = FactReport.json(proposal.fact, view: view).objectValue ?? [:]
             row["thread_id"] = .string(proposal.threadID)
             row["reference"] = .string(proposal.reference)
+            row["request"] = keepRequest(thread: proposal.threadID, fact: proposal.fact.id)
             row["uri"] =
                 directory.record(proposal.threadID) == nil
                 ? .null : .string("\(ToolCatalog.threadURI(proposal.threadID))/facts/\(proposal.fact.id)")

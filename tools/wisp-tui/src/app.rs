@@ -630,13 +630,21 @@ impl App {
     /// A character typed.
     pub fn type_char(&mut self, c: char) -> Action {
         if let Some(approval) = &self.approval {
-            let decision = match c.to_ascii_lowercase() {
-                'y' => "once",
-                's' => "session",
-                'p' => "project",
-                'a' => "always",
-                'n' => "no",
-                _ => return Action::None,
+            let decision = if approval.is_fact() {
+                match c.to_ascii_lowercase() {
+                    'k' => "keep",
+                    'd' => "drop",
+                    _ => return Action::None,
+                }
+            } else {
+                match c.to_ascii_lowercase() {
+                    'y' => "once",
+                    's' => "session",
+                    'p' => "project",
+                    'a' => "always",
+                    'n' => "no",
+                    _ => return Action::None,
+                }
             };
             let id = approval.id.clone();
             self.push(&answered(&approval.command, decision), LineKind::Note);
@@ -824,11 +832,13 @@ impl App {
             return self.cancel();
         }
         if let Some(approval) = self.approval.take() {
-            self.push(&answered(&approval.command, "no"), LineKind::Note);
+            // Refusing is the default answer: a command is not run, a fact is not kept.
+            let decision = if approval.is_fact() { "drop" } else { "no" };
+            self.push(&answered(&approval.command, decision), LineKind::Note);
             self.approval = self.queued.pop_front();
             return Action::Send(Inbound::Answer {
                 id: approval.id,
-                decision: "no".into(),
+                decision: decision.into(),
             });
         }
         Action::Quit
@@ -907,23 +917,33 @@ impl App {
         }
     }
 
-    /// Draws an approval in the input's place: a border coloured by the risk, and the dialog inside.
+    /// Draws an approval in the input's place: a border coloured by the risk (wisp's own colour for a
+    /// fact to keep, which has none), and the dialog inside.
     fn render_approval(frame: &mut Frame, approval: &Approval, area: Rect, inset: Rect) {
-        let lines = dialog_lines(approval, dialog_width(area.width));
+        let lines = if approval.is_fact() {
+            fact_lines(approval, dialog_width(area.width))
+        } else {
+            dialog_lines(approval, dialog_width(area.width))
+        };
         let height = u16::try_from(lines.len())
             .unwrap_or(u16::MAX)
             .saturating_add(DIALOG_FRAME);
+        let style = if approval.is_fact() {
+            palette::wisp()
+        } else {
+            palette::level(&approval.level)
+        };
+        let title = if approval.is_fact() {
+            String::from(" keep as a permanent fact? · wisp mcp ")
+        } else if approval.is_mcp() {
+            format!(" approve · {} · wisp mcp ", approval.level)
+        } else {
+            format!(" approve · {} ", approval.level)
+        };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(palette::level(&approval.level))
-            .title(Span::styled(
-                if approval.is_mcp() {
-                    format!(" approve · {} · wisp mcp ", approval.level)
-                } else {
-                    format!(" approve · {} ", approval.level)
-                },
-                palette::level(&approval.level),
-            ))
+            .border_style(style)
+            .title(Span::styled(title, style))
             .padding(Padding::horizontal(1));
         let dialog = Rect {
             y: area.y + 1,
@@ -1282,6 +1302,42 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
     lines
 }
 
+/// What a dialog asking to keep a fact says, each line fitted to `width` cells: the fact, where it waits,
+/// what it is and who said it, what keeping it means, an empty row, and the keys.
+fn fact_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
+    let muted = |text: String| Line::from(Span::styled(fit(&text, width), palette::muted()));
+    let mut lines = vec![Line::from(Span::styled(
+        fit(&approval.command, width),
+        palette::user(),
+    ))];
+    let client = approval.client.as_deref().unwrap_or("an MCP client");
+    let thread = approval
+        .thread
+        .as_deref()
+        .map_or(String::new(), |thread| format!(", thread {thread}"));
+    lines.push(muted(format!("asked by {client}{thread} in wisp mcp")));
+    if let Some(fact) = &approval.fact {
+        lines.push(muted(format!(
+            "fact {} ({}), from the {}",
+            fact.id, fact.subject, fact.source
+        )));
+    }
+    lines.push(Line::from(Span::styled(
+        fit(
+            "kept across sessions as yours, in ~/.wisp/facts.json",
+            width,
+        ),
+        palette::body(),
+    )));
+    // One empty row sets the keys apart from what they answer.
+    lines.push(Line::default());
+    lines.push(Line::from(Span::styled(
+        fit("[k]eep [d]rop (stays in its thread)", width),
+        palette::body(),
+    )));
+    lines
+}
+
 /// `text` cut to `width` cells, ending in an ellipsis when cut.
 fn fit(text: &str, width: usize) -> String {
     let cells: usize = text.chars().map(|c| c.width().unwrap_or(0)).sum();
@@ -1309,6 +1365,8 @@ fn answered(command: &str, decision: &str) -> String {
         "session" => "approved for this session",
         "project" => "approved in this project for 30 days",
         "always" => "approved everywhere for 30 days",
+        "keep" => "kept as a permanent fact",
+        "drop" => "dropped, left in its thread",
         _ => "refused",
     };
     format!("⚠ {what}: {command}")
@@ -1317,7 +1375,7 @@ fn answered(command: &str, decision: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Choice, ChoiceOption, Event, Turn};
+    use crate::protocol::{Choice, ChoiceOption, Event, FactAsk, Turn};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use serde_json::Value;
@@ -1951,6 +2009,107 @@ mod tests {
             client: Some("claude-code".into()),
             ..Approval::default()
         }
+    }
+
+    fn fact_to_keep(id: &str) -> Approval {
+        Approval {
+            id: id.into(),
+            command: "release codename = BLUE HERON".into(),
+            line: "release codename = BLUE HERON".into(),
+            level: "safe".into(),
+            source: Some("mcp".into()),
+            thread: Some("git".into()),
+            client: Some("claude-code".into()),
+            kind: Some("fact".into()),
+            fact: Some(FactAsk {
+                id: "c3".into(),
+                subject: "entity".into(),
+                name: "release codename".into(),
+                value: "BLUE HERON".into(),
+                source: "model".into(),
+            }),
+            ..Approval::default()
+        }
+    }
+
+    #[test]
+    fn a_fact_to_keep_is_answered_keep_or_drop_and_refused_by_default() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Approval(fact_to_keep("mcp-1")));
+        // The command keys mean nothing here.
+        assert_eq!(app.type_char('y'), Action::None);
+        assert!(app.approval.is_some());
+        assert_eq!(
+            app.type_char('k'),
+            Action::Send(Inbound::Answer {
+                id: "mcp-1".into(),
+                decision: "keep".into()
+            })
+        );
+        assert!(app.approval.is_none());
+        assert!(app.take_pending().iter().any(|line| {
+            line.text
+                .contains("kept as a permanent fact: release codename")
+        }));
+        app.handle(Outbound::Approval(fact_to_keep("mcp-2")));
+        assert_eq!(
+            app.type_char('D'),
+            Action::Send(Inbound::Answer {
+                id: "mcp-2".into(),
+                decision: "drop".into()
+            })
+        );
+        // Ctrl-C refuses: a fact is dropped, as a command is refused.
+        app.handle(Outbound::Approval(fact_to_keep("mcp-3")));
+        assert_eq!(
+            app.interrupt(),
+            Action::Send(Inbound::Answer {
+                id: "mcp-3".into(),
+                decision: "drop".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_fact_to_keep_says_what_it_is_and_where_it_waits() {
+        let lines: Vec<String> = fact_lines(&fact_to_keep("mcp-1"), 60)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(lines[0], "release codename = BLUE HERON");
+        assert!(
+            lines.contains(&"asked by claude-code, thread git in wisp mcp".to_string()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"fact c3 (entity), from the model".to_string()),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("[k]eep [d]rop (stays in its thread)")
+        );
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Approval(fact_to_keep("mcp-1")));
+        let screen = drawn(&app, 60).join("\n");
+        assert!(
+            screen.contains("keep as a permanent fact? · wisp mcp"),
+            "{screen}"
+        );
+        // Withdrawn when it is answered elsewhere, as a command is.
+        app.handle(Outbound::Withdrawn { id: "mcp-1".into() });
+        assert!(app.approval.is_none());
     }
 
     #[test]

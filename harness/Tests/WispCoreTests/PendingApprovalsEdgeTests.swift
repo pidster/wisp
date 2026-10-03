@@ -20,6 +20,12 @@ import Testing
         try channel.file(PendingApprovals.request(for: approvalRequest("x"), client: nil, pid: 999_999, timeout: nil))
         let used = doctor.pendingApprovals()
         #expect(used.ok && used.detail.contains("1 waiting") && used.detail.contains("1 stale"), "\(used.detail)")
+        #expect(!used.detail.contains("facts to keep"))
+        // Facts a caller asked to keep wait in the same directory, counted apart (ADR 0048).
+        try channel.file(PendingApprovals.request(keeping: proposedFact(), thread: "git", client: nil, timeout: nil))
+        let facts = doctor.pendingApprovals()
+        #expect(facts.detail.contains("1 waiting") && facts.detail.contains("1 facts to keep"), "\(facts.detail)")
+        #expect(facts.detail.contains("1 stale"), "\(facts.detail)")
         chmod(channel.directory.path, 0o777)
         let open = doctor.pendingApprovals()
         #expect(!open.ok && open.detail.contains("chmod 700"))

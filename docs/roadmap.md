@@ -45,9 +45,12 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 ## 0.17.0
 
-- **Permanent facts over MCP** (larger). `set_fact_scope` moves a thread's fact between `thread` and
-  `session` only; how a caller proposes or keeps a permanent fact, which only the person admits today
-  ([ADR 0045](decisions/0045-layered-context.md)), is to be decided.
+- **Permanent facts over MCP** (larger). Built 2026-10-03,
+  [ADR 0048](decisions/0048-permanent-facts-over-mcp.md). `set_fact_scope` `permanent` files a request in
+  `~/.wisp/pending` and posts a notification, and returns at once; the person keeps or drops the fact with
+  `wisp facts keep|drop` or in `wisp-tui` (the `keep-facts` effect), never through the MCP conversation. A
+  drop leaves the fact in its thread and is remembered there; a caller never moves or removes a permanent
+  fact; `respond` counts the proposals waiting (`factsProposed`) instead of a banner for each.
 - **MLX in the release.** Built 2026-10-03 ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The
   release is built with the `MLX` trait and carries MLX's Metal library as `mlx.metallib` beside `wisp`
   (3.8 MB; the stripped binary grows from 15.1 to 32.8 MB, the download by about 6 MB). MLX finds it
@@ -56,8 +59,8 @@ release's preflight still runs the eval's floors, as a guard against regressions
   `scripts/check mlx-live <model>` runs the live test with the library beside the test bundle.
 - **A palette check in the gate** (built 2026-10-03), so `Style.Palette` in Swift and `palette.rs` in `wisp-tui` cannot
   drift apart.
-- **`memory`'s `task` example**, which adds 13 tokens to every conversation that has `memory`: keep it,
-  shorten it, or drop it.
+- **`memory`'s `task` example**. Dropped 2026-10-03: it added 13 tokens to every conversation that has
+  `memory`. The `task` verb still works and [tools/memory.md](tools/memory.md) documents it.
 - **The commit in `--version` for builds that are not releases** (built 2026-10-03), e.g. `0.16.0+5886d33` or
   `0.16.0-dev+5886d33 (modified)`, so a build from `main` (such as the one `.mcp.json` runs) is not
   mistaken for the release whose number it still carries. A release build prints the bare version,

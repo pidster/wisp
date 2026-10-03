@@ -95,6 +95,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"(^|[\s;&|(])dd\s.*\bof=/dev/"#,
         // Answering a pending approval is the person's alone (ADR 0046); the model never answers its own.
         #"(^|[\s;&|(/])wisp\s+approvals\s+(approve|deny)\b"#,
+        // Nor does it keep or drop a permanent fact a caller asked for (ADR 0048): admitting one is the person's.
+        #"(^|[\s;&|(/])wisp\s+facts\s+(keep|drop)\b"#,
     ]
 
     /// Checks that every pattern compiles.

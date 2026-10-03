@@ -195,12 +195,15 @@ extension Doctor {
             return Finding(name: name, ok: true, detail: "no \(path) yet; made when wisp mcp first waits for approval")
         }
         if let problem = PendingApprovals.problem(with: path) { return Finding(name: name, ok: false, detail: problem) }
-        let waiting = channel.waiting().count
+        let waiting = channel.waiting(.command).count
+        let facts = channel.waiting(.fact).count
         let files = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
-        let stale = files.filter { $0.hasSuffix(".request.json") }.count - waiting
+        let stale = files.filter { $0.hasSuffix(".request.json") || $0.hasSuffix(".fact.json") }.count - waiting - facts
         let staleNote = stale > 0 ? "; \(stale) stale, removed by the next 'wisp approvals pending'" : ""
+        // Facts a caller asked to keep (ADR 0048) wait in the same directory.
+        let factNote = facts > 0 ? ", \(facts) facts to keep (wisp facts pending)" : ""
         return Finding(
-            name: name, ok: true, detail: "\(path) is mode 700; \(waiting) waiting (wisp approvals pending)\(staleNote)"
-        )
+            name: name, ok: true,
+            detail: "\(path) is mode 700; \(waiting) waiting (wisp approvals pending)\(factNote)\(staleNote)")
     }
 }

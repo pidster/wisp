@@ -212,20 +212,27 @@ pub struct Choice {
 }
 
 /// An approval request: this conversation's, or (with `source` `mcp`) a command waiting in a `wisp mcp`
-/// server, which wisp sends because `hello` declared `approve-mcp` (ADR 0046).
+/// server, which wisp sends because `hello` declared `approve-mcp` (ADR 0046), or (with `kind` `fact`) a
+/// fact a `wisp mcp` caller asked to keep as a permanent fact, sent because `hello` declared `keep-facts`
+/// (ADR 0048).
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 pub struct Approval {
     /// The id to answer with.
     pub id: String,
-    /// The simple command judged.
+    /// The simple command judged; for a fact, the fact as one line.
+    #[serde(default)]
     pub command: String,
     /// The whole line it is part of.
+    #[serde(default)]
     pub line: String,
-    /// The pattern the answer is remembered under.
+    /// The pattern the answer is remembered under; empty for a fact.
+    #[serde(default)]
     pub pattern: String,
-    /// The working directory.
+    /// The working directory; empty for a fact.
+    #[serde(default)]
     pub directory: String,
     /// `safe`, `moderate`, or `dangerous`.
+    #[serde(default)]
     pub level: String,
     /// Why.
     #[serde(default)]
@@ -239,12 +246,43 @@ pub struct Approval {
     /// For `mcp`, the client that called.
     #[serde(default)]
     pub client: Option<String>,
+    /// `fact` for a fact to keep; absent for a command.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// For a fact to keep, the fact.
+    #[serde(default)]
+    pub fact: Option<FactAsk>,
+}
+
+/// The fact a `wisp mcp` caller asked to keep as a permanent fact, as its thread holds it.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+pub struct FactAsk {
+    /// Its id in the thread (`c3`) or the session (`s1`).
+    #[serde(default)]
+    pub id: String,
+    /// The subject kind, such as `entity`.
+    #[serde(default)]
+    pub subject: String,
+    /// The name under the subject.
+    #[serde(default)]
+    pub name: String,
+    /// The value.
+    #[serde(default)]
+    pub value: String,
+    /// Who asserted it: `tool`, `model`, `caller`, or `person`.
+    #[serde(default)]
+    pub source: String,
 }
 
 impl Approval {
     /// Whether it waits in a `wisp mcp` server rather than in this conversation.
     pub fn is_mcp(&self) -> bool {
         self.source.as_deref() == Some("mcp")
+    }
+
+    /// Whether it asks to keep a fact rather than to run a command; answered `keep` or `drop`.
+    pub fn is_fact(&self) -> bool {
+        self.kind.as_deref() == Some("fact")
     }
 }
 
@@ -320,9 +358,13 @@ impl Outbound {
 
 impl Inbound {
     /// This front end's `hello`: it answers approvals, its own and those waiting in `wisp mcp` servers,
-    /// and posts notifications when `notify` is true.
+    /// and requests to keep facts from `wisp mcp` callers, and posts notifications when `notify` is true.
     pub fn hello(notify: bool) -> Self {
-        let mut effects = vec![String::from("approve"), String::from("approve-mcp")];
+        let mut effects = vec![
+            String::from("approve"),
+            String::from("approve-mcp"),
+            String::from("keep-facts"),
+        ];
         if notify {
             effects.push(String::from("notify"));
         }
@@ -489,14 +531,35 @@ mod tests {
         assert_eq!(
             Inbound::hello(true).line(),
             format!(
-                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"approve-mcp\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
+                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
             )
         );
         assert!(
             Inbound::hello(false)
                 .line()
-                .contains("\"effects\":[\"approve\",\"approve-mcp\"],")
+                .contains("\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\"],")
         );
+    }
+
+    #[test]
+    fn parses_a_fact_to_keep() {
+        let line = r#"{"type":"approval","id":"mcp-a1b2c3d4","command":"release codename = BLUE HERON","line":"release codename = BLUE HERON","pattern":"","directory":"","level":"safe","reasons":[],"source":"mcp","thread":"git","client":"claude-code","request":"a1b2c3d4","kind":"fact","fact":{"id":"c3","subject":"entity","name":"release codename","value":"BLUE HERON","source":"model"}}"#;
+        let Outbound::Approval(approval) = Outbound::parse(line) else {
+            panic!("not an approval");
+        };
+        assert!(approval.is_mcp() && approval.is_fact());
+        assert!(
+            approval
+                .fact
+                .is_some_and(|fact| fact.id == "c3" && fact.value == "BLUE HERON")
+        );
+        // A command from the same server is not a fact.
+        let Outbound::Approval(command) = Outbound::parse(
+            r#"{"type":"approval","id":"mcp-1","command":"ls","line":"ls","pattern":"ls","directory":"/r","level":"safe","source":"mcp"}"#,
+        ) else {
+            panic!("not an approval");
+        };
+        assert!(!command.is_fact());
     }
 
     #[test]

@@ -17,7 +17,8 @@ struct Wisp: AsyncParsableCommand {
         subcommands: [
             Respond.self, Chat.self, Tools.self, Models.self, Mcp.self, Logs.self, ConfigCommand.self,
             DoctorCommand.self,
-            Approvals.self, Notify.self, Scan.self, Redact.self, Watch.self, Draft.self, ClassifierCommand.self,
+            Approvals.self, FactsCommand.self, Notify.self, Scan.self, Redact.self, Watch.self, Draft.self,
+            ClassifierCommand.self,
         ],
         defaultSubcommand: Respond.self
     )
@@ -507,12 +508,16 @@ struct Chat: AsyncParsableCommand {
             router.close()
         }
         reader.start()
-        // A front end that declares approve-mcp is shown the commands waiting in wisp mcp servers (ADR 0046).
+        // A front end that declares approve-mcp is shown the commands waiting in wisp mcp servers (ADR 0046),
+        // and one that declares keep-facts the facts their callers asked to keep (ADR 0048).
         let relay = Task {
             while router.hello == nil, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
-            guard router.declares("approve-mcp") else { return }
-            await PendingRelay(channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, send: send)
-                .run()
+            let kinds = PendingRelay.kinds(declared: router.declares)
+            guard !kinds.isEmpty else { return }
+            await PendingRelay(
+                channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, kinds: kinds, send: send
+            )
+            .run()
         }
         defer { relay.cancel() }
         let tap = ChatEvents.Tap()

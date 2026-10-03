@@ -37,6 +37,25 @@ public protocol RespondingThread: Sendable {
     /// - Returns: The fact as its new scope holds it.
     /// - Throws: `FactFailure`.
     func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact
+
+    /// Keeps the fact the person was asked about as a permanent fact, on the person's answer
+    /// (`Agent.keepAsked`, ADR 0048).
+    ///
+    /// - Parameters:
+    ///   - shown: The fact as the request named it.
+    ///   - request: The request answered.
+    /// - Returns: The fact as the shared store holds it.
+    /// - Throws: `FactFailure`.
+    func keepAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact
+
+    /// Leaves the fact the person declined to keep in its thread (`Agent.dropAsked`, ADR 0048).
+    ///
+    /// - Parameters:
+    ///   - shown: The fact as the request named it.
+    ///   - request: The request answered.
+    /// - Returns: The fact as it now stands.
+    /// - Throws: `FactFailure`.
+    func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact
 }
 
 extension RespondingThread {
@@ -57,6 +76,16 @@ extension RespondingThread {
 
     /// Refused: a thread without a thread record keeps no facts.
     public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact { throw FactFailure.off }
+
+    /// Refused: a thread without a thread record keeps no facts.
+    public func keepAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+        throw FactFailure.off
+    }
+
+    /// Refused: a thread without a thread record keeps no facts.
+    public func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+        throw FactFailure.off
+    }
 }
 
 /// One thread with the on-device model, addressable by id across MCP calls.
@@ -95,6 +124,16 @@ public actor ThreadActor: RespondingThread {
     /// Moves a fact as the caller's action.
     public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact {
         try agent.setFactScope(id, to: target, by: .caller)
+    }
+
+    /// Keeps the fact on the person's answer.
+    public func keepAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+        try agent.keepAsked(shown, request: request)
+    }
+
+    /// Leaves the fact in its thread on the person's answer.
+    public func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+        try agent.dropAsked(shown, request: request)
     }
 
     /// The agent's running summary's versions, or nil when it keeps no facts.

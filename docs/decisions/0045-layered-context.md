@@ -7,7 +7,9 @@ D1 to D12 with what was considered and when to reopen each, and every evaluation
 [ADR 0043](0043-context-window-from-memory.md) (what the window sets). Reverses design rule 4 of
 [context-management.md](../context-management.md) as it stood before the proposal ("the transcript stays a faithful
 record"): the store is the faithful record, and the model's context is composed from it. Leaves
-[ADR 0017](0017-three-layer-instructions.md) unchanged.
+[ADR 0017](0017-three-layer-instructions.md) unchanged. Amended by [ADR 0048](0048-permanent-facts-over-mcp.md): the
+person admits a permanent fact an MCP caller asks for from a terminal (`wisp facts keep`) or `wisp-tui`, as well as
+from chat.
 
 ## Context
 
@@ -198,7 +200,8 @@ under the guard.
   cost matters; at the checkpoint a distillation took 1.7 to 29 s.
 - **MCP host effects and permanent facts over MCP** in later releases: `set_fact_scope` offers `thread` and
   `session` only until the operator decides how permanent facts are managed there
-  ([ADR 0044](0044-host-effects.md)).
+  ([ADR 0044](0044-host-effects.md)). Settled: host effects by [ADR 0046](0046-approval-and-notifications-over-mcp.md),
+  permanent facts by [ADR 0048](0048-permanent-facts-over-mcp.md).
 - **The summary's visibility** (`/inspect facts`, the facts resource) is judged in use.
 - **D10's model switch** is not yet evaluated, and Core AI and MLX report no window until their bundles' metadata is
   read ([ADR 0043](0043-context-window-from-memory.md)).

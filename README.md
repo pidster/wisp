@@ -96,7 +96,7 @@ return something small; and two that manage `respond`'s threads:
 | `dependency_audit` | An npm, cargo, or pip audit as what needs action, most severe first |
 | `flaky_tests` | Tests that pass in some runs and fail in others |
 | `hot_paths` | A profile's folded stacks as where the time goes |
-| `set_fact_scope` | Moves a fact of a `respond` thread to the thread or the session |
+| `set_fact_scope` | Moves a fact of a `respond` thread to the thread or the session, or asks you to keep it as a permanent fact |
 | `close_thread` | Frees a `respond` thread |
 
 A failing `swift test` run comes back as a headline and a few `file:line: message` findings; two
@@ -105,7 +105,9 @@ leaves the Mac and never enters the calling agent's context. When the model insi
 run a risky command, you are asked through your client's dialog and, at the same time, by a notification
 naming `wisp approvals approve <id>`, which answers it from any terminal (a running `wisp-tui` shows it as
 its own dialog); the first answer wins. A client with no dialog, such as the Claude mobile app, is approved
-that way; a request nobody answers is refused, never run silently. [mcp.md](docs/mcp.md) has each tool's arguments and result.
+that way; a request nobody answers is refused, never run silently. A fact the agent asks you to keep across
+sessions reaches you the same way, and you answer with `wisp facts keep <id>` or `drop <id>`; the agent can
+never keep one itself. [mcp.md](docs/mcp.md) has each tool's arguments and result.
 
 ## Why it is different
 

@@ -9,7 +9,7 @@ one). If you are a different harness, read this file in full and take only your 
 
 An on-device, tool-using AI microharness for macOS, written in Swift on Apple's Foundation Models framework
 (the model behind Apple Intelligence and the `fm` CLI). One binary, `wisp`, with two faces: a CLI
-(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`) and an MCP server over stdio (`mcp`) that other
+(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`) and an MCP server over stdio (`mcp`) that other
 harnesses delegate local work to. Every command the model runs passes a policy, a Seatbelt sandbox, a risk classifier, and,
 when risky, human approval; everything is written to a verbatim audit log.
 
@@ -85,7 +85,7 @@ the single set-up path for every face; `respond` and `chat` open the session's o
 `WispMCP` opens one per `thread_id` through `Session.thread` (threads held by
 `ThreadRegistry`/`ThreadActor` actors), so all of them share one config, approval store, and
 session-approval set. `WispMCP` exposes `respond`, `triage` (build or test output condensed to a failure list on device,
-ADR 0023), `summarise_diff` (a diff condensed to per-file lines and review flags), `draft_change` (a commit message, PR, or changelog line from a diff, ADR 0035), `scan_secrets` and `redact` (ADR 0031), `condense_log` and `json_shape` (ADR 0032), `dependency_audit`, `flaky_tests`, and `hot_paths` (ADR 0039), `set_fact_scope` (a fact moved between `thread` and `session`, ADR 0044), and `close_thread`; wisp's own tools are reachable only through `respond`. `ChatLoop` is the chat for every face: the
+ADR 0023), `summarise_diff` (a diff condensed to per-file lines and review flags), `draft_change` (a commit message, PR, or changelog line from a diff, ADR 0035), `scan_secrets` and `redact` (ADR 0031), `condense_log` and `json_shape` (ADR 0032), `dependency_audit`, `flaky_tests`, and `hot_paths` (ADR 0039), `set_fact_scope` (a fact moved between `thread` and `session`, ADR 0044, or put to the person to keep as permanent, ADR 0048), and `close_thread`; wisp's own tools are reachable only through `respond`. `ChatLoop` is the chat for every face: the
 plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`ChatProtocol`) for
 `tools/wisp-tui`, the ratatui front end that `wisp chat` hands a terminal session to (ADR 0029). Details: `docs/design.md`.
 

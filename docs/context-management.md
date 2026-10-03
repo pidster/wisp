@@ -211,8 +211,14 @@ naming the target: `permanent`, `thread` (the conversation's own, dynamic), or `
 and temporal class move together, and the old copy stays as history. After each turn wisp lists the facts
 the turn recorded or changed, so they can be seen and moved: chat prints a note under the reply, `wisp chat
 --json` carries them on the turn's end, and MCP `respond` returns them in `structuredContent.facts`. Over
-MCP a caller may move a fact between `thread` and `session` with `set_fact_scope`; `permanent` is set from
-chat ([mcp.md](mcp.md), "Facts a turn recorded, and their scope").
+MCP a caller may move a fact between `thread` and `session` with `set_fact_scope`, and may ask for one to be
+kept as `permanent`: the request waits in `~/.wisp/pending`, a notification names it, and the person keeps or
+drops it from a terminal (`wisp facts keep|drop`) or in `wisp-tui`; the call returns at once and the outcome
+shows on the fact's resource ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A drop leaves the fact
+in its thread and is remembered there; a caller never moves or removes a permanent fact, and one that
+disagrees records a newer thread fact, which shows as a conflict. The model's own proposals in an MCP thread
+announce nothing; `respond` counts them in `factsProposed` ([mcp.md](mcp.md), "Facts a turn recorded, and their
+scope").
 
 **Versions and precedence.** A newer assertion about the same identity from the same source supersedes the
 older, which stays as history; one with the same value adds nothing. Different sources stand side by side,
@@ -319,7 +325,8 @@ what that turn carried. Condensing counts and cuts the literal turns alone.
 
 **The person's controls** (D3, D6): `/inspect facts [all]`, `/fact SUBJECT [NAME] = VALUE`, `/fact delete
 ID`, `/fact ID permanent|thread|session`, `/task [text]` in chat and `wisp-tui` ([wisp.md](wisp.md)); over
-MCP, `respond`'s `task` (recorded as `source: caller`, ranked with the person), `set_fact_scope`, and the
+MCP, `respond`'s `task` (recorded as `source: caller`, ranked with the person), `set_fact_scope` (a request
+to keep a permanent fact, which the person answers with `wisp facts keep|drop` or in `wisp-tui`), and the
 facts resources: `wisp://threads/{thread_id}/facts` (the thread's own), `wisp://session/facts`,
 `wisp://facts`, and `wisp://facts/proposed` ([mcp.md](mcp.md)). The model and tools only add newer
 versions of their own facts; only the person deletes a fact or makes one permanent. Every change is audited: `fact.recorded`,
@@ -436,7 +443,7 @@ Before anything is stored, a recall answers that the first turn is all in view, 
 on-device model on 2026-09-30 with `tokenCount(for:)`: the rule costs 43 tokens (the prompt is 111 without it,
 154 with it) and the tool's definition 110, so a conversation with every tool starts at 1,375 tokens of
 instructions against 1,222 without `memory`. The `task` verb's example in the argument's guide took the definition
-to 123 (measured 2026-10-01).
+to 123 (measured 2026-10-01); it was dropped on 2026-10-03, so the definition is the 110-token text again.
 
 **The task verb.** `task TEXT; objective: DONE` proposes the task and its objective as the model's fact (method
 `noted`), recorded when the turn ends; it is refused, with the task as it stands, when the person (`/task`) or an

@@ -37,9 +37,9 @@ public enum ChatEvents {
             return verdict(d, style: style)
         case .approvalDecided:
             return decision(d, style: style)
-        case .approvalPending where d["outcome"]?.stringValue == "filed":
+        case .approvalPending where d["outcome"]?.stringValue == "filed" && d["kind"] == nil:
             return style.muted("  · also waiting in wisp approvals pending and wisp-tui")
-        case .approvalSettled where d["outcome"]?.stringValue == "answered":
+        case .approvalSettled where d["outcome"]?.stringValue == "answered" && d["kind"] == nil:
             let via = OutOfBandApprover.face(d["via"]?.stringValue ?? "?")
             return style.muted("  · answered in \(via == "elicitation" ? "the client's dialog" : via)")
         case .policyDecision where d["verdict"]?.stringValue != "allowed":

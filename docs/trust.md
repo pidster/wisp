@@ -65,6 +65,16 @@ program (`head *`), never by exact arguments and never for a dangerous verdict. 
 them; `wisp approvals revoke <id>` and `clear` remove them. A dialog nobody answers within ten minutes
 counts as a refusal.
 
+**Who keeps a permanent fact, and where.** Only you. A permanent fact (a codename, a settled decision, a
+preference) is written to `~/.wisp/facts.json` and given to every conversation, so wisp never writes one on
+anyone else's word. In chat you state one or move one there (`/fact ID permanent`). An agent calling
+`wisp mcp` can only ask: you are told by a notification ("wisp: keep as a permanent fact?") and answer with
+`wisp facts keep <id>` or `drop <id>` in a terminal, or in a running `wisp-tui`. The rules are the ones for
+approval above: nothing in the MCP conversation answers, the answer is bound to the exact fact you were
+shown, wisp's own model is refused `wisp facts keep|drop` by the default policy, and both run only with a
+terminal on standard input. Unanswered, nothing is kept. A caller cannot change or remove a permanent fact;
+only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
+
 ## Switches that remove protection
 
 | Switch | Removes | Leaves |
@@ -89,7 +99,8 @@ remembered as ([logging](logging.md)).
 - Revoke a remembered approval: `wisp approvals revoke <id>` or `wisp approvals clear`.
 - Forget a conversation: delete `~/.wisp/transcripts/<name>.json` and `<name>.store`.
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
-  Only you put facts there: what a tool or the model proposes waits for you to move it.
+  Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
+  caller asks for waits for `wisp facts keep`.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
   writable set.
 - Uninstall: `brew uninstall wisp`.
@@ -101,7 +112,7 @@ remembered as ([logging](logging.md)).
 | `~/.wisp/config.json` | your settings, written by you or by `wisp config set` and chat's `/config set` | yours; user-only once wisp writes it |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
-| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, and your answers, until taken | user-only (directory 0700, files 0600) |
+| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |

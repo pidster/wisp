@@ -1,7 +1,7 @@
 # wisp command reference
 
-`wisp` runs Apple's on-device Foundation Model with tools. It has fifteen subcommands (`respond`,
-`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `notify`, `scan`, `redact`,
+`wisp` runs Apple's on-device Foundation Model with tools. It has sixteen subcommands (`respond`,
+`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`,
 `watch`, `draft`, `classifier`), plus hidden maintainer ones under `classifier`; `respond` is the
 default, so `wisp "<prompt>"` works.
 
@@ -235,8 +235,8 @@ Out, to the front end:
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show: `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, or `facts`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
-| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a command waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request` | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
-| `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals`, another `wisp-tui`), timed out, or its server stopped. Drop the dialog; an answer sent after this is ignored. |
+| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
+| `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped. Drop the dialog; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
@@ -248,13 +248,16 @@ answers `approval` lines; a `hello` without it has every approval denied without
 `notify`: it posts notifications itself, so wisp sends `notify` lines and never writes to the terminal.
 `approve-mcp`: it also answers commands waiting for approval in `wisp mcp` servers, so wisp lists
 `~/.wisp/pending` every half second and sends each as an `approval` line with `source: "mcp"`, and a
-`withdrawn` line when it no longer waits.
+`withdrawn` line when it no longer waits. `keep-facts`: it also answers requests from `wisp mcp` callers to
+keep a fact as a permanent fact, sent the same way as `approval` lines with `kind: "fact"`.
 Unknown effects are ignored; `client` and `version` are for the audit (`host.hello`). A front end that
 sends no `hello` keeps the behaviour from before it existed: approvals over the protocol, notifications
 posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
-`approve` and `approve-mcp`, and `notify` when its terminal has a notification sequence (Ghostty, iTerm2,
-WezTerm, kitty). It queues an approval that arrives while another is shown, and marks one from
-`wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its title.
+`approve`, `approve-mcp`, and `keep-facts`, and `notify` when its terminal has a notification sequence
+(Ghostty, iTerm2, WezTerm, kitty). It queues an approval that arrives while another is shown, and marks one
+from `wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its
+title. A fact to keep is a dialog of its own, titled "keep as a permanent fact? · wisp mcp", answered with
+`k` (keep) or `d` (drop); Ctrl-C drops it, as it refuses a command.
 Then `{"type":"message","text":"…"}` for a chat line, slash commands included, and
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval, and
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, and
@@ -467,7 +470,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
 | `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
 | `notify` | Notifications are on and no route can post one (no terminal sequence, the app route off or without a bundle identifier, and no `/usr/bin/osascript`). Otherwise it names the route `wisp notify` would take here and why, and the routes passed over: `terminal: Ghostty posts OSC 9 notifications`, or `osascript: banners come from Script Editor; terminal: Terminal.app has no notification sequence; app: off (notifications.viaTerminalApp)`. Nothing is posted: the terminal route is judged by whether `/dev/tty` opens. `off (notifications.enabled)` when turned off. `wisp-tui` posts through its own terminal whatever this says. |
-| `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
+| `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait, how many facts wait to be kept (`wisp facts pending`, when any do), and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 
 ### `wisp notify <message>`
 
@@ -644,6 +647,42 @@ approved (session): git push origin main for thread git
 An id that is unknown, stale, already answered, or whose request file was altered is refused with the
 reason; one answered another way first says so and exits 1. The notification that announced the request
 names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md); [mcp.md](mcp.md), "Approval").
+`wisp approvals approve` on a fact a caller asked to keep is refused with a pointer to `wisp facts`.
+
+### `wisp facts`
+
+Answers a `wisp mcp` caller's request to keep one of its thread's facts as a permanent fact, which only you
+admit ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md); [mcp.md](mcp.md), "`set_fact_scope`"). The
+request waits in `~/.wisp/pending`, and a notification names it:
+
+```
+wisp: keep as a permanent fact?
+release codename = BLUE HERON — wisp facts keep a1b2c3d4
+```
+
+`wisp facts pending` (the default) lists the facts waiting, oldest first, after removing stale requests.
+Piped, each is one tab-separated line: id, seconds waited, client/thread, the fact's id, who proposed it,
+subject, name, value.
+
+```
+ID        WAITING  FROM             FACT  SOURCE  KEEP AS PERMANENT
+a1b2c3d4  12 s     claude-code/git  c3    model   release codename = BLUE HERON
+```
+
+`wisp facts keep <id>` admits the fact to `~/.wisp/facts.json` as yours, as `/fact ID permanent` does in
+chat; `wisp facts drop <id>` leaves it in its thread (not deleted), and that thread does not ask about the
+same fact again. Both run only from a terminal, so an agent's shell cannot answer for you, and wait up to
+three seconds for the server to take the answer:
+
+```
+$ wisp facts keep a1b2c3d4
+kept as a permanent fact: release codename = BLUE HERON (thread git)
+```
+
+An id that is unknown, stale, already answered, altered, or a command waiting for approval (answer that with
+`wisp approvals`) is refused with the reason. A request nobody answers within `approval.timeoutSeconds`
+keeps nothing. A running `wisp-tui` shows the same requests as dialogs. The default policy refuses
+`wisp facts keep|drop` when the model runs it.
 
 ### `wisp mcp`
 
@@ -673,9 +712,9 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `transcripts/<name>.json` | Saved conversations. |
 | `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Required to resume: `--resume` refuses a transcript without it, or with one that does not decode or match. |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
-| `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, or moved there with `/fact ID permanent`. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one. Delete a fact with `/fact delete`, or the file to forget them all. |
+| `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, moved there with `/fact ID permanent`, or kept with `wisp facts keep` (or in `wisp-tui`) when an MCP caller asked. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
-| `pending/` | Commands waiting for approval under `wisp mcp`: `<id>.request.json` from the server, `<id>.answer.json` from `wisp approvals` or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
+| `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`) and facts a caller asked to keep (`<id>.fact.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
 

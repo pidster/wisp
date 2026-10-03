@@ -41,6 +41,8 @@ public struct WispServer: Sendable {
     let host: SessionHost
     /// Opens the agent that judges one chunk for a condensing tool; tests inject one over a scripted model.
     private let makeTriageAgent: @Sendable (WispThread, ModelSelection?) throws -> Agent
+    /// Asks the person to keep a fact as permanent when a caller asks for one (ADR 0048).
+    let factKeeper: FactKeeper
 
     /// Creates a server over a session begun by the CLI. Threads are opened through
     /// `Session.thread` with an elicitation approver, so every face of wisp shares one
@@ -80,6 +82,11 @@ public struct WispServer: Sendable {
             approver: session.mcpApprover(
                 elicitation: { elicitation.ask }, fallback: elicitation, client: { client.name.withLock { $0 } }),
             face: .mcp)
+        let notifyHost = self.host
+        factKeeper = FactKeeper(
+            channel: PendingApprovals(home: session.home), timeout: session.config.approvalTimeout,
+            client: { client.name.withLock { $0 } },
+            notify: { message, audit in notifyHost.notify(message, source: .approval, audit: audit) })
         threads = ThreadRegistry(capacity: session.config.maxThreads)
         self.makeThread = makeThread
         self.makeTriageAgent = makeTriageAgent
@@ -96,6 +103,7 @@ public struct WispServer: Sendable {
         try await serve(transport: StdioTransport(logger: DiagnosticsLogHandler.logger()))
         await server.waitUntilCompleted()
         Diagnostics.mcp.info("client disconnected")
+        factKeeper.withdraw(thread: nil)
         // Requests this process filed and never settled (a call still waiting at disconnect) are stale now.
         let pid = getpid()
         PendingApprovals(home: session.home).sweep { $0 != pid && PendingApprovals.isAlive($0) }
@@ -336,6 +344,7 @@ public struct WispServer: Sendable {
                 instructions: request.instructions != nil)
         }
         if let evicted = opened.evicted {
+            factKeeper.withdraw(thread: evicted.id)
             directory.ended(id: evicted.id, as: .evicted)
             evicted.thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "evicted"))
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
@@ -379,6 +388,7 @@ public struct WispServer: Sendable {
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
                     "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
                     "notifications": Value(json: Self.notifications(in: events)),
+                    "factsProposed": Value(json: factsProposed(thread: id)),
                     "output": schema == nil ? .null : Self.parse(reply.text),
                     "contextNote": reply.contextNote.map { .string($0) } ?? .null,
                 ]),
@@ -696,12 +706,13 @@ public struct WispServer: Sendable {
     }
 
     /// Moves a fact of the thread, or a session fact, to `thread` or `session` on behalf of the caller
-    /// (`fact.scope.changed`, `by: caller`); a thread that is not open, an unknown fact, or a fact already
-    /// there are tool errors.
+    /// (`fact.scope.changed`, `by: caller`), or asks the person to keep it as a permanent fact; a thread that
+    /// is not open, an unknown fact, or a fact already there are tool errors.
     private func setFactScope(_ request: SetFactScopeRequest) async -> CallTool.Result {
         guard let open = await threads.peek(request.threadID) else {
             return failure("no open thread \(request.threadID); respond starts one")
         }
+        if request.scope == .permanent { return await askToKeep(request, open: open) }
         do {
             let fact = try await open.thread.setFactScope(request.factID, to: request.scope)
             let rows = Self.turnFacts([fact], thread: request.threadID).arrayValue ?? []
@@ -720,10 +731,11 @@ public struct WispServer: Sendable {
         }
     }
 
-    /// Frees a thread; unknown ids are tool errors.
+    /// Frees a thread, withdrawing its requests to keep facts; unknown ids are tool errors.
     private func closeThread(_ request: CloseThreadRequest) async -> CallTool.Result {
         do {
             let closed = try await threads.close(request.threadID)
+            factKeeper.withdraw(thread: request.threadID)
             directory.ended(id: request.threadID, as: .closed)
             closed.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
             return success("closed \(request.threadID)")
@@ -738,7 +750,7 @@ public struct WispServer: Sendable {
     }
 
     /// A text result with `isError: true`, the MCP shape for execution failures.
-    private func failure(_ message: String) -> CallTool.Result {
+    func failure(_ message: String) -> CallTool.Result {
         .init(content: [.text(text: message, annotations: nil, _meta: nil)], isError: true)
     }
 }

@@ -25,6 +25,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case classifier
     /// `wisp approvals pending`, `approve`, or `deny`: the person answering a command waiting under `wisp mcp`.
     case approvals
+    /// `wisp facts pending`, `keep`, or `drop`: the person answering a caller's request to keep a permanent fact.
+    case facts
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {

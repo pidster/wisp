@@ -5,7 +5,9 @@ Date: 2026-10-02. Status: accepted; built 2026-10-02 (see "Built" at the end). A
 [ADR 0011](0011-risk-classifier-and-approval.md) (approval for a client without elicitation, by design
 impossible there). Settles the question paused on 2026-09-17 and the MCP part of the
 [escalations proposal](../proposals/2026-09-20-escalations.md); the proposal's other parts (an inquiry verb,
-the `result` channel) are not taken up.
+the `result` channel) are not taken up. Amended by [ADR 0048](0048-permanent-facts-over-mcp.md): the pending
+channel carries a second kind of request, a fact a caller asked to keep as permanent, answered with
+`wisp facts keep|drop` or in `wisp-tui` under the `keep-facts` effect.
 
 ## Context
 

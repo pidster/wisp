@@ -7,8 +7,9 @@ import WispTestSupport
 @testable import WispMCP
 
 /// Setting a fact's scope over MCP, and the facts a turn recorded in `respond`'s result (decided 2026-09-30,
-/// ADR 0044 amended): `set_fact_scope` moves a thread's fact or a session fact to `thread` or `session` and
-/// refuses `permanent`, driven over the real protocol.
+/// ADR 0044 amended): `set_fact_scope` moves a thread's fact or a session fact to `thread` or `session`, and
+/// never moves a permanent fact, driven over the real protocol. Asking for `permanent` is in
+/// `FactKeepWireTests` (ADR 0048).
 @Suite struct FactScopeWireTests {
     /// A thread whose model records a permanent entity for each `name=value` in a prompt of the form
     /// `propose name=value;name=value`, as distillation would, and otherwise just replies.
@@ -41,12 +42,22 @@ import WispTestSupport
         func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact {
             try agent.setFactScope(id, to: target, by: .caller)
         }
+
+        func keepAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+            try agent.keepAsked(shown, request: request)
+        }
+
+        func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
+            try agent.dropAsked(shown, request: request)
+        }
     }
 
     /// A connected client and server over threads that propose facts.
-    private func connected() async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
+    static func connected(
+        session: (MemoryAuditSink) throws -> Session = { try scratchSession(dependencies: .testing(sink: $0)) }
+    ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
         let sink = MemoryAuditSink()
-        let session = try scratchSession(dependencies: .testing(sink: sink))
+        let session = try session(sink)
         let server = WispServer(session: session) { session, host, id, instructions, tools, model in
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: .none, model: model)
@@ -62,6 +73,17 @@ import WispTestSupport
         let client = Client(name: "wire-test", version: "0", capabilities: .init())
         _ = try await client.connect(transport: transports.client)
         return (client, server, sink)
+    }
+
+    /// A connected client and server over threads that propose facts.
+    private func connected() async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
+        try await Self.connected()
+    }
+
+    /// A resource's JSON.
+    static func read(_ client: Client, _ uri: String) async throws -> [String: Value] {
+        let text = try await client.readResource(uri: uri).first?.text ?? ""
+        return try JSONDecoder().decode([String: Value].self, from: Data(text.utf8))
     }
 
     /// A resource's JSON.
@@ -114,18 +136,18 @@ import WispTestSupport
         }
     }
 
-    @Test func permanentIsRefusedAndMistakesAreToolErrors() async throws {
+    @Test func aPermanentFactIsNeverMovedAndMistakesAreToolErrors() async throws {
         let pair = try await connected()
         _ = try await call(pair.client, "respond", ["prompt": "propose team=Platform", "thread_id": "git"])
         for arguments in [
-            ["thread_id": "git", "fact_id": "c1", "scope": "permanent"],
             ["thread_id": "git", "fact_id": "p1", "scope": "thread"],
+            ["thread_id": "git", "fact_id": "p1", "scope": "session"],
         ] as [[String: Value]] {
             do {
                 _ = try await call(pair.client, "set_fact_scope", arguments)
                 Issue.record("\(arguments) was accepted")
             } catch let error as MCPError {
-                #expect("\(error)".contains("chat"), "\(error)")
+                #expect("\(error)".contains("the person's"), "\(error)")
             }
         }
         #expect(pair.server.session.permanentFacts.facts.isEmpty)

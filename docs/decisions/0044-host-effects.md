@@ -5,7 +5,9 @@ request-and-answer effect, and its MCP mapping (below); amended again the same d
 (the last amendment below). Amends
 [ADR 0011](0011-risk-classifier-and-approval.md) (approvers) and [ADR 0030](0030-notifications.md) (how a
 notification is posted). Amended by [ADR 0046](0046-approval-and-notifications-over-mcp.md): approval for an
-MCP client without elicitation, through another face, and the notifications a `respond` turn posted.
+MCP client without elicitation, through another face, and the notifications a `respond` turn posted. Amended by
+[ADR 0048](0048-permanent-facts-over-mcp.md): how permanent facts are managed over MCP, left to the operator
+by the second amendment below.
 
 ## Context
 

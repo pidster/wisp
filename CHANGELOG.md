@@ -12,13 +12,31 @@ Added:
   library, `mlx.metallib`, beside `wisp` in the Cellar's `libexec`, so MLX models run without building wisp
   yourself ([ADR 0047](docs/decisions/0047-mlx-in-the-release.md)). The download grows by about 6 MB.
   `wisp doctor` has an `MLX` finding: the Metal library it found and that it loads, or what is missing.
+- Permanent facts over MCP ([ADR 0048](docs/decisions/0048-permanent-facts-over-mcp.md)). A `wisp mcp`
+  caller can ask for one of its thread's facts to be kept as a permanent fact with `set_fact_scope`
+  `scope: permanent`; the call returns at once with the request's id, and a notification ("wisp: keep as a
+  permanent fact?", naming the fact and `wisp facts keep <id>`) tells you. Only you answer: `wisp facts keep
+  <id>` or `wisp facts drop <id>` from a terminal, or in a running `wisp-tui`. The outcome shows as `request`
+  on the fact's resource and in `wisp://facts/proposed`. A dropped fact stays in its thread, which does not
+  ask about it again; an unanswered request keeps nothing.
+- `wisp facts pending` lists the facts waiting to be kept.
+- `respond`'s result counts the permanent facts proposed in the server's conversations that await you, as
+  `structuredContent.factsProposed`.
+- `wisp chat --json`: a front end whose `hello` declares the `keep-facts` effect is sent the facts waiting
+  to be kept as `approval` lines with `kind: "fact"`, answered `keep` or `drop`; `wisp-tui` declares it and
+  shows them as a dialog of their own (`k` keep, `d` drop).
+- The default policy refuses `wisp facts keep|drop` when the model runs it.
 
 Changed:
-
 - `wisp --version` and `wisp-tui --version` print the commit for a build that is not a release:
   `0.16.0-dev+4ab6eec`, with ` (modified)` when the working tree had changes, so a build from `main` is not
   mistaken for the release whose number it carries. A release prints the bare version. The audit log's
   `version` stays bare.
+
+- `set_fact_scope` refuses to move a permanent fact (`p…`) whatever the target, saying it is yours; a caller
+  that disagrees records a newer fact in its thread, which shows as a conflict.
+- `memory`'s argument guide no longer gives a `task` example, which cost 13 tokens in every conversation
+  with `memory`; the `task` verb works as before.
 
 ## 0.16.0
 

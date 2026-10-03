@@ -22,18 +22,22 @@ import WispCore
         }
     }
 
-    @Test func setFactScopeOffersOnlyThreadAndSession() throws {
+    @Test func setFactScopeAsksForPermanentAndNeverMovesAPermanentFact() throws {
         let schema = try #require(ToolCatalog.setFactScope.inputSchema.objectValue)
         let scope = try #require(schema["properties"]?.objectValue?["scope"]?.objectValue)
-        #expect(scope["enum"]?.arrayValue?.compactMap(\.stringValue) == ["thread", "session"])
+        #expect(scope["enum"]?.arrayValue?.compactMap(\.stringValue) == ["thread", "session", "permanent"])
         #expect(schema["required"]?.arrayValue?.compactMap(\.stringValue) == ["thread_id", "fact_id", "scope"])
         let request = try SetFactScopeRequest(arguments: [
             "thread_id": "git", "fact_id": "c3", "scope": "session",
         ])
         #expect(request.threadID == "git" && request.factID == "c3" && request.scope == .session)
+        let permanent = try SetFactScopeRequest(arguments: [
+            "thread_id": "git", "fact_id": "s2", "scope": "permanent",
+        ])
+        #expect(permanent.scope == .permanent && permanent.factID == "s2")
         for (arguments, message) in [
-            (["thread_id": "git", "fact_id": "c3", "scope": "permanent"], "set from chat"),
-            (["thread_id": "git", "fact_id": "p1", "scope": "thread"], "managed from chat"),
+            (["thread_id": "git", "fact_id": "p1", "scope": "thread"], "a caller cannot move or remove them"),
+            (["thread_id": "git", "fact_id": "p1", "scope": "permanent"], "the person's"),
             (["thread_id": "git", "fact_id": "c3", "scope": "forever"], "'scope' is required"),
             (["thread_id": "git", "fact_id": "x3", "scope": "thread"], "c<number>"),
             (["thread_id": "git", "fact_id": "c", "scope": "thread"], "c<number>"),

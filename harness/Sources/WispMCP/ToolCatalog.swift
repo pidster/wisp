@@ -473,14 +473,18 @@ public enum ToolCatalog {
         annotations: .init(title: "Close thread", readOnlyHint: false, idempotentHint: false, openWorldHint: false)
     )
 
-    /// Moves one of a thread's facts, or a session fact, to another scope (`thread` or `session`).
+    /// Moves one of a thread's facts, or a session fact, to another scope (`thread` or `session`), or asks the
+    /// person to keep it as a permanent fact (ADR 0048).
     public static let setFactScope = Tool(
         name: "set_fact_scope",
         description:
             "Move a fact to another scope: thread (the conversation's own) or session (shared by the server's "
             + "threads, gone when it ends). The fact_id is one of the thread's (c1, c2, ...) or a session fact "
             + "(s1, ...), listed in the result's structuredContent.facts and under wisp://threads/{thread_id}/facts. "
-            + "A proposed permanent fact moved to thread stops being proposed. Permanent is set from chat.",
+            + "A proposed permanent fact moved to thread stops being proposed. Permanent asks the person, who "
+            + "answers outside this conversation (wisp facts keep or drop): the call returns at once with state "
+            + "pending and the request id, and the fact's resource shows the outcome later. Permanent facts "
+            + "cannot be moved or removed here.",
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([
@@ -495,8 +499,8 @@ public enum ToolCatalog {
                 ]),
                 "scope": .object([
                     "type": .string("string"),
-                    "enum": .array([.string("thread"), .string("session")]),
-                    "description": .string("Where to move it."),
+                    "enum": .array([.string("thread"), .string("session"), .string("permanent")]),
+                    "description": .string("Where to move it; permanent asks the person to keep it."),
                 ]),
             ]),
             "required": .array([.string("thread_id"), .string("fact_id"), .string("scope")]),
@@ -1098,14 +1102,14 @@ public struct SetFactScopeRequest: Equatable, Sendable {
     public var threadID: String
     /// The fact: `c<number>` of the thread or `s<number>` of the session.
     public var factID: String
-    /// Where to move it: `thread` or `session`.
+    /// Where to move it: `thread` or `session`, or `permanent`, which asks the person (ADR 0048).
     public var scope: FactTarget
 
     /// Decodes and validates MCP call arguments.
     ///
     /// - Parameter arguments: The raw `tools/call` arguments.
-    /// - Throws: `MCPError.invalidParams` if an argument is missing or malformed, if the fact is a permanent one
-    ///   (`p<number>`), or if `scope` is `permanent`: permanent facts are managed from chat, not over MCP.
+    /// - Throws: `MCPError.invalidParams` if an argument is missing or malformed, or if the fact is a permanent
+    ///   one (`p<number>`): permanent facts are the person's, and a caller neither moves nor removes them.
     public init(arguments: [String: Value]?) throws {
         guard let id = arguments?["thread_id"]?.stringValue else {
             throw MCPError.invalidParams("'thread_id' is required and must be a string")
@@ -1115,13 +1119,12 @@ public struct SetFactScopeRequest: Equatable, Sendable {
             throw MCPError.invalidParams("'fact_id' is required: c<number> of the thread or s<number> of the session")
         }
         guard let word = arguments?["scope"]?.stringValue, let target = FactTarget(rawValue: word) else {
-            throw MCPError.invalidParams("'scope' is required: thread or session")
-        }
-        guard target != .permanent else {
-            throw MCPError.invalidParams("scope permanent is set from chat (/fact ID permanent), not over MCP")
+            throw MCPError.invalidParams("'scope' is required: thread, session, or permanent")
         }
         guard fact.hasPrefix(FactScope.permanent.prefix) == false else {
-            throw MCPError.invalidParams("permanent facts (\(fact)) are managed from chat, not over MCP")
+            throw MCPError.invalidParams(
+                "permanent facts (\(fact)) are the person's: a caller cannot move or remove them; "
+                    + "record a newer thread fact instead, which shows as a conflict")
         }
         let digits = fact.dropFirst()
         guard let first = fact.first, "cs".contains(first), !digits.isEmpty, digits.allSatisfy(\.isASCII),

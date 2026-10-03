@@ -13,7 +13,9 @@ import Synchronization
 /// `completions` (the answer to a `complete`), `notify` (a notification for the front end to post, only
 /// when its `hello` declared `notify`), `withdrawn` (an approval the front end was shown that no longer
 /// waits, answered another way), `exit`. A front end whose `hello` declares `approve-mcp` is also sent the
-/// commands waiting for approval in `wisp mcp` servers, as `approval` lines with `source: "mcp"` (ADR 0046). Inbound: `hello` (the first line, optional: the effects the
+/// commands waiting for approval in `wisp mcp` servers, as `approval` lines with `source: "mcp"` (ADR 0046),
+/// and one that declares `keep-facts` the facts their callers asked to keep, as `approval` lines with
+/// `kind: "fact"`, answered `keep` or `drop` (ADR 0048). Inbound: `hello` (the first line, optional: the effects the
 /// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
 /// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
 /// and cursor to complete, by id).
@@ -221,16 +223,28 @@ public enum ChatProtocol {
         ]
     }
 
-    /// The `approval` line for a command waiting in a `wisp mcp` server: the usual fields, with `source`
-    /// `mcp`, the `thread` and `client` it came from, and the pending request's id.
+    /// The `approval` line for a request waiting in a `wisp mcp` server: the usual fields, with `source`
+    /// `mcp`, the `thread` and `client` it came from, and the pending request's id. A fact to keep (ADR 0048)
+    /// has `kind` `fact` and the `fact` (`id`, `subject`, `name`, `value`, `source`); its `command` and `line`
+    /// are the fact as one line, so a front end that shows only those still names it, and it is answered
+    /// `keep` or `drop`.
     public static func approval(id: String, pending request: PendingApprovals.Request) -> [String: JSONValue] {
-        [
-            "id": .string(id), "command": .string(request.command), "line": .string(request.line),
+        var fields: [String: JSONValue] = [
+            "id": .string(id), "command": .string(request.subject),
+            "line": .string(request.kind == .fact ? request.subject : request.line),
             "pattern": .string(request.pattern), "directory": .string(request.directory),
             "level": .string(request.level.rawValue), "reasons": .array(request.reasons.map { .string($0) }),
             "source": .string("mcp"), "thread": request.thread.map { .string($0) } ?? .null,
             "client": request.client.map { .string($0) } ?? .null, "request": .string(request.id),
         ]
+        if request.kind == .fact, let fact = request.fact {
+            fields["kind"] = .string(request.kind.rawValue)
+            fields["fact"] = .object([
+                "id": .string(fact.id), "subject": .string(fact.subject), "name": .string(fact.name),
+                "value": .string(fact.value), "source": .string(fact.source),
+            ])
+        }
+        return fields
     }
 }
 

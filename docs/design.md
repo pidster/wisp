@@ -215,10 +215,25 @@ withdrew the fact-approval dialog). `Agent.setFactScope(id, to:, by:)` takes one
 (`FactBook.admit`) and the old copy is superseded, or, for a proposed permanent fact moved to `thread`,
 changes class in place (`FactBook.retarget`). A move to `permanent` writes it as the person's (`approved` is
 set, so it ranks with the person); it is audited as `fact.scope.changed`. Chat's `/fact ID SCOPE` calls it with
-`by: .person`, and MCP's `set_fact_scope` with `by: .caller`, refusing `permanent` and `p…` ids in the
-request decoder. After each turn `Agent.Reply.facts` holds the facts the turn recorded or changed
+`by: .person`, and MCP's `set_fact_scope` with `by: .caller`, refusing `p…` ids in the request decoder.
+After each turn `Agent.Reply.facts` holds the facts the turn recorded or changed
 (`Agent.turnFactIDs`, reset when a turn starts), which chat prints as a one-line note, `wisp chat --json`
-adds to the turn's end (and as a `note`), and `respond` returns as `structuredContent.facts`.
+adds to the turn's end (and as a `note`), and `respond` returns as `structuredContent.facts`, with
+`factsProposed`, the count of `FactProposals.awaiting`.
+
+**Permanent facts over MCP** ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). `set_fact_scope`
+`permanent` goes to the server's `FactKeeper` (a `final class` with a `Mutex`, one per `WispServer`), which
+files a request of kind `fact` in the `PendingApprovals` channel (`<id>.fact.json`, bound to the fact's id,
+subject, name, value, and source), posts a notification through the MCP host's routes, records it, and
+starts a task that polls the channel every 200 ms; the tool call returns at once. When an answer is taken
+the task applies it through a closure the server gave it: `ThreadActor.keepAsked` or `dropAsked`, which call
+`Agent.keepAsked` (`setFactScope` to `permanent`, `by: .person`, with the request) or `Agent.dropAsked`
+(a proposal retargeted to `thread` in place), each first checking that the fact still says what the person
+was shown. The keeper remembers drops per thread by subject, name, and value, refuses a second request for
+one, returns a waiting request rather than filing another, ends a request at `approval.timeoutSeconds`, and
+cancels a thread's tasks when it closes or is evicted, or all of them when the client disconnects. The
+facts resources read its records for each fact's `request`. Answers come from `wisp facts keep|drop` and
+from `PendingRelay` for a front end that declared `keep-facts`.
 
 ### Risk classification and approval
 
@@ -241,7 +256,9 @@ dialog withdrawn with `notifications/cancelled`, whose JSON-RPC id the server's 
 learned from the dialog's `_meta` key (`ElicitationTracker`). A leg that fails leaves the other asking;
 cancelling the call settles the race as abandoned. Answers come from other processes:
 `wisp approvals approve|deny` writes the answer file, and `wisp chat --json`'s `PendingRelay` shows a
-front end that declared `approve-mcp` each waiting request and writes its answer. With
+front end that declared `approve-mcp` each waiting request and writes its answer. The channel carries a
+second kind of request, a fact to keep (above, "Permanent facts over MCP"); each kind has its own file
+suffix, binding, and answers, and the relay shows a front end only the kinds it declared. With
 `approval.outOfBand` off, `ElicitationOnly` asks through the dialog alone.
 `CommandRunner` consults the gate after the policy check. See [approval.md](approval.md) and
 [ADR 0011](decisions/0011-risk-classifier-and-approval.md). The model beside the rules is
@@ -498,8 +515,9 @@ list for Up and Down. `wisp chat --json` is the same loop with its IO mapped ont
 can own the screen while the session stays here. The front end's optional first line, `hello`, declares
 the host effects it carries; `LineRouter` keeps it (`declares`), the host's notification routes ask it at
 each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. A
-`hello` that declares `approve-mcp` starts a `PendingRelay`, which sends the commands waiting in
-`wisp mcp` servers as `approval` lines (`source: "mcp"`) and `withdrawn` when they stop waiting. `/config` shows the configuration as YAML through
+`hello` that declares `approve-mcp` or `keep-facts` starts a `PendingRelay` for the kinds it declared
+(`PendingRelay.kinds`), which sends the commands, or the facts to keep, waiting in `wisp mcp` servers as
+`approval` lines (`source: "mcp"`, and `kind: "fact"` for a fact) and `withdrawn` when they stop waiting. `/config` shows the configuration as YAML through
 `YAMLText`; `/config set` and `wisp config set` go through
 `ConfigSettings` (the settings that can change, and what each takes) and `ConfigEdit` (one path set or
 removed, the result validated as start-up would before it is written); a chat command that needs an

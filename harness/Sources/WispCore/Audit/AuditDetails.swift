@@ -319,15 +319,17 @@ extension AuditEvent {
         /// `caller`), `now` the id it has after the move, and `proposed` whether it was a proposed permanent
         /// fact awaiting the person.
         public static func factScopeChanged(
-            named id: String, before: Fact, after: Fact, to: FactTarget, by: FactSource
+            named id: String, before: Fact, after: Fact, to: FactTarget, by: FactSource, request: String? = nil
         ) -> [String: JSONValue] {
-            [
+            var details: [String: JSONValue] = [
                 "fact": .string(id), "from": .string(FactTarget(holding: before).rawValue),
                 "to": .string(to.rawValue), "by": .string(by.rawValue), "now": .string(after.id),
                 "subject": .string(after.identity.subject), "name": .string(after.identity.name),
                 "source": .string(after.source.rawValue), "value": .string(after.value),
                 "proposed": .bool(before.proposed),
             ]
+            if let request { details["request"] = .string(request) }
+            return details
         }
 
         /// `fact.conflict.raised` and `fact.conflict.resolved`: the heads about one subject and name began or
@@ -521,16 +523,36 @@ extension AuditEvent {
             { $1 }
         }
 
-        /// `approval.pending`: a command waiting under `wisp mcp` was filed for another face to answer
-        /// (`outcome` `filed`), or could not be (`failed`, with `reason`). `alongside` is `elicitation` when
-        /// the client's dialog asks at the same time.
+        /// What a pending request asks about: for a command, `command`, `pattern`, and `line` when it differs;
+        /// for a fact (ADR 0048), `kind` `fact` and the fact's `fact` id, `subject`, `name`, `value`, and
+        /// `source`.
+        private static func pendingSubject(_ request: PendingApprovals.Request) -> [String: JSONValue] {
+            guard request.kind == .fact else {
+                return approvalSubject(command: request.command, pattern: request.pattern, line: request.line)
+            }
+            var details: [String: JSONValue] = ["kind": .string(request.kind.rawValue)]
+            if let fact = request.fact {
+                details["fact"] = .string(fact.id)
+                details["subject"] = .string(fact.subject)
+                details["name"] = .string(fact.name)
+                details["value"] = .string(fact.value)
+                details["source"] = .string(fact.source)
+            }
+            return details
+        }
+
+        /// `approval.pending`: a command waiting under `wisp mcp`, or a fact a caller asked to keep, was filed
+        /// for another face to answer (`outcome` `filed`), or could not be (`failed`, with `reason`).
+        /// `alongside` is `elicitation` when the client's dialog asks at the same time.
         public static func approvalPending(
             _ request: PendingApprovals.Request, outcome: String, alongside: String?, reason: String? = nil
         ) -> [String: JSONValue] {
-            var details = approvalSubject(command: request.command, pattern: request.pattern, line: request.line)
+            var details = pendingSubject(request)
             details["request"] = .string(request.id)
-            details["directory"] = .string(request.directory)
-            details["level"] = .string(request.level.rawValue)
+            if request.kind == .command {
+                details["directory"] = .string(request.directory)
+                details["level"] = .string(request.level.rawValue)
+            }
             details["outcome"] = .string(outcome)
             if let thread = request.thread { details["thread"] = .string(thread) }
             if let client = request.client { details["client"] = .string(client) }
@@ -542,7 +564,8 @@ extension AuditEvent {
 
         /// `approval.answered`: the person answered a waiting request in this process (`via` `cli` or `tui`).
         /// `delivery` is `taken` (the server took it), `too-late` (the request went another way first),
-        /// `waiting` (not yet read), or `refused` (not written, with `reason`).
+        /// `waiting` (not yet read), or `refused` (not written, with `reason`). A fact request's answer is
+        /// `keep` or `drop`, with the fact's fields in place of the command's.
         public static func approvalAnswered(
             request id: String, _ request: PendingApprovals.Request?, decision: String, via: String,
             delivery: String, reason: String? = nil
@@ -552,9 +575,13 @@ extension AuditEvent {
                 "delivery": .string(delivery),
             ]
             if let request {
-                details["command"] = .string(request.command)
-                details["pattern"] = .string(request.pattern)
-                details["directory"] = .string(request.directory)
+                if request.kind == .fact {
+                    details.merge(pendingSubject(request)) { $1 }
+                } else {
+                    details["command"] = .string(request.command)
+                    details["pattern"] = .string(request.pattern)
+                    details["directory"] = .string(request.directory)
+                }
                 if let thread = request.thread { details["thread"] = .string(thread) }
             }
             if let reason { details["reason"] = .string(reason) }
@@ -564,14 +591,20 @@ extension AuditEvent {
         /// `approval.settled`: how a filed request ended. `outcome` is `answered` (with `via`: `elicitation`,
         /// `cli`, or `tui`, and the `decision`), `timed-out`, `abandoned` (the caller cancelled the call),
         /// `failed` (no way left to ask, with `reason`), or `stale` (removed by a sweep after its server
-        /// stopped or its wait expired).
+        /// stopped or its wait expired). A fact request (ADR 0048) carries the fact's fields in place of the
+        /// command, `decision` `keep` or `drop`, `kept` (the permanent fact's id) when kept, and may also end
+        /// `withdrawn` (its thread closed or the server stopped first).
         public static func approvalSettled(
             _ request: PendingApprovals.Request, outcome: String, via: String? = nil, decision: String? = nil,
-            reason: String? = nil, seconds: TimeInterval? = nil
+            reason: String? = nil, seconds: TimeInterval? = nil, kept: String? = nil
         ) -> [String: JSONValue] {
-            var details: [String: JSONValue] = [
-                "request": .string(request.id), "command": .string(request.command), "outcome": .string(outcome),
-            ]
+            var details: [String: JSONValue] = ["request": .string(request.id), "outcome": .string(outcome)]
+            if request.kind == .fact {
+                details.merge(pendingSubject(request)) { $1 }
+            } else {
+                details["command"] = .string(request.command)
+            }
+            if let kept { details["kept"] = .string(kept) }
             if let thread = request.thread { details["thread"] = .string(thread) }
             if let via { details["via"] = .string(via) }
             if let decision { details["decision"] = .string(decision) }
@@ -659,7 +692,7 @@ extension AuditEvent {
         case .factSuperseded: ["id", "subject", "name", "source", "by"]
         case .factDeleted: ["id", "subject", "name", "source", "value", "by"]
         case .factScopeChanged:
-            ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed"]
+            ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed", "request"]
         case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
@@ -671,11 +704,18 @@ extension AuditEvent {
         case .approvalPending:
             [
                 "request", "command", "pattern", "line", "directory", "level", "thread", "client", "expiresAt",
-                "alongside", "outcome", "reason",
+                "alongside", "outcome", "reason", "kind", "fact", "subject", "name", "value", "source",
             ]
         case .approvalAnswered:
-            ["request", "command", "pattern", "directory", "thread", "decision", "via", "delivery", "reason"]
-        case .approvalSettled: ["request", "command", "thread", "outcome", "via", "decision", "reason", "seconds"]
+            [
+                "request", "command", "pattern", "directory", "thread", "decision", "via", "delivery", "reason",
+                "kind", "fact", "subject", "name", "value", "source",
+            ]
+        case .approvalSettled:
+            [
+                "request", "command", "thread", "outcome", "via", "decision", "reason", "seconds", "kind", "fact",
+                "subject", "name", "value", "source", "kept",
+            ]
         case .approvalDecided:
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",

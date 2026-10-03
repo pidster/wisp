@@ -59,6 +59,8 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
     case emptyValue
     /// The shared store could not be written.
     case unwritable(String)
+    /// The fact is no longer what the person was asked about: superseded, deleted, moved, or changed in value.
+    case changed(String)
 
     /// Human-readable explanation.
     public var description: String {
@@ -75,6 +77,7 @@ public enum FactFailure: Error, CustomStringConvertible, Equatable {
             "\(id) is another conversation's proposal; it can be moved to permanent or session"
         case .emptyValue: "a fact needs a value"
         case .unwritable(let reason): reason
+        case .changed(let id): "fact \(id) changed after the person was asked about it; it was not kept"
         }
     }
 }

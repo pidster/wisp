@@ -55,13 +55,16 @@ extension Agent {
     ///     conversation's awaiting proposal by its reference (`git/c3`), which can go to `permanent` or
     ///     `session`.
     ///   - target: The scope to move it to.
-    ///   - by: Who asked: `person` in chat, `caller` over MCP.
+    ///   - by: Who asked: `person` in chat, `caller` over MCP, `person` again when the person answered a
+    ///     caller's request to keep it (ADR 0048).
+    ///   - request: The pending request the person answered, for the audit; nil for a direct move.
     /// - Returns: The fact as its new scope holds it.
     /// - Throws: `FactFailure`: no such fact, already there, another conversation's proposal to `thread`, or
     ///   a store that cannot be written.
     @discardableResult
-    public func setFactScope(_ id: String, to target: FactTarget, by: FactSource = .person) throws(FactFailure) -> Fact
-    {
+    public func setFactScope(
+        _ id: String, to target: FactTarget, by: FactSource = .person, request: String? = nil
+    ) throws(FactFailure) -> Fact {
         guard let facts else { throw .off }
         syncProposals()
         var local = id
@@ -120,7 +123,8 @@ extension Agent {
                 throw .unwritable("\(error)")
             }
         }
-        let details = AuditEvent.Details.factScopeChanged(named: id, before: before, after: after, to: target, by: by)
+        let details = AuditEvent.Details.factScopeChanged(
+            named: id, before: before, after: after, to: target, by: by, request: request)
         audit?.record(.factScopeChanged, details: details)
         if let elsewhere, let owner = facts.proposals.audit(elsewhere.threadID), owner !== audit {
             owner.record(.factScopeChanged, details: details)
