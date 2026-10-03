@@ -11,7 +11,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table; two reference bugs; `read_file` on a wildcard |
-| 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example |
+| 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example; the commit in `--version` |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
@@ -58,6 +58,10 @@ release's preflight still runs the eval's floors, as a guard against regressions
   drift apart.
 - **`memory`'s `task` example**, which adds 13 tokens to every conversation that has `memory`: keep it,
   shorten it, or drop it.
+- **The commit in `--version` for builds that are not releases**, e.g. `0.16.0+5886d33` or
+  `0.16.0-dev+5886d33 (modified)`, so a build from `main` (such as the one `.mcp.json` runs) is not
+  mistaken for the release whose number it still carries. A release build prints the bare version,
+  which the release script and the Homebrew formula's test check.
 
 ## 0.18.0
 
