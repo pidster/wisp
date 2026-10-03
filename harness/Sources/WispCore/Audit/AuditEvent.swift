@@ -3,7 +3,7 @@ import Foundation
 /// The running wisp's version, stamped on every audit event.
 public enum WispVersion {
     /// Semantic version of this build.
-    public static let current = "0.15.0"
+    public static let current = "0.16.0"
 }
 
 /// Where one audit event is: its session and turn, to narrow a search of the audit files, and its id.
