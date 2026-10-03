@@ -54,7 +54,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
   A probe first: the file's size, the binary's growth, whether Homebrew's link to the Cellar changes the
   directory MLX sees, and whether the same file beside the test bundle lets the MLX live test run. Then
   the release build with the trait, the package and formula, a `wisp doctor` finding, and the docs.
-- **A palette check in the gate**, so `Style.Palette` in Swift and `palette.rs` in `wisp-tui` cannot
+- **A palette check in the gate** (built 2026-10-03), so `Style.Palette` in Swift and `palette.rs` in `wisp-tui` cannot
   drift apart.
 - **`memory`'s `task` example**, which adds 13 tokens to every conversation that has `memory`: keep it,
   shorten it, or drop it.

@@ -17,10 +17,11 @@ recorded as [decisions](decisions/).
 | `scripts/check eval [context]` | Runs the on-device model evaluation (the separate `harness/Evals` package, so the gate never builds it; `WISP_MODEL_TESTS=1` is set for you): every suite but the context eval, or with `context` only the context eval, which is a measurement for design decisions (ADR 0045) and takes hours; reports classifier accuracy and every miss, asserts no dangerous command rated safe (not in the gate) |
 | `scripts/check coverage` | `swift test --enable-code-coverage` plus an `llvm-cov` per-file line report for the harness sources (not in the gate) |
 | `scripts/check hygiene` | Staged-file checks: conflict markers, trailing whitespace, files over 1 MiB (one named exception, ADR 0042), commit author uses a GitHub noreply address |
+| `scripts/check palette` | `Style.Palette` (Swift) and `tools/wisp-tui/src/palette.rs` define the colours twice; fails, naming the colour and both values, when a Swift colour is missing from Rust or differs. Names map by upper-casing at word breaks (`tokensIn` is `TOKENS_IN`); aliases (`tokensOut = glow`) are resolved; Rust may have colours of its own (`DEEP`, `SENT`, `WHITE`) |
 | `scripts/check all` | Everything above, in that order |
 | `scripts/check install-hooks` | Points `core.hooksPath` at `.githooks/` |
 
-Run `scripts/check install-hooks` once after cloning. The pre-commit hook runs `hygiene`, `lint`, `build`,
+Run `scripts/check install-hooks` once after cloning. The pre-commit hook runs `hygiene`, `palette`, `lint`, `build`,
 and `test`; on a warm build cache this takes a few seconds. Bypass with `git commit --no-verify` only for
 work-in-progress commits on a branch that will be squashed.
 

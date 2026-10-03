@@ -146,7 +146,7 @@ What a session shows, and where it goes:
   the total. `/tokens` is a different figure: the size of the transcript.
 - Replies on stdout; everything else (banner, status, prompt, tool lines, notes, approval dialogs) on
   stderr, so `wisp chat > transcript.txt` captures only the replies.
-- Colour when stdout is a terminal, from wisp's palette (`Style.Palette`, shared with `wisp-tui`): one
+- Colour when stdout is a terminal, from wisp's palette (`Style.Palette`, shared with `wisp-tui`'s `palette.rs`; `scripts/check palette` fails the gate if they differ): one
   green-blue in tones: the brightest for the prompt, the git branch, tokens written, and a context
   from half to 80% used; the main tone for status facts and ok states; a quiet tone for tool lines,
   notes, separators, and a context under half used. Amber marks approvals, moderate, and a context
