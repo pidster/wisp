@@ -421,11 +421,13 @@ wisp config unset approval.timeoutSeconds
 | `approval.coremlMinimumConfidence` | A number from 0 to 1. |
 | `approval.timeoutSeconds` | Seconds, 0 to 86,400; 0 waits forever. |
 | `approval.persistDays` | Days, 1 to 365. |
+| `approval.outOfBand` | `true` or `false`: whether `wisp mcp` also files a waiting command for `wisp approvals` and `wisp-tui`, with a notification. |
 | `routing.ladder` | Models, least capable first. |
 | `routing.tasks.secrets` | A model for the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`; unset, `system`. |
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400. |
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576. |
 | `tools.disabled` | Built-in tool names. |
+| `shownOutputLines` | 0 to 10,000; 0 shows a tool call's note alone. |
 | `notifications.enabled`, `notifications.viaTerminalApp`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
 | `notifications.perMinute` | 1 to 60. |
 | `ollama.baseURL`, `systemPromptExtension` | Text. |
@@ -464,6 +466,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
 | `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
 | `notify` | Notifications are on and no route can post one (no terminal sequence, the app route off or without a bundle identifier, and no `/usr/bin/osascript`). Otherwise it names the route `wisp notify` would take here and why, and the routes passed over: `terminal: Ghostty posts OSC 9 notifications`, or `osascript: banners come from Script Editor; terminal: Terminal.app has no notification sequence; app: off (notifications.viaTerminalApp)`. Nothing is posted: the terminal route is judged by whether `/dev/tty` opens. `off (notifications.enabled)` when turned off. `wisp-tui` posts through its own terminal whatever this says. |
+| `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
 
 ### `wisp notify <message>`
 
@@ -643,7 +646,10 @@ names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md);
 
 ### `wisp mcp`
 
-Serves the Model Context Protocol over stdio until the client closes the pipe. See [mcp.md](mcp.md).
+Serves the Model Context Protocol over stdio until the client closes the pipe. See [mcp.md](mcp.md). A
+command that needs approval is asked through the client's dialog, when it has one, and, with
+`approval.outOfBand` (the default), filed for `wisp approvals approve|deny` and `wisp-tui` at the same
+time; the first answer wins ([`wisp approvals`](#wisp-approvals)).
 
 | Flag | Meaning |
 | --- | --- |

@@ -102,8 +102,10 @@ return something small; and two that manage `respond`'s threads:
 A failing `swift test` run comes back as a headline and a few `file:line: message` findings; two
 minutes of the unified log, 14,333 lines, came back as its top thirty message templates in about 10 KB. The raw output never
 leaves the Mac and never enters the calling agent's context. When the model inside `respond` wants to
-run a risky command, the approval dialog reaches you through your client, and a client that cannot show
-one gets a refusal, never a silent run. [mcp.md](docs/mcp.md) has each tool's arguments and result.
+run a risky command, you are asked through your client's dialog and, at the same time, by a notification
+naming `wisp approvals approve <id>`, which answers it from any terminal (a running `wisp-tui` shows it as
+its own dialog); the first answer wins. A client with no dialog, such as the Claude mobile app, is approved
+that way; a request nobody answers is refused, never run silently. [mcp.md](docs/mcp.md) has each tool's arguments and result.
 
 ## Why it is different
 
@@ -130,7 +132,8 @@ your own history with `wisp classifier train --from-audit`.
 this turn, this session, this project for 30 days, or always for 30 days, and is remembered by the
 program and its verb, so approving `git commit` never approves `git push`. A `dangerous` verdict is
 never remembered beyond the session, so a stored `rm` approval never covers `rm -rf build`. A dialog
-nobody answers is a refusal. `wisp approvals` shows what is remembered; `revoke` and `clear` forget it.
+nobody answers is a refusal. `wisp approvals` shows what is remembered; `revoke` and `clear` forget it;
+`pending` lists the commands an MCP client's session is waiting on, and `approve` or `deny` answers one.
 
 **You can see exactly what happened.** `~/.wisp/logs/audit.jsonl` records every prompt, reply, tool
 call, policy decision, classifier verdict, approval, and command outcome, verbatim, in order. `wisp
@@ -150,7 +153,7 @@ An Apple silicon Mac on macOS 27 or later with Apple Intelligence enabled, and H
 
 ```bash
 brew install pidster/tap/wisp   # installs wisp and wisp-tui
-wisp doctor                     # checks the model, sandbox, classifier, config, home, and notifications
+wisp doctor                     # checks the model, sandbox, classifier, config, home, notifications, and pending approvals
 wisp "What is the date in Tokyo?"
 ```
 

@@ -147,15 +147,19 @@ compact structured reference in its place, under the same entry id, built mechan
 [output of entry 7 not repeated: read_file at 14:05:12, ok, 101 lines, 3612 bytes; to see it: memory "recall entry 7"]
 arguments: {"path": "/work/harbour/docs/overview.md"}
 first line: 1	# harbour sync: overview
-last line: [end of file]
+last line: 100	the last whole line of the page
+paging: more from offset 101
 ```
 
 It names the tool, the store entry, when the output was recorded, success or failure (a command's exit
 status, or `failed` for an `error: …` result), the line and byte counts, what to do for the whole output
 (`to see it: memory "recall entry 7"`, or, in a conversation without the `memory` tool, `call it again to see
 it`),
-the call's arguments, and the first and last lines of content,
-each shortened to 100 characters, arguments to 200, and the whole to at most 640 bytes. An output no
+the call's arguments, and the first and last whole lines of content: the trailers a tool appends
+(`read_file`'s paging hint and `[end of file]`, the bound's `[truncated: …]`, a timeout note) and a command's
+exit-status and stream frames are not content, a line next to a cut is marked with `…`, and `read_file`'s
+paging hint is kept as its own `paging: more from offset N` line. Each line is
+shortened to 100 characters, arguments to 200, and the whole to at most 640 bytes. An output no
 longer than its reference is always sent whole. None of the model's own tools has a condenser's findings
 to add; the notes are the same for every tool.
 

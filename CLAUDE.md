@@ -19,6 +19,7 @@ Claude Code-only guidance below the import, and harness-neutral guidance to `AGE
   `mcp__wisp__dependency_audit`, `mcp__wisp__flaky_tests`, `mcp__wisp__hot_paths`,
   `mcp__wisp__set_fact_scope`, and `mcp__wisp__close_thread`; its resources are read with the MCP resource tools. If the session starts with the `wisp` server failed to connect, follow the
   release-build note in `AGENTS.md` and then `/mcp`.
-- `/mcp reconnect wisp` clears a stuck approval dialog; retry the turn afterwards.
+- A stuck approval dialog can be answered by the user with `wisp approvals approve ID` from a terminal
+  (the notification names the id); failing that, `/mcp reconnect wisp` clears it; retry the turn afterwards.
 - Use `AskUserQuestion` when a decision is the user's to make. It is Claude Code's dialog; wisp's own
   approval dialog is MCP elicitation, which the harness renders and Claude never sees.

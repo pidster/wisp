@@ -63,8 +63,9 @@ A line is split into its simple commands (chains, pipes, subshells, substitution
 classified `safe`, `moderate`, or `dangerous` by rules plus a classifier (by default the Core ML classifier the release ships, or
 the on-device model; commands on the rules' read-only list skip it); at `moderate` or above a
 human is asked for that part, with the line shown for context, and approvals are remembered by program
-(`head *`): on the terminal in `chat`, through MCP elicitation in
-`mcp`, and refused in non-interactive `respond` unless `--yes`. Denials come back as
+(`head *`): on the terminal in `chat`; in `mcp`, through the client's elicitation dialog and, with
+`approval.outOfBand` (the default), through `wisp approvals approve|deny` and `wisp-tui` at once, the first
+answer winning; and refused in non-interactive `respond` unless `--yes`. Denials come back as
 `error: command not approved: …`. Configure with `approval.threshold` and `approval.classifier`. See
 [approval.md](../approval.md).
 

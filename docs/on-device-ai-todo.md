@@ -203,29 +203,26 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 - [ ] Validate combinations with tools, schema output and streaming, rather than independent flags alone.
 - [ ] Audit requested and resolved controls against the prompt/attempt, and evaluate their actual effects.
 
-## 7. Current work and backlog (2026-10-01)
+## 7. Current work and backlog (2026-10-03)
 
-### Committed, not yet released (0.15.0)
+### Committed, not yet released (0.16.0)
 
 `CHANGELOG.md`, "Unreleased", lists each change. In outline:
-- **Layered context**, phases 1 to 6 ([ADR 0045](decisions/0045-layered-context.md)): the store and composer,
-  tool output as references, cut copies, facts, the running summary, `memory`, the assessment (off),
-  condensing to a target and its guard.
-- **Host effects** ([ADR 0044](decisions/0044-host-effects.md)): approval and notifications through the face's
-  `SessionHost`; notifications from the terminal; `hello` in `wisp chat --json`.
-- **MCP:** thread resources under `wisp://threads`, `calls` and `facts` in `respond`, `task`, the facts
-  resources, and `set_fact_scope`.
-- **CLI and chat:** `/inspect context` and `facts`, `/fact`, `/task`, `/show`, tool output shown under each
-  call; `wisp doctor`'s new checks; `--help`-style tables for `tools`, `models`, and `approvals`.
-- **Fixes and smaller changes:** condensing on the on-device model, Private Cloud Compute's window read when
-  selected, Ollama windows sized from memory, token counts across a replaced session, status-line tones,
-  `system_info`'s blank folder.
-- **Repository:** the model evals moved to their own package, `harness/Evals`.
+- **Host effects over MCP** ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)): a command
+  waiting for approval under `wisp mcp` is filed in `~/.wisp/pending`, announced by a notification, and
+  answered with `wisp approvals approve|deny` or in `wisp-tui`, alongside the client's dialog
+  (`approval.outOfBand`); `respond` lists its turn's `notifications`; a `wisp doctor` check.
+- **`wisp watch --settle`** ([ADR 0033](decisions/0033-watch-mode.md), amended), 1 s by default.
+- **Fixes and smaller changes:** output references' first and last lines, `read_file`'s error for a
+  wildcard, the chat parser driven by `/help`'s table.
+
+0.15.0 (2026-10-01) carried the layered context ([ADR 0045](decisions/0045-layered-context.md)) and host
+effects ([ADR 0044](decisions/0044-host-effects.md)); its section of `CHANGELOG.md` has the detail.
 
 ### Planned next
 
-From the [backlog](backlog.md): host effects over MCP; permanent facts over MCP; `! <command>` in chat
-with the input box's styling; `wisp watch --settle`, 1 s by default.
+The [roadmap](roadmap.md) has each release after 0.15.0; next, 0.17.0: permanent facts over MCP, MLX in
+the release, a palette check in the gate, and `memory`'s `task` example.
 
 ### Open from the layered context
 
@@ -237,7 +234,7 @@ with the input box's styling; `wisp watch --settle`, 1 s by default.
 
 ### Offered, not started
 
-- a gate check that keeps the Rust and Swift palettes in step;
+- a gate check that keeps the Rust and Swift palettes in step (on the roadmap for 0.17.0);
 - a test for the singular form of `/tokens`.
 
 ### Carried over

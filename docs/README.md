@@ -7,14 +7,14 @@
 | [wisp.md](wisp.md) | Command reference: subcommands, flags, `~/.wisp`, `config.json`, exit codes |
 | [tools/](tools/README.md) | One page per model-facing tool (the eight built-in, `memory` among them, and custom tools): contract, result format, limits |
 | [measurements.md](measurements.md) | What the eval harness found each delegated task achieves, how it is recorded, and where it is published |
-| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond` and its threads, the condensing tools, `set_fact_scope`, the thread, context, and facts resources, structured output, receipts, calls, progress, errors |
+| [mcp.md](mcp.md) | wisp as an MCP server: client setup, `respond` and its threads, the condensing tools, `set_fact_scope`, approval through the client and through `wisp approvals`, the thread, context, and facts resources, structured output, receipts, calls, progress, errors |
 | [design.md](design.md) | Architecture: components (the thread record and composer, facts, the session host), data flow, extension points |
 | [fm-cli.md](fm-cli.md) | What the Apple `fm` command family does and does not offer, as observed |
 | [local-model-evaluation.md](local-model-evaluation.md) | Local-model research, candidate shortlist, and agreed workload/delegation evaluation design |
 | [local-model-installation.md](local-model-installation.md) | Selected model revisions, local installation, offline smoke results, and remaining integration work |
 | [on-device-ai-todo.md](on-device-ai-todo.md) | Living backlog for on-device AI: routing, context assembly, approval classification, local generation, audit, model controls; progress per track, what shipped since the last release, and what is planned |
 | [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output |
-| [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, eval results |
+| [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, approval under `wisp mcp` from `wisp approvals` and `wisp-tui`, eval results |
 | [logging.md](logging.md) | The audit log (format, kinds, `wisp logs`) and diagnostics (`WISP_LOG`, unified logging) |
 | [context-management.md](context-management.md) | The small context window: the store and the composer, output handling, facts, the running summary, `memory`, the assessment, condensing to a target, design rules, and what was measured |
 | [policy-and-sandboxing.md](policy-and-sandboxing.md) | Survey of tool policy and sandboxing options and which layers are implemented |
@@ -22,7 +22,7 @@
 | [decisions/0015-per-command-approval.md](decisions/0015-per-command-approval.md) | Approve each simple command in a line, remembered by its program |
 | [decisions/0014-persisted-approvals.md](decisions/0014-persisted-approvals.md) | Approvals have four scopes; project and always persist under ~/.wisp |
 | [decisions/0012-homebrew-release.md](decisions/0012-homebrew-release.md) | Release through a Homebrew tap, unsigned, semver from 0.1.0 |
-| [decisions/0011-risk-classifier-and-approval.md](decisions/0011-risk-classifier-and-approval.md) | Classify command risk with rules plus the on-device model, and ask above a threshold |
+| [decisions/0011-risk-classifier-and-approval.md](decisions/0011-risk-classifier-and-approval.md) | Classify command risk with rules plus the on-device model, and ask above a threshold; amended by ADR 0044 (approval as a host effect) and ADR 0046 (approval under `wisp mcp` from `wisp approvals` and `wisp-tui`) |
 | [decisions/0010-audit-and-diagnostic-logging.md](decisions/0010-audit-and-diagnostic-logging.md) | Verbatim JSON Lines audit log plus unified-logging diagnostics |
 | [decisions/0009-command-policy-and-sandbox.md](decisions/0009-command-policy-and-sandbox.md) | run_command is governed by a CommandPolicy and a Seatbelt sandbox |
 | [decisions/0008-context-condensation.md](decisions/0008-context-condensation.md) | Recover from context overflow by condensing to recent turns |
@@ -36,7 +36,7 @@
 | [decisions/0030-notifications.md](decisions/0030-notifications.md) | Notifications through osascript with the text in argv, bounded, rate-limited, and audited, without approval |
 | [decisions/0031-secret-scanning-and-redaction.md](decisions/0031-secret-scanning-and-redaction.md) | Secret scanning and redaction: rules first, masked findings and numbered markers, an opt-in model pass over rule-redacted text |
 | [decisions/0032-log-and-json-condensers.md](decisions/0032-log-and-json-condensers.md) | Log and JSON condensers are deterministic: templates ranked by severity, parsed crash reports, merged JSON outlines |
-| [decisions/0033-watch-mode.md](decisions/0033-watch-mode.md) | Watch mode reruns a command on file changes and notifies when its outcome turns, triaging new failures |
+| [decisions/0033-watch-mode.md](decisions/0033-watch-mode.md) | Watch mode reruns a command on file changes and notifies when its outcome turns, triaging new failures; amended: a file-triggered run waits for changes to settle (`--settle`, `watch.settle`) |
 | [decisions/0034-system-info.md](decisions/0034-system-info.md) | `system_info` answers questions about the Mac with fixed read-only probes and `libproc`, without the approval gate |
 | [decisions/0035-change-drafts.md](decisions/0035-change-drafts.md) | Change drafts are written from the diff summary, with the subject and body shape enforced in code |
 | [decisions/0036-custom-tools.md](decisions/0036-custom-tools.md) | Custom tools are command templates in the user's own config, run through `run_command`'s gate |
@@ -47,7 +47,7 @@
 | [decisions/0041-shipped-classifier-is-the-default.md](decisions/0041-shipped-classifier-is-the-default.md) | The fast Core ML classifier each release ships is the default risk classifier, not the on-device model |
 | [decisions/0042-personal-data-classifier.md](decisions/0042-personal-data-classifier.md) | A personal-data classifier flags lines beside the rules in `scan_secrets`; the trained file, not the training, ships |
 | [decisions/0043-context-window-from-memory.md](decisions/0043-context-window-from-memory.md) | An Ollama model's context window is sized from its shape and the Mac's memory when it is selected, unless configured |
-| [decisions/0044-host-effects.md](decisions/0044-host-effects.md) | A tool asks the host (the face on the person's screen) for effects such as approval and notifications; each face declares what it carries, and `notify` routes to the front end or terminal before `osascript` |
+| [decisions/0044-host-effects.md](decisions/0044-host-effects.md) | A tool asks the host (the face on the person's screen) for effects such as approval and notifications; each face declares what it carries, and `notify` routes to the front end or terminal before `osascript`; amended by ADR 0046 (`approve-mcp`, approval for an MCP client through another face) |
 | [decisions/0045-layered-context.md](decisions/0045-layered-context.md) | The model's context is composed for each request from a store that keeps everything: instructions, an earlier block of facts and a summary, literal turns with tool output as references after their turn, and the request; condensing to a token target; `memory` to recall; the assessment built and off; with the phase 6 checkpoint's figures |
 | [decisions/0046-approval-and-notifications-over-mcp.md](decisions/0046-approval-and-notifications-over-mcp.md) | Under `wisp mcp`, a command waiting for approval is filed in `~/.wisp/pending` and announced by a notification; the person answers with `wisp approvals approve\|deny` or in `wisp-tui`, never through the MCP conversation; with elicitation too, both at once and the first answer wins; `respond` lists the notifications its turn posted |
 | [decisions/0029-tui-front-end.md](decisions/0029-tui-front-end.md) | The terminal chat is a Rust front end (`wisp-tui`, ratatui) over a headless `wisp chat --json`; one palette for both faces |
@@ -65,7 +65,7 @@
 | [decisions/0017-three-layer-instructions.md](decisions/0017-three-layer-instructions.md) | wisp's system prompt (a resource file), the operator's extension, and the caller's instructions, rendered in order |
 | [decisions/0016-local-runtimes-through-an-executor.md](decisions/0016-local-runtimes-through-an-executor.md) | Locally installed models plug in through a wisp-supplied executor; what the spike measured; `ollama:<name>` built |
 | [release.md](release.md) | How a release is cut: tag, tarball, GitHub release, Homebrew tap formula |
-| [roadmap.md](roadmap.md) | The releases planned after 0.15.0 (0.16.0 to 0.20.0), each with its larger and smaller items, and what is not yet scheduled |
+| [roadmap.md](roadmap.md) | The releases planned after 0.15.0 (0.16.0 to 0.21.0), each with its larger and smaller items, and what is not yet scheduled |
 | [backlog.md](backlog.md) | Agreed work not yet scheduled, and what has shipped, done and dated; the release plan is in roadmap.md |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate, and CI |
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |

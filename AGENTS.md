@@ -41,7 +41,7 @@ scripts/check                      # hygiene + strict lint + warnings-as-errors 
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
 scripts/check eval [context] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it; record rewrites measurements.json
-scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md)
+scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code
 
 cd harness && swift build                                        # -> .build/debug/wisp
 cd harness && swift test --filter CommandRunnerTests             # one suite; append /testName for one test
@@ -70,7 +70,9 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`.
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
-through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files.
+through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044; under `wisp mcp`
+an `OutOfBandApprover` asks through the client's elicitation and files the request in `~/.wisp/pending`
+(`PendingApprovals`) for `wisp approvals approve|deny` or `wisp-tui` at once, the first answer winning, ADR 0046), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files.
 `Home`, `Config`, `TranscriptStore`, and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
 file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension`, and the caller's instructions (ADR 0017). `AuditLog` writes JSON Lines; `Diagnostics` wraps
@@ -163,7 +165,11 @@ so the hook's test output does not fill the reply; push with `set -o pipefail; g
 tail -3`. Keep `set -o pipefail` whenever output is piped: without it the exit status is `tail`'s, so a
 failed push or a failing hook reports 0 (a push refused on 2026-09-23 came back as exit 0 with only the
 last line of git's error). Expect an approval
-dialog for commands that change repository state; choose "This session" for repeated shapes. The
+dialog for commands that change repository state; choose "This session" for repeated shapes. The same
+request is announced by a notification naming its id, and the user can answer it instead from a terminal
+with `wisp approvals approve ID` (`--scope session` for repeated shapes) or `wisp approvals deny ID`;
+`wisp approvals pending` lists what waits. You cannot answer it yourself: those commands need a terminal,
+and the default policy refuses them to the model. The
 pre-commit hook then runs inside wisp's sandbox, which `scripts/check` detects. If wisp is not
 connected, say so and ask the user to reconnect it rather than falling back to your own shell.
 
@@ -185,8 +191,10 @@ Which model to pass as `model` when a thread starts (measured in the Ollama sect
 If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
 and `wisp://threads` show its state, and `wisp://threads/{thread_id}` a thread's: its `context` (what the
-model carries, per turn), `output`, and `audit`. Commands the model runs need approval through MCP
-elicitation; a client without it gets a refusal.
+model carries, per turn), `output`, and `audit`. Commands the model runs that need approval are asked
+through MCP elicitation and, with `approval.outOfBand` (the default), through `wisp approvals` and
+`wisp-tui` too; a client without elicitation waits for that answer, up to `approval.timeoutSeconds`, and
+silence is a refusal (`docs/mcp.md`, "Approval").
 
 ## Harness-specific notes
 
@@ -197,8 +205,8 @@ Mark anything you add here with the harness it is for. Nothing in this section a
 - Reads `CLAUDE.md`, which imports this file, and loads `.claude/rules/*.md` by path automatically.
 - MCP servers come from `.mcp.json`: `wisp` (above) and `codex` (`codex mcp-server`, the OpenAI Codex
   CLI, for delegating to Codex; needs `codex` on `PATH`). Tools are named `mcp__<server>__<tool>`.
-- Reconnect a server with `/mcp`. When a wisp approval dialog is stuck, `/mcp reconnect wisp` and
-  retry the turn.
+- Reconnect a server with `/mcp`. When a wisp approval dialog is stuck, the user can answer it with
+  `wisp approvals approve ID` from a terminal; failing that, `/mcp reconnect wisp` and retry the turn.
 - Ask the user a question with `AskUserQuestion`; that is the harness's dialog, not wisp's.
 
 ### Codex

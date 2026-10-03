@@ -1,7 +1,8 @@
 # ADR 0033: Watch mode reruns a command on file changes and notifies when its outcome turns
 
 Date: 2026-09-23. Status: accepted. Builds on [ADR 0023](0023-condensing-tools.md) and
-[ADR 0030](0030-notifications.md).
+[ADR 0030](0030-notifications.md). Amended 2026-10-02: a file-triggered run waits for changes to settle
+("Amendment", at the end).
 
 ## Context
 

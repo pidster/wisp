@@ -25,6 +25,11 @@ Added:
 - `approval.outOfBand` (on by default): `false` asks through the MCP client's dialog alone, as before.
 - `wisp doctor` checks `~/.wisp/pending`: absent, or a directory only you can open, and how many requests
   wait.
+- The audit log records each step of an approval answered through another face: `approval.pending`,
+  `approval.answered`, and `approval.settled` ([logging.md](docs/logging.md)).
+- `wisp chat --json`: a front end whose `hello` declares the `approve-mcp` effect is sent the commands
+  waiting in `wisp mcp` servers as `approval` lines with `source: "mcp"`, and a `withdrawn` line when one no
+  longer waits; `wisp-tui` declares it.
 
 Changed:
 

@@ -26,20 +26,22 @@ release's preflight still runs the eval's floors, as a guard against regressions
   well, both are asked at once and the first answer wins (`approval.outOfBand`, on by default).
   Notifications keep the process routes and are listed in `respond`'s `notifications`; the terminal
   route stays refused under MCP.
-- **`wisp watch --settle`**, `watch.settle` in `config.json`, 1 s by default: a run starts only once no
+- **`wisp watch --settle`**. Built 2026-10-02 ([ADR 0033](decisions/0033-watch-mode.md), amended).
+  `watch.settle` in `config.json`, 1 s by default: a run starts only once no
   file change has arrived for the settle period. FSEvents' fixed 0.5 s batch can start a run part-way
   through a long burst (a checkout, a formatter, save-all), which gives a spurious failure and then a
-  pass. Changes during a run already collapse into one pending run.
-- **The chat parser driven by the help's table**, so a command added to the parser cannot be missing
-  from `/help`; today a test checks the help's words parse, but a new parser case is not caught.
-- **Two bugs in output references** (`OutputReference`), seen in a saved context on 2026-10-02: a
-  reference's "last line" can be `read_file`'s paging hint ("[more: call again with offset 94]") rather
-  than the output's last line, and its "first line" can be a fragment where the output was bounded
-  mid-line ("ize."). Both mislead every model; the fix takes the first and last whole lines of content
-  and keeps the paging hint apart.
-- **`read_file` on a wildcard.** Given `test*.wisp`, it answers "file not found", and a small model
-  retried the same path three times. A directive error instead: no wildcards here; list matches with
-  `run_command` (`ls *.wisp`).
+  pass. Changes during a run still collapse into one pending run.
+- **The chat parser driven by the help's table**. Built 2026-10-02: each help entry builds its command
+  and the parser looks the command word up in the table, so a command cannot exist without its `/help`
+  line.
+- **Two bugs in output references** (`OutputReference`). Fixed 2026-10-02. Seen in a saved context the
+  same day: a reference's "last line" could be `read_file`'s paging hint ("[more: call again with offset
+  94]") rather than the output's last line, and its "first line" a fragment where the output was bounded
+  mid-line ("ize."). Both misled every model; references now take the first and last whole lines of
+  content and keep the paging hint apart.
+- **`read_file` on a wildcard.** Fixed 2026-10-02. Given `test*.wisp`, it answered "file not found", and
+  a small model retried the same path three times. It now says it takes one path and to list matches
+  with `run_command` (`ls *.wisp`).
 
 ## 0.17.0
 
