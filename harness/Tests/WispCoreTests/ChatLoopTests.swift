@@ -183,6 +183,7 @@ import WispTestSupport
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("hi")])))
         let changes = Mutex<[[String]]>([])
+        let checks = Mutex<[String]>([])
         let listing = ModelListing.Listing(entries: [
             .init(selection: .system, capabilities: ["toolCalling"]),
             .init(selection: .ollama("a"), capabilities: ["toolCalling"]),
@@ -196,10 +197,16 @@ import WispTestSupport
                     throw ModelSelection.Failure.defaultDisabled(model: "system")
                 }
                 return enable.map { "enabled \($0)" } + disable.map { "disabled \($0)" }
+            },
+            checkModels: { names, force, progress in
+                checks.withLock { $0.append("\(force ? "check" : "enable") \(names.joined(separator: " "))") }
+                progress("checking \(names[0])")
+                return ["recorded \(names[0])"]
             }, notices: ["ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running"])
         // Typed: each names its models; the default refused with the reason.
         let typed = Capture(lines: [
-            "/models enable ollama:b", "/models disable ollama:a mlx:c", "/models disable system", "/models x", "/quit",
+            "/models enable ollama:b", "/models disable ollama:a mlx:c", "/models disable system", "/models x",
+            "/models check mlx:c", "/quit",
         ])
         var loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: typed.io)
@@ -207,7 +214,11 @@ import WispTestSupport
         #expect(typed.noted.contains("enabled ollama:b"))
         #expect(typed.noted.contains("disabled ollama:a") && typed.noted.contains("disabled mlx:c"))
         #expect(typed.noted.contains { $0.hasPrefix("error: system is the default model, so it cannot be disabled") })
-        #expect(typed.noted.contains("unknown /models argument 'x'; /models, or /models enable|disable NAME…"))
+        #expect(typed.noted.contains("unknown /models argument 'x'; /models, or /models enable|disable|check NAME…"))
+        // Enabling checks what the models enabled can do (the session checks only those undeclared); /models check
+        // checks again; each line of progress is a note as it happens, then what was recorded.
+        #expect(checks.withLock { $0 } == ["enable ollama:b", "check mlx:c"])
+        #expect(typed.noted.contains("checking mlx:c") && typed.noted.contains("recorded mlx:c"))
         // The fallback's notice comes after the banner, before the first prompt.
         #expect(
             typed.noted.first == "ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running")
@@ -226,6 +237,7 @@ import WispTestSupport
         #expect(asked.withLock { $0.first?.toggles } == true)
         #expect(asked.withLock { $0.first?.options.map(\.value) } == ["system", "ollama:a", "ollama:b"])
         #expect(changes.withLock { $0 } == [["ollama:b", "|", "ollama:a"]])
+        #expect(checks.withLock { $0 }.last == "enable ollama:b")  // the picker's save checks what it enabled
         #expect(picked.noted.contains("enabled ollama:b") && picked.noted.contains("disabled ollama:a"))
         // No answer, a single value from a front end that does not toggle, or nothing changed: nothing is saved.
         for answer in [nil, "system", ChatChoice.answer(values: ["system", "ollama:a"])] {
@@ -241,7 +253,8 @@ import WispTestSupport
         }
         // Without a way to change them, the face with choices shows the table, and the commands say so.
         context.setModels = nil
-        let bare = Capture(lines: ["/models", "/models enable x", "/quit"])
+        context.checkModels = nil
+        let bare = Capture(lines: ["/models", "/models enable x", "/models check x", "/quit"])
         var io = bare.io
         io.choose = { _ in nil }
         var table = ChatLoop(
@@ -249,6 +262,7 @@ import WispTestSupport
         try await table.run()
         #expect(bare.output.contains("* system"))
         #expect(bare.noted.contains("models cannot be enabled or disabled here"))
+        #expect(bare.noted.contains("models cannot be checked here"))
     }
 
     @Test func statsReportTheTurnsAndHistoryListsWhatWasTyped() async throws {

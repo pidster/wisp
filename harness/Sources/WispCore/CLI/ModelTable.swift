@@ -43,7 +43,9 @@ public enum ModelTable {
         case "contextFrom": entry.contextFrom ?? ""
         case "location": entry.location?.label ?? ""
         case "enabled": entry.enabled ? "yes" : "no"
-        case "capabilities": entry.plainCapabilities.joined(separator: ", ")
+        case "capabilities":
+            entry.plainCapabilities.joined(separator: ", ")
+                + (entry.verified != nil && !entry.plainCapabilities.isEmpty ? " (verified)" : "")
         default: ""
         }
     }
@@ -143,8 +145,8 @@ public enum ModelTable {
 
     /// `wisp models --json`: `models`, one object per model with a field per column (`model`, `runtime`,
     /// `parameters`, `size` as text and `bytes`, `format`, `context` as tokens, `contextFrom`, and `contextNote`,
-    /// `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`, `capabilities` in plain words,
-    /// absent facts null), and `default`, `usable`, and `problem`; and `unreachable`, the backends that did not
+    /// `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`, `capabilities` in plain words
+    /// and `capabilitiesFrom`, such as `verified 2026-10-04`, absent facts null), and `default`, `usable`, and `problem`; and `unreachable`, the backends that did not
     /// answer.
     ///
     /// - Parameters:
@@ -164,6 +166,7 @@ public enum ModelTable {
                 "context": entry.contextSize.map { .int($0) } ?? .null, "contextFrom": text(entry.contextFrom),
                 "contextNote": text(entry.contextNote), "location": text(entry.location?.rawValue),
                 "enabled": .bool(entry.enabled), "capabilities": .array(entry.plainCapabilities.map { .string($0) }),
+                "capabilitiesFrom": text(entry.capabilitiesFrom),
                 "usable": .bool(entry.usable), "problem": text(entry.linked ? entry.problem : nil),
             ])
         }

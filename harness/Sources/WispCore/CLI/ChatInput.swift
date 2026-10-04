@@ -208,7 +208,11 @@ public enum ChatInput: Equatable, Sendable {
             names: ["models"], command: { .models(ModelsRequest($0)) }),
         HelpEntry(
             usage: "/models enable|disable NAME…",
-            about: "turn models on or off: a disabled model is hidden from /model and refused"),
+            about: "turn models on or off: a disabled model is hidden from /model and refused; enabling an MLX "
+                + "model checks what it can do"),
+        HelpEntry(
+            usage: "/models check NAME…",
+            about: "ask an MLX model three short questions and record in config.json what it can do"),
         HelpEntry(
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
@@ -325,7 +329,9 @@ public enum ModelsRequest: Equatable, Sendable {
     case enable([String])
     /// Turn these models off.
     case disable([String])
-    /// Anything else, with the word that was not understood, or `enable`/`disable` with no name.
+    /// Check what these models can do and record it (ADR 0056, refined 2026-10-04).
+    case check([String])
+    /// Anything else, with the word that was not understood, or `enable`, `disable`, or `check` with no name.
     case unknown(String)
 
     /// Parses what follows `/models`.
@@ -335,6 +341,7 @@ public enum ModelsRequest: Equatable, Sendable {
         case nil, "list": self = .list
         case "enable" where parts.count > 1: self = .enable(Array(parts.dropFirst()))
         case "disable" where parts.count > 1: self = .disable(Array(parts.dropFirst()))
+        case "check" where parts.count > 1: self = .check(Array(parts.dropFirst()))
         case let word?: self = .unknown(word)
         }
     }

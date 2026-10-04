@@ -149,3 +149,74 @@ plain chat and `wisp chat --json` (so `wisp-tui`) share it through `Session.open
   nothing; the table at 160, 120, 80, and 60 columns, the dropped columns, the piped fields, `--json`, the picker's
   choice; every backend's window note read as its word; the fallback, and each case that must not fall back; the
   picker in `ChatLoop`, the protocol's toggles both ways, and `wisp-tui`'s picker and keys.
+
+## Refined 2026-10-04: enabling checks what an MLX model can do
+
+The operator's direction the same day: "The enable function should take care of the config setting." Linked from
+the Hugging Face cache and enabled, `mlx:Qwen3-1.7B-4bit` showed `ENABLED` `yes`, and `wisp models --all` said it
+was not usable, because it "does not support tool calling (capabilities undeclared); declare its capabilities in
+config.json". Enabling must leave a model usable, and [ADR 0019](0019-model-backends.md)'s rule stands: a capability
+is recorded only once verified. So wisp verifies it, on the model itself, and records what passes.
+
+- **When.** Enabling a model (`wisp models enable`, `/models enable`, the `wisp-tui` picker's save) whose backend
+  leaves its capabilities to `config.json` (`ModelBackend.declarationKeys`; MLX's is `mlx.models.<name>`) and whose
+  entry there declares none, whether the model was disabled, not linked, or already enabled. Ollama's and Core AI's
+  runtimes report capabilities (`/api/show`; the bundle's tokenizer markers, thinking format, and the engine's
+  guided generation), so nothing of theirs is checked; Apple's come from the framework. Over MCP nothing changes:
+  callers cannot enable models.
+- **The questions.** Three, in order, each one attempt, greedy (`temperature` 0, which the MLX executor honours), with
+  a small reply budget (64 tokens for the reply, 128 for the others): a plain reply ("Say hello.", passing when it
+  is not empty), the floor; a call of one trivial tool, `record_word`, asked to record `heron`, passing when the
+  call arrives with that word (whatever the model replies after it); and a schema reply of two fields (a colour and
+  a number from 1 to 10), passing when it decodes. One attempt, because greedy decoding gives the same answer again,
+  so a retry would add time and no information. Each question resolves the model with only the capability it tries
+  declared, as the file would declare it.
+- **Time limits.** 3 minutes for the first question, which also loads the weights, and 1 minute for each other,
+  through `Timeout.run`, which cancels the question and stops waiting at the limit. A question that fails or runs
+  out fails only its capability.
+- **The floor.** When the plain reply fails, the other two are not asked, nothing is recorded, and the person is
+  told the model cannot hold a conversation.
+- **`reasoning` and `vision`** are not checked: a short question cannot tell reliably whether a model thinks or
+  reads images, and wisp's MLX executor maps text only. The output says so; the person may declare them by hand.
+- **Recorded** under `mlx.models.<name>` through `ConfigEdit` (a change by keys, since a model's name holds dots),
+  `capabilities` and `verified` (`date`, `passed`, `failed`), audited as `model.verified` and `config.change`, and
+  held by the session that checked (`DeclaredModels`), so `/model` can switch to the model in that chat at once.
+- **Before it starts**, it says what will run: "checking mlx:Qwen3-1.7B-4bit: loads the model (968.1 MB) and asks
+  three short questions …", then each result as it arrives. It asks nothing: enabling was the person's request.
+- **Checking again** is `wisp models check <name>` (and `/models check`), a command of its own rather than a flag on
+  enable, since checking a model already enabled is not enabling it. It replaces what an earlier check recorded: a
+  capability the last check passed and this one fails is taken out, and said so. A capability the person declared by
+  hand (in `capabilities` and not in `verified.passed`) is **kept** when its check fails, and the failure reported:
+  wisp tells the person, and does not overrule their declaration.
+- **The listing** shows a check: `CAPABILITIES` ends `(verified)`, and `--json`'s new `capabilitiesFrom` says how
+  the capabilities are known (`verified 2026-10-04`, `config`, `runtime`, `framework`), as `contextFrom` does for the
+  window. No column is added.
+
+Measured on this Mac on 2026-10-04, in a scratch home, with the build that has MLX: `wisp models enable
+mlx:Qwen3-1.7B-4bit` passed all three in 4.1 s (reply 2.3 s, loading the weights; tool call 0.4 s; schema reply
+1.4 s) and recorded `toolCalling` and `guidedGeneration`. Tests without a model cover each check passing and
+failing, only passing capabilities recorded, the floor recording nothing, a hand declaration kept, an earlier
+check's capability taken out, the time limit with a model that never answers, the audit, the keys with dots, an
+enabled model checked on enable, Ollama skipped, and the check over the MLX executor with its fake runtime.
+
+**Three outcomes of enabling (operator's question, 2026-10-04: can enable reject a model for chat agents when it has no
+tool or chat support?).** The check run by enable decides the enabling; `setModels` links such a model but leaves it
+as it was, and `Session.checkModels` turns it on or keeps it off, recorded as `model.verified` with `outcome` and a
+`config.change` of `models.disabled` when that changes.
+
+1. **The reply fails: enable refuses.** The model stays disabled, or becomes so when it was enabled but unusable
+   (it was unusable anyway): "mlx:X cannot hold a conversation (…); it stays disabled". Nothing is recorded as a
+   capability. `outcome` `refused`. The default model cannot be disabled, so for it the line says so instead.
+2. **The reply passes and tool calling fails: enabled for use with tools off only.** "mlx:X holds a conversation but
+   did not call a tool; it is usable only with tools off: --no-tools, tools: [] over MCP, the condensers; chat and
+   agents with tools refuse it." Only what passed is recorded. Chat and agents with tools refuse it as they refuse
+   any model without tool calling, so `/model` and Tab do not offer it; the listing and the picker show it, as
+   enabled, with `CAPABILITIES` leading `text only` (`text only, structured replies (verified)` when the schema
+   reply passed) and the reason "wisp's check on <day> found it holds a conversation but calls no tools". `outcome`
+   `text only`.
+3. **Both pass: enabled and usable.** `outcome` `usable`.
+
+`wisp models check` and `/models check` report and record only; they do not turn a model on or off. A check of a
+model already enabled is a question about it, not a request to change what is offered, and the person who wants it
+off has `disable`. Tests with the fake backend cover each outcome through chat's `/models enable` and the picker's
+save, and `check` leaving a refused model's state as it was.

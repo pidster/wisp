@@ -13,7 +13,12 @@ import WispTestSupport
         #expect(ChatInput(line: "/models disable") == .models(.unknown("disable")))
         #expect(ChatInput(line: "/models frob") == .models(.unknown("frob")))
         #expect(ChatInput.helpText.contains("/models enable|disable NAME…"))
-        #expect(ChatCompletion.complete("/models ").candidates == ["disable", "enable"])
+        #expect(ChatInput(line: "/models check mlx:b") == .models(.check(["mlx:b"])))
+        #expect(ChatInput(line: "/models check") == .models(.unknown("check")))
+        #expect(ChatInput.helpText.contains("/models check NAME…"))
+        #expect(ChatCompletion.complete("/models ").candidates == ["check", "disable", "enable"])
+        #expect(
+            ChatCompletion.complete("/models check ", options: { _ in ["mlx:b"] }).candidates == ["mlx:b"])
         #expect(
             ChatCompletion.complete("/models enable o", disabledModels: ["ollama:a", "mlx:b"]).candidates == [
                 "ollama:a"

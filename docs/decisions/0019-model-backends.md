@@ -4,6 +4,9 @@ Date: 2026-09-20. Status: accepted. Extends [ADR 0016](0016-local-runtimes-throu
 Amended by [ADR 0047](0047-mlx-in-the-release.md): MLX ships in the release. Amended by
 [ADR 0052](0052-mlx-on-a-par-with-ollama.md): MLX models run through wisp's own executor by default, the bridge
 stays as `mlx.executor: "bridge"`, and `wisp models pull` fetches `mlx-community` models on the person's command.
+Amended by [ADR 0056](0056-models-enabled-and-disabled.md) (refined 2026-10-04): an MLX model's capabilities are
+still declared in `config.json` only once verified, and wisp can now do the verifying, on the model itself, when it is
+enabled or checked (`wisp models check`), recording the ones that pass with the day of the check.
 
 ## Context
 

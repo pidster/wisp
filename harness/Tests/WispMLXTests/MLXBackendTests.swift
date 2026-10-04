@@ -54,6 +54,31 @@ import WispCore
         let installed = try await MLXBackend().installed(config: config, home: home)
         #expect(installed.map(\.selection) == [.local(backend: "mlx", name: "qwen3-4bit")])
         #expect(installed.first?.detail.hasPrefix("qwen3 4-bit capabilities: toolCalling") == true)
+        #expect(installed.first?.verified == nil)
+        // A check's record: the day it was verified, in the listing and the detail (ADR 0056, refined 2026-10-04).
+        let backend = MLXBackend()
+        #expect(backend.declarationKeys(for: "Qwen3-1.7B-4bit") == ["mlx", "models", "Qwen3-1.7B-4bit"])
+        let checked = backend.declaring(
+            .init(
+                capabilities: ["toolCalling", "guidedGeneration"],
+                verified: .init(date: "2026-10-04", passed: ["toolCalling", "guidedGeneration"], failed: [])),
+            for: "qwen3-4bit", in: config)
+        #expect(checked.mlxModels["qwen3-4bit"] == ["toolCalling", "guidedGeneration"])
+        let verified = try await backend.installed(config: checked, home: home)
+        #expect(verified.first?.verified == "2026-10-04")
+        #expect(
+            verified.first?.detail.contains("capabilities: toolCalling, guidedGeneration (verified 2026-10-04)") == true
+        )
+        // The file's record reads back the same way.
+        let file = Config(
+            mlx: .init(models: [
+                "qwen3-4bit": .init(
+                    capabilities: ["toolCalling"],
+                    verified: .init(date: "2026-10-04", passed: ["toolCalling"], failed: []))
+            ])
+        ).resolved
+        #expect(file.mlxVerified["qwen3-4bit"]?.date == "2026-10-04")
+        #expect(try await backend.installed(config: file, home: home).first?.verified == "2026-10-04")
         do {
             _ = try ModelSelection.local(backend: "mlx", name: "absent").resolve(config: config, home: home)
             Issue.record("resolved a missing model")

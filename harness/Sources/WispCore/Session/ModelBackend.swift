@@ -16,11 +16,14 @@ public struct InstalledModel: Equatable, Sendable {
     public var format: String?
     /// Where an MLX model lives; nil for runtimes that keep their own models.
     public var location: ModelLocation?
+    /// The day wisp last checked the capabilities the configuration declares for it (`YYYY-MM-DD`); nil when it
+    /// has not.
+    public var verified: String?
 
     /// Creates a record.
     public init(
         selection: ModelSelection, detail: String, parameters: String? = nil, bytes: Int? = nil,
-        format: String? = nil, location: ModelLocation? = nil
+        format: String? = nil, location: ModelLocation? = nil, verified: String? = nil
     ) {
         self.selection = selection
         self.detail = detail
@@ -28,6 +31,7 @@ public struct InstalledModel: Equatable, Sendable {
         self.bytes = bytes
         self.format = format
         self.location = location
+        self.verified = verified
     }
 }
 
@@ -115,6 +119,16 @@ public protocol ModelBackend: Sendable {
     ///
     /// - Throws: A backend failure when it cannot be linked.
     func link(_ name: String, config: Config.Resolved, home: Home) throws -> ModelLink
+    /// Where `config.json` declares what `name` can do, when that is the operator's to declare rather than the
+    /// runtime's to report (MLX: `mlx.models.<name>`, ADR 0019), so enabling the model checks its capabilities and
+    /// records the ones that pass there (ADR 0056, refined 2026-10-04); nil when the runtime reports them.
+    func declarationKeys(for name: String) -> [String]?
+    /// `config` with `declaration` as `name`'s, as the configuration reads once the file holds it: how a check
+    /// resolves the model with the capability it tries declared, and how a session applies what it recorded.
+    func declaring(
+        _ declaration: Config.MLXModelConfig, for name: String, in config: Config.Resolved
+    )
+        -> Config.Resolved
 }
 
 extension ModelBackend {
@@ -131,6 +145,16 @@ extension ModelBackend {
         throw ModelSelection.Failure.unavailable(
             model: "\(scheme):\(name)", reason: "\(scheme) keeps its own models; there is nothing to link")
     }
+
+    /// None: the runtime reports what its models can do.
+    public func declarationKeys(for name: String) -> [String]? { nil }
+
+    /// `config` as it is: nothing is declared for a runtime that reports its models' capabilities.
+    public func declaring(
+        _ declaration: Config.MLXModelConfig, for name: String, in config: Config.Resolved
+    )
+        -> Config.Resolved
+    { config }
 }
 
 /// The backends this process knows, by scheme. Ollama is built in; the executable registers the

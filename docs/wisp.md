@@ -275,7 +275,8 @@ What a session shows, and where it goes:
 | `/inspect thinking [N]` | The model's thinking ([ADR 0053](decisions/0053-the-models-thinking-shown.md)): every stretch the conversation kept, oldest first, each under its store entry id and turn with its time and tokens; with a turn number, that turn's. Kept for you; no request carries it. `wisp-tui` shows it in its panel; `wisp chat --json` sends it as a `view` of kind `thinking`. |
 | `/inspect context next\|N\|turns` | The model's context, shown rather than saved, at no model cost: with `next`, what the next request carries, entry by entry under its store id, with each reply whose copy of an output was cut and each output sent as a reference marked; with a turn number, the context composed at the start of that turn, its own entries (prompt, tool calls and output, reply) marked; with `turns`, one row per turn: time, estimated tokens, what changed since the turn before (entries condensed, replies cut, outputs referenced), and the start of the prompt. Markdown on stdout; `wisp-tui` shows it in its panel (Ctrl-T). |
 | `/models` | The models this Mac can run, as the table `wisp models` prints (below), judged for this conversation's tools, with the model in use marked `*`, fitted to the terminal when its width is known. In `wisp-tui` it is a picker of the same table: ↑↓ move, Space turns the highlighted model on or off, Enter saves, Esc leaves them as they were ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
-| `/models enable\|disable NAME…` | Turn models on or off, as `wisp models enable\|disable` does (below): a disabled model is not offered by `/model` or Tab and is refused; the default cannot be disabled. Holds in this chat at once; Tab after `enable` offers the disabled models. |
+| `/models enable\|disable NAME…` | Turn models on or off, as `wisp models enable\|disable` does (below): a disabled model is not offered by `/model` or Tab and is refused; the default cannot be disabled. Enabling an MLX model whose capabilities `config.json` does not declare checks them, each result a note as it arrives, and the check decides the enabling (below). Holds in this chat at once; Tab after `enable` offers the disabled models. |
+| `/models check NAME…` | Check again what MLX models can do and record it, as `wisp models check` does (below). |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/stats` | Timings of this session's recent model turns and classifier calls: per kind and model, the count, failures, mean, P50, P95, and maximum seconds, and the mean prompt tokens where the runtime reports them (Ollama); then the latest eight calls by start time. Kept in memory only, the latest 256 calls; see below. |
 | `/history` | The lines typed this session, numbered, oldest first: the latest 100, blank lines and a line repeating the one before it left out. |
@@ -461,7 +462,7 @@ backend that does not answer gets one line in parentheses. The configured defaul
 | `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `default` (8,192, with no shape to size from), `model` (the model's own, Apple's) |
 | `WHERE` | MLX only: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it) |
 | `ENABLED` | `yes`, or `no` for a model you disabled or a cached one not linked |
-| `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only` |
+| `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only`; `(verified)` after them when wisp checked them on the model ([`wisp models check`](#wisp-models-check-name)), led by `text only` when the check found it calls no tools (such a model is listed, with the reason, though it cannot serve a conversation with tools) |
 
 A column no listed model has a value for is left out, and an empty cell stays empty. On a terminal the table is
 fitted to its width (from the terminal, else `COLUMNS`, else 80): when the columns do not leave the last 20 cells,
@@ -498,7 +499,8 @@ so a field is at the same position on every line; the name comes after `* ` or t
 be used has its reason as one more field. `--json` is the form for scripts: `models`, one object per model with a
 field per column (`model`, `runtime`, `parameters`, `size` and `bytes`, `format`, `context` as a number,
 `contextFrom` and `contextNote`, `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`,
-`capabilities`), `default`, `usable`, and `problem`, absent facts null; and `unreachable`, the backends that did not
+`capabilities`, and `capabilitiesFrom`, how they are known: `verified 2026-10-04`, `config`, `runtime`, or
+`framework`), `default`, `usable`, and `problem`, absent facts null; and `unreachable`, the backends that did not
 answer.
 
 | Flag | Effect |
@@ -522,7 +524,8 @@ Compute".
 `wisp tools --markdown` and `--json` include a `Measured:` line, or a `measurements` field, for each
 tool the eval harness has measured ([measurements.md](measurements.md)).
 
-`wisp models` is `wisp models list`; its other subcommands turn models on and off and fetch a model.
+`wisp models` is `wisp models list`; its other subcommands turn models on and off, check what a model can do, and
+fetch a model.
 
 #### `wisp models enable|disable <name>…`
 
@@ -541,6 +544,20 @@ Enabling a complete MLX model in the Hugging Face cache that is not linked links
 with nothing to fetch: no request is made, so nothing is asked, and it says what it linked to what. It is recorded
 as `model.pull` with outcome `linked`.
 
+Enabling an MLX model whose capabilities `config.json` does not declare (`mlx.models.<name>`), whether it was
+disabled, not linked, or already enabled, links it if need be and then checks what it can do, as
+[`wisp models check`](#wisp-models-check-name) does, recording what passes. It says what will run before it starts
+and asks nothing. The check decides the enabling:
+
+| The check | Enable | Says |
+| --- | --- | --- |
+| The reply fails | Refuses: the model stays disabled, or becomes so if it was enabled but unusable; nothing is recorded | `mlx:X cannot hold a conversation (…); it stays disabled` |
+| The reply passes, tool calling fails | Enables it for use with tools off only: chat and agents with tools refuse it, and `/model` and Tab do not offer it; the listing shows `text only` | `mlx:X holds a conversation but did not call a tool; it is usable only with tools off: --no-tools, tools: [] over MCP, the condensers; chat and agents with tools refuse it` |
+| Both pass | Enables it, usable in chat and by agents | `enabled mlx:X` |
+
+A model the file already declares is not checked again; Ollama, Core AI, and Apple's models report their own
+capabilities.
+
 ```
 $ wisp models disable ollama:nomic-embed-text:latest private-cloud
 disabled ollama:nomic-embed-text:latest: hidden from /model and refused until enabled
@@ -551,6 +568,48 @@ mlx:Qwen3-4B-4bit is enabled
 $ wisp models disable system
 Error: system is the default model, so it cannot be disabled; make another model the default first (config.json's model: wisp config set model <name>, or /config set model in chat)
 ```
+
+#### `wisp models check <name>…`
+
+Checks what MLX models can do, on the models themselves, and records it in `config.json`
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md), refined 2026-10-04). It loads the model and asks three
+short questions, each once, greedily, within a time limit:
+
+| Check | Asks | Passes when | Limit |
+| --- | --- | --- | --- |
+| reply | "Say hello.", with no tools | the reply is not empty; if not, nothing is recorded and the model cannot hold a conversation | 3 min, which includes loading the weights |
+| `toolCalling` | to record the word `heron` with its one tool, `record_word` | the call arrives with `heron` | 1 min |
+| `guidedGeneration` | for a colour and a number from 1 to 10, as a two-field schema | the reply decodes to the schema | 1 min |
+
+`reasoning` and `vision` are not checked, and the output says so; declare them by hand if the model has them. The
+capabilities that pass are written under `mlx.models.<name>` with the check, `verified` (`date`, `passed`,
+`failed`), recorded as `model.verified` and `config.change` ([logging.md](logging.md)), and used by a chat that ran
+the check at once. `check` reports and records only: it does not turn a model on or off, as enable does. A check replaces what an earlier one recorded: a capability it passed before and fails now is
+taken out. A capability you declared by hand is kept when its check fails, and the output says so. `enable` runs the
+same check on a model with nothing declared. Measured on this Mac on 2026-10-04 (an `enable`, in a scratch home; the
+times are that run's, and the lines are as this version prints them, which puts `enabled` after the check that
+decided it):
+
+```
+$ wisp models enable mlx:Qwen3-1.7B-4bit
+checking mlx:Qwen3-1.7B-4bit: loads the model (968.1 MB) and asks three short questions (a reply, a tool call, a structured reply), allowing 3 min for the first, which loads it, and 60 s for each of the others
+  reply: passed in 2.3 s
+  tool calling: passed in 0.4 s
+  structured reply: passed in 1.4 s
+recorded in config.json: mlx:Qwen3-1.7B-4bit can do tools, structured replies (verified 2026-10-04)
+enabled mlx:Qwen3-1.7B-4bit
+reasoning and vision are not checked: one short question cannot tell them reliably; declare them in config.json if the model has them
+```
+
+```json
+{ "mlx": { "models": { "Qwen3-1.7B-4bit": {
+  "capabilities": ["toolCalling", "guidedGeneration"],
+  "verified": { "date": "2026-10-04", "passed": ["toolCalling", "guidedGeneration"], "failed": [] } } } } }
+```
+
+A model whose runtime reports its capabilities (`ollama:`, `coreai:`, `system`, `private-cloud`) is not checked:
+`check` says so. A failed question says why, such as `tool calling: failed in 1.3 s (no call to record_word
+arrived)` or `(no answer within 60 s)`.
 
 #### `wisp models pull <repository>`
 
@@ -575,7 +634,8 @@ Fetch 6 of them, 938 MB? [y/N]
 (The revision, file count, and sizes above are illustrative; the pull prints the repository's own.) Each
 cached weights file is announced on stderr while its SHA-256 is checked, and each download as it starts
 (`[2/6] model.safetensors (938 MB)`). When every file is already in the cache there is no question: the pull
-says so and links. Then the model is `mlx:<name>`, and its capabilities are yours to declare in `config.json`.
+says so and links. Then the model is `mlx:<name>`; `wisp models enable` checks what it can do and records it, or
+declare its capabilities in `config.json` yourself.
 
 | Rule | Detail |
 | --- | --- |
@@ -931,7 +991,8 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, which otherwise gets it with all tools ([tools/memory.md](tools/memory.md)). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": true }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` is the third route, `display notification` sent to the terminal app by its bundle identifier; on by default since a probe on 2026-09-30 showed macOS attributing the banner to the app (Terminal.app, Ghostty); see [tools/notify.md](tools/notify.md). |
-| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories, or links to them, live for `mlx:<name>` models (`wisp models pull` links a Hugging Face cache snapshot there), and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). `contextLength`, when set, is the window of every MLX model; unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
+| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories, or links to them, live for `mlx:<name>` models (`wisp models pull` links a Hugging Face cache snapshot there), and per model its capabilities (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`), declared by the operator or
+recorded with `verified` by `wisp models enable` and `check`. `contextLength`, when set, is the window of every MLX model; unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |

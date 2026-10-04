@@ -2115,6 +2115,18 @@ mod tests {
                 values: Some(vec!["ollama:a".into()])
             })
         );
+        // The save runs as part of the `/models` command, so the box stays busy until wisp's next status, and the
+        // check that enabling an MLX model runs shows each line of its progress as it comes (ADR 0056).
+        assert!(app.busy);
+        app.handle(Outbound::Note {
+            text: "  tool calling: passed in 1.2 s".into(),
+        });
+        assert!(
+            app.take_pending()
+                .iter()
+                .any(|line| line.text == "  tool calling: passed in 1.2 s"),
+            "progress is shown while the save runs"
+        );
         // Esc leaves it: nothing is saved.
         app.handle(Outbound::Choice(models));
         assert_eq!(

@@ -170,6 +170,9 @@ public struct Session: Sendable {
     /// The models turned off, as the configuration had them and as this session's chat has changed them since
     /// (ADR 0056); every conversation of the session refuses them.
     public let disabledModels: DisabledModels
+    /// The capabilities this session's checks recorded (ADR 0056, refined 2026-10-04); every conversation of the
+    /// session resolves its model with them, so a model a check made usable can be chosen at once.
+    public let declaredModels = DeclaredModels()
 
     /// Which face this session is.
     public var entryPoint: EntryPoint { request.entryPoint }

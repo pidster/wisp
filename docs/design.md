@@ -94,6 +94,16 @@ The models the operator turned off (`models.disabled`) are a session's `Disabled
 candidate (each backend's installed models, the disabled ones, and the unlinked) into `Entry`s carrying every known
 fact, and `ModelTable` lays them out for each face: the terminal, fitted by `TerminalTable.fitting`; chat's
 `TextTable`; tab-separated fields; `--json`; and the `ChatChoice` with toggles that `wisp-tui`'s picker draws.
+
+After enabling, where `Session.setModels(checking: true)` links such a model but leaves its enabling to the check,
+and for `wisp models check`, `Session.checkModels` checks what a model can do when its backend leaves
+that to `config.json` (`ModelBackend.declarationKeys`, MLX's `mlx.models.<name>`): `ModelVerification` resolves the
+model once per question with only the capability it tries declared (`ModelBackend.declaring`), asks each within
+`Timeout.run`, and `decide` turns the results and the file's declaration into what to record, keeping what the
+person declared by hand; from enable, the outcome (`refused`, `text only`, `usable`) keeps the model in
+`models.disabled` or takes it out. The declaration is written by keys through `ConfigEdit.set(keys:)` and held in the session's
+`DeclaredModels`, which `WispThread.openAgent` and chat's listings apply to the configuration, so the model is usable
+in that chat at once ([ADR 0056](decisions/0056-models-enabled-and-disabled.md), refined 2026-10-04).
 `Session.openChatAgent` opens chat's conversation, on `system` (`ModelFallback`, audited as `model.fallback`) when
 the configured model is unavailable and was not named; `respond` and MCP open through `openAgent` and
 `Session.thread`, which never fall back ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).

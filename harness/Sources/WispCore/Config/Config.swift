@@ -323,12 +323,36 @@ public struct Config: Codable, Equatable, Sendable {
 
     /// One MLX model's declaration.
     public struct MLXModelConfig: Codable, Equatable, Sendable {
-        /// `toolCalling`, `guidedGeneration`, `reasoning`, `vision`; only what the operator has verified.
+        /// `toolCalling`, `guidedGeneration`, `reasoning`, `vision`; only what has been verified, by the operator
+        /// or by wisp's own check (`wisp models check`, ADR 0056 refined 2026-10-04).
         public var capabilities: [String]?
+        /// wisp's last check of the model's capabilities; nil when wisp has not checked it, so every capability
+        /// listed is the operator's own declaration.
+        public var verified: CapabilityCheck?
 
         /// Creates a declaration.
-        public init(capabilities: [String]? = nil) {
+        public init(capabilities: [String]? = nil, verified: CapabilityCheck? = nil) {
             self.capabilities = capabilities
+            self.verified = verified
+        }
+    }
+
+    /// What wisp's check of a model's capabilities found, as `config.json` keeps it beside the capabilities it
+    /// recorded (ADR 0056, refined 2026-10-04). A capability in `capabilities` that is not in `passed` was declared
+    /// by the person.
+    public struct CapabilityCheck: Codable, Equatable, Sendable {
+        /// The day of the check, `YYYY-MM-DD`.
+        public var date: String
+        /// The capabilities whose check passed, as `config.json` spells them.
+        public var passed: [String]
+        /// The capabilities whose check failed.
+        public var failed: [String]
+
+        /// Creates a record.
+        public init(date: String, passed: [String], failed: [String]) {
+            self.date = date
+            self.passed = passed
+            self.failed = failed
         }
     }
 
@@ -511,6 +535,7 @@ public struct Config: Codable, Equatable, Sendable {
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
+            mlxVerified: (mlx?.models ?? [:]).compactMapValues(\.verified),
             mlxContextLength: mlx?.contextLength, mlxExecutor: mlx?.executor ?? .wisp,
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
@@ -576,6 +601,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var mlxModelsDirectory: String?
         /// Declared capability names per MLX model name.
         public var mlxModels: [String: [String]]
+        /// wisp's last capability check per MLX model name, for the models it has checked.
+        public var mlxVerified: [String: CapabilityCheck] = [:]
         /// The context window for every MLX model, when configured; nil sizes each from memory (ADR 0052).
         public var mlxContextLength: Int?
         /// What runs MLX models.

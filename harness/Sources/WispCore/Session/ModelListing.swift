@@ -31,13 +31,20 @@ public enum ModelListing {
         public var problem: String?
         /// Whether the operator has it enabled (`models.disabled`); a cached model not linked yet is not.
         public var enabled: Bool
+        /// Who declared the capabilities, when it resolved.
+        public var capabilitySource: CapabilitySource?
+        /// The day wisp last checked the capabilities the configuration declares (`YYYY-MM-DD`), when it has.
+        public var verified: String?
 
         /// Creates an entry.
         public init(
             selection: ModelSelection, detail: String = "", parameters: String? = nil, bytes: Int? = nil,
             format: String? = nil, location: ModelLocation? = nil, contextSize: Int? = nil,
-            contextNote: String? = nil, capabilities: [String] = [], problem: String? = nil, enabled: Bool = true
+            contextNote: String? = nil, capabilities: [String] = [], problem: String? = nil, enabled: Bool = true,
+            capabilitySource: CapabilitySource? = nil, verified: String? = nil
         ) {
+            self.capabilitySource = capabilitySource
+            self.verified = verified
             self.selection = selection
             self.detail = detail
             self.parameters = parameters
@@ -86,10 +93,23 @@ public enum ModelListing {
             return "memory"
         }
 
+        /// How the capabilities are known, in a word or two: `verified 2026-10-04` (wisp checked them on the model,
+        /// ADR 0056 refined 2026-10-04), `config` (the operator declared them), `runtime` (Ollama, a Core AI
+        /// bundle), `framework` (Apple's models); nil when the model did not resolve or nothing declared any.
+        public var capabilitiesFrom: String? {
+            switch capabilitySource {
+            case .configuration: verified.map { "verified \($0)" } ?? "config"
+            case .runtime: "runtime"
+            case .framework: "framework"
+            case .undeclared, nil: nil
+            }
+        }
+
         /// The capabilities in plain words (`tools`, `structured replies`, `thinking`, `vision`); `text only` for a
-        /// model that resolved and declares none; empty when it did not resolve.
+        /// model that resolved and declares none; empty when it did not resolve or cannot be used, except a model a
+        /// check verified, which shows what it found, leading with `text only` for one that calls no tools.
         public var plainCapabilities: [String] {
-            guard problem == nil, linked else { return [] }
+            guard (problem == nil || (verified != nil && capabilitySource != nil)), linked else { return [] }
             let words = capabilities.map { name in
                 switch name {
                 case "toolCalling": "tools"
@@ -98,6 +118,8 @@ public enum ModelListing {
                 default: name
                 }
             }
+            // A model a check found calls no tools leads with `text only`, whatever else it passed.
+            if verified != nil, !words.isEmpty, !capabilities.contains("toolCalling") { return ["text only"] + words }
             return words.isEmpty ? ["text only"] : words
         }
     }
@@ -115,10 +137,11 @@ public enum ModelListing {
             self.unreachable = unreachable
         }
 
-        /// The entries a listing shows: with `all`, every one; otherwise those that can serve the conversation, and
-        /// those the operator can turn on (a disabled model, a cached model not linked), whether or not they can.
+        /// The entries a listing shows: with `all`, every one; otherwise those that can serve the conversation, those
+        /// the operator can turn on (a disabled model, a cached model not linked), whether or not they can, and a
+        /// model a check enabled for use with tools off, with what the check found.
         public func shown(all: Bool) -> [Entry] {
-            entries.filter { all || $0.usable || !$0.enabled }
+            entries.filter { all || $0.usable || !$0.enabled || ($0.verified != nil && $0.capabilitySource != nil) }
         }
     }
 
@@ -154,13 +177,23 @@ public enum ModelListing {
             var entry = Entry(
                 selection: installed.selection, detail: installed.detail, parameters: installed.parameters,
                 bytes: installed.bytes, format: installed.format, location: installed.location,
-                enabled: !disabled.contains(installed.selection))
+                enabled: !disabled.contains(installed.selection), verified: installed.verified)
             do {
                 let resolved = try installed.selection.resolve(config: config, home: home)
-                try resolved.check(tools: tools)
+                entry.capabilitySource = resolved.capabilitySource
                 entry.capabilities = resolved.capabilityNames
                 entry.contextSize = resolved.contextSize
                 entry.contextNote = resolved.contextNote
+                do {
+                    try resolved.check(tools: tools)
+                } catch {
+                    // A check found it calls no tools (ADR 0056, refined 2026-10-04): say so, not "declare it".
+                    entry.problem =
+                        installed.verified.map {
+                            "wisp's check on \($0) found it holds a conversation but calls no tools; it is usable only "
+                                + "with tools off: --no-tools, tools: [] over MCP, the condensers"
+                        } ?? "\(error)"
+                }
             } catch {
                 entry.problem = "\(error)"
             }

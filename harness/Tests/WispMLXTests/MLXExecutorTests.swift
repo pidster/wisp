@@ -238,6 +238,36 @@ struct WordRuntime: PromptRuntime {
         #expect(schema.contains("answer"))
     }
 
+    /// The capability check over wisp's MLX executor with the fake runtime (ADR 0056, refined 2026-10-04): each
+    /// question resolves the model with the capability it tries declared, as `Session.checkModels` resolves it
+    /// through `MLXBackend.declaring`. The fake answers a plain reply, then calls `record_word` with `heron` and
+    /// replies; its schema reply is `{"answer":"yes"}`, which is not the question's schema, so that check fails.
+    @Test func theCapabilityCheckRunsOverTheExecutor() async throws {
+        let log = RuntimeLog(steps: [
+            [.text("Hello")], [.toolCall(name: "record_word", arguments: ["word": "heron"])], [.text("Recorded.")],
+        ])
+        let engine = Self.engine(log)
+        let lines = Mutex<[String]>([])
+        let results = await ModelVerification.run(
+            limits: .init(first: .seconds(10), each: .seconds(10)),
+            progress: { result in lines.withLock { $0.append(result.line) } }
+        ) { capabilities in
+            let config = MLXBackend().declaring(
+                .init(capabilities: capabilities.map(\.rawValue)), for: "words", in: Config().resolved)
+            let (declared, _) = try MLXBackend.declaredCapabilities(for: "words", config: config)
+            return MLXBackend.resolved(
+                selection: .local(backend: "mlx", name: "words"), engine: engine, capabilities: declared,
+                declared: true, sizing: .init(window: 4096, reason: "configured as mlx.contextLength"), asset: "/m")
+        }
+        #expect(results.map(\.probe) == [.reply, .toolCalling, .guidedGeneration])
+        #expect(results.map(\.passed) == [true, true, false])
+        #expect(results[1].detail == "record_word(word: heron)")
+        #expect(log.guided.withLock { $0.count } == 1)
+        #expect(lines.withLock { $0.count } == 3)
+        let decision = try #require(ModelVerification.decide(results, existing: nil, date: "2026-10-04"))
+        #expect(decision.capabilities == ["toolCalling"] && decision.check.failed == ["guidedGeneration"])
+    }
+
     @Test func countsUseTheToolsTheInstructionsDeclare() async throws {
         let model = MLXModel(engine: Self.engine(RuntimeLog()), window: 4096, capabilities: [.toolCalling])
         let withTool = LanguageModelSession(model: model, tools: [CurrentDateTool()], instructions: "x").transcript

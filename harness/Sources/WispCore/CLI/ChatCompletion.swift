@@ -53,8 +53,9 @@ public enum ChatCompletion {
         case ["/approvals", "revoke"]: pool = approvalIDs
         case let words where words.count == 3 && words[0] == "/config" && words[1] == "set":
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
-        case ["/model"], ["/models", "disable"]: pool = ConfigSettings.setting("model").map(options) ?? []
-        case ["/models"]: pool = ["enable", "disable"]
+        case ["/model"], ["/models", "disable"], ["/models", "check"]:
+            pool = ConfigSettings.setting("model").map(options) ?? []
+        case ["/models"]: pool = ["enable", "disable", "check"]
         case ["/models", "enable"]: pool = disabledModels
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]

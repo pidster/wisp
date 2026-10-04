@@ -293,6 +293,23 @@ public enum ConfigEdit {
         return try change(path, to: nil, in: data)
     }
 
+    /// Sets the value at `keys` in the file `data` holds, or removes it when `value` is nil, checked as every change
+    /// is: for an entry no `ConfigSettings` row names, whose key may hold a dot, such as an MLX model's declaration
+    /// `mlx.models.<name>` that a capability check records (ADR 0056, refined 2026-10-04). The outcome's `path` is
+    /// the keys joined by dots.
+    ///
+    /// - Throws: `Failure`.
+    public static func set(keys: [String], to value: JSONValue?, in data: Data?) throws -> Outcome {
+        try change(keys, to: value, in: data)
+    }
+
+    /// The value at `keys` in the file `data` holds, nil when unset.
+    ///
+    /// - Throws: `Failure.unreadableFile`.
+    public static func current(keys: [String], in data: Data?) throws -> JSONValue? {
+        value(at: keys, in: .object(try object(data)))
+    }
+
     /// The value at `path` in the file `data` holds, nil when unset.
     ///
     /// - Throws: `Failure.unreadableFile`.
@@ -337,9 +354,15 @@ public enum ConfigEdit {
         return object
     }
 
+    /// The change of the setting at the dotted `path`.
     private static func change(_ path: String, to new: JSONValue?, in data: Data?) throws -> Outcome {
+        try change(path.split(separator: ".").map(String.init), to: new, in: data)
+    }
+
+    /// `data` with `keys` set to `new` (removed when nil), checked to load as start-up loads it.
+    private static func change(_ keys: [String], to new: JSONValue?, in data: Data?) throws -> Outcome {
         let root = try object(data)
-        let keys = path.split(separator: ".").map(String.init)
+        let path = keys.joined(separator: ".")
         let edited = setting(keys[...], to: new, in: root)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

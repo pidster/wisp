@@ -386,6 +386,7 @@ struct Chat: AsyncParsableCommand {
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: banner,
                 models: Chat.models(session: session), setModels: Chat.setModels(session: session),
+                checkModels: Chat.checkModels(session: session),
                 width: { TerminalTable.detectWidth() }, notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
@@ -545,6 +546,7 @@ struct Chat: AsyncParsableCommand {
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
                 models: Chat.models(session: session), setModels: Chat.setModels(session: session),
+                checkModels: Chat.checkModels(session: session),
                 notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
@@ -576,13 +578,16 @@ struct Chat: AsyncParsableCommand {
     static func configOptions(session: Session) -> @Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option] {
         let config = session.config
         let disabled = session.disabledModels
+        let declared = session.declaredModels
         return { setting in
             switch setting.kind {
             case .model, .models:
                 // A disabled model is not offered (ADR 0056); a cached one not linked cannot be chosen until enabled.
-                return await ModelListing.entries(config: config, home: Wisp.home, tools: [], disabled: disabled.all)
-                    .entries.filter(\.offered)
-                    .map { ChatChoice.Option(value: $0.selection.description, detail: $0.detail) }
+                return await ModelListing.entries(
+                    config: declared.applied(to: config), home: Wisp.home, tools: [], disabled: disabled.all
+                )
+                .entries.filter(\.offered)
+                .map { ChatChoice.Option(value: $0.selection.description, detail: $0.detail) }
             case .coremlModel:
                 let store = ClassifierStore(home: Wisp.home)
                 _ = try? store.installDefault()
@@ -607,15 +612,29 @@ struct Chat: AsyncParsableCommand {
     static func models(session: Session) -> @Sendable ([any Tool]) async -> ModelListing.Listing {
         let config = session.config
         let disabled = session.disabledModels
+        let declared = session.declaredModels
         return { tools in
-            await ModelListing.entries(config: config, home: Wisp.home, tools: tools, disabled: disabled.all)
+            await ModelListing.entries(
+                config: declared.applied(to: config), home: Wisp.home, tools: tools, disabled: disabled.all)
+        }
+    }
+
+    /// How chat checks what models can do after enabling them, and for `/models check`: through the session,
+    /// audited as from chat, each line of progress a note as it happens (ADR 0056, refined 2026-10-04).
+    static func checkModels(
+        session: Session
+    ) -> @Sendable ([String], Bool, @escaping @Sendable (String) -> Void) async throws -> [String] {
+        { names, force, progress in
+            try await session.checkModels(names, force: force, source: "chat", progress: progress)
         }
     }
 
     /// How `/models enable|disable` and `wisp-tui`'s picker turn models on and off: through the session, audited as
     /// from chat.
     static func setModels(session: Session) -> @Sendable ([String], [String]) throws -> [String] {
-        { enable, disable in try session.setModels(enable: enable, disable: disable, source: "chat") }
+        { enable, disable in
+            try session.setModels(enable: enable, disable: disable, source: "chat", checking: true)
+        }
     }
 
     /// Whether the last stdout write left the cursor mid-line, so a note can start on a fresh one.
@@ -811,7 +830,7 @@ struct ConfigCommand: ParsableCommand {
 struct Models: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "List, enable, or disable the models usable with --model and config.json, or fetch an MLX model.",
-        subcommands: [List.self, Enable.self, Disable.self, Pull.self], defaultSubcommand: List.self)
+        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self], defaultSubcommand: List.self)
 
     /// Lists the models a session can run on: Apple's two, whatever each local backend serves, and the cached MLX
     /// models enabling would link, with every fact wisp knows about each (ADR 0056).
@@ -854,31 +873,61 @@ struct Models: AsyncParsableCommand {
         }
     }
 
-    /// Turns models on: a disabled model is offered and accepted again, and a cached MLX model is linked, fetching
-    /// nothing (ADR 0056).
-    struct Enable: ParsableCommand {
+    /// Turns models on: a disabled model is offered and accepted again, a cached MLX model is linked, fetching
+    /// nothing (ADR 0056), and an MLX model whose capabilities `config.json` does not declare is checked and what
+    /// passes recorded (refined 2026-10-04).
+    struct Enable: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Enable models: offered by /model again; a cached MLX model is linked, with no download.")
+            abstract: "Enable models: offered by /model again; a cached MLX model is linked, with no download.",
+            discussion:
+                "An MLX model whose capabilities config.json does not declare is then checked: wisp loads it and "
+                + "asks three short questions (a reply, a tool call, a structured reply), each once and within a "
+                + "time limit, and records the capabilities that pass in config.json. 'wisp models check' checks "
+                + "again.")
 
         @Argument(help: "The models, as --model names them.")
         var names: [String]
 
-        func run() throws {
-            try Models.set(enable: names, disable: [])
+        func run() async throws {
+            try await Models.set(enable: names, disable: [])
+        }
+    }
+
+    /// Checks what models can do and records it, replacing what an earlier check recorded and keeping, with a
+    /// note, a capability declared by hand whose check fails (ADR 0056, refined 2026-10-04).
+    struct Check: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Check what MLX models can do, on the models themselves, and record it in config.json.",
+            discussion:
+                "Loads each model and asks three short questions, each once, greedily, within a time limit (3 min "
+                + "for the first, which loads the weights; 1 min for the others): a plain reply (if it fails, "
+                + "nothing is recorded), a call of one trivial tool with a given word (toolCalling), and a small "
+                + "schema reply (guidedGeneration). The capabilities that pass are recorded under "
+                + "mlx.models.<name> with the day of the check; one an earlier check recorded and this one fails "
+                + "is taken out, and one declared by hand that fails is kept and reported. reasoning and vision "
+                + "are not checked. Ollama and Core AI models report their own capabilities.")
+
+        @Argument(help: "The models, as --model names them.")
+        var names: [String]
+
+        func run() async throws {
+            let session = try Wisp.begin(.init(entryPoint: .models))
+            defer { session.end() }
+            try await Models.check(names, force: true, session: session)
         }
     }
 
     /// Turns models off: hidden from `/model` and Tab, and refused by `/model`, `--model`, `config.json`'s `model`,
     /// and an MCP caller's `model` (ADR 0056).
-    struct Disable: ParsableCommand {
+    struct Disable: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Disable models: hidden from /model and refused everywhere; not the default model.")
 
         @Argument(help: "The models, as --model names them.")
         var names: [String]
 
-        func run() throws {
-            try Models.set(enable: [], disable: names)
+        func run() async throws {
+            try await Models.set(enable: [], disable: names)
         }
     }
 
@@ -887,11 +936,32 @@ struct Models: AsyncParsableCommand {
     ///
     /// - Throws: `ValidationError` for a name that does not parse, the default being disabled, or a file that would
     ///   not load.
-    static func set(enable: [String], disable: [String]) throws {
+    static func set(enable: [String], disable: [String]) async throws {
         let session = try Wisp.begin(.init(entryPoint: .models))
         defer { session.end() }
         do {
-            for line in try session.setModels(enable: enable, disable: disable, source: "cli") { print(line) }
+            for line in try session.setModels(enable: enable, disable: disable, source: "cli", checking: true) {
+                print(line)
+            }
+        } catch let failure as ConfigEdit.Failure {
+            throw ValidationError("\(failure)")
+        } catch let failure as ModelSelection.Failure {
+            throw ValidationError("\(failure)")
+        }
+        if !enable.isEmpty { try await check(enable, force: false, session: session) }
+    }
+
+    /// Checks what models can do through `session`, printing each line of progress as it happens and what was
+    /// recorded.
+    ///
+    /// - Throws: `ValidationError` for a name that does not parse or a file that would not load.
+    static func check(_ names: [String], force: Bool, session: Session) async throws {
+        do {
+            let lines = try await session.checkModels(names, force: force, source: "cli") { line in
+                print(line)
+                fflush(stdout)
+            }
+            for line in lines { print(line) }
         } catch let failure as ConfigEdit.Failure {
             throw ValidationError("\(failure)")
         } catch let failure as ModelSelection.Failure {

@@ -129,16 +129,21 @@ extension Session {
     /// `config.change`, and this session's `disabledModels` with it, so the change holds in this chat at once. A
     /// model being enabled that is a complete snapshot in the Hugging Face cache and not linked is linked, fetching
     /// nothing, and recorded as `model.pull` with outcome `linked`. The default cannot be disabled; nothing changes
-    /// when one of the models cannot be.
+    /// when one of the models cannot be. With `checking`, a model being enabled whose capabilities are the
+    /// configuration's to declare and are undeclared is linked but left as it is: `checkModels`, which the face runs
+    /// next, enables it or keeps it disabled by what the model answers (ADR 0056, refined 2026-10-04).
     ///
     /// - Parameters:
     ///   - enable: The models to turn on, as `--model` spells them.
     ///   - disable: The models to turn off.
     ///   - source: `chat` or `cli`, for the audit.
+    ///   - checking: Whether the caller checks the enabled models next, so a model to be checked waits for it.
     /// - Returns: A line per model saying what happened, for the person.
     /// - Throws: `ModelSelection.Failure` for a name that does not parse or the default being disabled,
     ///   `ConfigEdit.Failure` when the file would not load, a backend's failure to link, or the file system's.
-    public func setModels(enable: [String], disable: [String], source: String) throws -> [String] {
+    public func setModels(
+        enable: [String], disable: [String], source: String, checking: Bool = false
+    ) throws -> [String] {
         let enabling = try enable.map { try ModelSelection(parsing: $0) }
         let disabling = try disable.map { try ModelSelection(parsing: $0) }.filter { !enabling.contains($0) }
         let data = FileManager.default.contents(atPath: home.configFile.path)
@@ -146,7 +151,8 @@ extension Session {
             try ConfigEdit.current("models.disabled", in: data)?.arrayValue?.compactMap { value in
                 value.stringValue.flatMap { try? ModelSelection(parsing: $0) }
             } ?? []
-        var after = before.filter { !enabling.contains($0) }
+        let waiting = checking ? try enabling.filter { try needsCheck($0, in: data) } : []
+        var after = before.filter { !enabling.contains($0) || waiting.contains($0) }
         for model in disabling where !after.contains(model) { after.append(model) }
         let configured = try ConfigEdit.current("model", in: data)?.stringValue.map { try ModelSelection(parsing: $0) }
         if let model = disabling.first(where: { $0 == configured ?? .default }) {
@@ -181,7 +187,7 @@ extension Session {
             audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
         }
         disabledModels.replace(with: after)
-        for model in enabling {
+        for model in enabling where !waiting.contains(model) {
             lines.append(before.contains(model) ? "enabled \(model)" : "\(model) is enabled")
         }
         for model in disabling {
@@ -190,5 +196,57 @@ extension Session {
                     ? "\(model) is disabled" : "disabled \(model): hidden from /model and refused until enabled")
         }
         return lines
+    }
+
+    /// Whether enabling `selection` waits for a check: its backend leaves its capabilities to `config.json`, and the
+    /// file declares none.
+    ///
+    /// - Parameters:
+    ///   - selection: The model.
+    ///   - data: The file's contents.
+    /// - Returns: Whether it waits.
+    /// - Throws: `ConfigEdit.Failure.unreadableFile`.
+    func needsCheck(_ selection: ModelSelection, in data: Data?) throws -> Bool {
+        guard case .local(let scheme, let name) = selection, let backend = ModelBackends.backend(for: scheme),
+            let keys = backend.declarationKeys(for: name)
+        else { return false }
+        return try ConfigEdit.current(keys: keys, in: data)?.objectValue?["capabilities"] == nil
+    }
+
+    /// Turns one model on or off in `models.disabled`, as `setModels` does, writing and auditing only a change.
+    ///
+    /// - Parameters:
+    ///   - selection: The model.
+    ///   - disabled: Whether it is to be disabled.
+    ///   - source: `chat` or `cli`, for the audit.
+    /// - Throws: `ModelSelection.Failure.defaultDisabled` for the default, `ConfigEdit.Failure`, or the file
+    ///   system's.
+    func setDisabled(_ selection: ModelSelection, _ disabled: Bool, source: String) throws {
+        let data = FileManager.default.contents(atPath: home.configFile.path)
+        let before =
+            try ConfigEdit.current("models.disabled", in: data)?.arrayValue?.compactMap { value in
+                value.stringValue.flatMap { try? ModelSelection(parsing: $0) }
+            } ?? []
+        var after = before.filter { $0 != selection }
+        if disabled { after.append(selection) }
+        if disabled {
+            let configured = try ConfigEdit.current("model", in: data)?.stringValue.map {
+                try ModelSelection(parsing: $0)
+            }
+            if selection == configured ?? .default {
+                throw ModelSelection.Failure.defaultDisabled(model: selection.description)
+            }
+        }
+        guard Set(after) != Set(before) else {
+            disabledModels.replace(with: before)
+            return
+        }
+        let outcome =
+            after.isEmpty
+            ? try ConfigEdit.unset("models.disabled", in: data)
+            : try ConfigEdit.set("models.disabled", to: ChatChoice.answer(values: after.map(\.description)), in: data)
+        try ConfigEdit.write(outcome, to: home.configFile)
+        audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
+        disabledModels.replace(with: after)
     }
 }

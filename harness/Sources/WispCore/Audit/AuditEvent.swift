@@ -83,6 +83,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case watchRun
         case modelRouted
         case modelPull
+        case modelVerified
         case classifierVerdict
         case classifierTrained
         case configChange
@@ -132,6 +133,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .watchRun,
             .modelRouted,
             .modelPull,
+            .modelVerified,
             .classifierVerdict,
             .classifierTrained,
             .configChange,
@@ -181,6 +183,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .watchRun: "watch.run"
             case .modelRouted: "model.routed"
             case .modelPull: "model.pull"
+            case .modelVerified: "model.verified"
             case .classifierVerdict: "classifier.verdict"
             case .classifierTrained: "classifier.train"
             case .configChange: "config.change"

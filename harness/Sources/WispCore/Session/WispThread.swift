@@ -23,6 +23,8 @@ public struct WispThread: Sendable {
     let home: Home
     /// The models the operator turned off, which the thread refuses to open on (ADR 0056).
     let disabled: DisabledModels
+    /// The capabilities the session's checks recorded since it began, applied to `config` when a model resolves.
+    let declared: DeclaredModels
     /// Where the agent records its turns: the session's store.
     let stats: CallStats
     /// The conversation's tool events, which the agent links its store's tool entries to.
@@ -67,6 +69,7 @@ public struct WispThread: Sendable {
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
             model: model, config: session.config, home: session.home, disabled: session.disabledModels,
+            declared: session.declaredModels,
             stats: session.stats, toolEvents: toolEvents,
             facts: session.config.factsEnabled
                 ? FactSettings(
@@ -96,7 +99,8 @@ public struct WispThread: Sendable {
     ) throws -> Agent {
         try disabled.check(override ?? model)
         return try openAgent(
-            on: try (override ?? model).resolve(config: config, home: home), transcript: transcript, links: links,
+            on: try (override ?? model).resolve(config: declared.applied(to: config), home: home),
+            transcript: transcript, links: links,
             store: store)
     }
 

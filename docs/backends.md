@@ -62,7 +62,7 @@ hint otherwise. Who declares them:
 | `system`, `private-cloud` | the framework |
 | `ollama` | the server's `/api/show` `capabilities` for that model (`tools`, `completion`, `thinking`, `vision`); a model without `completion`, such as an embedding model, is refused at resolution because it cannot hold a conversation |
 | `coreai` | the bundle: tool-call markers in the tokenizer, a thinking format, the engine's guided-generation support |
-| `mlx` | the operator, in `config.json`; an undeclared model is text only |
+| `mlx` | `config.json`: the operator's declaration, or what wisp's check of the model recorded when it was enabled or checked (`wisp models check`); an undeclared model is text only |
 
 A text-only model can always run a conversation with no tools: `--no-tools` on the CLI, `tools: []`
 over MCP. Declared support is eligibility, not quality: a model that declares tool calling may still
@@ -264,8 +264,8 @@ fetches the rest (a file cut off part-way starts again).
 At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the model, becomes the link. A real
 directory, such as a copy fetched before the pull used the cache, stays unless you answer yes to a second
 question, asked once the snapshot is complete and checked; yes moves it to the Trash and links in its place.
-Anything else there refuses the pull. The model is then `mlx:<name>`; its capabilities are still yours to
-declare. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` lists the complete
+Anything else there refuses the pull. The model is then `mlx:<name>`; `wisp models enable` checks its
+capabilities and records them, or you declare them. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` lists the complete
 `mlx-community` snapshots in the cache that nothing links yet, `WHERE` `HF cache, not linked` and `ENABLED` `no`;
 `wisp models enable mlx:<name>` (or the pull) links one without downloading
 ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
@@ -276,8 +276,17 @@ listing at that commit, and `resolve/<commit>/<file>` downloads, tested against 
 and a temporary cache; it has not yet been run against the Hub ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)
 lists what is unverified).
 
-Capabilities come from the operator, because MLX never infers them: declare per model in
-`config.json`, only what you have verified, and an undeclared model runs text-only conversations.
+Capabilities come from `config.json`, because MLX never infers them, and are recorded there only once verified;
+an undeclared model runs text-only conversations. wisp verifies them itself when you enable a model that declares
+none, and again with `wisp models check mlx:<name>`: it loads the model and asks three short questions, each once,
+greedily, within a time limit (a plain reply, a call of one trivial tool with a given word, a two-field schema
+reply), and records the capabilities that pass, `toolCalling` and `guidedGeneration`, with the day, under
+`verified` ([wisp.md](wisp.md#wisp-models-check-name),
+[ADR 0056](decisions/0056-models-enabled-and-disabled.md), refined 2026-10-04). A model that cannot give the plain
+reply has nothing recorded and enabling it is refused; one that replies but calls no tool is enabled for use with
+tools off only. `reasoning` and `vision` are not checked; declare them yourself, only what you have
+verified. A capability you declared by hand is kept when a check fails it, with a note. On this Mac on 2026-10-04,
+enabling `mlx:Qwen3-1.7B-4bit` passed all three in 4.1 s, 2.3 s of it the first question with the weights loading.
 
 ```json
 {

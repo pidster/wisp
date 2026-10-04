@@ -513,6 +513,25 @@ extension AuditEvent {
             ]
         }
 
+        /// `model.verified`: wisp's check of what a model can do (ADR 0056, refined 2026-10-04): the model, what
+        /// started it (`enable` or `check`), what it means (`refused`, `text only`, `usable`), each question's result, the capabilities recorded (null when the floor
+        /// failed and nothing was), those the person declared by hand and kept though their check failed, those an
+        /// earlier check recorded and this one took out, the capabilities no question checks, and the seconds it took.
+        static func modelVerified(
+            model: String, trigger: String, outcome: ModelVerification.Outcome, results: [ModelVerification.Result],
+            decision: ModelVerification.Decision?, seconds: Double
+        ) -> [String: JSONValue] {
+            [
+                "model": .string(model), "trigger": .string(trigger), "outcome": .string(outcome.rawValue),
+                "checks": .array(results.map(\.json)),
+                "recorded": decision.map { .array($0.capabilities.map { .string($0) }) } ?? .null,
+                "kept": .array((decision?.kept ?? []).map { .string($0) }),
+                "removed": .array((decision?.removed ?? []).map { .string($0) }),
+                "unchecked": .array(ModelVerification.unchecked.map { .string($0.rawValue) }),
+                "seconds": .double(seconds),
+            ]
+        }
+
         /// `classifier.train`: where the model went, what it learned from, and how well it fits that.
         public static func classifierTrained(
             _ outcome: RiskClassifierTraining.Outcome, examplesSource: String
@@ -752,6 +771,8 @@ extension AuditEvent {
                 "model", "repository", "directory", "cache", "files", "bytes", "reused", "fetchedFiles", "fetched",
                 "link", "outcome", "reason", "seconds",
             ]
+        case .modelVerified:
+            ["model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds"]
         case .watchRun:
             [
                 "command", "run", "trigger", "exitStatus", "timedOut", "state", "previous", "changed", "seconds",

@@ -25,8 +25,9 @@ import WispCore
 /// model's tokenizer, usage reported, and the processed prefix of a thread's last request reused.
 /// `mlx.executor: "bridge"` selects mlx-swift-lm's `MLXLanguageModel` bridge instead, as before.
 ///
-/// MLX never infers what a model can do, so capabilities come from the operator:
-/// `mlx.models.<name>.capabilities` in `config.json`. An undeclared model runs text-only conversations.
+/// MLX never infers what a model can do, so capabilities come from `mlx.models.<name>.capabilities` in
+/// `config.json`: declared by the operator, or recorded by wisp's check of the model itself when it is enabled or
+/// checked (ADR 0056, refined 2026-10-04). An undeclared model runs text-only conversations.
 public struct MLXBackend: ModelBackend {
     /// `mlx:`.
     public let scheme = "mlx"
@@ -259,16 +260,33 @@ public struct MLXBackend: ModelBackend {
             var parts: [String] = []
             let format = Self.format(of: url)
             if let format { parts.append(format) }
+            let verified = config.mlxVerified[name]?.date
             parts.append(
-                config.mlxModels[name].map { "capabilities: \($0.joined(separator: ", "))" }
-                    ?? "capabilities undeclared")
+                config.mlxModels[name].map {
+                    "capabilities: \($0.joined(separator: ", "))" + (verified.map { " (verified \($0))" } ?? "")
+                } ?? "capabilities undeclared")
             if !Self.isCompiledIn { parts.append("(MLX not compiled in)") }
             let real = url.resolvingSymlinksInPath().path
             return InstalledModel(
                 selection: .local(backend: scheme, name: name), detail: parts.joined(separator: " "),
                 bytes: Self.weightBytes(in: url), format: format,
-                location: real.hasPrefix(hub + "/") ? .hubCache : .modelsFolder)
+                location: real.hasPrefix(hub + "/") ? .hubCache : .modelsFolder, verified: verified)
         }
+    }
+
+    /// `mlx.models.<name>`: what the operator, or wisp's check, declares the model can do.
+    public func declarationKeys(for name: String) -> [String]? { ["mlx", "models", name] }
+
+    /// `config` with `declaration`'s capabilities and check as `name`'s.
+    public func declaring(
+        _ declaration: Config.MLXModelConfig, for name: String, in config: Config.Resolved
+    )
+        -> Config.Resolved
+    {
+        var config = config
+        config.mlxModels[name] = declaration.capabilities ?? []
+        config.mlxVerified[name] = declaration.verified
+        return config
     }
 
     /// The architecture and quantisation a model directory's `config.json` names, such as `qwen3 4-bit`.

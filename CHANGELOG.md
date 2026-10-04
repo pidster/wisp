@@ -35,6 +35,15 @@ Added:
   caller's `model`, with how to enable it; the default model cannot be disabled. Stored as `models.disabled` in
   `config.json`, audited as `config.change`. Enabling a complete MLX model in the Hugging Face cache that is not
   linked links it, with no download (ADR 0056).
+- Enabling an MLX model leaves it usable: when `config.json` declares none of its capabilities, wisp loads it and
+  asks three short questions (a reply, a tool call, a structured reply), each once and within a time limit, says
+  what it is doing and each result, and records the capabilities that pass, with the day, in `config.json`. A
+  model that cannot give a plain reply is refused and stays disabled; one that replies but does not call a tool is
+  enabled for use with tools off only (`--no-tools`, `tools: []` over MCP, the condensers), says so, and is listed
+  `text only`; one that does both is enabled and usable.
+  `wisp models check <name>` (or `/models check` in chat) checks again; a capability you declared by hand is kept,
+  with a note, when its check fails. The listing marks verified capabilities `(verified)`, and `--json` says how
+  they are known (`capabilitiesFrom`). Audited as `model.verified` (ADR 0056, refined 2026-10-04).
 - `wisp models --json`, a field per column.
 - When chat's configured model is unavailable as it starts (Ollama not running, say), chat starts on `system` and
   says so, with the `/model` to return to it, instead of refusing to start; audited as `model.fallback`. A model
