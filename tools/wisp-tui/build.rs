@@ -21,9 +21,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=WISP_RELEASE");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src");
-    // A commit or a staged change moves HEAD or the index; an unstaged edit outside this crate does not,
-    // so `(modified)` can lag until the crate is next built after one of those.
-    for path in ["HEAD", "index"] {
+    // HEAD only names the branch, so a commit on it does not change HEAD; logs/HEAD gains a line for
+    // every commit, checkout, reset, and amend, and the index changes with a staged edit. An unstaged
+    // edit outside this crate changes neither, so `(modified)` can lag until one of those happens.
+    for path in ["HEAD", "logs/HEAD", "index"] {
         if let Some(file) = git(&["rev-parse", "--git-path", path]) {
             println!("cargo:rerun-if-changed={file}");
         }
