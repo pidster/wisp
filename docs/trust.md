@@ -28,6 +28,17 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 Before a command runs it must also pass a deny list (`sudo`, `rm -rf /`, piping into a shell, disk
 tools) and a risk check.
 
+**Commands you type yourself.** In `wisp chat` and `wisp-tui`, a line that starts with `!` (`! git status`)
+runs that command as yours, through the same runner as `run_command`
+([ADR 0049](decisions/0049-commands-typed-in-chat.md)). It passes the same deny and allow lists and runs
+under the same sandbox, with the same bounds and timeout, so it can change only what the model's commands
+can: files under the sandbox's writable directories, and the network unless you turned it off. It skips the
+risk check and is never put to you for approval, since typing it is the approval, so it runs at once
+whatever its level. It is audited (`command.typed`, and `policy.decision` and `command.outcome` marked
+`origin: "person"`), and the model is told on its next request that you ran it, never that it did. `--unsafe`
+removes the deny list and the sandbox for these commands too. An MCP caller cannot type one: `respond`
+gives `!` to the model as text.
+
 ## What leaves the machine
 
 Nothing, with the default model. The on-device model runs on your Apple silicon; prompts, files, and
@@ -80,7 +91,7 @@ only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md))
 | Switch | Removes | Leaves |
 | --- | --- | --- |
 | `--yes` | every human approval | deny list, sandbox, classification, audit |
-| `--unsafe` | the deny list and the sandbox | approval, classification, audit |
+| `--unsafe` | the deny list and the sandbox, for the model's commands and the ones you type after `!` | approval, classification, audit |
 | `approval.threshold: "never"` | approval prompts | everything else |
 | `--model private-cloud` | on-device only | approval, sandbox, audit |
 

@@ -276,8 +276,8 @@ pub struct App {
     pub suggestions: Option<Suggestions>,
     /// Whether a turn is in progress (input is held until the next status).
     pub busy: bool,
-    /// Whether the input box is in command mode: `!` typed into an empty box, so what is typed runs as a shell
-    /// command (ADR 0049) and the box takes the command colour.
+    /// Whether the input box is in command mode: `!` typed at the start of the line, so what is typed runs as a
+    /// shell command (ADR 0049) and the box takes the command colour.
     pub command_mode: bool,
     /// Keys typed while a turn runs, in order: not shown as accepted, and applied to the input when the turn
     /// ends (the next status), as if typed then.
@@ -740,8 +740,8 @@ impl App {
     }
 
     /// An edit to the input: held while a turn is running, ignored while a dialog wants its keys. In command
-    /// mode, Backspace or Delete in an empty box returns to the normal prompt; a paste that starts with `!` into
-    /// an empty box enters command mode, as typing `!` does.
+    /// mode, Backspace at the start of the line, or Delete in an empty box, returns to the normal prompt; a paste
+    /// that starts with `!` at the start of the line enters command mode, as typing `!` does.
     pub fn edit(&mut self, edit: &Edit) {
         if self.holding() {
             self.held.push(edit.clone());

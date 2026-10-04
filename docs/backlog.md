@@ -92,7 +92,10 @@ decision for each command, each turn's time and tokens, a live line for what the
 `/audit sessions` and `/audit <id>`. Done 2026-09-30: each tool's output folded in the scrollback with
 Ctrl-O for the last one whole, the model's context in a panel (Ctrl-T), facts in that panel, and the
 `hello` line with notifications posted through the terminal ([ADR 0044](decisions/0044-host-effects.md)).
-Planned: `! <command>` (above). Tables and links in replies are shown as typed.
+Done 2026-10-04: `! <command>` in chat, with `wisp-tui`'s command mode
+([ADR 0049](decisions/0049-commands-typed-in-chat.md)); the input box inactive and holding keys while a turn
+runs; and the running summary in a place of its own (`/inspect summary`, `wisp://threads/{id}/summary`).
+Tables and links in replies are shown as typed.
 
 ## When wisp can be signed
 

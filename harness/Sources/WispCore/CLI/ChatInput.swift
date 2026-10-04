@@ -225,7 +225,7 @@ public enum ChatInput: Equatable, Sendable {
     private static let frontEndKeys = """
 
         In wisp-tui:
-          !                           in an empty box, command mode; Backspace in an empty box leaves it
+          !                           at the start of the line, command mode; Backspace there leaves it
           Ctrl-O                      the last tool output in full; again to close
           Ctrl-T                      the model's context in a panel
           Left, Right                 in that panel, the previous or next turn's context

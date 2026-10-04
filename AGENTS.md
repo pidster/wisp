@@ -55,7 +55,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command: /status, /approvals, /audit, /config, /models, /model, /stats, /tokens, /inspect context|facts|summary, /fact, /task, /show, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models, /model, /stats, /tokens, /inspect context|facts|summary, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -192,7 +192,7 @@ Which model to pass as `model` when a thread starts (measured in the Ollama sect
 If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
 and `wisp://threads` show its state, and `wisp://threads/{thread_id}` a thread's: its `context` (what the
-model carries, per turn), `output`, and `audit`. Commands the model runs that need approval are asked
+model carries, per turn), `facts`, `summary`, `output`, and `audit`. Commands the model runs that need approval are asked
 through MCP elicitation and, with `approval.outOfBand` (the default), through `wisp approvals` and
 `wisp-tui` too; a client without elicitation waits for that answer, up to `approval.timeoutSeconds`, and
 silence is a refusal (`docs/mcp.md`, "Approval").

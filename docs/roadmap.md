@@ -1,7 +1,7 @@
 # Roadmap
 
-The releases planned from 0.17.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, has
-shipped). Each release carries one or two
+The releases planned from 0.18.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, and
+0.17.0 have shipped). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
@@ -11,35 +11,11 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example; the commit in `--version` |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built) |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
-
-## 0.17.0
-
-- **Permanent facts over MCP** (larger). Built 2026-10-03,
-  [ADR 0048](decisions/0048-permanent-facts-over-mcp.md). `set_fact_scope` `permanent` files a request in
-  `~/.wisp/pending` and posts a notification, and returns at once; the person keeps or drops the fact with
-  `wisp facts keep|drop` or in `wisp-tui` (the `keep-facts` effect), never through the MCP conversation. A
-  drop leaves the fact in its thread and is remembered there; a caller never moves or removes a permanent
-  fact; `respond` counts the proposals waiting (`factsProposed`) instead of a banner for each.
-- **MLX in the release.** Built 2026-10-03 ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The
-  release is built with the `MLX` trait and carries MLX's Metal library as `mlx.metallib` beside `wisp`
-  (3.8 MB; the stripped binary grows from 15.1 to 32.8 MB, the download by about 6 MB). MLX finds it
-  through the binary's real path, so Homebrew's links need no wrapper: the formula installs both in
-  `libexec`. `wisp doctor` has an `MLX` finding, which the release checks on the staged binary, and
-  `scripts/check mlx-live <model>` runs the live test with the library beside the test bundle.
-- **A palette check in the gate** (built 2026-10-03), so `Style.Palette` in Swift and `palette.rs` in `wisp-tui` cannot
-  drift apart.
-- **`memory`'s `task` example**. Dropped 2026-10-03: it added 13 tokens to every conversation that has
-  `memory`. The `task` verb still works and [tools/memory.md](tools/memory.md) documents it.
-- **The commit in `--version` for builds that are not releases** (built 2026-10-03), e.g. `0.16.0-dev+5886d33`, or
-  `0.16.0-dev+5886d33 (modified)` when the tree had changes, so a build from `main` (such as the one `.mcp.json` runs) is not
-  mistaken for the release whose number it still carries. A release build prints the bare version,
-  which the release script and the Homebrew formula's test check.
 
 ## 0.18.0
 
@@ -49,13 +25,16 @@ release's preflight still runs the eval's floors, as a guard against regressions
   bounds, and the audit (`command.typed`) apply, the classifier and approval do not, and no model turn
   starts. Its output is shown and folded as a tool's; the next request carries it as one notice with its
   reference, marked as the person's own action, and its facts have the person as their source. Chat and
-  `wisp-tui` only, not MCP. In `wisp-tui`, `!` in an empty box is command mode (`command`, #E8B577, black
-  text; the scrollback stripe `commandSent`, #745A3C), and while a turn runs the box is dimmed, says what wisp
-  is doing, and holds keys typed meanwhile until the turn ends.
+  `wisp-tui` only, not MCP. In `wisp-tui`, `!` typed at the start of the line enters command mode (`command`,
+  #E8B577, bold black text; the scrollback stripe `commandSent`, #745A3C), and Backspace at the start of the
+  line leaves it, keeping the text; while a turn runs the box is dimmed, says what wisp is doing, and holds
+  keys typed meanwhile until the turn ends. A fact's value is held once across sources, so a typed `! pwd`
+  does not repeat the chat's workdir fact.
 - **The tool glyph.** `⚙` is drawn as a two-cell emoji in some terminals, so tool lines change width;
   candidates were compared on 2026-09-30. The operator chose on 2026-10-04 to keep `⚙`: no change.
-- **Where the summary is shown** (built). It has a place of its own: `/inspect summary` in chat and
-  `wisp://threads/{id}/summary` over MCP; `/inspect facts` and `wisp://threads/{id}/facts` show only facts.
+- **Where the summary is shown** (built 2026-10-04). It has a place of its own: `/inspect summary [all]` in
+  chat and `wisp-tui`'s panel, and `wisp://threads/{id}/summary` over MCP; `/inspect facts` and
+  `wisp://threads/{id}/facts` show only facts.
 
 ## 0.19.0
 

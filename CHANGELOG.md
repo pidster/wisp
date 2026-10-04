@@ -6,6 +6,11 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+### Breaking
+
+- `wisp://threads/{thread_id}/facts` no longer carries `summary` (or `summaries` with `?all=true`): the running
+  summary moved to `wisp://threads/{thread_id}/summary`, below. `/inspect facts` no longer shows it either.
+
 ### Added
 
 - Commands you run yourself in chat: a line that starts with `!` (`! git status --short`) runs the command in
@@ -16,13 +21,16 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   line turns the box a pale amber, and Backspace at the start of the line turns it back (ADR 0049).
 - `wisp-tui`'s input box is visibly inactive while a turn runs: dimmed, with what wisp is doing in place of
   the cursor, and keys typed meanwhile are held and applied when the turn ends instead of being dropped.
+- `wisp chat --json`: `/inspect summary [all]` answers with a `view` of kind `summary`, and a typed command's
+  `command.typed` event carries its `output` as a `tool.result` does.
 
 ### Changed
 
 - The running summary of earlier turns has a place of its own: `/inspect summary [all]` in chat (and `wisp-tui`'s
   panel) and `wisp://threads/{thread_id}/summary` over MCP. `/inspect facts` and
-  `wisp://threads/{thread_id}/facts` show only facts; the facts resource no longer carries `summary` or
-  `summaries`.
+  `wisp://threads/{thread_id}/facts` show only facts.
+- `wisp-tui`'s dialogs (the output panel, approvals, choices) have a blank row below them, between the dialog
+  and the status line, as they have the reply row above them.
 
 ### Fixed
 

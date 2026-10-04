@@ -44,7 +44,9 @@ Running tests changes state, so it counts as a `moderate` action: `chat` asks yo
 plain `wisp "…"` cannot ask, so it refuses unless you pass `--yes`. In `chat` you answer each request
 once, for the session, for this project, or always, and `/model` switches models mid-conversation. A
 long conversation keeps short facts (a codename, the task, whether the tests pass) and a summary of the
-turns it had to drop; `/inspect facts` shows them and `/fact` corrects one. On a
+turns it had to drop; `/inspect facts` and `/inspect summary` show them and `/fact` corrects one. A line
+that starts with `!` (`! git status`) runs the command yourself, in the sandbox and without asking, and the
+model is told what you ran on its next request. On a
 terminal the chat runs in `wisp-tui`, installed beside `wisp`: the conversation scrolls in your
 terminal's own history above a pinned input and status line, with the model's tool calls shown as they
 happen.

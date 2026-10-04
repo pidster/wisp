@@ -205,27 +205,28 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 
 ## 7. Current work and backlog (2026-10-04)
 
-### Committed, not yet released (0.17.0)
+### Committed, not yet released (0.18.0)
 
 `CHANGELOG.md`, "Unreleased", lists each change. In outline:
-- **Permanent facts over MCP** ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)): `set_fact_scope`
-  `permanent` files a request in `~/.wisp/pending` and posts a notification; the person keeps or drops the
-  fact with `wisp facts keep|drop` or in `wisp-tui` (the `keep-facts` effect); `respond` counts the
-  proposals waiting (`factsProposed`); the default policy refuses `wisp facts keep|drop` to the model.
-- **MLX in the release** ([ADR 0047](decisions/0047-mlx-in-the-release.md)): built with the `MLX` trait,
-  with `mlx.metallib` beside `wisp` in the formula's `libexec`, a `wisp doctor` `MLX` finding, and
-  `scripts/check mlx-live` for the live test.
-- **Smaller changes:** the commit in `--version` for builds that are not releases, a palette check in the
-  gate, and `memory`'s `task` example dropped from its argument guide.
+- **Commands the person types in chat** ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): a line that
+  starts with `!` runs the command through `run_command`'s runner as the person's, under the policy and the
+  sandbox but without the classifier or approval, audited as `command.typed`; the model is told on its next
+  request, as the person's action, with a reference it can recall. `wisp-tui` has a command mode for it, and
+  its input box is inactive and holds keys while a turn runs.
+- **The running summary in a place of its own:** `/inspect summary [all]` and
+  `wisp://threads/{thread_id}/summary`; the facts views show only facts.
+- **Smaller changes:** a fact's value held once across sources, Tab completing `/inspect`, the pending
+  directory created with its mode in one step, and a blank row below `wisp-tui`'s dialogs.
 
-0.16.0 (2026-10-03) carried host effects over MCP
-([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)) and `wisp watch --settle`; its section
-of `CHANGELOG.md` has the detail.
+0.17.0 (2026-10-04) carried permanent facts over MCP
+([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)) and MLX in the release
+([ADR 0047](decisions/0047-mlx-in-the-release.md)); its section of `CHANGELOG.md` has the detail.
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.21.0; next, 0.18.0: `! <command>` in chat and the input
-box, the tool glyph, and where the summary is shown.
+The [roadmap](roadmap.md) has each release to 0.22.0; next, 0.19.0: MLX on a par with Ollama, and Core
+AI's context window. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget
+from the model's window, is proposed for 0.22.0.
 
 ### Open from the layered context
 
