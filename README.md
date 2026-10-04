@@ -8,13 +8,13 @@ wisp "What is listening on port 8080?"
 wisp chat
 ```
 
-- 🔒 **Local AI only.** Apple's on-device model, or yours in Ollama or MLX. No cloud, no key, no account.
-- 🛡️ **Nothing runs unchecked.** A sandbox, a deny list, a sub-millisecond risk classifier, and you.
-- 🧠 **Trained on your data.** Teach the risk classifier from your own command history.
-- ✂️ **Redact before you share.** Secrets and personal data stripped from a file, on the Mac.
-- 👀 **Watches while you work.** Reruns your tests on save; pings you when they break.
-- 🤝 **Your coding agent's local helper.** A 14,000-line log comes back as its top 30 messages.
-- 🧾 **Shows its work.** Every reply says what actually ran; every action is logged.
+- **Local AI only.** Apple's on-device model, or yours in Ollama or MLX. No cloud, no key, no account.
+- **Nothing runs unchecked.** A sandbox, a deny list, a sub-millisecond risk classifier, and you.
+- **Trained on your data.** Teach the risk classifier from your own command history.
+- **Redact before you share.** Secrets and personal data stripped from a file, on the Mac.
+- **Watches while you work.** Reruns your tests on save; pings you when they break.
+- **Your coding agent's local helper.** A 14,000-line log comes back as its top 30 messages.
+- **Shows its work.** Every reply says what actually ran; every action is logged.
 
 ```bash
 wisp redact crash.log | pbcopy                 # secrets and personal data replaced
