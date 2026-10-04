@@ -205,27 +205,22 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 
 ## 7. Current work and backlog (2026-10-04)
 
-### Committed, not yet released (0.18.0)
+### Committed, not yet released (0.18.1)
 
-`CHANGELOG.md`, "Unreleased", lists each change. In outline:
-- **Commands the person types in chat** ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): a line that
-  starts with `!` runs the command through `run_command`'s runner as the person's, under the policy and the
-  sandbox but without the classifier or approval, audited as `command.typed`; the model is told on its next
-  request, as the person's action, with a reference it can recall. `wisp-tui` has a command mode for it, and
-  its input box is inactive and holds keys while a turn runs.
-- **The running summary in a place of its own:** `/inspect summary [all]` and
-  `wisp://threads/{thread_id}/summary`; the facts views show only facts.
-- **Smaller changes:** a fact's value held once across sources, Tab completing `/inspect`, the pending
-  directory created with its mode in one step, and a blank row below `wisp-tui`'s dialogs.
+`CHANGELOG.md`, "Unreleased": `wisp chat` from the Homebrew install finds `wisp-tui` again (in a `bin`
+beside `libexec`), and `wisp doctor` says where it found it.
 
-0.17.0 (2026-10-04) carried permanent facts over MCP
-([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)) and MLX in the release
-([ADR 0047](decisions/0047-mlx-in-the-release.md)); its section of `CHANGELOG.md` has the detail.
+0.18.0 (2026-10-04) carried commands the person types in chat
+([ADR 0049](decisions/0049-commands-typed-in-chat.md)), the running summary in a place of its own, what
+each turn ran beside its reply ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)), a
+fact's value held once across sources, and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts
+over MCP ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)) and MLX in the release
+([ADR 0047](decisions/0047-mlx-in-the-release.md)). Their sections of `CHANGELOG.md` have the detail.
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.22.0; next, 0.19.0: MLX on a par with Ollama, and Core
-AI's context window. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget
+The [roadmap](roadmap.md) has each release to 0.22.0; next, 0.19.0: MLX on a par with Ollama, Core AI's
+context window, the model's thinking shown, and the sandbox's refusals checked. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget
 from the model's window, is proposed for 0.22.0.
 
 ### Open from the layered context

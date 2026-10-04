@@ -1,7 +1,7 @@
 # Roadmap
 
-The releases planned from 0.18.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, and
-0.17.0 have shipped). Each release carries one or two
+The releases planned from 0.19.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0, and
+0.18.0 have shipped). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
@@ -11,35 +11,10 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built); what the turn ran, beside the reply (built) |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window; the model's thinking shown; the sandbox's refusals checked |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
-
-## 0.18.0
-
-- **`! <command>` in chat, and the input box** (larger). Built 2026-10-04,
-  [ADR 0049](decisions/0049-commands-typed-in-chat.md). A line that starts with `!` runs the command in the
-  conversation's directory through `run_command`'s runner as the person's: the policy, the sandbox, the
-  bounds, and the audit (`command.typed`) apply, the classifier and approval do not, and no model turn
-  starts. Its output is shown and folded as a tool's; the next request carries it as one notice with its
-  reference, marked as the person's own action, and its facts have the person as their source. Chat and
-  `wisp-tui` only, not MCP. In `wisp-tui`, `!` typed at the start of the line enters command mode (`command`,
-  #E8B577, bold black text; the scrollback stripe `commandSent`, #745A3C), and Backspace at the start of the
-  line leaves it, keeping the text; while a turn runs the box is dimmed, says what wisp is doing, and holds
-  keys typed meanwhile until the turn ends. A fact's value is held once across sources, so a typed `! pwd`
-  does not repeat the chat's workdir fact.
-- **The tool glyph.** `⚙` is drawn as a two-cell emoji in some terminals, so tool lines change width;
-  candidates were compared on 2026-09-30. The operator chose on 2026-10-04 to keep `⚙`: no change.
-- **Where the summary is shown** (built 2026-10-04). It has a place of its own: `/inspect summary [all]` in
-  chat and `wisp-tui`'s panel, and `wisp://threads/{id}/summary` over MCP; `/inspect facts` and
-  `wisp://threads/{id}/facts` show only facts.
-- **What the turn ran, beside the reply** (built 2026-10-04,
-  [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)). One muted line under each reply,
-  counted from the turn's audit events: `ran: read_file ×2 · run_command ×3 (1 failed, 1 denied)`, or `ran:
-  no tools` when a reply names a tool and none ran. In chat, `wisp-tui`, and `respond`'s `ran`. Checking the
-  reply against it with a model is left for 0.20.0.
 
 ## 0.19.0
 
