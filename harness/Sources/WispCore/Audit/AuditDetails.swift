@@ -487,17 +487,20 @@ extension AuditEvent {
             ]
         }
 
-        /// `model.pull`: a model fetched with the person's approval (`wisp models pull`): the selection it becomes,
-        /// where from and to, how many files and bytes the repository lists, how many bytes this run fetched
-        /// (less when it resumed), and how it ended (`fetched`, `declined`, `failed`), with why.
+        /// `model.pull`: a model fetched with the person's approval (`wisp models pull`) into the Hugging Face
+        /// cache and linked from the MLX models directory: the selection it becomes, where from, the link's path
+        /// and the cache's snapshot, how many files and bytes the repository lists, how many files the cache
+        /// already held, how many files and bytes this run fetched, what happened at the link's path, and how it
+        /// ended (`fetched`, `linked`, `declined`, `failed`), with why.
         public static func modelPull(
-            model: String, repository: String, directory: String, files: Int, bytes: Int, fetched: Int,
-            outcome: String, reason: String?, seconds: Double
+            model: String, repository: String, directory: String, cache: String, files: Int, bytes: Int, reused: Int,
+            fetchedFiles: Int, fetched: Int, link: String?, outcome: String, reason: String?, seconds: Double
         ) -> [String: JSONValue] {
             [
                 "model": .string(model), "repository": .string(repository), "directory": .string(directory),
-                "files": .int(files), "bytes": .int(bytes), "fetched": .int(fetched), "outcome": .string(outcome),
-                "reason": reason.map { .string($0) } ?? .null, "seconds": .double(seconds),
+                "cache": .string(cache), "files": .int(files), "bytes": .int(bytes), "reused": .int(reused),
+                "fetchedFiles": .int(fetchedFiles), "fetched": .int(fetched), "link": link.map { .string($0) } ?? .null,
+                "outcome": .string(outcome), "reason": reason.map { .string($0) } ?? .null, "seconds": .double(seconds),
             ]
         }
 
@@ -735,7 +738,10 @@ extension AuditEvent {
         case .redaction: ["source", "bytes", "bytesOut", "truncated", "thorough", "replaced", "failedChunks"]
         case .modelRouted: ["task", "inputBytes", "model", "reason"]
         case .modelPull:
-            ["model", "repository", "directory", "files", "bytes", "fetched", "outcome", "reason", "seconds"]
+            [
+                "model", "repository", "directory", "cache", "files", "bytes", "reused", "fetchedFiles", "fetched",
+                "link", "outcome", "reason", "seconds",
+            ]
         case .watchRun:
             [
                 "command", "run", "trigger", "exitStatus", "timedOut", "state", "previous", "changed", "seconds",

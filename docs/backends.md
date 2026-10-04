@@ -218,24 +218,51 @@ swift build --package-path harness -c release --traits MLX
 
 Preparing an asset: a model directory holding `config.json`, the `*.safetensors`, and the tokenizer files
 (`tokenizer.json`, `tokenizer_config.json`). A Hugging Face snapshot works as it is, and the
-`mlx-community` quantised repositories are the usual choice. Put the directory under `<home>/models/mlx`
-(`config.json` `mlx.modelsDirectory`), or name it by path, or have wisp fetch an `mlx-community` one:
+`mlx-community` quantised repositories are the usual choice. Put the directory, or a link to it, under
+`<home>/models/mlx` (`config.json` `mlx.modelsDirectory`), or name it by path, or have wisp fetch an
+`mlx-community` one:
 
 ```
 wisp models pull mlx-community/Qwen3-1.7B-4bit
 ```
 
-The pull lists the repository, says how many files and bytes it would fetch and where, and asks before it
-fetches anything; it runs only from a terminal, and the default command policy refuses it to the model. It
-fetches only `mlx-community` repositories and only the top-level files a model directory needs (`json`,
-`safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each file's size and each weights file's SHA-256
-against the listing, and refuses before any request when the disk lacks the files plus 1 GiB. Files wait in a
-hidden `.<name>.partial` directory beside the destination until every one is in, so an interrupted pull keeps
-what it finished and the next run fetches the rest (a file cut off part-way starts again). The directory is
-then `mlx:<name>`; its capabilities are still yours to declare. Each pull is audited as `model.pull`
-([logging.md](logging.md)). It uses Hugging Face's tree listing (`/api/models/<repo>/tree/main`) and
-`resolve/main/<file>` downloads, tested against a repository served from memory; it has not yet been run
-against the Hub.
+The pull keeps the model in the Hugging Face cache, in `huggingface_hub`'s own layout, so a model Hugging
+Face's tools fetched is reused and one wisp fetches is theirs too; `<home>/models/mlx/<name>` becomes a link
+to the cache's snapshot. The cache is where `huggingface_hub` puts it: `HF_HUB_CACHE`, else
+`HUGGINGFACE_HUB_CACHE`, else `$HF_HOME/hub`, else `$XDG_CACHE_HOME/huggingface/hub`, else
+`~/.cache/huggingface/hub`.
+
+```
+~/.cache/huggingface/hub/models--mlx-community--Qwen3-1.7B-4bit/
+  blobs/<sha256 of each weights file, git blob id of each other file>
+  snapshots/<commit>/config.json -> ../../blobs/<id>      (one relative link per file)
+  refs/main                                               (the commit)
+~/.wisp/models/mlx/Qwen3-1.7B-4bit -> <cache>/models--mlx-community--Qwen3-1.7B-4bit/snapshots/<commit>
+```
+
+The pull lists the repository at the commit `main` is at, checks each file against the cache (there, the
+listed size, and each weights file's SHA-256, which reads it), and says per file whether it is already in the
+Hugging Face cache or to fetch. It asks before it downloads anything; when every file is already in the cache it
+asks nothing and only links. It runs only from a terminal, and the default command policy refuses it to the
+model. It fetches only `mlx-community` repositories and only the top-level files a model directory needs
+(`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each fetched file's size and each weights
+file's SHA-256 against the listing, and refuses before any download when the disk lacks what it will download
+plus 1 GiB. A file downloads into `blobs/<id>.incomplete` under `huggingface_hub`'s lock for it; another
+program holding the lock refuses the pull. An interrupted pull keeps the files it finished, and the next run
+fetches the rest (a file cut off part-way starts again).
+
+At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the model, becomes the link. A real
+directory, such as a copy fetched before the pull used the cache, stays unless you answer yes to a second
+question, asked once the snapshot is complete and checked; yes moves it to the Trash and links in its place.
+Anything else there refuses the pull. The model is then `mlx:<name>`; its capabilities are still yours to
+declare. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` names the complete
+`mlx-community` snapshots in the cache that nothing links yet; the pull links one without downloading.
+
+wisp follows a linked model to its real directory when it resolves it, for the window, the weights' size, and
+loading. The pull uses Hugging Face's model information (`/api/models/<repo>/revision/main`), its tree
+listing at that commit, and `resolve/<commit>/<file>` downloads, tested against a repository served from memory
+and a temporary cache; it has not yet been run against the Hub ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)
+lists what is unverified).
 
 Capabilities come from the operator, because MLX never infers them: declare per model in
 `config.json`, only what you have verified, and an undeclared model runs text-only conversations.

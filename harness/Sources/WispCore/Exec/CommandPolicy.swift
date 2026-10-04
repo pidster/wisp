@@ -204,7 +204,7 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     /// Resolves symlinks with `realpath(3)` (for example `/var` to `/private/var`) and strips a
     /// trailing slash. For a path that does not exist yet, the longest existing prefix is resolved
     /// and the remainder appended unchanged.
-    static func canonical(_ path: String) -> String {
+    public static func canonical(_ path: String) -> String {
         var existing = path
         var remainder: [String] = []
         var resolved = existing

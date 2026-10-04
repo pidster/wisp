@@ -127,6 +127,63 @@ The listing is Hugging Face's tree API (`/api/models/<repo>/tree/main`) and the 
 URLs. Tests serve a repository from memory through the `Transport` protocol; the real Hub was not contacted
 while this was built.
 
+**Refined 2026-10-04: into the Hugging Face cache, and linked.** The first pull on this Mac fetched
+`mlx-community/Qwen3-1.7B-4bit` into `~/.wisp/models/mlx` while `~/.cache/huggingface/hub` already held
+the same model, fetched earlier by Hugging Face's own tools: 984 MB stored twice, and the cache also held four
+other `mlx-community` models. The operator decided that wisp reuses the cache and pulls into it, so a model is
+stored once whichever tool fetched it. This replaces the hidden `.<name>.partial` directory above; the rest of
+the pull (terminal only, `mlx-community` only, the file allow-list, the size and SHA-256 checks, the 1 GiB margin,
+the model refused the command) stands.
+
+- **The cache** is `huggingface_hub`'s: `HF_HUB_CACHE`, else the older `HUGGINGFACE_HUB_CACHE`, else
+  `$HF_HOME/hub`, else `$XDG_CACHE_HOME/huggingface/hub`, else `~/.cache/huggingface/hub`. `huggingface_hub`
+  derives `HF_HOME`'s default from `XDG_CACHE_HOME`, so wisp does too. A leading `~` is expanded; `$VAR` inside a
+  value, which `huggingface_hub` also expands, is not, and an empty variable counts as unset.
+- **Its layout**, as `huggingface_hub` writes it: `models--mlx-community--<name>/blobs/<id>`, where the id is an
+  LFS file's SHA-256 (the listing's `lfs.oid`) and another file's git blob id (the listing's `oid`);
+  `snapshots/<revision>/<file>` as relative links `../../blobs/<id>`; and `refs/main` holding the revision.
+  The revision is the commit `sha` of `/api/models/<repo>/revision/main`, the call `snapshot_download` makes
+  first; the tree is then listed at that commit and each file fetched from `resolve/<revision>/<file>`, so the
+  files are the commit's even if `main` moves meanwhile. A blob downloads into `blobs/<id>.incomplete` and takes
+  its name once checked, under `huggingface_hub`'s lock file `.locks/models--…/<id>.lock` taken as an exclusive
+  `flock`, which is what its `filelock` takes on macOS; a held lock refuses the pull rather than waiting. An
+  `.incomplete` blob, wisp's or another tool's, is started again, not resumed.
+- **Reuse.** The plan checks each wanted file's blob before the question: present, the listed size, and for
+  weights the listed SHA-256, read in 4 MiB pieces (the blob may be gigabytes; the command says which file it is
+  checking). A blob of any revision counts, since its name is its content. Only the missing or wrong files are
+  fetched, the room needed is theirs plus the margin, and the question names how many and how many bytes. When
+  every file is in the cache there is no download question: the pull says each file is already in the Hugging
+  Face cache and links.
+- **The link.** `<models>/<name>` becomes an absolute link to the snapshot, so `mlx:<name>` resolves as before.
+  A link to another snapshot of the same model (an older revision, or one the operator made by hand) is pointed at
+  this one. A real directory there, such as the first pull's copy, is left as it is unless the person answers yes
+  to a second question, asked after the snapshot is complete and checked again file by file; on yes it goes to the
+  Trash, not deleted, and the link takes its place; on no the model is in the cache and the directory still serves
+  `mlx:<name>`. Anything else at that path (a file, a link elsewhere) refuses the pull before any request, since
+  replacing it would change what `mlx:<name>` runs.
+- **Resolution follows the link to its real directory.** Foundation's URL listing does not follow a link at the end
+  of the path, so a linked model's weights counted as 0 bytes when its window was sized (`ENOTDIR`, probed on this
+  Mac); the backend now resolves the model directory first, for the window, the engine, and the loader.
+- **`wisp models`** adds one line naming the complete `mlx-community` snapshots in the cache that nothing in the
+  models directory names, and that `wisp models pull mlx-community/<name>` links one without downloading. Complete
+  is judged without the network: `config.json` and a `*.safetensors`, no dangling entry, and every shard
+  `model.safetensors.index.json` names.
+- **Audit.** `model.pull` adds `cache` (the snapshot), `reused` (files the cache already held), `fetchedFiles`,
+  and `link` (`created`, `unchanged`, `replaced link`, `replaced directory`, `kept directory`), and the outcome
+  `linked` when nothing was downloaded.
+- **Tests** use a temporary cache and the fake Hub: a fresh pull's layout, links, `refs/main`, and the link; a
+  complete snapshot fetching nothing; a partial or interrupted one fetching only what is missing; a corrupt blob
+  (wrong size, wrong digest) fetched again; an `.incomplete` blob started again; a held lock; a real directory kept
+  or, with yes, replaced, and never while the snapshot lacks a file; a link repointed; the variables' precedence;
+  and the listing of unlinked models.
+- **Not verified against the live Hub** (no request was made while this was built): that the revision endpoint
+  returns `sha`; that the tree's `oid` for a file kept in git is the id `huggingface_hub` names its blob by (its
+  `ETag`); how Xet-backed files are named in the cache (taken to be their SHA-256, as LFS files are); that a tree
+  of a model's top level arrives in one page; and that `filelock` and wisp exclude each other in practice. A blob
+  named differently from what `huggingface_hub` would name it would be fetched again, not misused, since every
+  reuse is checked by size and weights by digest. The pull against the real Hub, listed below for 0.20.0, now
+  includes linking a model Hugging Face's tools fetched.
+
 ### Core AI's window
 
 `coreai:` models report the window their bundle was exported for, from `metadata.json`

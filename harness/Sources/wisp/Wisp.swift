@@ -826,19 +826,34 @@ struct Models: AsyncParsableCommand {
                 config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
                 width: TerminalTable.detectWidth())
             for line in lines { print(line) }
+            if let note = Self.unlinkedNote(config: config) { print(note) }
+        }
+
+        /// The complete `mlx-community` snapshots in the Hugging Face cache that the MLX models directory does
+        /// not link yet, and how to use them; nil when there are none or MLX is not in this build.
+        static func unlinkedNote(config: Config.Resolved) -> String? {
+            guard MLXBackend.isCompiledIn else { return nil }
+            let unlinked = HubCache.current().unlinked(in: MLXBackend.modelsDirectory(config: config, home: Wisp.home))
+            guard !unlinked.isEmpty else { return nil }
+            return "  (in the Hugging Face cache, not linked: \(unlinked.joined(separator: ", ")); "
+                + "wisp models pull <repository> links one without downloading)"
         }
     }
 
-    /// Fetches an `mlx-community` model from Hugging Face into the MLX models directory, after saying what it
-    /// will fetch and asking (ADR 0052). Only from a terminal: the question is the person's to answer.
+    /// Fetches an `mlx-community` model from Hugging Face into the Hugging Face cache and links the MLX models
+    /// directory to its snapshot, after saying what it will fetch and asking (ADR 0052, refined 2026-10-04). Files
+    /// already in the cache are reused, and a complete snapshot is only linked, without a download question.
+    /// Only from a terminal: the questions are the person's to answer.
     struct Pull: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Fetch an mlx-community model from Hugging Face, after asking.",
+            abstract: "Fetch an mlx-community model into the Hugging Face cache and link it, after asking.",
             discussion:
-                "Lists the repository, says how many files and bytes it would fetch and where, and asks before "
-                + "fetching. Only the configuration, weights, and tokenizer files are fetched; each is checked "
-                + "against the listing's size and, for weights, its SHA-256. An interrupted pull keeps the files "
-                + "it finished and the next run fetches the rest. Runs only from a terminal.")
+                "Lists the repository, checks which files the Hugging Face cache already holds (HF_HUB_CACHE, "
+                + "$HF_HOME/hub, or ~/.cache/huggingface/hub), says how many files and bytes it would fetch, and "
+                + "asks before fetching. Only the configuration, weights, and tokenizer files are fetched; each is "
+                + "checked against the listing's size and, for weights, its SHA-256. The models directory's "
+                + "<name> then links to the cache's snapshot; a directory already there is replaced only if you "
+                + "agree. Runs only from a terminal.")
 
         @Argument(help: "The repository, such as mlx-community/Qwen3-1.7B-4bit (mlx: before it is accepted).")
         var repository: String
@@ -853,54 +868,118 @@ struct Models: AsyncParsableCommand {
             let pull = ModelPull()
             let plan: ModelPull.Plan
             do {
-                plan = try await pull.plan(repository, into: directory)
+                plan = try await pull.plan(repository, into: directory) { file in
+                    Self.note("checking \(file.path) (\(Self.size(file.size))) in the Hugging Face cache")
+                }
             } catch let failure as ModelPull.Failure {
                 throw ValidationError("\(failure)")
             }
             print(Self.summary(of: plan))
-            print("Fetch it? [y/N] ", terminator: "")
-            let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-            let started = ContinuousClock.now
-            guard answer == "y" || answer == "yes" else {
-                record(plan, fetched: 0, outcome: "declined", reason: nil, started: started)
-                print("Nothing fetched.")
-                return
-            }
-            do {
-                let fetched = try await pull.fetch(plan) { file, index in
-                    let size = ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)
-                    FileHandle.standardError.write(Data("[\(index)/\(plan.files.count)] \(file.path) (\(size))\n".utf8))
+            var started = ContinuousClock.now
+            if !plan.missing.isEmpty {
+                print("Fetch \(plan.missing.count) of them, \(Self.size(plan.remaining))? [y/N] ", terminator: "")
+                started = ContinuousClock.now
+                guard Self.answeredYes() else {
+                    record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started)
+                    print("Nothing fetched.")
+                    return
                 }
-                record(plan, fetched: fetched, outcome: "fetched", reason: nil, started: started)
-            } catch let failure as ModelPull.Failure {
-                record(plan, fetched: 0, outcome: "failed", reason: "\(failure)", started: started)
-                throw ValidationError("\(failure)")
             }
-            print(
-                "Fetched into \(plan.destination.path). Use it as --model mlx:\(plan.name); declare what it can do "
-                    + "in config.json (mlx.models.\(plan.name).capabilities), only what you have verified.")
+            let fetched: Int
+            let linked: ModelPull.LinkOutcome
+            do {
+                fetched = try await pull.fetch(plan) { file, index in
+                    Self.note("[\(index)/\(plan.missing.count)] \(file.path) (\(Self.size(file.size)))")
+                }
+                var replace = false
+                if plan.link == .directory {
+                    print(
+                        "\(plan.destination.path) is a directory of its own, not a link to the cache. Move it to the "
+                            + "Trash and link \(plan.snapshot.path) in its place? [y/N] ", terminator: "")
+                    replace = Self.answeredYes()
+                }
+                linked = try pull.link(plan, replacingDirectory: replace)
+            } catch {
+                record(plan, fetched: 0, outcome: "failed", link: nil, reason: "\(error)", started: started)
+                throw ValidationError("\(error)")
+            }
+            record(
+                plan, fetched: fetched, outcome: plan.missing.isEmpty ? "linked" : "fetched", link: linked,
+                reason: nil, started: started)
+            print(Self.closing(plan, linked))
         }
 
-        /// What the pull would do, for the question.
+        /// Bytes for people.
+        static func size(_ bytes: Int) -> String {
+            ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        }
+
+        /// A progress line, on stderr.
+        static func note(_ text: String) {
+            FileHandle.standardError.write(Data("\(text)\n".utf8))
+        }
+
+        /// Reads a line and says whether it was yes.
+        static func answeredYes() -> Bool {
+            let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            return answer == "y" || answer == "yes"
+        }
+
+        /// What the pull would do, for the question: each file and whether the cache has it, where the snapshot
+        /// is, and what happens at the link's path.
         static func summary(of plan: ModelPull.Plan) -> String {
-            func size(_ bytes: Int) -> String {
-                ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+            func padded(_ text: String, _ width: Int) -> String {
+                text.padding(toLength: width, withPad: " ", startingAt: 0)
             }
+            let width = plan.files.map(\.path.count).max() ?? 0
+            let sizeWidth = plan.files.map { size($0.size).count }.max() ?? 0
             var lines = [
-                "\(plan.repository): \(plan.files.count) files, \(size(plan.bytes)), into \(plan.destination.path) "
-                    + "(as mlx:\(plan.name))"
+                "\(plan.repository) at \(plan.revision.prefix(12)): \(plan.files.count) files, \(size(plan.bytes))"
             ]
-            if !plan.present.isEmpty {
+            for file in plan.files {
+                let state = plan.reused.contains(file.path) ? "already in the Hugging Face cache" : "to fetch"
+                lines.append("  \(padded(file.path, width))  \(padded(size(file.size), sizeWidth))  \(state)")
+            }
+            lines.append("Snapshot: \(plan.snapshot.path)")
+            let destination = plan.destination.path
+            switch plan.link {
+            case .absent: lines.append("Link: \(destination) to the snapshot, as mlx:\(plan.name)")
+            case .current: lines.append("Link: \(destination) already points at the snapshot")
+            case .stale(let target):
+                lines.append("Link: \(destination) points at another snapshot (\(target)); it will point at this one")
+            case .directory:
                 lines.append(
-                    "\(plan.present.count) of them are already here from an earlier pull; \(size(plan.remaining)) to fetch"
-                )
+                    "Link: \(destination) is a directory of its own (an earlier copy); it stays unless you agree to "
+                        + "replace it")
+            }
+            if plan.missing.isEmpty {
+                lines.append("Every file is already in the Hugging Face cache; nothing to fetch.")
             }
             return lines.joined(separator: "\n")
         }
 
+        /// What the person reads at the end.
+        static func closing(_ plan: ModelPull.Plan, _ linked: ModelPull.LinkOutcome) -> String {
+            let declare =
+                "declare what it can do in config.json (mlx.models.\(plan.name).capabilities), only what you have "
+                + "verified."
+            switch linked {
+            case .keptDirectory:
+                return "The model is in the Hugging Face cache at \(plan.snapshot.path). \(plan.destination.path) "
+                    + "stays as it was, so mlx:\(plan.name) still runs that copy; run the pull again and answer yes "
+                    + "to replace it with a link."
+            case .replacedDirectory:
+                return "The directory is in the Trash and \(plan.destination.path) links to the snapshot. Use it as "
+                    + "--model mlx:\(plan.name); \(declare)"
+            case .created, .replacedLink, .unchanged:
+                return "\(plan.destination.path) links to the snapshot. Use it as --model mlx:\(plan.name); \(declare)"
+            }
+        }
+
         /// Records the pull in the audit log as `model.pull`.
         func record(
-            _ plan: ModelPull.Plan, fetched: Int, outcome: String, reason: String?, started: ContinuousClock.Instant
+            _ plan: ModelPull.Plan, fetched: Int, outcome: String, link: ModelPull.LinkOutcome?, reason: String?,
+            started: ContinuousClock.Instant
         ) {
             guard let session = try? Wisp.begin(.init(entryPoint: .models)) else { return }
             let elapsed = ContinuousClock.now - started
@@ -908,7 +987,9 @@ struct Models: AsyncParsableCommand {
                 .modelPull,
                 details: AuditEvent.Details.modelPull(
                     model: "mlx:\(plan.name)", repository: plan.repository, directory: plan.destination.path,
-                    files: plan.files.count, bytes: plan.bytes, fetched: fetched, outcome: outcome, reason: reason,
+                    cache: plan.snapshot.path, files: plan.files.count, bytes: plan.bytes, reused: plan.reused.count,
+                    fetchedFiles: outcome == "fetched" ? plan.missing.count : 0, fetched: fetched, link: link?.rawValue,
+                    outcome: outcome, reason: reason,
                     seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
             session.end()
         }

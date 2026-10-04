@@ -83,16 +83,20 @@ public struct MLXBackend: ModelBackend {
                 reason: "this build has no MLX support; build wisp with `swift build --traits MLX` on a Mac with the "
                     + "Metal toolchain (docs/backends.md)")
         }
-        let url = Self.modelURL(for: name, config: config, home: home)
-        guard FileManager.default.fileExists(atPath: url.appending(path: "config.json").path) else {
+        let named = Self.modelURL(for: name, config: config, home: home)
+        guard FileManager.default.fileExists(atPath: named.appending(path: "config.json").path) else {
             let directory = Self.modelsDirectory(config: config, home: home)
             let found = Self.models(in: directory).map(\.lastPathComponent)
             throw ModelSelection.Failure.unavailable(
                 model: selection.description,
-                reason: "no MLX model at \(url.path) (no config.json); models under \(directory.path): "
+                reason: "no MLX model at \(named.path) (no config.json); models under \(directory.path): "
                     + (found.isEmpty ? "none" : found.joined(separator: ", "))
-                    + "; put a Hugging Face snapshot or mlx-community model directory there")
+                    + "; put a Hugging Face snapshot or mlx-community model directory there, or link one with "
+                    + "wisp models pull mlx-community/<name>")
         }
+        // A linked model (a Hugging Face snapshot, as `wisp models pull` makes) is used by its real directory:
+        // Foundation's URL listings and the loader do not follow a link at the end of the path.
+        let url = named.resolvingSymlinksInPath()
         let (capabilities, declared) = try Self.declaredCapabilities(for: name, config: config)
         let engine = Self.engine(for: url)
         let sizing = Self.window(
@@ -133,13 +137,15 @@ public struct MLXBackend: ModelBackend {
             shape: shape, weights: weights, memory: memory, held: weightsHeld ? weights : 0, shortfall: shortfall)
     }
 
-    /// Bytes of the `*.safetensors` files in a model directory, following a snapshot's links.
+    /// Bytes of the `*.safetensors` files in a model directory, following a link to the directory and a
+    /// snapshot's links to its blobs.
     ///
     /// - Parameter directory: The model directory.
     /// - Returns: Their total size.
     static func weightBytes(in directory: URL) -> Int {
         let entries =
-            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory.resolvingSymlinksInPath(), includingPropertiesForKeys: nil)) ?? []
         return entries.filter { $0.pathExtension == "safetensors" }.reduce(0) { total, file in
             let real = file.resolvingSymlinksInPath()
             return total + ((try? real.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -229,10 +235,11 @@ public struct MLXBackend: ModelBackend {
         }
     #endif
 
-    /// Subdirectories of `directory` that hold a `config.json`, sorted.
+    /// Subdirectories of `directory` (or links to them) that hold a `config.json`, sorted.
     static func models(in directory: URL) -> [URL] {
         let entries =
-            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory.resolvingSymlinksInPath(), includingPropertiesForKeys: nil)) ?? []
         return entries.filter { FileManager.default.fileExists(atPath: $0.appending(path: "config.json").path) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }

@@ -19,10 +19,15 @@ Added:
 - Under each reply, beside `ran:`, a muted line names the entries the reply cites (`entry 19`, `entries 16-30`) that
   the conversation does not hold: `cited but not in this conversation: entries 19–30 (12)`. `wisp chat --json`
   carries it as `cited`, and `respond` returns `unknownEntries` and `cited` (ADR 0055).
-- `wisp models pull mlx-community/<name>` fetches an MLX model from Hugging Face into the MLX models directory,
-  after saying which files, how many bytes, and where, and asking. Only from a terminal, only `mlx-community`,
-  only the files a model directory needs, each checked against the listing (weights by SHA-256); an interrupted
-  pull resumes with the files it finished. Audited as `model.pull`; the model is refused the command (ADR 0052).
+- `wisp models pull mlx-community/<name>` fetches an MLX model from Hugging Face into the Hugging Face cache
+  (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`), in its own layout, so a model Hugging Face's tools
+  already fetched is reused file by file and nothing is stored twice, and links `mlx:<name>` to it. It says which
+  files are already in the cache and which it would fetch, how many bytes, and where, and asks before downloading;
+  a model the cache already holds is only linked. A directory already at the link's path is kept unless you agree to
+  move it to the Trash. Only from a terminal, only `mlx-community`, only the files a model directory needs, each
+  checked against the listing (weights by SHA-256); an interrupted pull resumes with the files it finished.
+  `wisp models` names cached models not yet linked. Audited as `model.pull`; the model is refused the command
+  (ADR 0052).
 - `mlx.contextLength` and `mlx.executor` in `config.json` (and `wisp config set`).
 
 Changed:

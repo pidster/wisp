@@ -431,7 +431,10 @@ serves, each shown only if it can serve a conversation. That is decided by logic
 the model must resolve (installed, reachable, entitled, and able to converse; an Ollama model that does
 not report `completion`, such as an embedding model, cannot) and must declare tool calling, since a
 conversation has tools. The configured default is marked with `*`; each line gives the backend's detail
-and the declared capabilities. A backend that does not answer gets one line in parentheses. On a
+and the declared capabilities. A backend that does not answer gets one line in parentheses, and so, in a
+build with MLX, do the complete `mlx-community` models in the Hugging Face cache that the MLX models
+directory does not link yet: `(in the Hugging Face cache, not linked: mlx-community/Qwen3-4B-4bit; wisp models
+pull <repository> links one without downloading)`. On a
 terminal the listing is aligned columns under a header (model, parameter count, size, capabilities),
 wrapped to the terminal's width; piped, it is the tab-separated lines shown below, for scripts.
 
@@ -482,27 +485,39 @@ tool the eval harness has measured ([measurements.md](measurements.md)).
 
 #### `wisp models pull <repository>`
 
-Fetches an `mlx-community` model from Hugging Face into the MLX models directory (`mlx.modelsDirectory`,
-default `<home>/models/mlx`), after asking. It lists the repository, says what it would fetch, and waits for
-`y`; anything else fetches nothing:
+Fetches an `mlx-community` model from Hugging Face into the Hugging Face cache and links the MLX models
+directory (`mlx.modelsDirectory`, default `<home>/models/mlx`) to it, after asking. The cache is
+`huggingface_hub`'s, shared with Hugging Face's own tools: `HF_HUB_CACHE`, else `HUGGINGFACE_HUB_CACHE`, else
+`$HF_HOME/hub`, else `$XDG_CACHE_HOME/huggingface/hub`, else `~/.cache/huggingface/hub`. A file already there
+is not fetched again. The pull lists the repository, says per file whether the cache has it, and, when anything
+is to be downloaded, waits for `y`; anything else fetches nothing:
 
 ```
 $ wisp models pull mlx-community/Qwen3-1.7B-4bit
-mlx-community/Qwen3-1.7B-4bit: 7 files, 938 MB, into /Users/you/.wisp/models/mlx/Qwen3-1.7B-4bit (as mlx:Qwen3-1.7B-4bit)
-Fetch it? [y/N]
+mlx-community/Qwen3-1.7B-4bit at 0123456789ab: 7 files, 938 MB
+  config.json            1 KB    already in the Hugging Face cache
+  model.safetensors      938 MB  to fetch
+  …
+Snapshot: /Users/you/.cache/huggingface/hub/models--mlx-community--Qwen3-1.7B-4bit/snapshots/0123…
+Link: /Users/you/.wisp/models/mlx/Qwen3-1.7B-4bit to the snapshot, as mlx:Qwen3-1.7B-4bit
+Fetch 6 of them, 938 MB? [y/N]
 ```
 
-(The file count and size above are illustrative; the pull prints the repository's own.) Each file is
-announced on stderr as it starts (`[2/7] model.safetensors (938 MB)`). Then the model is `mlx:<name>`, and its
-capabilities are yours to declare in `config.json`.
+(The revision, file count, and sizes above are illustrative; the pull prints the repository's own.) Each
+cached weights file is announced on stderr while its SHA-256 is checked, and each download as it starts
+(`[2/6] model.safetensors (938 MB)`). When every file is already in the cache there is no question: the pull
+says so and links. Then the model is `mlx:<name>`, and its capabilities are yours to declare in `config.json`.
 
 | Rule | Detail |
 | --- | --- |
 | Who | The person: it runs only from a terminal, and the default command policy refuses `wisp models pull` to the model |
 | What | Only `mlx-community/<name>` (`mlx:` before it is accepted), and only the top-level `json`, `safetensors`, `jinja`, `txt`, `model`, and `tiktoken` files; no README, images, or other formats |
-| Checks | Each file's size against the listing, and each weights file's SHA-256; refused before any request when the disk lacks the files plus 1 GiB; refused when the destination exists |
-| Interrupted | Finished files stay in `.<name>.partial` beside the destination; running the pull again fetches the rest. A file cut off part-way starts again |
-| Audit | `model.pull`, with the outcome `fetched`, `declined`, or `failed` ([logging.md](logging.md)) |
+| Where | `<cache>/models--mlx-community--<name>`, in `huggingface_hub`'s layout (`blobs/`, `snapshots/<commit>/` of relative links, `refs/main`); `<models>/<name>` links to the snapshot |
+| Reuse | A file whose blob is in the cache with the listed size, and for weights the listed SHA-256, is reused; a missing or wrong one is fetched |
+| Checks | Each fetched file's size against the listing, and each weights file's SHA-256; refused before any download when the disk lacks what will be downloaded plus 1 GiB |
+| At `<models>/<name>` | Nothing, or a link to another snapshot of the model: the link is made. A real directory: kept, unless you answer yes to a second question once the snapshot is complete, which moves it to the Trash and links in its place. Anything else: the pull is refused |
+| Interrupted | Finished files stay in the cache; running the pull again fetches the rest. A file cut off part-way (`blobs/<id>.incomplete`) starts again. Another program fetching the same file holds its lock, and the pull is refused until it finishes |
+| Audit | `model.pull`, with the outcome `fetched`, `linked`, `declined`, or `failed` ([logging.md](logging.md)) |
 
 See [backends.md](backends.md), "MLX Swift", and [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
 
@@ -845,7 +860,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, which otherwise gets it with all tools ([tools/memory.md](tools/memory.md)). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": true }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` is the third route, `display notification` sent to the terminal app by its bundle identifier; on by default since a probe on 2026-09-30 showed macOS attributing the banner to the app (Terminal.app, Ghostty); see [tools/notify.md](tools/notify.md). |
-| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories live for `mlx:<name>` models (and where `wisp models pull` puts them), and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). `contextLength`, when set, is the window of every MLX model; unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
+| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories, or links to them, live for `mlx:<name>` models (`wisp models pull` links a Hugging Face cache snapshot there), and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). `contextLength`, when set, is the window of every MLX model; unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |
@@ -860,7 +875,8 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30, "outOfBand": true }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), how long persisted approvals last, and whether `wisp mcp` also files each waiting command for `wisp approvals` and `wisp-tui`, with a notification (`outOfBand`; `false` asks through the client's dialog alone); see [approval.md](approval.md). |
 
 Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
-stderr.
+stderr. `wisp models pull` and `wisp models` find the Hugging Face cache through `huggingface_hub`'s variables
+(`HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, `XDG_CACHE_HOME`).
 
 ```json
 { "systemPromptExtension": "Prefer British spelling.", "commandTimeoutSeconds": 120 }
