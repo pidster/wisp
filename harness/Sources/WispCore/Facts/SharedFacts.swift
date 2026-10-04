@@ -77,7 +77,7 @@ public final class SharedFacts: Sendable {
             book.trimHistory(to: Self.historyLimit)
             return (change, book)
         }
-        if case .unchanged = change { return change }
+        guard change.changed else { return change }
         try save(snapshot)
         return change
     }

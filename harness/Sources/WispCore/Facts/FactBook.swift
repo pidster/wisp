@@ -57,14 +57,28 @@ public struct FactBook: Codable, Sendable, Equatable {
         case recorded(Fact)
         /// A new version replaced the source's previous one.
         case superseded(old: Fact, by: Fact)
-        /// The source's current version already says this; nothing was added.
+        /// The source's current version, or another source's at least as strong, already says this; nothing
+        /// was added.
         case unchanged(Fact)
+        /// The source's previous version gave way to another source's current fact, at least as strong, that
+        /// already says the new value; nothing was added.
+        case retired(old: Fact, by: Fact)
+        /// A new fact replaced several: the source's previous version and a weaker source's fact with the same
+        /// value, or that one alone.
+        case replaced(old: [Fact], by: Fact)
 
-        /// The fact now current for the assertion's identity and source.
+        /// The fact now current for the assertion's identity and value.
         public var fact: Fact {
             switch self {
-            case .recorded(let fact), .unchanged(let fact), .superseded(_, let fact): fact
+            case .recorded(let fact), .unchanged(let fact), .superseded(_, let fact), .retired(_, let fact),
+                .replaced(_, let fact):
+                fact
             }
+        }
+
+        /// Whether the book changed.
+        public var changed: Bool {
+            if case .unchanged = self { false } else { true }
         }
     }
 
@@ -93,6 +107,11 @@ public struct FactBook: Codable, Sendable, Equatable {
     /// current one, or nothing when the current one already has the same value. The assertion's scope is
     /// taken as given; it should be this book's.
     ///
+    /// The same value is held once: when another source's current fact already says it, an assertion from a
+    /// source no stronger adds nothing (its own previous version, if any, gives way to that fact), and one from a
+    /// stronger source replaces it, so the value is kept under the strongest source that asserted it. Different
+    /// values from different sources still stand side by side, for `FactView` to show as a conflict.
+    ///
     /// - Parameter assertion: What to record.
     /// - Returns: What changed.
     @discardableResult
@@ -101,6 +120,18 @@ public struct FactBook: Codable, Sendable, Equatable {
             $0.identity == assertion.identity && $0.source == assertion.source && $0.state == .current
         }
         if let head, facts[head].value == assertion.value { return .unchanged(facts[head]) }
+        let same = facts.indices.filter {
+            facts[$0].identity == assertion.identity && facts[$0].source != assertion.source
+                && facts[$0].state == .current && facts[$0].value == assertion.value
+        }
+        if let strongest = same.max(by: { facts[$0].rank < facts[$1].rank }),
+            facts[strongest].rank >= assertion.source.rank
+        {
+            guard let head else { return .unchanged(facts[strongest]) }
+            facts[head].state = .superseded
+            facts[head].supersededBy = facts[strongest].id
+            return .retired(old: facts[head], by: facts[strongest])
+        }
         let version =
             (facts.filter { $0.identity == assertion.identity && $0.source == assertion.source }.map(\.version).max()
                 ?? 0) + 1
@@ -111,10 +142,13 @@ public struct FactBook: Codable, Sendable, Equatable {
             turn: assertion.turn, supersededBy: nil, state: .current, approved: nil)
         next += 1
         facts.append(fact)
-        guard let head else { return .recorded(fact) }
-        facts[head].state = .superseded
-        facts[head].supersededBy = fact.id
-        return .superseded(old: facts[head], by: fact)
+        let replaced = (head.map { [$0] } ?? []) + same
+        for index in replaced {
+            facts[index].state = .superseded
+            facts[index].supersededBy = fact.id
+        }
+        if same.isEmpty, let head { return .superseded(old: facts[head], by: fact) }
+        return replaced.isEmpty ? .recorded(fact) : .replaced(old: replaced.map { facts[$0] }, by: fact)
     }
 
     /// Adds `fact` as it is, under a new id of this book, superseding any current fact of the same identity

@@ -210,6 +210,14 @@ extension Agent {
             turnFactIDs.append(fact.id)
             audit?.record(.factRecorded, details: AuditEvent.Details.factRecorded(fact, supersedes: old.id))
             audit?.record(.factSuperseded, details: AuditEvent.Details.factSuperseded(old, by: fact.id))
+        case .replaced(let olds, let fact):
+            turnFactIDs.append(fact.id)
+            audit?.record(.factRecorded, details: AuditEvent.Details.factRecorded(fact, supersedes: olds.first?.id))
+            for old in olds {
+                audit?.record(.factSuperseded, details: AuditEvent.Details.factSuperseded(old, by: fact.id))
+            }
+        case .retired(let old, let fact):
+            audit?.record(.factSuperseded, details: AuditEvent.Details.factSuperseded(old, by: fact.id))
         case .unchanged:
             break
         }

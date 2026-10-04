@@ -221,7 +221,10 @@ announce nothing; `respond` counts them in `factsProposed` ([mcp.md](mcp.md), "F
 scope").
 
 **Versions and precedence.** A newer assertion about the same identity from the same source supersedes the
-older, which stays as history; one with the same value adds nothing. Different sources stand side by side,
+older, which stays as history; one with the same value adds nothing. A value is held once: when another
+source's current fact already says it, an assertion from a source no stronger adds nothing (its own older
+value, if any, gives way to that fact), and one from a stronger source replaces it, so the value stands
+under the strongest source that asserted it. Different values from different sources stand side by side,
 and precedence picks the winner: the person and an MCP caller, then a tool, then the model, the newer on a
 tie; a fact the person approved ranks with the person. When the current heads of different sources
 disagree (compared after case folding and collapsing whitespace), the identity is in conflict: the model

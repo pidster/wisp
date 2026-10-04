@@ -39,6 +39,52 @@ import Testing
         #expect(FactView(book.facts).groups.map(\.winner.value) == ["passed (exit status 0)"])
     }
 
+    /// The same value from two sources is one fact (2026-10-04: a workdir fact from the chat's start and the
+    /// same one from the person's `!` command stood side by side).
+    @Test func theSameValueFromAWeakerOrEqualSourceAddsNothing() {
+        var book = FactBook(scope: .thread)
+        let person = book.record(Self.assertion("/repo", source: .person)).fact
+        #expect(book.record(Self.assertion("/repo", source: .tool)) == .unchanged(person))
+        #expect(book.record(Self.assertion("/repo", source: .caller)) == .unchanged(person))
+        #expect(book.current == [person])
+    }
+
+    @Test func theSameValueFromAStrongerSourceReplacesTheWeakerFact() {
+        var book = FactBook(scope: .thread)
+        let tool = book.record(Self.assertion("/repo", source: .tool)).fact
+        let change = book.record(Self.assertion("/repo", source: .person))
+        guard case .replaced(let olds, let person) = change else {
+            Issue.record("expected a replacement, got \(change)")
+            return
+        }
+        #expect(olds.map(\.id) == [tool.id] && olds.first?.supersededBy == person.id)
+        #expect(book.current.map(\.source) == [.person] && book.current.map(\.value) == ["/repo"])
+    }
+
+    @Test func aSourcesOldValueGivesWayToAStrongerFactThatAlreadySaysTheNewOne() {
+        var book = FactBook(scope: .thread)
+        let person = book.record(Self.assertion("/b", source: .person)).fact
+        let tool = book.record(Self.assertion("/a", source: .tool)).fact
+        // The tool now sees what the person said: its old value retires in favour of the person's fact.
+        let change = book.record(Self.assertion("/b", source: .tool))
+        #expect(change == .retired(old: book.fact(tool.id) ?? tool, by: person))
+        #expect(book.fact(tool.id)?.supersededBy == person.id)
+        #expect(book.current == [person])
+    }
+
+    @Test func aStrongerSourceChangingToAWeakerSourcesValueReplacesBoth() {
+        var book = FactBook(scope: .thread)
+        let old = book.record(Self.assertion("/a", source: .person)).fact
+        let tool = book.record(Self.assertion("/b", source: .tool)).fact
+        let change = book.record(Self.assertion("/b", source: .person))
+        guard case .replaced(let olds, let person) = change else {
+            Issue.record("expected a replacement, got \(change)")
+            return
+        }
+        #expect(Set(olds.map(\.id)) == [old.id, tool.id] && person.version == 2)
+        #expect(book.current.map(\.value) == ["/b"] && book.current.map(\.source) == [.person])
+    }
+
     @Test func sourcesStandSideBySideAndThePersonWins() {
         var book = FactBook(scope: .thread)
         book.record(Self.assertion("passed", source: .model, time: Date(timeIntervalSince1970: 3000)))

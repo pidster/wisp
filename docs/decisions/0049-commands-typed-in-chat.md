@@ -53,6 +53,10 @@ here the person does, which changes what each step is for.
   Refined by the operator on 2026-10-04, before release: Backspace with the cursor at the start of the
   line also switches back, keeping the text typed so far as an ordinary message; and the opposite, `!`
   typed at the start of a line that has text switches it to command mode, the text becoming the command.
+  Also on 2026-10-04: a fact from a typed command's output keeps the source `person`, but a value is held
+  once across sources, so the workdir fact a chat records at its start and the same one from `! pwd` do
+  not stand side by side; the stronger source keeps it ([context-management.md](../context-management.md),
+  "Versions and precedence").
 - **The input box shows command mode.** In command mode the input box's background changes from `Deep`
   (#253B4E) to a muted pale amber, slightly more orange than yellow, with black text: a new palette
   colour, `command`, **#E8B577**, chosen by the operator on 2026-10-04 from three rendered candidates

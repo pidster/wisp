@@ -26,6 +26,8 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ### Fixed
 
+- A fact with the same value from two sources (a chat's workdir and the same one from a `!` command)
+  showed twice; a value is now held once, under the strongest source that asserted it.
 - Two approvals asked at the same moment over MCP, on a channel not used before (a fresh `~/.wisp/pending`),
   could have one refused as "the pending directory is not safe to use": the directory is now created with
   its private mode in one step, so no request sees it half-made.
