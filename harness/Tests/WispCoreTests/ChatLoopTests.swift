@@ -31,7 +31,7 @@ import WispTestSupport
             turns.withLock { $0 }.map { mark in
                 switch mark {
                 case .start(let turn): "start \(turn)"
-                case .end(let turn, _, let failed, _, _): "end \(turn)\(failed ? " failed" : "")"
+                case .end(let turn, _, let failed, _, _, _): "end \(turn)\(failed ? " failed" : "")"
                 }
             }
         }

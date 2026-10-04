@@ -132,7 +132,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "output": null, "contextNote": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
@@ -232,6 +232,16 @@ only if it wants to spend its own context on it:
 The output is what the tool returned to the model: `run_command`'s rendering of the exit status and the
 tail of each stream, `read_file`'s numbered page, each already bounded by the tool. The list holds at most
 64 calls. `receipt` is unchanged beside it.
+
+`ran` is the same turn in one line, as chat prints it under the reply: the tools in the order of their first
+call with their counts, and how many calls failed (a non-zero exit status, a timeout, a command that could not
+start, a tool error), were denied by the policy, or were declined at approval, as in `ran: read_file ×2 ·
+run_command ×3 (1 failed, 1 denied)`; at most six tools are named, then `+N more`. It is counted from the
+turn's audit events, never from the reply, and every call is counted, past the 64 that `calls` lists. It is
+null when the turn ran no tool, except that a reply naming one of the thread's tools then gets `ran: no
+tools`, since the reply may describe work that did not happen
+([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)). The text content the caller's model
+reads is the reply alone, as before.
 
 This is the same rule chat follows (decision D12): the transcript carries every tool's real output, from
 the same `tool.result` audit event, whatever the model's reply says, and only the rendering differs by

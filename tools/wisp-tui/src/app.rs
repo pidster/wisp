@@ -14,7 +14,7 @@ use crate::editor::{Edit, Editor};
 use crate::markdown;
 use crate::palette;
 use crate::picker::Picker;
-use crate::protocol::{Approval, Inbound, Notice, Outbound, Status, ToolOutput, View};
+use crate::protocol::{Approval, Inbound, Notice, Outbound, Status, ToolOutput, Turn, View};
 
 /// Rows the band occupies with a one-row input: reply in progress, dialog, a half-height strip, the
 /// input, a half-height strip, status. The strips are rows of half-block glyphs in the tint, which read
@@ -319,6 +319,29 @@ impl App {
         }
     }
 
+    /// A turn's start or end: the status line's turn state, and at the end the line of what the turn ran
+    /// (ADR 0051), under the reply as a muted note.
+    fn turned(&mut self, turn: &Turn) {
+        self.flush_partial();
+        self.in_fence = false;
+        if !turn.is_start() {
+            self.activity = None;
+        }
+        if let Some(ran) = &turn.ran {
+            self.push(ran, LineKind::Note);
+        }
+        self.turn = Some(if turn.is_start() {
+            self.busy = true;
+            TurnState::Running(turn.number)
+        } else {
+            TurnState::Ended {
+                seconds: turn.seconds.unwrap_or(0.0),
+                failed: turn.outcome.as_deref() == Some("error"),
+                tokens: turn.input_tokens.zip(turn.output_tokens),
+            }
+        });
+    }
+
     /// Applies one line from wisp.
     pub fn handle(&mut self, outbound: Outbound) {
         match outbound {
@@ -366,23 +389,7 @@ impl App {
                     since: now,
                 });
             }
-            Outbound::Turn(turn) => {
-                self.flush_partial();
-                self.in_fence = false;
-                if !turn.is_start() {
-                    self.activity = None;
-                }
-                self.turn = Some(if turn.is_start() {
-                    self.busy = true;
-                    TurnState::Running(turn.number)
-                } else {
-                    TurnState::Ended {
-                        seconds: turn.seconds.unwrap_or(0.0),
-                        failed: turn.outcome.as_deref() == Some("error"),
-                        tokens: turn.input_tokens.zip(turn.output_tokens),
-                    }
-                });
-            }
+            Outbound::Turn(turn) => self.turned(&turn),
             Outbound::Event(event) => {
                 if event.text.is_some() || event.output.is_some() {
                     self.flush_partial();
@@ -1522,7 +1529,7 @@ fn answered(command: &str, decision: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Choice, ChoiceOption, Event, FactAsk, Turn};
+    use crate::protocol::{Choice, ChoiceOption, Event, FactAsk};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Modifier;
@@ -1821,7 +1828,29 @@ mod tests {
             outcome: outcome.map(str::to_string),
             input_tokens: None,
             output_tokens: None,
+            ran: None,
         }
+    }
+
+    #[test]
+    fn a_turns_end_shows_what_it_ran_under_the_reply_muted() {
+        let mut app = App::default();
+        app.handle(Outbound::Turn(turn("start", 1, None, None)));
+        app.handle(Outbound::Delta {
+            text: "Removed it.".into(),
+        });
+        let mut ended = turn("end", 1, Some(1.0), Some("ok"));
+        ended.ran = Some("ran: no tools".into());
+        app.handle(Outbound::Turn(ended));
+        assert_eq!(
+            texts(&mut app),
+            vec![
+                ("Removed it.".to_string(), LineKind::Reply),
+                ("ran: no tools".to_string(), LineKind::Note)
+            ]
+        );
+        app.handle(Outbound::Turn(turn("end", 2, Some(1.0), Some("ok"))));
+        assert!(texts(&mut app).is_empty());
     }
 
     #[test]

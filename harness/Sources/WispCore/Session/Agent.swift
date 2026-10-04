@@ -75,6 +75,9 @@ public final class Agent {
     var factConflicts: Set<FactIdentity.Key> = []
     /// The ids of the facts recorded or changed since the current turn began (`factsChangedThisTurn`).
     var turnFactIDs: [String] = []
+    /// What the last stored turn ran, counted from its audit events (ADR 0051); nil before the first, or for an
+    /// agent without a `ToolEventTrail`, which cannot see its tools' events.
+    var turnTools: TurnToolSummary?
     /// How many times `reset` has started a fresh conversation; each is a conversation of its own among the
     /// process's proposals (`threadID`), since its store numbers its facts from `c1` again.
     private(set) var generation = 0
@@ -501,6 +504,7 @@ public final class Agent {
         let added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
         let turn = turns.current
         let events = toolEvents?.take(turn: turn) ?? []
+        turnTools = toolEvents == nil ? nil : TurnToolSummary(events: events, turn: turn)
         let sources = ThreadRecord.sources(
             for: added, prompt: prompt, response: response, toolEvents: events)
         let now = Date()
@@ -575,13 +579,19 @@ public final class Agent {
         /// Why the context could not be condensed to its target this turn, for the person (`Agent.contextNote`);
         /// nil when it could, or nothing was condensed.
         public var contextNote: String?
+        /// What the turn ran, from its audit events, as one line for beside the reply (`TurnToolSummary.line`,
+        /// ADR 0051); nil when it ran no tool and the reply names none.
+        public var ran: String?
 
         /// Creates a reply.
-        public init(text: String, condensed: Bool, facts: [Fact] = [], contextNote: String? = nil) {
+        public init(
+            text: String, condensed: Bool, facts: [Fact] = [], contextNote: String? = nil, ran: String? = nil
+        ) {
             self.text = text
             self.condensed = condensed
             self.facts = facts
             self.contextNote = contextNote
+            self.ran = ran
         }
     }
 
@@ -667,6 +677,7 @@ public final class Agent {
             remember(prompt: prompted, response: responded, started: started)
             cutPresentation(turn: turns.current)
             reply.facts = factsChangedThisTurn
+            reply.ran = turnTools?.line(reply: text, tools: tools.map(\.name))
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")

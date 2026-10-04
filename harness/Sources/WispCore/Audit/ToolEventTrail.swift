@@ -1,8 +1,9 @@
 import Synchronization
 
-/// Keeps a conversation's recent `tool.call` and `tool.result` events in memory, so the agent can link
-/// the tool calls and outputs of a turn's transcript to the audit events that recorded them
-/// (`ThreadRecord`). The tools record their own events, which the agent never sees; a conversation
+/// Keeps a conversation's recent tool events in memory, so the agent can link the tool calls and outputs of a
+/// turn's transcript to the audit events that recorded them (`ThreadRecord`), and count what the turn ran
+/// (`TurnToolSummary`): `tool.call` and `tool.result`, and the `policy.decision`, `command.outcome`, and
+/// `error` events that say how a call ended. The tools record their own events, which the agent never sees; a conversation
 /// adds this sink to its audit log (`WispThread.setUp`) and hands it to the agent.
 ///
 /// Bounded: only the newest `capacity` events are kept, and taking a turn's events forgets that turn and
@@ -12,17 +13,19 @@ public final class ToolEventTrail: AuditSink, Sendable {
     private let events = Mutex<[AuditEvent]>([])
     /// How many events are kept at most.
     public let capacity: Int
+    /// The kinds kept.
+    static let kinds: Set<AuditEvent.Kind> = [.toolCall, .toolResult, .policyDecision, .commandOutcome, .error]
 
     /// Creates an empty trail.
     ///
     /// - Parameter capacity: How many events to keep; older ones are dropped first.
-    public init(capacity: Int = 256) {
+    public init(capacity: Int = 512) {
         self.capacity = capacity
     }
 
-    /// Keeps a tool call or result, dropping the oldest beyond the capacity; ignores every other kind.
+    /// Keeps a tool event, dropping the oldest beyond the capacity; ignores every other kind.
     public func write(_ event: AuditEvent) {
-        guard event.kind == .toolCall || event.kind == .toolResult else { return }
+        guard Self.kinds.contains(event.kind) else { return }
         events.withLock {
             $0.append(event)
             if $0.count > capacity { $0.removeFirst($0.count - capacity) }

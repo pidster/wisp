@@ -122,6 +122,8 @@ its root causes when it failed.
 - The per-call view of `inspect(audit)` serves a model asked to check its own turn, but it does not make a
   model honest: the runs above show a model restating its claims over evidence it did not read. A check
   wisp makes itself, from the turn's audit events, is a separate decision, still open.
+  2026-10-04: decided in [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md), a line of what the turn
+  ran beside each reply.
 - Each tool's fixed constant goes; tests cover the budget for small, large, and unknown windows, a change
   of model mid-conversation, the floor and ceiling, the marker's account for each tool, paging and
   condensing over a stored output, both summaries of a succeeded and a failed build log, a log without an

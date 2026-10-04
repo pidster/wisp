@@ -11,7 +11,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built) |
+| 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built); what the turn ran, beside the reply (built) |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
@@ -35,6 +35,11 @@ release's preflight still runs the eval's floors, as a guard against regressions
 - **Where the summary is shown** (built 2026-10-04). It has a place of its own: `/inspect summary [all]` in
   chat and `wisp-tui`'s panel, and `wisp://threads/{id}/summary` over MCP; `/inspect facts` and
   `wisp://threads/{id}/facts` show only facts.
+- **What the turn ran, beside the reply** (built 2026-10-04,
+  [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)). One muted line under each reply,
+  counted from the turn's audit events: `ran: read_file ×2 · run_command ×3 (1 failed, 1 denied)`, or `ran:
+  no tools` when a reply names a tool and none ran. In chat, `wisp-tui`, and `respond`'s `ran`. Checking the
+  reply against it with a model is left for 0.20.0.
 
 ## 0.19.0
 

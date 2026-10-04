@@ -23,6 +23,10 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   the cursor, and keys typed meanwhile are held and applied when the turn ends instead of being dropped.
 - `wisp chat --json`: `/inspect summary [all]` answers with a `view` of kind `summary`, and a typed command's
   `command.typed` event carries its `output` as a `tool.result` does.
+- Under each reply, a muted line of what the turn actually ran, counted from its audit events, never from the
+  reply: `ran: read_file ×2 · run_command ×3 (1 failed, 1 denied)`, or `ran: no tools` when a reply names a
+  tool none of which ran. In chat, `wisp-tui` (`ran` on the turn's end in `wisp chat --json`), and `respond`'s
+  `structuredContent.ran` (ADR 0051).
 
 ### Changed
 

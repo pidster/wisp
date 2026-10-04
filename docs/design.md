@@ -132,8 +132,11 @@ handling). One turn, as the agent runs it:
 5. The entries the session added, whether the turn succeeded or failed, go into the store, each with
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
    it, and its time. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every
-   `WispThread` tees its log into. The frame's entries are not stored. From the same tool events the
-   agent extracts facts without a model (`FactExtraction`) and records them, then renders the frame again.
+   `WispThread` tees its log into; it keeps `tool.call`, `tool.result`, `policy.decision`, `command.outcome`,
+   and `error`. The frame's entries are not stored. From the same tool events the agent extracts facts without
+   a model (`FactExtraction`) and records them, then renders the frame again, and counts what the turn ran
+   (`TurnToolSummary`, [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)): the line every
+   face shows beside the reply, as `Agent.Reply.ran`.
 6. After a turn that succeeded, the composer looks in each of its replies for presentational text:
    a stretch that reproduces one of the turn's tool outputs exactly, formatting aside (`Presentation`).
    The agent marks each stretch on the reply's store entry as a `Cut` (segment, byte range, the output's

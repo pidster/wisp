@@ -325,8 +325,8 @@ public struct WispServer: Sendable {
     }
 
     /// Finds or creates the thread, runs the prompt, and reports the thread id, whether it was condensed,
-    /// the gate's refusals, the turn's receipt, and its tool calls with their output inline or by reference
-    /// (D9 of the layered-context proposal).
+    /// the gate's refusals, the turn's receipt, its tool calls with their output inline or by reference
+    /// (D9 of the layered-context proposal), and `ran`, the line of what the turn ran (ADR 0051).
     private func respond(_ request: RespondRequest) async -> CallTool.Result {
         let id = request.threadID ?? UUID().uuidString.lowercased()
         let opened: ThreadRegistry<OpenThread>.Opened
@@ -386,6 +386,7 @@ public struct WispServer: Sendable {
                     "refusals": .array(
                         refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
+                    "ran": reply.ran.map { .string($0) } ?? .null,
                     "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
                     "notifications": Value(json: Self.notifications(in: events)),
                     "factsProposed": Value(json: factsProposed(thread: id)),

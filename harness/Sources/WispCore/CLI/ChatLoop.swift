@@ -6,13 +6,17 @@ public enum ChatTurn: Equatable, Sendable {
     /// The message has gone to the model; `turn` is the number its audit events carry.
     case start(turn: Int)
     /// The reply is complete, or the turn failed with the error noted before this. `tokens` is what the
-    /// turn's requests used, when the model reports it; `facts` are the ones the turn recorded or changed.
-    case end(turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil, facts: [Fact] = [])
+    /// turn's requests used, when the model reports it; `facts` are the ones the turn recorded or changed;
+    /// `ran` is what the turn ran, from its audit events (`TurnToolSummary`, ADR 0051), nil when there is
+    /// nothing to show.
+    case end(
+        turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil, facts: [Fact] = [], ran: String? = nil)
 
-    /// The line under a reply in the terminal chat: how long the turn took and, when the model reports
-    /// them, the tokens it read (↓, pale yellow) and wrote (↑, pale blue). Nil for a turn's start.
+    /// The lines under a reply in the terminal chat, muted: what the turn ran, when there is a line for it
+    /// (ADR 0051), and how long the turn took and, when the model reports them, the tokens it read (↓, pale
+    /// yellow) and wrote (↑, pale blue). Nil for a turn's start.
     public func footer(style: Style) -> String? {
-        guard case .end(_, let seconds, let failed, let tokens, _) = self else { return nil }
+        guard case .end(_, let seconds, let failed, let tokens, _, let ran) = self else { return nil }
         var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
         if let tokens {
             // No rate: the turn's time includes its commands and approvals, so tokens over it is not the
@@ -20,7 +24,7 @@ public enum ChatTurn: Equatable, Sendable {
             parts.append(
                 style.tokensIn("↓\(tokens.input.formatted())") + " " + style.tokensOut("↑\(tokens.output.formatted())"))
         }
-        return "  "
+        return (ran.map { "  " + style.muted($0) + "\n" } ?? "") + "  "
             + parts.enumerated().map { $0.offset == 0 ? style.muted($0.element) : $0.element }
             .joined(separator: style.muted(" · "))
     }
@@ -382,9 +386,9 @@ public struct ChatLoop {
                 io.turn(.start(turn: number))
                 context.activity?.begin()
                 var failed = false
-                var facts: [Fact] = []
+                var reply: Agent.Reply?
                 do {
-                    facts = try await agent.stream(text) { io.write($0) }.facts
+                    reply = try await agent.stream(text) { io.write($0) }
                     io.print("")
                 } catch {
                     failed = true
@@ -395,8 +399,8 @@ public struct ChatLoop {
                 io.turn(
                     .end(
                         turn: number, seconds: Date().timeIntervalSince(started), failed: failed,
-                        tokens: .between(before, agent.tokensUsed), facts: facts))
-                if let note = FactReport.newFacts(facts) { io.note(style.muted(note)) }
+                        tokens: .between(before, agent.tokensUsed), facts: reply?.facts ?? [], ran: reply?.ran))
+                if let note = FactReport.newFacts(reply?.facts ?? []) { io.note(style.muted(note)) }
             }
         }
         if let saveName {

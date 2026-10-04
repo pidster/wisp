@@ -109,6 +109,9 @@ pub struct Turn {
     /// At the end, the tokens the turn wrote, when the model reports them.
     #[serde(rename = "outputTokens")]
     pub output_tokens: Option<u64>,
+    /// At the end, the line of what the turn ran, from its audit events (ADR 0051), shown under the reply;
+    /// absent when there is nothing to show.
+    pub ran: Option<String>,
 }
 
 impl Turn {
@@ -430,6 +433,11 @@ mod tests {
         assert!(
             matches!(&end, Outbound::Turn(t) if !t.is_start() && t.outcome.as_deref() == Some("error"))
         );
+        let ran = Outbound::parse(
+            r#"{"type":"turn","phase":"end","turn":3,"seconds":1,"outcome":"ok","ran":"ran: read_file ×2"}"#,
+        );
+        assert!(matches!(&ran, Outbound::Turn(t) if t.ran.as_deref() == Some("ran: read_file ×2")));
+        assert!(matches!(&end, Outbound::Turn(t) if t.ran.is_none()));
         let choice = Outbound::parse(
             r#"{"type":"choice","id":"c","title":"pick","options":[{"value":"a","label":"A","detail":""}],"current":null,"acceptsText":true}"#,
         );
