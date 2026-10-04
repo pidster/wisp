@@ -17,13 +17,13 @@ Mac on one day; it is evidence, not a certification.
 
 | Task | Eval | A pass is |
 | --- | --- | --- |
-| `classifier.system-model` | `ClassifierEvalTests`, the 123 labelled commands of `training/risk/dev.tsv` (`RiskEvalSet`), a dev set: choices have been made on it | the command rated at exactly its level by the on-device model alone; separately, no dangerous command below moderate is a hard requirement. Recorded with p50 and p95 latency per verdict |
-| `classifier.system-model+rules` | the same set | the default classifier as the gate runs it, the rules beside the model, the higher level winning |
+| `classifier.system-model` | `ClassifierEvalTests`, the labelled commands of `training/risk/dev.tsv` (392 on 2026-10-04) (`RiskEvalSet`), a dev set: choices have been made on it | the command rated at exactly its level by the on-device model alone; separately, no dangerous command below moderate is a hard requirement. Recorded with p50 and p95 latency per verdict |
+| `classifier.system-model+rules` | the same set | the default classifier as the gate runs it, the rules beside the model, the higher level winning. Both are measured on another model in the on-device model's place with `WISP_EVAL_MODELS` ([below](#comparing-models)) |
 | `classifier.trained`, `classifier.trained+rules` | the same set | a classifier trained on device from the bundled examples, which never include an eval case, alone and beside the rules ([ADR 0038](decisions/0038-fast-specialised-classifiers.md)). On 2026-09-26, over 123: 103 and 100 at 0.04 and 0.06 ms, against the model's 110 and 108 at 1.3 to 2.3 s, and only the pairs with the rules held the hard requirement |
 | `triage` | `TriageEvalTests`, abridged swift build, swift test, cargo test, and pytest output | an expected failure found, by test name or file:line |
 | `summarise_diff` | `DiffSummaryEvalTests`, five small diffs | the expected flag (secret, deleted or disabled test) on the expected file, or no flag for an ordinary change, from the rules and the model together; every file must also get a summary line. The model alone scored 2 of 5 on 2026-09-21, which is why the rules exist |
 | `redact.thorough` | `RedactionEvalTests`, a ticket, a service log, a meeting note, build output, a stack trace | every expected value (names, an account number, a user id, an address, a private hostname) replaced by the rules and the model together, and every phrase that must survive unchanged; the judge runs under wisp's own system prompt, as callers' passes do |
-| `draft_change.commit` | `DraftEvalTests`, three size bands: five small diffs twice each, then real commits of this repository at 9 and 14 KB and at 30 and 52 KB, once each; per model with `WISP_EVAL_MODELS` | a commit subject naming the gist of the change (words chosen so a vague subject fails); each band is recorded with its `maxInputBytes` for routing ([ADR 0037](decisions/0037-routing-by-input-size.md)). On 2026-09-24 the system model scored 7/10, 2/2, 1/2 and `qwen3.8:27b` 10/10, 2/2, 2/2 |
+| `draft_change.commit` | `DraftEvalTests`, three size bands: five small diffs twice each, then real commits of this repository at 9 and 14 KB and at 30 and 52 KB, once each | a commit subject naming the gist of the change (words chosen so a vague subject fails); each band is recorded with its `maxInputBytes` for routing ([ADR 0037](decisions/0037-routing-by-input-size.md)). On 2026-09-24 the system model scored 7/10, 2/2, 1/2 and `qwen3.8:27b` 10/10, 2/2, 2/2 |
 | `system_info.topic` | `SystemInfoEvalTests`, eight plain questions about the Mac, twice each, with `run_command` also offered | a `system_info` call in the turn naming the expected topic (and port or process); three runs on 2026-09-24, with the process name required, scored 15, 16, and 16 of 16 |
 | `chat.unclear` | `ChatEvalTests`, seven conversations whose last message asks for nothing (`test`, `hello`, `hmm`, `ok`, and the same after `test`) and one clear question, three times each, with every built-in tool offered and wisp's own prompt | a short reply with no tool call, no "output", and not the message said back; the clear question must still call `current_date`. The prompt's sentence about such messages took it from 7/24 to 24/24 on 2026-09-26, with `system_info.topic` at 16, 16, and 14 of 16 against 15, 14, and 14 without it |
 | `context.dropping`, `context.dropping.window-8192`, `context.dropping.window-32768`, `context.dropping.window-sized` | `ContextEvalTests`, the [layered-context proposal](proposals/2026-09-29-layered-context.md)'s eval: one scripted conversation of 14 turns (a task and four facts planted, 13 file reads including a ten-file digression, one fact changed midway) then six questions, through today's dropping; on the on-device model, and on `ollama:granite4.1:8b` at a configured 8,192-token window, at 32,768 (nothing dropped, the ceiling), and at the window wisp sizes for it | a reply containing the expected phrase (the codename, the ticket number, the reviewer's preference, the CI state's current value, the first file read, the task). A baseline: the floor is only that every question was asked and scored. The notes carry the run's condensations, median tokens after a turn, and load average; `p50Milliseconds` and `p95Milliseconds` are time per turn |
@@ -60,8 +60,8 @@ harness/Evals list`.
 A task that routes by input size ([ADR 0037](decisions/0037-routing-by-input-size.md)) records one
 measurement per size band, each with `maxInputBytes`, the largest input among its cases: the result is
 evidence for inputs up to that size and no further. `WISP_EVAL_MODELS` (comma-separated model spellings,
-such as `system,ollama:qwen3.8:27b`) measures each named model in turn, so a ladder's rungs all have
-numbers; without it the eval measures the configured model only. A plain `scripts/check eval`, which
+such as `system,ollama:qwen3.8:27b`) measures each named model in turn in the suites that decide delegation
+(below), so a ladder's rungs all have numbers; without it the eval measures the configured model only. A plain `scripts/check eval`, which
 is what a release runs, covers every suite but the context eval (`scripts/check eval context` runs that
 one, on purpose, for a design decision), asserts the floors, and records nothing: the sets are small, a rerun re-rolls
 the numbers (on 2026-09-22 two consecutive runs gave 5 and 6 of 6 for the same task), and the file
@@ -72,7 +72,52 @@ preflight runs the eval, so a release never ships with stale numbers.
 
 The eval asserts only floors (half or three quarters recall, and the classifier's hard requirement);
 everything else is reported and recorded. Run `WISP_MODEL_TESTS=1 swift test --filter ToolEvalTests`
-in `harness/` for one suite.
+in `harness/Evals` for one suite.
+
+Every run ends with a summary table, a row per model and a column per suite, each cell the cases passed of
+those run and the median time per case (per verdict for the classifier, per turn for the context scenario).
+`scripts/check eval` prints it and saves it beside the run's whole output under `harness/Evals/.build/evals`
+(`eval-<date>-<time>.log` and `.summary.txt`). A cell with `*` has a note under the table (an unavailable
+model, a classifier's fallbacks, a dangerous command rated safe); `n/a` is a suite the model could not run;
+`-` is a suite with no result, one that did not finish.
+
+## Comparing models
+
+```
+WISP_EVAL_MODELS=ollama:granite4.1:8b,ollama:llama3.2:3b scripts/check eval compare
+```
+
+runs the suites that decide delegation on each named model: tool calls (`edit_file.replace`) and schema
+replies (`respond.schema`) in `ToolEvalTests`, `system_info.topic`, `triage`, `summarise_diff`,
+`draft_change.commit` in its three bands, the classifier's model fallback (`classifier.system-model`, the model
+alone, and `classifier.system-model+rules`, beside the rules as the gate runs it, with the named model in the
+on-device model's place), and one context scenario. Add `record` to merge the measurements into
+`measurements.json`.
+
+- **One model at a time.** `compare` runs `swift test` once per model, in the order named, with that model alone
+  in `WISP_EVAL_MODELS` and its suites one after another (`--no-parallel`), so Ollama holds one model, evicts it
+  once when the next starts, and a case's time is that model's alone. Setting `WISP_EVAL_MODELS` on a plain
+  `scripts/check eval` also measures every named model, but its suites run in parallel, each looping over the
+  models, so a local runtime switches between them and the times include the queue: use it for two or three
+  quick models, `compare` for a comparison.
+- **The context scenario** (`ContextEvalTests/comparisonOnEachModel`, which runs only when
+  `WISP_EVAL_MODELS` is set): the baseline, the shortest scenario (14 turns, then six questions), through the
+  whole default stack (memory, facts, the summary, references, condensing to the target), at a window of 8,192
+  tokens, the on-device model's, so every model condenses the same conversation; recorded as
+  `context.memory-target.window-8192`.
+- **Floors** are the release's: they apply to the configured model only, `ModelSelection.default` (`system`),
+  which is what a release's eval has always measured, whatever `model` in `config.json` says. A compared model below a
+  floor, or rating a dangerous command safe, is reported in its cell and fails nothing.
+- **Failures** stay in their cell. A model that is missing or that the runtime refuses fails its suites with
+  the reason as the cell's note. A case that throws (a model without tool calling, a reply that does not
+  parse) or that runs past five minutes (`EvalModels.caseLimit`, each classifier verdict too) counts as failed,
+  and the run goes on (on the configured model an error in a suite that always failed on one still fails it); a context turn is bounded by `ollama.timeoutSeconds` and the scenario by an hour. A
+  model resolves with `~/.wisp/config.json` (its runtime's address and timeout), which the eval only reads;
+  the context scenario uses the defaults apart from its window.
+
+The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
+verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
+test output is buffered, so a model's lines reach the log when its `swift test` ends.
 
 ## Reading a measurement
 

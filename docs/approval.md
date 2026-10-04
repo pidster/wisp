@@ -46,7 +46,9 @@ not given to the second at all:
   Sampling is greedy, so the same command always gets the same verdict. The command is placed between
 markers and the model is told to treat it as data, but a command containing persuasive prose can still
 steer the verdict; that is why the rules floor exists and the model may only raise a level, never lower one. If the model is unavailable or
-  fails it reports `moderate`, so a broken classifier asks rather than waves through.
+  fails it reports `moderate`, so a broken classifier asks rather than waves through. The eval can put another
+  model in its place (`ModelRiskClassifier(model:)`) to measure it in this role
+  ([measurements.md](measurements.md#comparing-models)); the configuration cannot.
 
 Measured on this machine (`scripts/check eval`, 47 labelled commands, twelve of them held out from the
 instruction examples): the model alone scores 46 correct, 1 over, 0 under, at about 1.7 s per call

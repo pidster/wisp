@@ -103,7 +103,10 @@ The release given to measurement, once the four before it are out:
   and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model
   fallback, one context scenario), with `WISP_EVAL_MODELS`. It may change the default model for
-  delegation (AGENTS.md, [backends.md](backends.md)). The models were pulled on 2026-10-01.
+  delegation (AGENTS.md, [backends.md](backends.md)). The models were pulled on 2026-10-01. Prepared on
+  2026-10-04: those suites honour `WISP_EVAL_MODELS`, floors bind the configured model only, and
+  `scripts/check eval compare` runs them one model at a time and ends with a table, model by suite
+  ([measurements.md](measurements.md#comparing-models)); the comparison itself is still to run.
   Early evidence, not measured: in a chat on 2026-10-02 `llama3.2:3b` wrote tool calls as JSON text
   instead of making them, kept a wrong path through three corrections, and claimed a plan had run when
   it had only read the file.

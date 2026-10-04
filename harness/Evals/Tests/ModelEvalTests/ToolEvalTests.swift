@@ -3,10 +3,10 @@ import Testing
 
 @testable import WispCore
 
-/// How reliably the configured model performs delegated tasks through wisp's tools. Needs the
-/// model, so it runs only with `WISP_MODEL_TESTS=1` (`scripts/check eval`); each test records a
-/// `Measurement` that ships with the tool catalogue. Numbers are reported and recorded; only a
-/// floor is asserted so a regression fails the run.
+/// How reliably the configured model, or each model `WISP_EVAL_MODELS` names (`EvalModels`), performs delegated
+/// tasks through wisp's tools. Needs the model, so it runs only with `WISP_MODEL_TESTS=1` (`scripts/check eval`);
+/// each test records a `Measurement` that ships with the tool catalogue. Numbers are reported and recorded; only a
+/// floor is asserted, on the configured model, so a regression fails the run.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MODEL_TESTS"] != nil))
 struct ToolEvalTests {
     /// A scratch directory inside the writable set.
@@ -43,44 +43,60 @@ struct ToolEvalTests {
             ("i.rs", "fn main() {\n    let n = 3;\n    println!(\"{n}\");\n}\n", "    let n = 3;", "    let n = 4;"),
             ("j.css", "body {\n  color: black;\n  margin: 0;\n}\n", "  color: black;", "  color: navy;"),
         ]
-        let model = try ModelSelection.default.resolve()
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["edit_file"]) else { continue }
+            try await editFile(cases, in: dir, on: model)
+        }
+    }
+
+    /// The edit_file cases on one model, each attempted three times.
+    private func editFile(
+        _ cases: [(name: String, before: String, find: String, replacement: String)], in dir: URL,
+        on model: ResolvedModel
+    ) async throws {
+        let selection = model.selection
         let attempts = 3
         var passed = 0
+        var times: [Double] = []
         for (round, item) in (1...attempts).flatMap({ round in cases.map { (round, $0) } }) {
-            let sink = MemoryAuditSink()
-            let audit = AuditLog(session: "eval", sink: sink)
-            let registry = ToolRegistry(runner: .init(writableRoot: dir.path), audit: audit)
-            let tools = registry.select(["read_file", "edit_file"]).tools
             let file = dir.appending(path: item.name)
             try Data(item.before.utf8).write(to: file)
-            let agent = Agent(
-                instructions: Prompting.systemPrompt(memory: false), tools: tools, model: model, audit: audit)
             let prompt =
                 "Use read_file to read \(file.path). Then use edit_file with mode replace on \(file.path), with line "
                 + "set to the number read_file showed for `\(item.find)` and content `\(item.replacement)`. "
                 + "Report the tool results verbatim."
             let expected = item.before.replacingOccurrences(of: item.find, with: item.replacement)
-            do {
+            let root = dir.path
+            let (calls, milliseconds) = await EvalModels.attempt("tool eval: edit_file \(item.name)", on: selection) {
+                let sink = MemoryAuditSink()
+                let audit = AuditLog(session: "eval", sink: sink)
+                let registry = ToolRegistry(runner: .init(writableRoot: root), audit: audit)
+                let tools = registry.select(["read_file", "edit_file"]).tools
+                let agent = Agent(
+                    instructions: Prompting.systemPrompt(memory: false), tools: tools, model: model, audit: audit)
                 _ = try await agent.respond(to: prompt)
-            } catch {
-                print("tool eval: edit_file \(item.name): error \(error)")
+                return sink.events.filter { $0.kind == .toolCall && $0.details["tool"] == "edit_file" }
+                    .map { $0.details["arguments"]?.stringValue ?? "" }
             }
+            times.append(milliseconds)
             let after = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
             let ok = after == expected
             if ok { passed += 1 }
-            let calls = sink.events.filter { $0.kind == .toolCall && $0.details["tool"] == "edit_file" }
-                .map { $0.details["arguments"]?.stringValue ?? "" }
             print(
-                "tool eval: edit_file \(item.name) #\(round): \(ok ? "pass" : "FAIL") "
-                    + (ok ? "" : "file=\(after.replacingOccurrences(of: "\n", with: "⏎")) calls=\(calls)"))
+                "tool eval: edit_file on \(selection) \(item.name) #\(round): \(ok ? "pass" : "FAIL") "
+                    + (ok ? "" : "file=\(after.replacingOccurrences(of: "\n", with: "⏎")) calls=\(calls ?? [])"))
         }
+        let total = cases.count * attempts
+        EvalModels.result("edit_file", on: selection, passed: passed, total: total, milliseconds: times)
         try? Measurements.report(
             Measurement(
-                task: "edit_file.replace", tool: "edit_file", model: model.selection.description, passed: passed,
-                total: cases.count * attempts,
+                task: "edit_file.replace", tool: "edit_file", model: selection.description, passed: passed,
+                total: total,
                 notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
                     + "attempted three times each; a pass is the file ending up exactly as intended"))
-        #expect(passed * 2 >= cases.count * attempts, "edit_file replace passed \(passed)/\(cases.count * attempts)")
+        if EvalModels.floorsApply(to: selection) {
+            #expect(passed * 2 >= total, "edit_file replace passed \(passed)/\(total)")
+        }
     }
 
     /// A classification with a schema: the reply must parse and carry the expected enum value.
@@ -101,20 +117,32 @@ struct ToolEvalTests {
             ("SELECT id FROM users WHERE age > 30;", "other"),
             ("struct Point { var x: Double; var y: Double }", "swift"),
         ]
-        let model = try ModelSelection.default.resolve()
-        var passed = 0
-        for item in cases {
-            let agent = Agent(instructions: "You classify code.", tools: [], model: model)
-            let reply = try await agent.respond(to: "Which language is this?\n\n\(item.code)", schema: schema)
-            let parsed = try? JSONDecoder().decode(JSONValue.self, from: Data(reply.text.utf8))
-            let ok = parsed?.objectValue?["language"]?.stringValue == item.expected
-            if ok { passed += 1 }
-            print("tool eval: schema \(item.expected): \(ok ? "pass" : "FAIL") \(reply.text)")
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["schema"]) else { continue }
+            var passed = 0
+            var times: [Double] = []
+            for item in cases {
+                let (reply, milliseconds) = await EvalModels.attempt(
+                    "tool eval: schema \(item.expected)", on: selection, strict: true
+                ) {
+                    try await Agent(instructions: "You classify code.", tools: [], model: model)
+                        .respond(to: "Which language is this?\n\n\(item.code)", schema: schema).text
+                }
+                times.append(milliseconds)
+                let parsed = reply.flatMap { try? JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)) }
+                let ok = parsed?.objectValue?["language"]?.stringValue == item.expected
+                if ok { passed += 1 }
+                print("tool eval: schema on \(selection) \(item.expected): \(ok ? "pass" : "FAIL") \(reply ?? "")")
+            }
+            EvalModels.result("schema", on: selection, passed: passed, total: cases.count, milliseconds: times)
+            try? Measurements.report(
+                Measurement(
+                    task: "respond.schema", model: selection.description, passed: passed, total: cases.count,
+                    notes: "classify a code snippet into an enum through a schema; a pass parses and names the language"
+                ))
+            if EvalModels.floorsApply(to: selection) {
+                #expect(passed * 2 >= cases.count, "schema answers passed \(passed)/\(cases.count)")
+            }
         }
-        try? Measurements.report(
-            Measurement(
-                task: "respond.schema", model: model.selection.description, passed: passed, total: cases.count,
-                notes: "classify a code snippet into an enum through a schema; a pass parses and names the language"))
-        #expect(passed * 2 >= cases.count, "schema answers passed \(passed)/\(cases.count)")
     }
 }

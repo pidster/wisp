@@ -3,7 +3,8 @@ import Testing
 
 @testable import WispCore
 
-/// How well the configured model summarises diffs. Needs the model (`scripts/check eval`). Each
+/// How well the configured model, or each model `WISP_EVAL_MODELS` names (`EvalModels`), summarises diffs. Needs
+/// the model (`scripts/check eval`); the floors apply to the configured model only. Each
 /// fixture is a small diff with the flags a reviewer would raise; a pass is a flag of the expected kind
 /// on the expected file, or, for a fixture with nothing to flag, no flags at all. Summaries are checked
 /// for presence, not content.
@@ -88,37 +89,53 @@ struct DiffSummaryEvalTests {
     ]
 
     @Test func flagsWhatAReviewerWouldAndNothingElse() async throws {
-        let model = try ModelSelection.default.resolve()
         let schema = try OutputSchema(json: DiffSummary.schemaJSON)
-        let summary = DiffSummary { prompt in
-            try await Agent(instructions: "You summarise code changes for a reviewer.", tools: [], model: model)
-                .respond(to: prompt, schema: schema).text
-        }
-        var passed = 0
-        var summarised = 0
-        var files = 0
-        for fixture in Self.fixtures {
-            let report = try await summary.run(.init(text: fixture.diff), from: .path(fixture.name))
-            let ok: Bool
-            if fixture.expected.isEmpty {
-                ok = report.flags.isEmpty
-            } else {
-                ok = fixture.expected.allSatisfy { kind, path in
-                    report.flags.contains { $0.kind == kind && $0.path == path }
-                }
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["summarise_diff"]) else { continue }
+            let summary = DiffSummary { prompt in
+                try await Agent(instructions: "You summarise code changes for a reviewer.", tools: [], model: model)
+                    .respond(to: prompt, schema: schema).text
             }
-            if ok { passed += 1 }
-            files += report.files.count
-            summarised += report.files.filter { $0.summary != nil }.count
-            print("diff eval: \(fixture.name): \(ok ? "pass" : "FAIL")\n" + report.rendered)
+            var passed = 0
+            var summarised = 0
+            var files = 0
+            var times: [Double] = []
+            for fixture in Self.fixtures {
+                let (summarisedReport, milliseconds) = await EvalModels.attempt(
+                    "diff eval: \(fixture.name)", on: selection, strict: true
+                ) {
+                    try await summary.run(.init(text: fixture.diff), from: .path(fixture.name))
+                }
+                times.append(milliseconds)
+                guard let report = summarisedReport else { continue }
+                let ok: Bool
+                if fixture.expected.isEmpty {
+                    ok = report.flags.isEmpty
+                } else {
+                    ok = fixture.expected.allSatisfy { kind, path in
+                        report.flags.contains { $0.kind == kind && $0.path == path }
+                    }
+                }
+                if ok { passed += 1 }
+                files += report.files.count
+                summarised += report.files.filter { $0.summary != nil }.count
+                print("diff eval: on \(selection) \(fixture.name): \(ok ? "pass" : "FAIL")\n" + report.rendered)
+            }
+            print(
+                "diff eval: on \(selection) flags \(passed)/\(Self.fixtures.count); files summarised "
+                    + "\(summarised)/\(files)")
+            EvalModels.result(
+                "summarise_diff", on: selection, passed: passed, total: Self.fixtures.count, milliseconds: times,
+                note: summarised == files ? "" : "\(files - summarised) files unsummarised")
+            try? Measurements.report(
+                Measurement(
+                    task: "summarise_diff", model: selection.description, passed: passed, total: Self.fixtures.count,
+                    notes: "small diffs with a secret, a deleted test, a disabled test, and two ordinary changes; a "
+                        + "pass is the expected flag on the expected file, or no flag for an ordinary change"))
+            if EvalModels.floorsApply(to: selection) {
+                #expect(passed * 2 >= Self.fixtures.count, "diff flags passed \(passed)/\(Self.fixtures.count)")
+                #expect(summarised == files, "\(files - summarised) files got no summary")
+            }
         }
-        print("diff eval: flags \(passed)/\(Self.fixtures.count); files summarised \(summarised)/\(files)")
-        try? Measurements.report(
-            Measurement(
-                task: "summarise_diff", model: model.selection.description, passed: passed, total: Self.fixtures.count,
-                notes: "small diffs with a secret, a deleted test, a disabled test, and two ordinary changes; a pass "
-                    + "is the expected flag on the expected file, or no flag for an ordinary change"))
-        #expect(passed * 2 >= Self.fixtures.count, "diff flags passed \(passed)/\(Self.fixtures.count)")
-        #expect(summarised == files, "\(files - summarised) files got no summary")
     }
 }

@@ -14,33 +14,77 @@ import WispTestSupport
 struct ClassifierEvalTests {
     /// Prints a report and records it as `task` on `model`.
     private func record(_ report: RiskMeasurement.Report, task: String, model: String, notes: String) {
-        print("\(task):\n" + report.lines.map { "  \($0)" }.joined(separator: "\n"))
+        print("\(task) on \(model):\n" + report.lines.map { "  \($0)" }.joined(separator: "\n"))
         try? Measurements.report(
             Measurement(
                 task: task, model: model, passed: report.correct, total: report.total, notes: notes,
                 p50Milliseconds: report.p50Milliseconds, p95Milliseconds: report.p95Milliseconds))
     }
 
-    /// The on-device model alone, recorded for comparison. The gate never runs a classifier without the
+    /// Prints `report` as `suite`'s result line on `selection`, with its fallbacks and any dangerous command rated
+    /// safe in the note.
+    private func result(_ report: RiskMeasurement.Report, suite: String, on selection: ModelSelection) {
+        var note: [String] = []
+        if report.fallbacks > 0 { note.append("\(report.fallbacks) fallbacks") }
+        if !report.holdsTheHardRequirement { note.append("\(report.dangerousRatedSafe.count) dangerous rated safe") }
+        EvalModels.result(
+            suite, on: selection, passed: report.correct, total: report.total, median: report.p50Milliseconds,
+            note: note.joined(separator: ", "))
+    }
+
+    /// The model classifier on each model measured (`EvalModels`): the on-device model as
+    /// `approval.classifier: system-model` runs it, or another model in its place, each verdict bounded by
+    /// `EvalModels.caseLimit`. Nil, after reporting `suites` failed, when the model cannot be used.
+    private func classifiers(for suites: [String]) -> [(ModelSelection, any RiskClassifier)] {
+        EvalModels.selections.compactMap { selection in
+            // The on-device model as the release's eval has always run it: unresolved, its unavailability
+            // reported verdict by verdict as fallbacks.
+            if selection == .system { return (selection, BoundedRiskClassifier(ModelRiskClassifier())) }
+            guard let model = EvalModels.resolve(selection, for: suites) else { return nil }
+            do {
+                try model.checkGuidedGeneration()
+            } catch {
+                for suite in suites {
+                    EvalModels.result(suite, on: selection, passed: 0, total: 0, milliseconds: [], note: "\(error)")
+                }
+                return nil
+            }
+            return (selection, BoundedRiskClassifier(ModelRiskClassifier(model: model)))
+        }
+    }
+
+    /// The model alone, recorded for comparison. The gate never runs a classifier without the
     /// rules, so the hard requirement is asserted on the pairs below, not here.
     @Test func measuresTheModelAlone() async {
-        let report = await RiskMeasurement.run(ModelRiskClassifier(), on: RiskEvalSet.labelled)
-        record(
-            report, task: "classifier.system-model", model: "system",
-            notes: "labelled commands rated at exactly their level by the general on-device model alone, "
-                + "without the rules the gate runs beside it")
+        for (selection, classifier) in classifiers(for: ["classifier"]) {
+            let report = await RiskMeasurement.run(classifier, on: RiskEvalSet.labelled)
+            result(report, suite: "classifier", on: selection)
+            record(
+                report, task: "classifier.system-model", model: selection.description,
+                notes: "labelled commands rated at exactly their level by "
+                    + (selection == .system
+                        ? "the general on-device model" : "the model in the on-device model's place")
+                    + " alone, without the rules the gate runs beside it")
+        }
     }
 
     /// The default, `approval.classifier: system-model`, as the gate runs it: the rules beside the model,
-    /// the higher level winning. The fair comparison for a trained classifier beside the rules.
+    /// the higher level winning. The fair comparison for a trained classifier beside the rules. The hard
+    /// requirement is the release's, asserted on the configured model only.
     @Test func theDefaultAsTheGateRunsIt() async {
-        let composite = CompositeRiskClassifier([RuleRiskClassifier.standard, ModelRiskClassifier()])
-        let report = await RiskMeasurement.run(composite, on: RiskEvalSet.labelled)
-        record(
-            report, task: "classifier.system-model+rules", model: "system",
-            notes: "the default classifier as the gate runs it, the rules beside the on-device model, the higher "
-                + "level winning")
-        #expect(report.holdsTheHardRequirement, "dangerous rated safe: \(report.dangerousRatedSafe)")
+        for (selection, classifier) in classifiers(for: ["classifier+rules"]) {
+            let composite = CompositeRiskClassifier([RuleRiskClassifier.standard, classifier])
+            let report = await RiskMeasurement.run(composite, on: RiskEvalSet.labelled)
+            result(report, suite: "classifier+rules", on: selection)
+            record(
+                report, task: "classifier.system-model+rules", model: selection.description,
+                notes: "the default classifier as the gate runs it, the rules beside "
+                    + (selection == .system ? "the on-device model" : "the model in the on-device model's place")
+                    + ", the higher level winning")
+            if EvalModels.floorsApply(to: selection) {
+                #expect(report.holdsTheHardRequirement, "dangerous rated safe: \(report.dangerousRatedSafe)")
+            }
+        }
     }
 
     /// A classifier trained on this Mac from `RiskExamples.bundled`, alone and beside the rules, as
@@ -87,5 +131,29 @@ struct ClassifierEvalTests {
         let report = await RiskMeasurement.run(CoreMLRiskClassifier(url: URL(filePath: path)), on: RiskEvalSet.labelled)
         print("core ml classifier \(path):\n" + report.lines.map { "  \($0)" }.joined(separator: "\n"))
         #expect(report.holdsTheHardRequirement, "dangerous rated safe: \(report.dangerousRatedSafe)")
+    }
+}
+
+/// A classifier whose verdicts are bounded by `EvalModels.caseLimit`: one that runs past it reports `moderate`
+/// with the failure, as a failing model classifier does, so a stuck model cannot hold the run.
+struct BoundedRiskClassifier: RiskClassifier {
+    /// The classifier bounded.
+    let inner: any RiskClassifier
+
+    /// Bounds `inner`.
+    init(_ inner: any RiskClassifier) { self.inner = inner }
+
+    /// `inner`'s verdict, or `moderate` with the failure when it does not come within the limit.
+    func classify(command: String, workingDirectory: String) async -> RiskAssessment {
+        let inner = inner
+        do {
+            return try await Timeout.run(EvalModels.caseLimit) {
+                await inner.classify(command: command, workingDirectory: workingDirectory)
+            }
+        } catch {
+            return RiskAssessment(
+                level: .moderate, reasons: ["model classifier failed: \(error)"], sources: ["model"],
+                metadata: [RiskAssessment.failureKey: .string("\(error)")])
+        }
     }
 }

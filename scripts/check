@@ -119,27 +119,108 @@ coverage_baseline() {
 # eval: run the model evaluations (the package in harness/Evals, which the gate never builds) and assert
 # their floors. `eval record` also writes each task's
 # measurement into the embedded measurements.json, to commit; a plain eval (what a release runs)
-# leaves the file alone, since the sets are small and a rerun re-rolls the numbers.
+# leaves the file alone, since the sets are small and a rerun re-rolls the numbers. `eval compare` runs the
+# suites that decide delegation on each model WISP_EVAL_MODELS names, one model at a time (docs/measurements.md).
+# Every run ends with a summary table, model by suite, saved with the run's whole output under
+# harness/Evals/.build/evals.
+EVAL_LINES='model classifier|measured:|eval:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run'
+# The suites that decide delegation: tool calls and schema replies, system_info's topics, triage, summarise_diff,
+# draft_change, the classifier's model fallback alone and beside the rules, and one context scenario.
+EVAL_COMPARE_SUITES='ToolEvalTests|SystemInfoEvalTests|TriageEvalTests|DiffSummaryEvalTests|DraftEvalTests|ClassifierEvalTests/(measuresTheModelAlone|theDefaultAsTheGateRunsIt)|ContextEvalTests/comparisonOnEachModel'
 eval_() {
     # The context suite is a measurement for design decisions (ADR 0045), run on purpose with
     # `eval context`; the plain eval, which a release runs, covers every other suite and its floors.
     record=""
+    compare=""
     scope="--skip ContextEvalTests"
     label="every suite but the context eval"
     for arg in "$@"; do
         case "$arg" in
             record) record="$ROOT/harness/Sources/WispCore/Resources/measurements.json" ;;
             context) scope="--filter ContextEvalTests"; label="the context eval only" ;;
-            *) echo "usage: scripts/check eval [context] [record]" >&2; exit 64 ;;
+            compare) compare=1 ;;
+            *) echo "usage: scripts/check eval [context|compare] [record]" >&2; exit 64 ;;
         esac
     done
-    echo "==> eval (on-device model; not part of the gate): $label"
-    # shellcheck disable=SC2086 # $scope is two words on purpose
-    (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $scope 2>&1 \
-        | grep -E 'model classifier|measured:|eval:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run')
+    out="$ROOT/harness/Evals/.build/evals"
+    mkdir -p "$out"
+    log="$out/eval-$(date +%Y%m%d-%H%M%S).log"
+    if [ -n "$compare" ]; then
+        if [ -z "${WISP_EVAL_MODELS:-}" ]; then
+            echo "eval compare needs WISP_EVAL_MODELS, comma-separated, such as ollama:granite4.1:8b,ollama:llama3.2:3b" >&2
+            exit 64
+        fi
+        # One `swift test` per model, its suites one after another, so a local runtime holds one model at a
+        # time and each case's time is that model's alone. A model that fails or is missing fails its cells only.
+        models="$(echo "$WISP_EVAL_MODELS" | tr ',' ' ')"
+        for model in $models; do
+            echo "==> eval compare on $model: tool calls, schema replies, system_info, triage, summarise_diff, draft_change, the model classifier, one context scenario"
+            # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+            (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_MODELS="$model" WISP_EVAL_RECORD="$record" \
+                swift test $SWIFT_SANDBOX --no-parallel --filter "$EVAL_COMPARE_SUITES" 2>&1) \
+                | tee -a "$log" | grep -E "$EVAL_LINES" || true
+        done
+    else
+        echo "==> eval (on-device model; not part of the gate): $label"
+        # shellcheck disable=SC2086 # $scope is two words on purpose
+        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $scope 2>&1) \
+            | tee -a "$log" | grep -E "$EVAL_LINES"
+    fi
+    eval_summary "$log" | tee "${log%.log}.summary.txt"
+    echo "==> output in $log, summary in ${log%.log}.summary.txt"
     if [ -n "$record" ]; then
         echo "==> measurements recorded in harness/Sources/WispCore/Resources/measurements.json; commit them"
     fi
+}
+
+# The summary of an eval's output: each suite's `eval result` line (EvalModels.result) as a table, a row per model
+# and a column per suite, each cell passed/total and the median time per case; a cell's note below the table.
+eval_summary() {
+    awk -F '\t' '
+        $1 == "eval result" {
+            model = $2; suite = $3
+            if (!(model in seenModel)) { seenModel[model] = 1; models[++modelCount] = model }
+            if (!(suite in seenSuite)) { seenSuite[suite] = 1; suites[++suiteCount] = suite }
+            if ($5 + 0 == 0) {
+                cell = "n/a"
+            } else {
+                cell = $4 "/" $5
+                if ($6 != "") cell = cell " " ($6 + 0 < 1000 ? sprintf("%dms", $6) : sprintf("%.1fs", $6 / 1000))
+            }
+            if ($7 != "") { cell = cell "*"; notes[model, suite] = $7 }
+            cells[model, suite] = cell
+        }
+        END {
+            if (modelCount == 0) exit
+            print "==> summary: passed/total and median time per case, a row per model"
+            width = length("model")
+            for (m = 1; m <= modelCount; m++) if (length(models[m]) > width) width = length(models[m])
+            line = sprintf("%-" width "s", "model")
+            for (s = 1; s <= suiteCount; s++) {
+                w[s] = length(suites[s])
+                for (m = 1; m <= modelCount; m++) {
+                    c = ((models[m], suites[s]) in cells) ? cells[models[m], suites[s]] : "-"
+                    if (length(c) > w[s]) w[s] = length(c)
+                }
+                line = line "  " sprintf("%-" w[s] "s", suites[s])
+            }
+            sub(/ +$/, "", line)
+            print line
+            for (m = 1; m <= modelCount; m++) {
+                line = sprintf("%-" width "s", models[m])
+                for (s = 1; s <= suiteCount; s++) {
+                    c = ((models[m], suites[s]) in cells) ? cells[models[m], suites[s]] : "-"
+                    line = line "  " sprintf("%-" w[s] "s", c)
+                }
+                sub(/ +$/, "", line)
+                print line
+            }
+            for (m = 1; m <= modelCount; m++)
+                for (s = 1; s <= suiteCount; s++)
+                    if ((models[m], suites[s]) in notes) print "* " models[m] " " suites[s] ": " notes[models[m], suites[s]]
+            print "- : no result (the suite did not finish, or was not run)"
+        }
+    ' "$1"
 }
 
 # mlx-live <model directory>: the MLX live test, which runs real weights (not part of the gate). Built with
@@ -316,5 +397,5 @@ case "${1:-all}" in
     palette) palette ;;
     all) hygiene; palette; lint; build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context] [record]|mlx-live <model directory>|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare] [record]|mlx-live <model directory>|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
 esac

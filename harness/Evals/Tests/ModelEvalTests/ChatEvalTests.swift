@@ -61,7 +61,7 @@ struct ChatEvalTests {
                     reply = try await agent.respond(to: message).text
                 }
             } catch {
-                print("chat eval: \(item.messages): error \(error)")
+                print("chat eval: on \(model.selection) \(item.messages): error \(error)")
             }
             let called = sink.events.filter { $0.kind == .toolCall && $0.turn == lastTurn }
                 .compactMap { $0.details["tool"]?.stringValue }
@@ -73,10 +73,12 @@ struct ChatEvalTests {
             }
             if ok { passed += 1 }
             let shown = reply.replacingOccurrences(of: "\n", with: "⏎").prefix(120)
-            print("chat eval: \(item.messages) #\(round): \(ok ? "pass" : "FAIL") tools=\(called) reply=\(shown)")
+            print(
+                "chat eval: on \(model.selection) \(item.messages) #\(round): \(ok ? "pass" : "FAIL") tools=\(called) reply=\(shown)"
+            )
         }
         let total = Self.cases.count * attempts
-        print("chat eval: measured: \(passed)/\(total)")
+        print("chat eval: on \(model.selection) measured: \(passed)/\(total)")
         try? Measurements.report(
             Measurement(
                 task: "chat.unclear", model: model.selection.description, passed: passed, total: total,

@@ -3,7 +3,7 @@ import Testing
 
 @testable import WispCore
 
-/// Whether the configured model reaches for `system_info` with the right topic when asked a plain
+/// Whether the configured model, or each model `WISP_EVAL_MODELS` names (`EvalModels`), reaches for `system_info` with the right topic when asked a plain
 /// question about the Mac, with `run_command` and `memory` also on offer as they are in `wisp "…"`: `memory` is
 /// the conversation's, and its name is shared with the `memory` topic (the Mac's RAM), so the turns that call it
 /// are counted, printed, and noted in the measurement. Needs the model
@@ -32,51 +32,84 @@ struct SystemInfoEvalTests {
     ]
 
     @Test func picksTheTopicAPlainQuestionNeeds() async throws {
-        let model = try ModelSelection.default.resolve()
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["system_info"]) else { continue }
+            await Self.measure(on: model)
+        }
+    }
+
+    /// The questions on one model, each asked twice; the floor applies to the configured model only.
+    ///
+    /// - Parameter model: The model.
+    static func measure(on model: ResolvedModel) async {
+        let selection = model.selection
         let attempts = 2
         var passed = 0
         var memoryTurns = 0
+        var times: [Double] = []
         for (round, item) in (1...attempts).flatMap({ round in Self.cases.map { (round, $0) } }) {
-            let sink = MemoryAuditSink()
-            let audit = AuditLog(session: "eval", sink: sink)
-            let gate = ApprovalGate(
-                classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
-                threshold: .level(.moderate), audit: audit)
-            let memory = MemorySource()
-            let tools = ToolRegistry(audit: audit, approval: gate, memory: memory)
-                .select(["system_info", "run_command", "memory"]).tools
-            let agent = Agent(
-                instructions: Prompting.systemPrompt(memory: true), tools: tools, model: model, audit: audit)
-            agent.memory = memory
-            do {
-                _ = try await agent.respond(to: item.question)
-            } catch {
-                print("system_info eval: \(item.question): error \(error)")
+            let question = item.question
+            let (made, milliseconds) = await EvalModels.attempt(
+                "system_info eval: \(question)", on: selection
+            ) {
+                let sink = MemoryAuditSink()
+                let audit = AuditLog(session: "eval", sink: sink)
+                let gate = ApprovalGate(
+                    classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
+                    threshold: .level(.moderate), audit: audit)
+                let memory = MemorySource()
+                let tools = ToolRegistry(audit: audit, approval: gate, memory: memory)
+                    .select(["system_info", "run_command", "memory"]).tools
+                let agent = Agent(
+                    instructions: Prompting.systemPrompt(memory: true), tools: tools, model: model, audit: audit)
+                agent.memory = memory
+                // The calls are what is scored, so a turn that ends in an error still counts the calls it made.
+                do {
+                    _ = try await agent.respond(to: question)
+                } catch {
+                    print("system_info eval: on \(selection) \(question): error \(error)")
+                }
+                return sink.events.filter { $0.kind == .toolCall }.map {
+                    Call(
+                        tool: $0.details["tool"]?.stringValue ?? "",
+                        arguments: $0.details["arguments"]?.stringValue ?? "")
+                }
             }
-            let calls = sink.events.filter { $0.kind == .toolCall }.map {
-                ($0.details["tool"]?.stringValue ?? "", $0.details["arguments"]?.stringValue ?? "")
-            }
-            let ok = calls.filter { $0.0 == "system_info" }.compactMap { Self.arguments($0.1) }.contains { call in
+            times.append(milliseconds)
+            let calls = made ?? []
+            let ok = calls.filter { $0.tool == "system_info" }.compactMap { Self.arguments($0.arguments) }.contains {
+                call in
                 item.topics.contains(call.topic)
                     && (item.target.map { call.target?.localizedCaseInsensitiveContains($0) == true } ?? true)
             }
             if ok { passed += 1 }
-            if calls.contains(where: { $0.0 == "memory" }) { memoryTurns += 1 }
+            if calls.contains(where: { $0.tool == "memory" }) { memoryTurns += 1 }
             print(
-                "system_info eval: #\(round) \(ok ? "pass" : "FAIL") \(item.question) calls=\(calls.map { "\($0.0) \($0.1)" })"
-            )
+                "system_info eval: on \(selection) #\(round) \(ok ? "pass" : "FAIL") \(item.question) "
+                    + "calls=\(calls.map { "\($0.tool) \($0.arguments)" })")
         }
         let total = Self.cases.count * attempts
+        EvalModels.result("system_info", on: selection, passed: passed, total: total, milliseconds: times)
         try? Measurements.report(
             Measurement(
-                task: "system_info.topic", tool: "system_info", model: model.selection.description, passed: passed,
+                task: "system_info.topic", tool: "system_info", model: selection.description, passed: passed,
                 total: total,
                 notes:
                     "eight plain questions about the Mac (a port, the busiest process, free space, a folder's usage, "
                     + "battery, macOS version, memory, one app) with run_command and memory also offered, twice each; "
                     + "a pass is a system_info call in the turn naming the expected topic and target; "
                     + "\(memoryTurns) turn\(memoryTurns == 1 ? "" : "s") called memory"))
-        #expect(passed * 2 >= total, "system_info topic passed \(passed)/\(total)")
+        if EvalModels.floorsApply(to: selection) {
+            #expect(passed * 2 >= total, "system_info topic passed \(passed)/\(total)")
+        }
+    }
+
+    /// One tool call a turn made: the tool's name and its JSON arguments.
+    struct Call: Sendable {
+        /// The tool's name.
+        let tool: String
+        /// The call's arguments, as JSON text.
+        let arguments: String
     }
 
     /// The topic and target of a call's JSON arguments.

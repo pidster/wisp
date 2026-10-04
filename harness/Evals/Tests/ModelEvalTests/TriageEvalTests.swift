@@ -3,9 +3,9 @@ import Testing
 
 @testable import WispCore
 
-/// How well the configured model triages real build and test output. Needs the model, so it runs
-/// only with `WISP_MODEL_TESTS=1` (`scripts/check eval`); reports recall per fixture and asserts a
-/// floor so a regression fails the run. Fixtures are captured output, abridged; the expected
+/// How well the configured model, or each model `WISP_EVAL_MODELS` names (`EvalModels`), triages real build and
+/// test output. Needs the model, so it runs only with `WISP_MODEL_TESTS=1` (`scripts/check eval`); reports recall
+/// per fixture and asserts a floor on the configured model so a regression fails the run. Fixtures are captured output, abridged; the expected
 /// locations are what a reader would list.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MODEL_TESTS"] != nil))
 struct TriageEvalTests {
@@ -98,37 +98,51 @@ struct TriageEvalTests {
     ]
 
     @Test func findsTheFailuresInEachFixture() async throws {
-        let model = try ModelSelection.default.resolve()
         let schema = try OutputSchema(json: Triage.schemaJSON)
-        let triage = Triage(options: .init(chunkBytes: 4096)) { prompt in
-            try await Agent(instructions: "You triage build and test output.", tools: [], model: model)
-                .respond(to: prompt, schema: schema).text
-        }
-        var hits = 0
-        var wanted = 0
-        var exact = 0
-        var chunks = 0
-        for fixture in Self.fixtures {
-            let report = try await triage.run(.init(text: fixture.output), from: .path(fixture.name))
-            let haystack = report.findings.map { "\($0.location ?? "") \($0.message)" }
-            let found = fixture.expected.filter { needles in
-                haystack.contains { hay in needles.contains { hay.contains($0) } }
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["triage"]) else { continue }
+            let triage = Triage(options: .init(chunkBytes: 4096)) { prompt in
+                try await Agent(instructions: "You triage build and test output.", tools: [], model: model)
+                    .respond(to: prompt, schema: schema).text
             }
-            hits += found.count
-            wanted += fixture.expected.count
-            let spurious = report.findings.count - found.count
-            exact += report.exactChunks
-            chunks += report.chunks
+            var hits = 0
+            var wanted = 0
+            var exact = 0
+            var chunks = 0
+            var times: [Double] = []
+            for fixture in Self.fixtures {
+                wanted += fixture.expected.count
+                let (triaged, milliseconds) = await EvalModels.attempt(
+                    "triage eval: \(fixture.name)", on: selection, strict: true
+                ) {
+                    try await triage.run(.init(text: fixture.output), from: .path(fixture.name))
+                }
+                times.append(milliseconds)
+                guard let report = triaged else { continue }
+                let haystack = report.findings.map { "\($0.location ?? "") \($0.message)" }
+                let found = fixture.expected.filter { needles in
+                    haystack.contains { hay in needles.contains { hay.contains($0) } }
+                }
+                hits += found.count
+                let spurious = report.findings.count - found.count
+                exact += report.exactChunks
+                chunks += report.chunks
+                print(
+                    "triage eval: on \(selection) \(fixture.name): \(found.count)/\(fixture.expected.count) expected "
+                        + "found, \(spurious) other findings\n" + report.rendered)
+            }
             print(
-                "triage eval: \(fixture.name): \(found.count)/\(fixture.expected.count) expected found, "
-                    + "\(spurious) other findings\n" + report.rendered)
+                "triage eval: on \(selection) recall \(hits)/\(wanted); \(exact) of \(chunks) chunks read exactly, "
+                    + "without the model")
+            EvalModels.result("triage", on: selection, passed: hits, total: wanted, milliseconds: times)
+            if EvalModels.floorsApply(to: selection) {
+                #expect(hits * 4 >= wanted * 3, "recall \(hits)/\(wanted) is below three quarters")
+            }
+            try? Measurements.report(
+                Measurement(
+                    task: "triage", model: selection.description, passed: hits, total: wanted,
+                    notes: "expected failures found across abridged swift build, swift test, cargo test, and pytest "
+                        + "output, by test name or file:line"))
         }
-        print("triage eval: recall \(hits)/\(wanted); \(exact) of \(chunks) chunks read exactly, without the model")
-        #expect(hits * 4 >= wanted * 3, "recall \(hits)/\(wanted) is below three quarters")
-        try? Measurements.report(
-            Measurement(
-                task: "triage", model: ModelSelection.default.description, passed: hits, total: wanted,
-                notes: "expected failures found across abridged swift build, swift test, cargo test, and pytest "
-                    + "output, by test name or file:line"))
     }
 }

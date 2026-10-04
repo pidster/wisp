@@ -81,10 +81,12 @@ struct RedactionEvalTests {
             expected += fixture.gone.count
             found += fixture.gone.count - missed.count
             print(
-                "redaction eval: \(fixture.name): \(ok ? "pass" : "FAIL") missed \(missed) damaged \(damaged)\n"
+                "redaction eval: on \(model.selection) \(fixture.name): \(ok ? "pass" : "FAIL") missed \(missed) damaged \(damaged)\n"
                     + report.text)
         }
-        print("redaction eval: fixtures \(passed)/\(Self.fixtures.count); values found \(found)/\(expected)")
+        print(
+            "redaction eval: on \(model.selection) fixtures \(passed)/\(Self.fixtures.count); values found \(found)/\(expected)"
+        )
         try? Measurements.report(
             Measurement(
                 task: "redact.thorough", model: model.selection.description, passed: passed,

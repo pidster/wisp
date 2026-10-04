@@ -40,10 +40,11 @@ struct ContextEvalTests {
     /// each turn and the summary, and reports the measurement. The model has `read_file` alone (and `memory` when the
     /// strategy adds it), as every run before phase 6 had; `allTools` offers every built-in tool instead, as chat
     /// does, so the assessment's choice of tools (phase 4d) has something to save.
+    @discardableResult
     static func measure(
         _ model: ResolvedModel, variant: String? = nil, strategy: some ContextStrategy = DroppingStrategy(),
         scenario: ContextEval.Scenario = ContextEval.baseline(), allTools: Bool = false
-    ) async throws {
+    ) async throws -> ContextEval.Run {
         let names = allTools ? ToolRegistry.builtInNames.filter { $0 != MemoryTool.toolName } : ["read_file"]
         let run = await ContextEval.run(
             scenario, strategy: strategy, model: model,
@@ -67,6 +68,27 @@ struct ContextEvalTests {
         try? Measurements.report(run.measurement(variant: variant))
         #expect(run.turns.count == scenario.steps.count + scenario.questions.count)
         #expect(run.answers.count == scenario.questions.count)
+        return run
+    }
+
+    /// The local-model comparison's context scenario (docs/measurements.md, "Comparing models"), on each model
+    /// `WISP_EVAL_MODELS` names and only when it names some: the baseline, the shortest scenario (14 turns, then
+    /// six questions), through the whole default stack (`stack`: memory, facts, the summary, references, condensing
+    /// to the target), at a window of 8,192 tokens, the on-device model's, so every model condenses the same
+    /// conversation. Each turn is bounded by its runtime's request timeout (`ollama.timeoutSeconds`) and the whole
+    /// test by its time limit, past which the remaining models' cells are left empty.
+    @Test(.enabled(if: EvalModels.named != nil), .timeLimit(.minutes(60)))
+    func comparisonOnEachModel() async throws {
+        let config = Config(ollama: .init(contextLength: 8192)).resolved
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["context"], config: config) else { continue }
+            let run = try await Self.measure(model, variant: "window-8192", strategy: Self.stack)
+            let failed = run.turns.filter(\.failed).count
+            EvalModels.result(
+                "context", on: selection, passed: run.answers.filter { $0.verdict == .correct }.count,
+                total: run.answers.count, median: ContextEval.percentile(run.milliseconds, 0.5),
+                note: failed == 0 ? "" : "\(failed) turns failed")
+        }
     }
 
     @Test func baselineOnTheOnDeviceModel() async throws {

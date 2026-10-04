@@ -3,8 +3,8 @@ import Testing
 
 @testable import WispCore
 
-/// Whether the configured model's commit subjects name what a change is about. Needs the model
-/// (`scripts/check eval`). The shape rules (length, capital, no trailing period) are applied in code, so
+/// Whether the configured model's commit subjects, or each model's that `WISP_EVAL_MODELS` names (`EvalModels`),
+/// name what a change is about. Needs the model (`scripts/check eval`); the floor applies to the configured model. The shape rules (length, capital, no trailing period) are applied in code, so
 /// the eval measures content: a pass is a subject containing one of the words a reviewer would expect.
 /// The words name the gist of each change, not merely a file it touches: a looser set on 2026-09-24
 /// passed "Cache installation instructions and config format in JSON" for a README change.
@@ -104,14 +104,6 @@ struct DraftEvalTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    /// The models to measure: `WISP_EVAL_MODELS` (comma-separated spellings), else the configured default.
-    static var models: [ModelSelection] {
-        let named = ProcessInfo.processInfo.environment["WISP_EVAL_MODELS"]?.split(separator: ",").compactMap {
-            try? ModelSelection(parsing: $0.trimmingCharacters(in: .whitespaces))
-        }
-        return (named?.isEmpty == false ? named : nil) ?? [.default]
-    }
-
     /// Drafts a commit subject for `diff` on `model`, as `draft_change` would.
     static func subject(_ diff: String, model: ResolvedModel) async throws -> String {
         let instructions = Prompting().rendered(toolsAvailable: false)
@@ -135,39 +127,56 @@ struct DraftEvalTests {
     }
 
     @Test func subjectsNameWhatTheChangeIsAboutAtEachSize() async throws {
-        let config = try Session.loadConfig(home: Home.resolve())
-        for selection in Self.models {
-            let model = try selection.resolve(config: config, home: Home.resolve())
+        for selection in EvalModels.selections {
+            let suites = ["draft"] + Self.bands.map { "draft.\($0.name)" }
+            guard let model = EvalModels.resolve(selection, for: suites) else { continue }
             // Small diffs, twice each; the floor applies here.
             var passed = 0
+            var times: [Double] = []
             for (round, fixture) in (1...2).flatMap({ round in Self.fixtures.map { (round, $0) } }) {
-                let subject = try await Self.subject(fixture.diff, model: model)
-                let ok = fixture.words.contains { subject.lowercased().contains($0) }
+                let diff = fixture.diff
+                let (drafted, milliseconds) = await EvalModels.attempt(
+                    "draft eval: small #\(round) \(fixture.name)", on: selection, strict: true
+                ) { try await Self.subject(diff, model: model) }
+                times.append(milliseconds)
+                let subject = drafted ?? ""
+                let ok = drafted != nil && fixture.words.contains { subject.lowercased().contains($0) }
                 if ok { passed += 1 }
-                print("draft eval: \(selection) small #\(round) \(fixture.name): \(ok ? "pass" : "FAIL") \(subject)")
+                print("draft eval: on \(selection) small #\(round) \(fixture.name): \(ok ? "pass" : "FAIL") \(subject)")
             }
             let total = Self.fixtures.count * 2
+            EvalModels.result("draft", on: selection, passed: passed, total: total, milliseconds: times)
             try? Measurements.report(
                 Measurement(
                     task: ChangeDraft.routingTask, model: selection.description, passed: passed, total: total,
                     notes: "commit subjects for five small diffs (a retry loop, a default changed, a new flag, an "
                         + "off-by-one fix, a docs addition), twice each; a pass is a subject naming what the change is about",
                     maxInputBytes: Self.fixtures.map(\.diff.utf8.count).max()))
-            #expect(passed * 2 >= total, "\(selection): small draft subjects passed \(passed)/\(total)")
+            if EvalModels.floorsApply(to: selection) {
+                #expect(passed * 2 >= total, "\(selection): small draft subjects passed \(passed)/\(total)")
+            }
             // Real commits in larger bands, once each: evidence for routing, not a floor.
             for band in Self.bands {
                 var bandPassed = 0
                 var largest = 0
+                var bandTimes: [Double] = []
                 for fixture in band.fixtures {
                     let diff = try Self.diff(fixture.file)
                     largest = max(largest, diff.utf8.count)
-                    let subject = try await Self.subject(diff, model: model)
-                    let ok = fixture.words.contains { subject.lowercased().contains($0) }
+                    let (drafted, milliseconds) = await EvalModels.attempt(
+                        "draft eval: \(band.name) \(fixture.file)", on: selection, strict: true
+                    ) { try await Self.subject(diff, model: model) }
+                    bandTimes.append(milliseconds)
+                    let subject = drafted ?? ""
+                    let ok = drafted != nil && fixture.words.contains { subject.lowercased().contains($0) }
                     if ok { bandPassed += 1 }
                     print(
-                        "draft eval: \(selection) \(band.name) \(fixture.file) (\(diff.utf8.count) B): \(ok ? "pass" : "FAIL") \(subject)"
-                    )
+                        "draft eval: on \(selection) \(band.name) \(fixture.file) (\(diff.utf8.count) B): "
+                            + "\(ok ? "pass" : "FAIL") \(subject)")
                 }
+                EvalModels.result(
+                    "draft.\(band.name)", on: selection, passed: bandPassed, total: band.fixtures.count,
+                    milliseconds: bandTimes)
                 try? Measurements.report(
                     Measurement(
                         task: ChangeDraft.routingTask, model: selection.description, passed: bandPassed,

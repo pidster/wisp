@@ -65,21 +65,35 @@ public struct ModelRiskClassifier: RiskClassifier {
         When two readings are plausible, choose the higher risk.
         """
 
+    /// The model to classify with; nil is the on-device model, which is what `approval.classifier: system-model`
+    /// runs. Another model is for measuring it in this role (the local-model comparison, docs/measurements.md).
+    let model: ResolvedModel?
+
     /// Creates the classifier.
-    public init() {}
+    ///
+    /// - Parameter model: The model to classify with; nil, the default, is the on-device model.
+    public init(model: ResolvedModel? = nil) {
+        self.model = model
+    }
+
+    /// A fresh session on the classifier's model, or nil when the on-device model is unavailable.
+    private func session() -> LanguageModelSession? {
+        if let model { return model.session(tools: [], instructions: Self.instructions) }
+        let system = SystemLanguageModel.default
+        guard case .available = system.availability else { return nil }
+        return LanguageModelSession(model: system, instructions: Self.instructions)
+    }
 
     /// Runs one fresh session per command so verdicts never influence each other, with greedy
     /// sampling so the same command always gets the same verdict.
     /// If the model is unavailable or fails, reports `moderate` with the reason, so a
     /// broken classifier asks for approval rather than waving commands through.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
-        let model = SystemLanguageModel.default
-        guard case .available = model.availability else {
+        guard let session = session() else {
             return RiskAssessment(
                 level: .moderate, reasons: ["model classifier unavailable"], sources: ["model"],
                 metadata: [RiskAssessment.failureKey: .string("unavailable")])
         }
-        let session = LanguageModelSession(model: model, instructions: Self.instructions)
         do {
             // Greedy sampling makes verdicts repeatable for the same command.
             let verdict = try await session.respond(
