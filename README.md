@@ -1,5 +1,35 @@
 # wisp
 
+A local AI agent for your Mac: Apple's on-device model with tools, a safety gate in front of every
+command, and a verbatim record of everything it does. Yours at the terminal, and your coding agent's
+over MCP.
+
+## Quick start
+
+```bash
+brew install pidster/tap/wisp
+wisp doctor
+wisp "What is listening on port 8080, and how much disk is free?"
+wisp chat
+```
+
+- **Private by default.** Apple's Foundation Model on your own silicon: no API key, no account, nothing
+  leaves the Mac. Ollama and MLX when you want a bigger model.
+- **A gate on every command.** A deny list, a Seatbelt sandbox, a risk classifier that answers in under a
+  millisecond, and you, with approvals remembered by program and verb.
+- **Your coding agent's local helper.** A failing test run or a 14,000-line log comes back as a few lines;
+  the raw output never enters the agent's context.
+- **It shows its work.** Under every reply, what the turn actually ran, and any output it cites that does
+  not exist; the audit log keeps every prompt, call, and verdict verbatim.
+- **A context it composes, not one it piles up.** Facts, a running summary, and references the model can
+  recall, while you always see the full output.
+- **Approve from anywhere.** A command your coding agent's session is waiting on can be answered from any
+  terminal, or `wisp-tui`.
+- **Yours to shape.** Train the risk classifier on your own command history, and add tools as command
+  templates.
+
+## What it is
+
 **wisp** is a small AI agent that runs on your Mac and stays there. It drives Apple's on-device
 Foundation Model, the one behind Apple Intelligence, and gives it tools: it can run a command, read
 and edit a file, report on the machine, send you a notification, and recall what its context no longer
@@ -152,6 +182,33 @@ agent loop; the framework runs the loop and wisp puts the care around it. Your o
 templates in `~/.wisp/config.json`, run through the same gate as everything else
 ([tools/custom.md](docs/tools/custom.md)). State is a directory, `~/.wisp`, that you can read, edit,
 and delete.
+
+## Features, and where to read more
+
+| Area | Feature | Read |
+| --- | --- | --- |
+| Models | The on-device model by default; Ollama, MLX, and Core AI models by name; Private Cloud Compute as an explicit opt-in | [backends.md](docs/backends.md) |
+| | A context window sized from the Mac's free memory for each local model | [wisp.md](docs/wisp.md#context-window), [ADR 0043](docs/decisions/0043-context-window-from-memory.md) |
+| | `wisp models`: every model this Mac can run as one table; enable or disable a model, and have its capabilities checked when you enable it | [wisp.md](docs/wisp.md#wisp-models), [ADR 0056](docs/decisions/0056-models-enabled-and-disabled.md) |
+| | `wisp models pull`: an MLX model fetched into, or reused from, the Hugging Face cache, after asking | [backends.md](docs/backends.md#mlx-swift), [ADR 0052](docs/decisions/0052-mlx-on-a-par-with-ollama.md) |
+| | A reasoning model's thinking shown while it thinks, kept for you and never sent back to the model; `ollama.think` | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md) |
+| Safety | The policy's deny and allow lists, the Seatbelt sandbox, and what a refused write is reported as | [tools/run_command.md](docs/tools/run_command.md), [ADR 0054](docs/decisions/0054-the-sandboxs-refusals-checked.md) |
+| | Risk classifiers: rules, the shipped Core ML classifier, or the on-device model | [approval.md](docs/approval.md#classifiers) |
+| | **Custom classifiers**: train one on your own audit log or labelled commands, measure it, and switch to it | [wisp.md](docs/wisp.md#wisp-classifier), [approval.md](docs/approval.md#training-and-measuring-a-classifier) |
+| | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
+| | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
+| Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
+| | Facts, the running summary, references to earlier output, and the model's `memory` tool | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
+| | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
+| | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |
+| Seeing what happened | The audit log and `wisp logs`; `wisp doctor` | [logging.md](docs/logging.md), [wisp.md](docs/wisp.md) |
+| | `ran:` beside every reply, and references to entries that do not exist flagged | [ADR 0051](docs/decisions/0051-the-turns-tool-calls-beside-the-reply.md), [ADR 0055](docs/decisions/0055-cited-entries-checked.md) |
+| | What the model carried on any turn, without spending its context (`/inspect context`) | [context-management.md](docs/context-management.md) |
+| Everyday jobs | `wisp watch`, `wisp scan`, `wisp redact`, `wisp draft`, and `wisp notify` | [wisp.md](docs/wisp.md) |
+| | Notifications from your terminal or its app, with what routes each takes | [tools/notify.md](docs/tools/notify.md), [ADR 0044](docs/decisions/0044-host-effects.md) |
+| Extending | **Custom tools**: a command template in `config.json`, run through the same gate | [tools/custom.md](docs/tools/custom.md) |
+| | wisp as an MCP server for Claude Code, Codex, or any MCP client | [mcp.md](docs/mcp.md) |
+| | A front end of your own over `wisp chat --json` | [wisp.md](docs/wisp.md), [ADR 0029](docs/decisions/0029-tui-front-end.md) |
 
 ## Install
 
