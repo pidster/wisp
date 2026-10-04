@@ -25,8 +25,29 @@ wisp chat
   recall, while you always see the full output.
 - **Approve from anywhere.** A command your coding agent's session is waiting on can be answered from any
   terminal, or `wisp-tui`.
-- **Yours to shape.** Train the risk classifier on your own command history, and add tools as command
-  templates.
+- **Yours to shape.** wisp's risk classifier can be trained on your own data, your Mac's command history
+  or your own labelled commands, and you can add tools as command templates.
+
+### What you can use it for
+
+- **Keep your data with a local AI.** With the on-device model, or a model you run in Ollama or MLX, every
+  prompt, file, and command output is handled by a model on this Mac, and no cloud service is involved.
+  The one cloud model wisp knows, Apple's Private Cloud Compute, is an explicit opt-in, refused from this
+  build. When your coding agent calls wisp over MCP, only the result it asked for goes back to it, not
+  the raw data.
+- **Redact files and filter out personal data** before text goes into an issue, a chat, or a cloud model:
+  `wisp redact crash.log` replaces credentials and personal data (emails, phone and card numbers,
+  addresses, names) with numbered markers, and `wisp scan --personal export.csv` reports where they are.
+- **Check a commit for secrets** before it is made: `git diff --cached | wisp scan` in a pre-commit hook.
+- **Watch for local changes:** `wisp watch 'swift test 2>&1'` reruns a command on every save and tells
+  you, by a notification, when it starts or stops failing.
+- **Train the classifier on your own data:** `wisp classifier train --from-audit` builds a risk classifier
+  from the commands on this Mac, `wisp classifier measure` scores it, and `wisp classifier use` switches to
+  it.
+- **Run any local model you choose**, from Ollama or the Hugging Face cache, and turn off the ones you do
+  not want offered: `wisp models`.
+- **Hand your coding agent the local chores:** test failures, long logs, diffs, dependency audits, and
+  profiles, read on the Mac and returned as a few lines.
 
 ## What it is
 
