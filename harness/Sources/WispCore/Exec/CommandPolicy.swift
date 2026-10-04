@@ -102,6 +102,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         // the sandbox it fails anyway, unable to write wisp's home. Matched where wisp is the program a simple
         // command runs (each segment of a line is checked alone), so its other subcommands stay allowed.
         nestedWisp,
+        // Nor does it fetch a model: the download is the person's to approve (ADR 0052).
+        #"(^|[\s;&|(/])wisp\s+models\s+pull\b"#,
     ]
 
     /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, by any path and after `env`, `exec`, `nohup`, or

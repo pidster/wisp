@@ -5,7 +5,8 @@ settings) and [ADR 0025](0025-context-estimation.md) (the window the agent conde
 [ADR 0045](0045-layered-context.md): the window also sets the target condensing brings the context down to and the
 caps of the earlier block (facts and the summary, as shares of it); open question 9, cited under Consequences, is
 answered by tool output sent as a reference after its turn rather than sized to the window, so tool results keep
-their 4 KiB bound within their own turn.
+their 4 KiB bound within their own turn. Amended by [ADR 0052](0052-mlx-on-a-par-with-ollama.md): an MLX model's
+window is sized by the same rule from its `config.json`, and a Core AI model's is its bundle's declared window.
 
 ## Context
 

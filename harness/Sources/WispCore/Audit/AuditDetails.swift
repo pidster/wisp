@@ -487,6 +487,20 @@ extension AuditEvent {
             ]
         }
 
+        /// `model.pull`: a model fetched with the person's approval (`wisp models pull`): the selection it becomes,
+        /// where from and to, how many files and bytes the repository lists, how many bytes this run fetched
+        /// (less when it resumed), and how it ended (`fetched`, `declined`, `failed`), with why.
+        public static func modelPull(
+            model: String, repository: String, directory: String, files: Int, bytes: Int, fetched: Int,
+            outcome: String, reason: String?, seconds: Double
+        ) -> [String: JSONValue] {
+            [
+                "model": .string(model), "repository": .string(repository), "directory": .string(directory),
+                "files": .int(files), "bytes": .int(bytes), "fetched": .int(fetched), "outcome": .string(outcome),
+                "reason": reason.map { .string($0) } ?? .null, "seconds": .double(seconds),
+            ]
+        }
+
         /// `classifier.train`: where the model went, what it learned from, and how well it fits that.
         public static func classifierTrained(
             _ outcome: RiskClassifierTraining.Outcome, examplesSource: String
@@ -720,6 +734,8 @@ extension AuditEvent {
         case .secretScan: ["source", "bytes", "diff", "thorough", "findings", "kinds", "failedChunks", "classifier"]
         case .redaction: ["source", "bytes", "bytesOut", "truncated", "thorough", "replaced", "failedChunks"]
         case .modelRouted: ["task", "inputBytes", "model", "reason"]
+        case .modelPull:
+            ["model", "repository", "directory", "files", "bytes", "fetched", "outcome", "reason", "seconds"]
         case .watchRun:
             [
                 "command", "run", "trigger", "exitStatus", "timedOut", "state", "previous", "changed", "seconds",

@@ -51,7 +51,7 @@ import Testing
         ]
         for setting in ConfigSettings.all {
             var path = moved[setting.path] ?? setting.path.split(separator: ".").map(String.init)
-            if path.first == "ollama" { path.insert("backends", at: 0) }
+            if path.first == "ollama" || path.first == "mlx" { path.insert("backends", at: 0) }
             let node = path.reduce(Optional(top)) { $0?.objectValue?[$1] }
             #expect(node != nil, "\(setting.path) is not shown at \(path.joined(separator: "."))")
         }

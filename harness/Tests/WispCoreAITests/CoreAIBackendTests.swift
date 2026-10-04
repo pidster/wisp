@@ -56,13 +56,36 @@ import WispCore
         }
     }
 
+    @Test func theWindowIsTheOneTheBundleWasExportedFor() throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        func bundle(_ metadata: String) throws -> URL {
+            let url = models.appending(path: UUID().uuidString)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try Data(metadata.utf8).write(to: url.appending(path: "metadata.json"))
+            return url
+        }
+        let current = try bundle(#"{"metadata_version":"0.2","kind":"llm","language":{"max_context_length":8192}}"#)
+        #expect(
+            CoreAIBackend.contextWindow(in: current)
+                == .init(window: 8192, reason: "declared by the bundle (metadata.json language.max_context_length)"))
+        let legacy = try bundle(#"{"name":"q","max_context_length":4096}"#)
+        #expect(CoreAIBackend.contextWindow(in: legacy)?.window == 4096)
+        #expect(CoreAIBackend.contextWindow(in: legacy)?.reason.hasSuffix("(metadata.json max_context_length)") == true)
+        #expect(CoreAIBackend.contextWindow(in: try bundle(#"{"kind":"llm","language":{}}"#)) == nil)
+        #expect(CoreAIBackend.contextWindow(in: try bundle("not json")) == nil)
+        #expect(CoreAIBackend.contextWindow(in: models.appending(path: "absent")) == nil)
+    }
+
     @Test func listsBundlesWithTheirMetadata() async throws {
         let (home, models) = try scratch()
         defer { try? FileManager.default.removeItem(at: home.root) }
         let bundle = models.appending(path: "qwen3_0_6b")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try Data(#"{"kind":"llm","compression":"4bit","source":{"hf_model_id":"Qwen/Qwen3-0.6B"}}"#.utf8)
-            .write(to: bundle.appending(path: "metadata.json"))
+        try Data(
+            #"{"kind":"llm","compression":"4bit","source":{"hf_model_id":"Qwen/Qwen3-0.6B"},"language":{"max_context_length":8192}}"#
+                .utf8
+        ).write(to: bundle.appending(path: "metadata.json"))
         try Data(repeating: 0, count: 2048).write(to: bundle.appending(path: "weights.aimodel"))
         try FileManager.default.createDirectory(
             at: models.appending(path: "not-a-bundle"), withIntermediateDirectories: true)
@@ -70,6 +93,7 @@ import WispCore
         #expect(installed.map(\.selection) == [.local(backend: "coreai", name: "qwen3_0_6b")])
         #expect(installed.first?.detail.hasPrefix("llm 4bit Qwen/Qwen3-0.6B") == true)
         #expect(installed.first?.detail.contains("KB") == true)
+        #expect(installed.first?.detail.hasSuffix("8,192-token window") == true)
         #expect(
             try await CoreAIBackend().installed(
                 config: Config().resolved, home: Home(root: URL(filePath: "/nonexistent"))

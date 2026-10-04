@@ -40,7 +40,7 @@ configured under `commandPolicy` in `config.json`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048), and a nested wisp agent: `wisp respond`, `wisp chat`, `wisp mcp`, or the quoted bare `wisp "prompt"`, by any path and after options, `env`, or `VAR=value`, where wisp is the program a segment of the line runs; `wisp --version`, `doctor`, `logs`, `tools`, `models`, `config`, and its other subcommands stay allowed (ADR 0054) | Regexes; a match rejects the command. Patterns are compiled once per process. |
+| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048), `wisp models pull` (so is fetching a model, ADR 0052), and a nested wisp agent: `wisp respond`, `wisp chat`, `wisp mcp`, or the quoted bare `wisp "prompt"`, by any path and after options, `env`, or `VAR=value`, where wisp is the program a segment of the line runs; `wisp --version`, `doctor`, `logs`, `tools`, `models`, `config`, and its other subcommands stay allowed (ADR 0054) | Regexes; a match rejects the command. Patterns are compiled once per process. |
 | `allow` | `[]` | Regexes; when non-empty the command must match one. Deny wins. |
 | `sandbox.enabled` | `true` | Run under `sandbox-exec`. |
 | `sandbox.allowNetwork` | `true` | Set `false` to deny all networking inside the sandbox. |

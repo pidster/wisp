@@ -796,29 +796,122 @@ struct ConfigCommand: ParsableCommand {
     }
 }
 
-/// Lists the models a session can run on: Apple's two and whatever each local backend serves.
+/// The models a session can run on: listing them, and fetching an MLX one with the person's approval.
 struct Models: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List the models usable with --model and config.json.",
-        discussion:
-            "A model is listed when it resolves and declares tool calling (or, with --no-tools, when it can "
-            + "hold a conversation at all). --all adds the rest with the reason each is excluded.")
+        abstract: "List the models usable with --model and config.json, or fetch an MLX model.",
+        subcommands: [List.self, Pull.self], defaultSubcommand: List.self)
 
-    @Flag(name: .long, help: "Also list the models that cannot be used, with the reason.")
-    var all = false
+    /// Lists the models a session can run on: Apple's two and whatever each local backend serves.
+    struct List: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "List the models usable with --model and config.json.",
+            discussion:
+                "A model is listed when it resolves and declares tool calling (or, with --no-tools, when it can "
+                + "hold a conversation at all). --all adds the rest with the reason each is excluded.")
 
-    @Flag(name: .customLong("no-tools"), help: "List the models usable for a conversation with no tools.")
-    var noTools = false
+        @Flag(name: .long, help: "Also list the models that cannot be used, with the reason.")
+        var all = false
 
-    func run() async throws {
-        let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
-        let tools: [any Tool] =
-            noTools
-            ? [] : ToolRegistry(runner: config.runner, disabled: config.disabledTools, custom: config.customTools).all
-        let lines = await ModelListing.lines(
-            config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
-            width: TerminalTable.detectWidth())
-        for line in lines { print(line) }
+        @Flag(name: .customLong("no-tools"), help: "List the models usable for a conversation with no tools.")
+        var noTools = false
+
+        func run() async throws {
+            let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
+            let tools: [any Tool] =
+                noTools
+                ? []
+                : ToolRegistry(runner: config.runner, disabled: config.disabledTools, custom: config.customTools).all
+            let lines = await ModelListing.lines(
+                config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
+                width: TerminalTable.detectWidth())
+            for line in lines { print(line) }
+        }
+    }
+
+    /// Fetches an `mlx-community` model from Hugging Face into the MLX models directory, after saying what it
+    /// will fetch and asking (ADR 0052). Only from a terminal: the question is the person's to answer.
+    struct Pull: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Fetch an mlx-community model from Hugging Face, after asking.",
+            discussion:
+                "Lists the repository, says how many files and bytes it would fetch and where, and asks before "
+                + "fetching. Only the configuration, weights, and tokenizer files are fetched; each is checked "
+                + "against the listing's size and, for weights, its SHA-256. An interrupted pull keeps the files "
+                + "it finished and the next run fetches the rest. Runs only from a terminal.")
+
+        @Argument(help: "The repository, such as mlx-community/Qwen3-1.7B-4bit (mlx: before it is accepted).")
+        var repository: String
+
+        func run() async throws {
+            guard isatty(STDIN_FILENO) != 0 else {
+                throw ValidationError(
+                    "wisp models pull asks the person before it fetches, so it runs only from a terminal")
+            }
+            let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
+            let directory = MLXBackend.modelsDirectory(config: config, home: Wisp.home)
+            let pull = ModelPull()
+            let plan: ModelPull.Plan
+            do {
+                plan = try await pull.plan(repository, into: directory)
+            } catch let failure as ModelPull.Failure {
+                throw ValidationError("\(failure)")
+            }
+            print(Self.summary(of: plan))
+            print("Fetch it? [y/N] ", terminator: "")
+            let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            let started = ContinuousClock.now
+            guard answer == "y" || answer == "yes" else {
+                record(plan, fetched: 0, outcome: "declined", reason: nil, started: started)
+                print("Nothing fetched.")
+                return
+            }
+            do {
+                let fetched = try await pull.fetch(plan) { file, index in
+                    let size = ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)
+                    FileHandle.standardError.write(Data("[\(index)/\(plan.files.count)] \(file.path) (\(size))\n".utf8))
+                }
+                record(plan, fetched: fetched, outcome: "fetched", reason: nil, started: started)
+            } catch let failure as ModelPull.Failure {
+                record(plan, fetched: 0, outcome: "failed", reason: "\(failure)", started: started)
+                throw ValidationError("\(failure)")
+            }
+            print(
+                "Fetched into \(plan.destination.path). Use it as --model mlx:\(plan.name); declare what it can do "
+                    + "in config.json (mlx.models.\(plan.name).capabilities), only what you have verified.")
+        }
+
+        /// What the pull would do, for the question.
+        static func summary(of plan: ModelPull.Plan) -> String {
+            func size(_ bytes: Int) -> String {
+                ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+            }
+            var lines = [
+                "\(plan.repository): \(plan.files.count) files, \(size(plan.bytes)), into \(plan.destination.path) "
+                    + "(as mlx:\(plan.name))"
+            ]
+            if !plan.present.isEmpty {
+                lines.append(
+                    "\(plan.present.count) of them are already here from an earlier pull; \(size(plan.remaining)) to fetch"
+                )
+            }
+            return lines.joined(separator: "\n")
+        }
+
+        /// Records the pull in the audit log as `model.pull`.
+        func record(
+            _ plan: ModelPull.Plan, fetched: Int, outcome: String, reason: String?, started: ContinuousClock.Instant
+        ) {
+            guard let session = try? Wisp.begin(.init(entryPoint: .models)) else { return }
+            let elapsed = ContinuousClock.now - started
+            session.audit.record(
+                .modelPull,
+                details: AuditEvent.Details.modelPull(
+                    model: "mlx:\(plan.name)", repository: plan.repository, directory: plan.destination.path,
+                    files: plan.files.count, bytes: plan.bytes, fetched: fetched, outcome: outcome, reason: reason,
+                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
+            session.end()
+        }
     }
 }
 

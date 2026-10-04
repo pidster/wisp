@@ -4,7 +4,8 @@ import Foundation
 /// key-value cache, with the weights and working buffers, fits the budget, capped at the model's maximum
 /// ([ADR 0043](../../../../docs/decisions/0043-context-window-from-memory.md)).
 public enum ContextSizing {
-    /// What sizing needs to know about a model, from Ollama's `/api/show` `model_info`.
+    /// What sizing needs to know about a model, from Ollama's `/api/show` `model_info` or an MLX model's
+    /// `config.json`.
     public struct Shape: Equatable, Sendable {
         /// The longest window the model supports.
         public var maxContext: Int
@@ -37,6 +38,12 @@ public enum ContextSizing {
         public var window: Int
         /// One sentence, such as `32,768 of 131,072: 10.2 GiB of an 11.1 GiB budget`.
         public var reason: String
+
+        /// Creates a decision.
+        public init(window: Int, reason: String) {
+            self.window = window
+            self.reason = reason
+        }
     }
 
     /// Windows are multiples of this.
@@ -69,9 +76,51 @@ public enum ContextSizing {
             valueLength: valueLength)
     }
 
+    /// Reads the shape from a Hugging Face `config.json`, as an MLX model directory carries it
+    /// ([ADR 0052](../../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)): `max_position_embeddings`,
+    /// `num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else
+    /// `hidden_size` ÷ `num_attention_heads`). A multimodal model nests its language model's under
+    /// `text_config`, which is read first. Nil when any part is missing.
+    ///
+    /// - Parameter config: The decoded `config.json`.
+    /// - Returns: The shape, or nil.
+    public static func shape(fromModelConfig config: [String: JSONValue]) -> Shape? {
+        let nested = config["text_config"]?.objectValue ?? [:]
+        func number(_ keys: String...) -> Int? {
+            for key in keys {
+                if let value = nested[key]?.intValue ?? config[key]?.intValue { return value }
+            }
+            return nil
+        }
+        guard let maxContext = number("max_position_embeddings", "max_sequence_length", "n_positions"),
+            let layers = number("num_hidden_layers", "n_layer"), let heads = number("num_attention_heads", "n_head"),
+            maxContext > 0, layers > 0, heads > 0
+        else { return nil }
+        let keyValueHeads = number("num_key_value_heads") ?? heads
+        guard let headSize = number("head_dim") ?? number("hidden_size", "n_embd").map({ $0 / heads }),
+            keyValueHeads > 0, headSize > 0
+        else { return nil }
+        return Shape(
+            maxContext: maxContext, layers: layers, keyValueHeads: keyValueHeads, keyLength: headSize,
+            valueLength: headSize)
+    }
+
+    /// What Ollama does when the floor does not fit, for the reason of a floor decision.
+    public static let ollamaShortfall = "so Ollama may run it partly on the CPU"
+
     /// The window for a model of `shape` whose weights take `weights` bytes, given `memory` now and
-    /// `held` bytes Ollama already holds for this model, which count as available.
-    public static func size(shape: Shape, weights: Int, memory: MemoryState, held: Int = 0) -> Decision {
+    /// `held` bytes the runtime already holds for this model, which count as available.
+    ///
+    /// - Parameters:
+    ///   - shape: The model's shape.
+    ///   - weights: Bytes the weights take.
+    ///   - memory: Memory now.
+    ///   - held: Bytes the runtime already holds for this model.
+    ///   - shortfall: What happens when even the floor does not fit, for the reason (Ollama's by default).
+    /// - Returns: The window and why.
+    public static func size(
+        shape: Shape, weights: Int, memory: MemoryState, held: Int = 0, shortfall: String = ollamaShortfall
+    ) -> Decision {
         let budget = min(
             Int(Double(memory.available + held) * availableShare), Int(Double(memory.installed) * installedShare))
         let fits = max(0, budget - weights - overhead) / max(1, shape.bytesPerToken)
@@ -84,7 +133,7 @@ public enum ContextSizing {
             return Decision(
                 window: chosen,
                 reason: "\(chosen.formatted()) of \(shape.maxContext.formatted()), the floor: needs \(gib(needed)) "
-                    + "but the budget is \(gib(budget)), so Ollama may run it partly on the CPU")
+                    + "but the budget is \(gib(budget)), \(shortfall)")
         }
         return Decision(window: chosen, reason: "\(chosen.formatted()) of \(shape.maxContext.formatted()): \(figures)")
     }

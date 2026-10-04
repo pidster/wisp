@@ -1,7 +1,9 @@
 # ADR 0019: Model backends are a registry, and a model's capabilities are declared, never assumed
 
 Date: 2026-09-20. Status: accepted. Extends [ADR 0016](0016-local-runtimes-through-an-executor.md).
-Amended by [ADR 0047](0047-mlx-in-the-release.md): MLX ships in the release.
+Amended by [ADR 0047](0047-mlx-in-the-release.md): MLX ships in the release. Amended by
+[ADR 0052](0052-mlx-on-a-par-with-ollama.md): MLX models run through wisp's own executor by default, the bridge
+stays as `mlx.executor: "bridge"`, and `wisp models pull` fetches `mlx-community` models on the person's command.
 
 ## Context
 

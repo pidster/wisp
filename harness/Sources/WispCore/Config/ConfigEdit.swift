@@ -90,6 +90,13 @@ public enum ConfigSettings {
             summary:
                 "whether a model that can think is asked to: true, false, or a level; unset leaves it to the model",
             kind: .choice(OllamaThink.choices)),
+        Setting(
+            path: "mlx.contextLength",
+            summary: "the context window of every MLX model; unset sizes each from memory",
+            kind: .integer(1024...1_048_576)),
+        Setting(
+            path: "mlx.executor", summary: "what runs MLX models: wisp's executor, or the bridge (no prefix reuse)",
+            kind: .choice(MLXExecutorChoice.allCases.map(\.rawValue))),
         Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
         Setting(
             path: "assessment.enabled",
@@ -141,6 +148,8 @@ public enum ConfigSettings {
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
+        case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
+        case "mlx.executor": return .string(d.mlxExecutor.rawValue)
         case "assessment.enabled": return .bool(d.assessmentEnabled)
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
         case "context.target": return .double(d.contextTarget.share)

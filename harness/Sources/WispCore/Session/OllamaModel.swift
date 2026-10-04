@@ -449,80 +449,31 @@ public struct OllamaModel: LanguageModel, Sendable {
             var eval_count: Int?
         }
 
-        /// Maps the framework transcript onto chat messages: instructions become the system message,
-        /// prompts and responses alternate, tool calls ride on an assistant message, and tool outputs
-        /// are `tool` messages naming the tool.
+        /// Maps the framework transcript onto Ollama's chat messages, through the mapping every local
+        /// executor shares (`ChatMessage.messages(from:)`).
         static func messages(from transcript: Transcript) -> [Message] {
-            func text(_ segments: [Transcript.Segment]) -> String {
-                segments.compactMap {
-                    switch $0 {
-                    case .text(let segment): segment.content
-                    case .structure(let segment): segment.content.jsonString
-                    default: nil
-                    }
-                }.joined()
-            }
-            var messages: [Message] = []
-            for entry in transcript {
-                switch entry {
-                case .instructions(let instructions):
-                    messages.append(Message(role: "system", content: text(instructions.segments)))
-                case .prompt(let prompt):
-                    messages.append(Message(role: "user", content: text(prompt.segments)))
-                case .response(let response):
-                    messages.append(Message(role: "assistant", content: text(response.segments)))
-                case .toolCalls(let calls):
-                    let mapped = calls.map { call in
-                        Message.ToolCall(
-                            function: .init(name: call.toolName, arguments: Self.json(call.arguments.jsonString)))
-                    }
-                    messages.append(Message(role: "assistant", content: "", tool_calls: mapped))
-                case .toolOutput(let output):
-                    messages.append(Message(role: "tool", content: text(output.segments), tool_name: output.toolName))
-                default:
-                    break
+            ChatMessage.messages(from: transcript).map { message in
+                let calls = message.toolCalls.map {
+                    Message.ToolCall(function: .init(name: $0.name, arguments: $0.arguments))
                 }
+                return Message(
+                    role: message.role, content: message.content, tool_calls: calls.isEmpty ? nil : calls,
+                    tool_name: message.toolName)
             }
-            return messages
-        }
-
-        /// Parses JSON text into a value, or an empty object.
-        private static func json(_ text: String) -> JSONValue {
-            (try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))) ?? .object([:])
         }
 
         /// Re-encodes an `Encodable` (a `GenerationSchema`) as a `JSONValue`.
-        private static func json(_ value: some Encodable) -> JSONValue {
-            guard let data = try? JSONEncoder().encode(value) else { return .object([:]) }
-            return json(String(decoding: data, as: UTF8.self))
-        }
+        private static func json(_ value: some Encodable) -> JSONValue { ChatMessage.json(value) }
 
         /// A tool call's arguments with each required property the model left out filled with its type's
-        /// empty value: `""` for a string, `[]` for an array, `false` for a boolean. An Ollama model is
-        /// not held to the tool's schema when it writes arguments, and the framework refuses a call
-        /// missing a required property by ending the whole turn; `system_info`'s `process`, required so the
-        /// on-device model always names one, is "otherwise empty" by its own description. A missing
-        /// number or choice has no neutral value and is left out.
+        /// empty value (`ChatMessage.completed(_:schema:)`).
         ///
         /// - Parameters:
         ///   - arguments: The arguments as the model wrote them.
         ///   - schema: The tool's parameters, as the JSON Schema sent to Ollama.
         /// - Returns: The arguments, completed where that is safe.
         static func completed(_ arguments: JSONValue, schema: JSONValue) -> JSONValue {
-            guard var fields = arguments.objectValue, let object = schema.objectValue,
-                let properties = object["properties"]?.objectValue, let required = object["required"]?.arrayValue
-            else { return arguments }
-            for name in required.compactMap(\.stringValue) where fields[name] == nil {
-                let property = properties[name]?.objectValue ?? [:]
-                guard property["enum"] == nil else { continue }
-                switch property["type"]?.stringValue {
-                case "string": fields[name] = ""
-                case "array": fields[name] = .array([])
-                case "boolean": fields[name] = false
-                default: continue
-                }
-            }
-            return .object(fields)
+            ChatMessage.completed(arguments, schema: schema)
         }
 
         /// The request body for one generation.

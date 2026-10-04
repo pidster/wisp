@@ -108,9 +108,24 @@ public struct Introspection: Sendable {
             ]),
             "watch": .object(["settle": .double(config.watchSettle)]),
             "backends": .object(
-                Dictionary(
-                    uniqueKeysWithValues: ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) })),
+                Self.configuredBackends(config).merging(
+                    ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) },
+                    uniquingKeysWith: { _, registered in registered })),
         ])
+    }
+
+    /// What `config.json` sets for a backend this process may not have registered, so every settable key is
+    /// shown; a registered backend's own settings replace it.
+    ///
+    /// - Parameter config: The effective configuration.
+    /// - Returns: The settings, by scheme.
+    static func configuredBackends(_ config: Config.Resolved) -> [String: JSONValue] {
+        [
+            "mlx": .object([
+                "contextLength": config.mlxContextLength.map { .int($0) } ?? .string("sized per model (ADR 0052)"),
+                "executor": .string(config.mlxExecutor.rawValue),
+            ])
+        ]
     }
 
     /// The standing approvals in force, newest first.
@@ -185,10 +200,16 @@ public struct Introspection: Sendable {
         return Array(byID.values.sorted { ($0.latest, $0.id) < ($1.latest, $1.id) }.suffix(last))
     }
 
-    /// Pretty JSON for a value.
-    public static func render(_ value: JSONValue) -> String {
+    /// JSON for a value: pretty, or on one line with no spaces when `compact`.
+    ///
+    /// - Parameters:
+    ///   - value: The value.
+    ///   - compact: Whether to leave out the pretty layout's whitespace.
+    /// - Returns: The JSON text, keys sorted.
+    public static func render(_ value: JSONValue, compact: Bool = false) -> String {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.outputFormatting =
+            compact ? [.sortedKeys, .withoutEscapingSlashes] : [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(value) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }

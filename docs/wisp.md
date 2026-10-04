@@ -478,6 +478,34 @@ Compute".
 `wisp tools --markdown` and `--json` include a `Measured:` line, or a `measurements` field, for each
 tool the eval harness has measured ([measurements.md](measurements.md)).
 
+`wisp models` is `wisp models list`; its other subcommand fetches a model.
+
+#### `wisp models pull <repository>`
+
+Fetches an `mlx-community` model from Hugging Face into the MLX models directory (`mlx.modelsDirectory`,
+default `<home>/models/mlx`), after asking. It lists the repository, says what it would fetch, and waits for
+`y`; anything else fetches nothing:
+
+```
+$ wisp models pull mlx-community/Qwen3-1.7B-4bit
+mlx-community/Qwen3-1.7B-4bit: 7 files, 938 MB, into /Users/you/.wisp/models/mlx/Qwen3-1.7B-4bit (as mlx:Qwen3-1.7B-4bit)
+Fetch it? [y/N]
+```
+
+(The file count and size above are illustrative; the pull prints the repository's own.) Each file is
+announced on stderr as it starts (`[2/7] model.safetensors (938 MB)`). Then the model is `mlx:<name>`, and its
+capabilities are yours to declare in `config.json`.
+
+| Rule | Detail |
+| --- | --- |
+| Who | The person: it runs only from a terminal, and the default command policy refuses `wisp models pull` to the model |
+| What | Only `mlx-community/<name>` (`mlx:` before it is accepted), and only the top-level `json`, `safetensors`, `jinja`, `txt`, `model`, and `tiktoken` files; no README, images, or other formats |
+| Checks | Each file's size against the listing, and each weights file's SHA-256; refused before any request when the disk lacks the files plus 1 GiB; refused when the destination exists |
+| Interrupted | Finished files stay in `.<name>.partial` beside the destination; running the pull again fetches the rest. A file cut off part-way starts again |
+| Audit | `model.pull`, with the outcome `fetched`, `declined`, or `failed` ([logging.md](logging.md)) |
+
+See [backends.md](backends.md), "MLX Swift", and [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
+
 ### `wisp config`
 
 `wisp config` (or `config show`) prints the effective configuration as JSON: every setting with its
@@ -520,6 +548,8 @@ wisp config unset approval.timeoutSeconds
 | `ollama.baseURL`, `systemPromptExtension` | Text. |
 | `ollama.contextLength` | 1,024 to 1,048,576, for every Ollama model; unset, each model's window is sized from its shape and the Mac's memory. |
 | `ollama.think` | `true`, `false`, `low`, `medium`, `high`, or `max`: sent as `/api/chat`'s `think` to a model Ollama reports can think (`thinking` among its capabilities), and to no other; unset sends nothing and leaves it to Ollama and the model, which think in full. `false` asks a reasoning model to answer without thinking. The values are the ones Ollama 0.35.1 accepts, read from its own refusal message (2026-10-04); how a model without levels takes a level is Ollama's to decide. `config.json` may also hold a JSON `true` or `false`. |
+| `mlx.contextLength` | 1,024 to 1,048,576, for every MLX model; unset, each model's window is sized from its `config.json` and the Mac's memory. |
+| `mlx.executor` | `wisp` (the default) or `bridge`: what runs MLX models ([backends.md](backends.md), "What runs the model"). |
 | `assessment.enabled` | `true` or `false`; off by default. |
 | `assessment.tools` | `request`, `task`, or `all`. |
 | `context.target` | A number from 0.1 to 0.8: the share of the window condensing brings the context down to. It is used at no more than the context budget (85%) less 0.2, so 0.65 at most: a target at or near the budget would leave the context just under the point that triggers the next condensation, which would then run on almost every turn, each one distilling. `wisp doctor` says when a configured value is used as the cap. |
@@ -548,7 +578,7 @@ state, so an ok that needs a caveat carries it in its detail.
 
 | Finding | Not ok when |
 | --- | --- |
-| `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason), configured (`ollama.contextLength`), the default when Ollama reported no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
+| `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason, for an Ollama or MLX model), configured (`ollama.contextLength` or `mlx.contextLength`), declared by a Core AI bundle's `metadata.json`, the default when the model gave no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
 | `MLX` | This build carries MLX (the release does) and its Metal library is missing from where MLX looks, or does not load on the GPU. The detail names the library found (`Metal library <path> loads`), or the directory searched and the fix: copy the build's `default.metallib` beside `wisp` as `mlx.metallib` ([backends.md](backends.md), [ADR 0047](decisions/0047-mlx-in-the-release.md)). A build without the `MLX` trait passes with `not in this build`. |
 | `settings` | `facts.share` or `facts.summaryShare` is outside 0 to 0.5, `context.target` outside 0.1 to 0.8, or `context.headroomTurns` outside 0 to 64, which loading the config refuses. A negative `inlineOutputBytes` or `shownOutputLines` is clamped to 0, and a `context.target` above 0.65 is used as 0.65, so each is ok with a note. |
 | `facts store` | `~/.wisp/facts.json` does not parse (wisp then starts with no permanent facts) or is readable by others (fix: `chmod 600 <path>`). Absent is ok; present, the detail counts the current permanent facts by subject. |
@@ -815,7 +845,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, which otherwise gets it with all tools ([tools/memory.md](tools/memory.md)). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": true }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` is the third route, `display notification` sent to the terminal app by its bundle identifier; on by default since a probe on 2026-09-30 showed macOS attributing the banner to the app (Terminal.app, Ghostty); see [tools/notify.md](tools/notify.md). |
-| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {} }` | Where MLX model directories live for `mlx:<name>` models, and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
+| `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories live for `mlx:<name>` models (and where `wisp models pull` puts them), and per model the capabilities the operator declares (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`). `contextLength`, when set, is the window of every MLX model; unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |
@@ -858,8 +888,9 @@ a name, or a `share` outside 0 to 0.5 makes the config malformed.
 
 ## Context window
 
-The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama model's is sized
-from its shape and the Mac's memory when it is selected, or is `contextLength` when that is set.
+The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama or MLX model's is
+sized from its shape and the Mac's memory when it is selected, or is `ollama.contextLength` or
+`mlx.contextLength` when that is set; a Core AI model's is the one its bundle was exported for.
 
 The model does not carry the whole conversation. Each request is composed from the conversation's store:
 the instructions, the facts and the running summary, the recent turns with each tool's output whole in its

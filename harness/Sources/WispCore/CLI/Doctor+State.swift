@@ -177,7 +177,10 @@ extension Doctor {
             return model == .system || model == .privateCloud
                 ? "\(tokens), reported by the framework" : "\(tokens), declared by the model backend"
         }
-        if note.hasPrefix("configured") { return "\(tokens), configured (ollama.contextLength)" }
+        if note.hasPrefix("configured as ") {
+            return "\(tokens), configured (\(note.dropFirst("configured as ".count)))"
+        }
+        if note.hasPrefix("declared") { return "\(tokens), \(note)" }
         if note.contains("the default") { return "\(tokens), the default, not sized: \(note)" }
         return "\(tokens), sized from memory (ADR 0043): \(note)"
     }

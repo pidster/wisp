@@ -11,7 +11,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.19.0 | MLX on a par with Ollama | Core AI's context window; the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built) |
+| 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built) |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
@@ -23,8 +23,12 @@ release's preflight still runs the eval's floors, as a guard against regressions
   with the model's tokenizer, and usage reported; reusing the processed prefix, which an in-process
   runtime controls directly, so composing each request ([ADR 0045](decisions/0045-layered-context.md),
   D11) costs little; and fetching `mlx-community` models, with the person's approval. Measuring MLX
-  against Ollama waits for 0.20.0.
-- **Core AI's context window** from its bundle's metadata, by the same path.
+  against Ollama waits for 0.20.0. Built ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)): wisp's
+  own executor, `mlx.contextLength` and `mlx.executor`, and `wisp models pull`; tested over a fake runtime and a
+  fake Hub, not yet on real weights, which `scripts/check mlx-live` checks before the release. What 0.20.0
+  measures is listed in the ADR.
+- **Core AI's context window** from its bundle's metadata, by the same path. Built (ADR 0052): the bundle's
+  declared `max_context_length`.
 - **The model's thinking shown.** Built ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Ollama streams a reasoning model's thinking as `message.thinking`
   whether or not `think` is set (probed on 2026-10-04 with `ornith:9b`: 42 thinking chunks before a
   two-chunk answer), and the executor drops it, so the time looks idle and usage reports no reasoning

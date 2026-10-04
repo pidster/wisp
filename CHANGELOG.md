@@ -19,6 +19,11 @@ Added:
 - Under each reply, beside `ran:`, a muted line names the entries the reply cites (`entry 19`, `entries 16-30`) that
   the conversation does not hold: `cited but not in this conversation: entries 19–30 (12)`. `wisp chat --json`
   carries it as `cited`, and `respond` returns `unknownEntries` and `cited` (ADR 0055).
+- `wisp models pull mlx-community/<name>` fetches an MLX model from Hugging Face into the MLX models directory,
+  after saying which files, how many bytes, and where, and asking. Only from a terminal, only `mlx-community`,
+  only the files a model directory needs, each checked against the listing (weights by SHA-256); an interrupted
+  pull resumes with the files it finished. Audited as `model.pull`; the model is refused the command (ADR 0052).
+- `mlx.contextLength` and `mlx.executor` in `config.json` (and `wisp config set`).
 
 Changed:
 
@@ -30,6 +35,19 @@ Changed:
 - The default deny list refuses the model starting a wisp of its own: `wisp respond`, `wisp chat`, `wisp mcp`, and
   `wisp "prompt"`; `wisp doctor`, `logs`, `tools`, `--version`, and the other subcommands stay allowed. Commands
   you type after `!` follow the same list (ADR 0054).
+- MLX models run through wisp's own executor, on a par with Ollama's: the context window is sized from the
+  model's `config.json` and the Mac's memory (or `mlx.contextLength`) and shown by `wisp doctor`, token counts
+  are exact with the model's tokenizer, usage is reported, and each thread's processed prompt is reused by its
+  next request, so only what changed is processed. Images are not passed; `mlx.executor: "bridge"` runs a model
+  through mlx-swift-lm's bridge as before (ADR 0052).
+- Core AI models report the context window their bundle was exported for, from `metadata.json`, to the
+  conversation, `wisp doctor`, and `wisp models`.
+
+Fixed:
+
+- The `inspect` tool's `config` view (and `/inspect config`) cut the settings that sort last, `version` among
+  them, once every backend's settings made it pass 4 KiB; it is now sent as compact JSON when the pretty layout
+  would not fit.
 
 ## 0.18.1
 

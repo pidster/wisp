@@ -62,6 +62,41 @@ import Testing
         #expect(ContextSizing.size(shape: small, weights: 0, memory: .init(installed: 0, available: 0)).window == 4096)
     }
 
+    /// An MLX model's `config.json`, as `mlx-community/Qwen3-1.7B-4bit` ships it (the parts sizing reads).
+    static let qwen3: [String: JSONValue] = [
+        "model_type": "qwen3", "max_position_embeddings": 40960, "num_hidden_layers": 28,
+        "num_attention_heads": 16, "num_key_value_heads": 8, "head_dim": 128, "hidden_size": 2048,
+    ]
+
+    @Test func theShapeIsReadFromAModelConfigAsMLXCarriesIt() throws {
+        let shape = try #require(ContextSizing.shape(fromModelConfig: Self.qwen3))
+        #expect(shape == .init(maxContext: 40960, layers: 28, keyValueHeads: 8, keyLength: 128, valueLength: 128))
+        #expect(shape.bytesPerToken == 28 * 8 * 256 * 2)
+        // Without head_dim the head is the hidden size over the heads; without key-value heads, every head.
+        var derived = Self.qwen3
+        derived["head_dim"] = nil
+        derived["num_key_value_heads"] = nil
+        #expect(
+            ContextSizing.shape(fromModelConfig: derived)
+                == .init(maxContext: 40960, layers: 28, keyValueHeads: 16, keyLength: 128, valueLength: 128))
+        // A multimodal model's language model is under text_config, read before the top level.
+        let nested: [String: JSONValue] = ["model_type": "gemma3", "text_config": .object(Self.qwen3)]
+        #expect(ContextSizing.shape(fromModelConfig: nested)?.layers == 28)
+        var partial = Self.qwen3
+        partial["num_hidden_layers"] = nil
+        #expect(ContextSizing.shape(fromModelConfig: partial) == nil)
+        #expect(ContextSizing.shape(fromModelConfig: [:]) == nil)
+    }
+
+    @Test func theFloorSaysWhatTheRuntimeDoesWhenItDoesNotFit() throws {
+        let shape = try #require(ContextSizing.shape(fromModelConfig: Self.qwen3))
+        let tight = ContextSizing.size(
+            shape: shape, weights: 1 << 30, memory: .init(installed: 8 * Self.gib, available: Self.gib),
+            shortfall: "so the cache may not fit")
+        #expect(tight.window == ContextSizing.floor && tight.reason.hasSuffix("so the cache may not fit"))
+        #expect(!tight.reason.contains("Ollama"))
+    }
+
     @Test func theMacReportsItsMemory() {
         let memory = MemoryState.current()
         #expect(memory.installed > 0 && memory.available > 0 && memory.available <= memory.installed)

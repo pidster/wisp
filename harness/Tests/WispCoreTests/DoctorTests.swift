@@ -191,6 +191,16 @@ import WispTestSupport
         let fallback = try detail(
             .init(size: 8192, note: "8,192, the default: Ollama reported no model shape"), .ollama("x"))
         #expect(fallback.contains("the default, not sized"))
+        let mlx = ModelSelection.local(backend: "mlx", name: "q")
+        #expect(
+            try detail(.init(size: 4096, note: "configured as mlx.contextLength"), mlx)
+                == "4,096 tokens, configured (mlx.contextLength)")
+        let mlxSized = try detail(.init(size: 28672, note: "28,672 of 40,960: 3.9 GiB of a 4.0 GiB budget"), mlx)
+        #expect(mlxSized.contains("sized from memory (ADR 0043)"))
+        let coreAI = try detail(
+            .init(size: 8192, note: "declared by the bundle (metadata.json language.max_context_length)"),
+            .local(backend: "coreai", name: "b"))
+        #expect(coreAI == "8,192 tokens, declared by the bundle (metadata.json language.max_context_length)")
     }
 
     /// Where `wisp chat` finds `wisp-tui`, said either way; not finding it is no failure.

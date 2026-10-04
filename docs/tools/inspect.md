@@ -16,7 +16,8 @@ resources and `wisp config`; see [ADR 0018](../decisions/0018-introspection.md).
 ## Result
 
 - `config`: pretty JSON, every setting with its default applied, the model, the `run_command` policy, and
-  the paths under `~/.wisp` (the same as `wisp config`).
+  the paths under `~/.wisp` (the same as `wisp config`); compact JSON on one line when the pretty layout would
+  pass the 4 KiB cap, as it does with every backend's settings, so no setting is cut.
 - `status`: pretty JSON with `session`, `entryPoint`, `turn`, `model`, `tools`, `sessionApprovals` (how
   many patterns are approved for this session), `auditFile`, `version`.
 - `approvals`: pretty JSON array of standing approvals: `id`, `pattern`, `workingDirectory` (null for

@@ -75,6 +75,18 @@ import Testing
     }
 }
 
+/// Fetching a model is the person's to approve (ADR 0052); the model may list models but not pull one.
+@Suite struct ModelPullPolicyTests {
+    @Test func theDefaultPolicyRefusesTheModelPullingAModel() {
+        let policy = CommandPolicy()
+        #expect(policy.check("wisp models pull mlx-community/Qwen3-1.7B-4bit") != .allowed)
+        #expect(policy.check("/opt/homebrew/bin/wisp models pull mlx-community/x") != .allowed)
+        #expect(policy.check("true && wisp models pull mlx-community/x") != .allowed)
+        #expect(policy.check("wisp models --all") == .allowed)
+        #expect(policy.check("wisp models list") == .allowed)
+    }
+}
+
 @Suite struct CommandPolicyDecodingTests {
     @Test func partialObjectsTakeDefaults() throws {
         let policy = try JSONDecoder().decode(

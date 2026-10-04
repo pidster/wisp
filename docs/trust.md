@@ -96,6 +96,11 @@ shown, wisp's own model is refused `wisp facts keep|drop` by the default policy,
 terminal on standard input. Unanswered, nothing is kept. A caller cannot change or remove a permanent fact;
 only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
+wisp downloads a model only when you run `wisp models pull mlx-community/<name>` in a terminal and answer yes
+after it has said which files, how many bytes, and where. It fetches from `mlx-community` alone, only the files
+a model directory needs, and checks each against Hugging Face's listing; wisp's own model is refused the
+command by the default policy ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
+
 ## Switches that remove protection
 
 | Switch | Removes | Leaves |

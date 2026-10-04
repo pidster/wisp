@@ -69,6 +69,80 @@ import WispCore
     }
 }
 
+/// The window of an MLX model, from its `config.json` and its weights' size as ADR 0043 sizes an Ollama
+/// model's, or configured (ADR 0052).
+@Suite struct MLXWindowTests {
+    static let gib = 1 << 30
+
+    private func modelDirectory(config: String?, weights: [Int] = []) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-window-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let config { try Data(config.utf8).write(to: directory.appending(path: "config.json")) }
+        for (index, size) in weights.enumerated() {
+            try Data(count: size).write(to: directory.appending(path: "model-\(index).safetensors"))
+        }
+        try Data(count: 999).write(to: directory.appending(path: "tokenizer.json"))
+        return directory
+    }
+
+    static let qwen3 =
+        #"{"model_type":"qwen3","max_position_embeddings":40960,"num_hidden_layers":28,"num_attention_heads":16,"#
+        + #""num_key_value_heads":8,"head_dim":128,"hidden_size":2048}"#
+
+    @Test func theWindowIsSizedFromTheConfigAndTheWeights() throws {
+        let directory = try modelDirectory(config: Self.qwen3, weights: [3000, 2000])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(MLXBackend.weightBytes(in: directory) == 5000)
+        let memory = MemoryState(installed: 16 * Self.gib, available: 8 * Self.gib)
+        let sized = MLXBackend.window(for: directory, configured: nil, memory: memory, weightsHeld: false)
+        let shape = try #require(
+            ContextSizing.shape(fromModelConfig: [
+                "max_position_embeddings": 40960,
+                "num_hidden_layers": 28, "num_attention_heads": 16, "num_key_value_heads": 8, "head_dim": 128,
+            ]))
+        #expect(
+            sized == ContextSizing.size(shape: shape, weights: 5000, memory: memory, shortfall: MLXBackend.shortfall))
+        #expect(sized.window == 28672 && sized.reason.hasPrefix("28,672 of 40,960"), "\(sized.reason)")
+        // Weights this process already holds count as available, as Ollama's loaded models do.
+        let held = MLXBackend.window(
+            for: directory, configured: nil, memory: MemoryState(installed: 16 * Self.gib, available: 0),
+            weightsHeld: true)
+        #expect(
+            held
+                == ContextSizing.size(
+                    shape: shape, weights: 5000, memory: MemoryState(installed: 16 * Self.gib, available: 0),
+                    held: 5000,
+                    shortfall: MLXBackend.shortfall))
+        let tight = MLXBackend.window(
+            for: directory, configured: nil, memory: MemoryState(installed: 2 * Self.gib, available: Self.gib / 2),
+            weightsHeld: false)
+        #expect(tight.window == ContextSizing.floor && tight.reason.contains("may swap"))
+    }
+
+    @Test func aConfiguredWindowWinsAndAMissingShapeFallsBackToTheFloor() throws {
+        let directory = try modelDirectory(config: Self.qwen3)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let memory = MemoryState(installed: 16 * Self.gib, available: 8 * Self.gib)
+        #expect(
+            MLXBackend.window(for: directory, configured: 12288, memory: memory, weightsHeld: false)
+                == .init(window: 12288, reason: "configured as mlx.contextLength"))
+        let bare = try modelDirectory(config: #"{"model_type":"mystery"}"#)
+        defer { try? FileManager.default.removeItem(at: bare) }
+        let fallback = MLXBackend.window(for: bare, configured: nil, memory: memory, weightsHeld: false)
+        #expect(fallback.window == ContextSizing.floor && fallback.reason.contains("the default"))
+    }
+
+    @Test func settingsCarryTheWindowAndTheExecutor() {
+        let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-settings"))
+        let defaults = MLXBackend().settings(in: Config().resolved, home: home).objectValue
+        #expect(defaults?["executor"] == "wisp" && defaults?["contextLength"] == "sized per model (ADR 0052)")
+        let set = MLXBackend().settings(
+            in: Config(mlx: .init(contextLength: 16384, executor: .bridge)).resolved, home: home
+        ).objectValue
+        #expect(set?["executor"] == "bridge" && set?["contextLength"] == 16384)
+    }
+}
+
 /// Runs real weights. Needs `WISP_MLX_TESTS=1`, a build with `--traits MLX`, and `WISP_MLX_MODEL`
 /// set to a model directory; never in the gate. Run it with `scripts/check mlx-live <model directory>`,
 /// which places `mlx.metallib` beside the test bundle's binary, where MLX looks for it; without that,
@@ -115,5 +189,37 @@ struct MLXLiveTests {
             }
         }
         print("MLX tool loop outcomes: \(outcomes)")
+    }
+
+    /// What 0.19.0 adds (ADR 0052): a sized window, exact counts, usage, and the second request of a
+    /// conversation reusing the first's processed prompt. Timings are printed, not asserted; 0.20.0 measures.
+    @Test func sizedWindowExactCountsUsageAndPrefixReuse() async throws {
+        ModelBackends.register(MLXBackend())
+        let home = Home(
+            root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-live-\(UUID().uuidString)"))
+        try home.ensure()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let resolved = try ModelSelection.local(backend: "mlx", name: Self.directory).resolve(
+            config: Config().resolved, home: home)
+        print("MLX window: \(resolved.contextSize.map(String.init) ?? "none"), \(resolved.contextNote ?? "")")
+        #expect(resolved.contextSize != nil)
+        let session = resolved.session(tools: [], instructions: "Answer in one short sentence.")
+        let counted = try await resolved.tokenCount(for: session.transcript)
+        #expect((counted ?? 0) > 0)
+        var started = ContinuousClock.now
+        _ = try await session.respond(to: "Name a colour.")
+        let first = ContinuousClock.now - started
+        let firstInput = resolved.reportedInputTokens() ?? 0
+        started = ContinuousClock.now
+        _ = try await session.respond(to: "Name another one.")
+        let second = ContinuousClock.now - started
+        let cached = session.usage.input.cachedTokenCount
+        print(
+            "MLX counted \(counted ?? 0) tokens before the first request; first request \(firstInput) input tokens in "
+                + "\(first); second request \(resolved.reportedInputTokens() ?? 0) input tokens, \(cached) reused, in \(second)"
+        )
+        // A template may render a past reply differently from the generation prompt that preceded it, so the
+        // reuse stops where the two renderings part, possibly a few tokens short of the first prompt.
+        #expect(firstInput > 0 && cached > 0)
     }
 }

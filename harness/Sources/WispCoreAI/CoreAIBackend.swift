@@ -48,12 +48,33 @@ public struct CoreAIBackend: ModelBackend {
                     + (found.isEmpty ? "none" : found.joined(separator: ", "))
                     + "; export one with `uv run coreai.llm.export <hf-model-id> --output-dir \(directory.path)`")
         }
+        let window = Self.contextWindow(in: url)
         do {
             let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: url) }
-            return ResolvedModel(selection: selection, custom: model, capabilitySource: .runtime, asset: url.path)
+            return ResolvedModel(
+                selection: selection, custom: model, capabilitySource: .runtime, asset: url.path,
+                contextSize: window?.window, contextNote: window?.reason)
         } catch {
             throw ModelSelection.Failure.unavailable(model: selection.description, reason: "\(error)")
         }
+    }
+
+    /// The window a bundle was exported for, from its `metadata.json`: `language.max_context_length` (metadata
+    /// 0.2), or the top-level `max_context_length` of a 0.1 bundle
+    /// ([ADR 0052](../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)). The export fixes it and Core AI
+    /// sizes its own cache within it, so it is taken as it is, not sized from memory.
+    ///
+    /// - Parameter bundle: The bundle directory.
+    /// - Returns: The window and why, or nil when the metadata states none.
+    static func contextWindow(in bundle: URL) -> ContextSizing.Decision? {
+        guard let data = try? Data(contentsOf: bundle.appending(path: "metadata.json")),
+            let metadata = try? JSONDecoder().decode(JSONValue.self, from: data).objectValue
+        else { return nil }
+        if let nested = metadata["language"]?.objectValue?["max_context_length"]?.intValue, nested > 0 {
+            return .init(window: nested, reason: "declared by the bundle (metadata.json language.max_context_length)")
+        }
+        guard let legacy = metadata["max_context_length"]?.intValue, legacy > 0 else { return nil }
+        return .init(window: legacy, reason: "declared by the bundle (metadata.json max_context_length)")
     }
 
     /// Subdirectories of `directory` that hold a `metadata.json`, sorted.
@@ -64,7 +85,7 @@ public struct CoreAIBackend: ModelBackend {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Every bundle in the models directory, with its kind, compression, and size from `metadata.json`.
+    /// Every bundle in the models directory, with its kind, compression, size, and window from `metadata.json`.
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {
         Self.bundles(in: Self.modelsDirectory(config: config, home: home)).map { url in
             let name = url.lastPathComponent
@@ -76,7 +97,8 @@ public struct CoreAIBackend: ModelBackend {
                 let compression = metadata["compression"]?.stringValue ?? "?"
                 let source = metadata["source"]?.objectValue?["hf_model_id"]?.stringValue
                 let size = Self.size(of: url).map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-                detail = [kind, compression, source, size].compactMap { $0 }.joined(separator: " ")
+                let window = Self.contextWindow(in: url).map { "\($0.window.formatted())-token window" }
+                detail = [kind, compression, source, size, window].compactMap { $0 }.joined(separator: " ")
             }
             return InstalledModel(selection: .local(backend: scheme, name: name), detail: detail)
         }

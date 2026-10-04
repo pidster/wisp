@@ -3,7 +3,8 @@
 Which models wisp can run a conversation on, how to get their assets onto this Mac, how to name
 them, what each declares it can do, and what goes wrong. The decisions are
 [ADR 0013](decisions/0013-model-selection.md), [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md),
-and [ADR 0019](decisions/0019-model-backends.md).
+[ADR 0019](decisions/0019-model-backends.md), and, for MLX and Core AI's windows,
+[ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
 
 ## How selection works
 
@@ -167,6 +168,15 @@ closes its thinking ends the turn with the framework error "Session ended withou
 response" (wisp reports it as a turn error and audits it); and Qwen3's `/no_think` switch made the
 bridge fail every tool call in that probe, so do not put it in the instructions of a tool-using thread.
 
+The context window is the one the bundle was exported for, read from `metadata.json`:
+`language.max_context_length` (metadata 0.2), or `max_context_length` at the top level of a 0.1 bundle
+([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). wisp condenses against it as it does against any
+known window, `model.resolved` records it with the note `declared by the bundle (metadata.json …)`, `wisp doctor`
+says the same, and `wisp models` shows it on the bundle's line (`8,192-token window`). It is not sized from
+memory: the export fixes the window and Core AI allocates its own cache within it. A bundle whose metadata
+states none leaves the window unknown, as before (wisp assumes 8,192 tokens until an overflow tells it).
+Whether Core AI refuses or truncates a prompt past the window has not been probed.
+
 Errors: `no Core AI bundle at <path> (no metadata.json); bundles under <dir>: …; export one with …`
 when the name points nowhere; the bridge's own message (missing asset, malformed metadata, wrong bundle
 kind) when the bundle is incomplete. Loading reads the tokenizer synchronously at resolve time and the
@@ -179,11 +189,10 @@ several GB.
 
 ## MLX Swift
 
-[mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm)'s `MLXLanguageModel` bridge runs models in
-MLX or Hugging Face safetensors layout in wisp's own process on the GPU. MLX compiles its Metal kernels at
-build time, so the bridge is behind the `MLX` package trait: the ordinary build and the sandboxed
-pre-commit hook never need the Metal toolchain, and a build without the trait refuses every `mlx:` model
-with a message saying so. The release is built with the trait ([ADR 0047](decisions/0047-mlx-in-the-release.md)),
+MLX Swift ([mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm)) runs models in MLX or Hugging Face
+safetensors layout in wisp's own process on the GPU. MLX compiles its Metal kernels at build time, so it is
+behind the `MLX` package trait: the ordinary build and the sandboxed pre-commit hook never need the Metal
+toolchain, and a build without the trait refuses every `mlx:` model with a message saying so. The release is built with the trait ([ADR 0047](decisions/0047-mlx-in-the-release.md)),
 so `brew install pidster/tap/wisp` runs MLX models.
 
 MLX loads its compiled kernels, one Metal library, when the GPU is first used. It looks for
@@ -209,10 +218,26 @@ swift build --package-path harness -c release --traits MLX
 
 Preparing an asset: a model directory holding `config.json`, the `*.safetensors`, and the tokenizer files
 (`tokenizer.json`, `tokenizer_config.json`). A Hugging Face snapshot works as it is, and the
-`mlx-community` quantised repositories are the usual choice; wisp does not download. Put the directory
-under `<home>/models/mlx` (`config.json` `mlx.modelsDirectory`), or name it by path.
+`mlx-community` quantised repositories are the usual choice. Put the directory under `<home>/models/mlx`
+(`config.json` `mlx.modelsDirectory`), or name it by path, or have wisp fetch an `mlx-community` one:
 
-Capabilities come from the operator, because the bridge never infers them: declare per model in
+```
+wisp models pull mlx-community/Qwen3-1.7B-4bit
+```
+
+The pull lists the repository, says how many files and bytes it would fetch and where, and asks before it
+fetches anything; it runs only from a terminal, and the default command policy refuses it to the model. It
+fetches only `mlx-community` repositories and only the top-level files a model directory needs (`json`,
+`safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each file's size and each weights file's SHA-256
+against the listing, and refuses before any request when the disk lacks the files plus 1 GiB. Files wait in a
+hidden `.<name>.partial` directory beside the destination until every one is in, so an interrupted pull keeps
+what it finished and the next run fetches the rest (a file cut off part-way starts again). The directory is
+then `mlx:<name>`; its capabilities are still yours to declare. Each pull is audited as `model.pull`
+([logging.md](logging.md)). It uses Hugging Face's tree listing (`/api/models/<repo>/tree/main`) and
+`resolve/main/<file>` downloads, tested against a repository served from memory; it has not yet been run
+against the Hub.
+
+Capabilities come from the operator, because MLX never infers them: declare per model in
 `config.json`, only what you have verified, and an undeclared model runs text-only conversations.
 
 ```json
@@ -230,17 +255,57 @@ refused at resolve. `wisp models` lists the directories that resolve, with archi
 and the declaration; `--all` shows the others with the reason, including every MLX model in a build
 without the trait.
 
+### What runs the model
+
+Since 0.19.0 wisp's own executor runs `mlx:` models ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)),
+which brings them level with Ollama's:
+
+| | wisp's executor (`mlx.executor: "wisp"`, the default) | The bridge (`mlx.executor: "bridge"`) |
+| --- | --- | --- |
+| The window | Sized from `config.json` and memory, or `mlx.contextLength`; a prompt that does not fit is refused as an overflow, which wisp condenses and retries | The same window, for condensing; not enforced |
+| Token counts | Exact, from the model's chat template and tokenizer, without loading the weights | The same |
+| Usage | Input (with the reused prefix as cached tokens) and output tokens per request, as Ollama's executor reports them | Not reported to wisp |
+| The processed prompt | A thread's last prompt kept and reused (below) | Every request processed from the first token |
+| Text, tool calls, schema replies | Yes: tool calls parsed in the model's own format, schema replies through the same xgrammar loop the bridge uses | Yes |
+| Thinking | Asked for only when `reasoning` is declared | The same, plus a think-then-call phase for reasoning models with tools |
+| Images | No: `vision` is not offered | When `vision` is declared |
+
+The bridge is mlx-swift-lm's `MLXLanguageModel`, which ran every MLX model before 0.19.0. It stays for vision
+models and as the fallback until 0.20.0 has measured wisp's executor against it.
+
+**The window.** An MLX directory's `config.json` gives the shape ADR 0043's rule needs: `max_position_embeddings`,
+`num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else `hidden_size` ÷
+`num_attention_heads`), read from `text_config` first in a multimodal model. With the weights' size (the
+`*.safetensors` files) and the Mac's memory now, wisp chooses the largest multiple of 4,096 that fits half the
+available memory and three quarters of the installed, capped at the model's maximum and never below 8,192;
+weights this process already holds count as available. `mlx.contextLength` sets the window for every MLX model
+instead. `model.resolved` and `wisp doctor` give the window and why, in the form `<window> of <maximum>: <needed> of a
+<budget> budget`, as for Ollama; a directory whose `config.json` has no shape gets 8,192 with a reason saying so.
+
+**The processed prompt.** wisp composes every request afresh ([ADR 0045](decisions/0045-layered-context.md)), so
+consecutive requests of a thread share a long prefix: the instructions, the earlier block, and the turns before
+the newest. wisp keeps the key-value cache of each thread's last prompt and, for the next request, processes only
+what follows the longest prefix the two renderings share, trimming the cache back when a condensation or a
+reference changed something earlier. One copy of the weights serves every thread on a model, one request at a
+time; the threads' caches together hold at most one window, and the least recently used goes first. A schema
+reply runs on a cache of its own. How much this saves has not been measured yet; 0.20.0 measures it.
+
 Verified on 2026-09-20 with `mlx-community/Qwen3-1.7B-4bit` (a Hugging Face cache snapshot, 938 MB)
 on an M4 Max, through the CLI built with `--traits MLX`: undeclared, a text-only reply in 2.5 s
 including the weight load; declared `toolCalling`, the `current_date` loop ran 3 of 3 attempts, about
 4 s each, with the right arguments; undeclared with tools requested, refused before generation with the
 hint. The live test runs with `scripts/check mlx-live <model directory>`, which builds with the trait in its
 own scratch path and copies the library beside the test bundle's binary, where MLX looks under `swift
-test`; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3.
+test`; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3. Those runs
+were through the bridge. wisp's executor has not yet run real weights: its tests drive it over a fake runtime,
+and the live test gains a check of the window, a count, usage, and a second request's reuse, to be run before
+0.19.0 is released.
 
 Errors: `this build has no MLX support` when the trait is off; `no MLX model at <path> (no config.json);
-models under <dir>: …` when the name points nowhere; `unknown capability '<x>'` for a bad declaration; the
-bridge's own message when weights fail to load. Weights load on first use, so the first reply is slow.
+models under <dir>: …` when the name points nowhere; `unknown capability '<x>'` for a bad declaration; MLX's
+own message when weights fail to load; an overflow (`the prompt is N tokens; the window is M`) that wisp
+condenses and retries. The tokenizer loads when wisp first counts and the weights on the first request, so the
+first reply is slow.
 
 ## Deferred candidates
 

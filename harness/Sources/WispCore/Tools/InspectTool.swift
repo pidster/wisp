@@ -50,9 +50,7 @@ public struct InspectTool: WispTool {
     static func fitted(_ value: JSONValue) -> String {
         let pretty = Introspection.render(value)
         guard pretty.utf8.count > maxBytes else { return pretty }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? pretty
+        return Introspection.render(value, compact: true)
     }
 
     /// `call` for the chat's `/inspect` and `/audit`: a bare view, or `audit` followed by `sessions` (the

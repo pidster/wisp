@@ -282,11 +282,21 @@ public struct Config: Codable, Equatable, Sendable {
         public var modelsDirectory: String?
         /// Per model, what the operator declares it can do; an undeclared model is text only.
         public var models: [String: MLXModelConfig]?
+        /// The context window for every MLX model; nil sizes each from its `config.json` and the Mac's memory
+        /// ([ADR 0052](../../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)).
+        public var contextLength: Int?
+        /// What runs MLX models: `wisp`, wisp's own executor (the default), or `bridge`, mlx-swift-lm's.
+        public var executor: MLXExecutorChoice?
 
         /// Creates settings; nil takes the defaults.
-        public init(modelsDirectory: String? = nil, models: [String: MLXModelConfig]? = nil) {
+        public init(
+            modelsDirectory: String? = nil, models: [String: MLXModelConfig]? = nil, contextLength: Int? = nil,
+            executor: MLXExecutorChoice? = nil
+        ) {
             self.modelsDirectory = modelsDirectory
             self.models = models
+            self.contextLength = contextLength
+            self.executor = executor
         }
     }
 
@@ -477,6 +487,7 @@ public struct Config: Codable, Equatable, Sendable {
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
+            mlxContextLength: mlx?.contextLength, mlxExecutor: mlx?.executor ?? .wisp,
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
@@ -539,6 +550,10 @@ public struct Config: Codable, Equatable, Sendable {
         public var mlxModelsDirectory: String?
         /// Declared capability names per MLX model name.
         public var mlxModels: [String: [String]]
+        /// The context window for every MLX model, when configured; nil sizes each from memory (ADR 0052).
+        public var mlxContextLength: Int?
+        /// What runs MLX models.
+        public var mlxExecutor: MLXExecutorChoice = .wisp
         /// Whether notifications are posted.
         public var notificationsEnabled: Bool = true
         /// At most this many notifications a minute.
@@ -575,4 +590,14 @@ public struct Config: Codable, Equatable, Sendable {
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
         public var watchSettle = WatchConfig.defaultSettle
     }
+}
+
+/// What runs `mlx:` models ([ADR 0052](../../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)).
+public enum MLXExecutorChoice: String, Codable, CaseIterable, Sendable {
+    /// wisp's own executor: the window enforced, exact token counts, usage reported, and the processed
+    /// prefix reused across a thread's requests. Text, tool calls, and schema replies; no images.
+    case wisp
+    /// mlx-swift-lm's `MLXLanguageModel` bridge, as before 0.19.0: every request processed from the start,
+    /// no usage reported to wisp, images accepted when `vision` is declared.
+    case bridge
 }

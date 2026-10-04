@@ -50,7 +50,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 | --- | --- | --- |
 | `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session and session host, thread, agent and its condensing, assessment, and the commands the person types in chat, thread record, context composer, target condensing, output references, context view and archive, the presentational-text finder, memory and recall, model selection, listing, routing, and context sizing, context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold, the out-of-band approver and the pending channel), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, the agent's fact and summary operations, and `FactKeeper`, which applies the person's answer to a caller's request to keep a fact), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (the chat loop, its input, completion, events, status, and JSON Lines protocol, the pending relay, doctor, and the table layouts, here so they are testable), `Support/` (timeout, ids, names, paging, the notifier and its routes, the file watcher, process and memory state). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
-| `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout through `mlx-swift-lm`'s bridge, compiled in only under the `MLX` package trait (Metal toolchain), which the release is built with; otherwise registered but refusing with the reason. `MetalLibrary` repeats MLX's search for its Metal library for `wisp doctor`'s `MLX` finding (ADR 0047). |
+| `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout, compiled in only under the `MLX` package trait (Metal toolchain), which the release is built with; otherwise registered but refusing with the reason. It sizes each model's window from `config.json` (ADR 0043's rule) and runs it through `MLXModel`, wisp's own executor, or, with `mlx.executor: "bridge"`, through `mlx-swift-lm`'s bridge. `MLXModel` hands each request to the model directory's `PrefixEngine`, an actor that owns the tokenizer, the weights, and a `PromptCachePool` of one processed prompt per thread, reusing the longest common prefix (`PrefixPlan`); the engine is generic over `PromptRuntime`, so everything but `MLXPromptRuntime` and `MLXPromptTokenizer` (the one file under `#if MLX`) is tested over a fake runtime. `ModelPull` fetches `mlx-community` models for `wisp models pull` (ADR 0052). `MetalLibrary` repeats MLX's search for its Metal library for `wisp doctor`'s `MLX` finding (ADR 0047). |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
 | `wisp` | executable | Argument parsing and stdin/stdout only. Subcommands `respond` (default), `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`. Session set-up is `Session.begin` in `WispCore`. |
 | `EmbedSystemPrompt` | build-tool plugin | Embeds `Resources/system-prompt.md` (and the other text resources) into `WispCore` as string constants at build time, and, before every build, writes `BuildInfo` (the `git` commit, whether the tree is modified, whether `WISP_RELEASE=1`) which `WispVersion.display` formats for `--version`. `wisp-tui`'s `build.rs` does the same for its own `--version`. |
@@ -77,7 +77,10 @@ turn's `.reasoning` entry, and `ContextComposer` never composes it into a reques
 back ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). `resolve` checks the server lists the model
 (blocking briefly, because agents are created synchronously). The framework's tool loop, streaming,
 transcript, and guided generation are unchanged above it. See
-[ADR 0016](decisions/0016-local-runtimes-through-an-executor.md).
+[ADR 0016](decisions/0016-local-runtimes-through-an-executor.md). The transcript mapping is `ChatMessage`, which
+`MLXModel`'s executor shares: it renders the same messages through the model's chat template, hands them to the
+model directory's `PrefixEngine` with the thread's slot, and reports usage in the same shape, the reused prefix as
+cached input tokens ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 
 `ModelSelection` names the model (`system`, `private-cloud`, or `ollama:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session
@@ -483,7 +486,10 @@ anything runs; `ChangeDraft.route` applies it, honouring an explicit model and p
 cannot open ([ADR 0037](decisions/0037-routing-by-input-size.md)). An Ollama model's window is chosen when it is
 resolved: `ContextSizing` reads its shape from `/api/show` and sizes the window to what `MemoryState` says
 the Mac has free ([ADR 0043](decisions/0043-context-window-from-memory.md)), and the executor asks for
-that window on every request. `ModelRouting.forTask` gives a task's
+that window on every request. An MLX model's is sized by the same rule from its `config.json`
+(`ContextSizing.shape(fromModelConfig:)`) and enforced by `PrefixEngine`, which refuses a prompt that does not fit
+as an overflow; a Core AI model's is its bundle's declared `max_context_length`
+([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). `ModelRouting.forTask` gives a task's
 model pass its default when the caller names none: `ModelRouting.taskDefaults` (`secrets: system`,
 measured best), overridden by `routing.tasks`. The choice is audited as `model.routed`.
 While a call runs, `WispServer.relaying` turns the conversation's events into

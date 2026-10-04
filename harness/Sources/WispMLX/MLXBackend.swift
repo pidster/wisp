@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 import WispCore
 
 #if MLX
@@ -11,16 +12,20 @@ import WispCore
     import Tokenizers
 #endif
 
-/// Models in MLX or Hugging Face safetensors layout, run in wisp's own process through the
-/// `MLXLanguageModel` bridge from `ml-explore/mlx-swift-lm`, selected as `mlx:<name>`
-/// ([ADR 0019](../../../docs/decisions/0019-model-backends.md)).
+/// Models in MLX or Hugging Face safetensors layout, run in wisp's own process through MLX Swift
+/// (`ml-explore/mlx-swift-lm`), selected as `mlx:<name>` ([ADR 0019](../../../docs/decisions/0019-model-backends.md)).
 ///
-/// The bridge compiles Metal kernels at build time, so it is behind the `MLX` package trait: a build
-/// without the trait registers this backend but every model is `unavailable` with that reason. A name
-/// is a model directory (`config.json`, `*.safetensors`, tokenizer files): absolute, `~`-relative, or a
-/// subdirectory of the models directory (`config.json` `mlx.modelsDirectory`, default `<home>/models/mlx`).
+/// MLX compiles Metal kernels at build time, so it is behind the `MLX` package trait: a build without the
+/// trait registers this backend but every model is `unavailable` with that reason. A name is a model
+/// directory (`config.json`, `*.safetensors`, tokenizer files): absolute, `~`-relative, or a subdirectory of
+/// the models directory (`config.json` `mlx.modelsDirectory`, default `<home>/models/mlx`).
 ///
-/// The bridge never infers what a model can do, so capabilities come from the operator:
+/// Since 0.19.0 wisp's own executor runs them ([ADR 0052](../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)):
+/// the window sized from `config.json` and memory as ADR 0043 sizes Ollama's, exact token counts with the
+/// model's tokenizer, usage reported, and the processed prefix of a thread's last request reused.
+/// `mlx.executor: "bridge"` selects mlx-swift-lm's `MLXLanguageModel` bridge instead, as before.
+///
+/// MLX never infers what a model can do, so capabilities come from the operator:
 /// `mlx.models.<name>.capabilities` in `config.json`. An undeclared model runs text-only conversations.
 public struct MLXBackend: ModelBackend {
     /// `mlx:`.
@@ -89,26 +94,138 @@ public struct MLXBackend: ModelBackend {
                     + "; put a Hugging Face snapshot or mlx-community model directory there")
         }
         let (capabilities, declared) = try Self.declaredCapabilities(for: name, config: config)
-        return try Self.make(url: url, selection: selection, capabilities: capabilities, declared: declared)
+        let engine = Self.engine(for: url)
+        let sizing = Self.window(
+            for: url, configured: config.mlxContextLength, memory: .current(), weightsHeld: engine.isLoaded)
+        return try Self.make(
+            url: url, selection: selection, capabilities: capabilities, declared: declared, engine: engine,
+            sizing: sizing, executor: config.mlxExecutor)
+    }
+
+    /// What MLX does when even the floor window does not fit, for the reason of a floor decision.
+    static let shortfall = "so the cache may not fit in memory and the Mac may swap"
+
+    /// The window for the model in `directory`: configured (`mlx.contextLength`), or sized from its
+    /// `config.json` and the weights' size as ADR 0043 sizes an Ollama model's, or the floor when the
+    /// configuration gives no shape.
+    ///
+    /// - Parameters:
+    ///   - directory: The model directory.
+    ///   - configured: `mlx.contextLength`, when set.
+    ///   - memory: The Mac's memory now.
+    ///   - weightsHeld: Whether this process already holds the weights, which then count as available.
+    /// - Returns: The window and why.
+    static func window(
+        for directory: URL, configured: Int?, memory: MemoryState, weightsHeld: Bool
+    ) -> ContextSizing.Decision {
+        if let configured { return .init(window: configured, reason: "configured as mlx.contextLength") }
+        guard let data = try? Data(contentsOf: directory.appending(path: "config.json")),
+            let json = try? JSONDecoder().decode(WispCore.JSONValue.self, from: data).objectValue,
+            let shape = ContextSizing.shape(fromModelConfig: json)
+        else {
+            return .init(
+                window: ContextSizing.floor,
+                reason: "\(ContextSizing.floor.formatted()), the default: config.json gives no model shape to size from"
+            )
+        }
+        let weights = weightBytes(in: directory)
+        return ContextSizing.size(
+            shape: shape, weights: weights, memory: memory, held: weightsHeld ? weights : 0, shortfall: shortfall)
+    }
+
+    /// Bytes of the `*.safetensors` files in a model directory, following a snapshot's links.
+    ///
+    /// - Parameter directory: The model directory.
+    /// - Returns: Their total size.
+    static func weightBytes(in directory: URL) -> Int {
+        let entries =
+            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        return entries.filter { $0.pathExtension == "safetensors" }.reduce(0) { total, file in
+            let real = file.resolvingSymlinksInPath()
+            return total + ((try? real.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
+    /// One engine per model directory, so threads on the same model share its weights.
+    private static let engines = Mutex<[String: any PromptEngine]>([:])
+
+    /// The engine for a model directory, made on first use.
+    ///
+    /// - Parameter directory: The model directory.
+    /// - Returns: Its engine.
+    static func engine(for directory: URL) -> any PromptEngine {
+        let key = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        return engines.withLock { engines in
+            if let engine = engines[key] { return engine }
+            let engine = makeEngine(for: directory)
+            engines[key] = engine
+            return engine
+        }
+    }
+
+    /// The resolved model over wisp's executor: the engine's slot for this resolution, the sized window, and
+    /// exact counts. `vision` is not offered, since the executor maps text only.
+    ///
+    /// - Parameters:
+    ///   - selection: The selection.
+    ///   - engine: The model directory's engine.
+    ///   - capabilities: What the operator declared.
+    ///   - declared: Whether the operator declared anything.
+    ///   - sizing: The window and why.
+    ///   - asset: The model directory's path.
+    /// - Returns: The resolved model.
+    static func resolved(
+        selection: ModelSelection, engine: any PromptEngine, capabilities: [LanguageModelCapabilities.Capability],
+        declared: Bool, sizing: ContextSizing.Decision, asset: String
+    ) -> ResolvedModel {
+        let model = MLXModel(engine: engine, window: sizing.window, capabilities: capabilities.filter { $0 != .vision })
+        return ResolvedModel(
+            selection: selection, custom: model, capabilitySource: declared ? .configuration : .undeclared,
+            asset: asset, contextSize: sizing.window, countTokens: { try await model.tokenCount(for: $0) },
+            contextNote: sizing.reason)
     }
 
     #if MLX
+        /// The resolved model, over wisp's executor or the bridge.
+        ///
+        /// - Throws: Nothing in a build with MLX; the signature matches the build without it.
         private static func make(
-            url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool
+            url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool,
+            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice
         ) throws -> ResolvedModel {
+            guard executor == .bridge else {
+                return resolved(
+                    selection: selection, engine: engine, capabilities: capabilities, declared: declared,
+                    sizing: sizing, asset: url.path)
+            }
             let model = MLXLanguageModel(
                 configuration: ModelConfiguration(directory: url), capabilities: capabilities,
                 weightsLocation: { _ in url },
                 load: { _, _ in try await loadModelContainer(from: url, using: #huggingFaceTokenizerLoader()) })
+            let thinking = capabilities.contains(.reasoning)
             return ResolvedModel(
                 selection: selection, custom: model, capabilitySource: declared ? .configuration : .undeclared,
-                asset: url.path)
+                asset: url.path, contextSize: sizing.window,
+                countTokens: { try await engine.count(MLXPrompt.counting($0, thinking: thinking)) },
+                contextNote: sizing.reason)
         }
     #else
+        /// Refuses: this build has no MLX.
+        ///
+        /// - Throws: `ModelSelection.Failure.unavailable`.
         private static func make(
-            url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool
+            url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool,
+            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice
         ) throws -> ResolvedModel {
             throw ModelSelection.Failure.unavailable(model: selection.description, reason: "MLX is not compiled in")
+        }
+
+        /// Without MLX there is nothing to run; resolution refuses first, so this engine is never used.
+        ///
+        /// - Parameter directory: The model directory.
+        /// - Returns: An engine that refuses every request.
+        static func makeEngine(for directory: URL) -> any PromptEngine {
+            UnavailableEngine()
         }
     #endif
 
@@ -166,11 +283,13 @@ public struct MLXBackend: ModelBackend {
         }
     #endif
 
-    /// The models directory, the declared models, and whether the bridge is compiled in.
+    /// The models directory, the declared models, the window, the executor, and whether MLX is compiled in.
     public func settings(in config: Config.Resolved, home: Home) -> WispCore.JSONValue {
         .object([
             "modelsDirectory": .string(Self.modelsDirectory(config: config, home: home).path),
             "compiledIn": .bool(Self.isCompiledIn),
+            "contextLength": config.mlxContextLength.map { .int($0) } ?? .string("sized per model (ADR 0052)"),
+            "executor": .string(config.mlxExecutor.rawValue),
             "models": .object(
                 Dictionary(
                     uniqueKeysWithValues: config.mlxModels.map { name, capabilities in

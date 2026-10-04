@@ -27,6 +27,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case approvals
     /// `wisp facts pending`, `keep`, or `drop`: the person answering a caller's request to keep a permanent fact.
     case facts
+    /// `wisp models pull`: the person fetching a model (ADR 0052).
+    case models
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {
