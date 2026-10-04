@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built); what the turn ran, beside the reply (built) |
-| 0.19.0 | MLX on a par with Ollama | Core AI's context window |
+| 0.19.0 | MLX on a par with Ollama | Core AI's context window; the model's thinking shown; the sandbox's refusals checked |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
@@ -50,6 +50,24 @@ release's preflight still runs the eval's floors, as a guard against regressions
   D11) costs little; and fetching `mlx-community` models, with the person's approval. Measuring MLX
   against Ollama waits for 0.20.0.
 - **Core AI's context window** from its bundle's metadata, by the same path.
+- **The model's thinking shown.** Ollama streams a reasoning model's thinking as `message.thinking`
+  whether or not `think` is set (probed on 2026-10-04 with `ornith:9b`: 42 thinking chunks before a
+  two-chunk answer), and the executor drops it, so the time looks idle and usage reports no reasoning
+  tokens. Decode it: a "thinking" activity in chat, `wisp chat --json`, and `wisp-tui`'s busy box, drawn
+  as a thought bubble growing and then ellipsis dots cycling (the operator's design, 2026-10-04): `.`,
+  `.o`, `.oO`, `.oO( thinking )`, `.oO( thinking. )`, `.oO( thinking.. )`, `.oO( thinking... )`, then the last
+  four looping while it thinks (agreed the same day); the
+  text kept as the turn's `.reasoning` entry, folded with `/show` and readable through `/inspect` and the
+  thread's resources, audited with its token count, and left out of the model's context; a `think`
+  setting where the model offers one. Core AI and MLX the same where they report it.
+- **The sandbox's refusals checked.** Seatbelt is passive: a refused operation fails with `EPERM`, and on
+  macOS 27 the kernel logs no `deny` line for a `sandbox-exec` profile (probed on 2026-10-04: no record
+  with `(debug deny)` or `(deny default)`; `(with report)` is refused on a deny rule, and
+  `(with send-signal …)` delivered nothing). wisp guesses today, from "Operation not permitted" in the
+  error output, and only for commands the person types. Check instead: a path in that error outside the
+  writable roots is the sandbox's refusal, one inside them is not; flag it on the model's commands too,
+  telling the model what was refused and where it may write. Network and process refusals name no path
+  and stay a guess.
 
 ## 0.20.0: analysis, evals, and tuning
 
