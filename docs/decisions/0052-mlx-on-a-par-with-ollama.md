@@ -147,6 +147,9 @@ and usage for Core AI are unchanged.
   executor lacks (vision, the bridge's think-then-call phase for reasoning models with tools) needs
   `mlx.executor: "bridge"` until it is added. Before 0.19.0 is released, `scripts/check mlx-live <model>` must
   pass on wisp's executor; its new test checks the window, a count, usage, and reuse on a second request.
+  2026-10-04: it passed with `mlx-community/Qwen3-1.7B-4bit`, fetched by `wisp models pull` (984 MB, 9 files),
+  all five tests; the second request reused 23 of its 43 input tokens and took 0.087 s against the first's
+  0.98 s ([backends.md](../backends.md)).
 - Memory: the caches of all threads on one model together hold at most one window, so a second thread on the
   same model evicts the first's slot when both are long; the first then processes its prompt in full again.
 - Tests without a model: the reuse rule and the pool; the engine with a fake runtime (reuse across requests,

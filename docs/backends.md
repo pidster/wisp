@@ -297,9 +297,11 @@ including the weight load; declared `toolCalling`, the `current_date` loop ran 3
 hint. The live test runs with `scripts/check mlx-live <model directory>`, which builds with the trait in its
 own scratch path and copies the library beside the test bundle's binary, where MLX looks under `swift
 test`; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3. Those runs
-were through the bridge. wisp's executor has not yet run real weights: its tests drive it over a fake runtime,
-and the live test gains a check of the window, a count, usage, and a second request's reuse, to be run before
-0.19.0 is released.
+were through the bridge. On 2026-10-04 the live test passed on wisp's executor with
+`mlx-community/Qwen3-1.7B-4bit`, fetched with `wisp models pull`, all five tests: the window 40,960 tokens
+(the model's maximum, 5.8 GiB of a 13.2 GiB budget), 18 tokens counted with the model's tokenizer before the
+first request, the first request 27 input tokens in 0.98 s and the second 43 with 23 of them reused in
+0.087 s, and a text conversation then the tool loop. One run on one Mac: 0.20.0 measures it properly.
 
 Errors: `this build has no MLX support` when the trait is off; `no MLX model at <path> (no config.json);
 models under <dir>: …` when the name points nowhere; `unknown capability '<x>'` for a bad declaration; MLX's
