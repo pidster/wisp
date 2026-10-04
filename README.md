@@ -1,53 +1,27 @@
 # wisp
 
-A local AI agent for your Mac: Apple's on-device model with tools, a safety gate in front of every
-command, and a verbatim record of everything it does. Yours at the terminal, and your coding agent's
-over MCP.
-
-## Quick start
+**An AI agent that lives on your Mac, and keeps your data there.**
 
 ```bash
 brew install pidster/tap/wisp
-wisp doctor
-wisp "What is listening on port 8080, and how much disk is free?"
+wisp "What is listening on port 8080?"
 wisp chat
 ```
 
-- **Private by default.** Apple's Foundation Model on your own silicon: no API key, no account, nothing
-  leaves the Mac. Ollama and MLX when you want a bigger model.
-- **A gate on every command.** A deny list, a Seatbelt sandbox, a risk classifier that answers in under a
-  millisecond, and you, with approvals remembered by program and verb.
-- **Your coding agent's local helper.** A failing test run or a 14,000-line log comes back as a few lines;
-  the raw output never enters the agent's context.
-- **It shows its work.** Under every reply, what the turn actually ran, and any output it cites that does
-  not exist; the audit log keeps every prompt, call, and verdict verbatim.
-- **A context it composes, not one it piles up.** Facts, a running summary, and references the model can
-  recall, while you always see the full output.
-- **Approve from anywhere.** A command your coding agent's session is waiting on can be answered from any
-  terminal, or `wisp-tui`.
-- **Yours to shape.** wisp's risk classifier can be trained on your own data, your Mac's command history
-  or your own labelled commands, and you can add tools as command templates.
+- 🔒 **Local AI only.** Apple's on-device model, or yours in Ollama or MLX. No cloud, no key, no account.
+- 🛡️ **Nothing runs unchecked.** A sandbox, a deny list, a sub-millisecond risk classifier, and you.
+- 🧠 **Trained on your data.** Teach the risk classifier from your own command history.
+- ✂️ **Redact before you share.** Secrets and personal data stripped from a file, on the Mac.
+- 👀 **Watches while you work.** Reruns your tests on save; pings you when they break.
+- 🤝 **Your coding agent's local helper.** A 14,000-line log comes back as its top 30 messages.
+- 🧾 **Shows its work.** Every reply says what actually ran; every action is logged.
 
-### What you can use it for
-
-- **Keep your data with a local AI.** With the on-device model, or a model you run in Ollama or MLX, every
-  prompt, file, and command output is handled by a model on this Mac, and no cloud service is involved.
-  The one cloud model wisp knows, Apple's Private Cloud Compute, is an explicit opt-in, refused from this
-  build. When your coding agent calls wisp over MCP, only the result it asked for goes back to it, not
-  the raw data.
-- **Redact files and filter out personal data** before text goes into an issue, a chat, or a cloud model:
-  `wisp redact crash.log` replaces credentials and personal data (emails, phone and card numbers,
-  addresses, names) with numbered markers, and `wisp scan --personal export.csv` reports where they are.
-- **Check a commit for secrets** before it is made: `git diff --cached | wisp scan` in a pre-commit hook.
-- **Watch for local changes:** `wisp watch 'swift test 2>&1'` reruns a command on every save and tells
-  you, by a notification, when it starts or stops failing.
-- **Train the classifier on your own data:** `wisp classifier train --from-audit` builds a risk classifier
-  from the commands on this Mac, `wisp classifier measure` scores it, and `wisp classifier use` switches to
-  it.
-- **Run any local model you choose**, from Ollama or the Hugging Face cache, and turn off the ones you do
-  not want offered: `wisp models`.
-- **Hand your coding agent the local chores:** test failures, long logs, diffs, dependency audits, and
-  profiles, read on the Mac and returned as a few lines.
+```bash
+wisp redact crash.log | pbcopy                 # secrets and personal data replaced
+git diff --cached | wisp scan                  # block a commit that leaks a key
+wisp watch 'swift test 2>&1'                   # a notification when tests start or stop failing
+wisp classifier train --from-audit --use       # a risk classifier trained on this Mac
+```
 
 ## What it is
 
