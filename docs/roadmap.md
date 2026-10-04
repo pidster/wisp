@@ -1,6 +1,6 @@
 # Roadmap
 
-The releases planned from 0.17.0 to 0.21.0, agreed with the operator on 2026-10-01 (0.16.0, the first, has
+The releases planned from 0.17.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, has
 shipped). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
@@ -16,6 +16,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 
 ## 0.17.0
 
@@ -95,6 +96,16 @@ The release given to measurement, once the four before it are out:
   chat request is most of what they need; the executor is parameterised by base URL, authentication,
   and the request's dialect ([backlog.md](backlog.md),
   [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md)).
+
+## 0.22.0
+
+- **The tool-output budget, and nothing past it dropped** (larger), proposed in
+  [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md) on 2026-10-04. One budget for every tool
+  result from the current model's window (an eighth, 4 KiB at least and 64 KiB at most) in place of the
+  fixed 4 KiB; the whole output kept in the thread's output store, with a marker saying what is held back;
+  `memory` recall to page it and `memory "condense entry N: <question>"` to answer from all of it;
+  `inspect(audit)` by turn, one line per call. `run_command` stops discarding all but the tail. Found when a
+  model asked to check its turn read only its last 20 audit events.
 
 ## Not scheduled
 
