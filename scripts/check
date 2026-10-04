@@ -150,8 +150,12 @@ mlx_live() {
     [ $# -eq 1 ] || { echo "usage: scripts/check mlx-live <model directory>" >&2; exit 64; }
     scratch="$ROOT/harness/.build/mlx"
     echo "==> MLX live test (needs the Metal toolchain and a model; not part of the gate)"
-    swift build --package-path harness $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$scratch"
     bin="$(swift build --package-path harness --build-tests --traits MLX --scratch-path "$scratch" --show-bin-path)"
+    # The library copied into each test bundle below is unsigned, so a build that relinks a bundle fails to sign
+    # it: the copies are removed before building (an earlier run may have been killed) and when the run ends.
+    rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib
+    trap 'rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib' EXIT
+    swift build --package-path harness $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$scratch"
     metallib=""
     for candidate in "$bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
         "$bin/mlx-swift_Cmlx.bundle/default.metallib"; do

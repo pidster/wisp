@@ -323,7 +323,8 @@ including the weight load; declared `toolCalling`, the `current_date` loop ran 3
 4 s each, with the right arguments; undeclared with tools requested, refused before generation with the
 hint. The live test runs with `scripts/check mlx-live <model directory>`, which builds with the trait in its
 own scratch path and copies the library beside the test bundle's binary, where MLX looks under `swift
-test`; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3. Those runs
+test`, removing the copies before it builds and when it ends, since an unsigned copy stops the next build
+signing the bundle; on 2026-10-03 it passed with the same model, a text reply in 1.7 s and the tool loop 3 of 3. Those runs
 were through the bridge. On 2026-10-04 the live test passed on wisp's executor with
 `mlx-community/Qwen3-1.7B-4bit`, fetched with `wisp models pull`, all five tests: the window 40,960 tokens
 (the model's maximum, 5.8 GiB of a 13.2 GiB budget), 18 tokens counted with the model's tokenizer before the
