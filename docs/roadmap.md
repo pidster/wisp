@@ -99,16 +99,16 @@ The release given to measurement, once the four before it are out:
 
 ## 0.22.0
 
-- **The tool-output budget, and nothing past it dropped** (larger), proposed in
-  [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md) on 2026-10-04. One budget for every tool
-  result from the current model's window (an eighth, 4 KiB at least and 64 KiB at most) in place of the
-  fixed 4 KiB; the whole output kept in the thread's output store, with a marker saying what is held back;
+- **The tool-output budget, and nothing past it dropped** (larger), proposed in [ADR
+  0050](decisions/0050-tool-output-budget-and-overflow.md) on 2026-10-04. One budget for every tool result
+  from the current model's window (an eighth, 4 KiB at least and 64 KiB at most) in place of the fixed 4
+  KiB; the whole output kept in the thread's output store, with a marker saying what is held back;
   `memory` recall and `read_file` to page it; an overview or the notable lines of an output or a file (a
   build that succeeded summarised compactly, one that failed by its root causes), exact readers first and
-  a model only where they fall short; `memory "condense entry N: <question>"` to answer from all of it; filters over the stored output, and
-  never a command run again to see more of what it printed;
-  `inspect(audit)` by turn, one line per call. `run_command` stops discarding all but the tail. Found when a
-  model asked to check its turn read only its last 20 audit events.
+  a model only where they fall short; `memory "condense entry N: <question>"` to answer from all of it;
+  filters over the stored output, and never a command run again to see more of what it printed;
+  `inspect(audit)` by turn, one line per call. `run_command` stops discarding all but the tail. Found when
+  a model asked to check its turn read only its last 20 audit events.
 
 ## Not scheduled
 
