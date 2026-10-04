@@ -4,7 +4,7 @@ import Foundation
 public enum WispVersion {
     /// Semantic version of this build. The audit log, classifier versions, and the MCP handshake use this
     /// bare form, which is compared and parsed; `display` is for people.
-    public static let current = "0.17.0"
+    public static let current = "0.18.0"
 
     /// What `--version` and the banners print: the bare version for a release build, otherwise the version,
     /// `-dev`, and the commit it was built from (`0.16.0-dev+4ab6eec`), with `(modified)` after it when the

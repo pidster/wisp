@@ -4,14 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.18.0
 
-### Breaking
+Breaking:
 
 - `wisp://threads/{thread_id}/facts` no longer carries `summary` (or `summaries` with `?all=true`): the running
   summary moved to `wisp://threads/{thread_id}/summary`, below. `/inspect facts` no longer shows it either.
 
-### Added
+Added:
 
 - Commands you run yourself in chat: a line that starts with `!` (`! git status --short`) runs the command in
   the conversation's directory, under the same policy lists and sandbox as the model's commands but without
@@ -28,7 +28,7 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   tool none of which ran. In chat, `wisp-tui` (`ran` on the turn's end in `wisp chat --json`), and `respond`'s
   `structuredContent.ran` (ADR 0051).
 
-### Changed
+Changed:
 
 - The running summary of earlier turns has a place of its own: `/inspect summary [all]` in chat (and `wisp-tui`'s
   panel) and `wisp://threads/{thread_id}/summary` over MCP. `/inspect facts` and
@@ -36,7 +36,7 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 - `wisp-tui`'s dialogs (the output panel, approvals, choices) have a blank row below them, between the dialog
   and the status line, as they have the reply row above them.
 
-### Fixed
+Fixed:
 
 - Tab did not complete `/inspect` in chat or `wisp-tui`, though it is the only way to the context, facts,
   and summary views; the commands Tab offers now come from `/help`'s table, so none can be left out.
