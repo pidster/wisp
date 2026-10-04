@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+### Fixed
+
+- Two approvals asked at the same moment over MCP, on a channel not used before (a fresh `~/.wisp/pending`),
+  could have one refused as "the pending directory is not safe to use": the directory is now created with
+  its private mode in one step, so no request sees it half-made.
+
 ## 0.17.0
 
 Added:

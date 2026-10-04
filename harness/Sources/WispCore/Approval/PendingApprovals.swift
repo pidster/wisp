@@ -318,12 +318,13 @@ public struct PendingApprovals: Sendable {
     public func ensureDirectory() throws {
         let path = directory.path
         if !FileManager.default.fileExists(atPath: path) {
-            do {
-                try FileManager.default.createDirectory(
-                    at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            } catch  where !FileManager.default.fileExists(atPath: path) {
-                // Another waiting command may create it at the same moment; only a directory still missing fails.
-                throw Failure.io("could not create \(path): \(error.localizedDescription)")
+            try? FileManager.default.createDirectory(
+                at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // mkdir sets the mode as it creates the directory. FileManager creates it and then sets the mode, and
+            // another request filed at the same moment could see it open to others in between and refuse it.
+            // Another waiting command may create it first; only a directory still missing fails.
+            if mkdir(path, 0o700) != 0, errno != EEXIST {
+                throw Failure.io("could not create \(path): \(String(cString: strerror(errno)))")
             }
         }
         if let problem = Self.problem(with: path) { throw Failure.unsafeDirectory(problem) }

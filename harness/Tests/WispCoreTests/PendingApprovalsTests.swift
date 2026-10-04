@@ -21,6 +21,27 @@ func approvalRequest(_ command: String = "git push origin main", thread: String?
 
 /// The channel: filing, listing, answering, taking, binding, staleness, and the directory's safety.
 @Suite struct PendingApprovalsTests {
+    /// Requests filed at the same moment on a fresh channel are all filed: the directory is never seen open to
+    /// others while it is being created (FileManager created it and then set its mode, and a request filed in
+    /// between was refused).
+    @Test func requestsFiledAtOnceOnAFreshChannelAreAllFiled() async throws {
+        for _ in 0..<20 {
+            let channel = scratchChannel()
+            defer { try? FileManager.default.removeItem(at: channel.directory) }
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for tag in 0..<8 {
+                    group.addTask {
+                        try channel.file(
+                            PendingApprovals.request(
+                                for: approvalRequest("git tag v\(tag)"), client: nil, timeout: .seconds(60)))
+                    }
+                }
+                try await group.waitForAll()
+            }
+            #expect(channel.waiting().count == 8)
+        }
+    }
+
     @Test func aRequestIsFiledAnsweredAndTakenOnce() throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }

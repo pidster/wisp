@@ -19,9 +19,11 @@ final class CancelFlag: Sendable {
 /// Asking through the pending channel and the client's dialog at once: the first answer wins, the other is
 /// withdrawn, silence and cancellation deny, and every step is audited.
 @Suite struct OutOfBandApproverTests {
-    /// An approver over `channel`, polling quickly, recording notifications.
+    /// An approver over `channel`, polling quickly, recording notifications. The default wait is long, so a
+    /// test that answers is never beaten by the timeout on a loaded machine (a 5 s default expired at 6.9 s on
+    /// 2026-10-04); tests of the timeout pass a short one.
     private func approver(
-        _ channel: PendingApprovals, timeout: Duration? = .seconds(5), posted: PostedNotifications = .init(),
+        _ channel: PendingApprovals, timeout: Duration? = .seconds(60), posted: PostedNotifications = .init(),
         alongside: OutOfBandApprover.Ask? = nil
     ) -> OutOfBandApprover {
         OutOfBandApprover(
