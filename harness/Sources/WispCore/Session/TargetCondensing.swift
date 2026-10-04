@@ -273,13 +273,14 @@ extension ContextComposer {
 
 extension ThreadRecord {
     /// Every turn the store holds, active or dropped, as its entries in order: a prompt and what followed it up to
-    /// the next prompt. Entries before the first prompt (the instructions) belong to no turn.
+    /// the next prompt. Entries before the first prompt (the instructions) belong to no turn, nor does a command the
+    /// person ran between turns, which is not the model's work.
     var turnGroups: [[Entry]] {
         var groups: [[Entry]] = []
         for entry in entries {
             switch entry.kind {
             case .prompt: groups.append([entry])
-            case .instructions, .facts: continue
+            case .instructions, .facts, .command: continue
             default: if !groups.isEmpty { groups[groups.count - 1].append(entry) }
             }
         }

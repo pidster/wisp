@@ -69,6 +69,12 @@ answer winning; and refused in non-interactive `respond` unless `--yes`. Denials
 `error: command not approved: …`. Configure with `approval.threshold` and `approval.classifier`. See
 [approval.md](../approval.md).
 
+The person can run a command through the same runner by typing it in chat after `!`
+([ADR 0049](../decisions/0049-commands-typed-in-chat.md); [wisp.md](../wisp.md), "Commands you run yourself").
+Such a command passes the same policy lists and runs under the same sandbox, bounds, and timeout, but is not
+classified and never asks: typing it is the approval. Its `policy.decision` and `command.outcome` carry
+`origin: "person"`.
+
 ### Symlinks
 
 Seatbelt matches real paths, so wisp resolves every profile path with `realpath(3)` before generating the

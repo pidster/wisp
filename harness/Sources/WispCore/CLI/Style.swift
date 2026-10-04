@@ -45,6 +45,13 @@ public struct Style: Sendable, Equatable {
         public static let tokensIn = (0xF2, 0xE3, 0x9C)
         /// Tokens written: the glow tone.
         public static let tokensOut = glow
+        /// A command the person types after `!` (ADR 0049): `wisp-tui`'s input box in command mode, a muted pale
+        /// amber, more orange than yellow and apart from `amber`, so a command never looks like a warning; the
+        /// plain chat colours its prompt marker with it.
+        public static let command = (0xE8, 0xB5, 0x77)
+        /// A command's line in `wisp-tui`'s scrollback: `command` at half its brightness, as a sent prompt's
+        /// tint is the input box's.
+        public static let commandSent = (0x74, 0x5A, 0x3C)
     }
 
     private func rgb(_ colour: (Int, Int, Int), _ text: String) -> String {
@@ -71,6 +78,8 @@ public struct Style: Sendable, Equatable {
     public func tokensIn(_ text: String) -> String { rgb(Palette.tokensIn, text) }
     /// Tokens written.
     public func tokensOut(_ text: String) -> String { rgb(Palette.tokensOut, text) }
+    /// The prompt marker of a command the person typed after `!`: the command colour, bold.
+    public func command(_ text: String) -> String { bold(rgb(Palette.command, text)) }
 
     /// Bold.
     public func bold(_ text: String) -> String { wrap("1", text) }

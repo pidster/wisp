@@ -88,7 +88,7 @@ extension AuditEvent {
         /// `policy.decision`.
         public static func policyDecision(
             command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String?, sandbox: Bool,
-            network: Bool, nested: Bool
+            network: Bool, nested: Bool, origin: CommandRunner.Origin = .model
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "command": .string(command), "workingDirectory": .string(workingDirectory),
@@ -96,20 +96,50 @@ extension AuditEvent {
                 "nested": .bool(nested),
             ]
             if let reason { details["reason"] = .string(reason) }
+            if origin == .person { details["origin"] = .string(origin.rawValue) }
             return details
         }
 
-        /// `command.outcome`.
+        /// `command.outcome`; `origin` is written only for a command the person typed.
         public static func commandOutcome(
-            command: String, outcome: CommandRunner.Outcome, seconds: TimeInterval
+            command: String, outcome: CommandRunner.Outcome, seconds: TimeInterval,
+            origin: CommandRunner.Origin = .model
         )
             -> [String: JSONValue]
         {
-            [
+            var details: [String: JSONValue] = [
                 "command": .string(command), "exitStatus": .int(Int(outcome.exitStatus)),
                 "timedOut": .bool(outcome.timedOut), "truncated": .bool(outcome.truncated),
                 "stdout": .string(outcome.stdout), "stderr": .string(outcome.stderr), "seconds": .double(seconds),
             ]
+            if origin == .person { details["origin"] = .string(origin.rawValue) }
+            return details
+        }
+
+        /// `command.typed`: a command the person typed in chat after `!` (ADR 0049), with what became of it.
+        /// `verdict` is the policy's (`allowed` or `denied`, with its `reason`); for one that ran, its exit
+        /// status, whether it timed out or lost output to the bound, whether the sandbox appears to have
+        /// refused it, and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
+        /// size in `bytes`. `failure` says why one that was allowed could not start.
+        public static func commandTyped(
+            command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String? = nil,
+            outcome: CommandRunner.Outcome? = nil, output: String = "", sandboxRefused: Bool = false,
+            failure: String? = nil, seconds: TimeInterval
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "command": .string(command), "workingDirectory": .string(workingDirectory),
+                "verdict": .string(verdict.rawValue), "output": .string(output), "bytes": .int(output.utf8.count),
+                "seconds": .double(seconds),
+            ]
+            if let reason { details["reason"] = .string(reason) }
+            if let failure { details["failure"] = .string(failure) }
+            if let outcome {
+                details["exitStatus"] = .int(Int(outcome.exitStatus))
+                details["timedOut"] = .bool(outcome.timedOut)
+                details["truncated"] = .bool(outcome.truncated)
+                details["sandboxRefused"] = .bool(sandboxRefused)
+            }
+            return details
         }
 
         /// `file.write`.
@@ -647,8 +677,15 @@ extension AuditEvent {
         case .response: ["text", "condensed", "seconds"]
         case .toolCall: ["tool", "arguments"]
         case .toolResult: ["tool", "output", "bytes", "seconds"]
-        case .policyDecision: ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested"]
-        case .commandOutcome: ["command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds"]
+        case .policyDecision:
+            ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin"]
+        case .commandOutcome:
+            ["command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin"]
+        case .commandTyped:
+            [
+                "command", "workingDirectory", "verdict", "reason", "exitStatus", "timedOut", "truncated",
+                "sandboxRefused", "output", "bytes", "seconds", "failure",
+            ]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]
         case .notification: ["title", "body", "source", "outcome", "reason", "route", "skipped"]
         case .hostHello: ["effects", "client", "version"]

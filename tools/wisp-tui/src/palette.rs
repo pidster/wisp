@@ -28,6 +28,13 @@ pub const REMOVED: Color = Color::Rgb(0xFF, 0x6B, 0x6B);
 pub const TOKENS_IN: Color = Color::Rgb(0xF2, 0xE3, 0x9C);
 /// Tokens written: the glow tone.
 pub const TOKENS_OUT: Color = GLOW;
+/// Command mode (ADR 0049): the input box's background while a `!` command is typed, a muted pale amber,
+/// more orange than yellow and apart from `AMBER`, so a command never looks like a warning.
+pub const COMMAND: Color = Color::Rgb(0xE8, 0xB5, 0x77);
+/// A command's line in the scrollback: `COMMAND` at half its brightness, as `SENT` is of `DEEP`.
+pub const COMMAND_SENT: Color = Color::Rgb(0x74, 0x5A, 0x3C);
+/// The text on `COMMAND`.
+pub const BLACK: Color = Color::Rgb(0x00, 0x00, 0x00);
 
 /// The user's own words.
 pub fn user() -> Style {
@@ -108,6 +115,34 @@ pub fn sent_background() -> Style {
 /// The half-block strips above and below a sent line.
 pub fn sent_edge() -> Style {
     Style::default().fg(SENT)
+}
+/// The input row's background in command mode.
+pub fn command_background() -> Style {
+    Style::default().bg(COMMAND)
+}
+/// The half-block strips above and below the input in command mode.
+pub fn command_edge() -> Style {
+    Style::default().fg(COMMAND)
+}
+/// What is typed in command mode: black on the command colour.
+pub fn command_text() -> Style {
+    Style::default().fg(BLACK)
+}
+/// The `!` marker in command mode.
+pub fn command_prompt() -> Style {
+    Style::default().fg(BLACK).add_modifier(Modifier::BOLD)
+}
+/// A command's line's background in the scrollback.
+pub fn command_sent_background() -> Style {
+    Style::default().bg(COMMAND_SENT)
+}
+/// The half-block strips above and below a command's line.
+pub fn command_sent_edge() -> Style {
+    Style::default().fg(COMMAND_SENT)
+}
+/// The input while a turn runs: dimmed, so it reads as inactive.
+pub fn busy() -> Style {
+    Style::default().fg(MIST).add_modifier(Modifier::DIM)
 }
 /// A risk level in its colour.
 pub fn level(level: &str) -> Style {

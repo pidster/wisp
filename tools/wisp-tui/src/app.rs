@@ -34,6 +34,9 @@ const PROMPT_CELLS: usize = 2;
 pub const MARGIN: u16 = 1;
 /// The input row's placeholder when nothing is typed.
 pub const PLACEHOLDER: &str = "Ask wisp to do anything";
+/// The placeholder in command mode, where what is typed runs as a shell command (ADR 0049).
+pub const COMMAND_PLACEHOLDER: &str =
+    "Run a command yourself: sandboxed, no approval, the model is told";
 /// How many submitted lines Up and Down can recall; the same bound as the chat's `/history`.
 pub const RECALL_LIMIT: usize = 100;
 
@@ -51,6 +54,8 @@ pub struct HistoryLine {
 pub enum LineKind {
     /// The user's own input, echoed.
     User,
+    /// A command the user ran from command mode, echoed with its `!` (ADR 0049).
+    Command,
     /// The model's reply, in the little Markdown `markdown::spans` renders.
     Reply,
     /// A line inside a fenced block of a reply, shown as it is.
@@ -268,6 +273,12 @@ pub struct App {
     pub suggestions: Option<Suggestions>,
     /// Whether a turn is in progress (input is held until the next status).
     pub busy: bool,
+    /// Whether the input box is in command mode: `!` typed into an empty box, so what is typed runs as a shell
+    /// command (ADR 0049) and the box takes the command colour.
+    pub command_mode: bool,
+    /// Keys typed while a turn runs, in order: not shown as accepted, and applied to the input when the turn
+    /// ends (the next status), as if typed then.
+    pub held: Vec<Edit>,
     /// The turn under way, or how the last one ended, for the status line.
     pub turn: Option<TurnState>,
     /// What the turn under way is doing, and since when, for the status line.
@@ -336,6 +347,7 @@ impl App {
                 self.flush_partial();
                 self.status = Some(status);
                 self.busy = false;
+                self.release_held();
             }
             Outbound::Activity {
                 doing,
@@ -654,8 +666,63 @@ impl App {
                 decision: decision.to_string(),
             });
         }
+        if self.holding() {
+            self.held.push(Edit::Insert(c));
+            return Action::None;
+        }
+        // `!` into an empty box is the switch to command mode, not text; after other text it is text.
+        if c == '!'
+            && self.typing()
+            && self.picker.is_none()
+            && self.editor.is_empty()
+            && !self.command_mode
+        {
+            self.command_mode = true;
+            self.suggestions = None;
+            return Action::None;
+        }
         self.edit(&Edit::Insert(c));
         Action::None
+    }
+
+    /// Whether keys are held rather than taken: while a turn runs and nothing else (a dialog, a choice, the
+    /// panel) wants them.
+    fn holding(&self) -> bool {
+        self.busy && self.approval.is_none() && self.picker.is_none() && self.panel.is_none()
+    }
+
+    /// Applies the keys held while the turn ran, in order, as if typed now.
+    fn release_held(&mut self) {
+        for edit in std::mem::take(&mut self.held) {
+            match edit {
+                Edit::Insert(c) => {
+                    self.type_char(c);
+                }
+                other => self.edit(&other),
+            }
+        }
+    }
+
+    /// Puts a line into the input as recalling it does: a line that starts with `!` returns in command mode,
+    /// without its `!`.
+    fn set_line(&mut self, line: &str) {
+        if let Some(command) = line.strip_prefix('!') {
+            self.command_mode = true;
+            self.editor.set(command);
+        } else {
+            self.command_mode = false;
+            self.editor.set(line);
+        }
+    }
+
+    /// The input as a line, as `set_line` takes it back: `!` before it in command mode.
+    fn line(&self) -> String {
+        let text = self.editor.text();
+        if self.command_mode {
+            format!("!{text}")
+        } else {
+            text
+        }
     }
 
     /// Whether the input takes edits: with no dialog up and no turn running, or while a choice that
@@ -667,13 +734,34 @@ impl App {
         }
     }
 
-    /// An edit to the input: ignored while a dialog wants its keys or a turn is running.
+    /// An edit to the input: held while a turn is running, ignored while a dialog wants its keys. In command
+    /// mode, Backspace or Delete in an empty box returns to the normal prompt; a paste that starts with `!` into
+    /// an empty box enters command mode, as typing `!` does.
     pub fn edit(&mut self, edit: &Edit) {
-        if self.typing() {
-            self.editor.apply(edit);
-            self.suggestions = None;
-            self.completing = None;
+        if self.holding() {
+            self.held.push(edit.clone());
+            return;
         }
+        if !self.typing() {
+            return;
+        }
+        self.suggestions = None;
+        self.completing = None;
+        let in_box = self.picker.is_none() && self.editor.is_empty();
+        if in_box && self.command_mode && matches!(edit, Edit::Backspace | Edit::Delete) {
+            self.command_mode = false;
+            return;
+        }
+        if let Edit::Paste(text) = edit
+            && in_box
+            && !self.command_mode
+            && let Some(command) = text.strip_prefix('!')
+        {
+            self.command_mode = true;
+            self.editor.apply(&Edit::Paste(command.to_string()));
+            return;
+        }
+        self.editor.apply(edit);
     }
 
     /// Tab: cycles through the suggestions on show, or asks wisp to complete the slash command being
@@ -755,12 +843,27 @@ impl App {
         if self.approval.is_some() || self.busy {
             return Action::None;
         }
-        let text = self.editor.take().trim().to_string();
-        if text.is_empty() {
+        // A command goes to wisp as the line plain chat takes, `!` and the command; so does text that starts
+        // with `!`, which wisp runs as a command too.
+        let typed = self.editor.text().trim().to_string();
+        let command = if self.command_mode {
+            Some(typed.clone())
+        } else {
+            typed.strip_prefix('!').map(|rest| rest.trim().to_string())
+        };
+        if typed.is_empty() || command.as_deref() == Some("") {
             return Action::None;
         }
+        self.editor.take();
+        self.command_mode = false;
         self.suggestions = None;
-        self.push(&format!("› {text}"), LineKind::User);
+        let text = if let Some(command) = &command {
+            self.push(&format!("! {command}"), LineKind::Command);
+            format!("!{command}")
+        } else {
+            self.push(&format!("› {typed}"), LineKind::User);
+            typed
+        };
         if self.recall.last() != Some(&text) {
             self.recall.push(text.clone());
             if self.recall.len() > RECALL_LIMIT {
@@ -788,13 +891,14 @@ impl App {
         }
         let index = match self.recall_at {
             None => {
-                self.draft = self.editor.take();
+                self.draft = self.line();
                 self.recall.len() - 1
             }
             Some(index) => index.saturating_sub(1),
         };
         self.recall_at = Some(index);
-        self.editor.set(&self.recall[index]);
+        let line = self.recall[index].clone();
+        self.set_line(&line);
     }
 
     /// Down: moves to the next submitted line, and past the newest back to the draft.
@@ -815,11 +919,12 @@ impl App {
         };
         if index + 1 < self.recall.len() {
             self.recall_at = Some(index + 1);
-            self.editor.set(&self.recall[index + 1]);
+            let line = self.recall[index + 1].clone();
+            self.set_line(&line);
         } else {
             self.recall_at = None;
             let draft = std::mem::take(&mut self.draft);
-            self.editor.set(&draft);
+            self.set_line(&draft);
         }
     }
 
@@ -1041,13 +1146,16 @@ impl App {
             );
             return;
         }
+        // Command mode tints the box and its strips in the command colour.
+        let (background, edge) = if self.command_mode {
+            (palette::command_background(), palette::command_edge())
+        } else {
+            (palette::input_background(), palette::input_edge())
+        };
         let strip = |frame: &mut Frame, index: u16, glyph: &str| {
             if index < area.height {
                 let text = glyph.repeat(usize::from(area.width));
-                frame.render_widget(
-                    Paragraph::new(text).style(palette::input_edge()),
-                    row(index, area),
-                );
+                frame.render_widget(Paragraph::new(text).style(edge), row(index, area));
             }
         };
         // The input has the rows the band leaves between its fixed rows: reply, dialog, the two strips,
@@ -1061,14 +1169,8 @@ impl App {
             if index >= area.height {
                 break;
             }
-            frame.render_widget(
-                Paragraph::new("").style(palette::input_background()),
-                row(index, area),
-            );
-            frame.render_widget(
-                Paragraph::new(line).style(palette::input_background()),
-                row(index, inset),
-            );
+            frame.render_widget(Paragraph::new("").style(background), row(index, area));
+            frame.render_widget(Paragraph::new(line).style(background), row(index, inset));
         }
         // The terminal's own cursor marks where typing goes, while typing is taken.
         if let Some((line, column)) = cursor {
@@ -1090,11 +1192,27 @@ impl App {
         width: usize,
         visible: usize,
     ) -> (Vec<Line<'static>>, Option<(usize, usize)>) {
-        let prompt = if self.busy { "…" } else { "›" };
-        if self.editor.is_empty() && !self.busy {
+        // While a turn runs the box is inactive: dimmed, with what wisp is doing where the cursor would be.
+        if self.busy {
+            let line = Line::from(vec![
+                Span::styled("… ", palette::busy()),
+                Span::styled(self.busy_label(), palette::busy()),
+            ]);
+            return (vec![line], None);
+        }
+        let (prompt, prompt_style, text_style) = if self.command_mode {
+            ("!", palette::command_prompt(), palette::command_text())
+        } else {
+            ("›", palette::prompt(), palette::user())
+        };
+        if self.editor.is_empty() {
             let placeholder = Line::from(vec![
-                Span::styled(format!("{prompt} "), palette::prompt()),
-                Span::styled(PLACEHOLDER, palette::muted()),
+                Span::styled(format!("{prompt} "), prompt_style),
+                if self.command_mode {
+                    Span::styled(COMMAND_PLACEHOLDER, palette::command_text())
+                } else {
+                    Span::styled(PLACEHOLDER, palette::muted())
+                },
             ]);
             let typing = self.approval.is_none();
             return (vec![placeholder], typing.then_some((0, PROMPT_CELLS)));
@@ -1114,16 +1232,30 @@ impl App {
                     " ".repeat(PROMPT_CELLS)
                 };
                 Line::from(vec![
-                    Span::styled(lead, palette::prompt()),
-                    Span::styled(text.clone(), palette::user()),
+                    Span::styled(lead, prompt_style),
+                    Span::styled(text.clone(), text_style),
                 ])
             })
             .collect();
-        let typing = self.approval.is_none() && !self.busy;
+        let typing = self.approval.is_none();
         (
             lines,
             typing.then_some((layout.row - first, PROMPT_CELLS + layout.column)),
         )
+    }
+
+    /// What the inactive box says while a turn runs: `working:` and what wisp last said it is doing (a tool and
+    /// its argument, a command, waiting for the model), and how many keys are held for when it ends.
+    pub fn busy_label(&self) -> String {
+        let doing = self.activity.as_ref().map_or_else(
+            || "working…".to_string(),
+            |activity| format!("working: {}", activity.doing),
+        );
+        match self.held.len() {
+            0 => doing,
+            1 => format!("{doing} · 1 key held"),
+            n => format!("{doing} · {n} keys held"),
+        }
     }
 
     /// The status row for a band `width` cells wide: on the left the model and its context use, the
@@ -1952,9 +2084,9 @@ mod tests {
                 kind: LineKind::User
             }
         );
-        // Typing while busy is dropped; a dialog takes over the keys.
+        // Typing while busy is held, not shown; a dialog takes over the keys.
         app.type_char('x');
-        assert!(app.editor.is_empty());
+        assert!(app.editor.is_empty() && app.held == vec![Edit::Insert('x')]);
         app.handle(Outbound::Approval(Approval {
             id: "a1".into(),
             command: "git push".into(),
@@ -2626,5 +2758,216 @@ mod tests {
         let column = u16::try_from(row3[..at].chars().count()).unwrap_or(0);
         assert!(at > 0, "no context part in {row3}");
         assert_eq!(buffer[(column, STATUS_ROW)].fg, palette::AMBER);
+    }
+
+    #[test]
+    fn a_bang_in_an_empty_box_enters_command_mode_and_backspace_or_delete_leaves_it() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        // `!` into an empty box is the switch, not text.
+        assert_eq!(app.type_char('!'), Action::None);
+        assert!(app.command_mode && app.editor.is_empty());
+        for c in "ls".chars() {
+            app.type_char(c);
+        }
+        assert_eq!(app.editor.text(), "ls");
+        // Backspace deletes text first; only in an empty box does it leave command mode.
+        app.edit(&Edit::Backspace);
+        app.edit(&Edit::Backspace);
+        assert!(app.command_mode && app.editor.is_empty());
+        app.edit(&Edit::Backspace);
+        assert!(!app.command_mode && app.editor.is_empty());
+        // Delete in an empty box leaves it too.
+        app.type_char('!');
+        assert!(app.command_mode);
+        app.edit(&Edit::Delete);
+        assert!(!app.command_mode);
+        // A `!` after other text stays text, and in a box emptied by other edits the next `!` switches again.
+        app.type_char('a');
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("a!", false)
+        );
+        app.edit(&Edit::KillToStart);
+        app.type_char('!');
+        assert!(app.command_mode && app.editor.is_empty());
+        // A paste that starts with `!` into an empty box enters command mode with the rest.
+        app.edit(&Edit::Backspace);
+        app.edit(&Edit::Paste("!git log -3".into()));
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("git log -3", true)
+        );
+    }
+
+    #[test]
+    fn sending_in_command_mode_runs_the_command_and_returns_the_box_to_normal() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.type_char('!');
+        // An empty command sends nothing.
+        assert_eq!(app.submit(), Action::None);
+        assert!(app.command_mode && !app.busy);
+        app.editor.set(" git status --short ");
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "!git status --short".into()
+            })
+        );
+        assert!(!app.command_mode && app.editor.is_empty() && app.busy);
+        assert_eq!(
+            app.take_pending(),
+            vec![HistoryLine {
+                text: "! git status --short".into(),
+                kind: LineKind::Command
+            }]
+        );
+        // Its output arrives as a `command.typed` event and folds like a tool's.
+        app.handle(Outbound::parse(
+            r#"{"type":"event","kind":"command.typed","call":null,"turn":null,"details":{},"text":null,"output":{"id":"e1","text":"a\nb\nc\n","lines":3,"bytes":6,"truncated":false,"shownLines":2}}"#,
+        ));
+        let lines: Vec<String> = app.take_pending().into_iter().map(|l| l.text).collect();
+        assert_eq!(
+            lines,
+            vec!["    a", "    b", "    … 1 more line · ctrl-o shows all"]
+        );
+        assert_eq!(app.last_output.as_ref().map(|o| o.id.as_str()), Some("e1"));
+        app.handle(Outbound::Status(Status::default()));
+        // Text in the normal box that starts with `!` is what wisp runs as a command, and is shown as one.
+        app.editor.set("!pwd");
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "!pwd".into()
+            })
+        );
+        assert_eq!(app.take_pending()[0].kind, LineKind::Command);
+        app.handle(Outbound::Status(Status::default()));
+        // A command recalled comes back in command mode, and the draft keeps its mode too.
+        assert_eq!(app.recall, vec!["!git status --short", "!pwd"]);
+        app.editor.set("half");
+        app.recall_previous();
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("pwd", true)
+        );
+        app.recall_next();
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("half", false)
+        );
+        app.editor.set("");
+        app.type_char('!');
+        app.type_char('w');
+        app.recall_previous();
+        app.recall_next();
+        assert_eq!((app.editor.text().as_str(), app.command_mode), ("w", true));
+    }
+
+    #[test]
+    fn keys_typed_while_a_turn_runs_are_held_and_applied_when_it_ends() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.editor.set("hello");
+        app.submit();
+        app.handle(Outbound::Turn(turn("start", 1, None, None)));
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"read_file README.md","asking":false,"turnSeconds":1.0}"#,
+        ));
+        // Typed meanwhile: not taken into the box, and not lost.
+        for c in "!ls".chars() {
+            assert_eq!(app.type_char(c), Action::None);
+        }
+        app.edit(&Edit::Backspace);
+        assert!(app.editor.is_empty() && !app.command_mode);
+        assert_eq!(app.held.len(), 4);
+        assert_eq!(
+            app.busy_label(),
+            "working: read_file README.md · 4 keys held"
+        );
+        // Enter does not send while held.
+        assert_eq!(app.submit(), Action::None);
+        // The box is dimmed, says what wisp is doing, and has no cursor.
+        let (lines, cursor) = app.input_lines(60, 1);
+        assert!(cursor.is_none());
+        let text: String = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(text, "… working: read_file README.md · 4 keys held");
+        assert!(
+            lines[0]
+                .spans
+                .iter()
+                .all(|span| span.style == palette::busy())
+        );
+        assert!(drawn(&app, 60)[usize::from(INPUT_ROW)].contains("working: read_file"));
+        // The turn ends and the keys apply in order: `!` switches, `l` and `s` type, Backspace deletes `s`.
+        app.handle(Outbound::Turn(turn("end", 1, Some(1.0), Some("ok"))));
+        app.handle(Outbound::Status(Status::default()));
+        assert!(app.held.is_empty() && !app.busy);
+        assert_eq!((app.editor.text().as_str(), app.command_mode), ("l", true));
+        // With no activity yet, the box still says it is working.
+        app.busy = true;
+        app.activity = None;
+        assert_eq!(app.busy_label(), "working…");
+        // A dialog takes its keys even while busy; they are not held.
+        app.approval = Some(approval("rm x", "rm x", &[]));
+        app.type_char('q');
+        assert!(app.held.is_empty());
+    }
+
+    #[test]
+    fn command_mode_tints_the_box_in_the_command_colour_with_black_text() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.type_char('!');
+        let width = 80;
+        let height = app.band_height(width);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        let row: String = (0..width)
+            .map(|x| buffer[(x, INPUT_ROW)].symbol().to_string())
+            .collect();
+        assert_eq!(row.trim_end(), format!(" ! {COMMAND_PLACEHOLDER}"));
+        assert_eq!(buffer[(0, INPUT_ROW)].bg, palette::COMMAND);
+        assert_eq!(buffer[(width - 1, INPUT_ROW)].bg, palette::COMMAND);
+        assert_eq!(buffer[(1, INPUT_ROW)].fg, palette::BLACK);
+        assert_eq!(buffer[(0, INPUT_ROW - 1)].fg, palette::COMMAND);
+        assert_eq!(buffer[(0, INPUT_ROW + 1)].fg, palette::COMMAND);
+        app.editor.set("ls");
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        assert_eq!(buffer[(3, INPUT_ROW)].symbol(), "l");
+        assert_eq!(buffer[(3, INPUT_ROW)].fg, palette::BLACK);
+        assert_eq!(buffer[(3, INPUT_ROW)].bg, palette::COMMAND);
+        let position = terminal.get_cursor_position().expect("cursor");
+        assert_eq!((position.x, position.y), (MARGIN + 2 + 2, INPUT_ROW));
+        // Back to normal, the box is the deep tint again.
+        app.editor.set("");
+        app.edit(&Edit::Backspace);
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        assert_eq!(
+            terminal.backend().buffer()[(0, INPUT_ROW)].bg,
+            palette::DEEP
+        );
     }
 }

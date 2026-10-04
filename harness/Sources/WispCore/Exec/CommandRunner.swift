@@ -83,6 +83,16 @@ public struct CommandRunner: Sendable {
         }
     }
 
+    /// Who chose a command, which decides whether the approval gate is consulted (ADR 0049).
+    public enum Origin: String, Sendable, Equatable {
+        /// The model, through `run_command` or a tool built on it: the gate classifies the command and asks the
+        /// person when it is risky.
+        case model
+        /// The person, who typed it in chat after `!`: typing it is the approval, so the gate is not consulted.
+        /// The policy's lists, the sandbox, the bounds, and the audit apply as for the model.
+        case person
+    }
+
     /// Limits applied to every command.
     public var options: Options
     /// Where policy decisions and outcomes are recorded, if anywhere.
@@ -122,13 +132,29 @@ public struct CommandRunner: Sendable {
     ///   - command: A POSIX shell command line.
     ///   - directory: Where to run it; nil means the process's current directory. Changes where the
     ///     command runs, never what it may write (see `Options.writableRoot`).
+    ///   - origin: Who chose it. A command the person typed (`.person`) skips the approval gate, its classifier
+    ///     and its question, and is marked as theirs in the audit; everything else is the same.
     /// - Returns: The exit status and bounded output.
     /// - Throws: `Failure` if the policy rejects the command or it cannot be started.
-    public func run(_ command: String, in directory: String? = nil) async throws -> Outcome {
+    public func run(_ command: String, in directory: String? = nil, origin: Origin = .model) async throws -> Outcome {
         let workingDirectory = try Self.existingDirectory(directory)
-        try await admit(command, in: workingDirectory, gate: approval)
-        decide(.allowed, command: command, in: workingDirectory)
-        return try await execute(command, in: workingDirectory)
+        try await admit(command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin)
+        decide(.allowed, command: command, in: workingDirectory, origin: origin)
+        return try await execute(command, in: workingDirectory, origin: origin)
+    }
+
+    /// Whether commands run under Seatbelt here: the policy's sandbox is on and wisp is not already inside
+    /// another sandbox, whose refusal of a nested profile makes commands run under that one instead.
+    public var confines: Bool { sandboxed }
+
+    /// Whether `outcome` looks like the sandbox refusing the command: it ran confined, failed, and its error
+    /// output carries Seatbelt's `Operation not permitted`. A heuristic for the person's note (ADR 0049); the
+    /// command's own output is shown either way.
+    ///
+    /// - Parameter outcome: What the command produced.
+    /// - Returns: Whether to say the sandbox may have refused it.
+    public func refusedBySandbox(_ outcome: Outcome) -> Bool {
+        sandboxed && outcome.exitStatus != 0 && outcome.stderr.contains("Operation not permitted")
     }
 
     /// One command line cleared for repeated runs: the gate was consulted once, when it was authorised,
@@ -182,29 +208,32 @@ public struct CommandRunner: Sendable {
     /// Whether commands run under Seatbelt here.
     private var sandboxed: Bool { options.policy.sandbox.enabled && !Self.isNestedSandbox }
 
-    /// Records a `policy.decision`.
+    /// Records a `policy.decision`, marked as the person's when they typed the command.
     private func decide(
-        _ verdict: AuditEvent.Details.PolicyVerdict, reason: String? = nil, command: String, in workingDirectory: String
+        _ verdict: AuditEvent.Details.PolicyVerdict, reason: String? = nil, command: String,
+        in workingDirectory: String, origin: Origin = .model
     ) {
         audit?.record(
             .policyDecision,
             details: AuditEvent.Details.policyDecision(
                 command: command, workingDirectory: workingDirectory, verdict: verdict, reason: reason,
                 sandbox: sandboxed, network: options.policy.sandbox.allowNetwork,
-                nested: options.policy.sandbox.enabled && Self.isNestedSandbox))
+                nested: options.policy.sandbox.enabled && Self.isNestedSandbox, origin: origin))
     }
 
     /// Checks the policy for the line and each simple command in it, then clears the line through `gate`;
     /// records the denial or refusal when there is one.
     ///
     /// - Throws: `Failure.denied` or `Failure.disapproved`.
-    private func admit(_ command: String, in workingDirectory: String, gate: ApprovalGate?) async throws {
+    private func admit(
+        _ command: String, in workingDirectory: String, gate: ApprovalGate?, origin: Origin = .model
+    ) async throws {
         let parts = CommandSplitter.split(command)
         let verdicts = ([command] + parts.map(\.text)).map(options.policy.check)
         if let denial = verdicts.first(where: { if case .denied = $0 { true } else { false } }),
             case .denied(let reason) = denial
         {
-            decide(.denied, reason: reason, command: command, in: workingDirectory)
+            decide(.denied, reason: reason, command: command, in: workingDirectory, origin: origin)
             Diagnostics.policy.info("denied: \(reason): \(command)")
             throw Failure.denied(reason)
         }
@@ -216,14 +245,18 @@ public struct CommandRunner: Sendable {
         }
     }
 
-    /// Launches an admitted command and records its outcome.
-    private func execute(_ command: String, in workingDirectory: String) async throws -> Outcome {
+    /// Launches an admitted command and records its outcome, marked as the person's when they typed it.
+    private func execute(
+        _ command: String, in workingDirectory: String, origin: Origin = .model
+    ) async throws
+        -> Outcome
+    {
         let started = Date()
         let outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed)
         audit?.record(
             .commandOutcome,
             details: AuditEvent.Details.commandOutcome(
-                command: command, outcome: outcome, seconds: Date().timeIntervalSince(started)))
+                command: command, outcome: outcome, seconds: Date().timeIntervalSince(started), origin: origin))
         Diagnostics.policy.debug("exit \(outcome.exitStatus) after \(Date().timeIntervalSince(started))s: \(command)")
         return outcome
     }

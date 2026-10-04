@@ -67,16 +67,17 @@ enum FactExtraction {
     ///   - kinds: The subject kinds, which name and normalise each fact, and the test commands.
     ///   - turn: The turn.
     ///   - entries: The store id of each call's output, by its `tool.result` event id.
+    ///   - source: Who the facts are from: the tool, or the person for a command they typed in chat (ADR 0049).
     /// - Returns: The assertions, in call order.
     static func assertions(
-        from calls: [Call], kinds: SubjectKinds, turn: Int?, entries: [String: Int] = [:]
+        from calls: [Call], kinds: SubjectKinds, turn: Int?, entries: [String: Int] = [:], source: FactSource = .tool
     ) -> [FactBook.Assertion] {
         var found: [FactBook.Assertion] = []
         for call in calls {
             let make = { (subject: String, name: String, value: String) -> FactBook.Assertion? in
                 guard let (identity, temporalClass) = kinds.identity(subject: subject, name: name) else { return nil }
                 return FactBook.Assertion(
-                    identity: identity, source: .tool, value: value, temporalClass: temporalClass, method: .extracted,
+                    identity: identity, source: source, value: value, temporalClass: temporalClass, method: .extracted,
                     detail: call.tool, entries: call.result.flatMap { entries[$0.event] }.map { [$0] } ?? [],
                     audit: call.result.map { [$0] } ?? [], time: call.time, turn: turn)
             }

@@ -134,6 +134,60 @@ enum OutputReference {
         return ToolOutput.bounded(lines.joined(separator: "\n"), maxBytes: maxBytes - 64)
     }
 
+    /// Output no longer than this many bytes goes whole with the notice of a person's command, as an output no
+    /// longer than its reference goes whole.
+    static let personOutputWholeBytes = 320
+
+    /// What the model carries for a command the person ran in chat (ADR 0049): one notice that says the person
+    /// ran it, not the model, where, and how it ended, and then the output whole when it is short, or its first
+    /// and last lines and how to recall it in full. Bounded like a reference.
+    ///
+    /// ```
+    /// [the person ran `git status --short` themselves in /work/harbour at 14:05:12 (exit status 0, 4 lines); this was not your action; to see the output: memory "recall entry 7"]
+    /// first line: M Sources/Sync.swift
+    /// last line: ?? notes.txt
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - command: What the person ran, where, and how it ended.
+    ///   - entry: The entry's store id.
+    ///   - time: When it finished, when known.
+    ///   - output: What it printed: stdout, then stderr.
+    ///   - timeZone: The zone the time is written in.
+    ///   - recallable: Whether the conversation has `memory`, so the notice names the call that recalls it.
+    /// - Returns: The notice.
+    static func personCommand(
+        _ command: ThreadRecord.PersonCommand, entry: Int, time: Date?, output: String,
+        timeZone: TimeZone = .current, recallable: Bool = false
+    ) -> String {
+        var lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if lines.last == "" { lines.removeLast() }
+        let plural = { (count: Int, noun: String) in "\(count) \(noun)\(count == 1 ? "" : "s")" }
+        var status = "exit status \(command.exitStatus)"
+        if command.timedOut { status += ", timed out" }
+        let clock = time.map { " at " + Self.clock($0, in: timeZone) } ?? ""
+        let head =
+            "[the person ran `\(shortened(flat(command.line), to: argumentCharacters))` themselves in "
+            + "\(shortened(command.directory, to: lineCharacters))\(clock) (\(status), \(plural(lines.count, "line")))"
+            + "; this was not your action"
+        guard !lines.isEmpty else { return head + "; it printed nothing]" }
+        if output.utf8.count <= personOutputWholeBytes, !command.truncated {
+            return ToolOutput.bounded(
+                ([head + "; its output:]"] + lines).joined(separator: "\n"), maxBytes: maxBytes - 64)
+        }
+        let hint = recallable ? "to see the output: memory \"recall entry \(entry)\"" : "its output is not repeated"
+        var notice = [head + "; " + hint + "]"]
+        let content = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if var first = content.first.map({ shortened($0, to: lineCharacters) }) {
+            if command.truncated { first = "…" + first }
+            notice.append("first line: " + first)
+        }
+        if content.count > 1, let last = content.last {
+            notice.append("last line: " + shortened(last, to: lineCharacters))
+        }
+        return ToolOutput.bounded(notice.joined(separator: "\n"), maxBytes: maxBytes - 64)
+    }
+
     /// `time` as `14:05:12` in `timeZone`.
     ///
     /// - Parameters:

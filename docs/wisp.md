@@ -32,7 +32,8 @@ wisp --no-tools --schema verdict.json "Which language is this: fn main() {}"
 
 ### `wisp chat`
 
-Interactive session. Lines starting with `/` are commands; anything else goes to the model. Replies stream.
+Interactive session. Lines starting with `/` are commands; a line starting with `!` is a shell command you run
+yourself ("Commands you run yourself", below); anything else goes to the model. Replies stream.
 
 On a terminal, when `wisp-tui` is installed beside `wisp` (the Homebrew formula installs both), `wisp chat`
 hands the session to it: the conversation scrolls in the terminal's own scrollback above a pinned band
@@ -70,6 +71,22 @@ it. Typing is held while it is open; an approval or a choice arriving closes it 
 A line you send goes into the scrollback styled like the input it came from, a shade darker: its tint
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
 
+Command mode is a state of `wisp-tui`'s input box ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
+Typing `!` into an empty box switches it to command mode: the `!` is the switch, not text, the box turns a
+muted pale amber (`command`, #E8B577) with black text, its marker becomes `!`, and what you type is the
+command. A `!` typed after other text stays text. Backspace or Delete in an empty box switches back to the
+normal prompt, so a stray `!` costs one key. A paste that starts with `!` into an empty box enters command
+mode the same way. Enter runs the command and the box returns to the normal prompt; an empty command sends
+nothing. In the scrollback the command's line is a stripe in a darker, faded shade of the same colour
+(`commandSent`, #745A3C) with light text, `! git status --short`, as a prompt's is the darker shade of the
+input. Up and Down bring a command back in command mode.
+
+While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
+place of the cursor, `… working: read_file README.md`, `… working: running git status`, or `… working:
+waiting for the model`. Keys typed meanwhile are held, not shown as typed and not lost: the box says how many
+(`· 3 keys held`), and they are applied in order when the turn ends, as if typed then (a held `!` into the
+empty box enters command mode). Enter is not held: a message is sent only once you can see it.
+
 The input grows a row for each line or wrapped line of the message, up to six rows; beyond that it
 scrolls within them to keep the cursor's row in sight. It shrinks back only once the input is empty, as
 it is when the message is sent, so deleting across a wrap does not resize the band as you type. The
@@ -78,8 +95,8 @@ the band is redrawn at the new height; after it shrinks it can sit a row or two 
 terminal until the next output closes the gap. Each frame is sent as one synchronized update, so a
 terminal that supports it (Ghostty, iTerm2, kitty, WezTerm, Alacritty) shows only finished frames, and
 lines are added above the band by scrolling a region rather than redrawing it. The band is redrawn only
-when something changes it (a line from wisp, a key, a paste, a resize), never while idle. Keys other than a dialog's answers are ignored while an approval is asked and
-while a turn runs.
+when something changes it (a line from wisp, a key, a paste, a resize), never while idle. Keys other than a dialog's answers are ignored while an approval is asked;
+while a turn runs they are held, as above.
 
 An approval takes the input's place in the band: a rounded border in the level's colour, titled with
 the level, around the command (wrapped to four rows), the whole line when the command is one part of
@@ -102,6 +119,37 @@ styled with their markers removed. A fenced block keeps its lines as they are, i
 the fences dimmed; a fence left open closes at the end of the turn. Anything that is not clearly markup,
 such as `2 * 3` or `snake_case`, is left as typed. The line still being streamed is shown raw until it
 is complete.
+
+#### Commands you run yourself
+
+A line that starts with `!` is a command you run, not a message: `! git status --short` and `!git status
+--short` both run `git status --short` in the conversation's working directory, as `run_command` would, with
+its bounds (the output tail, the timeout), and no model turn starts
+([ADR 0049](decisions/0049-commands-typed-in-chat.md)). A bare `!` runs nothing and says so. A `!` inside a
+message is text. `wisp-tui` has a command mode for it (above); the plain chat, which has no box, colours the
+line's prompt marker in the command colour once you press Enter.
+
+The checks that protect the Mac stay; the ones that stand in for you go:
+
+| Step | For the model's command | For a command you type |
+| --- | --- | --- |
+| Policy deny and allow lists | yes | yes: a denied command is refused with the reason, `· blocked by policy: …` |
+| Seatbelt sandbox, writable roots | yes | yes, the same profile: a command the sandbox refuses fails as the model's would, and chat adds `· the sandbox refused it, …` |
+| Risk classifier | yes | no |
+| Your approval | at `moderate` and above | no: typing it is the approval |
+| Audit log | yes | yes: `policy.decision` and `command.outcome` marked `origin: "person"`, then `command.typed` ([logging.md](logging.md)) |
+
+What the command printed (stdout, then stderr) is shown as a tool's output is: `↳ exit 0`, then up to
+`shownOutputLines` lines and the fold line, `… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`, which
+`/show` and `/last` (or Ctrl-O in `wisp-tui`) print whole. The model is told on its next request, as a
+reference after the turn: one entry, `` [the person ran `git status --short` themselves in
+/Users/me/src/wisp (exit status 0, 4 lines); this was not your action; …] ``, with the output itself when it
+is short (320 bytes or less), or its first and last lines and `memory "recall entry 7"` to read the rest. It is never presented as something the
+model did. Facts are taken from the output as from `run_command`'s (the working directory, a test result, the
+git branch), with you as their source. A command that was refused is audited and not told to the model.
+
+Each command runs in its own shell, as the model's do: `!cd elsewhere` does not change the conversation's
+directory. `respond` over MCP does not interpret `!`; there the prompt goes to the model as text.
 
 What a session shows, and where it goes:
 
@@ -151,7 +199,9 @@ What a session shows, and where it goes:
   from half to 80% used; the main tone for status facts and ok states; a quiet tone for tool lines,
   notes, separators, and a context under half used. Amber marks approvals, moderate, and a context
   past 80%; ember marks dangerous and errors; green and red mark lines added and removed; pale yellow
-  marks tokens read. White is for the conversation, bold for your own words. Colour is off when piped,
+  marks tokens read; a muted pale amber (`command`, apart from the approvals' amber) marks a command you
+  typed: the plain chat's prompt marker, and `wisp-tui`'s input box in command mode, whose scrollback stripe
+  is its darker shade (`commandSent`). White is for the conversation, bold for your own words. Colour is off when piped,
   when `NO_COLOR` is set, or when `TERM` is `dumb`.
 
 | Flag | Meaning |
@@ -170,7 +220,8 @@ What a session shows, and where it goes:
 
 | Command | Effect |
 | --- | --- |
-| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (Ctrl-O, Ctrl-T, Left and Right in the context panel). |
+| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, Ctrl-O, Ctrl-T, Left and Right in the context panel). |
+| `!COMMAND` | Run a shell command yourself, in the sandbox and without asking; the model is told on its next request. See "Commands you run yourself". |
 | `/tools` | List the tools the model can call. |
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
@@ -184,7 +235,7 @@ What a session shows, and where it goes:
 | `/fact delete ID` | Delete a fact, from any store: later requests leave it out, and the store keeps it as deleted history. Only you can delete; the model and tools can only add newer versions of their own facts. |
 | `/task [text]` | The conversation's task, who set it, and its earlier versions; with text, set it as yours. The model sees the task next to each request. With `assessment.enabled`, the model infers the task and its objective from your requests and revises it as you go, but never replaces one you set. |
 | `/last` | The last tool result in full; the live line shows only its first line. |
-| `/show [ID]` | A tool output in full, to stdout: by the id its fold line gives (the start of its `tool.result` event id, four characters or more) or by its store entry id (the number `/inspect context` and the model's references use); with no id, the last. |
+| `/show [ID]` | A tool output, or a typed command's output, in full, to stdout: by the id its fold line gives (the start of its `tool.result` or `command.typed` event id, four characters or more) or by its store entry id (the number `/inspect context` and the model's references use); with no id, the last. |
 | `/inspect context next\|N\|turns` | The model's context, shown rather than saved, at no model cost: with `next`, what the next request carries, entry by entry under its store id, with each reply whose copy of an output was cut and each output sent as a reference marked; with a turn number, the context composed at the start of that turn, its own entries (prompt, tool calls and output, reply) marked; with `turns`, one row per turn: time, estimated tokens, what changed since the turn before (entries condensed, replies cut, outputs referenced), and the start of the prompt. Markdown on stdout; `wisp-tui` shows it in its panel (Ctrl-T). |
 | `/models` | The models this conversation could switch to: those that resolve and declare what its tools need, as `wisp models` decides. A table with a header (model, details, capabilities) and the current one marked `*`; `wisp models` keeps its tab-separated lines for scripts. |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint and nothing changes. |
@@ -229,11 +280,11 @@ Out, to the front end:
 | --- | --- | --- |
 | `note` | `text` | The banner, the help line, and anything chat would say on stderr. |
 | `status` | `model`, `directory`, `branch`, `dirty`, `added`, `removed` (lines in tracked files since the last commit), `approval`, `contextUsed` (nulls when unknown) | Before each prompt: the turn is over and input is wanted. |
-| `activity` | `doing`, `asking`, `turnSeconds` | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
+| `activity` | `doing`, `asking`, `turnSeconds` | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. A command you typed after `!` sends `running <command>` while it runs and null when it ends, with no `turn` lines. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
 | `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens`, and `facts` when the turn recorded or changed any | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. `facts` lists the facts the turn recorded or changed, each `{ id, scope (permanent, thread, session), subject, name, value, source, proposed }`; the same facts arrive as a `note` line after the turn's end, which is what `wisp-tui` shows. Slash commands are not turns. |
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
-| `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show: `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
+| `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result` or a `command.typed` `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show, and so does a `command.typed` whose command printed something (what it printed, stdout then stderr): `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, or `facts`), `turn` (null for the next request's context and for the turn list), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 | `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped. Drop the dialog; an answer sent after this is ignored. |
@@ -258,7 +309,12 @@ posted by wisp's own process (never through the terminal, which the front end ow
 from `wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its
 title. A fact to keep is a dialog of its own, titled "keep as a permanent fact? · wisp mcp", answered with
 `k` (keep) or `d` (drop); Ctrl-C drops it, as it refuses a command.
-Then `{"type":"message","text":"…"}` for a chat line, slash commands included, and
+Then `{"type":"message","text":"…"}` for a chat line, slash commands included; a text that starts with `!` is a
+command the person runs, exactly as a line typed in the plain chat ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
+`wisp-tui` sends what is typed in command mode this way, `{"type":"message","text":"!git status"}`, so the
+protocol needs no type of its own for it and a front end without a command mode can still run one. No `turn`
+lines follow: the command's audit events arrive as `event` lines (`policy.decision`, `command.outcome`,
+`command.typed` with the output), then `status`. Then
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval (`keep` or
 `drop` for a fact to keep), and
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, and
@@ -288,6 +344,8 @@ sequenceDiagram
         alt a slash command
             wisp->>tui: output lines, or a choice
             tui->>wisp: choose, for a choice
+        else a line starting with !
+            wisp->>tui: activity, event lines with the output, activity null
         else a chat line
             wisp->>tui: turn, phase start
             wisp->>tui: event and delta lines, interleaved

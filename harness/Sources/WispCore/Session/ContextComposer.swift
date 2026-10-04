@@ -147,7 +147,8 @@ public struct ContextComposer: Sendable {
     /// - Parameter store: The thread's record.
     /// - Returns: The transcript.
     func literal(_ store: ThreadRecord) -> Transcript {
-        guard cutsPresentation || referencesOutput || catalogue != nil || registered != nil else {
+        guard cutsPresentation || referencesOutput || catalogue != nil || registered != nil || store.carriesCommands
+        else {
             return store.active
         }
         return Transcript(entries: literalComposition(store, atTurn: nil).map(\.sent))
@@ -239,7 +240,8 @@ public struct ContextComposer: Sendable {
             let recorded = entry.origin == .turn ? entry.turn ?? 0 : 0
             guard recorded <= turn else { continue }
             if entry.state != .active, (entry.droppedAt ?? 0) <= turn { continue }
-            if recorded == turn, entry.origin == .turn {
+            // A command the person ran is never a turn's own: it was recorded between turns, for the next.
+            if recorded == turn, entry.origin == .turn, entry.kind != .command {
                 composed.append(Composed(entry: entry, sent: entry.value, own: true))
                 continue
             }
@@ -253,7 +255,8 @@ public struct ContextComposer: Sendable {
 
     /// `entry` as a request after its turn carries it: a reply with its cuts, a tool output as its
     /// reference unless `whole` or it is no longer than the reference, the instructions with the catalogue and only
-    /// the registered tools' definitions (`instructed(_:tools:)`), anything else as stored.
+    /// the registered tools' definitions (`instructed(_:tools:)`), the person's command as its notice
+    /// (`OutputReference.personCommand`) whatever the switches, anything else as stored.
     ///
     /// - Parameters:
     ///   - entry: The stored entry.
@@ -265,6 +268,12 @@ public struct ContextComposer: Sendable {
         _ entry: ThreadRecord.Entry, calls: [String: (tool: String, arguments: String)], whole: Bool,
         tools: [String]? = nil
     ) -> Transcript.Entry {
+        if entry.kind == .command, let command = entry.command, case .prompt(let prompt) = entry.value {
+            let notice = OutputReference.personCommand(
+                command, entry: entry.id, time: entry.time, output: ThreadRecord.text(of: entry.value),
+                timeZone: timeZone, recallable: recalls)
+            return .prompt(Transcript.Prompt(id: prompt.id, segments: [.text(.init(content: notice))]))
+        }
         switch entry.value {
         case .instructions(let instructions):
             return .instructions(instructed(instructions, tools: tools))

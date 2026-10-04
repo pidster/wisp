@@ -26,6 +26,8 @@ public enum ChatEvents {
             if d["truncated"]?.boolValue == true { extras.append("output truncated") }
             return style.muted("  ↳ ") + mark
                 + style.muted(extras.isEmpty ? "" : " (\(extras.joined(separator: ", ")))")
+        case .commandTyped:
+            return typed(d, style: style)
         case .fileWrite:
             let mode = d["mode"]?.stringValue ?? "?"
             let path = d["path"]?.stringValue ?? "?"
@@ -54,6 +56,20 @@ public enum ChatEvents {
         default:
             return nil
         }
+    }
+
+    /// The line for a `command.typed` event, when it adds to what `policy.decision` and `command.outcome` show: why
+    /// a command that was allowed could not start, or that the sandbox appears to have refused it. Nil otherwise.
+    ///
+    /// - Parameters:
+    ///   - d: The event's details.
+    ///   - style: Styling.
+    /// - Returns: The line, or nil.
+    static func typed(_ d: [String: JSONValue], style: Style) -> String? {
+        if let failure = d["failure"]?.stringValue { return style.ember("  · could not run it: \(failure)") }
+        guard d["sandboxRefused"]?.boolValue == true else { return nil }
+        return style.ember(
+            "  · the sandbox refused it, as it would the model's: commands write only within wisp's writable roots")
     }
 
     /// The note for a `context.condensation` event: the turns before and after, and for a condensation to a target
@@ -88,7 +104,8 @@ public enum ChatEvents {
     public static let shownOutputBytes = 2048
 
     /// A tool's output as chat shows it under the call's note (decision D12 of the layered-context
-    /// proposal): the person sees the output as the tool returned it, so the model need not retype it.
+    /// proposal): the person sees the output as the tool returned it, so the model need not retype it. A
+    /// command the person typed (`command.typed`) shows what it printed the same way (ADR 0049).
     /// At most `lines` lines and `shownOutputBytes` bytes are shown, each indented; when more remain, a
     /// last line says how much and how to see it all (`/show` with the start of the `tool.result` event's
     /// id, which is also the store's reference for the output). Nil for any other event, an empty output,
@@ -100,8 +117,8 @@ public enum ChatEvents {
     ///   - style: Styling.
     /// - Returns: The lines, joined, or nil.
     public static func shownOutput(_ event: AuditEvent, lines: Int, style: Style) -> String? {
-        guard event.kind == .toolResult, lines > 0, let output = event.details["output"]?.stringValue,
-            !output.isEmpty
+        guard event.kind == .toolResult || event.kind == .commandTyped, lines > 0,
+            let output = event.details["output"]?.stringValue, !output.isEmpty
         else { return nil }
         let fold = folded(output, lines: lines)
         var shown = fold.shown.map { style.muted("    " + $0) }
@@ -135,9 +152,9 @@ public enum ChatEvents {
         return (shown, all.count - shown.count)
     }
 
-    /// The output `/show <argument>` asks for, whole: the tool output with that store entry id, or whose
-    /// `tool.result` event id starts with `argument` (at least four characters), or with no argument the
-    /// last one; nil when there is none.
+    /// The output `/show <argument>` asks for, whole: the tool output, or a typed command's output, with that
+    /// store entry id, or whose `tool.result` or `command.typed` event id starts with `argument` (at least four
+    /// characters), or with no argument the last one; nil when there is none.
     ///
     /// - Parameters:
     ///   - argument: What follows `/show`.
@@ -145,7 +162,7 @@ public enum ChatEvents {
     ///   - last: The last tool result chat saw, which a turn not yet stored may hold.
     /// - Returns: The output, or nil.
     public static func output(_ argument: String?, in store: ThreadRecord, last: String?) -> String? {
-        let outputs = store.entries.filter { $0.kind == .toolOutput }
+        let outputs = store.entries.filter { $0.kind == .toolOutput || $0.kind == .command }
         guard let argument, !argument.isEmpty else {
             return last ?? outputs.last.map { ThreadRecord.text(of: $0.value) }
         }
@@ -259,9 +276,11 @@ public enum ChatEvents {
         /// The last tool result's full output, or nil before any.
         public var lastToolOutput: String? { last.withLock { $0 } }
 
-        /// Forwards the event and remembers a tool result.
+        /// Forwards the event and remembers a tool result or a typed command's output.
         public func write(_ event: AuditEvent) {
-            if event.kind == .toolResult, let output = event.details["output"]?.stringValue {
+            if event.kind == .toolResult || event.kind == .commandTyped,
+                let output = event.details["output"]?.stringValue
+            {
                 last.withLock { $0 = output }
             }
             handler.withLock { $0 }?(event)

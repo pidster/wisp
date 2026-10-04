@@ -39,6 +39,16 @@ public struct ThreadRecord: Sendable {
         case other
         /// A block of facts a composer adds to a request (`FactFrame`); never stored, only composed.
         case facts
+        /// A command the person ran in chat after `!` (ADR 0049), stored as a prompt holding the command and its
+        /// whole outcome; a composer sends it as a short notice with a reference (`OutputReference.personCommand`),
+        /// so the model learns what the person did and saw without taking it for its own action.
+        case command
+
+        /// Whether a stored entry of this kind can hold `entry`: its own kind, or, for the person's command, a
+        /// prompt.
+        func holds(_ entry: Transcript.Entry) -> Bool {
+            self == Kind(entry) || (self == .command && Kind(entry) == .prompt)
+        }
 
         /// The kind of `entry`.
         init(_ entry: Transcript.Entry) {
@@ -110,6 +120,9 @@ public struct ThreadRecord: Sendable {
         /// in full (`ContextComposer.referencesOutput`), in this session's turns; 0 when that began before
         /// this session; nil while it is still sent whole.
         public internal(set) var referencedAt: Int? = nil
+        /// For the person's command (`Kind.command`), what they ran, where, and how it ended; nil for every
+        /// other entry. The entry's value holds what the command printed.
+        public internal(set) var command: PersonCommand? = nil
 
         /// The entry as a composer that cuts presentational text sends it: a reply with each cut replaced by
         /// its marker, under the same id; any other entry, or a reply without cuts, as it is.
@@ -124,6 +137,30 @@ public struct ThreadRecord: Sendable {
                 response.segments[index] = .text(text)
             }
             return .response(response)
+        }
+    }
+
+    /// A command the person ran in chat (ADR 0049): what a composer needs to tell the model of it.
+    public struct PersonCommand: Codable, Sendable, Equatable {
+        /// The command line, as typed after `!`.
+        public var line: String
+        /// Where it ran.
+        public var directory: String
+        /// Its exit status, or the terminating signal negated.
+        public var exitStatus: Int32
+        /// Whether it was killed at the timeout.
+        public var timedOut: Bool
+        /// Whether its output lost leading bytes to the bound.
+        public var truncated: Bool
+
+        /// Creates a description.
+        public init(line: String, directory: String, exitStatus: Int32, timedOut: Bool = false, truncated: Bool = false)
+        {
+            self.line = line
+            self.directory = directory
+            self.exitStatus = exitStatus
+            self.timedOut = timedOut
+            self.truncated = truncated
         }
     }
 
@@ -236,18 +273,43 @@ public struct ThreadRecord: Sendable {
     ///
     /// - Parameters:
     ///   - entry: The framework's entry.
+    ///   - kind: What it is, when not what the framework's entry says (the person's command, held as a prompt);
+    ///     nil takes the entry's own kind.
     ///   - origin: Where it came from.
     ///   - turn: The turn that produced it, when a turn did.
     ///   - sources: The audit events that recorded it.
     ///   - time: When it was recorded, when known.
     mutating func record(
-        _ entry: Transcript.Entry, origin: Origin, turn: Int?, sources: [AuditReference], time: Date? = nil
+        _ entry: Transcript.Entry, kind: Kind? = nil, origin: Origin, turn: Int?, sources: [AuditReference],
+        time: Date? = nil
     ) {
         guard known.insert(entry.id).inserted else { return }
         entries.append(
             Entry(
-                id: entries.count + 1, kind: Kind(entry), origin: origin, turn: turn, sources: sources, state: .active,
-                value: entry, time: time))
+                id: entries.count + 1, kind: kind ?? Kind(entry), origin: origin, turn: turn, sources: sources,
+                state: .active, value: entry, time: time))
+    }
+
+    /// Whether any active entry is a command the person ran, which a composer never sends as stored.
+    var carriesCommands: Bool { entries.contains { $0.kind == .command && $0.state == .active } }
+
+    /// Appends a command the person ran in chat, active, as a prompt holding what it printed.
+    ///
+    /// - Parameters:
+    ///   - command: What they ran, where, and how it ended.
+    ///   - output: What it printed: stdout, then stderr.
+    ///   - turn: The turn whose first request carries it: the one after the turn the clock is at.
+    ///   - sources: The `command.typed` event that recorded it.
+    ///   - time: When it finished.
+    /// - Returns: The entry's store id.
+    @discardableResult
+    mutating func record(
+        command: PersonCommand, output: String, turn: Int, sources: [AuditReference], time: Date
+    ) -> Int {
+        let value = Transcript.Entry.prompt(Transcript.Prompt(segments: [.text(.init(content: output))]))
+        record(value, kind: .command, origin: .turn, turn: turn, sources: sources, time: time)
+        entries[entries.count - 1].command = command
+        return entries.count
     }
 
     /// Makes `view` the active view: every active entry it does not carry is dropped by `condensation`. The

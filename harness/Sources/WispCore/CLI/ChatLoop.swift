@@ -75,16 +75,20 @@ public struct ChatLoop {
         public var choose: ((ChatChoice) async -> String?)?
         /// Shows a view whole, as a front end's panel does; nil prints its text through `print`.
         public var view: ((ChatView) -> Void)?
+        /// Told the line as it was typed when it is a command the person runs (`!`, ADR 0049), before it runs; the
+        /// terminal colours the line's prompt marker in the command colour, having no box to colour.
+        public var command: (String) -> Void
 
         /// Creates an IO.
         public init(
             readLine: @escaping () -> String?, print: @escaping (String) -> Void, write: @escaping (String) -> Void,
             note: @escaping @Sendable (String) -> Void, prompt: @escaping (ChatStatus) -> Void,
             turn: @escaping (ChatTurn) -> Void = { _ in }, choose: ((ChatChoice) async -> String?)? = nil,
-            view: ((ChatView) -> Void)? = nil
+            view: ((ChatView) -> Void)? = nil, command: @escaping (String) -> Void = { _ in }
         ) {
             self.choose = choose
             self.view = view
+            self.command = command
             self.readLine = readLine
             self.print = print
             self.write = write
@@ -363,6 +367,8 @@ public struct ChatLoop {
                 await config(request)
             case .unknown(let command):
                 io.note("unknown command /\(command); /help lists commands")
+            case .command(let command):
+                await run(typed: command, as: line)
             case .message(let text):
                 guard !text.isEmpty else { continue }
                 // The agent advances the clock as the prompt arrives, so this is the number the turn's
@@ -394,5 +400,44 @@ public struct ChatLoop {
             try store.save(agent.store, as: saveName)
             io.note("saved '\(saveName)'")
         }
+    }
+
+    /// Runs a command the person typed after `!` (ADR 0049) in the conversation's directory, without a model
+    /// turn. What it printed, a policy's refusal, and a sandbox's are shown by its audit events as they arrive
+    /// through the tap, as a tool's are; this adds the activity while it runs and the facts it gave.
+    ///
+    /// - Parameters:
+    ///   - command: The command line, without the `!`; empty runs nothing.
+    ///   - line: The line as typed, for the face's marker.
+    private func run(typed command: String, as line: String) async {
+        guard !command.isEmpty else {
+            io.note(style.muted("nothing to run: type a command after !, as in ! git status"))
+            return
+        }
+        io.command(line)
+        context.activity?.begin(doing: "running " + ChatEvents.shortened(command))
+        let typed = await agent.runTyped(command, in: context.directory)
+        context.activity?.end()
+        switch typed.result {
+        case .unavailable:
+            io.note(style.ember("commands cannot be run here: this conversation has no command runner"))
+        case .ran, .refused:
+            if let note = FactReport.newFacts(typed.facts) { io.note(style.muted(note)) }
+        }
+    }
+
+    /// What the terminal writes to colour the prompt marker of a typed command's line in the command colour once
+    /// the line has been read: up over the rows the prompt and the line took, the marker again, and back down.
+    /// Nil when the terminal's width is unknown or the style has no colour, where it writes nothing.
+    ///
+    /// - Parameters:
+    ///   - line: The line as typed.
+    ///   - width: The terminal's width in columns.
+    ///   - style: Styling.
+    /// - Returns: The escape sequence and marker, or nil.
+    public static func commandMarker(for line: String, width: Int?, style: Style) -> String? {
+        guard let width, width > 0, style.command("›") != "›" else { return nil }
+        let rows = max(1, (2 + line.count + width - 1) / width)
+        return "\u{1B}[\(rows)A\r" + style.command("›") + "\u{1B}[\(rows)B\r"
     }
 }

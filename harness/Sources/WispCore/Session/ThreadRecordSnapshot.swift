@@ -43,6 +43,8 @@ extension ThreadRecord {
             /// The saving session's turn from which a tool output was sent as a reference; nil when it was
             /// still sent whole.
             public var referencedAt: Int? = nil
+            /// For the person's command, what they ran, where, and how it ended; nil for any other entry.
+            public var command: PersonCommand? = nil
         }
 
         /// The format version, so a future build can tell a snapshot it cannot read.
@@ -95,14 +97,17 @@ extension ThreadRecord {
                     else { return nil }
                     value = entry
                 }
-                guard Kind(value) == record.kind else { return nil }
+                guard record.kind.holds(value), (record.kind == .command) == (record.command != nil) else {
+                    return nil
+                }
                 rebuilt.append(
                     ThreadRecord.Entry(
                         id: record.id, kind: record.kind, origin: record.origin == .turn ? .resumed : record.origin,
                         turn: record.turn, sources: record.sources,
                         state: record.active ? .active : .dropped(by: record.droppedBy), value: value,
                         cuts: record.cuts ?? [], time: record.time,
-                        droppedAt: record.active ? nil : 0, referencedAt: record.referencedAt.map { _ in 0 }))
+                        droppedAt: record.active ? nil : 0, referencedAt: record.referencedAt.map { _ in 0 },
+                        command: record.command))
             }
             guard next == live.count else { return nil }
             var store = ThreadRecord(entries: rebuilt)
@@ -129,7 +134,7 @@ extension ThreadRecord {
                     active: active, droppedBy: droppedBy, sources: entry.sources,
                     dropped: active ? nil : Transcript(entries: [entry.value]),
                     cuts: entry.cuts.isEmpty ? nil : entry.cuts, time: entry.time, droppedAt: entry.droppedAt,
-                    referencedAt: entry.referencedAt)
+                    referencedAt: entry.referencedAt, command: entry.command)
             }, facts: facts.facts.isEmpty ? nil : facts, summaries: summaries.isEmpty ? nil : summaries)
     }
 }

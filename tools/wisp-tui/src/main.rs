@@ -28,6 +28,7 @@ use ratatui::crossterm::event::{
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 use ratatui::{Terminal, TerminalOptions, Viewport};
@@ -391,11 +392,12 @@ fn insert(terminal: &mut ratatui::DefaultTerminal, line: &HistoryLine, width: u1
         .map(|span| span.content.as_ref())
         .collect();
     let height = wrapped_height(&shown, inner);
-    if line.kind == LineKind::User {
+    if let Some(tint) = sent_tint(line.kind) {
         // A sent line looks like the input it came from, a shade darker: its tint edge to edge, with
-        // half-block strips above and below, since a terminal cannot tint less than a row.
+        // half-block strips above and below, since a terminal cannot tint less than a row. A command's line
+        // has the command colour's darker shade (ADR 0049).
         terminal.insert_before(height + 2, move |buffer| {
-            sent(buffer, rendered, width, inner, height);
+            sent(buffer, rendered, width, inner, height, tint);
         })?;
         return Ok(());
     }
@@ -407,23 +409,37 @@ fn insert(terminal: &mut ratatui::DefaultTerminal, line: &HistoryLine, width: u1
     Ok(())
 }
 
-/// Draws a sent line into `buffer`: a `▄` strip, the text on the sent tint across the whole width, and
-/// a `▀` strip.
+/// The background and strip styles a sent line is drawn in: an ordinary prompt's on the sent tint, a
+/// command's on the command colour's darker shade; `None` for every other line.
+fn sent_tint(kind: LineKind) -> Option<(Style, Style)> {
+    match kind {
+        LineKind::User => Some((palette::sent_background(), palette::sent_edge())),
+        LineKind::Command => Some((
+            palette::command_sent_background(),
+            palette::command_sent_edge(),
+        )),
+        _ => None,
+    }
+}
+
+/// Draws a sent line into `buffer`: a `▄` strip, the text on its tint across the whole width, and a `▀`
+/// strip; `tint` is the background and the strips' style.
 fn sent(
     buffer: &mut ratatui::buffer::Buffer,
     text: Line<'static>,
     width: u16,
     inner: u16,
     height: u16,
+    tint: (Style, Style),
 ) {
-    let strip =
-        |glyph: &str| Paragraph::new(glyph.repeat(usize::from(width))).style(palette::sent_edge());
+    let (background, edge) = tint;
+    let strip = |glyph: &str| Paragraph::new(glyph.repeat(usize::from(width))).style(edge);
     strip("▄").render(Rect::new(0, 0, width, 1), buffer);
     Paragraph::new("")
-        .style(palette::sent_background())
+        .style(background)
         .render(Rect::new(0, 1, width, height), buffer);
     Paragraph::new(text)
-        .style(palette::sent_background())
+        .style(background)
         .wrap(Wrap { trim: false })
         .render(Rect::new(MARGIN.min(width / 2), 1, inner, height), buffer);
     strip("▀").render(Rect::new(0, height + 1, width, 1), buffer);
@@ -432,7 +448,7 @@ fn sent(
 /// A history line in its colours; a reply's Markdown is rendered here, as the line is committed.
 fn styled(line: &HistoryLine) -> Line<'static> {
     let style = match line.kind {
-        LineKind::User => palette::user(),
+        LineKind::User | LineKind::Command => palette::user(),
         LineKind::Reply => {
             return Line::from(
                 markdown::spans(&line.text)
@@ -612,7 +628,14 @@ mod tests {
             text: "› hi".into(),
             kind: LineKind::User,
         });
-        super::sent(&mut buffer, text, 12, 10, 1);
+        super::sent(
+            &mut buffer,
+            text,
+            12,
+            10,
+            1,
+            (palette::sent_background(), palette::sent_edge()),
+        );
         let row = |y: u16| {
             (0..12)
                 .map(|x| buffer[(x, y)].symbol().to_string())
@@ -627,6 +650,29 @@ mod tests {
             "the tint runs edge to edge"
         );
         assert_eq!(buffer[(0, 0)].fg, palette::SENT);
+    }
+
+    #[test]
+    fn a_commands_line_sits_on_the_command_colours_darker_shade_in_light_text() {
+        let line = HistoryLine {
+            text: "! git status".into(),
+            kind: LineKind::Command,
+        };
+        let text = styled(&line);
+        assert_eq!(text.spans[0].style, palette::user());
+        let tint = super::sent_tint(LineKind::Command)
+            .unwrap_or((palette::sent_background(), palette::sent_edge()));
+        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 16, 3));
+        super::sent(&mut buffer, text, 16, 14, 1, tint);
+        assert_eq!(buffer[(15, 1)].bg, palette::COMMAND_SENT);
+        assert_eq!(buffer[(1, 1)].fg, palette::WHITE);
+        assert_eq!(buffer[(0, 0)].fg, palette::COMMAND_SENT);
+        assert_eq!(buffer[(0, 2)].fg, palette::COMMAND_SENT);
+        assert_eq!(
+            super::sent_tint(LineKind::User),
+            Some((palette::sent_background(), palette::sent_edge()))
+        );
+        assert_eq!(super::sent_tint(LineKind::Note), None);
     }
 
     #[test]

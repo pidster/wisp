@@ -43,16 +43,24 @@ public enum ChatInput: Equatable, Sendable {
     case config(ConfigRequest)
     /// List standing approvals, or revoke one.
     case approvals(ApprovalsRequest)
+    /// A command the person runs themselves (ADR 0049): a line that starts with `!`, with what follows it,
+    /// trimmed; empty for a bare `!`, which runs nothing.
+    case command(String)
     /// A message for the model.
     case message(String)
     /// A slash command that does not exist.
     case unknown(String)
 
     /// Parses a raw line. Leading and trailing whitespace is ignored; a line
-    /// starting with `/` is a command, a bare `exit`, `quit`, or `q` ends the
-    /// session, and anything else is a message.
+    /// starting with `!` is a command the person runs, one starting with `/` is a
+    /// chat command, a bare `exit`, `quit`, or `q` ends the session, and anything
+    /// else is a message, a `!` inside it included.
     public init(line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("!") {
+            self = .command(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines))
+            return
+        }
         if ["exit", "quit", "q"].contains(trimmed.lowercased()) {
             self = .quit
             return
@@ -129,6 +137,9 @@ public enum ChatInput: Equatable, Sendable {
         HelpEntry(
             usage: "/help, /?", about: "this list (also a bare help or ?)", names: ["help", "?"],
             command: { _ in .help }),
+        HelpEntry(
+            usage: "!COMMAND",
+            about: "run a shell command yourself, in the sandbox and without asking; the model is told next turn"),
         HelpEntry(
             usage: "/tools", about: "the tools the model can call", names: ["tools"],
             command: { _ in .tools }),
@@ -208,6 +219,7 @@ public enum ChatInput: Equatable, Sendable {
     private static let frontEndKeys = """
 
         In wisp-tui:
+          !                           in an empty box, command mode; Backspace in an empty box leaves it
           Ctrl-O                      the last tool output in full; again to close
           Ctrl-T                      the model's context in a panel
           Left, Right                 in that panel, the previous or next turn's context

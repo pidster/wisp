@@ -217,7 +217,12 @@ enum Recall {
 
     /// What an entry is, in words.
     private static func label(_ entry: ThreadRecord.Entry) -> String {
-        switch entry.value {
+        if let command = entry.command {
+            return
+                "the person's command `\(OutputReference.shortened(command.line, to: 100))` in \(command.directory), "
+                + "exit status \(command.exitStatus)"
+        }
+        return switch entry.value {
         case .toolOutput(let output): "\(output.toolName) output"
         case .prompt: "prompt"
         case .response: "reply"
@@ -238,6 +243,11 @@ enum Recall {
         func event(_ reference: AuditReference?, _ kind: AuditEvent.Kind) -> AuditEvent? {
             guard let reference, let found = read(reference), found.kind == kind else { return nil }
             return found
+        }
+        if entry.kind == .command, let found = event(entry.sources.first, .commandTyped),
+            let text = found.details["output"]?.stringValue
+        {
+            return (text, .audit, [found.id ?? ""])
         }
         switch entry.value {
         case .instructions:

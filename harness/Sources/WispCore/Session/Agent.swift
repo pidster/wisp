@@ -129,6 +129,10 @@ public final class Agent {
     /// The conversation's tool events, so the store can link tool calls and outputs to them; set by
     /// `WispThread.openAgent`. Nil leaves tool entries without sources.
     public var toolEvents: ToolEventTrail?
+    /// What runs the commands the person types in chat after `!` (ADR 0049): the conversation's own runner,
+    /// with `run_command`'s policy, sandbox, bounds, and audit, called with `.person` so its gate is not consulted.
+    /// Set by `WispThread.openAgent`; nil, for an agent made directly, makes typed commands unavailable.
+    public var commandRunner: CommandRunner?
 
     /// Creates an agent on a model.
     ///

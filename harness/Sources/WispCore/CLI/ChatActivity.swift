@@ -32,9 +32,10 @@ public final class ChatActivity: Sendable {
     /// The turn under way, or nil between turns.
     public var current: State? { state.withLock { $0 } }
 
-    /// A turn has begun: the message has gone to the model.
-    public func begin(at time: Date = Date()) {
-        set(State(doing: "waiting for the model", since: time, turnStarted: time, asking: false))
+    /// A turn has begun: the message has gone to the model; or, with `doing`, something else is under way that
+    /// the face should show as work, such as a command the person typed (`running git status`).
+    public func begin(doing: String = "waiting for the model", at time: Date = Date()) {
+        set(State(doing: doing, since: time, turnStarted: time, asking: false))
     }
 
     /// The turn has ended.

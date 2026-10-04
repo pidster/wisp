@@ -170,6 +170,21 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         await pair.server.stop()
     }
 
+    @Test func aBangPromptGoesToTheModelAsTextAndRunsNothing() async throws {
+        // `!` is chat's (ADR 0049): over MCP a caller types nothing, so `respond` takes the prompt as a message.
+        let pair = try await connected(steps: [.say("that is text to me")])
+        let result = try await call(
+            pair.client, "respond", ["prompt": .string("!touch typed.txt"), "thread_id": .string("bang")])
+        #expect(result.isError == false)
+        #expect(result.structuredContent?.objectValue?["text"] == .string("that is text to me"))
+        let thread = pair.sink.events.filter { $0.session == "bang" }
+        #expect(thread.map(\.kind) == [.sessionStart, .prompt, .response])
+        #expect(thread.first { $0.kind == .prompt }?.details["text"] == .string("!touch typed.txt"))
+        #expect(!pair.sink.events.contains { [.commandTyped, .commandOutcome, .policyDecision].contains($0.kind) })
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
     @Test func respondListsEachToolCallWithSmallOutputInlineAndLargeOutputByReference() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-wire-calls-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

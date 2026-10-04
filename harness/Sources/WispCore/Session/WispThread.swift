@@ -33,6 +33,9 @@ public struct WispThread: Sendable {
     let memory: MemorySource?
     /// Whether an assessment may infer the task (decision D6): in chat; over MCP the caller's `task` is the task.
     let infersTask: Bool
+    /// The runner `run_command` uses, with this thread's audit and gate; the agent runs the person's typed
+    /// commands through it (ADR 0049).
+    let runner: CommandRunner
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
@@ -69,7 +72,8 @@ public struct WispThread: Sendable {
                     proposals: session.factProposals)
                 : nil,
             memory: selection.tools.contains { $0.name == MemoryTool.toolName } ? memory : nil,
-            infersTask: session.entryPoint == .chat)
+            infersTask: session.entryPoint == .chat,
+            runner: CommandRunner(options: session.config.runner, audit: audit, approval: gate))
     }
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
@@ -126,6 +130,7 @@ public struct WispThread: Sendable {
             }
         agent.stats = stats
         agent.toolEvents = toolEvents
+        agent.commandRunner = runner
         agent.contextPolicy = .target(config.contextTarget)
         agent.factsShare = config.factsShare
         agent.summarises = config.factsSummary

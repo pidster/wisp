@@ -42,13 +42,15 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 ## 0.18.0
 
-- **`! <command>` in chat, and the input box** (larger). A prompt line that starts with `!` runs the
-  command directly; the input box's background changes while it does, in a colour still to be chosen.
-  Decided on 2026-09-30, to be recorded in an ADR, since it is the first command that does not come from
-  the model: it passes the policy, the sandbox, and the audit log but not approval, because the person
-  typed it; its output is shown, and given to the model as a reference after the turn, marked as the
-  person's own action; chat and `wisp-tui` only, not MCP. The same release makes the input box's
-  inactive state clearer while a turn is processing.
+- **`! <command>` in chat, and the input box** (larger). Built 2026-10-04,
+  [ADR 0049](decisions/0049-commands-typed-in-chat.md). A line that starts with `!` runs the command in the
+  conversation's directory through `run_command`'s runner as the person's: the policy, the sandbox, the
+  bounds, and the audit (`command.typed`) apply, the classifier and approval do not, and no model turn
+  starts. Its output is shown and folded as a tool's; the next request carries it as one notice with its
+  reference, marked as the person's own action, and its facts have the person as their source. Chat and
+  `wisp-tui` only, not MCP. In `wisp-tui`, `!` in an empty box is command mode (`command`, #E8B577, black
+  text; the scrollback stripe `commandSent`, #745A3C), and while a turn runs the box is dimmed, says what wisp
+  is doing, and holds keys typed meanwhile until the turn ends.
 - **The tool glyph.** `⚙` is drawn as a two-cell emoji in some terminals, so tool lines change width;
   candidates were compared on 2026-09-30.
 - **Where the summary is shown.** It sits with the facts today (`/inspect facts`,

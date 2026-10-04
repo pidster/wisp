@@ -160,6 +160,20 @@ request: D12's order by stability. The composer's `summarises` switch (on by def
 `ContextEquivalenceTests` with the others; its versions (`RunningSummary`) are kept in the store and saved
 with its links.
 
+**The person's commands** ([ADR 0049](decisions/0049-commands-typed-in-chat.md)). A command the person types in
+chat after `!` is stored between turns as an entry of its own kind, `ThreadRecord.Kind.command`: its value is a
+prompt holding what the command printed (stdout, then stderr), its `PersonCommand` says what ran, where, and how it
+ended, its source is the `command.typed` event, and its `turn` is the turn whose first request carries it, the
+next. `Agent.runTyped` runs it, audits it, stores it (`ThreadRecord.record(command:…)`), and extracts facts from
+its output as from `run_command`'s, with source `person` (`FactExtraction.assertions(…, source:)`). The composer
+always sends it as a notice (`OutputReference.personCommand`): that the person ran it, not the model, where, the
+exit status and line count, then the output whole when it is short, or its first and last lines and the `memory`
+call that recalls it; never as the bare output, whatever the switches (`literal` composes whenever the store
+`carriesCommands`). It is never a turn's own entry, so the context of the turn it was typed after does not show
+it; `turnGroups` leaves it out of the headroom, since it is not the model's work; `ContextView` labels it "the
+person's command"; the snapshot saves its `PersonCommand`, and a record of kind `command` restores only with one;
+`Recall` reads its output from the `command.typed` event and labels it with the command.
+
 **Memory** (phase 4c; [tools/memory.md](tools/memory.md)) reads the store, and adds to the facts, from outside
 the agent: the framework calls `MemoryTool` on its own task, so the agent publishes a copy of its store, every
 fact it sees, the subject kinds, and the turn into a `MemorySource` (a `final class` with a `Mutex`, one per
@@ -260,7 +274,10 @@ front end that declared `approve-mcp` each waiting request and writes its answer
 second kind of request, a fact to keep (above, "Permanent facts over MCP"); each kind has its own file
 suffix, binding, and answers, and the relay shows a front end only the kinds it declared. With
 `approval.outOfBand` off, `ElicitationOnly` asks through the dialog alone.
-`CommandRunner` consults the gate after the policy check. See [approval.md](approval.md) and
+`CommandRunner` consults the gate after the policy check, for the model's commands: `run(_:in:origin:)` takes
+the command's `Origin`, and a command the person typed in chat (`.person`, ADR 0049) skips the gate, its
+classifier and its question, since typing it is the approval, while the policy, the sandbox, the bounds, and the
+audit (marked `origin: "person"`) apply as before. That one parameter is the seam: there is no second runner. See [approval.md](approval.md) and
 [ADR 0011](decisions/0011-risk-classifier-and-approval.md). The model beside the rules is
 `CoreMLRiskClassifier` (a Core ML text classifier under contract 1 or 2; the default, with the version
 the release ships, ADR 0041) or `ModelRiskClassifier` (the on-device language model), chosen by
@@ -491,7 +508,12 @@ thread from the store. The overview diagram above shows the rest of the path.
 `ChatInput` (`/help`, `/tools`, `/tokens`, `/inspect`, `/status`, `/approvals`, `/audit`, `/fact`, `/task`, `/last`,
 `/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`; `ChatInput.helpEntries` is the
 list `/help` prints and the table the parser looks each command word up in), `--resume <name>`, and `--save <name>`.
-`wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`.
+`wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`. A line starting with `!` parses as
+`ChatInput.command`, a command the person runs ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): the loop
+calls `Agent.runTyped` in the conversation's directory with no turn, its audit events show the output through the
+tap as a tool's do, `ChatActivity.begin(doing:)` says what runs, and `ChatLoop.IO.command` lets the terminal colour
+the line's prompt marker (`ChatLoop.commandMarker`, the palette's `command`). Over `--json` the front end sends the
+same line as a `message`; `wisp-tui` keeps command mode, its colours, and keys held while busy on its side.
 Exit codes follow swift-argument-parser conventions (64 for usage errors). The chat loop itself is
 `ChatLoop` in `WispCore`, with its input and output injected, so the executable only wires the
 terminal to it and `ChatLoopTests` runs the whole loop over a scripted model. Chat shows tool activity

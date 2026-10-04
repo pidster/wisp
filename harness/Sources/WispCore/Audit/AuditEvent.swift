@@ -72,6 +72,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case toolResult
         case policyDecision
         case commandOutcome
+        case commandTyped
         case fileWrite
         case notification
         case hostHello
@@ -117,6 +118,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .toolResult,
             .policyDecision,
             .commandOutcome,
+            .commandTyped,
             .fileWrite,
             .notification,
             .hostHello,
@@ -162,6 +164,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .toolResult: "tool.result"
             case .policyDecision: "policy.decision"
             case .commandOutcome: "command.outcome"
+            case .commandTyped: "command.typed"
             case .fileWrite: "file.write"
             case .notification: "notification"
             case .hostHello: "host.hello"
@@ -280,6 +283,9 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             body = "\(details["verdict"]?.stringValue ?? "?") \(details["command"]?.stringValue ?? "")"
         case .commandOutcome:
             body = "exit=\(details["exitStatus"]?.intValue ?? 0) \(details["command"]?.stringValue ?? "")"
+        case .commandTyped:
+            let result = details["exitStatus"]?.intValue.map { "exit=\($0)" } ?? details["verdict"]?.stringValue ?? "?"
+            body = "\(result) ! \(details["command"]?.stringValue ?? "")"
         case .notification:
             body =
                 "\(details["outcome"]?.stringValue ?? "?") from \(details["source"]?.stringValue ?? "?"): "

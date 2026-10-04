@@ -103,8 +103,9 @@ public enum ChatProtocol {
 
     /// The `event` line's fields: the audit event's kind, call, turn, and details, and `text`, the
     /// unstyled line the terminal chat shows for it (null when it shows none), so every face words tool
-    /// activity alike and a front end renders the raw fields only when it wants to. A `tool.result` also
-    /// carries `output`, the tool's output for the front end to show (decision D12): its `id` (the event's,
+    /// activity alike and a front end renders the raw fields only when it wants to. A `tool.result`, and a
+    /// `command.typed` whose command printed something (ADR 0049), also carries `output`, the output for the
+    /// front end to show (decision D12): its `id` (the event's,
     /// which `/show` takes), `text` (up to `Paging.pageBytes`), `lines`, `bytes`, `truncated` when `text` is
     /// shorter than the output, and `shownLines`, how many lines the terminal chat shows before it folds.
     ///
@@ -122,7 +123,9 @@ public enum ChatProtocol {
             "turn": event.turn.map { .int($0) } ?? .null, "details": .object(event.details),
             "text": ChatEvents.render(event, style: .plain).map { .string($0) } ?? .null,
         ]
-        if event.kind == .toolResult, let output = event.details["output"]?.stringValue {
+        if event.kind == .toolResult || event.kind == .commandTyped, let output = event.details["output"]?.stringValue,
+            event.kind == .toolResult || !output.isEmpty
+        {
             let text = Paging.page(output, number: 1)?.text ?? ""
             var lines = output.split(separator: "\n", omittingEmptySubsequences: false).count
             if output.hasSuffix("\n") { lines -= 1 }

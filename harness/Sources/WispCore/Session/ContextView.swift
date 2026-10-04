@@ -110,6 +110,9 @@ public enum ContextView {
             if let turn = entry.turn { head += " · turn \(turn)\(entry.origin == .resumed ? " (resumed)" : "")" }
             var body: String
             switch item.sent {
+            case .prompt where entry.kind == .command:
+                head += " · the person's command"
+                body = ThreadRecord.text(of: item.sent)
             case .instructions(let instructions):
                 head += " · instructions"
                 body = ContextArchive.text(instructions.segments)

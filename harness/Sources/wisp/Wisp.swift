@@ -428,6 +428,13 @@ struct Chat: AsyncParsableCommand {
                 },
                 turn: { mark in
                     if let footer = mark.footer(style: style) { Self.note(footer) }
+                },
+                command: { line in
+                    // The typed line was echoed by the terminal; its marker turns the command colour.
+                    guard isatty(FileHandle.standardInput.fileDescriptor) != 0,
+                        let marker = ChatLoop.commandMarker(for: line, width: Self.terminalWidth(), style: style)
+                    else { return }
+                    Self.onScreen { FileHandle.standardError.write(Data(marker.utf8)) }
                 }))
         let ticker =
             isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
