@@ -12,15 +12,12 @@ public enum ChatCompletion {
         public var candidates: [String]
     }
 
-    /// The slash commands, as typed.
-    public static let commands = [
-        "/help", "/tools", "/tokens", "/status", "/approvals", "/audit", "/last", "/show", "/models",
-        "/model",
-        "/stats",
-        "/history", "/config", "/save", "/new", "/quit", "/exit", "/fact", "/task",
-    ]
+    /// The slash commands, as typed: every word in `/help`'s table, the table the parser reads, so a command
+    /// cannot be listed without completing. One-character aliases (`/?`, `/q`) are left out; they are already
+    /// as short as a completion.
+    public static let commands = ChatInput.helpEntries.flatMap(\.names).filter { $0.count > 1 }.map { "/" + $0 }
 
-    /// What `/inspect`, kept as an alias, shows.
+    /// What `/inspect` shows.
     static let views = ["config", "status", "approvals", "audit", "context", "facts", "summary"]
 
     /// The candidates for the word at `cursor` (a character index, the end by default) in `text`.

@@ -32,7 +32,10 @@ import Testing
         #expect(complete("/config g").candidates == ["get"])
         #expect(complete("/config get audit.").candidates == ["audit.enabled"])
         #expect(complete("/app").candidates == ["/approvals"] && complete("/au").candidates == ["/audit"])
-        #expect(!ChatCompletion.commands.contains("/inspect"), "the alias is not offered")
+        // `/inspect` is the only way to its context, facts, and summary views, so it completes (it was once
+        // left out as an alias of /status and /approvals, and stayed out after it gained views of its own).
+        #expect(complete("/ins").candidates == ["/inspect"])
+        #expect(complete("/inspect su").candidates == ["summary"])
         #expect(complete("/approvals r").candidates == ["revoke"])
         #expect(
             ChatCompletion.complete("/approvals revoke a", approvalIDs: ["ab12", "cd34", "a9"]).candidates

@@ -26,6 +26,8 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ### Fixed
 
+- Tab did not complete `/inspect` in chat or `wisp-tui`, though it is the only way to the context, facts,
+  and summary views; the commands Tab offers now come from `/help`'s table, so none can be left out.
 - A fact with the same value from two sources (a chat's workdir and the same one from a `!` command)
   showed twice; a value is now held once, under the strongest source that asserted it.
 - Two approvals asked at the same moment over MCP, on a channel not used before (a fresh `~/.wisp/pending`),

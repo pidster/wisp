@@ -30,9 +30,13 @@ import WispTestSupport
                 #expect(ChatInput(line: "/\(name)") != .unknown(name), "/\(name)")
             }
         }
-        // Every word completion offers is listed, so a command added to one is added to the other.
+        // Every word completion offers is listed, and every listed word longer than one character completes, so
+        // a command added to one is in the other.
         for command in ChatCompletion.commands {
             #expect(listed.contains(String(command.dropFirst())), "\(command)")
+        }
+        for name in listed where name.count > 1 {
+            #expect(ChatCompletion.commands.contains("/" + name), "/\(name)")
         }
         // The forms under /inspect, and the aliases, are listed too.
         for view in ChatCompletion.views {
