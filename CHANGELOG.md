@@ -13,7 +13,7 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   the risk classifier or an approval, since you typed it. Its output is shown and folded like a tool's
   (`/show` for the rest), it is audited as `command.typed`, and the model is told on its next request, as
   your action, with a reference it can recall. `wisp-tui` has a command mode for it: `!` in an empty box
-  turns the box a pale amber, and Backspace in an empty box turns it back (ADR 0049).
+  turns the box a pale amber, and Backspace at the start of the line turns it back (ADR 0049).
 - `wisp-tui`'s input box is visibly inactive while a turn runs: dimmed, with what wisp is doing in place of
   the cursor, and keys typed meanwhile are held and applied when the turn ends instead of being dropped.
 

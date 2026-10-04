@@ -752,7 +752,13 @@ impl App {
         self.suggestions = None;
         self.completing = None;
         let in_box = self.picker.is_none() && self.editor.is_empty();
-        if in_box && self.command_mode && matches!(edit, Edit::Backspace | Edit::Delete) {
+        // Backspace at the start of the line takes back the `!`, keeping what follows as ordinary text;
+        // Delete leaves command mode only in an empty box, as it deletes forwards.
+        let at_start = self.picker.is_none() && self.editor.cursor() == 0;
+        if self.command_mode
+            && ((at_start && matches!(edit, Edit::Backspace))
+                || (in_box && matches!(edit, Edit::Delete)))
+        {
             self.command_mode = false;
             return;
         }
@@ -2770,7 +2776,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bang_in_an_empty_box_enters_command_mode_and_backspace_or_delete_leaves_it() {
+    fn a_bang_in_an_empty_box_enters_command_mode_and_backspace_at_the_start_or_delete_leaves_it() {
         let mut app = App {
             status: Some(Status::default()),
             ..Default::default()
@@ -2782,14 +2788,30 @@ mod tests {
             app.type_char(c);
         }
         assert_eq!(app.editor.text(), "ls");
-        // Backspace deletes text first; only in an empty box does it leave command mode.
+        // Backspace deletes text first; at the start of the line it leaves command mode.
         app.edit(&Edit::Backspace);
         app.edit(&Edit::Backspace);
         assert!(app.command_mode && app.editor.is_empty());
         app.edit(&Edit::Backspace);
         assert!(!app.command_mode && app.editor.is_empty());
-        // Delete in an empty box leaves it too.
+        // Backspace with the cursor at the start leaves command mode and keeps the text as ordinary input.
         app.type_char('!');
+        for c in "git status".chars() {
+            app.type_char(c);
+        }
+        app.edit(&Edit::Home);
+        app.edit(&Edit::Backspace);
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("git status", false)
+        );
+        app.edit(&Edit::KillToEnd);
+        // Delete in an empty box leaves it too; with text, Delete deletes forwards and stays.
+        app.type_char('!');
+        app.type_char('x');
+        app.edit(&Edit::Home);
+        app.edit(&Edit::Delete);
+        assert!(app.command_mode && app.editor.is_empty());
         assert!(app.command_mode);
         app.edit(&Edit::Delete);
         assert!(!app.command_mode);
