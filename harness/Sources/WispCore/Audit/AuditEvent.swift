@@ -68,6 +68,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case modelResolved
         case prompt
         case response
+        case modelReasoning
         case toolCall
         case toolResult
         case policyDecision
@@ -114,6 +115,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .modelResolved,
             .prompt,
             .response,
+            .modelReasoning,
             .toolCall,
             .toolResult,
             .policyDecision,
@@ -160,6 +162,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .modelResolved: "model.resolved"
             case .prompt: "prompt"
             case .response: "response"
+            case .modelReasoning: "model.reasoning"
             case .toolCall: "tool.call"
             case .toolResult: "tool.result"
             case .policyDecision: "policy.decision"
@@ -295,6 +298,9 @@ public struct AuditEvent: Codable, Equatable, Sendable {
                 "\(details["mode"]?.stringValue ?? "?") \(details["path"]?.stringValue ?? "") "
                 + "\(details["bytesBefore"]?.intValue ?? 0)->\(details["bytesAfter"]?.intValue ?? 0) bytes"
         case .error: body = details["message"]?.stringValue ?? ""
+        case .modelReasoning:
+            let tokens = details["tokens"]?.intValue.map { " tokens=\($0)" } ?? ""
+            body = "\(details["phase"]?.stringValue ?? "?")\(tokens) \(details["text"]?.stringValue ?? "")"
         default:
             body = details.keys.sorted().compactMap { key in details[key]?.stringValue.map { "\(key)=\($0)" } }.joined(
                 separator: " ")

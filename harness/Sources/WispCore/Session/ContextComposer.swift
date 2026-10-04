@@ -132,7 +132,7 @@ public struct ContextComposer: Sendable {
     }
 
     /// The transcript the next request carries: the store's active entries, in order, each reply with its
-    /// cuts and each tool output as a reference, as the switches say. Every stored turn is over when this
+    /// cuts and each tool output as a reference, as the switches say, and never the model's reasoning. Every stored turn is over when this
     /// is called (a turn's entries are stored when it ends), so every stored output is referenced.
     ///
     /// - Parameter store: The thread's record.
@@ -147,7 +147,9 @@ public struct ContextComposer: Sendable {
     /// - Parameter store: The thread's record.
     /// - Returns: The transcript.
     func literal(_ store: ThreadRecord) -> Transcript {
-        guard cutsPresentation || referencesOutput || catalogue != nil || registered != nil || store.carriesCommands
+        guard
+            cutsPresentation || referencesOutput || catalogue != nil || registered != nil || store.carriesCommands
+                || store.holdsReasoning
         else {
             return store.active
         }
@@ -230,13 +232,14 @@ public struct ContextComposer: Sendable {
     func literalComposition(_ store: ThreadRecord, atTurn turn: Int?) -> [Composed] {
         let calls = referencesOutput ? store.calls : [:]
         guard let turn else {
-            return store.entries.filter { $0.state == .active }.map {
+            return store.entries.filter { $0.state == .active && $0.kind != .reasoning }.map {
                 Composed(entry: $0, sent: rendered($0, calls: calls, whole: false, tools: registered), own: false)
             }
         }
         let tools = store.toolSets[turn]
         var composed: [Composed] = []
-        for entry in store.entries {
+        // The model's thinking is the person's to read; no request carries it, not even its own turn's (ADR 0053).
+        for entry in store.entries where entry.kind != .reasoning {
             let recorded = entry.origin == .turn ? entry.turn ?? 0 : 0
             guard recorded <= turn else { continue }
             if entry.state != .active, (entry.droppedAt ?? 0) <= turn { continue }

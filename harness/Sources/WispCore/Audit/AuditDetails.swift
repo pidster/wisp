@@ -62,6 +62,22 @@ extension AuditEvent {
             ["text": .string(text), "condensed": .bool(condensed), "seconds": .double(seconds)]
         }
 
+        /// `model.reasoning` as the model begins thinking within one request (ADR 0053): `phase` `start`, nothing
+        /// else, so a face can show that it is thinking.
+        public static func reasoningStarted() -> [String: JSONValue] {
+            ["phase": "start"]
+        }
+
+        /// `model.reasoning` once the model has stopped thinking within one request (ADR 0053): `phase` `end`, the
+        /// thinking verbatim as `text`, its size in `bytes`, its `tokens` as the runtime counted them, and the
+        /// `seconds` it took. The text is the person's to read; it never enters the model's context.
+        public static func reasoningEnded(text: String, tokens: Int, seconds: TimeInterval) -> [String: JSONValue] {
+            [
+                "phase": "end", "text": .string(text), "bytes": .int(text.utf8.count), "tokens": .int(tokens),
+                "seconds": .double(seconds),
+            ]
+        }
+
         /// `tool.call`; `arguments` is the JSON the model produced.
         public static func toolCall(tool: String, arguments: String) -> [String: JSONValue] {
             ["tool": .string(tool), "arguments": .string(arguments)]
@@ -113,13 +129,17 @@ extension AuditEvent {
                 "stdout": .string(outcome.stdout), "stderr": .string(outcome.stderr), "seconds": .double(seconds),
             ]
             if origin == .person { details["origin"] = .string(origin.rawValue) }
+            if let refusal = outcome.sandboxRefusal {
+                details["sandboxRefusal"] = .string(refusal.name)
+                if !refusal.paths.isEmpty { details["sandboxPaths"] = .array(refusal.paths.map { .string($0) }) }
+            }
             return details
         }
 
         /// `command.typed`: a command the person typed in chat after `!` (ADR 0049), with what became of it.
         /// `verdict` is the policy's (`allowed` or `denied`, with its `reason`); for one that ran, its exit
-        /// status, whether it timed out or lost output to the bound, whether the sandbox appears to have
-        /// refused it, and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
+        /// status, whether it timed out or lost output to the bound, whether the sandbox refused it or may have
+        /// (`sandboxRefused`, with the check's `sandboxRefusal` and `sandboxPaths`, ADR 0054), and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
         /// size in `bytes`. `failure` says why one that was allowed could not start.
         public static func commandTyped(
             command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String? = nil,
@@ -138,6 +158,10 @@ extension AuditEvent {
                 details["timedOut"] = .bool(outcome.timedOut)
                 details["truncated"] = .bool(outcome.truncated)
                 details["sandboxRefused"] = .bool(sandboxRefused)
+                if let refusal = outcome.sandboxRefusal {
+                    details["sandboxRefusal"] = .string(refusal.name)
+                    if !refusal.paths.isEmpty { details["sandboxPaths"] = .array(refusal.paths.map { .string($0) }) }
+                }
             }
             return details
         }
@@ -675,16 +699,20 @@ extension AuditEvent {
             ["model", "backend", "asset", "capabilities", "capabilitySource", "tools", "contextSize", "contextNote"]
         case .prompt: ["text", "schema"]
         case .response: ["text", "condensed", "seconds"]
+        case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
         case .toolCall: ["tool", "arguments"]
         case .toolResult: ["tool", "output", "bytes", "seconds"]
         case .policyDecision:
             ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin"]
         case .commandOutcome:
-            ["command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin"]
+            [
+                "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin",
+                "sandboxRefusal", "sandboxPaths",
+            ]
         case .commandTyped:
             [
                 "command", "workingDirectory", "verdict", "reason", "exitStatus", "timedOut", "truncated",
-                "sandboxRefused", "output", "bytes", "seconds", "failure",
+                "sandboxRefused", "sandboxRefusal", "sandboxPaths", "output", "bytes", "seconds", "failure",
             ]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]
         case .notification: ["title", "body", "source", "outcome", "reason", "route", "skipped"]

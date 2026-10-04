@@ -40,7 +40,7 @@ configured under `commandPolicy` in `config.json`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048) | Regexes; a match rejects the command. Patterns are compiled once per process. |
+| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048), and a nested wisp agent: `wisp respond`, `wisp chat`, `wisp mcp`, or the quoted bare `wisp "prompt"`, by any path and after options, `env`, or `VAR=value`, where wisp is the program a segment of the line runs; `wisp --version`, `doctor`, `logs`, `tools`, `models`, `config`, and its other subcommands stay allowed (ADR 0054) | Regexes; a match rejects the command. Patterns are compiled once per process. |
 | `allow` | `[]` | Regexes; when non-empty the command must match one. Deny wins. |
 | `sandbox.enabled` | `true` | Run under `sandbox-exec`. |
 | `sandbox.allowNetwork` | `true` | Set `false` to deny all networking inside the sandbox. |
@@ -49,6 +49,25 @@ configured under `commandPolicy` in `config.json`:
 Inside the sandbox everything is readable and executable, but writes outside the writable set fail with
 `Operation not permitted`. A denied pattern comes back to the model as `error: command denied by policy: …`
 so it can try something else.
+
+When a confined command fails with `Operation not permitted`, wisp checks whether the sandbox refused it
+([ADR 0054](../decisions/0054-the-sandboxs-refusals-checked.md)) and adds one line to the result, after the
+output. It reads the paths the error names (`sh: PATH: …`, `touch: PATH: …`, `cp`, `mkdir`, `rm`, `mv … to PATH`,
+GNU's `cannot create regular file 'PATH'`, Python's `[Errno 1] Operation not permitted: 'PATH'`), resolves each to
+its real path as the profile does (`/tmp` is `/private/tmp`), and compares it with the writable roots:
+
+| The error names | The model is told |
+| --- | --- |
+| a path outside every writable root | `sandbox: refused writing to /x; commands may write only under <roots>` |
+| only paths inside the roots | `sandbox: not the sandbox: /x is inside the writable roots, so something else refused it (file permissions, flags, or system protection)` |
+| no path | `sandbox: the sandbox may have refused this (Operation not permitted, no path to check: a network connection, a process, or a file the error does not name); no policy rule denied it` |
+
+The last is a guess, and says so. It names the policy because a model read a bare `Error: Operation not
+permitted` from a nested `wisp` as the deny list's refusal (session `ce87576a`, 2026-10-04): a command that ran
+passed the policy. Seatbelt reports nothing of its own on macOS 27 (probed on 2026-10-04: no kernel `deny`
+record for a `sandbox-exec` profile, with `(debug deny)` or `(deny default)`; `(with report)` is refused on a deny
+rule; `(with send-signal …)` delivered nothing), so the error output is all there is to check. The line lists
+at most three paths and about 240 bytes of roots. `command.outcome` records the verdict as `sandboxRefusal`.
 
 ```json
 { "commandPolicy": { "deny": ["sudo"], "allow": ["^(swift|cargo|git|ls|cat) "],

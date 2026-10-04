@@ -320,12 +320,18 @@ public struct Config: Codable, Equatable, Sendable {
         public var timeoutSeconds: Int?
         /// Context window asked of the server (`num_ctx`) and condensed against; default 8192.
         public var contextLength: Int?
+        /// Whether a model that can think is asked to: `true`, `false`, or a level (`OllamaThink`); unset leaves it
+        /// to Ollama and the model (ADR 0053).
+        public var think: OllamaThink?
 
         /// Creates settings; nil fields take defaults.
-        public init(baseURL: String? = nil, timeoutSeconds: Int? = nil, contextLength: Int? = nil) {
+        public init(
+            baseURL: String? = nil, timeoutSeconds: Int? = nil, contextLength: Int? = nil, think: OllamaThink? = nil
+        ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
             self.contextLength = contextLength
+            self.think = think
         }
     }
 
@@ -467,7 +473,7 @@ public struct Config: Codable, Equatable, Sendable {
             ollama: OllamaSettings(
                 baseURL: ollama?.baseURL.flatMap(URL.init(string:)) ?? OllamaSettings.default.baseURL,
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
-                contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength),
+                contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength, think: ollama?.think),
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },

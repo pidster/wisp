@@ -45,6 +45,16 @@ public struct InspectTool: WispTool {
         self.introspection = introspection
     }
 
+    /// `value` as pretty JSON when that fits `maxBytes`, else as compact JSON, so a view near the bound is not cut
+    /// short for its indentation (the configuration, with the default deny list, ADR 0054).
+    static func fitted(_ value: JSONValue) -> String {
+        let pretty = Introspection.render(value)
+        guard pretty.utf8.count > maxBytes else { return pretty }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? pretty
+    }
+
     /// `call` for the chat's `/inspect` and `/audit`: a bare view, or `audit` followed by `sessions` (the
     /// sessions in the log) or a session id (that session's latest events).
     public func show(_ what: String) async -> String {
@@ -72,7 +82,7 @@ public struct InspectTool: WispTool {
     public func call(arguments: Arguments) async -> String {
         switch arguments.what.lowercased() {
         case "config":
-            return ToolOutput.bounded(Introspection.render(introspection.configuration), maxBytes: Self.maxBytes)
+            return ToolOutput.bounded(Self.fitted(introspection.configuration), maxBytes: Self.maxBytes)
         case "status":
             return ToolOutput.bounded(Introspection.render(.object(introspection.status())), maxBytes: Self.maxBytes)
         case "approvals":

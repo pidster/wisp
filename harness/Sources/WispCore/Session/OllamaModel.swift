@@ -11,6 +11,9 @@ public struct OllamaSettings: Equatable, Sendable {
     /// The context window to ask of the server for every model (`num_ctx`), when configured; nil sizes
     /// each model's window from its shape and the Mac's memory when it is selected (ADR 0043).
     public var contextLength: Int?
+    /// Whether a model that can think is asked to (`ollama.think`, ADR 0053); nil sends nothing and leaves it to
+    /// Ollama and the model.
+    public var think: OllamaThink?
 
     /// The Ollama defaults: the local server on port 11434, two minutes per request, windows sized per model.
     public static let `default` = OllamaSettings(baseURL: defaultBaseURL, timeout: .seconds(120))
@@ -25,10 +28,92 @@ public struct OllamaSettings: Equatable, Sendable {
     }()
 
     /// Creates settings.
-    public init(baseURL: URL, timeout: Duration, contextLength: Int? = nil) {
+    public init(baseURL: URL, timeout: Duration, contextLength: Int? = nil, think: OllamaThink? = nil) {
         self.contextLength = contextLength
+        self.think = think
         self.baseURL = baseURL
         self.timeout = timeout
+    }
+}
+
+/// What `/api/chat`'s `think` asks of a model that can think (ADR 0053): `true` or `false`, or a level. The values
+/// are the ones Ollama 0.35.1 accepts, read from its own refusal on 2026-10-04 (`invalid think value: %q (must be
+/// "high", "medium", "low", "max", true, or false)`, in the installed binary); how a model that has no levels takes a
+/// level is Ollama's to decide.
+public enum OllamaThink: Equatable, Sendable, Codable {
+    /// `true`: think before answering.
+    case on
+    /// `false`: answer without thinking.
+    case off
+    /// One of `levels`: think this hard.
+    case level(String)
+
+    /// The levels Ollama accepts.
+    public static let levels = ["low", "medium", "high", "max"]
+    /// Every value `ollama.think` takes, as `/config` offers them.
+    public static let choices = ["true", "false"] + levels
+
+    /// The setting `text` names: `true`, `false`, or a level; nil for anything else.
+    ///
+    /// - Parameter text: The value as written.
+    public init?(_ text: String) {
+        switch text.lowercased() {
+        case "true": self = .on
+        case "false": self = .off
+        case let level where Self.levels.contains(level): self = .level(level)
+        default: return nil
+        }
+    }
+
+    /// Reads a JSON boolean, or a string `/config` writes (`"true"`, `"false"`, or a level).
+    ///
+    /// - Throws: `DecodingError.dataCorrupted` for any other value.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let flag = try? container.decode(Bool.self) {
+            self = flag ? .on : .off
+            return
+        }
+        let text = try container.decode(String.self)
+        guard let value = Self(text) else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription:
+                        "ollama: think must be true, false, or one of \(Self.levels.joined(separator: ", "))"
+                ))
+        }
+        self = value
+    }
+
+    /// Writes a boolean, or the level.
+    ///
+    /// - Throws: Encoding errors.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .on: try container.encode(true)
+        case .off: try container.encode(false)
+        case .level(let level): try container.encode(level)
+        }
+    }
+
+    /// What the request's `think` field carries.
+    public var json: JSONValue {
+        switch self {
+        case .on: true
+        case .off: false
+        case .level(let level): .string(level)
+        }
+    }
+
+    /// The value as `/config` shows it.
+    public var text: String {
+        switch self {
+        case .on: "true"
+        case .off: "false"
+        case .level(let level): level
+        }
     }
 }
 
@@ -117,6 +202,13 @@ public struct OllamaModel: LanguageModel, Sendable {
         self.windowReason =
             windowReason
             ?? (settings.contextLength != nil ? "configured as ollama.contextLength" : "the default, not sized")
+    }
+
+    /// The `think` value each request sends: the configured `ollama.think`, only for a model that reports `thinking`;
+    /// nil otherwise, which leaves it to Ollama.
+    var think: JSONValue? {
+        guard reported?.contains("thinking") == true else { return nil }
+        return settings.think?.json
     }
 
     /// Input tokens of the last request, from `prompt_eval_count`; nil before the first.
@@ -303,6 +395,8 @@ public struct OllamaModel: LanguageModel, Sendable {
             var content: String
             var tool_calls: [ToolCall]?
             var tool_name: String?
+            /// A reasoning model's thinking, streamed before its reply (ADR 0053); never sent back.
+            var thinking: String?
 
             /// A tool call the assistant made.
             struct ToolCall: Codable, Equatable {
@@ -322,6 +416,9 @@ public struct OllamaModel: LanguageModel, Sendable {
             var tools: [ToolSpec]?
             var stream: Bool
             var format: JSONValue?
+            /// Whether a model that can think is asked to (`OllamaThink`); absent unless configured and the model
+            /// reports `thinking`.
+            var think: JSONValue?
             /// Server options; `num_ctx` is the context window.
             var options: Options
 
@@ -429,8 +526,16 @@ public struct OllamaModel: LanguageModel, Sendable {
         }
 
         /// The request body for one generation.
+        ///
+        /// - Parameters:
+        ///   - request: The framework's request.
+        ///   - model: The model's name.
+        ///   - contextLength: The window to ask for.
+        ///   - think: The `think` value to send, or nil to send none.
+        /// - Returns: The body.
         static func body(
-            for request: LanguageModelExecutorGenerationRequest, model: String, contextLength: Int
+            for request: LanguageModelExecutorGenerationRequest, model: String, contextLength: Int,
+            think: JSONValue? = nil
         ) -> ChatRequest {
             let tools = request.enabledToolDefinitions.map { definition in
                 ChatRequest.ToolSpec(
@@ -441,7 +546,8 @@ public struct OllamaModel: LanguageModel, Sendable {
             }
             return ChatRequest(
                 model: model, messages: messages(from: request.transcript), tools: tools.isEmpty ? nil : tools,
-                stream: true, format: request.schema.map { json($0) }, options: .init(num_ctx: contextLength))
+                stream: true, format: request.schema.map { json($0) }, think: think,
+                options: .init(num_ctx: contextLength))
         }
 
         /// Sends the request and streams chunks back as events.
@@ -456,7 +562,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             http.setValue("application/json", forHTTPHeaderField: "Content-Type")
             http.timeoutInterval = TimeInterval(configuration.timeoutSeconds)
             http.httpBody = try JSONEncoder().encode(
-                Self.body(for: request, model: model.name, contextLength: model.window))
+                Self.body(for: request, model: model.name, contextLength: model.window, think: model.think))
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {
@@ -473,6 +579,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             var calls = 0
             var input = 0
             var output = 0
+            var thinking = ThinkingStretch()
             for try await line in bytes.lines {
                 let chunk: Chunk
                 do {
@@ -482,6 +589,13 @@ public struct OllamaModel: LanguageModel, Sendable {
                 }
                 if let error = chunk.error { throw Failure.serverError(status: status, body: error) }
                 if let message = chunk.message {
+                    // Ollama streams a reasoning model's thinking before its reply, one token a chunk, whether or
+                    // not `think` was sent (probed 2026-10-04, ornith:9b: 42 thinking chunks, then 2 of reply).
+                    if let thought = message.thinking, !thought.isEmpty {
+                        thinking.think(thought)
+                        await channel.send(.reasoning(action: .appendText(thought, tokenCount: 1)))
+                    }
+                    if !message.content.isEmpty || !(message.tool_calls ?? []).isEmpty { thinking.end() }
                     if !message.content.isEmpty {
                         await channel.send(.response(action: .appendText(message.content, tokenCount: 1)))
                     }
@@ -503,12 +617,17 @@ public struct OllamaModel: LanguageModel, Sendable {
                 input = chunk.prompt_eval_count ?? input
                 output = chunk.eval_count ?? output
             }
+            thinking.end()
             model.usage.inputTokens.withLock { $0 = input }
+            // Ollama reports no count of its own for the thinking; it streams one token a chunk, so the chunks are
+            // the count, within the output's total.
             await channel.send(
                 .response(
                     action: .updateUsage(
                         input: .init(totalTokenCount: input, cachedTokenCount: 0),
-                        output: .init(totalTokenCount: output, reasoningTokenCount: 0))))
+                        output: .init(
+                            totalTokenCount: max(output, thinking.tokens), reasoningTokenCount: thinking.tokens)
+                    )))
         }
     }
 }
@@ -556,12 +675,15 @@ public struct OllamaBackend: ModelBackend {
         }
     }
 
-    /// Base URL and timeout.
+    /// Base URL, timeout, the window, and `think` when set.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
-        .object([
+        var settings: [String: JSONValue] = [
             "baseURL": .string(config.ollama.baseURL.absoluteString),
             "timeoutSeconds": .int(Int(config.ollama.timeout.components.seconds)),
             "contextLength": config.ollama.contextLength.map { .int($0) } ?? .string("sized per model (ADR 0043)"),
-        ])
+        ]
+        // Unset leaves it to the model (ADR 0053).
+        settings["think"] = .string(config.ollama.think?.text ?? "unset")
+        return .object(settings)
     }
 }

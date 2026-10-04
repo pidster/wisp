@@ -97,7 +97,18 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"(^|[\s;&|(/])wisp\s+approvals\s+(approve|deny)\b"#,
         // Nor does it keep or drop a permanent fact a caller asked for (ADR 0048): admitting one is the person's.
         #"(^|[\s;&|(/])wisp\s+facts\s+(keep|drop)\b"#,
+        // Nor does it start a wisp of its own (ADR 0054): `wisp respond`, `wisp chat`, `wisp mcp`, or the bare
+        // `wisp "prompt"`, which is `respond`, is a nested agent with its own model, tools, and approvals, and under
+        // the sandbox it fails anyway, unable to write wisp's home. Matched where wisp is the program a simple
+        // command runs (each segment of a line is checked alone), so its other subcommands stay allowed.
+        nestedWisp,
     ]
+
+    /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, by any path and after `env`, `exec`, `nohup`, or
+    /// `VAR=value`, followed by options and then `respond`, `chat`, `mcp`, or a quoted prompt (the bare
+    /// `wisp "prompt"`). Kept short: the configuration view that lists the deny patterns is bounded.
+    public static let nestedWisp =
+        #"^ *((env|exec|nohup) +|\S*=\S* +)*(\S*/)?wisp( +-\S*( +[^- ]\S*)?)* +(respond|chat|mcp|["'])"#
 
     /// Checks that every pattern compiles.
     ///

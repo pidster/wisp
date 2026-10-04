@@ -69,7 +69,12 @@ calling the model did not declare, then records `model.resolved`; see
 `ResolvedModel(selection:custom:)`. `OllamaModel` is the first backend:
 its `Executor` maps the transcript onto Ollama's chat API (system, user, assistant with tool calls, tool
 messages), sends tool definitions as JSON Schema and an output schema as `format`, and streams chunks back
-as `response` and `toolCalls` events with usage at the end. `resolve` checks the server lists the model
+as `response` and `toolCalls` events with usage at the end. A reasoning model's `message.thinking` chunks go back
+as `reasoning` events, counted as its reasoning tokens, and a `ThinkingStretch` tells the turn's
+`ReasoningObserver` (a task local `Agent` binds around each turn's requests) when thinking begins and ends, which it
+records as `model.reasoning`; the framework keeps the thinking as a reasoning transcript entry, the store as the
+turn's `.reasoning` entry, and `ContextComposer` never composes it into a request, nor does the executor send one
+back ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). `resolve` checks the server lists the model
 (blocking briefly, because agents are created synchronously). The framework's tool loop, streaming,
 transcript, and guided generation are unchanged above it. See
 [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md).
@@ -136,7 +141,10 @@ handling). One turn, as the agent runs it:
    and `error`. The frame's entries are not stored. From the same tool events the agent extracts facts without
    a model (`FactExtraction`) and records them, then renders the frame again, and counts what the turn ran
    (`TurnToolSummary`, [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)): the line every
-   face shows beside the reply, as `Agent.Reply.ran`.
+   face shows beside the reply, as `Agent.Reply.ran`. Beside it, `CitedEntries` reads the entry numbers the reply
+   cites in wisp's reference forms and keeps those the store does not hold (`Agent.Reply.unknownEntries` and
+   `cited`, [ADR 0055](decisions/0055-cited-entries-checked.md)). The trail also keeps `model.reasoning`, whose
+   `end` event a reasoning entry refers to ([ADR 0053](decisions/0053-the-models-thinking-shown.md)).
 6. After a turn that succeeded, the composer looks in each of its replies for presentational text:
    a stretch that reproduces one of the turn's tool outputs exactly, formatting aside (`Presentation`).
    The agent marks each stretch on the reply's store entry as a `Cut` (segment, byte range, the output's
@@ -420,7 +428,12 @@ audited as `notification` with the route taken, without the gate
 group (`posix_spawn`) under `sandbox-exec` with a profile rooted at the launch directory, captures stdout
 and stderr separately, kills the whole group on timeout, and keeps only the tail of each stream. The
 rendering (`Outcome.rendered`) is what the model sees; policy denials and refusals are rendered too rather
-than thrown. See [ADR 0009](decisions/0009-command-policy-and-sandbox.md).
+than thrown. See [ADR 0009](decisions/0009-command-policy-and-sandbox.md). A confined command that fails with
+`Operation not permitted` is checked by `SandboxRefusal`: the paths its error output names, resolved to real paths,
+against `CommandPolicy.writableRoots`; the verdict (`refused`, `not-the-sandbox`, or a `guess` when no path is
+named) is recorded on `command.outcome` and told to the model as one `sandbox:` line after the output
+([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). The default deny list also refuses a nested wisp
+agent (`CommandPolicy.nestedWisp`).
 
 ### MCP server
 

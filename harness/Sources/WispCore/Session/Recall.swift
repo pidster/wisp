@@ -228,13 +228,14 @@ enum Recall {
         case .response: "reply"
         case .toolCalls: "tool calls"
         case .instructions: "the instructions"
+        case .reasoning: "the model's thinking"
         default: entry.kind.rawValue
         }
     }
 
     /// An entry's text, read from the audit event its reference names when the audit holds it and it is of the
     /// kind the entry expects, else from the store's copy. The instructions have no text here: every request
-    /// carries them.
+    /// carries them; nor has the model's thinking, which no request carries (ADR 0053).
     ///
     /// - Returns: The text, where it came from (nil for the instructions), and the audit events read.
     private static func content(
@@ -252,6 +253,9 @@ enum Recall {
         switch entry.value {
         case .instructions:
             return ("(the instructions, which every request carries in full)", nil, [])
+        case .reasoning:
+            // The thinking is the person's to read, never the model's context (ADR 0053), recalled or not.
+            return ("(the model's thinking, kept for the person and not recalled)", nil, [])
         case .toolOutput:
             if let found = event(entry.sources.first, .toolResult), let text = found.details["output"]?.stringValue {
                 return (text, .audit, [found.id ?? ""])

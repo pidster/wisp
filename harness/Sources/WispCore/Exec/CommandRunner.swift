@@ -49,14 +49,20 @@ public struct CommandRunner: Sendable {
         public var timedOut: Bool
         /// Whether either stream lost leading bytes to the output limit.
         public var truncated: Bool
+        /// For a confined command that failed with `Operation not permitted`, whether the sandbox refused it
+        /// (ADR 0054); nil otherwise.
+        public var sandboxRefusal: SandboxRefusal? = nil
+        /// What the model is told of `sandboxRefusal` (`SandboxRefusal.note(roots:)`); nil when there is none.
+        public var sandboxNote: String? = nil
 
-        /// A compact, model-facing rendering of the outcome.
+        /// A compact, model-facing rendering of the outcome, with the sandbox's note after the output.
         public var rendered: String {
             var lines = ["exit status: \(exitStatus)"]
             if timedOut { lines.append("timed out: the command was killed") }
             if truncated { lines.append("output truncated: only the tail of each stream is shown") }
             if !stdout.isEmpty { lines.append("stdout:\n\(stdout)") }
             if !stderr.isEmpty { lines.append("stderr:\n\(stderr)") }
+            if let sandboxNote { lines.append(sandboxNote) }
             return lines.joined(separator: "\n")
         }
     }
@@ -147,14 +153,25 @@ public struct CommandRunner: Sendable {
     /// another sandbox, whose refusal of a nested profile makes commands run under that one instead.
     public var confines: Bool { sandboxed }
 
-    /// Whether `outcome` looks like the sandbox refusing the command: it ran confined, failed, and its error
-    /// output carries Seatbelt's `Operation not permitted`. A heuristic for the person's note (ADR 0049); the
-    /// command's own output is shown either way.
+    /// The canonical directories commands may write under, as the sandbox's profile names them.
+    public var writableRoots: [String] {
+        options.policy.writableRoots(
+            writableRoot: options.writableRoot, temporaryDirectory: FileManager.default.temporaryDirectory.path,
+            userCacheDirectory: Self.userCacheDirectory, home: FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
+    /// Whether the sandbox refused `outcome`'s command (ADR 0054): checked against the writable roots where its
+    /// error output names a path, a guess where it names none; nil when it ran unconfined, succeeded, or reported
+    /// no `Operation not permitted`.
     ///
-    /// - Parameter outcome: What the command produced.
-    /// - Returns: Whether to say the sandbox may have refused it.
-    public func refusedBySandbox(_ outcome: Outcome) -> Bool {
-        sandboxed && outcome.exitStatus != 0 && outcome.stderr.contains("Operation not permitted")
+    /// - Parameters:
+    ///   - outcome: What the command produced.
+    ///   - directory: Where it ran, for a relative path.
+    /// - Returns: The verdict, or nil.
+    func sandboxRefusal(_ outcome: Outcome, in directory: String) -> SandboxRefusal? {
+        SandboxRefusal.check(
+            stderr: outcome.stderr, exitStatus: outcome.exitStatus, sandboxed: sandboxed, roots: writableRoots,
+            directory: directory)
     }
 
     /// One command line cleared for repeated runs: the gate was consulted once, when it was authorised,
@@ -252,7 +269,11 @@ public struct CommandRunner: Sendable {
         -> Outcome
     {
         let started = Date()
-        let outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed)
+        var outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed)
+        if let refusal = sandboxRefusal(outcome, in: workingDirectory) {
+            outcome.sandboxRefusal = refusal
+            outcome.sandboxNote = refusal.note(roots: writableRoots)
+        }
         audit?.record(
             .commandOutcome,
             details: AuditEvent.Details.commandOutcome(

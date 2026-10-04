@@ -79,6 +79,8 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://session/facts` | JSON: the session's ephemeral facts (ids `s…`): the machine now, such as a listening port, shared by every thread of this server and gone with it. Current only; `?all=true` adds superseded versions. Paged. |
 | `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
 | `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
+| `wisp://threads/{thread_id}/reasoning` | JSON: each stretch a reasoning model thought aloud in the thread, oldest first, from its `model.reasoning` events ([ADR 0053](decisions/0053-the-models-thinking-shown.md)): `turn`, `id`, `tokens`, `seconds`, `bytes`, and `uri`. Paged. The thinking is kept for the person and the caller to read; the thread's model never gets it back. |
+| `wisp://threads/{thread_id}/reasoning/{id}` | Plain text: one stretch of thinking, verbatim, by the `id` the list gives it. |
 | `wisp://threads/{thread_id}/audit` | JSON Lines: every event of the thread, for reconstructing what a delegated task did. |
 
 Collections are paged at 50 rows: append `?page=N` (from 1); each page gives `page`, `pages`, `total`, and
@@ -132,7 +134,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "output": null, "contextNote": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
@@ -242,6 +244,12 @@ null when the turn ran no tool, except that a reply naming one of the thread's t
 tools`, since the reply may describe work that did not happen
 ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)). The text content the caller's model
 reads is the reply alone, as before.
+
+`unknownEntries` lists the entry numbers the reply cites in wisp's reference forms (`entry 19`, `memory "recall
+entry 7"`, `entries 16-30`, `entries 19, 20 and 21`) that the thread's store does not hold, in the order cited, and
+`cited` is chat's line for them, such as `cited but not in this conversation: entries 19–30 (12)`, or null when
+there are none ([ADR 0055](decisions/0055-cited-entries-checked.md)). Ranges are expanded up to 100 numbers in all.
+A reply that cites entries that do not exist reports work in a form that looks checked; the caller can tell.
 
 This is the same rule chat follows (decision D12): the transcript carries every tool's real output, from
 the same `tool.result` audit event, whatever the model's reply says, and only the rendering differs by

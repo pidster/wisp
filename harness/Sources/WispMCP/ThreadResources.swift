@@ -59,6 +59,10 @@ extension WispServer {
             return try json(outputList(id, page: parsed.page), uri: uri)
         case let parts where parts.count == 2 && parts[0] == "output":
             return try output(thread: id, id: parts[1], uri: uri)
+        case ["reasoning"]:
+            return try json(reasoningList(id, page: parsed.page), uri: uri)
+        case let parts where parts.count == 2 && parts[0] == "reasoning":
+            return try reasoning(thread: id, id: parts[1], uri: uri)
         case ["audit"]:
             let events = try session.introspection.audit(AuditQuery(session: id))
             let text = try events.map { String(decoding: try AuditEvent.encoder.encode($0), as: UTF8.self) }
@@ -127,7 +131,8 @@ extension WispServer {
                 "sessionFacts": .string(ToolCatalog.sessionFactsResourceURI),
                 "permanentFacts": .string(ToolCatalog.factsResourceURI),
                 "proposedFacts": .string(ToolCatalog.proposedFactsResourceURI),
-                "output": .string(base + "/output"), "audit": .string(base + "/audit"),
+                "output": .string(base + "/output"), "reasoning": .string(base + "/reasoning"),
+                "audit": .string(base + "/audit"),
             ]),
         ])
     }
@@ -167,5 +172,37 @@ extension WispServer {
                 "no tool output \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
         }
         return .init(contents: [.text(event.details["output"]?.stringValue ?? "", uri: uri, mimeType: "text/plain")])
+    }
+
+    /// The `model.reasoning` events of `thread` that ended a stretch of thinking (ADR 0053), oldest first.
+    private func thoughts(_ thread: String) throws -> [AuditEvent] {
+        try session.introspection.audit(AuditQuery(session: thread, kinds: [.modelReasoning])).filter {
+            $0.details["phase"]?.stringValue == "end"
+        }
+    }
+
+    /// `wisp://threads/{thread_id}/reasoning`: each stretch of the model's thinking, oldest first, from the audit log.
+    private func reasoningList(_ id: String, page: Int) throws -> JSONValue {
+        let rows = try thoughts(id).map { event -> JSONValue in
+            .object([
+                "turn": event.turn.map { .int($0) } ?? .null, "id": event.id.map { .string($0) } ?? .null,
+                "tokens": event.details["tokens"] ?? .null, "seconds": event.details["seconds"] ?? .null,
+                "bytes": event.details["bytes"] ?? .null,
+                "uri": event.id.map { .string(ToolCatalog.reasoningURI(thread: id, id: $0)) } ?? .null,
+            ])
+        }
+        return try Self.paged(rows, page: page, base: ToolCatalog.threadURI(id) + "/reasoning", key: "reasoning")
+    }
+
+    /// `wisp://threads/{thread_id}/reasoning/{id}`: one stretch of thinking verbatim, from the audit log.
+    private func reasoning(thread: String, id: String, uri: String) throws -> ReadResource.Result {
+        guard Self.isEventID(Substring(id)) else {
+            throw MCPError.invalidParams("expected wisp://threads/{thread_id}/reasoning/{id} with an id from its list")
+        }
+        guard let event = try thoughts(thread).last(where: { $0.id == id }) else {
+            throw MCPError.invalidParams(
+                "no thinking \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
+        }
+        return .init(contents: [.text(event.details["text"]?.stringValue ?? "", uri: uri, mimeType: "text/plain")])
     }
 }

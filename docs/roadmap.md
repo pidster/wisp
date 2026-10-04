@@ -11,7 +11,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.19.0 | MLX on a par with Ollama | Core AI's context window; the model's thinking shown; the sandbox's refusals checked |
+| 0.19.0 | MLX on a par with Ollama | Core AI's context window; the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built) |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
@@ -25,7 +25,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
   D11) costs little; and fetching `mlx-community` models, with the person's approval. Measuring MLX
   against Ollama waits for 0.20.0.
 - **Core AI's context window** from its bundle's metadata, by the same path.
-- **The model's thinking shown.** Ollama streams a reasoning model's thinking as `message.thinking`
+- **The model's thinking shown.** Built ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Ollama streams a reasoning model's thinking as `message.thinking`
   whether or not `think` is set (probed on 2026-10-04 with `ornith:9b`: 42 thinking chunks before a
   two-chunk answer), and the executor drops it, so the time looks idle and usage reports no reasoning
   tokens. Decode it: a "thinking" activity in chat, `wisp chat --json`, and `wisp-tui`'s busy box, drawn
@@ -35,7 +35,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
   text kept as the turn's `.reasoning` entry, folded with `/show` and readable through `/inspect` and the
   thread's resources, audited with its token count, and left out of the model's context; a `think`
   setting where the model offers one. Core AI and MLX the same where they report it.
-- **The sandbox's refusals checked.** Seatbelt is passive: a refused operation fails with `EPERM`, and on
+- **The sandbox's refusals checked.** Built ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). Seatbelt is passive: a refused operation fails with `EPERM`, and on
   macOS 27 the kernel logs no `deny` line for a `sandbox-exec` profile (probed on 2026-10-04: no record
   with `(debug deny)` or `(deny default)`; `(with report)` is refused on a deny rule, and
   `(with send-signal …)` delivered nothing). wisp guesses today, from "Operation not permitted" in the
@@ -43,6 +43,16 @@ release's preflight still runs the eval's floors, as a guard against regressions
   writable roots is the sandbox's refusal, one inside them is not; flag it on the model's commands too,
   telling the model what was refused and where it may write. Network and process refusals name no path
   and stay a guess.
+- **The pathless refusal note.** Built ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). When a
+  command fails with `Operation not permitted` and names no path, the model's result says the sandbox may have
+  refused it and no policy rule did (session `ce87576a`, 2026-10-04: a nested wisp's `Error: Operation not
+  permitted` read as a policy denial).
+- **wisp itself denied to the model.** Built ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). The
+  default deny list refuses `wisp respond`, `chat`, `mcp`, and the bare `wisp "prompt"`, a nested agent with its own
+  model, tools, and approvals; its other subcommands stay allowed.
+- **Cited entries checked.** Built ([ADR 0055](decisions/0055-cited-entries-checked.md)). Beside `ran:`, a muted line
+  names the entries a reply cites in wisp's reference forms that the conversation does not hold (session
+  `ce87576a`, 2026-10-04: "Result (entry 19)" to "(entry 30)" and "entries 16-30", with about 18 entries stored).
 
 ## 0.20.0: analysis, evals, and tuning
 
@@ -84,8 +94,9 @@ The release given to measurement, once the four before it are out:
   build that succeeded summarised compactly, one that failed by its root causes), exact readers first and
   a model only where they fall short; `memory "condense entry N: <question>"` to answer from all of it;
   filters over the stored output, and never a command run again to see more of what it printed;
-  `inspect(audit)` by turn, one line per call. `run_command` stops discarding all but the tail. Found when
-  a model asked to check its turn read only its last 20 audit events.
+  `inspect(audit)` by turn, one line per call, and noticing the same tool call repeated within a turn (six
+  `inspect(audit)` calls in one turn of session ce87576a, 2026-10-04). `run_command` stops discarding all but the
+  tail. Found when a model asked to check its turn read only its last 20 audit events.
 
 ## Not scheduled
 

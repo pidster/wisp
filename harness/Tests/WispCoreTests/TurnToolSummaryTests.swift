@@ -191,7 +191,7 @@ import WispTestSupport
             io: capture.io)
         try await loop.run()
         let ends = capture.turns.withLock { $0 }.compactMap { mark -> String?? in
-            guard case .end(_, _, _, _, _, let ran) = mark else { return nil }
+            guard case .end(_, _, _, _, _, let ran, _) = mark else { return nil }
             return .some(ran)
         }
         // Two model turns, no third for the typed command: the first ran two tools, neither successfully; the

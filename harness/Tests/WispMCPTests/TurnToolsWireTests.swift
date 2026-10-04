@@ -34,6 +34,7 @@ import WispTestSupport
             .call(name: "run_command", arguments: #"{"command":"echo forbidden","workingDirectory":"/"}"#),
             .say("Done: run_command printed it."),
             .say("I used run_command for that."),
+            .say("Logged in entries 2-40."),
         ])
         defer { try? FileManager.default.removeItem(at: pair.server.session.home.root) }
         let result = try await call(pair.client, "respond", ["prompt": "go", "thread_id": "t"])
@@ -49,6 +50,13 @@ import WispTestSupport
         // A turn that ran nothing and names a tool says so; one that names none has no line.
         let second = try await call(pair.client, "respond", ["prompt": "again", "thread_id": "t"])
         #expect(second.structuredContent?.objectValue?["ran"] == .string("ran: no tools"))
+        #expect(second.structuredContent?.objectValue?["unknownEntries"] == .array([]))
+        // Entries the reply cites that the thread does not hold are listed beside it (ADR 0055).
+        let third = try #require(
+            try await call(pair.client, "respond", ["prompt": "log?", "thread_id": "t"]).structuredContent?.objectValue)
+        let unknown = try #require(third["unknownEntries"]?.arrayValue).compactMap(\.intValue)
+        #expect(unknown.last == 40 && !unknown.contains(2), "\(unknown)")
+        #expect(third["cited"]?.stringValue?.hasPrefix("cited but not in this conversation: entries ") == true)
         await pair.client.disconnect()
         await pair.server.stop()
     }

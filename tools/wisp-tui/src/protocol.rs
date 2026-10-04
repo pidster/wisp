@@ -36,6 +36,9 @@ pub enum Outbound {
         /// Seconds from the turn's start to when this began.
         #[serde(rename = "turnSeconds", default)]
         turn_seconds: f64,
+        /// Whether the model is thinking (ADR 0053); absent, and so false, otherwise.
+        #[serde(default)]
+        thinking: bool,
     },
     /// An audit event of the conversation.
     Event(Event),
@@ -112,6 +115,10 @@ pub struct Turn {
     /// At the end, the line of what the turn ran, from its audit events (ADR 0051), shown under the reply;
     /// absent when there is nothing to show.
     pub ran: Option<String>,
+    /// At the end, the line naming the entries the reply cites that the conversation does not hold (ADR 0055),
+    /// shown beside `ran`; absent when there are none.
+    #[serde(default)]
+    pub cited: Option<String>,
 }
 
 impl Turn {
@@ -437,6 +444,12 @@ mod tests {
             r#"{"type":"turn","phase":"end","turn":3,"seconds":1,"outcome":"ok","ran":"ran: read_file ×2"}"#,
         );
         assert!(matches!(&ran, Outbound::Turn(t) if t.ran.as_deref() == Some("ran: read_file ×2")));
+        let cited = Outbound::parse(
+            r#"{"type":"turn","phase":"end","turn":3,"cited":"cited but not in this conversation: entries 19–30 (12)"}"#,
+        );
+        assert!(
+            matches!(&cited, Outbound::Turn(t) if t.cited.as_deref() == Some("cited but not in this conversation: entries 19–30 (12)"))
+        );
         assert!(matches!(&end, Outbound::Turn(t) if t.ran.is_none()));
         let choice = Outbound::parse(
             r#"{"type":"choice","id":"c","title":"pick","options":[{"value":"a","label":"A","detail":""}],"current":null,"acceptsText":true}"#,

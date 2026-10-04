@@ -16,6 +16,8 @@ public final class ChatActivity: Sendable {
         public var turnStarted: Date
         /// Whether a person is being asked, in which case the dialog is on screen and the line is not.
         public var asking: Bool
+        /// Whether the model is thinking (ADR 0053): a face may draw it its own way, as `wisp-tui`'s thought bubble.
+        public var thinking = false
     }
 
     private let state = Mutex<State?>(nil)
@@ -32,6 +34,9 @@ public final class ChatActivity: Sendable {
     /// The turn under way, or nil between turns.
     public var current: State? { state.withLock { $0 } }
 
+    /// What the activity says while the model thinks.
+    public static let thinking = "thinking"
+
     /// A turn has begun: the message has gone to the model; or, with `doing`, something else is under way that
     /// the face should show as work, such as a command the person typed (`running git status`).
     public func begin(doing: String = "waiting for the model", at time: Date = Date()) {
@@ -46,7 +51,13 @@ public final class ChatActivity: Sendable {
     /// Follows one of the turn's audit events; events that change nothing are ignored.
     public func apply(_ event: AuditEvent, at time: Date = Date()) {
         guard var next = current else { return }
+        next.thinking = false
         switch event.kind {
+        case .modelReasoning:
+            let started = event.details["phase"]?.stringValue == "start"
+            next.doing = started ? Self.thinking : "waiting for the model"
+            next.thinking = started
+            next.asking = false
         case .toolCall:
             let line = ChatEvents.render(event, style: .plain) ?? "⚙ a tool"
             let call = line.hasPrefix("⚙ ") ? String(line.dropFirst(2)) : line
@@ -83,6 +94,8 @@ public final class ChatActivity: Sendable {
             current = new
             return old
         }
-        if old?.doing != new?.doing || (old == nil) != (new == nil) { changed.withLock { $0 }?(new) }
+        if old?.doing != new?.doing || old?.thinking != new?.thinking || (old == nil) != (new == nil) {
+            changed.withLock { $0 }?(new)
+        }
     }
 }

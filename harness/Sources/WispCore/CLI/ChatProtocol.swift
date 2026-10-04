@@ -104,7 +104,8 @@ public enum ChatProtocol {
     /// The `event` line's fields: the audit event's kind, call, turn, and details, and `text`, the
     /// unstyled line the terminal chat shows for it (null when it shows none), so every face words tool
     /// activity alike and a front end renders the raw fields only when it wants to. A `tool.result`, and a
-    /// `command.typed` whose command printed something (ADR 0049), also carries `output`, the output for the
+    /// `command.typed` whose command printed something (ADR 0049), and a `model.reasoning` that ends a stretch of
+    /// thinking (ADR 0053), with the thinking as its text, also carries `output`, the output for the
     /// front end to show (decision D12): its `id` (the event's,
     /// which `/show` takes), `text` (up to `Paging.pageBytes`), `lines`, `bytes`, `truncated` when `text` is
     /// shorter than the output, and `shownLines`, how many lines the terminal chat shows before it folds.
@@ -123,9 +124,7 @@ public enum ChatProtocol {
             "turn": event.turn.map { .int($0) } ?? .null, "details": .object(event.details),
             "text": ChatEvents.render(event, style: .plain).map { .string($0) } ?? .null,
         ]
-        if event.kind == .toolResult || event.kind == .commandTyped, let output = event.details["output"]?.stringValue,
-            event.kind == .toolResult || !output.isEmpty
-        {
+        if let output = ChatEvents.shownText(of: event), event.kind == .toolResult || !output.isEmpty {
             let text = Paging.page(output, number: 1)?.text ?? ""
             var lines = output.split(separator: "\n", omittingEmptySubsequences: false).count
             if output.hasSuffix("\n") { lines -= 1 }
@@ -149,13 +148,16 @@ public enum ChatProtocol {
 
     /// The `activity` line's fields: what the turn under way is doing (`doing`, such as `running git
     /// status`), whether a person is being asked, and the seconds since the turn began; `doing` is null
-    /// when the turn has ended. A front end times the rest itself.
+    /// when the turn has ended. While the model thinks, `doing` is `thinking` and `thinking` is true (ADR 0053), for a
+    /// front end that draws it its own way; the field is absent otherwise. A front end times the rest itself.
     public static func activity(_ state: ChatActivity.State?) -> [String: JSONValue] {
         guard let state else { return ["doing": .null] }
-        return [
+        var fields: [String: JSONValue] = [
             "doing": .string(state.doing), "asking": .bool(state.asking),
             "turnSeconds": .double(state.since.timeIntervalSince(state.turnStarted)),
         ]
+        if state.thinking { fields["thinking"] = true }
+        return fields
     }
 
     /// The `turn` line's fields: `phase` `start` or `end`, the turn number, and at the end the seconds
@@ -163,12 +165,13 @@ public enum ChatProtocol {
     /// `facts` when the turn recorded or changed any (`FactReport.newFactsJSON`); the same facts are also sent as
     /// a `note` line, which is what a front end shows. `ran`, when present, is the line of what the turn ran, from
     /// its audit events (`TurnToolSummary`, ADR 0051), for the front end to show under the reply; it is sent
-    /// nowhere else.
+    /// nowhere else. `cited`, when present, is the line naming the entries the reply cites that the conversation
+    /// does not hold (`CitedEntries`, ADR 0055), shown beside it.
     public static func turn(_ mark: ChatTurn) -> [String: JSONValue] {
         switch mark {
         case .start(let turn):
             return ["phase": "start", "turn": .int(turn)]
-        case .end(let turn, let seconds, let failed, let tokens, let facts, let ran):
+        case .end(let turn, let seconds, let failed, let tokens, let facts, let ran, let cited):
             var fields: [String: JSONValue] = [
                 "phase": "end", "turn": .int(turn), "seconds": .double(seconds), "outcome": failed ? "error" : "ok",
             ]
@@ -178,6 +181,7 @@ public enum ChatProtocol {
             }
             if !facts.isEmpty { fields["facts"] = FactReport.newFactsJSON(facts) }
             if let ran { fields["ran"] = .string(ran) }
+            if let cited { fields["cited"] = .string(cited) }
             return fields
         }
     }

@@ -4,6 +4,33 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- A reasoning model's thinking is shown (ADR 0053). Ollama streams it for models such as `qwen3.8:27b`, `gemma4` and
+  `ornith`, and wisp used to drop it, so the turn looked idle. Now chat says `thinking` while it lasts (`wisp-tui`
+  draws a thought bubble in its busy box), shows `∴ thought for 4.2 s, 42 tokens` with the thinking folded under it
+  (`/show` for the rest, `/inspect thinking` for every stretch), counts its tokens, and audits it as
+  `model.reasoning`. Over MCP, `wisp://threads/{thread_id}/reasoning` lists it. It is kept for you: the model never
+  gets its thinking back in a later request.
+- `ollama.think` (`true`, `false`, `low`, `medium`, `high`, `max`) asks a model that can think to think, or not, or
+  how hard; unset leaves it to the model.
+- Under each reply, beside `ran:`, a muted line names the entries the reply cites (`entry 19`, `entries 16-30`) that
+  the conversation does not hold: `cited but not in this conversation: entries 19–30 (12)`. `wisp chat --json`
+  carries it as `cited`, and `respond` returns `unknownEntries` and `cited` (ADR 0055).
+
+Changed:
+
+- When a command fails with `Operation not permitted`, wisp now checks the paths in the error against the sandbox's
+  writable roots instead of guessing, and tells the model in one line: the sandbox refused writing to a path and
+  where commands may write, something else refused a path inside the roots, or, with no path to check, the sandbox
+  may have refused it and no policy rule did. The note for a command you type after `!` uses the same check, and
+  `command.outcome` records it as `sandboxRefusal` (ADR 0054).
+- The default deny list refuses the model starting a wisp of its own: `wisp respond`, `wisp chat`, `wisp mcp`, and
+  `wisp "prompt"`; `wisp doctor`, `logs`, `tools`, `--version`, and the other subcommands stay allowed. Commands
+  you type after `!` follow the same list (ADR 0054).
+
 ## 0.18.1
 
 Fixed:

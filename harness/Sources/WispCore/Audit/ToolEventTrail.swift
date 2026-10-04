@@ -3,7 +3,8 @@ import Synchronization
 /// Keeps a conversation's recent tool events in memory, so the agent can link the tool calls and outputs of a
 /// turn's transcript to the audit events that recorded them (`ThreadRecord`), and count what the turn ran
 /// (`TurnToolSummary`): `tool.call` and `tool.result`, and the `policy.decision`, `command.outcome`, and
-/// `error` events that say how a call ended. The tools record their own events, which the agent never sees; a conversation
+/// `error` events that say how a call ended; and `model.reasoning`, whose `end` holds the thinking a reasoning entry
+/// refers to (ADR 0053). The tools record their own events, which the agent never sees; a conversation
 /// adds this sink to its audit log (`WispThread.setUp`) and hands it to the agent.
 ///
 /// Bounded: only the newest `capacity` events are kept, and taking a turn's events forgets that turn and
@@ -14,7 +15,9 @@ public final class ToolEventTrail: AuditSink, Sendable {
     /// How many events are kept at most.
     public let capacity: Int
     /// The kinds kept.
-    static let kinds: Set<AuditEvent.Kind> = [.toolCall, .toolResult, .policyDecision, .commandOutcome, .error]
+    static let kinds: Set<AuditEvent.Kind> = [
+        .toolCall, .toolResult, .policyDecision, .commandOutcome, .error, .modelReasoning,
+    ]
 
     /// Creates an empty trail.
     ///

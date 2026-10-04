@@ -26,7 +26,15 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 | **The process tree**: a timeout kills the whole group. | **Inter-process messaging and the rest of macOS**: unchanged. |
 
 Before a command runs it must also pass a deny list (`sudo`, `rm -rf /`, piping into a shell, disk
-tools) and a risk check.
+tools, answering an approval, keeping a permanent fact, and starting a wisp agent of its own: `wisp respond`,
+`chat`, `mcp`, or `wisp "prompt"`) and a risk check.
+
+**What the model is told when the sandbox refuses.** The sandbox fails a refused operation with `Operation not
+permitted` and says nothing else. wisp checks the paths in that error against the writable roots and tells the
+model plainly: that the sandbox refused writing to a path and where it may write; that a path inside the roots was
+refused by something else; or, when the error names no path, that the sandbox may have refused it and no policy
+rule did, since the policy let the command run
+([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md), [run_command](tools/run_command.md)).
 
 **Commands you type yourself.** In `wisp chat` and `wisp-tui`, a line that starts with `!` (`! git status`)
 runs that command as yours, through the same runner as `run_command`
@@ -34,7 +42,9 @@ runs that command as yours, through the same runner as `run_command`
 under the same sandbox, with the same bounds and timeout, so it can change only what the model's commands
 can: files under the sandbox's writable directories, and the network unless you turned it off. It skips the
 risk check and is never put to you for approval, since typing it is the approval, so it runs at once
-whatever its level. It is audited (`command.typed`, and `policy.decision` and `command.outcome` marked
+whatever its level. The deny list includes a nested wisp agent here too: `! wisp respond …` is refused with
+its reason, where under the sandbox it would only fail, unable to write `~/.wisp`; run it in another terminal.
+It is audited (`command.typed`, and `policy.decision` and `command.outcome` marked
 `origin: "person"`), and the model is told on its next request that you ran it, never that it did. `--unsafe`
 removes the deny list and the sandbox for these commands too. An MCP caller cannot type one: `respond`
 gives `!` to the model as text.

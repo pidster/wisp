@@ -285,4 +285,69 @@ final class FakeOllama: URLProtocol {
         #expect(textOnly.tools.isEmpty)
         #expect(try await textOnly.openAgent().respond(to: "hi").text == "ok")
     }
+
+    /// The shape probed on 2026-10-04 with ornith:9b: thinking chunks, then the reply's.
+    static let thinkingStream =
+        [
+            #"{"message":{"role":"assistant","content":"","thinking":"Is 91"},"done":false}"#,
+            #"{"message":{"role":"assistant","content":"","thinking":" 7 times"},"done":false}"#,
+            #"{"message":{"role":"assistant","content":"","thinking":" 13?"},"done":false}"#,
+            #"{"message":{"role":"assistant","content":"No"},"done":false}"#,
+            #"{"message":{"role":"assistant","content":"."},"done":true,"prompt_eval_count":20,"eval_count":5}"#,
+        ].joined(separator: "\n") + "\n"
+
+    @Test func aReasoningModelsThinkingIsDecodedCountedAuditedAndNeverSentBack() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: #"{"capabilities":["completion","tools","thinking"]}"#)
+        FakeOllama.serve("/api/chat", body: Self.thinkingStream)
+        let config = Config(ollama: .init(baseURL: "http://fake.ollama:1", timeoutSeconds: 5, think: .off)).resolved
+        let model = try ModelSelection.ollama("q").resolve(config: config)
+        #expect(model.capabilityNames.contains("reasoning"))
+        let sink = MemoryAuditSink()
+        let trail = ToolEventTrail()
+        let agent = Agent(
+            instructions: "x", tools: [], model: model,
+            audit: AuditLog(session: "s", sink: sink).alsoRecording(to: trail))
+        agent.toolEvents = trail
+        let reply = try await agent.stream("Is 91 prime? One word.") { _ in }
+        #expect(reply.text == "No.")
+        // The setting reached the body: `think` false, for a model that reports thinking.
+        let first = try #require(FakeOllama.bodies(for: "/api/chat").last)
+        #expect(first.contains(#""think":false"#), "\(first)")
+        // Usage reports the thinking: one token a chunk.
+        #expect(agent.session.usage.output.reasoningTokenCount == 3)
+        // Audited at both edges, with the text and its tokens.
+        let thoughts = sink.events.filter { $0.kind == .modelReasoning }
+        #expect(thoughts.map { $0.details["phase"] } == ["start", "end"])
+        #expect(thoughts.last?.details["text"] == "Is 91 7 times 13?" && thoughts.last?.details["tokens"] == 3)
+        // Kept as the turn's reasoning entry, linked to its event; the next request does not carry it.
+        let entry = try #require(agent.store.entries.first { $0.kind == .reasoning })
+        #expect(entry.sources.first?.event == thoughts.last?.id)
+        FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"Yes."},"done":true}"# + "\n")
+        _ = try await agent.respond(to: "and 97?")
+        let second = try #require(FakeOllama.bodies(for: "/api/chat").last)
+        #expect(!second.contains("7 times") && second.contains("and 97?"), "\(second)")
+    }
+
+    @Test func thinkIsSentOnlyWhenConfiguredAndTheModelCanThink() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"ok"},"done":true}"# + "\n")
+        func body(think: OllamaThink?, capabilities: String) async throws -> String {
+            FakeOllama.serve("/api/show", body: #"{"capabilities":[\#(capabilities)]}"#)
+            let config = Config(ollama: .init(baseURL: "http://fake.ollama:1", timeoutSeconds: 5, think: think))
+            let agent = Agent(
+                instructions: "x", tools: [], model: try ModelSelection.ollama("q").resolve(config: config.resolved))
+            _ = try await agent.respond(to: "hi")
+            return FakeOllama.bodies(for: "/api/chat").last ?? ""
+        }
+        let thinking = #""completion","thinking""#
+        #expect(try await body(think: .level("high"), capabilities: thinking).contains(#""think":"high""#))
+        #expect(try await body(think: .on, capabilities: thinking).contains(#""think":true"#))
+        // Unset leaves it to Ollama; a model that cannot think is never asked.
+        #expect(!(try await body(think: nil, capabilities: thinking).contains(#""think""#)))
+        #expect(!(try await body(think: .on, capabilities: #""completion""#).contains(#""think""#)))
+        #expect(
+            OllamaBackend().settings(in: Config(ollama: .init(think: .level("low"))).resolved, home: Home.resolve())
+                .objectValue?["think"] == "low")
+    }
 }

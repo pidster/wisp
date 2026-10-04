@@ -106,6 +106,23 @@ func json(_ server: WispServer, _ uri: String) async throws -> [String: JSONValu
         }
     }
 
+    @Test func theModelsThinkingIsListedAndReadUnderItsThread() async throws {
+        let server = try threadServer(steps: [.think("Is 91 prime? 7 times 13."), .say("No.")])
+        _ = try await server.call(.init(name: "respond", arguments: ["prompt": "Is 91 prime?", "thread_id": "t"]))
+        #expect(
+            try await json(server, "wisp://threads/t")["resources"]?.objectValue?["reasoning"]
+                == .string("wisp://threads/t/reasoning"))
+        let list = try await json(server, "wisp://threads/t/reasoning")
+        let row = try #require(list["reasoning"]?.arrayValue?.first?.objectValue)
+        #expect(row["turn"] == .int(1) && row["tokens"] == .int(6) && list["total"] == .int(1))
+        let uri = try #require(row["uri"]?.stringValue)
+        #expect(uri.hasPrefix("wisp://threads/t/reasoning/"))
+        #expect(try await text(server, uri) == "Is 91 prime? 7 times 13.")
+        for bad in ["wisp://threads/t/reasoning/NOPE", "wisp://threads/t/reasoning/0123456789abcdef"] {
+            await #expect(throws: MCPError.self, "\(bad)") { _ = try await server.read(.init(uri: bad)) }
+        }
+    }
+
     @Test func collectionsArePaged() throws {
         let rows = (1...120).map { JSONValue.int($0) }
         let first = try WispServer.paged(rows, page: 1, base: "wisp://x", key: "rows").objectValue ?? [:]

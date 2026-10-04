@@ -33,7 +33,8 @@ public struct ThreadRecord: Sendable {
         case toolOutput
         /// The model's text.
         case response
-        /// The model's reasoning, for a model that reports it.
+        /// The model's reasoning, for a model that reports it (ADR 0053): kept for the person, linked to the
+        /// `model.reasoning` event that recorded it, and never composed into a request.
         case reasoning
         /// An entry of a kind this build does not know.
         case other
@@ -293,6 +294,9 @@ public struct ThreadRecord: Sendable {
     /// Whether any active entry is a command the person ran, which a composer never sends as stored.
     var carriesCommands: Bool { entries.contains { $0.kind == .command && $0.state == .active } }
 
+    /// Whether any entry is the model's reasoning, which a composer never sends.
+    var holdsReasoning: Bool { entries.contains { $0.kind == .reasoning } }
+
     /// Appends a command the person ran in chat, active, as a prompt holding what it printed.
     ///
     /// - Parameters:
@@ -313,7 +317,8 @@ public struct ThreadRecord: Sendable {
     }
 
     /// Makes `view` the active view: every active entry it does not carry is dropped by `condensation`. The
-    /// view must be drawn from the active entries, as a condensed composition is.
+    /// view must be drawn from the active entries, as a condensed composition is. The model's reasoning is never in
+    /// a view (`ContextComposer` leaves it out), so condensing leaves it as it is.
     ///
     /// - Parameters:
     ///   - view: The entries to keep active.
@@ -321,7 +326,10 @@ public struct ThreadRecord: Sendable {
     ///   - turn: The turn during which it happened, when known.
     mutating func retain(_ view: Transcript, droppedBy condensation: AuditReference?, at turn: Int? = nil) {
         let kept = Set(view.map(\.id))
-        for index in entries.indices where entries[index].state == .active && !kept.contains(entries[index].value.id) {
+        for index in entries.indices
+        where entries[index].state == .active && entries[index].kind != .reasoning
+            && !kept.contains(entries[index].value.id)
+        {
             entries[index].state = .dropped(by: condensation)
             entries[index].droppedAt = turn
         }
@@ -381,6 +389,7 @@ public struct ThreadRecord: Sendable {
         case .toolOutput(let output): segments = output.segments
         case .response(let response): segments = response.segments
         case .prompt(let prompt): segments = prompt.segments
+        case .reasoning(let reasoning): segments = reasoning.segments
         default: segments = []
         }
         return segments.compactMap { if case .text(let text) = $0 { text.content } else { nil } }.joined()
@@ -388,7 +397,8 @@ public struct ThreadRecord: Sendable {
 
     /// The audit events that recorded each of a turn's new entries, in the same order.
     ///
-    /// Prompts refer to the turn's `prompt` event and the last response to its `response` event. Each tool
+    /// Prompts refer to the turn's `prompt` event and the last response to its `response` event; each reasoning
+    /// entry, in order, to the turn's `model.reasoning` events that ended a stretch of thinking (ADR 0053). Each tool
     /// call is matched to a `tool.call` event of the same tool, with the same arguments where one has them,
     /// latest first, so a call repeated after an overflow retry links to the retry's event; a tool output
     /// refers to the `tool.result` of the event its call matched.
@@ -397,7 +407,8 @@ public struct ThreadRecord: Sendable {
     ///   - entries: The turn's new entries, in order.
     ///   - prompt: The turn's `prompt` event.
     ///   - response: The turn's `response` event; nil when the turn failed.
-    ///   - toolEvents: The turn's `tool.call` and `tool.result` events, in the order they were written.
+    ///   - toolEvents: The turn's `tool.call`, `tool.result`, and `model.reasoning` events, in the order they were
+    ///     written.
     /// - Returns: One list of references per entry.
     static func sources(
         for entries: [Transcript.Entry], prompt: AuditReference?, response: AuditReference?, toolEvents: [AuditEvent]
@@ -435,10 +446,13 @@ public struct ThreadRecord: Sendable {
                 break
             }
         }
+        var thoughts = toolEvents.filter { $0.kind == .modelReasoning && $0.details["phase"]?.stringValue == "end" }[
+            ...]
         for (index, entry) in entries.enumerated() {
             if case .toolOutput(let output) = entry, let call = auditCall[output.id], let result = results[call] {
                 sources[index] = [AuditReference(result)]
             }
+            if case .reasoning = entry, let thought = thoughts.popFirst() { sources[index] = [AuditReference(thought)] }
         }
         return sources
     }

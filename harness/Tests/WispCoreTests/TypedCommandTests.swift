@@ -142,8 +142,13 @@ import WispTestSupport
         }
         #expect(outcome.exitStatus != 0 && refused && !FileManager.default.fileExists(atPath: blocked))
         let event = try #require(made.sink.events.first { $0.kind == .commandTyped })
-        #expect(event.details["sandboxRefused"] == .bool(true))
-        #expect(ChatEvents.render(event, style: .plain)?.contains("the sandbox refused it") == true)
+        #expect(event.details["sandboxRefused"] == .bool(true) && event.details["sandboxRefusal"] == "refused")
+        // The check names the write it refused, by its real path (ADR 0054).
+        let real = CommandPolicy.canonical(blocked)
+        #expect(event.details["sandboxPaths"] == .array([.string(real)]))
+        #expect(
+            ChatEvents.render(event, style: .plain)?.contains("the sandbox refused writing to \(real)") == true,
+            "\(ChatEvents.render(event, style: .plain) ?? "")")
         #expect(made.classifier.count.withLock { $0 } == 0)
     }
 

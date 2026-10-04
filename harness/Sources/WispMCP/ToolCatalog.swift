@@ -543,6 +543,13 @@ public enum ToolCatalog {
     public static let outputTemplate = "wisp://threads/{thread_id}/output/{id}"
     /// Template for a thread's audit events.
     public static let threadAuditTemplate = "wisp://threads/{thread_id}/audit"
+    /// Template for the model's thinking in a thread (ADR 0053): each stretch's turn, tokens, and URI.
+    public static let threadReasoningListTemplate = "wisp://threads/{thread_id}/reasoning"
+    /// Template for one stretch of the model's thinking, by its `model.reasoning` event's id.
+    public static let reasoningTemplate = "wisp://threads/{thread_id}/reasoning/{id}"
+
+    /// The URI of the thinking recorded by `model.reasoning` event `id` in `thread`.
+    public static func reasoningURI(thread: String, id: String) -> String { "\(threadURI(thread))/reasoning/\(id)" }
 
     /// The URI of thread `id`'s summary; its other resources are under it.
     public static func threadURI(_ id: String) -> String { "\(threadsResourceURI)/\(id)" }
@@ -664,6 +671,17 @@ public enum ToolCatalog {
             description:
                 "The output a tool returned, verbatim from the audit log, by the id a respond result's calls give "
                 + "it; the result names this URI as outputURI when the output was too large to inline.",
+            mimeType: "text/plain"),
+        Resource.Template(
+            uriTemplate: threadReasoningListTemplate, name: "wisp thread thinking",
+            title: "The model's thinking in a respond thread",
+            description:
+                "Each stretch a reasoning model thought aloud: its turn, tokens, seconds, size, and URI, from the "
+                + "audit log; paged with ?page=N. Kept for the person; the model never gets it back.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: reasoningTemplate, name: "wisp thinking", title: "One stretch of the model's thinking",
+            description: "What the model thought, verbatim from the audit log, by its model.reasoning event's id.",
             mimeType: "text/plain"),
         Resource.Template(
             uriTemplate: threadAuditTemplate, name: "wisp thread audit", title: "Audit events of one respond thread",

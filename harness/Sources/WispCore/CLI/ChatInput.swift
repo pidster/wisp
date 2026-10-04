@@ -29,6 +29,9 @@ public enum ChatInput: Equatable, Sendable {
     case facts(all: Bool)
     /// Show the running summary of earlier turns, `/inspect summary`; with `all` its earlier versions too.
     case summary(all: Bool)
+    /// Show the model's thinking (ADR 0053), `/inspect thinking`: every stretch the conversation kept, or with a turn
+    /// number that turn's.
+    case thinking(String?)
     /// State, move, or delete a fact: `/fact …`.
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
@@ -95,6 +98,10 @@ public enum ChatInput: Equatable, Sendable {
         if lowered == "facts all" { return .facts(all: true) }
         if lowered == "summary" { return .summary(all: false) }
         if lowered == "summary all" { return .summary(all: true) }
+        if lowered == "thinking" { return .thinking(nil) }
+        if lowered.hasPrefix("thinking ") {
+            return .thinking(String(argument.dropFirst("thinking ".count)).trimmingCharacters(in: .whitespaces))
+        }
         if lowered.hasPrefix("context ") {
             return .view(String(argument.dropFirst("context ".count)).trimmingCharacters(in: .whitespaces))
         }
@@ -152,7 +159,8 @@ public enum ChatInput: Equatable, Sendable {
             names: ["tokens"], command: { _ in .tokens }),
         HelpEntry(
             usage: "/inspect [VIEW]",
-            about: "wisp's own state: status (the default), config, approvals, audit, context, facts, summary",
+            about:
+                "wisp's own state: status (the default), config, approvals, audit, context, facts, summary, thinking",
             names: ["inspect"], command: inspect),
         HelpEntry(
             usage: "/status", about: "short for /inspect status: model, tools, policy, session", names: ["status"],
@@ -177,6 +185,9 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/inspect summary [all]",
             about: "the running summary of earlier turns, with what it covers; all adds earlier versions"),
         HelpEntry(
+            usage: "/inspect thinking [N]",
+            about: "the model's thinking, kept for you and never sent back to it; N shows turn N's"),
+        HelpEntry(
             usage: "/fact SUBJECT [NAME] = VALUE", about: "state a fact as you; it outranks a tool's and the model's",
             names: ["fact"], command: { .fact(FactRequest($0)) }),
         HelpEntry(
@@ -189,7 +200,8 @@ public enum ChatInput: Equatable, Sendable {
         HelpEntry(
             usage: "/last", about: "the last tool result in full", names: ["last"], command: { _ in .last }),
         HelpEntry(
-            usage: "/show [ID]", about: "a tool output in full: an entry number or an event-id prefix (4+ characters)",
+            usage: "/show [ID]",
+            about: "a tool output or thinking in full: an entry number or an event-id prefix (4+ characters)",
             names: ["show"], command: { .show($0) }),
         HelpEntry(
             usage: "/models", about: "the models this Mac can run for this conversation",

@@ -105,7 +105,8 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         #expect(
             templates.map(\.uriTemplate) == [
                 "wisp://audit/{session}", "wisp://threads/{thread_id}", "wisp://threads/{thread_id}/output",
-                "wisp://threads/{thread_id}/output/{id}", "wisp://threads/{thread_id}/audit",
+                "wisp://threads/{thread_id}/output/{id}", "wisp://threads/{thread_id}/reasoning",
+                "wisp://threads/{thread_id}/reasoning/{id}", "wisp://threads/{thread_id}/audit",
                 "wisp://threads/{thread_id}/context", "wisp://threads/{thread_id}/context/{turn}",
                 "wisp://threads/{thread_id}/context/next", "wisp://threads/{thread_id}/facts",
                 "wisp://threads/{thread_id}/facts/{fact_id}", "wisp://threads/{thread_id}/summary",

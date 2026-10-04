@@ -126,7 +126,12 @@ import WispTestSupport
         #expect(ChatEvents.output("abcd", in: store, last: nil) == nil)  // two match
         #expect(ChatEvents.output("abc", in: store, last: nil) == nil)  // too short
         #expect(ChatEvents.output("7", in: store, last: nil) == nil)
-        #expect(ChatEvents.output(nil, in: store, last: nil) == "second")
+        // An event id whose prefix is all digits is still found by it.
+        store.record(
+            .toolOutput(.init(id: "o3", toolName: "read_file", segments: [.text(.init(content: "third"))])),
+            origin: .turn, turn: 1, sources: [AuditReference(session: "s", turn: 1, event: "12345678abcdef01")])
+        #expect(ChatEvents.output("12345678", in: store, last: nil) == "third")
+        #expect(ChatEvents.output(nil, in: store, last: nil) == "third")
         #expect(ChatEvents.output(nil, in: store, last: "live") == "live")
         #expect(ChatEvents.output(nil, in: ThreadRecord(), last: nil) == nil)
     }

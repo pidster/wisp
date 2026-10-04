@@ -5,7 +5,7 @@ public struct TypedCommand: Sendable, Equatable {
     /// How it ended.
     public enum Result: Sendable, Equatable {
         /// It ran: its outcome, the store entry that tells the model of it, and whether the sandbox appears to
-        /// have refused it (`CommandRunner.refusedBySandbox`).
+        /// have refused it (`SandboxRefusal`, ADR 0054).
         case ran(CommandRunner.Outcome, entry: Int, sandboxRefused: Bool)
         /// It did not run: the policy denied it, the directory was missing, or the shell could not start.
         case refused(CommandRunner.Failure)
@@ -71,7 +71,7 @@ extension Agent {
             return TypedCommand(line: line, directory: directory, result: .refused(failure))
         }
         let shown = Self.printed(outcome)
-        let refused = runner.refusedBySandbox(outcome)
+        let refused = outcome.sandboxRefusal?.mayBeTheSandbox ?? false
         let event = audit?.record(
             .commandTyped,
             details: AuditEvent.Details.commandTyped(

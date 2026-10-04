@@ -53,13 +53,41 @@ public enum ChatEvents {
                     + (d["reason"]?.stringValue ?? ""))
         case .condensation:
             return condensation(d, style: style)
+        case .modelReasoning where d["phase"]?.stringValue == "end":
+            return style.muted(thought(d))
         default:
             return nil
         }
     }
 
+    /// The line for a `model.reasoning` event that ends a stretch of thinking (ADR 0053): `∴ thought for 4.2 s, 42
+    /// tokens`, the thinking itself folded under it as a tool's output is.
+    ///
+    /// - Parameter d: The event's details.
+    /// - Returns: The line, unstyled.
+    static func thought(_ d: [String: JSONValue]) -> String {
+        let tokens = d["tokens"]?.intValue ?? 0
+        return "∴ thought for \(String(format: "%.1f", d["seconds"]?.doubleValue ?? 0)) s, \(tokens) token"
+            + (tokens == 1 ? "" : "s")
+    }
+
+    /// The text an event carries for a face to show folded under its line: a tool's output, what a typed command
+    /// printed, or the model's thinking when it ends; nil for any other event.
+    ///
+    /// - Parameter event: The audit event.
+    /// - Returns: The text, or nil.
+    static func shownText(of event: AuditEvent) -> String? {
+        switch event.kind {
+        case .toolResult, .commandTyped: event.details["output"]?.stringValue
+        case .modelReasoning where event.details["phase"]?.stringValue == "end": event.details["text"]?.stringValue
+        default: nil
+        }
+    }
+
     /// The line for a `command.typed` event, when it adds to what `policy.decision` and `command.outcome` show: why
-    /// a command that was allowed could not start, or that the sandbox appears to have refused it. Nil otherwise.
+    /// a command that was allowed could not start, or what the sandbox check found (ADR 0054): the write it refused,
+    /// that a path inside the roots was refused by something else, or, with no path, that it may have. Nil
+    /// otherwise.
     ///
     /// - Parameters:
     ///   - d: The event's details.
@@ -67,9 +95,25 @@ public enum ChatEvents {
     /// - Returns: The line, or nil.
     static func typed(_ d: [String: JSONValue], style: Style) -> String? {
         if let failure = d["failure"]?.stringValue { return style.ember("  · could not run it: \(failure)") }
-        guard d["sandboxRefused"]?.boolValue == true else { return nil }
-        return style.ember(
-            "  · the sandbox refused it, as it would the model's: commands write only within wisp's writable roots")
+        let paths = (d["sandboxPaths"]?.arrayValue ?? []).compactMap(\.stringValue)
+        let named = paths.prefix(3).joined(separator: ", ") + (paths.count > 3 ? " and \(paths.count - 3) more" : "")
+        switch d["sandboxRefusal"]?.stringValue {
+        case "refused":
+            return style.ember(
+                "  · the sandbox refused writing to \(named), as it would for the model: commands write only within "
+                    + "wisp's writable roots")
+        case "not-the-sandbox":
+            return style.muted("  · not the sandbox: \(named) is inside wisp's writable roots")
+        case "guess":
+            return style.ember(
+                "  · the sandbox may have refused it (no path to check), as it would the model's; no policy rule "
+                    + "denied it")
+        default:
+            guard d["sandboxRefused"]?.boolValue == true else { return nil }
+            return style.ember(
+                "  · the sandbox refused it, as it would the model's: commands write only within wisp's writable roots"
+            )
+        }
     }
 
     /// The note for a `context.condensation` event: the turns before and after, and for a condensation to a target
@@ -105,7 +149,8 @@ public enum ChatEvents {
 
     /// A tool's output as chat shows it under the call's note (decision D12 of the layered-context
     /// proposal): the person sees the output as the tool returned it, so the model need not retype it. A
-    /// command the person typed (`command.typed`) shows what it printed the same way (ADR 0049).
+    /// command the person typed (`command.typed`) shows what it printed the same way (ADR 0049), and the model's
+    /// thinking (`model.reasoning`) is shown so too (ADR 0053).
     /// At most `lines` lines and `shownOutputBytes` bytes are shown, each indented; when more remain, a
     /// last line says how much and how to see it all (`/show` with the start of the `tool.result` event's
     /// id, which is also the store's reference for the output). Nil for any other event, an empty output,
@@ -117,9 +162,7 @@ public enum ChatEvents {
     ///   - style: Styling.
     /// - Returns: The lines, joined, or nil.
     public static func shownOutput(_ event: AuditEvent, lines: Int, style: Style) -> String? {
-        guard event.kind == .toolResult || event.kind == .commandTyped, lines > 0,
-            let output = event.details["output"]?.stringValue, !output.isEmpty
-        else { return nil }
+        guard lines > 0, let output = shownText(of: event), !output.isEmpty else { return nil }
         let fold = folded(output, lines: lines)
         var shown = fold.shown.map { style.muted("    " + $0) }
         if fold.hidden > 0 {
@@ -152,9 +195,10 @@ public enum ChatEvents {
         return (shown, all.count - shown.count)
     }
 
-    /// The output `/show <argument>` asks for, whole: the tool output, or a typed command's output, with that
-    /// store entry id, or whose `tool.result` or `command.typed` event id starts with `argument` (at least four
-    /// characters), or with no argument the last one; nil when there is none.
+    /// The output `/show <argument>` asks for, whole: the tool output, a typed command's output, or the model's
+    /// thinking (ADR 0053), with that store entry id, or whose `tool.result`, `command.typed`, or `model.reasoning`
+    /// event id starts with `argument` (at least four characters), or with no argument the last tool output; nil when
+    /// there is none.
     ///
     /// - Parameters:
     ///   - argument: What follows `/show`.
@@ -162,12 +206,14 @@ public enum ChatEvents {
     ///   - last: The last tool result chat saw, which a turn not yet stored may hold.
     /// - Returns: The output, or nil.
     public static func output(_ argument: String?, in store: ThreadRecord, last: String?) -> String? {
-        let outputs = store.entries.filter { $0.kind == .toolOutput || $0.kind == .command }
+        let outputs = store.entries.filter { [.toolOutput, .command, .reasoning].contains($0.kind) }
         guard let argument, !argument.isEmpty else {
-            return last ?? outputs.last.map { ThreadRecord.text(of: $0.value) }
+            return last ?? outputs.last { $0.kind != .reasoning }.map { ThreadRecord.text(of: $0.value) }
         }
-        if let id = Int(argument) {
-            return outputs.first { $0.id == id }.map { ThreadRecord.text(of: $0.value) }
+        // An event-id prefix can be all digits (one in about forty of eight characters), so a number that names no
+        // entry is tried as a prefix too.
+        if let id = Int(argument), let entry = outputs.first(where: { $0.id == id }) {
+            return ThreadRecord.text(of: entry.value)
         }
         let prefix = argument.lowercased()
         guard prefix.count >= 4 else { return nil }

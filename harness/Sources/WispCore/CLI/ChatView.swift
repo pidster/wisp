@@ -13,6 +13,8 @@ public struct ChatView: Equatable, Sendable {
         case facts
         /// The running summary of earlier turns, `/inspect summary`.
         case summary
+        /// The model's thinking, `/inspect thinking` (ADR 0053).
+        case thinking
     }
 
     /// What it is.
@@ -66,10 +68,55 @@ public struct ChatView: Equatable, Sendable {
         }
     }
 
+    /// The view `/inspect thinking <argument>` asks for of `agent` (ADR 0053): every stretch of thinking the
+    /// conversation's store keeps, oldest first, or with a turn number only that turn's; each under its entry
+    /// number, which `/show` takes, its turn, and the tokens and seconds its `model.reasoning` event recorded when
+    /// the store knows it. Kept for the person: no request carries it.
+    ///
+    /// - Parameters:
+    ///   - argument: What follows `/inspect thinking`: nil for every turn, or a turn number.
+    ///   - agent: The conversation.
+    ///   - read: Reads an audit event back, for the stretch's tokens and seconds; nil leaves them out.
+    /// - Returns: The view, or the message.
+    public static func thinking(
+        _ argument: String?, of agent: Agent, read: ((AuditReference) -> AuditEvent?)? = nil
+    ) -> Result<ChatView, Failure> {
+        var turn: Int?
+        if let argument, !argument.isEmpty {
+            guard let number = Int(argument) else { return .failure(.thinkingUsage) }
+            turn = number
+        }
+        let entries = agent.store.entries.filter { $0.kind == .reasoning && (turn == nil || $0.turn == turn) }
+        let read = read ?? { agent.audit?.event($0) }
+        var sections = [turn.map { "# The model's thinking in turn \($0)" } ?? "# The model's thinking"]
+        if entries.isEmpty {
+            sections.append(
+                turn == nil
+                    ? "The model has not thought aloud in this conversation. A reasoning model served by Ollama "
+                        + "reports its thinking; others say nothing of it."
+                    : "The model did not think aloud in that turn.")
+        }
+        for entry in entries {
+            var head = "## \(entry.id)"
+            if let turn = entry.turn { head += " · turn \(turn)" }
+            if let event = entry.sources.first.flatMap(read), event.kind == .modelReasoning {
+                head += " · " + ChatEvents.thought(event.details).dropFirst(2)
+            }
+            sections.append(head + "\n\n" + ThreadRecord.text(of: entry.value))
+        }
+        sections.append("Kept for you: no request carries the model's thinking back to it.")
+        return .success(
+            ChatView(
+                kind: .thinking, turn: turn, turns: agent.turns.current, text: sections.joined(separator: "\n\n") + "\n"
+            ))
+    }
+
     /// Why a view could not be shown.
     public enum Failure: Error, Equatable, CustomStringConvertible {
         /// The argument is not `next`, `turns`, or a number.
         case usage
+        /// `/inspect thinking`'s argument is not a turn number.
+        case thinkingUsage
         /// No such turn in the thread's record.
         case noSuchTurn(Int, first: Int, last: Int)
 
@@ -77,6 +124,7 @@ public struct ChatView: Equatable, Sendable {
         public var description: String {
             switch self {
             case .usage: "usage: /inspect context [next|turns|N]"
+            case .thinkingUsage: "usage: /inspect thinking [N]"
             case .noSuchTurn(let turn, let first, let last):
                 last < first
                     ? "no turn \(turn): this conversation has had no turns yet"

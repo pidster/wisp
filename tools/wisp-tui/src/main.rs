@@ -168,14 +168,18 @@ fn run(
     let mut shown_label: Option<String> = None;
     terminal.draw(|frame| app.render(frame, frame.area()))?;
     loop {
-        let incoming = match rx.recv_timeout(Duration::from_millis(250)) {
+        // The thought bubble (ADR 0053) wakes the loop for each of its frames; otherwise four times a second.
+        let wait = app
+            .next_frame_in(Instant::now())
+            .unwrap_or(Duration::from_millis(250));
+        let incoming = match rx.recv_timeout(wait) {
             Ok(incoming) => Some(incoming),
             Err(mpsc::RecvTimeoutError::Timeout) => None,
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         };
         // While a turn runs, the working line's seconds tick: a wake with nothing redraws only when its
         // text has changed, so the cursor does not move four times a second.
-        let label = app.working_label(Instant::now());
+        let label = app.live_label(Instant::now());
         let ticked = incoming.is_none() && label.is_some() && label != shown_label;
         let changed = changes_the_band(incoming.as_ref()) || ticked;
         match incoming {
@@ -233,7 +237,7 @@ fn run(
         if !changed {
             continue;
         }
-        shown_label = app.working_label(Instant::now());
+        shown_label = app.live_label(Instant::now());
         // One synchronized update per frame: the terminal shows the finished frame, not the cleared band
         // of a resize or the steps of inserting lines, which it would otherwise paint as they arrive.
         let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);

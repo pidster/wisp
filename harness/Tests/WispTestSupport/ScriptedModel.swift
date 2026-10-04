@@ -16,6 +16,9 @@ public struct ScriptedModel: LanguageModel {
         case call(name: String, arguments: String)
         /// Reply with text; `{tool}` is replaced by the most recent tool output.
         case say(String)
+        /// Think aloud, word by word as reasoning events through the turn's observer as an Ollama model's thinking
+        /// is (ADR 0053), then perform the next step in the same request.
+        case think(String)
     }
 
     /// Mutable script state, behind a Mutex in a class as the concurrency rules require.
@@ -91,8 +94,22 @@ public struct ScriptedModel: LanguageModel {
                         debugDescription: "scripted overflow",
                         metadata: [:]))
             }
-            let step = script.steps.withLock { $0.isEmpty ? nil : $0.removeFirst() } ?? .say("done")
+            var step = script.steps.withLock { $0.isEmpty ? nil : $0.removeFirst() } ?? .say("done")
+            var thinking = ThinkingStretch()
+            var thought = 0
+            while case .think(let text) = step {
+                for (index, word) in text.split(separator: " ").enumerated() {
+                    let fragment = index == 0 ? String(word) : " " + word
+                    thinking.think(fragment)
+                    thought += 1
+                    await channel.send(.reasoning(action: .appendText(fragment, tokenCount: 1)))
+                }
+                step = script.steps.withLock { $0.isEmpty ? nil : $0.removeFirst() } ?? .say("done")
+            }
+            thinking.end()
             switch step {
+            case .think:
+                break
             case .call(let name, let arguments):
                 await channel.send(
                     .toolCalls(
@@ -112,7 +129,7 @@ public struct ScriptedModel: LanguageModel {
                     .response(
                         action: .updateUsage(
                             input: .init(totalTokenCount: 40, cachedTokenCount: 0),
-                            output: .init(totalTokenCount: words.count, reasoningTokenCount: 0))))
+                            output: .init(totalTokenCount: words.count + thought, reasoningTokenCount: thought))))
             }
         }
     }

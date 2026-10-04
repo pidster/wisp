@@ -582,6 +582,11 @@ public final class Agent {
         /// What the turn ran, from its audit events, as one line for beside the reply (`TurnToolSummary.line`,
         /// ADR 0051); nil when it ran no tool and the reply names none.
         public var ran: String?
+        /// The entry numbers the reply cites in wisp's reference forms that the conversation's store does not hold
+        /// (`CitedEntries`, ADR 0055), in the order cited; empty when it cites none that are missing.
+        public var unknownEntries: [Int] = []
+        /// The line beside `ran` that names `unknownEntries` (`CitedEntries.line`); nil when there are none.
+        public var cited: String?
 
         /// Creates a reply.
         public init(
@@ -667,7 +672,10 @@ public final class Agent {
         refreshFacts()
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
-            let text = try await withToolRecovery { try await withOverflowRecovery(operation) }
+            // The model's thinking is reported as it happens through the turn's observer (ADR 0053).
+            let text = try await ReasoningObserver.$current.withValue(ReasoningObserver.recording(to: audit)) {
+                try await withToolRecovery { try await withOverflowRecovery(operation) }
+            }
             var reply = Reply(text: text, condensed: condensations > before, contextNote: contextNote)
             recordStats(started: started, failure: nil)
             let responded = audit?.record(
@@ -678,6 +686,10 @@ public final class Agent {
             cutPresentation(turn: turns.current)
             reply.facts = factsChangedThisTurn
             reply.ran = turnTools?.line(reply: text, tools: tools.map(\.name))
+            // The entries the reply cites that the store does not hold, checked once the turn's own are stored.
+            let missing = CitedEntries.missing(in: text, store: store)
+            reply.unknownEntries = missing.numbers
+            reply.cited = CitedEntries.line(missing.numbers, capped: missing.capped)
             return reply
         } catch {
             recordStats(started: started, failure: "\(error)")

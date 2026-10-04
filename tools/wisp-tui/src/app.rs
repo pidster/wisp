@@ -90,6 +90,8 @@ pub enum PanelKind {
     Facts,
     /// The running summary of earlier turns (`/inspect summary`).
     Summary,
+    /// The model's thinking (`/inspect thinking`, ADR 0053): every turn's, or one turn's.
+    Thinking(Option<u64>),
 }
 
 /// A panel over the band: text to scroll, opened by Ctrl-O or by a view from wisp.
@@ -115,6 +117,8 @@ impl Panel {
             PanelKind::Turns => " context · turns ".into(),
             PanelKind::Facts => " facts ".into(),
             PanelKind::Summary => " summary ".into(),
+            PanelKind::Thinking(None) => " thinking ".into(),
+            PanelKind::Thinking(Some(turn)) => format!(" thinking · turn {turn} "),
         }
     }
 
@@ -230,6 +234,43 @@ pub struct Activity {
     pub turn_started: Instant,
     /// When it began doing this.
     pub since: Instant,
+    /// Whether the model is thinking (ADR 0053), which the busy box draws as a thought bubble from `since`.
+    pub thinking: bool,
+}
+
+/// The thought bubble the busy box draws while the model thinks (ADR 0053, the operator's design of
+/// 2026-10-04): it grows, then its dots cycle, the last four frames looping for as long as it thinks.
+pub const THINKING_FRAMES: [&str; 7] = [
+    ".",
+    ".o",
+    ".oO",
+    ".oO( thinking )",
+    ".oO( thinking. )",
+    ".oO( thinking.. )",
+    ".oO( thinking... )",
+];
+
+/// How long each frame of the thought bubble shows.
+pub const THINKING_FRAME: Duration = Duration::from_millis(280);
+
+/// The index into `THINKING_FRAMES` of the frame shown `elapsed` after thinking began: the first seven in
+/// order, then the last four again and again.
+pub fn thinking_frame(elapsed: Duration) -> usize {
+    let step =
+        usize::try_from(elapsed.as_millis() / THINKING_FRAME.as_millis()).unwrap_or(usize::MAX);
+    let first_loop = THINKING_FRAMES.len() - 4;
+    if step < THINKING_FRAMES.len() {
+        step
+    } else {
+        first_loop + (step - first_loop) % 4
+    }
+}
+
+/// How long from `elapsed` until the thought bubble's next frame, so the loop wakes in time to draw it.
+pub fn until_next_frame(elapsed: Duration) -> Duration {
+    let frame = THINKING_FRAME.as_millis();
+    let into = elapsed.as_millis() % frame;
+    Duration::from_millis(u64::try_from(frame - into).unwrap_or(1))
 }
 
 impl Activity {
@@ -319,6 +360,16 @@ impl App {
         }
     }
 
+    /// What changes on screen with time alone while a turn runs: the working line's seconds and, while the
+    /// model thinks, the thought bubble's frame; an idle wake redraws only when this has changed.
+    pub fn live_label(&self, now: Instant) -> Option<String> {
+        let working = self.working_label(now)?;
+        Some(match self.thinking_since() {
+            Some(_) => format!("{working} {}", self.busy_label(now)),
+            None => working,
+        })
+    }
+
     /// A turn's start or end: the status line's turn state, and at the end the line of what the turn ran
     /// (ADR 0051), under the reply as a muted note.
     fn turned(&mut self, turn: &Turn) {
@@ -329,6 +380,9 @@ impl App {
         }
         if let Some(ran) = &turn.ran {
             self.push(ran, LineKind::Note);
+        }
+        if let Some(cited) = &turn.cited {
+            self.push(cited, LineKind::Note);
         }
         self.turn = Some(if turn.is_start() {
             self.busy = true;
@@ -378,6 +432,7 @@ impl App {
             Outbound::Activity {
                 doing,
                 turn_seconds,
+                thinking,
                 ..
             } => {
                 let now = Instant::now();
@@ -387,6 +442,7 @@ impl App {
                         .checked_sub(Duration::from_secs_f64(turn_seconds.max(0.0)))
                         .unwrap_or(now),
                     since: now,
+                    thinking,
                 });
             }
             Outbound::Turn(turn) => self.turned(&turn),
@@ -491,6 +547,7 @@ impl App {
             ("turns", _) => PanelKind::Turns,
             ("facts", _) => PanelKind::Facts,
             ("summary", _) => PanelKind::Summary,
+            ("thinking", turn) => PanelKind::Thinking(turn),
             (_, turn) => PanelKind::Context(turn),
         };
         // Stepping keeps the reader's place: a new view of the same kind starts at the top.
@@ -1211,12 +1268,18 @@ impl App {
         width: usize,
         visible: usize,
     ) -> (Vec<Line<'static>>, Option<(usize, usize)>) {
-        // While a turn runs the box is inactive: dimmed, with what wisp is doing where the cursor would be.
+        // While a turn runs the box is inactive: dimmed, with what wisp is doing where the cursor would be, or
+        // the thought bubble while the model thinks.
         if self.busy {
-            let line = Line::from(vec![
-                Span::styled("… ", palette::busy()),
-                Span::styled(self.busy_label(), palette::busy()),
-            ]);
+            let label = self.busy_label(Instant::now());
+            let line = if self.thinking_since().is_some() {
+                Line::from(Span::styled(label, palette::busy()))
+            } else {
+                Line::from(vec![
+                    Span::styled("… ", palette::busy()),
+                    Span::styled(label, palette::busy()),
+                ])
+            };
             return (vec![line], None);
         }
         let (prompt, prompt_style, text_style) = if self.command_mode {
@@ -1263,13 +1326,32 @@ impl App {
         )
     }
 
-    /// What the inactive box says while a turn runs: `working:` and what wisp last said it is doing (a tool and
-    /// its argument, a command, waiting for the model), and how many keys are held for when it ends.
-    pub fn busy_label(&self) -> String {
-        let doing = self.activity.as_ref().map_or_else(
-            || "working…".to_string(),
-            |activity| format!("working: {}", activity.doing),
-        );
+    /// When the model began thinking, while it thinks and a turn runs; `None` otherwise.
+    pub fn thinking_since(&self) -> Option<Instant> {
+        self.activity
+            .as_ref()
+            .filter(|activity| activity.thinking && self.busy)
+            .map(|activity| activity.since)
+    }
+
+    /// How long the loop may wait for input before the busy box needs drawing again: until the thought
+    /// bubble's next frame while the model thinks, `None` otherwise.
+    pub fn next_frame_in(&self, now: Instant) -> Option<Duration> {
+        self.thinking_since()
+            .map(|since| until_next_frame(now.saturating_duration_since(since)))
+    }
+
+    /// What the inactive box says while a turn runs at `now`: `working:` and what wisp last said it is doing (a
+    /// tool and its argument, a command, waiting for the model), or the thought bubble's frame while the model
+    /// thinks, and how many keys are held for when it ends.
+    pub fn busy_label(&self, now: Instant) -> String {
+        let doing = match (self.thinking_since(), self.activity.as_ref()) {
+            (Some(since), _) => {
+                THINKING_FRAMES[thinking_frame(now.saturating_duration_since(since))].to_string()
+            }
+            (None, Some(activity)) => format!("working: {}", activity.doing),
+            (None, None) => "working…".to_string(),
+        };
         match self.held.len() {
             0 => doing,
             1 => format!("{doing} · 1 key held"),
@@ -1829,6 +1911,7 @@ mod tests {
             input_tokens: None,
             output_tokens: None,
             ran: None,
+            cited: None,
         }
     }
 
@@ -1851,6 +1934,21 @@ mod tests {
         );
         app.handle(Outbound::Turn(turn("end", 2, Some(1.0), Some("ok"))));
         assert!(texts(&mut app).is_empty());
+        // The entries a reply cites that do not exist are named beside it (ADR 0055).
+        let mut cited = turn("end", 3, Some(1.0), Some("ok"));
+        cited.ran = Some("ran: inspect".into());
+        cited.cited = Some("cited but not in this conversation: entries 19–30 (12)".into());
+        app.handle(Outbound::Turn(cited));
+        assert_eq!(
+            texts(&mut app),
+            vec![
+                ("ran: inspect".to_string(), LineKind::Note),
+                (
+                    "cited but not in this conversation: entries 19–30 (12)".to_string(),
+                    LineKind::Note
+                )
+            ]
+        );
     }
 
     #[test]
@@ -2599,6 +2697,7 @@ mod tests {
             doing: doing.into(),
             turn_started: start,
             since: start + Duration::from_secs(after),
+            thinking: false,
         };
         let at = |seconds: u64| start + Duration::from_secs(seconds);
         assert_eq!(
@@ -2951,6 +3050,130 @@ mod tests {
     }
 
     #[test]
+    fn the_thought_bubble_grows_then_its_last_four_frames_loop() {
+        let at = |frames: u32| THINKING_FRAME * frames + Duration::from_millis(1);
+        let shown: Vec<&str> = (0..15)
+            .map(|n| THINKING_FRAMES[thinking_frame(at(n))])
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ".",
+                ".o",
+                ".oO",
+                ".oO( thinking )",
+                ".oO( thinking. )",
+                ".oO( thinking.. )",
+                ".oO( thinking... )",
+                ".oO( thinking )",
+                ".oO( thinking. )",
+                ".oO( thinking.. )",
+                ".oO( thinking... )",
+                ".oO( thinking )",
+                ".oO( thinking. )",
+                ".oO( thinking.. )",
+                ".oO( thinking... )",
+            ]
+        );
+        // Within a frame the bubble holds; the loop wakes at the next frame's start.
+        assert_eq!(thinking_frame(Duration::ZERO), 0);
+        assert_eq!(
+            thinking_frame(THINKING_FRAME.saturating_sub(Duration::from_millis(1))),
+            0
+        );
+        assert_eq!(until_next_frame(Duration::ZERO), THINKING_FRAME);
+        assert_eq!(
+            until_next_frame(THINKING_FRAME + Duration::from_millis(30)),
+            THINKING_FRAME.saturating_sub(Duration::from_millis(30))
+        );
+    }
+
+    #[test]
+    fn the_busy_box_draws_the_thought_bubble_while_the_model_thinks() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Turn(turn("start", 1, None, None)));
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"thinking","asking":false,"turnSeconds":0.5,"thinking":true}"#,
+        ));
+        let Some(since) = app.thinking_since() else {
+            panic!("not thinking");
+        };
+        assert_eq!(app.busy_label(since), ".");
+        assert_eq!(
+            app.busy_label(since + THINKING_FRAME * 3),
+            ".oO( thinking )"
+        );
+        assert_eq!(
+            app.busy_label(since + THINKING_FRAME * 7),
+            ".oO( thinking )"
+        );
+        // The box holds the bubble alone, dimmed, with no cursor; the loop wakes for its frames.
+        let (lines, cursor) = app.input_lines(60, 1);
+        assert!(cursor.is_none());
+        assert!(
+            lines[0]
+                .spans
+                .iter()
+                .all(|span| span.style == palette::busy())
+        );
+        assert!(
+            app.next_frame_in(since)
+                .is_some_and(|wait| wait <= THINKING_FRAME)
+        );
+        let early = app.live_label(since).unwrap_or_default();
+        let later = app.live_label(since + THINKING_FRAME).unwrap_or_default();
+        assert!(
+            early.ends_with(" .") && later.ends_with(" .o"),
+            "{early} / {later}"
+        );
+        // A key held meanwhile is counted after the bubble.
+        app.type_char('x');
+        assert_eq!(app.busy_label(since), ". · 1 key held");
+        // When it stops thinking, the box says what wisp is doing again and the loop keeps its pace.
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"waiting for the model","asking":false,"turnSeconds":3.0}"#,
+        ));
+        assert_eq!(app.thinking_since(), None);
+        assert_eq!(app.next_frame_in(Instant::now()), None);
+        assert_eq!(
+            app.busy_label(Instant::now()),
+            "working: waiting for the model · 1 key held"
+        );
+        // Thinking is shown only while a turn runs.
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"thinking","asking":false,"turnSeconds":3.0,"thinking":true}"#,
+        ));
+        app.busy = false;
+        assert_eq!(app.thinking_since(), None);
+    }
+
+    #[test]
+    fn the_models_thinking_is_folded_like_output_and_opens_in_its_own_panel() {
+        let mut app = App::default();
+        app.handle(Outbound::parse(
+            r#"{"type":"event","kind":"model.reasoning","details":{"phase":"end"},"text":"∴ thought for 1.2 s, 9 tokens","output":{"id":"0123456789abcdef","text":"one\ntwo\nthree\n","lines":3,"bytes":14,"truncated":false,"shownLines":1}}"#,
+        ));
+        let texts: Vec<String> = app.pending.iter().map(|line| line.text.clone()).collect();
+        assert!(
+            texts.iter().any(|t| t == "∴ thought for 1.2 s, 9 tokens"),
+            "{texts:?}"
+        );
+        assert!(texts.iter().any(|t| t.contains("one")), "{texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("three")), "{texts:?}");
+        app.handle(Outbound::parse(
+            r##"{"type":"view","kind":"thinking","turn":2,"turns":3,"text":"# The model's thinking in turn 2"}"##,
+        ));
+        let Some(panel) = app.panel.as_ref() else {
+            panic!("no panel");
+        };
+        assert_eq!(panel.kind, PanelKind::Thinking(Some(2)));
+        assert_eq!(panel.title(), " thinking · turn 2 ");
+    }
+
+    #[test]
     fn keys_typed_while_a_turn_runs_are_held_and_applied_when_it_ends() {
         let mut app = App {
             status: Some(Status::default()),
@@ -2970,7 +3193,7 @@ mod tests {
         assert!(app.editor.is_empty() && !app.command_mode);
         assert_eq!(app.held.len(), 4);
         assert_eq!(
-            app.busy_label(),
+            app.busy_label(Instant::now()),
             "working: read_file README.md · 4 keys held"
         );
         // Enter does not send while held.
@@ -2999,7 +3222,7 @@ mod tests {
         // With no activity yet, the box still says it is working.
         app.busy = true;
         app.activity = None;
-        assert_eq!(app.busy_label(), "working…");
+        assert_eq!(app.busy_label(Instant::now()), "working…");
         // A dialog takes its keys even while busy; they are not held.
         app.approval = Some(approval("rm x", "rm x", &[]));
         app.type_char('q');

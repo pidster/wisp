@@ -1,6 +1,7 @@
 # ADR 0049: Commands the person types in chat
 
-Date: 2026-10-04. Status: accepted.
+Date: 2026-10-04. Status: accepted. Amended by [ADR 0054](0054-the-sandboxs-refusals-checked.md): the note for a
+command the sandbox refuses comes from a check of the paths in its error, not a guess.
 
 ## Context
 
