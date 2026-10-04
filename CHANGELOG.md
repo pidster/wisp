@@ -4,6 +4,17 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- `ollama:gemma4:12b` and `gemma4:26b` are sized from memory instead of falling back to 8,192 tokens. Ollama
+  reports gemma4's key-value heads and sliding-window layers per layer, which sizing did not read; it now counts
+  such a model layer by layer, so only the layers that attend to the whole window (8 of 48 in 12b) grow with it,
+  and counts the draft model Ollama runs beside gemma4. With 30 GB available, 12b gets its full 262,144 tokens.
+  The reason in `wisp models` and the `model.resolved` event says how the layers were counted, for example
+  `40 of 48 layers sliding-window (1,024 tokens), with a draft model`. Other models' windows are unchanged.
+
 ## 0.19.0
 
 Breaking:

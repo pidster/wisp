@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window; the local-model comparison |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 
@@ -89,10 +89,16 @@ The release given to measurement, once the four before it are out:
   [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must measure" (in its
   Consequences): the bridge against wisp's executor, prefix reuse, the cache's real cost per token, the windows
   sized for common models, the pull against the real Hub, and Core AI past its bundle's window.
-- **gemma4's window.** `wisp models` on 2026-10-04 showed `ollama:gemma4:12b` and `gemma4:26b` at 8,192 tokens
-  from `default`, not sized from memory, likely because Ollama reports gemma4's shape differently from what
-  [ADR 0043](decisions/0043-context-window-from-memory.md)'s sizing reads; both are in the model comparison, so
-  their windows must be sized first.
+- **gemma4's window.** Built ([ADR 0043](decisions/0043-context-window-from-memory.md), refined 2026-10-04).
+  `wisp models` on 2026-10-04 showed `ollama:gemma4:12b` and `gemma4:26b` at 8,192 tokens from `default`: Ollama
+  reports gemma4's key-value heads and sliding-window attention per layer, as arrays, and sizing read only a
+  number. Sizing now counts a per-layer model layer by layer: only its global layers (8 of 48 in 12b, 5 of 30 in
+  26b) grow with the window, its sliding layers cost a fixed window plus a batch, and the draft model Ollama runs
+  beside gemma4 adds one more global layer. Estimated at 18 KiB a token for 12b and 24 KiB for 26b; measured for
+  12b at exactly 18 KiB (16 for the model, 2 for its draft). On this Mac (51.5 GB) 12b reaches its full 262,144
+  tokens with 30 GB available and 126,976 with 25 GB; 26b needs about 41.5 GB available to leave the floor (at
+  most 217,088 tokens with all 51.5 GB free), so on this Mac it stays at 8,192 while much else is loaded. No other
+  installed model's window changed.
 - **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`,
   and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model

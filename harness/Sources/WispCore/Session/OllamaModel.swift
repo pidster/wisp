@@ -305,7 +305,7 @@ public struct OllamaModel: LanguageModel, Sendable {
         guard settings.contextLength == nil else {
             return OllamaModel(name: name, settings: settings, reported: shown.capabilities)
         }
-        guard let shape = ContextSizing.shape(from: shown.info) else {
+        guard let shape = ContextSizing.shape(from: shown.info, drafted: shown.drafted) else {
             return OllamaModel(
                 name: name, settings: settings, reported: shown.capabilities, window: ContextSizing.floor,
                 windowReason:
@@ -325,14 +325,19 @@ public struct OllamaModel: LanguageModel, Sendable {
         public var capabilities: [String]
         /// Architecture-prefixed facts such as `granite.context_length`.
         public var info: [String: JSONValue]
+        /// Whether Ollama runs a draft model beside this one for speculative decoding: a `DRAFT` line in its
+        /// `modelfile` (gemma4 has one), whose cache sizing counts too.
+        public var drafted: Bool
 
-        private enum CodingKeys: String, CodingKey { case capabilities, model_info }
+        private enum CodingKeys: String, CodingKey { case capabilities, model_info, modelfile }
 
         /// Decodes the response, tolerating a server that leaves either part out.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
             info = (try? container.decodeIfPresent([String: JSONValue].self, forKey: .model_info)) ?? [:]
+            let modelfile = (try? container.decodeIfPresent(String.self, forKey: .modelfile)) ?? nil
+            drafted = (modelfile ?? "").split(whereSeparator: \.isNewline).contains { $0.hasPrefix("DRAFT ") }
         }
     }
 

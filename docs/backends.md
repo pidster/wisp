@@ -80,13 +80,24 @@ Install and run [Ollama](https://ollama.com); `ollama pull <name>` fetches a mod
 is selected, wisp works out its window from the model's shape and the Mac's memory:
 - the model's maximum and shape come from `/api/show`, and its weights' size from `/api/tags`;
 - the key-value cache costs 2 × layers × key-value heads × head size × 2 bytes per token;
+- a model that reports its layers individually (gemma4: `attention.head_count_kv` and
+  `attention.sliding_window_pattern` as arrays, one entry per layer) is counted layer by layer. Only the layers
+  that attend to the whole window grow with it, at their own key-value heads × (key length + value length) × 2
+  bytes per token each. The sliding-window layers keep `sliding_window` tokens plus a batch of 2,048, at
+  `key_length_swa` and `value_length_swa` (the model's key and value lengths when those are missing), a fixed
+  cost taken off the budget first. A model whose Modelfile names a `DRAFT` (gemma4's speculative decoder) adds
+  one more whole-window layer as wide as its widest, and its working buffers are counted twice. The reason says
+  how the layers were counted, for example `40 of 48 layers sliding-window (1,024 tokens), with a draft model`;
 - the window is the largest multiple of 4,096 at which the weights, the cache, and 512 MiB of buffers fit
   half the memory available now, and no more than three quarters of installed memory, capped at the
   model's maximum;
 - it is never below 8,192 tokens.
 
 On 2026-09-29, with 19.6 GB available, `granite4.1:8b` (131,072 at most) got 24,576 tokens, estimated at
-9.2 GiB; Ollama loaded it in 8.95 GiB. The `model.resolved` audit event records the window and why.
+9.2 GiB; Ollama loaded it in 8.95 GiB. On 2026-10-04, `gemma4:12b` was measured at exactly the 18 KiB per token
+the per-layer rule estimates (16 KiB for its 8 global layers, 2 KiB for its draft model); with 30 GB available
+it gets its full 262,144 tokens. The
+`model.resolved` audit event records the window and why.
 Setting `contextLength` fixes one window for every model instead.
 
 Errors: `no Ollama server at <url>` when nothing listens; `Ollama has no model '<name>'; installed: …`

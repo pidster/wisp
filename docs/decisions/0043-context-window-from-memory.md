@@ -90,3 +90,54 @@ left for later.
   - the fallback without a shape, and a configured window winning;
   - the window reaching the `num_ctx` of each request and the agent's `contextSize`, over a fake
     Ollama.
+
+## Refined 2026-10-04: models reported per layer
+
+`wisp models` showed `gemma4:12b` and `gemma4:26b` at 8,192 tokens from `default`. Ollama's `/api/show` reports
+gemma4's `attention.head_count_kv` as an array, one entry per layer (12b: 48 entries, 8 on sliding layers and 1
+on global ones; 26b: 30 entries, 8 and 2), with `attention.sliding_window` (1,024) and a 48- or 30-entry
+`attention.sliding_window_pattern` (five sliding layers to each global one), `key_length` and `value_length`
+512 for global layers and `key_length_swa` and `value_length_swa` 256 for sliding ones. The sizing read a number,
+found none, and fell back. No other installed model (`granite`, `llama`, `mistral3`, `qwen35`, `qwen3moe`,
+`deepseek2`) reports an array or a sliding window.
+
+The rule now counts such a model layer by layer:
+
+```
+bytes per token = Σ over global layers of key-value heads × (key length + value length) × 2
+fixed bytes     = Σ over sliding layers of key-value heads × (key_length_swa + value_length_swa) × 2
+                  × min(window, sliding_window + 2,048)
+```
+
+The fixed bytes come off the budget before the window is counted; the swa lengths fall back to the model's
+when missing; a model reported as one number is sized exactly as before. The 2,048 is a batch: llama.cpp sizes a
+sliding cache at the window plus one batch of cells, and Ollama chose batches of 512, 1,024, and 2,048 in the
+probes below, so the largest is assumed.
+
+gemma4's Modelfile also names a `DRAFT`, a four-layer `gemma4-assistant` model that Ollama runs beside it for
+speculative decoding and that `/api/show` does not describe. Its GGUF header gives one global layer as wide as
+the model's widest (1 head for 12b, 2 for 26b) and three sliding layers. A drafted model is therefore counted
+with one more global layer of that width, and with its 512 MiB of working buffers twice. The draft sets
+`shared_kv_layers` to 4, every layer, yet Ollama allocated each of its caches, so `shared_kv_layers` is not read:
+it is 0 on both gemma4 models, and the one place it is not 0 showed no saving.
+
+Measured on 2026-10-04 on this Mac (Ollama 0.35.1, which runs gemma4 through llama-server), loading
+`gemma4:12b` with a one-token prompt at three windows and reading the cache llama.cpp allocated from Ollama's
+server log:
+
+| `num_ctx` | Batch | Global layers (model + draft) | Sliding layers (model + draft) |
+| --- | --- | --- | --- |
+| 8,192 | 1,024 | 128 + 16 MiB | 640 + 48 MiB (2,048 cells) |
+| 65,536 | 2,048 | 1,024 + 128 MiB | 960 + 72 MiB (3,072 cells) |
+| 131,072 | 512 | 2,048 + 256 MiB | 480 + 36 MiB (1,536 cells) |
+
+Between 8,192 and 131,072 the global caches grew by exactly 18 KiB a token (16 for the model, 2 for the draft),
+the estimate; counting every layer for the whole window, at its own heads and lengths, would give 336 KiB. `/api/ps` could not be
+used as it was for granite: for gemma4 it reported 1.39, 2.23, and 1.52 GB at the three windows, less than the
+weights and not growing with the window, so a gemma4 model that is already loaded is under-counted as held,
+which errs towards a smaller window. Working buffers grew with the batch (about 0.5 GiB at 1,024, 2 GiB at
+2,048, the draft and the vision and audio projectors included), which the 512 MiB overhead, doubled for a
+drafted model, covers only at the smaller batches; the budget's half of available memory is the margin. Ollama's
+own scheduler predicted 12.5 GiB for 12b at 131,072 tokens, against 11.7 GiB by this rule.
+`gemma4:26b` (18.7 GB of weights) was not loaded: with about 19 GB available and another model in use it would
+not have fitted. Its estimate is 24 KiB a token (5 global layers of 2 heads, and its draft's) and 600 MiB fixed.
