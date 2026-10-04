@@ -105,7 +105,8 @@ The release given to measurement, once the four before it are out:
   fixed 4 KiB; the whole output kept in the thread's output store, with a marker saying what is held back;
   `memory` recall and `read_file` to page it; an overview or the notable lines of an output or a file (a
   build that succeeded summarised compactly, one that failed by its root causes), exact readers first and
-  a model only where they fall short; `memory "condense entry N: <question>"` to answer from all of it;
+  a model only where they fall short; `memory "condense entry N: <question>"` to answer from all of it; filters over the stored output, and
+  never a command run again to see more of what it printed;
   `inspect(audit)` by turn, one line per call. `run_command` stops discarding all but the tail. Found when a
   model asked to check its turn read only its last 20 audit events.
 

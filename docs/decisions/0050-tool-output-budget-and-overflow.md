@@ -58,18 +58,26 @@ its root causes when it failed.
   A result is never cut without a marker, and a marker never understates what was held back. What the
   marker says about the content is found exactly, without a model: the exit status, and the first line
   in a known failure format (the formats `triage` reads, [ADR 0039](0039-exact-condensers.md)).
-- **Four ways to process more than fits.**
+- **Four ways to process more than fits, each reading what is stored.**
   - *Page it*: `memory` recall, which already pages, becomes the one route to every tool's held-back
     output, by the entry the marker names, and `read_file` keeps paging a file, both a budget at a time.
   - *Summarise it*: an overview, or the notable lines, of all of it (below).
-  - *Narrow it*: the marker suggests running the command again with a filter (`grep`, `--since`, `jq`)
-    where the output was a command's.
+  - *Filter it*: `memory "recall entry 7 matching <pattern>"` returns the stored lines that match, with
+    their line numbers and a count of the rest, a budget at a time. The filter runs over what is stored;
+    the command is not run again.
   - *Condense it*: `memory "condense entry N: <question>"` runs a chunked pass over the whole stored output
     on device, each chunk within the budget, and combines the chunks' answers into one that fits, with the
     lines it drew on. It is the mechanism `triage` and `condense_log` already use
     ([ADR 0023](0023-condensing-tools.md), [ADR 0032](0032-log-and-json-condensers.md)), driven by the
     model's question. Paging alone is not enough: a model reading page after page can lose the earlier
     pages to condensing, so it needs a way to ask about the whole output at once.
+- **Wisp never runs a command again to see its output.** Every way above reads the stored output. A
+  command may not give the same output twice (a build, a test run, a clock, the network), may be slow or
+  costly, or may change something (a write, a push, a deletion), so running it again to read more of
+  what it printed is never the route: not in a marker, not in a summary's advice, not in wisp's system
+  prompt, which tells the model to read the stored output instead. A command run again is a new command,
+  chosen as one, approved as one, and audited as one; where the stored output was cut at the 16 MiB
+  ceiling, the marker says so, and says the rest was not kept, rather than suggesting the command again.
 - **Summaries: an overview, or what is notable.** The model can ask for either, of a held-back output
   (`memory "summarise entry 7"`, `memory "summarise entry 7 overview"`) or of a file (`read_file` with
   `summary: notable` or `overview`, beside its paging), and gets a result within the budget, each point
