@@ -99,7 +99,7 @@ Tables and links in replies are shown as typed.
 
 ## When wisp can be signed
 
-Two things wait on a Developer ID or App Store signature rather than on code.
+Three things wait on a Developer ID or App Store signature rather than on code.
 
 - **A notification helper app.** `Wisp Notifier.app`, a tiny agent bundle (`LSUIElement`) in the
   formula's `libexec`, posting through `UserNotifications` instead of `osascript`
@@ -112,6 +112,18 @@ Two things wait on a Developer ID or App Store signature rather than on code.
   when it is installed and authorised, and fall back to `osascript` otherwise. The open fact to settle
   first: whether macOS grants notification authorisation to the bundle as shipped; signing removes
   that doubt.
+- **A DMG, with the package declaring its layout.** An app bundle in a disk image, signed and notarised,
+  beside the Homebrew formula. Its layout differs from the formula's: `wisp` in `Contents/MacOS` or
+  `Contents/Helpers`, `mlx.metallib` and other resources in `Contents/Resources`. Today wisp finds its
+  parts by searching from its own real path: `wisp-tui` beside it or in a `bin` beside its folder
+  (0.18.1, after 0.17.0's move of `wisp` into `libexec` sent `wisp chat` to the plain chat without a
+  word), and the MLX library beside it ([ADR 0047](decisions/0047-mlx-in-the-release.md)). Each new
+  layout would need a code change and a release. Instead, each package declares where its parts are,
+  relative to `wisp`, at build time: the app's `Info.plist`, or a small manifest in the formula's
+  `libexec`. The search stays as the fallback for a build directory, and a `WISP_TUI` variable, like
+  `WISP_BIN`, overrides for an odd set-up. `wisp doctor` checks every part the package declares, which
+  would have caught 0.17.0's regression before release. Not a `config.json` setting: the layout is a
+  fact of the package, not a choice for the person (the operator, 2026-10-04).
 - **Private Cloud Compute.** The `com.apple.developer.private-cloud-compute` entitlement is granted to
   signed App Store apps only ([backends.md](backends.md), "Private Cloud Compute").
 
