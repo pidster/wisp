@@ -319,15 +319,14 @@ struct Chat: AsyncParsableCommand {
     @Flag(name: .long, help: "The plain line-based chat, even when wisp-tui is installed beside wisp.")
     var plain = false
 
-    /// The front end to hand a terminal session to: `wisp-tui` beside this executable, when it exists
-    /// and the session is interactive and not already headless or asked to stay plain.
+    /// The front end to hand a terminal session to: `wisp-tui` where `FrontEnd` finds it, when the session is
+    /// interactive and not already headless or asked to stay plain.
     static func frontEnd(
         besides executable: URL, json: Bool, plain: Bool, interactive: Bool,
         exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> URL? {
         guard !json, !plain, interactive else { return nil }
-        let candidate = executable.deletingLastPathComponent().appending(path: "wisp-tui")
-        return exists(candidate.path) ? candidate : nil
+        return FrontEnd.locate(besides: executable, exists: exists)
     }
 
     /// Replaces this process with `wisp-tui`, which spawns `wisp chat --json` on this same binary.
@@ -346,9 +345,7 @@ struct Chat: AsyncParsableCommand {
             for name in try store.list() { print(name) }
             return
         }
-        // The real path of this process, not argv[0], which is a bare name when launched through PATH.
-        let executable = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
-            .resolvingSymlinksInPath()
+        let executable = FrontEnd.runningExecutable
         let interactive =
             isatty(FileHandle.standardInput.fileDescriptor) != 0
             && isatty(FileHandle.standardOutput.fileDescriptor) != 0

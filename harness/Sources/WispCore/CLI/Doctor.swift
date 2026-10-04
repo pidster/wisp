@@ -39,6 +39,8 @@ public struct Doctor: Sendable {
         public var osascriptPresent: @Sendable () -> Bool
         /// Findings the registered backends report about themselves (MLX's Metal library), in scheme order.
         public var backends: @Sendable () -> [Finding]
+        /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
+        public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -72,7 +74,11 @@ public struct Doctor: Sendable {
             },
             environment: { ProcessInfo.processInfo.environment }, terminalOpens: TerminalNotification.ttyOpens,
             osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") },
-            backends: { ModelBackends.all.compactMap { $0.doctorFinding() } })
+            backends: { ModelBackends.all.compactMap { $0.doctorFinding() } },
+            frontEnd: {
+                let executable = FrontEnd.runningExecutable
+                return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
+            })
 
         /// Creates probes.
         public init(
@@ -85,7 +91,8 @@ public struct Doctor: Sendable {
             environment: @escaping @Sendable () -> [String: String] = { [:] },
             terminalOpens: @escaping @Sendable () -> Bool = { false },
             osascriptPresent: @escaping @Sendable () -> Bool = { true },
-            backends: @escaping @Sendable () -> [Finding] = { [] }
+            backends: @escaping @Sendable () -> [Finding] = { [] },
+            frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) }
         ) {
             self.systemModel = systemModel
             self.configuredModel = configuredModel
@@ -95,6 +102,7 @@ public struct Doctor: Sendable {
             self.terminalOpens = terminalOpens
             self.osascriptPresent = osascriptPresent
             self.backends = backends
+            self.frontEnd = frontEnd
         }
     }
 
@@ -135,7 +143,7 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), notifyRoute(), homeWritable(), pendingApprovals(),
+            subjectKinds(), savedTranscripts(), notifyRoute(), frontEndFinding(), homeWritable(), pendingApprovals(),
         ]
         // The window follows the model checks, so it can say "not checked" when they failed.
         let modelProblem = model == .system ? probes.systemModel() : nil
@@ -151,6 +159,19 @@ public struct Doctor: Sendable {
         let afterModels = findings.firstIndex { $0.name == "sandbox" } ?? findings.endIndex
         findings.insert(contentsOf: probes.backends(), at: afterModels)
         return findings
+    }
+
+    /// Where `wisp chat` finds `wisp-tui`. Not finding it is no failure, since the plain chat works, but it says
+    /// so, where `wisp chat` falls back to the plain chat without a word.
+    private func frontEndFinding() -> Finding {
+        let (found, looked) = probes.frontEnd()
+        if let found {
+            return Finding(name: "front end", ok: true, detail: "\(found.path); wisp chat hands a terminal to it")
+        }
+        let places = looked.map { $0.deletingLastPathComponent().path }.joined(separator: ", ")
+        return Finding(
+            name: "front end", ok: true,
+            detail: "no wisp-tui in \(places.isEmpty ? "the places looked" : places); wisp chat is the plain chat")
     }
 
     private func classifier() -> Finding {

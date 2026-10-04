@@ -35,8 +35,9 @@ wisp --no-tools --schema verdict.json "Which language is this: fn main() {}"
 Interactive session. Lines starting with `/` are commands; a line starting with `!` is a shell command you run
 yourself ("Commands you run yourself", below); anything else goes to the model. Replies stream.
 
-On a terminal, when `wisp-tui` is installed beside `wisp` (the Homebrew formula installs both), `wisp chat`
-hands the session to it: the conversation scrolls in the terminal's own scrollback above a pinned band
+On a terminal, when `wisp-tui` is installed beside `wisp`, or in a `bin` beside the folder `wisp` is in (the
+Homebrew formula installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp chat` hands the session to it;
+`wisp doctor`'s `front end` finding says where it found it, or where it looked: the conversation scrolls in the terminal's own scrollback above a pinned band
 with the reply in progress, an approval dialog, the input, and the status
 ([ADR 0029](decisions/0029-tui-front-end.md)). `--plain` keeps the line-based chat below; a piped
 session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and can be run directly.
@@ -540,6 +541,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
 | `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
 | `notify` | Notifications are on and no route can post one (no terminal sequence, the app route off or without a bundle identifier, and no `/usr/bin/osascript`). Otherwise it names the route `wisp notify` would take here and why, and the routes passed over: `terminal: Ghostty posts OSC 9 notifications`, or `osascript: banners come from Script Editor; terminal: Terminal.app has no notification sequence; app: off (notifications.viaTerminalApp)`. Nothing is posted: the terminal route is judged by whether `/dev/tty` opens. `off (notifications.enabled)` when turned off. `wisp-tui` posts through its own terminal whatever this says. |
+| `front end` | Never; it says where `wisp chat` finds `wisp-tui`, or the folders it looked in and that `wisp chat` is then the plain chat. |
 | `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait, how many facts wait to be kept (`wisp facts pending`, when any do), and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 
 ### `wisp notify <message>`

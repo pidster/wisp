@@ -40,7 +40,7 @@ import WispTestSupport
         #expect(
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
-                "subject kinds", "saved transcripts", "notify", "home",
+                "subject kinds", "saved transcripts", "notify", "front end", "home",
                 "pending approvals",
             ])
         let broken = Doctor.Probes(
@@ -49,7 +49,7 @@ import WispTestSupport
         #expect(
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
-                "settings", "facts store", "subject kinds", "saved transcripts", "notify", "home",
+                "settings", "facts store", "subject kinds", "saved transcripts", "notify", "front end", "home",
                 "pending approvals",
             ])
         #expect(!extra[1].ok && extra[1].detail == "not enabled")
@@ -191,5 +191,29 @@ import WispTestSupport
         let fallback = try detail(
             .init(size: 8192, note: "8,192, the default: Ollama reported no model shape"), .ollama("x"))
         #expect(fallback.contains("the default, not sized"))
+    }
+
+    /// Where `wisp chat` finds `wisp-tui`, said either way; not finding it is no failure.
+    @Test func theFrontEndSaysWhereItIsOrWhereItWasLookedFor() throws {
+        let home = Home(
+            root: FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-\(UUID().uuidString)"))
+        let bin = URL(fileURLWithPath: "/opt/homebrew/Cellar/wisp/0.18.1/bin/wisp-tui")
+        let libexec = URL(fileURLWithPath: "/opt/homebrew/Cellar/wisp/0.18.1/libexec/wisp-tui")
+        let found = Doctor(
+            home: home, model: .system,
+            probes: .init(
+                systemModel: { nil }, configuredModel: { _, _, _ in nil }, frontEnd: { (bin, [libexec, bin]) })
+        ).run()
+        let present = try #require(found.first { $0.name == "front end" })
+        #expect(present.ok && present.detail.hasPrefix("/opt/homebrew/Cellar/wisp/0.18.1/bin/wisp-tui"))
+        let missing = Doctor(
+            home: home, model: .system,
+            probes: .init(
+                systemModel: { nil }, configuredModel: { _, _, _ in nil }, frontEnd: { (nil, [libexec, bin]) })
+        ).run()
+        let absent = try #require(missing.first { $0.name == "front end" })
+        #expect(absent.ok)
+        #expect(
+            absent.detail.contains("libexec") && absent.detail.contains("/bin") && absent.detail.contains("plain chat"))
     }
 }

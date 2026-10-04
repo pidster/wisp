@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- `wisp chat` from the Homebrew install opened the plain chat instead of `wisp-tui` (since 0.17.0): the
+  formula puts `wisp` in `libexec`, beside the MLX library, and `wisp-tui` in `bin`, and `wisp chat` looked
+  only beside itself. It now also looks in a `bin` beside its folder, and `wisp doctor` gains a `front end`
+  finding that says where it found `wisp-tui`, or where it looked.
+
 ## 0.18.0
 
 Breaking:
