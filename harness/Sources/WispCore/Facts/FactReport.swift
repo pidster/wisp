@@ -11,19 +11,15 @@ public enum FactReport {
     /// Proposals from the process's other conversations follow, under their own heading, by the reference
     /// `/fact` takes (`git/c3`).
     ///
-    /// The running summary follows the facts, under its own heading: the current version, and with `all` the
-    /// versions it superseded, newest first.
+    /// The running summary is not shown here; it has its own view (`summaryMarkdown`).
     ///
     /// - Parameters:
     ///   - facts: Every fact the conversation sees, in any state (`Agent.allFacts`).
     ///   - all: Whether to include superseded and deleted versions.
     ///   - elsewhere: Proposed permanent facts of other conversations awaiting the person
     ///     (`Agent.proposalsElsewhere`).
-    ///   - summaries: The running summary's versions, oldest first (`ThreadRecord.summaries`).
     /// - Returns: The text.
-    public static func markdown(
-        _ facts: [Fact], all: Bool, elsewhere: [FactProposal] = [], summaries: [RunningSummary] = []
-    ) -> String {
+    public static func markdown(_ facts: [Fact], all: Bool, elsewhere: [FactProposal] = []) -> String {
         let view = FactView(facts)
         let shown = facts.filter { all || $0.state == .current }.sorted { lhs, rhs in
             lhs.identity.key != rhs.identity.key ? lhs.identity.key < rhs.identity.key : lhs.recorded < rhs.recorded
@@ -31,7 +27,7 @@ public enum FactReport {
         let title = all ? "# Facts, with their history" : "# Facts"
         guard !shown.isEmpty else {
             return title + "\n\nNo facts yet. `/fact SUBJECT [NAME] = VALUE` states one; `/task TEXT` sets the task.\n"
-                + summary(summaries, all: all) + proposals(elsewhere)
+                + proposals(elsewhere)
         }
         var rows = [
             title, "",
@@ -54,21 +50,26 @@ public enum FactReport {
             "\(view.groups.count) subject\(view.groups.count == 1 ? "" : "s") in force"
                 + (conflicts > 0 ? ", \(conflicts) in conflict" : "")
                 + ". `/fact delete ID` deletes one; `/fact ID permanent|thread|session` moves one.")
-        return rows.joined(separator: "\n") + "\n" + summary(summaries, all: all) + proposals(elsewhere)
+        return rows.joined(separator: "\n") + "\n" + proposals(elsewhere)
     }
 
-    /// The section showing the running summary, or nothing when none was written.
+    /// The running summary as `/inspect summary` shows it: the current version with what it covers and who
+    /// wrote it when, and with `all` the versions it superseded, newest first; or a line saying there is none
+    /// yet and when one is written.
     ///
     /// - Parameters:
-    ///   - summaries: Its versions, oldest first.
+    ///   - summaries: The versions, oldest first (`ThreadRecord.summaries`).
     ///   - all: Whether to show the superseded versions too.
-    /// - Returns: The section, starting with a blank line.
-    static func summary(_ summaries: [RunningSummary], all: Bool) -> String {
-        guard let current = summaries.last else { return "" }
-        var rows = ["", "## Summary of earlier turns", "", describe(current), "", current.text]
+    /// - Returns: The text.
+    public static func summaryMarkdown(_ summaries: [RunningSummary], all: Bool) -> String {
+        guard let current = summaries.last else {
+            return "# Summary of earlier turns\n\nNo summary yet: one is written when condensing has dropped three or "
+                + "more turns that are not summarised yet.\n"
+        }
+        var rows = ["# Summary of earlier turns", "", describe(current), "", current.text]
         if all {
             for earlier in summaries.dropLast().reversed() {
-                rows += ["", "### Superseded: " + describe(earlier), "", earlier.text]
+                rows += ["", "## Superseded: " + describe(earlier), "", earlier.text]
             }
         } else if summaries.count > 1 {
             rows += ["", "\(summaries.count - 1) earlier version\(summaries.count == 2 ? "" : "s"); `all` shows them."]
@@ -83,7 +84,7 @@ public enum FactReport {
             + summary.recorded.ISO8601Format() + "."
     }
 
-    /// A summary version as JSON, for the thread's facts resource.
+    /// A summary version as JSON, for the thread's summary resource.
     ///
     /// - Parameter summary: The version.
     /// - Returns: The object.

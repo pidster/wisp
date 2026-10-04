@@ -11,6 +11,8 @@ public struct ChatView: Equatable, Sendable {
         case turns
         /// The facts the model is given, `/inspect facts`.
         case facts
+        /// The running summary of earlier turns, `/inspect summary`.
+        case summary
     }
 
     /// What it is.

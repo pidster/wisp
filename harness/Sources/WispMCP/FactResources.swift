@@ -54,9 +54,8 @@ extension WispServer {
     }
 
     /// Serves `wisp://threads/{thread_id}/facts[/{fact_id}]`: the thread's own facts, those its store holds,
-    /// and the collection's `summary`, the running summary of the turns condensing dropped (null before the
-    /// first), with every version in `summaries` under `?all=true`. The session's and the permanent facts have
-    /// resources of their own.
+    /// The session's and the permanent facts have resources of their own, and the running summary has
+    /// `wisp://threads/{thread_id}/summary`.
     ///
     /// - Parameters:
     ///   - id: The thread.
@@ -97,10 +96,35 @@ extension WispServer {
         var listing = try listing(own, page: page, all: all, base: base, view: view)
         let keys = Set(own.filter { $0.state == .current }.map(\.identity.key))
         listing = Self.with(listing, "conflicts", .int(view.conflicts.intersection(keys).count))
-        let summaries = await open.thread.summaries() ?? []
-        listing = Self.with(listing, "summary", summaries.last.map(FactReport.json) ?? .null)
-        if all { listing = Self.with(listing, "summaries", .array(summaries.map(FactReport.json))) }
         return listing
+    }
+
+    /// Serves `wisp://threads/{thread_id}/summary`: the running summary of the turns condensing dropped, as
+    /// `summary` (null before the first), with every version in `summaries` under `?all=true`.
+    ///
+    /// - Parameters:
+    ///   - id: The thread.
+    ///   - all: Whether to include every version.
+    /// - Returns: The JSON.
+    /// - Throws: `MCPError.invalidParams` for a thread that is not open or keeps no facts (so no summary).
+    func readSummary(thread id: String, all: Bool) async throws -> JSONValue {
+        guard let open = await threads.peek(id) else {
+            if let record = directory.record(id) {
+                throw MCPError.invalidParams(
+                    "thread \(id) is \(record.state.rawValue); its summary went with it, and its audit remains under "
+                        + "\(ToolCatalog.threadURI(id))/audit")
+            }
+            throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
+        }
+        guard let summaries = await open.thread.summaries() else {
+            throw MCPError.invalidParams("thread \(id) keeps no summary (facts.enabled is false)")
+        }
+        var result: [String: JSONValue] = [
+            "thread_id": .string(id), "summary": summaries.last.map(FactReport.json) ?? .null,
+            "versions": .int(summaries.count),
+        ]
+        if all { result["summaries"] = .array(summaries.map(FactReport.json)) }
+        return .object(result)
     }
 
     /// The thread's current task and who set it, or null when it has none or keeps no facts.

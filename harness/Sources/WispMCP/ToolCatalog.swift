@@ -561,6 +561,8 @@ public enum ToolCatalog {
     public static let factsTemplate = "wisp://threads/{thread_id}/facts"
     /// Template for one of a thread's facts, with its history.
     public static let factTemplate = "wisp://threads/{thread_id}/facts/{fact_id}"
+    /// Template for a thread's running summary of earlier turns.
+    public static let summaryTemplate = "wisp://threads/{thread_id}/summary"
     /// URI of the permanent facts in the shared store.
     public static let factsResourceURI = "wisp://facts"
     /// Template for one permanent fact, with its history.
@@ -700,6 +702,14 @@ public enum ToolCatalog {
             uriTemplate: factTemplate, name: "wisp thread fact history",
             title: "One of a thread's facts and every version of what it is about",
             description: "The fact, and every version the thread holds of its subject and name, oldest first.",
+            mimeType: "application/json"),
+        Resource.Template(
+            uriTemplate: summaryTemplate, name: "wisp thread summary",
+            title: "A thread's running summary of earlier turns",
+            description:
+                "The summary the model is given in place of the turns condensing dropped: its version, text, how "
+                + "many turns it covers, and who wrote it when, or null before the first; ?all=true adds every "
+                + "version. Its facts are at wisp://threads/{thread_id}/facts.",
             mimeType: "application/json"),
         Resource.Template(
             uriTemplate: permanentFactTemplate, name: "wisp permanent fact history",

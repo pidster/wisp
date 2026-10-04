@@ -213,7 +213,7 @@ a `Mutex` since every operation is one short critical section, the permanent one
 with the config's `SubjectKinds`, to each agent as `FactSettings`, so an MCP server's threads share the
 session's facts. `FactView` merges the current facts of the three books by `{subject, name}` and orders
 each group's heads by precedence; `FactComposition` renders the frame within `factsShare` of the window;
-`FactReport` renders them for the person (`/inspect facts`, `/task`, the MCP facts resources). The
+`FactReport` renders them for the person (`/inspect facts`, `/inspect summary`, `/task`, the MCP facts and summary resources). The
 person's changes go through `Agent.stateFact`, `deleteFact`, `setFactScope`, and `setTask`, each audited.
 
 Proposed permanent facts are also mirrored, whenever a conversation's facts change

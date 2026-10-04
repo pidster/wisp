@@ -21,7 +21,7 @@ public enum ChatCompletion {
     ]
 
     /// What `/inspect`, kept as an alias, shows.
-    static let views = ["config", "status", "approvals", "audit", "context", "facts"]
+    static let views = ["config", "status", "approvals", "audit", "context", "facts", "summary"]
 
     /// The candidates for the word at `cursor` (a character index, the end by default) in `text`.
     ///
@@ -56,7 +56,7 @@ public enum ChatCompletion {
         case ["/model"]: pool = ConfigSettings.setting("model").map(options) ?? []
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]
-        case ["/inspect", "facts"]: pool = ["all"]
+        case ["/inspect", "facts"], ["/inspect", "summary"]: pool = ["all"]
         case ["/fact"]: pool = ["delete"] + factIDs + subjects
         case ["/fact", "delete"]: pool = factIDs
         case let words where words.count == 2 && words[0] == "/fact" && factIDs.contains(words[1]):

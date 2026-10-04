@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 import Testing
 import WispTestSupport
 
@@ -120,19 +121,60 @@ import WispTestSupport
         #expect(FactFrame.isFrame(sent[1]) && ContextArchive.text(block.segments).contains("This is a record"))
     }
 
-    @Test func inspectFactsShowsTheSummaryAndItsHistory() {
+    @Test func inspectSummaryShowsTheSummaryAndItsHistory() {
         let summaries = [Self.version(1, "First version."), Self.version(2, "Second version.", covered: 6)]
-        let current = FactReport.markdown([], all: false, summaries: summaries)
-        #expect(current.contains("## Summary of earlier turns\n\nVersion 2, covering the 6 earliest turns"))
+        let current = FactReport.summaryMarkdown(summaries, all: false)
+        #expect(current.hasPrefix("# Summary of earlier turns\n\nVersion 2, covering the 6 earliest turns"))
         #expect(current.contains("Second version.") && !current.contains("First version."))
         #expect(current.contains("1 earlier version; `all` shows them."))
-        let all = FactReport.markdown([], all: true, summaries: summaries)
+        let all = FactReport.summaryMarkdown(summaries, all: true)
         #expect(
-            all.contains("### Superseded: Version 1, covering the 3 earliest turns") && all.contains("First version."))
-        #expect(!FactReport.markdown([], all: false).contains("Summary of earlier turns"))
+            all.contains("## Superseded: Version 1, covering the 3 earliest turns") && all.contains("First version."))
+        let none = FactReport.summaryMarkdown([], all: false)
+        #expect(none.contains("No summary yet: one is written when condensing has dropped three or more turns"))
+        // The facts view no longer carries it.
+        let facts = FactReport.markdown([], all: false)
+        #expect(!facts.contains("Summary of earlier turns") && !facts.contains("Second version."))
         let json = FactReport.json(summaries[1])
         #expect(json.objectValue?["version"] == 2 && json.objectValue?["text"] == "Second version.")
         #expect(json.objectValue?["covered"] == 6 && json.objectValue?["turn"] == 4)
+    }
+
+    @Test func theLoopShowsTheSummaryOnItsOwnAndLeavesItOutOfTheFacts() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-chat-summary-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let agent = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok")])))
+        agent.facts = FactSettings()
+        #expect(ChatInput(line: "/inspect summary") == .summary(all: false))
+        #expect(ChatInput(line: "/inspect Summary all") == .summary(all: true))
+        #expect(ChatInput.helpText.contains("/inspect summary [all]"))
+        #expect(ChatCompletion.complete("/inspect su").candidates == ["summary"])
+        #expect(ChatCompletion.complete("/inspect summary ").candidates == ["all"])
+        let shown = Mutex<[ChatView]>([])
+        var io = ChatLoopTests.Capture(lines: ["/inspect summary", "/inspect facts", "quit"]).io
+        io.view = { view in shown.withLock { $0.append(view) } }
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context, io: io)
+        try await loop.run()
+        let empty = shown.withLock { $0 }
+        #expect(empty.map(\.kind) == [.summary, .facts])
+        #expect(empty[0].text.contains("No summary yet"))
+        #expect(!empty[1].text.contains("Summary of earlier turns"))
+
+        agent.store.summarise(Self.version(1, "The caller read Package.swift first."))
+        let capture = ChatLoopTests.Capture(lines: ["/inspect summary", "/inspect facts", "quit"])
+        var plain = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            io: capture.io)
+        try await plain.run()
+        let out = capture.output
+        #expect(out.contains("# Summary of earlier turns\n\nVersion 1, covering the 3 earliest turns"))
+        #expect(out.contains("The caller read Package.swift first."))
+        let facts = out.components(separatedBy: "# Facts").dropFirst().joined()
+        #expect(!facts.contains("The caller read Package.swift first.") && !facts.contains("Summary of earlier turns"))
     }
 
     @Test func theVersionsAreSavedWithTheStoreAndRestored() throws {

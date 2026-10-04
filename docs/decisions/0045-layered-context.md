@@ -202,6 +202,7 @@ under the guard.
   `session` only until the operator decides how permanent facts are managed there
   ([ADR 0044](0044-host-effects.md)). Settled: host effects by [ADR 0046](0046-approval-and-notifications-over-mcp.md),
   permanent facts by [ADR 0048](0048-permanent-facts-over-mcp.md).
-- **The summary's visibility** (`/inspect facts`, the facts resource) is judged in use.
+- **The summary's visibility** was judged in use: on 2026-10-04 the operator gave it a place of its own
+  (`/inspect summary`, `wisp://threads/{thread_id}/summary`) and took it out of the facts views.
 - **D10's model switch** is not yet evaluated, and Core AI and MLX report no window until their bundles' metadata is
   read ([ADR 0043](0043-context-window-from-memory.md)).

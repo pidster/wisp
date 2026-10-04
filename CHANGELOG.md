@@ -17,6 +17,13 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 - `wisp-tui`'s input box is visibly inactive while a turn runs: dimmed, with what wisp is doing in place of
   the cursor, and keys typed meanwhile are held and applied when the turn ends instead of being dropped.
 
+### Changed
+
+- The running summary of earlier turns has a place of its own: `/inspect summary [all]` in chat (and `wisp-tui`'s
+  panel) and `wisp://threads/{thread_id}/summary` over MCP. `/inspect facts` and
+  `wisp://threads/{thread_id}/facts` show only facts; the facts resource no longer carries `summary` or
+  `summaries`.
+
 ### Fixed
 
 - Two approvals asked at the same moment over MCP, on a channel not used before (a fresh `~/.wisp/pending`),

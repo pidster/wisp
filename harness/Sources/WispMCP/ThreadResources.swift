@@ -69,6 +69,8 @@ extension WispServer {
                 await readFacts(
                     thread: id, fact: parts.count == 2 ? parts[1] : nil, page: parsed.page, all: parsed.all),
                 uri: uri)
+        case ["summary"]:
+            return try json(await readSummary(thread: id, all: parsed.all), uri: uri)
         case let parts where parts.first == "context":
             return try await readContext(thread: id, Array(parts.dropFirst()), page: parsed.page, uri: uri)
         default:
@@ -121,7 +123,8 @@ extension WispServer {
             "task": await threadTask(id),
             "resources": .object([
                 "context": .string(base + "/context"), "contextNext": .string(base + "/context/next"),
-                "facts": .string(base + "/facts"), "sessionFacts": .string(ToolCatalog.sessionFactsResourceURI),
+                "facts": .string(base + "/facts"), "summary": .string(base + "/summary"),
+                "sessionFacts": .string(ToolCatalog.sessionFactsResourceURI),
                 "permanentFacts": .string(ToolCatalog.factsResourceURI),
                 "proposedFacts": .string(ToolCatalog.proposedFactsResourceURI),
                 "output": .string(base + "/output"), "audit": .string(base + "/audit"),

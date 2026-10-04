@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example; the commit in `--version` |
-| 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
+| 0.18.0 | `! <command>` in chat, and the input box | The tool glyph (kept as `⚙`); where the summary is shown (built) |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
@@ -52,9 +52,9 @@ release's preflight still runs the eval's floors, as a guard against regressions
   text; the scrollback stripe `commandSent`, #745A3C), and while a turn runs the box is dimmed, says what wisp
   is doing, and holds keys typed meanwhile until the turn ends.
 - **The tool glyph.** `⚙` is drawn as a two-cell emoji in some terminals, so tool lines change width;
-  candidates were compared on 2026-09-30.
-- **Where the summary is shown.** It sits with the facts today (`/inspect facts`,
-  `wisp://threads/{id}/facts`); a place of its own if use shows that is awkward.
+  candidates were compared on 2026-09-30. The operator chose on 2026-10-04 to keep `⚙`: no change.
+- **Where the summary is shown** (built). It has a place of its own: `/inspect summary` in chat and
+  `wisp://threads/{id}/summary` over MCP; `/inspect facts` and `wisp://threads/{id}/facts` show only facts.
 
 ## 0.19.0
 

@@ -27,6 +27,8 @@ public enum ChatInput: Equatable, Sendable {
     case view(String?)
     /// Show the facts in force, `/inspect facts`; with `all` (`/inspect facts all`) their history too.
     case facts(all: Bool)
+    /// Show the running summary of earlier turns, `/inspect summary`; with `all` its earlier versions too.
+    case summary(all: Bool)
     /// State, move, or delete a fact: `/fact …`.
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
@@ -84,13 +86,15 @@ public enum ChatInput: Equatable, Sendable {
         }
     }
 
-    /// `/inspect`'s argument: a view of wisp's state, or of the model's context or facts.
+    /// `/inspect`'s argument: a view of wisp's state, or of the model's context, facts, or summary.
     private static func inspect(_ argument: String?) -> ChatInput {
         guard let argument else { return .inspect("status") }
         let lowered = argument.lowercased()
         if lowered == "context" { return .context }
         if lowered == "facts" { return .facts(all: false) }
         if lowered == "facts all" { return .facts(all: true) }
+        if lowered == "summary" { return .summary(all: false) }
+        if lowered == "summary all" { return .summary(all: true) }
         if lowered.hasPrefix("context ") {
             return .view(String(argument.dropFirst("context ".count)).trimmingCharacters(in: .whitespaces))
         }
@@ -148,7 +152,7 @@ public enum ChatInput: Equatable, Sendable {
             names: ["tokens"], command: { _ in .tokens }),
         HelpEntry(
             usage: "/inspect [VIEW]",
-            about: "wisp's own state: status (the default), config, approvals, audit, context, facts",
+            about: "wisp's own state: status (the default), config, approvals, audit, context, facts, summary",
             names: ["inspect"], command: inspect),
         HelpEntry(
             usage: "/status", about: "short for /inspect status: model, tools, policy, session", names: ["status"],
@@ -168,8 +172,10 @@ public enum ChatInput: Equatable, Sendable {
             about: "show the next request's context, the one composed at turn N's start, or a row per turn"),
         HelpEntry(
             usage: "/inspect facts [all]",
-            about: "the facts the model is given, the running summary of earlier turns, and proposals from other "
-                + "conversations; all adds history"),
+            about: "the facts the model is given and proposals from other conversations; all adds history"),
+        HelpEntry(
+            usage: "/inspect summary [all]",
+            about: "the running summary of earlier turns, with what it covers; all adds earlier versions"),
         HelpEntry(
             usage: "/fact SUBJECT [NAME] = VALUE", about: "state a fact as you; it outranks a tool's and the model's",
             names: ["fact"], command: { .fact(FactRequest($0)) }),

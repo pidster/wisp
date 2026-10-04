@@ -395,9 +395,10 @@ their audit events (D8), the highest store entry it covers, when and in which tu
 model. The next version supersedes it; the store keeps the last 20 for the history, which `memory` recalls
 (`recall summary`). They are saved in the `.store` sidecar and restored on `--resume`.
 
-**Visible.** `/inspect facts` shows the current summary under "Summary of earlier turns", and `/inspect facts
-all` the versions it superseded; `/inspect context next` shows it where the model reads it, and `/inspect
-context turns` marks the turn that wrote one (`summarised 1`). Over MCP, `wisp://threads/{thread_id}/facts`
+**Visible, in a place of its own** (decided 2026-10-04; the facts views no longer carry it). `/inspect summary`
+shows the current version, how many turns it covers, and who wrote it when, with its text, and `/inspect summary
+all` the versions it superseded; before the first it says that none is written yet; `/inspect context next` shows it where the model reads it, and `/inspect
+context turns` marks the turn that wrote one (`summarised 1`). Over MCP, `wisp://threads/{thread_id}/summary`
 carries it as `summary`, and every version as `summaries` with `?all=true` ([mcp.md](mcp.md)). Each call is
 audited as `context.summary` ([logging.md](logging.md)).
 
