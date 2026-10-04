@@ -15,7 +15,7 @@ and [ADR 0019](decisions/0019-model-backends.md).
 | `private-cloud` (alias `pcc`) | Apple's Private Cloud Compute | Apple's servers, with a note on stderr |
 | `ollama:<name>` | a local Ollama server | on device, in Ollama's process |
 | `coreai:<name-or-path>` | Apple's Core AI framework, in wisp's process | on device |
-| `mlx:<name-or-path>` | MLX Swift, in wisp's process | on device; only in builds made with the `MLX` trait |
+| `mlx:<name-or-path>` | MLX Swift, in wisp's process | on device; in the release and in builds made with the `MLX` trait |
 
 `wisp models` lists the models that can serve a conversation right now, and `--all` adds the rest with
 the reason each is excluded ([wisp.md](wisp.md)); `wisp doctor` checks the configured

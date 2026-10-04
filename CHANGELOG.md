@@ -26,13 +26,14 @@ Added:
   to be kept as `approval` lines with `kind: "fact"`, answered `keep` or `drop`; `wisp-tui` declares it and
   shows them as a dialog of their own (`k` keep, `d` drop).
 - The default policy refuses `wisp facts keep|drop` when the model runs it.
+- `wisp doctor`'s `pending approvals` finding also says how many facts wait to be kept.
 
 Changed:
+
 - `wisp --version` and `wisp-tui --version` print the commit for a build that is not a release:
   `0.16.0-dev+4ab6eec`, with ` (modified)` when the working tree had changes, so a build from `main` is not
   mistaken for the release whose number it carries. A release prints the bare version. The audit log's
   `version` stays bare.
-
 - `set_fact_scope` refuses to move a permanent fact (`p…`) whatever the target, saying it is yours; a caller
   that disagrees records a newer fact in its thread, which shows as a conflict.
 - `memory`'s argument guide no longer gives a `task` example, which cost 13 tokens in every conversation

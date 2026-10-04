@@ -116,8 +116,9 @@ command output stay local, and there is no API key, no account, and no bill. App
 Compute is an explicit opt-in (`--model private-cloud`), noted on stderr and in the audit log; it needs
 an entitlement that an unsigned command-line binary cannot carry, so it is refused from this build
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model
-ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens; `wisp models`
-lists what will work.
+ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens, and a model in MLX
+layout with `--model mlx:<name>`, run in wisp's own process on the GPU; `wisp models` lists what will
+work.
 
 **Every command passes a gate, and the gate is fast.** Before a command runs it must clear a deny list
 (`sudo`, `rm -rf /`, piping into a shell, disk tools), and it runs under a Seatbelt sandbox that
@@ -154,8 +155,8 @@ and delete.
 An Apple silicon Mac on macOS 27 or later with Apple Intelligence enabled, and Homebrew.
 
 ```bash
-brew install pidster/tap/wisp   # installs wisp and wisp-tui
-wisp doctor                     # checks the model, sandbox, classifier, config, home, notifications, and pending approvals
+brew install pidster/tap/wisp   # installs wisp, wisp-tui, and MLX's Metal library
+wisp doctor                     # checks the model, MLX, sandbox, classifier, config, home, notifications, and pending requests
 wisp "What is the date in Tokyo?"
 ```
 

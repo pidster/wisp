@@ -1,6 +1,7 @@
 # Roadmap
 
-The releases planned after 0.15.0, agreed with the operator on 2026-10-01. Each release carries one or two
+The releases planned from 0.17.0 to 0.21.0, agreed with the operator on 2026-10-01 (0.16.0, the first, has
+shipped). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
@@ -10,38 +11,11 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.16.0 | Host effects over MCP | `wisp watch --settle`; the chat parser driven by the help's table; two reference bugs; `read_file` on a wildcard |
 | 0.17.0 | Permanent facts over MCP | MLX in the release; a palette check in the gate; `memory`'s `task` example; the commit in `--version` |
 | 0.18.0 | `! <command>` in chat, and the input box | The tool glyph; where the summary is shown |
 | 0.19.0 | MLX on a par with Ollama | Core AI's context window |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
-
-## 0.16.0
-
-- **Host effects over MCP** (larger). Built 2026-10-02,
-  [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md). A command waiting for approval under
-  `wisp mcp` is filed in `~/.wisp/pending` and announced by a notification; the person answers with
-  `wisp approvals approve|deny` or in `wisp-tui`, never through the MCP conversation; with elicitation as
-  well, both are asked at once and the first answer wins (`approval.outOfBand`, on by default).
-  Notifications keep the process routes and are listed in `respond`'s `notifications`; the terminal
-  route stays refused under MCP.
-- **`wisp watch --settle`**. Built 2026-10-02 ([ADR 0033](decisions/0033-watch-mode.md), amended).
-  `watch.settle` in `config.json`, 1 s by default: a run starts only once no
-  file change has arrived for the settle period. FSEvents' fixed 0.5 s batch can start a run part-way
-  through a long burst (a checkout, a formatter, save-all), which gives a spurious failure and then a
-  pass. Changes during a run still collapse into one pending run.
-- **The chat parser driven by the help's table**. Built 2026-10-02: each help entry builds its command
-  and the parser looks the command word up in the table, so a command cannot exist without its `/help`
-  line.
-- **Two bugs in output references** (`OutputReference`). Fixed 2026-10-02. Seen in a saved context the
-  same day: a reference's "last line" could be `read_file`'s paging hint ("[more: call again with offset
-  94]") rather than the output's last line, and its "first line" a fragment where the output was bounded
-  mid-line ("ize."). Both misled every model; references now take the first and last whole lines of
-  content and keep the paging hint apart.
-- **`read_file` on a wildcard.** Fixed 2026-10-02. Given `test*.wisp`, it answered "file not found", and
-  a small model retried the same path three times. It now says it takes one path and to list matches
-  with `run_command` (`ls *.wisp`).
 
 ## 0.17.0
 
@@ -61,8 +35,8 @@ release's preflight still runs the eval's floors, as a guard against regressions
   drift apart.
 - **`memory`'s `task` example**. Dropped 2026-10-03: it added 13 tokens to every conversation that has
   `memory`. The `task` verb still works and [tools/memory.md](tools/memory.md) documents it.
-- **The commit in `--version` for builds that are not releases** (built 2026-10-03), e.g. `0.16.0+5886d33` or
-  `0.16.0-dev+5886d33 (modified)`, so a build from `main` (such as the one `.mcp.json` runs) is not
+- **The commit in `--version` for builds that are not releases** (built 2026-10-03), e.g. `0.16.0-dev+5886d33`, or
+  `0.16.0-dev+5886d33 (modified)` when the tree had changes, so a build from `main` (such as the one `.mcp.json` runs) is not
   mistaken for the release whose number it still carries. A release build prints the bare version,
   which the release script and the Homebrew formula's test check.
 

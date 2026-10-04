@@ -1,6 +1,6 @@
 # TODO: on-device task assessment, routing and audit
 
-Date: 2026-09-19, updated 2026-10-01. Status: a living backlog. Items are ticked only where the code and a
+Date: 2026-09-19, updated 2026-10-04. Status: a living backlog. Items are ticked only where the code and a
 measurement show them done; each track's progress note links the decisions that did it.
 
 ## Goal and scope
@@ -203,26 +203,29 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 - [ ] Validate combinations with tools, schema output and streaming, rather than independent flags alone.
 - [ ] Audit requested and resolved controls against the prompt/attempt, and evaluate their actual effects.
 
-## 7. Current work and backlog (2026-10-03)
+## 7. Current work and backlog (2026-10-04)
 
-### Committed, not yet released (0.16.0)
+### Committed, not yet released (0.17.0)
 
 `CHANGELOG.md`, "Unreleased", lists each change. In outline:
-- **Host effects over MCP** ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)): a command
-  waiting for approval under `wisp mcp` is filed in `~/.wisp/pending`, announced by a notification, and
-  answered with `wisp approvals approve|deny` or in `wisp-tui`, alongside the client's dialog
-  (`approval.outOfBand`); `respond` lists its turn's `notifications`; a `wisp doctor` check.
-- **`wisp watch --settle`** ([ADR 0033](decisions/0033-watch-mode.md), amended), 1 s by default.
-- **Fixes and smaller changes:** output references' first and last lines, `read_file`'s error for a
-  wildcard, the chat parser driven by `/help`'s table.
+- **Permanent facts over MCP** ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)): `set_fact_scope`
+  `permanent` files a request in `~/.wisp/pending` and posts a notification; the person keeps or drops the
+  fact with `wisp facts keep|drop` or in `wisp-tui` (the `keep-facts` effect); `respond` counts the
+  proposals waiting (`factsProposed`); the default policy refuses `wisp facts keep|drop` to the model.
+- **MLX in the release** ([ADR 0047](decisions/0047-mlx-in-the-release.md)): built with the `MLX` trait,
+  with `mlx.metallib` beside `wisp` in the formula's `libexec`, a `wisp doctor` `MLX` finding, and
+  `scripts/check mlx-live` for the live test.
+- **Smaller changes:** the commit in `--version` for builds that are not releases, a palette check in the
+  gate, and `memory`'s `task` example dropped from its argument guide.
 
-0.15.0 (2026-10-01) carried the layered context ([ADR 0045](decisions/0045-layered-context.md)) and host
-effects ([ADR 0044](decisions/0044-host-effects.md)); its section of `CHANGELOG.md` has the detail.
+0.16.0 (2026-10-03) carried host effects over MCP
+([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)) and `wisp watch --settle`; its section
+of `CHANGELOG.md` has the detail.
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release after 0.15.0; next, 0.17.0: permanent facts over MCP, MLX in
-the release, a palette check in the gate, and `memory`'s `task` example.
+The [roadmap](roadmap.md) has each release to 0.21.0; next, 0.18.0: `! <command>` in chat and the input
+box, the tool glyph, and where the summary is shown.
 
 ### Open from the layered context
 
@@ -234,7 +237,6 @@ the release, a palette check in the gate, and `memory`'s `task` example.
 
 ### Offered, not started
 
-- a gate check that keeps the Rust and Swift palettes in step (on the roadmap for 0.17.0);
 - a test for the singular form of `/tokens`.
 
 ### Carried over
@@ -257,8 +259,8 @@ the release, a palette check in the gate, and `memory`'s `task` example.
   - offline use;
   - the notification helper app;
   - Private Cloud Compute signing.
-- **Paused:** escalations, so that approval reaches every client
-  ([proposal](proposals/2026-09-20-escalations.md)).
+- **Open:** the inquiry verb of the [escalations proposal](proposals/2026-09-20-escalations.md); its
+  approval part was settled by [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md).
 
 ## Evaluation and completion criteria
 

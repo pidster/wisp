@@ -197,7 +197,9 @@ exact command, line, directory, thread, and server process shown, so it approves
 only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next
 `wisp approvals pending`. The calling agent cannot answer: nothing in MCP approves, wisp's own model is
 refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox, and
-the commands refuse to run without a terminal on standard input.
+the commands refuse to run without a terminal on standard input. The same directory holds the facts a caller asked
+the person to keep as permanent (`<id>.fact.json`), which are answered with `wisp facts keep|drop`, not
+`wisp approvals` ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
 `never` still classifies and audits; it just does not ask.
 
