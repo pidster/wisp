@@ -51,7 +51,8 @@ here the person does, which changes what each step is for.
   costs one key to undo. Sending in command mode runs the command; the box returns to the normal prompt
   afterwards. Plain chat has no box, so there a line that starts with `!` is the command, as above.
   Refined by the operator on 2026-10-04, before release: Backspace with the cursor at the start of the
-  line also switches back, keeping the text typed so far as an ordinary message.
+  line also switches back, keeping the text typed so far as an ordinary message; and the opposite, `!`
+  typed at the start of a line that has text switches it to command mode, the text becoming the command.
 - **The input box shows command mode.** In command mode the input box's background changes from `Deep`
   (#253B4E) to a muted pale amber, slightly more orange than yellow, with black text: a new palette
   colour, `command`, **#E8B577**, chosen by the operator on 2026-10-04 from three rendered candidates

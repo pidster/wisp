@@ -674,11 +674,12 @@ impl App {
             self.held.push(Edit::Insert(c));
             return Action::None;
         }
-        // `!` into an empty box is the switch to command mode, not text; after other text it is text.
+        // `!` at the start of the line is the switch to command mode, not text, whatever follows it; after
+        // other text, or in command mode, it is text.
         if c == '!'
             && self.typing()
             && self.picker.is_none()
-            && self.editor.is_empty()
+            && self.editor.cursor() == 0
             && !self.command_mode
         {
             self.command_mode = true;
@@ -763,7 +764,7 @@ impl App {
             return;
         }
         if let Edit::Paste(text) = edit
-            && in_box
+            && at_start
             && !self.command_mode
             && let Some(command) = text.strip_prefix('!')
         {
@@ -2805,6 +2806,18 @@ mod tests {
             (app.editor.text().as_str(), app.command_mode),
             ("git status", false)
         );
+        // The opposite: `!` typed at the start of a line with text enters command mode around that text.
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.command_mode),
+            ("git status", true)
+        );
+        // In command mode a `!` at the start is text.
+        app.type_char('!');
+        assert_eq!(app.editor.text(), "!git status");
+        app.edit(&Edit::Backspace);
+        app.edit(&Edit::Backspace);
+        assert!(!app.command_mode);
         app.edit(&Edit::KillToEnd);
         // Delete in an empty box leaves it too; with text, Delete deletes forwards and stays.
         app.type_char('!');

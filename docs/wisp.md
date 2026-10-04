@@ -72,11 +72,12 @@ A line you send goes into the scrollback styled like the input it came from, a s
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
 
 Command mode is a state of `wisp-tui`'s input box ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
-Typing `!` into an empty box switches it to command mode: the `!` is the switch, not text, the box turns a
-muted pale amber (`command`, #E8B577) with bold black text, its marker becomes `!`, and what you type is
-the command. A `!` typed after other text stays text. Backspace with the cursor at the start of the line
-switches back to the normal prompt, keeping what you typed as ordinary text, so a stray `!` costs one key;
-Delete in an empty box does the same. A paste that starts with `!` into an empty box enters command mode
+Typing `!` at the start of the line, into an empty box or in front of what you have typed, switches it to
+command mode: the `!` is the switch, not text, the box turns a muted pale amber (`command`, #E8B577) with
+bold black text, its marker becomes `!`, and what you type is the command. A `!` typed after other text,
+or at the start in command mode, stays text. Backspace with the cursor at the start of the line switches
+back to the normal prompt, keeping what you typed as ordinary text, so a stray `!` costs one key; Delete
+in an empty box does the same. A paste that starts with `!` at the start of the line enters command mode
 the same way. Enter runs the command and the box returns to the normal prompt; an empty command sends
 nothing. In the scrollback the command's line is a stripe in a darker, faded shade of the same colour
 (`commandSent`, #745A3C) with light text, `! git status --short`, as a prompt's is the darker shade of the
