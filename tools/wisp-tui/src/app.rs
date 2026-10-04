@@ -1213,7 +1213,7 @@ impl App {
             let placeholder = Line::from(vec![
                 Span::styled(format!("{prompt} "), prompt_style),
                 if self.command_mode {
-                    Span::styled(COMMAND_PLACEHOLDER, palette::command_text())
+                    Span::styled(COMMAND_PLACEHOLDER, palette::command_placeholder())
                 } else {
                     Span::styled(PLACEHOLDER, palette::muted())
                 },
@@ -1514,6 +1514,7 @@ mod tests {
     use crate::protocol::{Choice, ChoiceOption, Event, FactAsk, Turn};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
     use serde_json::Value;
 
     fn event(kind: &str, text: Option<&str>) -> Event {
@@ -2955,6 +2956,7 @@ mod tests {
         assert_eq!(buffer[(0, INPUT_ROW)].bg, palette::COMMAND);
         assert_eq!(buffer[(width - 1, INPUT_ROW)].bg, palette::COMMAND);
         assert_eq!(buffer[(1, INPUT_ROW)].fg, palette::BLACK);
+        assert!(!buffer[(3, INPUT_ROW)].modifier.contains(Modifier::BOLD));
         assert_eq!(buffer[(0, INPUT_ROW - 1)].fg, palette::COMMAND);
         assert_eq!(buffer[(0, INPUT_ROW + 1)].fg, palette::COMMAND);
         app.editor.set("ls");
@@ -2965,6 +2967,8 @@ mod tests {
         assert_eq!(buffer[(3, INPUT_ROW)].symbol(), "l");
         assert_eq!(buffer[(3, INPUT_ROW)].fg, palette::BLACK);
         assert_eq!(buffer[(3, INPUT_ROW)].bg, palette::COMMAND);
+        // Typed text is bold, as in the normal box; the empty box's hint is not.
+        assert!(buffer[(3, INPUT_ROW)].modifier.contains(Modifier::BOLD));
         let position = terminal.get_cursor_position().expect("cursor");
         assert_eq!((position.x, position.y), (MARGIN + 2 + 2, INPUT_ROW));
         // Back to normal, the box is the deep tint again.

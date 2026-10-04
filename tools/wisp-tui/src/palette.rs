@@ -124,8 +124,12 @@ pub fn command_background() -> Style {
 pub fn command_edge() -> Style {
     Style::default().fg(COMMAND)
 }
-/// What is typed in command mode: black on the command colour.
+/// What is typed in command mode: black on the command colour, bold as typed text is in the normal box.
 pub fn command_text() -> Style {
+    Style::default().fg(BLACK).add_modifier(Modifier::BOLD)
+}
+/// The hint in an empty box in command mode: black, not bold, as the normal hint is quieter than text.
+pub fn command_placeholder() -> Style {
     Style::default().fg(BLACK)
 }
 /// The `!` marker in command mode.

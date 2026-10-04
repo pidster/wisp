@@ -73,7 +73,7 @@ edge to edge, halfway from the input's blue to black, with half-block strips abo
 
 Command mode is a state of `wisp-tui`'s input box ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
 Typing `!` into an empty box switches it to command mode: the `!` is the switch, not text, the box turns a
-muted pale amber (`command`, #E8B577) with black text, its marker becomes `!`, and what you type is the
+muted pale amber (`command`, #E8B577) with bold black text, its marker becomes `!`, and what you type is the
 command. A `!` typed after other text stays text. Backspace or Delete in an empty box switches back to the
 normal prompt, so a stray `!` costs one key. A paste that starts with `!` into an empty box enters command
 mode the same way. Enter runs the command and the box returns to the normal prompt; an empty command sends
