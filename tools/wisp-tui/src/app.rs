@@ -967,25 +967,26 @@ impl App {
 
     /// The band's height for a terminal `width` cells wide: the base, plus a row for each further row
     /// the input's text needs, up to `MAX_INPUT_ROWS`.
-    /// While a dialog is asked it takes the input's place: the reply row, the dialog, and the status.
+    /// While a dialog is asked it takes the input's place: the reply row, the dialog, a blank row, and the
+    /// status.
     pub fn band_height(&self, width: u16) -> u16 {
         self.band_width.set(width);
         if let Some(picker) = &self.picker {
             return u16::try_from(picker.rows())
                 .unwrap_or(u16::MAX)
-                .saturating_add(DIALOG_FRAME + 2);
+                .saturating_add(DIALOG_FRAME + DIALOG_SPACING);
         }
         if let Some(approval) = &self.approval {
             let rows = dialog_lines(approval, dialog_width(width)).len();
             return u16::try_from(rows)
                 .unwrap_or(u16::MAX)
-                .saturating_add(DIALOG_FRAME + 2);
+                .saturating_add(DIALOG_FRAME + DIALOG_SPACING);
         }
         if self.panel.is_some() {
             let (_, visible) = self.panel_rows(width);
             return u16::try_from(visible)
                 .unwrap_or(u16::MAX)
-                .saturating_add(DIALOG_FRAME + 2);
+                .saturating_add(DIALOG_FRAME + DIALOG_SPACING);
         }
         BAND_HEIGHT + self.input_rows(width).saturating_sub(1)
     }
@@ -1020,7 +1021,7 @@ impl App {
             .padding(Padding::horizontal(1));
         let dialog = Rect {
             y: area.y + 1,
-            height: height.min(area.height.saturating_sub(2)),
+            height: height.min(area.height.saturating_sub(DIALOG_SPACING)),
             ..inset
         };
         frame.render_widget(Paragraph::new(lines).block(block), dialog);
@@ -1063,7 +1064,7 @@ impl App {
             .padding(Padding::horizontal(1));
         let dialog = Rect {
             y: area.y + 1,
-            height: height.min(area.height.saturating_sub(2)),
+            height: height.min(area.height.saturating_sub(DIALOG_SPACING)),
             ..inset
         };
         frame.render_widget(Paragraph::new(lines).block(block), dialog);
@@ -1094,7 +1095,7 @@ impl App {
             .saturating_add(DIALOG_FRAME);
         let dialog = Rect {
             y: area.y + 1,
-            height: height.min(area.height.saturating_sub(2)),
+            height: height.min(area.height.saturating_sub(DIALOG_SPACING)),
             ..inset
         };
         frame.render_widget(Paragraph::new(lines).block(block), dialog);
@@ -1385,6 +1386,9 @@ fn grouped(n: u64) -> String {
 const PROMPT_CELLS_U16: u16 = 2;
 /// Rows a dialog's border and nothing else take: the top and bottom edges.
 const DIALOG_FRAME: u16 = 2;
+/// Rows around a dialog in the band besides its own: the reply row above it, then a blank row and the
+/// status below, so the dialog is set off from the status as it is from the reply.
+const DIALOG_SPACING: u16 = 3;
 /// Rows a long command may wrap to in the dialog before it is cut.
 const COMMAND_ROWS: usize = 4;
 /// Reasons the dialog lists; the classifier rarely gives more.
@@ -1636,8 +1640,8 @@ mod tests {
         app.toggle_output();
         assert_eq!(
             app.band_height(60),
-            16 + 2 + 2,
-            "rows, border, reply row, status"
+            16 + 2 + 3,
+            "rows, border, reply row, a blank row, status"
         );
         let rows = drawn(&app, 60);
         assert!(rows[1].starts_with(" ╭ output "), "{rows:?}");
@@ -1691,7 +1695,7 @@ mod tests {
         });
         app.handle(Outbound::Event(e));
         app.toggle_output();
-        assert_eq!(app.band_height(60), 3 + 2 + 2);
+        assert_eq!(app.band_height(60), 3 + 2 + 3);
         let rows = drawn(&app, 60);
         assert!(
             rows[4].contains("truncated: 900 lines, 90000 bytes"),
@@ -1935,8 +1939,8 @@ mod tests {
         )));
         assert_eq!(
             app.band_height(60),
-            1 + 5 + 2 + 1,
-            "reply, question, three options, keys, border, status"
+            1 + 5 + 2 + 2,
+            "reply, question, three options, keys, border, a blank row, status"
         );
         let rows = drawn(&app, 60);
         assert!(rows[1].starts_with(" ╭ choose "), "{rows:?}");
@@ -2354,8 +2358,9 @@ mod tests {
             "git add -A && git push",
             &["changes repository state", "reaches the network"],
         )));
-        // Reply row, border, command, line, directory, two reasons, pattern, a space, keys, border, status.
-        assert_eq!(app.band_height(60), 12);
+        // Reply row, border, command, line, directory, two reasons, pattern, a space, keys, border, a blank
+        // row, status.
+        assert_eq!(app.band_height(60), 13);
         let rows = drawn(&app, 60);
         assert!(rows[1].starts_with(" ╭ approve · dangerous "), "{rows:?}");
         assert_eq!(rows[2].trim_end_matches([' ', '│']), " │ git push");
@@ -2369,7 +2374,9 @@ mod tests {
         assert!(rows[8].trim_matches([' ', '│']).is_empty(), "{rows:?}");
         assert!(rows[9].contains("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o"));
         assert!(rows[10].starts_with(" ╰"));
-        assert!(rows[11].contains("system"));
+        // A blank row sets the dialog off from the status, as the reply row does above it.
+        assert!(rows[11].trim().is_empty(), "{rows:?}");
+        assert!(rows[12].contains("system"));
         // A command that is its whole line has no "part of" row: command, directory, pattern, space, keys.
         let only_command = approval("git push", "git push", &[]);
         assert_eq!(dialog_lines(&only_command, 50).len(), 5);
