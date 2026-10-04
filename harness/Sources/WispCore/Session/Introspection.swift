@@ -39,6 +39,7 @@ public struct Introspection: Sendable {
                 "transcripts": .string(home.transcripts.path),
             ]),
             "model": .string(config.model.description),
+            "models": .object(["disabled": .array(config.disabledModels.map { .string($0.description) })]),
             "systemPromptExtension": config.systemPromptExtension.map { .string($0) } ?? .null,
             "runCommand": .object([
                 "timeoutSeconds": .int(Int(config.runner.timeout.components.seconds)),

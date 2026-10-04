@@ -1,6 +1,12 @@
+import Foundation
+
 /// A question with a list of answers for a face to offer: a numbered list in the plain chat, a picker in
 /// `wisp-tui` ([ADR 0040](../../../../docs/decisions/0040-config-from-chat.md)). Only chat commands ask;
 /// the model never does.
+///
+/// A choice with toggles (`toggles`) is a table of rows each on or off, under column headings: the person moves
+/// through it, turns rows on and off, and saves the lot, and the answer is the values left on
+/// (`ChatChoice.values(answer:)`). `/models` asks one in `wisp-tui` (ADR 0056).
 public struct ChatChoice: Equatable, Sendable {
     /// One answer.
     public struct Option: Equatable, Sendable {
@@ -10,13 +16,58 @@ public struct ChatChoice: Equatable, Sendable {
         public var label: String
         /// A line about it, or empty.
         public var detail: String
+        /// For a choice with toggles: the row's cells, one per column.
+        public var cells: [String]
+        /// For a choice with toggles: whether the row is on; nil in a plain choice.
+        public var on: Bool?
 
         /// Creates an option.
-        public init(value: String, label: String? = nil, detail: String = "") {
+        public init(value: String, label: String? = nil, detail: String = "", cells: [String] = [], on: Bool? = nil) {
             self.value = value
             self.label = label ?? value
             self.detail = detail
+            self.cells = cells
+            self.on = on
         }
+    }
+
+    /// A column of a choice with toggles.
+    public struct Column: Equatable, Sendable {
+        /// Its heading.
+        public var heading: String
+        /// When a narrow face drops it: 0 never, otherwise in rank order, 1 first (`TerminalTable.fitting`).
+        public var drop: Int
+
+        /// Creates a column.
+        public init(heading: String, drop: Int = 0) {
+            self.heading = heading
+            self.drop = drop
+        }
+    }
+
+    /// For a choice with toggles, its columns; empty for a plain choice.
+    public var columns: [Column] = []
+
+    /// Whether the rows are toggled on and off and saved together, rather than one picked.
+    public var toggles: Bool { options.contains { $0.on != nil } }
+
+    /// The values a choice with toggles was answered with, the rows left on; nil when the answer is not one (no
+    /// answer, or a front end that picked a single value instead).
+    ///
+    /// - Parameter answer: The answer as the face returned it.
+    /// - Returns: The values, or nil.
+    public static func values(answer: String?) -> [String]? {
+        guard let answer, answer.hasPrefix("[") else { return nil }
+        return try? JSONDecoder().decode([String].self, from: Data(answer.utf8))
+    }
+
+    /// The answer a face returns for a choice with toggles: the values left on, as a JSON array.
+    ///
+    /// - Parameter values: The values.
+    /// - Returns: The answer.
+    public static func answer(values: [String]) -> String {
+        let data = (try? JSONEncoder().encode(values)) ?? Data("[]".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// The question.
@@ -29,11 +80,14 @@ public struct ChatChoice: Equatable, Sendable {
     public var acceptsText: Bool
 
     /// Creates a choice.
-    public init(title: String, options: [Option], current: String? = nil, acceptsText: Bool = false) {
+    public init(
+        title: String, options: [Option], current: String? = nil, acceptsText: Bool = false, columns: [Column] = []
+    ) {
         self.title = title
         self.options = options
         self.current = current
         self.acceptsText = acceptsText
+        self.columns = columns
     }
 
     /// Reads an answer typed at a numbered list: a number picks that option, other text is taken as

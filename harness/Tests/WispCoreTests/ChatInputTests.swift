@@ -6,7 +6,22 @@ import WispTestSupport
 
 @Suite struct ChatInputTests {
     @Test func parsesModelCommands() {
-        #expect(ChatInput(line: "/models") == .models)
+        #expect(ChatInput(line: "/models") == .models(.list))
+        #expect(ChatInput(line: "/models list") == .models(.list))
+        #expect(ChatInput(line: "/models enable ollama:a  mlx:b") == .models(.enable(["ollama:a", "mlx:b"])))
+        #expect(ChatInput(line: "/models disable private-cloud") == .models(.disable(["private-cloud"])))
+        #expect(ChatInput(line: "/models disable") == .models(.unknown("disable")))
+        #expect(ChatInput(line: "/models frob") == .models(.unknown("frob")))
+        #expect(ChatInput.helpText.contains("/models enable|disable NAME…"))
+        #expect(ChatCompletion.complete("/models ").candidates == ["disable", "enable"])
+        #expect(
+            ChatCompletion.complete("/models enable o", disabledModels: ["ollama:a", "mlx:b"]).candidates == [
+                "ollama:a"
+            ])
+        #expect(
+            ChatCompletion.complete("/models disable ", options: { _ in ["system", "ollama:a"] }).candidates == [
+                "ollama:a", "system",
+            ])
         #expect(ChatInput(line: "/model") == .model(nil))
         #expect(ChatInput(line: "/model ollama:qwen3-coder") == .model("ollama:qwen3-coder"))
         #expect(ChatInput.helpText.contains("/models") && ChatInput.helpText.contains("/model [name]"))

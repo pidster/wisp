@@ -41,6 +41,9 @@ public enum ConfigSettings {
     public static let all: [Setting] = [
         Setting(path: "model", summary: "the model new sessions run on", kind: .model),
         Setting(
+            path: "models.disabled", summary: "models hidden from /model and refused; wisp models enable|disable",
+            kind: .models),
+        Setting(
             path: "approval.threshold", summary: "ask before commands rated at this level or above",
             kind: .choice(["safe", "moderate", "dangerous", "never"])),
         Setting(
@@ -128,6 +131,7 @@ public enum ConfigSettings {
         let d = Config().resolved
         switch path {
         case "model": return .string(d.model.description)
+        case "models.disabled": return .array(d.disabledModels.map { .string($0.description) })
         case "approval.threshold": return .string(d.approvalThreshold.rawValue)
         case "approval.classifier": return .string(d.approvalClassifier.rawValue)
         case "approval.coremlModel": return .string(ClassifierStore.reference(ClassifierStore.defaultVersion()))
@@ -173,6 +177,8 @@ public enum ConfigEdit {
         case unreadableFile(String)
         /// The edited file would not load.
         case wouldNotLoad(String)
+        /// The change would leave the file naming a default it also disables (ADR 0056).
+        case refused(ModelSelection.Failure)
 
         /// Human-readable explanation.
         public var description: String {
@@ -182,6 +188,7 @@ public enum ConfigEdit {
             case .invalidValue(let path, let reason): "\(path): \(reason)"
             case .unreadableFile(let detail): "config.json is not a JSON object: \(detail)"
             case .wouldNotLoad(let detail): "the change would leave config.json unloadable: \(detail)"
+            case .refused(let failure): failure.description
             }
         }
     }
@@ -337,13 +344,20 @@ public enum ConfigEdit {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let output: Data
+        let config: Config
         do {
             output = try encoder.encode(JSONValue.object(edited)) + Data("\n".utf8)
-            let config = try JSONDecoder().decode(Config.self, from: output)
+            config = try JSONDecoder().decode(Config.self, from: output)
             try config.commandPolicy?.validate()
             try config.tools?.validate()
         } catch {
             throw Failure.wouldNotLoad("\(error)")
+        }
+        // Setting the default to a disabled model names the model; disabling the default says what to do first.
+        if let model = config.disabledDefault {
+            throw Failure.refused(
+                path == "model"
+                    ? .disabled(model: model.description) : .defaultDisabled(model: model.description))
         }
         return Outcome(
             path: path, old: value(at: keys, in: .object(root)), new: new, data: output,

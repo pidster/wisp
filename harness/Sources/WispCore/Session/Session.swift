@@ -109,6 +109,8 @@ public struct Session: Sendable {
             case invalidTool(CustomTool.Failure)
             /// The file exists but cannot be read.
             case unreadable(String)
+            /// The models it names do not agree, such as a default it also disables (ADR 0056).
+            case invalidModels(ModelSelection.Failure)
 
             /// Human-readable explanation.
             public var description: String {
@@ -117,6 +119,7 @@ public struct Session: Sendable {
                 case .invalidPolicy(let failure): failure.description
                 case .invalidTool(let failure): failure.description
                 case .unreadable(let detail): detail
+                case .invalidModels(let failure): failure.description
                 }
             }
         }
@@ -164,6 +167,9 @@ public struct Session: Sendable {
     public let permanentFacts: SharedFacts
     /// The permanent facts proposed in every conversation of this session, awaiting the person's decision.
     public let factProposals = FactProposals()
+    /// The models turned off, as the configuration had them and as this session's chat has changed them since
+    /// (ADR 0056); every conversation of the session refuses them.
+    public let disabledModels: DisabledModels
 
     /// Which face this session is.
     public var entryPoint: EntryPoint { request.entryPoint }
@@ -204,6 +210,8 @@ public struct Session: Sendable {
             throw Failure.malformedConfig(path: home.configFile.path, problem: .invalidPolicy(failure))
         } catch let failure as CustomTool.Failure {
             throw Failure.malformedConfig(path: home.configFile.path, problem: .invalidTool(failure))
+        } catch let failure as ModelSelection.Failure {
+            throw Failure.malformedConfig(path: home.configFile.path, problem: .invalidModels(failure))
         } catch let error as DecodingError {
             throw Failure.malformedConfig(path: home.configFile.path, problem: .invalidJSON(Self.describe(error)))
         } catch {
@@ -231,11 +239,15 @@ public struct Session: Sendable {
     ///   - home: Where config, logs, and approvals live.
     ///   - dependencies: What the session builds from its config; tests pass `.testing()`.
     /// - Returns: The ready session; call `end()` when the entry point finishes.
-    /// - Throws: `Failure`, or whatever `dependencies.makeSink` throws.
+    /// - Throws: `Failure`, `ModelSelection.Failure.disabled` for a `--model` the operator disabled, or whatever
+    ///   `dependencies.makeSink` throws.
     public static func begin(_ request: Request, home: Home, dependencies: Dependencies = .live) throws -> Session {
         var config = try loadConfig(home: home)
         var notes: [String] = []
-        if let model = request.model { config.model = model }
+        if let model = request.model {
+            if config.disabledModels.contains(model) { throw ModelSelection.Failure.disabled(model: model.description) }
+            config.model = model
+        }
         if request.unsafe {
             config.runner.policy = .unrestricted
             notes.append("warning: --unsafe: run_command policy and sandbox are off")
@@ -272,7 +284,7 @@ public struct Session: Sendable {
             notifier: Notifier(
                 enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute,
                 run: dependencies.notify),
-            stats: stats, permanentFacts: .permanent(home: home))
+            stats: stats, permanentFacts: .permanent(home: home), disabledModels: DisabledModels(config.disabledModels))
     }
 
     /// Where `approval.coremlModel` points: `risk@<version>` in the classifier store, absolute or `~`

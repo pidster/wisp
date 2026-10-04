@@ -135,7 +135,12 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("from system")])))
         let context = ChatLoop.Context(
             directory: "/r", approval: "--yes",
-            models: { current, _ in ["current \(current)", "  ollama:q\t3B"] },
+            models: { _ in
+                .init(entries: [
+                    .init(selection: .system, capabilities: ["toolCalling"]),
+                    .init(selection: .ollama("q"), parameters: "3B", capabilities: ["toolCalling"]),
+                ])
+            },
             openModel: { selection, store in
                 Agent(
                     store: store, tools: [],
@@ -148,7 +153,10 @@ import WispTestSupport
             agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
         try await loop.run()
         let out = capture.output
-        #expect(out.contains("current system\n  ollama:q\t3B\n"))
+        #expect(
+            out.contains(
+                "  MODEL     RUNTIME    PARAMS  ENABLED  CAPABILITIES\n* system    on-device          yes      tools\n"
+                    + "  ollama:q  Ollama     3B      yes      tools\n"))
         #expect(out.contains("model: system (toolCalling, guidedGeneration)\n"))
         #expect(out.contains("from system\n") && out.contains("from ollama\n"))
         #expect(out.contains("model: ollama:q (toolCalling, guidedGeneration)\n"))
@@ -166,6 +174,81 @@ import WispTestSupport
         #expect(
             bare.noted.contains("models are not listed here")
                 && bare.noted.contains("the model cannot be switched here"))
+    }
+
+    @Test func modelsAreTurnedOnAndOffByCommandOrInThePicker() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let agent = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("hi")])))
+        let changes = Mutex<[[String]]>([])
+        let listing = ModelListing.Listing(entries: [
+            .init(selection: .system, capabilities: ["toolCalling"]),
+            .init(selection: .ollama("a"), capabilities: ["toolCalling"]),
+            .init(selection: .ollama("b"), capabilities: ["toolCalling"], enabled: false),
+        ])
+        var context = ChatLoop.Context(
+            directory: "/r", approval: "--yes", models: { _ in listing },
+            setModels: { enable, disable in
+                changes.withLock { $0.append(enable + ["|"] + disable) }
+                if disable.contains("system") {
+                    throw ModelSelection.Failure.defaultDisabled(model: "system")
+                }
+                return enable.map { "enabled \($0)" } + disable.map { "disabled \($0)" }
+            }, notices: ["ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running"])
+        // Typed: each names its models; the default refused with the reason.
+        let typed = Capture(lines: [
+            "/models enable ollama:b", "/models disable ollama:a mlx:c", "/models disable system", "/models x", "/quit",
+        ])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: typed.io)
+        try await loop.run()
+        #expect(typed.noted.contains("enabled ollama:b"))
+        #expect(typed.noted.contains("disabled ollama:a") && typed.noted.contains("disabled mlx:c"))
+        #expect(typed.noted.contains { $0.hasPrefix("error: system is the default model, so it cannot be disabled") })
+        #expect(typed.noted.contains("unknown /models argument 'x'; /models, or /models enable|disable NAME…"))
+        // The fallback's notice comes after the banner, before the first prompt.
+        #expect(
+            typed.noted.first == "ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running")
+        // In a face with choices, /models is a picker: what the person left on is saved as the difference.
+        changes.withLock { $0 = [] }
+        let asked = Mutex<[ChatChoice]>([])
+        let picked = Capture(lines: ["/models", "/quit"])
+        var pickingIO = picked.io
+        pickingIO.choose = { choice in
+            asked.withLock { $0.append(choice) }
+            return ChatChoice.answer(values: ["system", "ollama:b"])
+        }
+        var picker = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: pickingIO)
+        try await picker.run()
+        #expect(asked.withLock { $0.first?.toggles } == true)
+        #expect(asked.withLock { $0.first?.options.map(\.value) } == ["system", "ollama:a", "ollama:b"])
+        #expect(changes.withLock { $0 } == [["ollama:b", "|", "ollama:a"]])
+        #expect(picked.noted.contains("enabled ollama:b") && picked.noted.contains("disabled ollama:a"))
+        // No answer, a single value from a front end that does not toggle, or nothing changed: nothing is saved.
+        for answer in [nil, "system", ChatChoice.answer(values: ["system", "ollama:a"])] {
+            changes.withLock { $0 = [] }
+            let again = Capture(lines: ["/models", "/quit"])
+            var io = again.io
+            io.choose = { _ in answer }
+            var loop = ChatLoop(
+                agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+            try await loop.run()
+            #expect(changes.withLock { $0 }.isEmpty)
+            #expect(again.noted.contains("models unchanged"))
+        }
+        // Without a way to change them, the face with choices shows the table, and the commands say so.
+        context.setModels = nil
+        let bare = Capture(lines: ["/models", "/models enable x", "/quit"])
+        var io = bare.io
+        io.choose = { _ in nil }
+        var table = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+        try await table.run()
+        #expect(bare.output.contains("* system"))
+        #expect(bare.noted.contains("models cannot be enabled or disabled here"))
     }
 
     @Test func statsReportTheTurnsAndHistoryListsWhatWasTyped() async throws {

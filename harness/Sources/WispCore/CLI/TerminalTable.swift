@@ -117,6 +117,34 @@ public enum TerminalTable {
         return groups
     }
 
+    /// The columns that fit `width`: every one when they do, and otherwise the table without the droppable
+    /// columns least worth their room, lowest `drop` rank first, until the columns before the last leave the last
+    /// at least `minimumWrap` cells. A column ranked 0 is never dropped; when only those are left the table is
+    /// laid out as it is, and the last column wraps as narrow as it must.
+    ///
+    /// - Parameters:
+    ///   - header: Column titles.
+    ///   - rows: The cells, one array per line.
+    ///   - drop: Each column's rank: 0 never dropped, otherwise the order in which they go, 1 first.
+    ///   - indent: Spaces before the first column.
+    ///   - width: The terminal's width.
+    /// - Returns: The indices of the columns kept, in order.
+    static func fitting(header: [String], rows: [[String]], drop: [Int], indent: Int = 0, width: Int) -> [Int] {
+        var kept = Array(header.indices)
+        func fits() -> Bool {
+            let before = kept.dropLast().map { column in
+                ([header] + rows).map { column < $0.count ? $0[column].count : 0 }.max() ?? 0
+            }
+            return indent + before.reduce(0) { $0 + $1 + gap } + minimumWrap + margin <= width
+        }
+        while !fits() {
+            let candidates = kept.filter { $0 < drop.count && drop[$0] > 0 }
+            guard let next = candidates.min(by: { drop[$0] < drop[$1] }) else { break }
+            kept.removeAll { $0 == next }
+        }
+        return kept
+    }
+
     /// A help-style section: `heading`, then each name indented two spaces in a column as wide as the
     /// longest, and its text wrapped beside it.
     ///

@@ -40,8 +40,15 @@ public struct MLXBackend: ModelBackend {
         #endif
     }
 
+    /// The Hugging Face cache cached models are found and linked in; nil reads the environment's when asked.
+    let cache: HubCache?
+
     /// Creates the backend.
-    public init() {}
+    ///
+    /// - Parameter cache: The Hugging Face cache; nil reads the environment's (`HubCache.current`) when asked.
+    public init(cache: HubCache? = nil) {
+        self.cache = cache
+    }
 
     /// The configured models directory, or the default under the home.
     public static func modelsDirectory(config: Config.Resolved, home: Home) -> URL {
@@ -246,23 +253,80 @@ public struct MLXBackend: ModelBackend {
 
     /// Every model directory under the models directory, with its architecture and declared capabilities.
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {
-        Self.models(in: Self.modelsDirectory(config: config, home: home)).map { url in
+        let hub = (cache ?? .current()).root.resolvingSymlinksInPath().path
+        return Self.models(in: Self.modelsDirectory(config: config, home: home)).map { url in
             let name = url.lastPathComponent
             var parts: [String] = []
-            if let data = try? Data(contentsOf: url.appending(path: "config.json")),
-                let json = try? JSONDecoder().decode(WispCore.JSONValue.self, from: data).objectValue
-            {
-                if let type = json["model_type"]?.stringValue { parts.append(type) }
-                if let quantization = json["quantization"]?.objectValue, let bits = quantization["bits"]?.intValue {
-                    parts.append("\(bits)-bit")
-                }
-            }
+            let format = Self.format(of: url)
+            if let format { parts.append(format) }
             parts.append(
                 config.mlxModels[name].map { "capabilities: \($0.joined(separator: ", "))" }
                     ?? "capabilities undeclared")
             if !Self.isCompiledIn { parts.append("(MLX not compiled in)") }
-            return InstalledModel(selection: .local(backend: scheme, name: name), detail: parts.joined(separator: " "))
+            let real = url.resolvingSymlinksInPath().path
+            return InstalledModel(
+                selection: .local(backend: scheme, name: name), detail: parts.joined(separator: " "),
+                bytes: Self.weightBytes(in: url), format: format,
+                location: real.hasPrefix(hub + "/") ? .hubCache : .modelsFolder)
         }
+    }
+
+    /// The architecture and quantisation a model directory's `config.json` names, such as `qwen3 4-bit`.
+    ///
+    /// - Parameter directory: The model directory.
+    /// - Returns: The words, or nil when the file names neither.
+    static func format(of directory: URL) -> String? {
+        guard let data = try? Data(contentsOf: directory.appending(path: "config.json")),
+            let json = try? JSONDecoder().decode(WispCore.JSONValue.self, from: data).objectValue
+        else { return nil }
+        var parts: [String] = []
+        if let type = json["model_type"]?.stringValue { parts.append(type) }
+        if let quantization = json["quantization"]?.objectValue, let bits = quantization["bits"]?.intValue {
+            parts.append("\(bits)-bit")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// The complete `mlx-community` snapshots in the Hugging Face cache that the models folder does not name, which
+    /// enabling links without a download (ADR 0056); none in a build without MLX, which could not run them.
+    public func unlinked(config: Config.Resolved, home: Home) -> [InstalledModel] {
+        guard Self.isCompiledIn else { return [] }
+        return Self.cached(in: cache ?? .current(), modelsDirectory: Self.modelsDirectory(config: config, home: home))
+    }
+
+    /// The complete `mlx-community` snapshots in `cache` that `modelsDirectory` does not name, as models to list:
+    /// their format and weights from the snapshot, and where they are.
+    ///
+    /// - Parameters:
+    ///   - cache: The Hugging Face cache.
+    ///   - modelsDirectory: The MLX models directory.
+    /// - Returns: The models, by repository.
+    static func cached(in cache: HubCache, modelsDirectory: URL) -> [InstalledModel] {
+        cache.unlinked(in: modelsDirectory).compactMap { repository in
+            guard let (_, name) = try? ModelPull.repository(repository),
+                let revision = cache.mainRevision(of: repository)
+            else { return nil }
+            let snapshot = cache.snapshot(revision, of: repository)
+            let format = format(of: snapshot)
+            return InstalledModel(
+                selection: .local(backend: "mlx", name: name),
+                detail: ([format].compactMap { $0 } + ["in the Hugging Face cache, not linked"]).joined(separator: " "),
+                bytes: weightBytes(in: snapshot), format: format, location: .hubCacheNotLinked)
+        }
+    }
+
+    /// Links a complete `mlx-community` snapshot in the Hugging Face cache into the models folder as `name`, as
+    /// `wisp models pull` links one, fetching nothing.
+    ///
+    /// - Throws: `ModelPull.Failure`, or the file system's error.
+    public func link(_ name: String, config: Config.Resolved, home: Home) throws -> ModelLink {
+        let pull = ModelPull(cache: cache ?? .current())
+        let plan = try pull.cachedPlan(
+            "\(ModelPull.organisation)/\(name)", into: Self.modelsDirectory(config: config, home: home))
+        let outcome = try pull.link(plan)
+        return ModelLink(
+            selection: .local(backend: scheme, name: name), repository: plan.repository, snapshot: plan.snapshot.path,
+            destination: plan.destination.path, files: plan.files.count, bytes: plan.bytes, outcome: outcome.rawValue)
     }
 
     /// The `MLX` finding for `wisp doctor`: whether this build carries MLX and, if so, whether MLX's Metal

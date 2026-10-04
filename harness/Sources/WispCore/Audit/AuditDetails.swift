@@ -45,6 +45,15 @@ extension AuditEvent {
             ]
         }
 
+        /// `model.fallback`: chat's configured model could not be used when the chat started, so it started on
+        /// another (ADR 0056): the model it wanted, why it could not have it, and the one it took instead.
+        public static func modelFallback(_ fallback: ModelFallback) -> [String: JSONValue] {
+            [
+                "model": .string(fallback.model.description), "reason": .string(fallback.reason),
+                "fallback": .string(fallback.fallback.description),
+            ]
+        }
+
         /// `session.end`, with why for MCP threads.
         public static func sessionEnd(reason: String? = nil) -> [String: JSONValue] {
             reason.map { ["reason": .string($0)] } ?? [:]
@@ -714,6 +723,7 @@ extension AuditEvent {
         case .sessionEnd: ["reason"]
         case .modelResolved:
             ["model", "backend", "asset", "capabilities", "capabilitySource", "tools", "contextSize", "contextNote"]
+        case .modelFallback: ["model", "reason", "fallback"]
         case .prompt: ["text", "schema"]
         case .response: ["text", "condensed", "seconds"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]

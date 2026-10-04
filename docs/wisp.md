@@ -35,6 +35,18 @@ wisp --no-tools --schema verdict.json "Which language is this: fn main() {}"
 Interactive session. Lines starting with `/` are commands; a line starting with `!` is a shell command you run
 yourself ("Commands you run yourself", below); anything else goes to the model. Replies stream.
 
+When the configured model (`config.json`'s `model`) is unavailable as chat starts, Ollama not running, say, chat
+starts on `system` instead and says so before the first prompt, so you reach `/model`:
+
+```
+ollama:granite4.1:8b is unavailable (no Ollama server at http://127.0.0.1:11434: Could not connect to the server);
+using system. /model ollama:granite4.1:8b once Ollama is running
+```
+
+It is recorded as `model.fallback` ([logging.md](logging.md)). A model named with `--model` is not replaced: chat
+fails as before, since you asked for that one, and so it does when `system` is unavailable or disabled too.
+`wisp respond` and MCP `respond` never fall back ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+
 On a terminal, when `wisp-tui` is installed beside `wisp`, or in a `bin` beside the folder `wisp` is in (the
 Homebrew formula installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp chat` hands the session to it;
 `wisp doctor`'s `front end` finding says where it found it, or where it looked: the conversation scrolls in the terminal's own scrollback above a pinned band
@@ -262,8 +274,9 @@ What a session shows, and where it goes:
 | `/show [ID]` | A tool output, a typed command's output, or a stretch of the model's thinking, in full, to stdout: by the id its fold line gives (the start of its `tool.result`, `command.typed`, or `model.reasoning` event id, four characters or more) or by its store entry id (the number `/inspect context`, `/inspect thinking`, and the model's references use); with no id, the last tool output. |
 | `/inspect thinking [N]` | The model's thinking ([ADR 0053](decisions/0053-the-models-thinking-shown.md)): every stretch the conversation kept, oldest first, each under its store entry id and turn with its time and tokens; with a turn number, that turn's. Kept for you; no request carries it. `wisp-tui` shows it in its panel; `wisp chat --json` sends it as a `view` of kind `thinking`. |
 | `/inspect context next\|N\|turns` | The model's context, shown rather than saved, at no model cost: with `next`, what the next request carries, entry by entry under its store id, with each reply whose copy of an output was cut and each output sent as a reference marked; with a turn number, the context composed at the start of that turn, its own entries (prompt, tool calls and output, reply) marked; with `turns`, one row per turn: time, estimated tokens, what changed since the turn before (entries condensed, replies cut, outputs referenced), and the start of the prompt. Markdown on stdout; `wisp-tui` shows it in its panel (Ctrl-T). |
-| `/models` | The models this conversation could switch to: those that resolve and declare what its tools need, as `wisp models` decides. A table with a header (model, details, capabilities) and the current one marked `*`; `wisp models` keeps its tab-separated lines for scripts. |
-| `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint and nothing changes. |
+| `/models` | The models this Mac can run, as the table `wisp models` prints (below), judged for this conversation's tools, with the model in use marked `*`, fitted to the terminal when its width is known. In `wisp-tui` it is a picker of the same table: ↑↓ move, Space turns the highlighted model on or off, Enter saves, Esc leaves them as they were ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
+| `/models enable\|disable NAME…` | Turn models on or off, as `wisp models enable\|disable` does (below): a disabled model is not offered by `/model` or Tab and is refused; the default cannot be disabled. Holds in this chat at once; Tab after `enable` offers the disabled models. |
+| `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/stats` | Timings of this session's recent model turns and classifier calls: per kind and model, the count, failures, mean, P50, P95, and maximum seconds, and the mean prompt tokens where the runtime reports them (Ollama); then the latest eight calls by start time. Kept in memory only, the latest 256 calls; see below. |
 | `/history` | The lines typed this session, numbered, oldest first: the latest 100, blank lines and a line repeating the one before it left out. |
 | `/config`, `/config list` | The effective configuration as YAML (`wisp config` gives the same as JSON); `list` shows the settings that can be changed here, each with its value in `config.json` (or `(default)`) and what it does. |
@@ -314,7 +327,7 @@ Out, to the front end:
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 | `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped. Drop the dialog; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
-| `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. |
+| `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
 | `exit` | | The loop has ended. |
 
@@ -342,7 +355,9 @@ lines follow: the command's audit events arrive as `event` lines (`policy.decisi
 `command.typed` with the output), then `status`. Then
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval (`keep` or
 `drop` for a fact to keep), and
-`{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, and
+`{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, or for a choice
+with toggles `{"type":"choose","id":"…","values":["system","ollama:granite4.1:8b"]}`, the values left on; without
+`values` nothing changes, so a front end that answers it as a plain choice changes nothing, and
 `{"type":"complete","id":"…","text":"…","cursor":N}` to ask for completions of the input at character
 `N`, answered by `completions` even while a turn is not running; completion comes from the same list of
 settings and values as `/config`, and the models this Mac can run are looked up once per session. A line that
@@ -426,53 +441,79 @@ See [logging.md](logging.md) for the event catalogue.
 
 ### `wisp models`
 
-Lists the models `--model` and `config.json` can use: Apple's two, then every model each local backend
-serves, each shown only if it can serve a conversation. That is decided by logic, not a list of names:
-the model must resolve (installed, reachable, entitled, and able to converse; an Ollama model that does
-not report `completion`, such as an embedding model, cannot) and must declare tool calling, since a
-conversation has tools. The configured default is marked with `*`; each line gives the backend's detail
-and the declared capabilities. A backend that does not answer gets one line in parentheses, and so, in a
-build with MLX, do the complete `mlx-community` models in the Hugging Face cache that the MLX models
-directory does not link yet: `(in the Hugging Face cache, not linked: mlx-community/Qwen3-4B-4bit; wisp models
-pull <repository> links one without downloading)`. On a
-terminal the listing is aligned columns under a header (model, parameter count, size, capabilities),
-wrapped to the terminal's width; piped, it is the tab-separated lines shown below, for scripts.
+Lists the models `--model` and `config.json` can use, with everything wisp knows about each: Apple's two, then every
+model each local backend serves, each shown only if it can serve a conversation. That is decided by logic, not a
+list of names: the model must resolve (installed, reachable, entitled, and able to converse; an Ollama model that
+does not report `completion`, such as an embedding model, cannot) and must declare tool calling, since a
+conversation has tools. The listing also shows what you can turn on: every disabled model, and, in a build with MLX,
+every complete `mlx-community` model in the Hugging Face cache that the MLX models folder does not link yet. A
+backend that does not answer gets one line in parentheses. The configured default is marked `*`
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+
+| Column | Shows |
+| --- | --- |
+| `MODEL` | The name, as `--model` takes it, `*` before the default (in chat, the model in use) |
+| `RUNTIME` | `on-device` (Apple's model), `Private Cloud`, `Ollama`, `MLX`, or `Core AI` |
+| `PARAMS` | The parameter count, as the runtime reports it (Ollama) |
+| `SIZE` | The weights on disk |
+| `FORMAT` | Family or architecture and quantisation: Ollama's `granite Q4_K_M`, an MLX model's `qwen3 4-bit`, a Core AI bundle's kind and compression |
+| `CONTEXT` | The context window wisp would use, in tokens |
+| `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `default` (8,192, with no shape to size from), `model` (the model's own, Apple's) |
+| `WHERE` | MLX only: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it) |
+| `ENABLED` | `yes`, or `no` for a model you disabled or a cached one not linked |
+| `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only` |
+
+A column no listed model has a value for is left out, and an empty cell stays empty. On a terminal the table is
+fitted to its width (from the terminal, else `COLUMNS`, else 80): when the columns do not leave the last 20 cells,
+`FORMAT` goes first, then `RUNTIME`, `FROM`, `WHERE`, `PARAMS`, `SIZE`, and `CONTEXT`; `MODEL`, `ENABLED`, and
+`CAPABILITIES` always stay, and the capabilities wrap under themselves. Rendered by the tests from a listing with a
+model of each runtime, at 120 columns:
+
+```
+  MODEL                 PARAMS  SIZE      CONTEXT  FROM    WHERE                 ENABLED  CAPABILITIES
+  system                                  8,192    model                         yes      tools, structured replies,
+                                                                                          vision
+* ollama:granite4.1:8b  8.8B    5.35 GB   65,536   memory                        yes      tools, structured replies
+  ollama:qwen3.8:27b    27.3B   17.74 GB  32,768   memory                        no       tools, structured replies,
+                                                                                          thinking
+  mlx:Qwen3-1.7B-4bit           984 MB    40,960   memory  HF cache              yes      tools, structured replies
+  mlx:Qwen3-4B-4bit             2.26 GB                    HF cache, not linked  no
+```
+
+At 80:
+
+```
+  MODEL                 SIZE      CONTEXT  ENABLED  CAPABILITIES
+  system                          8,192    yes      tools, structured replies,
+                                                    vision
+* ollama:granite4.1:8b  5.35 GB   65,536   yes      tools, structured replies
+  ollama:qwen3.8:27b    17.74 GB  32,768   no       tools, structured replies,
+                                                    thinking
+  mlx:Qwen3-1.7B-4bit   984 MB    40,960   yes      tools, structured replies
+  mlx:Qwen3-4B-4bit     2.26 GB            no
+```
+
+Piped, each model is one tab-separated line with every column, in the order above, whether or not it has a value,
+so a field is at the same position on every line; the name comes after `* ` or two spaces, and a model that cannot
+be used has its reason as one more field. `--json` is the form for scripts: `models`, one object per model with a
+field per column (`model`, `runtime`, `parameters`, `size` and `bytes`, `format`, `context` as a number,
+`contextFrom` and `contextNote`, `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`,
+`capabilities`), `default`, `usable`, and `problem`, absent facts null; and `unreachable`, the backends that did not
+answer.
 
 | Flag | Effect |
 | --- | --- |
 | `--no-tools` | Judge for a conversation with no tools, so text-only models are listed too |
 | `--all` | Add the excluded models, each with the reason it cannot be used |
+| `--json` | Print the listing as JSON |
+
+With `--all` on a terminal, a model that cannot be used has an empty capabilities cell and its reason on the lines
+under it, indented and wrapped to the full width; piped, the reason is the last field:
 
 ```
-  MODEL                      PARAMS  SIZE      CAPABILITIES
-* system                                       toolCalling, guidedGeneration, vision
-  ollama:qwen3-coder:latest  30.5B   18.56 GB  toolCalling, guidedGeneration
-```
-
-Piped:
-
-```
-* system	toolCalling, guidedGeneration, vision
-  ollama:qwen3-coder:latest	30.5B 18.56 GB; toolCalling, guidedGeneration
-```
-
-With `--all` on a terminal, a model that cannot be used has an empty capabilities cell and its reason on
-the lines under it, indented and wrapped to the full width:
-
-```
-  MODEL                            PARAMS  SIZE      CAPABILITIES
-  ollama:nomic-embed-text:latest   137M    274.3 MB
-    not usable: model 'ollama:nomic-embed-text:latest' is unavailable: Ollama
-    reports it cannot hold a conversation (capabilities: embedding)
-  ollama:qwen3-coder:latest        30.5B   18.56 GB  toolCalling, guidedGeneration
-```
-
-With `--all`, piped, on the same Mac on 2026-09-23:
-
-```
-  private-cloud	not usable: … lacks the com.apple.developer.private-cloud-compute entitlement, …
-  ollama:nomic-embed-text:latest	not usable: … Ollama reports it cannot hold a conversation (capabilities: embedding)
-  ollama:deepseek-coder-v2:latest	not usable: … does not support tool calling (capabilities runtime); …
+  MODEL         SIZE      ENABLED  CAPABILITIES
+  ollama:embed  274.3 MB  yes
+    not usable: it cannot hold a conversation
 ```
 
 `private-cloud` is refused from every unsigned build; see [backends.md](backends.md), "Private Cloud
@@ -481,7 +522,35 @@ Compute".
 `wisp tools --markdown` and `--json` include a `Measured:` line, or a `measurements` field, for each
 tool the eval harness has measured ([measurements.md](measurements.md)).
 
-`wisp models` is `wisp models list`; its other subcommand fetches a model.
+`wisp models` is `wisp models list`; its other subcommands turn models on and off and fetch a model.
+
+#### `wisp models enable|disable <name>…`
+
+Turns models on and off, by the names `--model` takes. A disabled model is not offered by `/model`, Tab, or
+`/config set model`, and is refused wherever a model is chosen: `/model`, `--model`, `config.json`'s `model`, and an
+MCP caller's `respond` `model`, each with `model 'X' is disabled; enable it with wisp models enable X, or /models
+enable X in chat`. The listing still shows it, with `ENABLED` `no`. The default model (`config.json`'s `model`, or
+`system` when it names none) cannot be disabled until another is made the default, so wisp never starts on a model
+it refuses; a `config.json` that disables its own default does not load.
+
+The list is `models.disabled` in `config.json`; each change is a `config.change` with `source` `cli` (`/models
+enable|disable` and the `wisp-tui` picker record `chat`), and the rest of the file is kept. A chat applies its own
+change at once; other running processes, such as a `wisp mcp` server, from their next session.
+
+Enabling a complete MLX model in the Hugging Face cache that is not linked links it, as `wisp models pull` would
+with nothing to fetch: no request is made, so nothing is asked, and it says what it linked to what. It is recorded
+as `model.pull` with outcome `linked`.
+
+```
+$ wisp models disable ollama:nomic-embed-text:latest private-cloud
+disabled ollama:nomic-embed-text:latest: hidden from /model and refused until enabled
+disabled private-cloud: hidden from /model and refused until enabled
+$ wisp models enable mlx:Qwen3-4B-4bit
+linked mlx:Qwen3-4B-4bit: ~/.wisp/models/mlx/Qwen3-4B-4bit → …/snapshots/<revision> in the Hugging Face cache; nothing was downloaded
+mlx:Qwen3-4B-4bit is enabled
+$ wisp models disable system
+Error: system is the default model, so it cannot be disabled; make another model the default first (config.json's model: wisp config set model <name>, or /config set model in chat)
+```
 
 #### `wisp models pull <repository>`
 
@@ -544,7 +613,8 @@ wisp config unset approval.timeoutSeconds
 
 | Setting | Accepts |
 | --- | --- |
-| `model` | A model, as `--model` spells it. |
+| `model` | A model, as `--model` spells it; not a disabled one. |
+| `models.disabled` | Models, as a JSON array or separated by commas or spaces; not the default. `wisp models enable\|disable` adds and removes names instead. |
 | `approval.threshold` | `safe`, `moderate`, `dangerous`, or `never`. |
 | `approval.classifier` | `rules`, `system-model`, or `coreml`. |
 | `approval.coremlModel` | A classifier version, `risk@<version>` (`wisp classifier list`); a Core ML model under `~/.wisp/models/coreml`; or an absolute or `~` path. Unset, the default this release ships. |
@@ -855,6 +925,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | --- | --- | --- |
 | `systemPromptExtension` | none | Text added under wisp's own system prompt for every session and thread on this Mac: house style, standing assumptions. `instructions` is the pre-0.2 name and is read when this key is absent. See [ADR 0017](decisions/0017-three-layer-instructions.md). |
 | `model` | `system` | `system`, `private-cloud`, or `<backend>:<name>`: `ollama:<name>`, `coreai:<name>`, or `mlx:<name>` ([backends.md](backends.md)). See [ADR 0013](decisions/0013-model-selection.md), [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md), and [ADR 0019](decisions/0019-model-backends.md). |
+| `models` | `{ "disabled": [] }` | `disabled`: models turned off, as `--model` spells them: not offered by `/model` and Tab, and refused by `/model`, `--model`, `model`, and an MCP caller's `model`; never the default. Changed by `wisp models enable\|disable` and `/models` ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
 | `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120 }` | Where Ollama serves `ollama:<name>` models and how long one generation request may take. `contextLength`, when set, is the context window asked of the server for every model (`num_ctx`), which wisp condenses against; unset, each model's window is sized when it is selected from its shape and the Mac's memory ([ADR 0043](decisions/0043-context-window-from-memory.md)). See [backends.md](backends.md). |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |

@@ -36,8 +36,8 @@ public enum ChatInput: Equatable, Sendable {
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
     case task(String?)
-    /// List the models the session could switch to.
-    case models
+    /// List the models the session could switch to, or turn some on or off (ADR 0056).
+    case models(ModelsRequest)
     /// Switch the conversation to a model, or show the current one when nil.
     case model(String?)
     /// Show the recent model turns and classifier calls, with their timings.
@@ -204,8 +204,11 @@ public enum ChatInput: Equatable, Sendable {
             about: "a tool output or thinking in full: an entry number or an event-id prefix (4+ characters)",
             names: ["show"], command: { .show($0) }),
         HelpEntry(
-            usage: "/models", about: "the models this Mac can run for this conversation",
-            names: ["models"], command: { _ in .models }),
+            usage: "/models", about: "the models this Mac can run, with what wisp knows of each",
+            names: ["models"], command: { .models(ModelsRequest($0)) }),
+        HelpEntry(
+            usage: "/models enable|disable NAME…",
+            about: "turn models on or off: a disabled model is hidden from /model and refused"),
         HelpEntry(
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
@@ -309,6 +312,29 @@ public enum ApprovalsRequest: Equatable, Sendable {
         switch parts.first {
         case nil, "list": self = .list
         case "revoke": self = .revoke(parts.count > 1 ? parts[1] : nil)
+        case let word?: self = .unknown(word)
+        }
+    }
+}
+
+/// What `/models` asks for (ADR 0056).
+public enum ModelsRequest: Equatable, Sendable {
+    /// The listing: a table, or in a front end with choices a picker to turn models on and off.
+    case list
+    /// Turn these models on.
+    case enable([String])
+    /// Turn these models off.
+    case disable([String])
+    /// Anything else, with the word that was not understood, or `enable`/`disable` with no name.
+    case unknown(String)
+
+    /// Parses what follows `/models`.
+    public init(_ argument: String?) {
+        let parts = (argument ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        switch parts.first {
+        case nil, "list": self = .list
+        case "enable" where parts.count > 1: self = .enable(Array(parts.dropFirst()))
+        case "disable" where parts.count > 1: self = .disable(Array(parts.dropFirst()))
         case let word?: self = .unknown(word)
         }
     }

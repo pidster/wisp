@@ -7,7 +7,7 @@ import FoundationModels
 /// `<backend>:<name>` for a model served by a local runtime registered in `ModelBackends`
 /// (`ollama:`, and whatever the executable adds; ADR 0016, ADR 0019). Custom adapters are obsoleted
 /// in macOS 27.
-public enum ModelSelection: Equatable, Sendable, CustomStringConvertible, Codable {
+public enum ModelSelection: Hashable, Sendable, CustomStringConvertible, Codable {
     /// Apple's on-device model. Nothing leaves the machine.
     case system
     /// Apple's Private Cloud Compute model. Requests leave the machine under Apple's privacy guarantees.
@@ -92,6 +92,10 @@ public enum ModelSelection: Equatable, Sendable, CustomStringConvertible, Codabl
         case unknownBackend(String, registered: [String])
         /// The model does not declare a capability the request needs.
         case unsupportedCapability(model: String, capability: String, declaredBy: CapabilitySource, hint: String)
+        /// The operator disabled the model (`models.disabled`, ADR 0056).
+        case disabled(model: String)
+        /// The model is the default and so cannot be disabled (ADR 0056).
+        case defaultDisabled(model: String)
 
         /// Human-readable explanation.
         public var description: String {
@@ -103,6 +107,12 @@ public enum ModelSelection: Equatable, Sendable, CustomStringConvertible, Codabl
                 "no model backend '\(scheme)' in this build; available: \(registered.joined(separator: ", "))"
             case .unsupportedCapability(let model, let capability, let declaredBy, let hint):
                 "model '\(model)' does not support \(capability) (capabilities \(declaredBy.rawValue)); \(hint)"
+            case .disabled(let model):
+                "model '\(model)' is disabled; enable it with wisp models enable \(model), or /models enable \(model) "
+                    + "in chat"
+            case .defaultDisabled(let model):
+                "\(model) is the default model, so it cannot be disabled; make another model the default first "
+                    + "(config.json's model: wisp config set model <name>, or /config set model in chat)"
             }
         }
     }

@@ -18,9 +18,13 @@ them, what each declares it can do, and what goes wrong. The decisions are
 | `coreai:<name-or-path>` | Apple's Core AI framework, in wisp's process | on device |
 | `mlx:<name-or-path>` | MLX Swift, in wisp's process | on device; in the release and in builds made with the `MLX` trait |
 
-`wisp models` lists the models that can serve a conversation right now, and `--all` adds the rest with
-the reason each is excluded ([wisp.md](wisp.md)); `wisp doctor` checks the configured
-model resolves. A backend this build lacks is refused with the registered ones named.
+`wisp models` lists the models that can serve a conversation right now, with what wisp knows of each (runtime,
+parameters, size, format, the window and how it was decided, where an MLX model lives, whether it is enabled, and
+its capabilities), and `--all` adds the rest with the reason each is excluded ([wisp.md](wisp.md)); `wisp doctor`
+checks the configured model resolves. A backend this build lacks is refused with the registered ones named. A model
+can be turned off with `wisp models disable <name>`: it is then not offered and is refused wherever a model is
+chosen; the default cannot be ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). When chat's configured
+model is unavailable as it starts, chat starts on `system` and says so; `respond` and MCP fail instead.
 
 Every backend is the same above the model: the tool loop, the approval gate, the sandbox, transcripts,
 and the audit log are unchanged. When a conversation opens, wisp records `model.resolved` with the
@@ -86,7 +90,13 @@ On 2026-09-29, with 19.6 GB available, `granite4.1:8b` (131,072 at most) got 24,
 Setting `contextLength` fixes one window for every model instead.
 
 Errors: `no Ollama server at <url>` when nothing listens; `Ollama has no model '<name>'; installed: …`
-when the name is unknown (the `:latest` tag may be omitted). Ollama does not signal context overflow; it silently drops the front of the prompt once it passes the
+when the name is unknown (the `:latest` tag may be omitted). Once the server has the request: `Ollama at <url>
+stopped before the reply was done (…); nothing of it was kept` when the connection is lost, or the stream ends
+without the chunk that says `done`; `Ollama at <url> sent nothing for N s (ollama.timeoutSeconds); the request was
+abandoned` when it goes silent. Either ends the turn with that error, recorded as the turn's `error` event: what
+had streamed is not kept as a reply, and a tool call that had arrived is not run, so the conversation's next turn
+goes to Ollama without it. Tested with a fake server that drops the connection, closes it early, or holds it open
+(`OllamaInterruptionTests`). Ollama does not signal context overflow; it silently drops the front of the prompt once it passes the
 server's window. wisp therefore asks for an explicit window on every request (the sized or configured
 window, sent as `num_ctx`; larger windows cost memory) and reads the token usage every reply reports, and `Agent`
 condenses the transcript ahead of the window when the last request plus the new prompt would pass 85%
@@ -172,7 +182,7 @@ The context window is the one the bundle was exported for, read from `metadata.j
 `language.max_context_length` (metadata 0.2), or `max_context_length` at the top level of a 0.1 bundle
 ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). wisp condenses against it as it does against any
 known window, `model.resolved` records it with the note `declared by the bundle (metadata.json …)`, `wisp doctor`
-says the same, and `wisp models` shows it on the bundle's line (`8,192-token window`). It is not sized from
+says the same, and `wisp models` shows it in `CONTEXT`, with `bundle` in `FROM`. It is not sized from
 memory: the export fixes the window and Core AI allocates its own cache within it. A bundle whose metadata
 states none leaves the window unknown, as before (wisp assumes 8,192 tokens until an overflow tells it).
 Whether Core AI refuses or truncates a prompt past the window has not been probed.
@@ -255,8 +265,10 @@ At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the mo
 directory, such as a copy fetched before the pull used the cache, stays unless you answer yes to a second
 question, asked once the snapshot is complete and checked; yes moves it to the Trash and links in its place.
 Anything else there refuses the pull. The model is then `mlx:<name>`; its capabilities are still yours to
-declare. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` names the complete
-`mlx-community` snapshots in the cache that nothing links yet; the pull links one without downloading.
+declare. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` lists the complete
+`mlx-community` snapshots in the cache that nothing links yet, `WHERE` `HF cache, not linked` and `ENABLED` `no`;
+`wisp models enable mlx:<name>` (or the pull) links one without downloading
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
 
 wisp follows a linked model to its real directory when it resolves it, for the window, the weights' size, and
 loading. The pull uses Hugging Face's model information (`/api/models/<repo>/revision/main`), its tree
@@ -278,9 +290,9 @@ Capabilities come from the operator, because MLX never infers them: declare per 
 ```
 
 Accepted capability names: `toolCalling`, `guidedGeneration`, `reasoning`, `vision`; another spelling is
-refused at resolve. `wisp models` lists the directories that resolve, with architecture, quantisation,
-and the declaration; `--all` shows the others with the reason, including every MLX model in a build
-without the trait.
+refused at resolve. `wisp models` lists the directories that resolve, with architecture and quantisation
+(`FORMAT`), the weights' size, the window, where the model lives, and the declared capabilities; `--all` shows the
+others with the reason, including every MLX model in a build without the trait.
 
 ### What runs the model
 

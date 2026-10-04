@@ -29,9 +29,25 @@ Added:
   `wisp models` names cached models not yet linked. Audited as `model.pull`; the model is refused the command
   (ADR 0052).
 - `mlx.contextLength` and `mlx.executor` in `config.json` (and `wisp config set`).
+- Models can be turned off and on: `wisp models disable|enable <name>`, `/models disable|enable <name>` in chat, or,
+  in `wisp-tui`, `/models` as a picker (↑↓, Space to turn one on or off, Enter to save, Esc to leave). A disabled
+  model is not offered by `/model` or Tab and is refused by `/model`, `--model`, `config.json`'s `model`, and an MCP
+  caller's `model`, with how to enable it; the default model cannot be disabled. Stored as `models.disabled` in
+  `config.json`, audited as `config.change`. Enabling a complete MLX model in the Hugging Face cache that is not
+  linked links it, with no download (ADR 0056).
+- `wisp models --json`, a field per column.
+- When chat's configured model is unavailable as it starts (Ollama not running, say), chat starts on `system` and
+  says so, with the `/model` to return to it, instead of refusing to start; audited as `model.fallback`. A model
+  named with `--model`, `wisp respond`, and MCP `respond` still fail, so nothing changes model silently (ADR 0056).
 
 Changed:
 
+- `wisp models` and chat's `/models` are a table of everything wisp knows about each model: runtime, parameters,
+  size, format, the context window wisp would use and how it was decided, where an MLX model lives, whether it is
+  enabled, and its capabilities in plain words (`tools`, `structured replies`, `thinking`, `vision`). On a narrow
+  terminal the least important columns are left out. Cached MLX models not yet linked are rows of the table rather
+  than a note. Piped, every column is a tab-separated field, so the old `detail; capabilities` field is gone; use
+  `--json` in scripts (ADR 0056).
 - When a command fails with `Operation not permitted`, wisp now checks the paths in the error against the sandbox's
   writable roots instead of guessing, and tells the model in one line: the sandbox refused writing to a path and
   where commands may write, something else refused a path inside the roots, or, with no path to check, the sandbox
@@ -50,6 +66,10 @@ Changed:
 
 Fixed:
 
+- An Ollama reply cut short is no longer taken for a whole one. A stream that ended without the chunk that says
+  `done` was kept as the complete reply; a connection lost mid-reply, or a server that went silent, failed with
+  `no Ollama server at …`. Each now ends the turn with `Ollama at … stopped before the reply was done` or `… sent
+  nothing for N s (ollama.timeoutSeconds)`, nothing of the reply is kept, and the next turn goes on as usual.
 - The `inspect` tool's `config` view (and `/inspect config`) cut the settings that sort last, `version` among
   them, once every backend's settings made it pass 4 KiB; it is now sent as compact JSON when the pretty layout
   would not fit.

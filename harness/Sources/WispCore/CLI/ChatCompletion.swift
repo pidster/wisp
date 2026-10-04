@@ -30,11 +30,14 @@ public enum ChatCompletion {
     ///   - sessionIDs: The audit log's recent session ids, for `/audit`.
     ///   - subjects: The subject kinds, for `/fact`.
     ///   - factIDs: The current facts' ids, for `/fact delete` and `/fact ID SCOPE`.
+    ///   - disabledModels: The models turned off, for `/models enable`; `/model` and `/models disable` offer the
+    ///     options of `model`, which leave them out (ADR 0056).
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
         approvalIDs: [String] = [], sessionIDs: [String] = [],
-        subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = []
+        subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = [],
+        disabledModels: [String] = []
     ) -> Result {
         let head = String(text.prefix(cursor ?? text.count))
         let from = head.lastIndex(of: " ").map { head.distance(from: head.startIndex, to: $0) + 1 } ?? 0
@@ -50,7 +53,9 @@ public enum ChatCompletion {
         case ["/approvals", "revoke"]: pool = approvalIDs
         case let words where words.count == 3 && words[0] == "/config" && words[1] == "set":
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
-        case ["/model"]: pool = ConfigSettings.setting("model").map(options) ?? []
+        case ["/model"], ["/models", "disable"]: pool = ConfigSettings.setting("model").map(options) ?? []
+        case ["/models"]: pool = ["enable", "disable"]
+        case ["/models", "enable"]: pool = disabledModels
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]
         case ["/inspect", "facts"], ["/inspect", "summary"]: pool = ["all"]

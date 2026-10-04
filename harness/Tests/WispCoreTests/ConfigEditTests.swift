@@ -67,7 +67,7 @@ import WispTestSupport
         let broken = Data(#"{"commandPolicy": {"deny": ["("]}}"#.utf8)
         #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set("model", to: "system", in: broken) }
         let described = "\(ConfigEdit.Failure.unknownSetting("x"))"
-        #expect(described.hasPrefix("no setting 'x'; the settings are: model, approval.threshold"))
+        #expect(described.hasPrefix("no setting 'x'; the settings are: model, models.disabled, approval.threshold"))
         #expect("\(ConfigEdit.Failure.invalidValue(path: "a", reason: "b"))" == "a: b")
         #expect("\(ConfigEdit.Failure.unreadableFile("x"))".hasPrefix("config.json is not a JSON object"))
         #expect("\(ConfigEdit.Failure.wouldNotLoad("x"))".hasPrefix("the change would leave"))

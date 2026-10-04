@@ -26,6 +26,24 @@ final class FakeOllama: URLProtocol {
     static func reset() {
         responses.withLock { $0 = [:] }
         requests.withLock { $0 = [] }
+        interruptions.withLock { $0 = [:] }
+    }
+
+    /// How a response to a path is cut short, for the tests of Ollama stopping mid-turn.
+    enum Interruption {
+        /// The body is sent, then the connection is lost.
+        case drop
+        /// The body is sent and the connection held open, with nothing more, until the client gives up.
+        case hold
+    }
+
+    /// The interruptions in force, keyed by path; a path without one is served whole.
+    static let interruptions = Mutex<[String: Interruption]>([:])
+
+    /// Serves `body` on `path`, then cuts the response short as `interruption` says.
+    static func serve(_ path: String, body: String, then interruption: Interruption) {
+        serve(path, body: body)
+        interruptions.withLock { $0[path] = interruption }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -56,11 +74,23 @@ final class FakeOllama: URLProtocol {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(canned.body.utf8))
-        client?.urlProtocolDidFinishLoading(self)
+        if !canned.body.isEmpty { client?.urlProtocol(self, didLoad: Data(canned.body.utf8)) }
+        switch Self.interruptions.withLock({ $0[path] }) {
+        case .drop:
+            // Lost a moment later, as a real connection is, so the client has the response and is reading the
+            // stream; on the loading thread's run loop, as a URL protocol's own work is.
+            perform(#selector(loseConnection), with: nil, afterDelay: 0.05)
+        case .hold: break
+        case nil: client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
     override func stopLoading() {}
+
+    /// Fails the request as a lost connection does.
+    @objc private func loseConnection() {
+        client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+    }
 }
 
 @Suite(.serialized) struct OllamaExecutorTests {
@@ -68,6 +98,8 @@ final class FakeOllama: URLProtocol {
     static let config = Config(ollama: .init(baseURL: "http://fake.ollama:1", timeoutSeconds: 5)).resolved
     static let tags = #"{"models":[{"name":"q:latest","size":10,"details":{"parameter_size":"3B"}}]}"#
     static let shown = #"{"capabilities":["completion","tools"]}"#
+    /// The last chunk Ollama streams for every reply, a tool call's included: `done`, with nothing more to say.
+    static let doneChunk = #"{"message":{"role":"assistant","content":""},"done":true}"# + "\n"
 
     init() {
         URLProtocol.registerClass(FakeOllama.self)
@@ -120,7 +152,7 @@ final class FakeOllama: URLProtocol {
             #"{"message":{"role":"assistant","content":"The "},"done":false}"#,
             #"{"message":{"role":"assistant","content":"date."},"done":true,"prompt_eval_count":12,"eval_count":3}"#,
         ]
-        FakeOllama.serve("/api/chat", body: call + "\n")
+        FakeOllama.serve("/api/chat", body: call + "\n" + Self.doneChunk)
         let model = try ModelSelection.ollama("q").resolve(config: Self.config)
         let agent = Agent(instructions: "x", tools: [CurrentDateTool()], model: model)
         // The fake serves one canned body per path, so swap it once the first request has been made.
@@ -157,7 +189,7 @@ final class FakeOllama: URLProtocol {
         // granite4.1:8b on 2026-09-29: {"topic": "processes"} for system_info, which requires process.
         let call =
             #"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"topic_tool","arguments":{"topic":"processes"}}}]},"done":false}"#
-        FakeOllama.serve("/api/chat", body: call + "\n")
+        FakeOllama.serve("/api/chat", body: call + "\n" + Self.doneChunk)
         let model = try ModelSelection.ollama("q").resolve(config: Self.config)
         let agent = Agent(instructions: "x", tools: [TopicTool()], model: model)
         let task = Task { try await agent.stream("which processes?") { _ in } }

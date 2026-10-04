@@ -117,9 +117,16 @@ public struct ChatLoop {
         public var inspect: (@Sendable (String) async -> String)?
         /// A banner line for the start of the session.
         public var banner: String?
-        /// Lists the models `/models` offers: those that can serve a conversation on the given current
-        /// model with the given tools; nil makes the command unavailable.
-        public var models: (@Sendable (ModelSelection, [any Tool]) async -> [String])?
+        /// Lists the models `/models` shows, judged for a conversation with the given tools (`ModelListing`); nil
+        /// makes the command unavailable.
+        public var models: (@Sendable ([any Tool]) async -> ModelListing.Listing)?
+        /// Turns models on and off (`Session.setModels`): the models to enable, then those to disable; returns a
+        /// line per model for the person. Nil makes `/models enable|disable` unavailable and the picker a table.
+        public var setModels: (@Sendable ([String], [String]) throws -> [String])?
+        /// The terminal's width for a table, or nil when unknown, which aligns it without wrapping.
+        public var width: @Sendable () -> Int?
+        /// Notes shown once after the banner, such as the model chat fell back to (ADR 0056).
+        public var notices: [String]
         /// Opens an agent on another model continuing the thread's record, for `/model`; nil makes it
         /// unavailable.
         public var openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)?
@@ -144,7 +151,9 @@ public struct ChatLoop {
             directory: String, approval: String,
             git: @escaping @Sendable (String) -> GitState.Summary = { _ in GitState.Summary() },
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
-            models: (@Sendable (ModelSelection, [any Tool]) async -> [String])? = nil,
+            models: (@Sendable ([any Tool]) async -> ModelListing.Listing)? = nil,
+            setModels: (@Sendable ([String], [String]) throws -> [String])? = nil,
+            width: @escaping @Sendable () -> Int? = { nil }, notices: [String] = [],
             openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)? = nil, stats: CallStats? = nil,
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
@@ -162,6 +171,9 @@ public struct ChatLoop {
             self.inspect = inspect
             self.banner = banner
             self.models = models
+            self.setModels = setModels
+            self.width = width
+            self.notices = notices
             self.openModel = openModel
             self.stats = stats
         }
@@ -242,6 +254,7 @@ public struct ChatLoop {
     /// - Throws: Only the exit save can throw; everything inside the loop is reported as a note.
     public mutating func run() async throws {
         if let banner = context.banner { io.note(style.bold(banner)) }
+        for notice in context.notices { io.note(style.ember(notice)) }
         observeWorkplace()
         io.note(style.muted("/help for commands, /quit or Ctrl-D to exit."))
         loop: while true {
@@ -323,12 +336,8 @@ public struct ChatLoop {
                 } catch {
                     io.note(style.ember("error: \(error)"))
                 }
-            case .models:
-                guard let models = context.models else {
-                    io.note("models are not listed here")
-                    continue
-                }
-                for line in await models(agent.model.selection, agent.tools) { io.print(line) }
+            case .models(let request):
+                await models(request)
             case .stats:
                 guard let stats = context.stats else {
                     io.note("stats are not kept here")

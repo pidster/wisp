@@ -66,6 +66,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case sessionStart
         case sessionEnd
         case modelResolved
+        case modelFallback
         case prompt
         case response
         case modelReasoning
@@ -114,6 +115,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .sessionStart,
             .sessionEnd,
             .modelResolved,
+            .modelFallback,
             .prompt,
             .response,
             .modelReasoning,
@@ -162,6 +164,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .sessionStart: "session.start"
             case .sessionEnd: "session.end"
             case .modelResolved: "model.resolved"
+            case .modelFallback: "model.fallback"
             case .prompt: "prompt"
             case .response: "response"
             case .modelReasoning: "model.reasoning"

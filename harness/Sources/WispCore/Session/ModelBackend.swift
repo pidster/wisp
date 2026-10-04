@@ -6,13 +6,79 @@ import Synchronization
 public struct InstalledModel: Equatable, Sendable {
     /// The selection that names it, such as `ollama:qwen3-coder:latest`.
     public var selection: ModelSelection
-    /// Size, parameter count, or whatever the runtime knows.
+    /// Size, parameter count, or whatever the runtime knows, as one line, for a picker's detail.
     public var detail: String
+    /// The parameter count as the runtime reports it, such as `8.8B`; nil when it does not.
+    public var parameters: String?
+    /// Bytes the weights take on disk; nil when unknown.
+    public var bytes: Int?
+    /// The architecture and quantisation, such as `granite Q4_K_M` or `qwen3 4-bit`; nil when unknown.
+    public var format: String?
+    /// Where an MLX model lives; nil for runtimes that keep their own models.
+    public var location: ModelLocation?
 
     /// Creates a record.
-    public init(selection: ModelSelection, detail: String) {
+    public init(
+        selection: ModelSelection, detail: String, parameters: String? = nil, bytes: Int? = nil,
+        format: String? = nil, location: ModelLocation? = nil
+    ) {
         self.selection = selection
         self.detail = detail
+        self.parameters = parameters
+        self.bytes = bytes
+        self.format = format
+        self.location = location
+    }
+}
+
+/// Where a model a backend lists lives on this Mac (ADR 0052, 0056).
+public enum ModelLocation: String, Equatable, Sendable, CaseIterable {
+    /// A directory of its own in the backend's models folder.
+    case modelsFolder
+    /// The Hugging Face cache, linked from the models folder.
+    case hubCache
+    /// The Hugging Face cache, complete, and not linked: enabling it links it.
+    case hubCacheNotLinked
+
+    /// The words the listing shows.
+    public var label: String {
+        switch self {
+        case .modelsFolder: "models folder"
+        case .hubCache: "HF cache"
+        case .hubCacheNotLinked: "HF cache, not linked"
+        }
+    }
+}
+
+/// What linking a cached model did, for the person and the `model.pull` event it is recorded as (ADR 0056).
+public struct ModelLink: Equatable, Sendable {
+    /// The selection it now resolves as.
+    public var selection: ModelSelection
+    /// The repository, such as `mlx-community/Qwen3-4B-4bit`.
+    public var repository: String
+    /// The cache's snapshot the link points at.
+    public var snapshot: String
+    /// The link's path in the models folder.
+    public var destination: String
+    /// Files in the snapshot.
+    public var files: Int
+    /// Their bytes.
+    public var bytes: Int
+    /// What happened at the link's path (`ModelPull.LinkOutcome`'s words).
+    public var outcome: String
+
+    /// Creates a record.
+    public init(
+        selection: ModelSelection, repository: String, snapshot: String, destination: String, files: Int, bytes: Int,
+        outcome: String
+    ) {
+        self.selection = selection
+        self.repository = repository
+        self.snapshot = snapshot
+        self.destination = destination
+        self.files = files
+        self.bytes = bytes
+        self.outcome = outcome
     }
 }
 
@@ -42,11 +108,29 @@ public protocol ModelBackend: Sendable {
     /// What `wisp doctor` should report about this runtime on this install, or nil for nothing beyond the
     /// configured-model check (MLX reports its Metal library).
     func doctorFinding() -> Doctor.Finding?
+    /// Models this runtime could serve once linked, already on this Mac and needing no download (MLX's complete
+    /// snapshots in the Hugging Face cache that the models folder does not name).
+    func unlinked(config: Config.Resolved, home: Home) -> [InstalledModel]
+    /// Links one of `unlinked`'s models so it resolves, fetching nothing (ADR 0056).
+    ///
+    /// - Throws: A backend failure when it cannot be linked.
+    func link(_ name: String, config: Config.Resolved, home: Home) throws -> ModelLink
 }
 
 extension ModelBackend {
     /// No finding of its own: the configured-model check covers the backend.
     public func doctorFinding() -> Doctor.Finding? { nil }
+
+    /// Nothing to link: the runtime keeps its own models.
+    public func unlinked(config: Config.Resolved, home: Home) -> [InstalledModel] { [] }
+
+    /// Refuses: the runtime keeps its own models.
+    ///
+    /// - Throws: `ModelSelection.Failure.unavailable`.
+    public func link(_ name: String, config: Config.Resolved, home: Home) throws -> ModelLink {
+        throw ModelSelection.Failure.unavailable(
+            model: "\(scheme):\(name)", reason: "\(scheme) keeps its own models; there is nothing to link")
+    }
 }
 
 /// The backends this process knows, by scheme. Ollama is built in; the executable registers the

@@ -35,6 +35,8 @@ public struct ModelPull: Sendable {
         case transport(String)
         /// Another program holds the cache's lock on a blob wisp would fetch.
         case busy(String)
+        /// The cache holds no complete snapshot of the repository to link without fetching.
+        case notCached(String)
 
         /// Human-readable explanation.
         public var description: String {
@@ -56,6 +58,9 @@ public struct ModelPull: Sendable {
             case .busy(let path):
                 "another program is fetching into the Hugging Face cache (\(path) is locked); try again when it "
                     + "has finished"
+            case .notCached(let repository):
+                "the Hugging Face cache holds no complete snapshot of \(repository); wisp models pull \(repository) "
+                    + "fetches it, after asking"
             }
         }
 
@@ -303,6 +308,32 @@ public struct ModelPull: Sendable {
         return Plan(
             repository: repository, name: name, revision: revision, cache: cache, destination: destination,
             link: link, files: files, reused: reused)
+    }
+
+    /// The plan for a model whose `main` snapshot is already complete in the cache, made from the snapshot alone,
+    /// without asking Hugging Face: every file is reused, so `link` makes the link and nothing is fetched. Enabling a
+    /// cached model links it this way (ADR 0056).
+    ///
+    /// - Parameters:
+    ///   - text: The repository.
+    ///   - directory: The MLX models directory.
+    /// - Returns: The plan.
+    /// - Throws: `Failure.notAllowed`, `Failure.notCached` when there is no complete snapshot, or `Failure.exists`.
+    public func cachedPlan(_ text: String, into directory: URL) throws -> Plan {
+        let (repository, name) = try Self.repository(text)
+        guard let revision = cache.mainRevision(of: repository),
+            HubCache.looksComplete(cache.snapshot(revision, of: repository))
+        else { throw Failure.notCached(repository) }
+        let snapshot = cache.snapshot(revision, of: repository)
+        let destination = directory.appending(path: name)
+        let link = try Self.linkState(at: destination, snapshot: snapshot, cache: cache, repository)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: snapshot.path)) ?? []
+        let files = names.filter(Self.wanted).sorted().map { path in
+            File(path: path, size: Self.size(of: snapshot.appending(path: path)))
+        }
+        return Plan(
+            repository: repository, name: name, revision: revision, cache: cache, destination: destination, link: link,
+            files: files, reused: files.map(\.path))
     }
 
     /// Fetches the files the plan lacks into the cache's blobs, checking each, then links every file into the

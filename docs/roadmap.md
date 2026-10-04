@@ -11,7 +11,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built) |
+| 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
@@ -57,6 +57,19 @@ release's preflight still runs the eval's floors, as a guard against regressions
 - **Cited entries checked.** Built ([ADR 0055](decisions/0055-cited-entries-checked.md)). Beside `ran:`, a muted line
   names the entries a reply cites in wisp's reference forms that the conversation does not hold (session
   `ce87576a`, 2026-10-04: "Result (entry 19)" to "(entry 30)" and "entries 16-30", with about 18 entries stored).
+- **Models enabled and disabled, and the models table.** Built
+  ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). `models.disabled`: a disabled model hidden from
+  `/model` and Tab and refused by `/model`, `--model`, `model`, and MCP `respond`, the default never disabled;
+  `wisp models enable|disable`, `/models enable|disable`, and `wisp-tui`'s `/models` picker; enabling a cached MLX
+  model links it. `wisp models` became a table of every known fact, fitted to the terminal, the same in chat,
+  `--json`, and the picker (the operator's decisions, 2026-10-04).
+- **Chat's fallback when its model is unavailable.** Built (ADR 0056). Probed on 2026-10-04 with `ollama.baseURL` at
+  an unused port: every entry point failed fast and clearly, but `wisp chat` refused to start, so `/model` was out of
+  reach. Chat now starts on `system` and says so; `--model`, `respond`, and MCP still fail.
+- **Ollama stopping mid-turn tested.** Built. Tests over the fake Ollama server: a connection lost after content,
+  a tool call, or thinking; a stream closed without `done`; a server that holds the connection silent. They found
+  two faults, fixed: a stream that ended without `done` was kept as the whole reply, and a lost or silent connection
+  read `no Ollama server`.
 
 ## 0.20.0: analysis, evals, and tuning
 

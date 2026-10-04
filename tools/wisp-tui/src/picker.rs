@@ -1,5 +1,7 @@
 //! A choice a chat command asks (`/config set` without a value, say), picked with the arrow keys or
-//! answered by typing when the choice takes text. Pure: the terminal and the protocol are the caller's.
+//! answered by typing when the choice takes text; or, for a choice with toggles (`/models`, ADR 0056), a table
+//! whose rows Space turns on and off and Enter saves together. Pure: the terminal and the protocol are the
+//! caller's.
 
 use ratatui::text::{Line, Span};
 
@@ -39,6 +41,29 @@ impl Picker {
         };
     }
 
+    /// Space in a choice with toggles: turns the highlighted row on or off. Nothing in a plain choice.
+    pub fn toggle(&mut self) {
+        if !self.choice.toggles {
+            return;
+        }
+        if let Some(option) = self.choice.options.get_mut(self.selected) {
+            option.on = Some(!option.on.unwrap_or(false));
+        }
+    }
+
+    /// The answer Enter gives a choice with toggles: the values of the rows left on, in order; `None` for a
+    /// plain choice.
+    pub fn values(&self) -> Option<Vec<String>> {
+        self.choice.toggles.then(|| {
+            self.choice
+                .options
+                .iter()
+                .filter(|option| option.on == Some(true))
+                .map(|option| option.value.clone())
+                .collect()
+        })
+    }
+
     /// The answer Enter gives: the typed text when the choice takes text and some is typed, otherwise
     /// the highlighted option; `None` when there is nothing to give.
     pub fn answer(&self, typed: &str) -> Option<String> {
@@ -64,10 +89,14 @@ impl Picker {
         }
     }
 
-    /// The lines inside the picker's border: the question, the options around the highlight (`▸` on
-    /// it, `*` on the current value), and the keys. The typed-text row, when there is one, is the
-    /// caller's, so it can carry the cursor.
-    pub fn lines(&self) -> Vec<Line<'static>> {
+    /// The lines inside the picker's border, `width` cells wide: the question, the options around the
+    /// highlight (`▸` on it, `*` on the current value), and the keys; for a choice with toggles, the table
+    /// instead, its heading row and a row per option. The typed-text row, when there is one, is the caller's,
+    /// so it can carry the cursor.
+    pub fn lines(&self, width: usize) -> Vec<Line<'static>> {
+        if self.choice.toggles {
+            return self.table(width);
+        }
         let mut lines = vec![Line::from(Span::styled(
             self.choice.title.clone(),
             palette::body(),
@@ -114,10 +143,157 @@ impl Picker {
         lines
     }
 
-    /// Rows the picker takes inside its border: its lines, and the typed-text row when it has one.
-    pub fn rows(&self) -> usize {
-        self.lines().len() + usize::from(self.choice.accepts_text)
+    /// A choice with toggles as a table `width` cells wide: the question, the headings, then each row as
+    /// `▸ [x]` and its cells, the current value's name after `*`, columns padded to their widest cell. The
+    /// columns least worth their room go first when they do not fit, lowest `drop` rank first, as `wisp
+    /// models` drops them; the last column is cut to what is left.
+    fn table(&self, width: usize) -> Vec<Line<'static>> {
+        let columns = &self.choice.columns;
+        let cell = |option: &crate::protocol::ChoiceOption, index: usize| -> String {
+            let text = option.cells.get(index).cloned().unwrap_or_default();
+            if index == 0 {
+                let current = self.choice.current.as_deref() == Some(option.value.as_str());
+                format!("{} {text}", if current { "*" } else { " " })
+            } else {
+                text
+            }
+        };
+        let heading = |index: usize| -> String {
+            let text = columns
+                .get(index)
+                .map(|c| c.heading.clone())
+                .unwrap_or_default();
+            if index == 0 {
+                format!("  {text}")
+            } else {
+                text
+            }
+        };
+        let widths: Vec<usize> = (0..columns.len())
+            .map(|index| {
+                self.choice
+                    .options
+                    .iter()
+                    .map(|option| cell(option, index).chars().count())
+                    .chain(std::iter::once(heading(index).chars().count()))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .collect();
+        let kept = fitting(columns, &widths, width.saturating_sub(TOGGLE_CELLS));
+        let row = |cells: Vec<String>| -> String {
+            let mut text = String::new();
+            for (position, (index, content)) in kept.iter().zip(cells).enumerate() {
+                if position + 1 == kept.len() {
+                    text.push_str(&content);
+                } else {
+                    let pad = widths[*index].saturating_sub(content.chars().count()) + 2;
+                    text.push_str(&content);
+                    text.push_str(&" ".repeat(pad));
+                }
+            }
+            cut(text.trim_end(), width.saturating_sub(TOGGLE_CELLS))
+        };
+        let mut lines = vec![
+            Line::from(Span::styled(
+                cut(&self.choice.title, width),
+                palette::body(),
+            )),
+            Line::from(Span::styled(
+                format!(
+                    "{}{}",
+                    " ".repeat(TOGGLE_CELLS),
+                    row(kept.iter().map(|index| heading(*index)).collect())
+                ),
+                palette::muted(),
+            )),
+        ];
+        let first = self.first_shown();
+        for (index, option) in self
+            .choice
+            .options
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(VISIBLE)
+        {
+            let chosen = index == self.selected;
+            let on = option.on == Some(true);
+            lines.push(Line::from(vec![
+                Span::styled(if chosen { "▸ " } else { "  " }, palette::prompt()),
+                Span::styled(if on { "[x] " } else { "[ ] " }, palette::wisp()),
+                Span::styled(
+                    row(kept.iter().map(|column| cell(option, *column)).collect()),
+                    if chosen {
+                        palette::user()
+                    } else if on {
+                        palette::body()
+                    } else {
+                        palette::muted()
+                    },
+                ),
+            ]));
+        }
+        lines.push(Line::from(Span::styled(
+            cut(
+                "↑↓ to move · Space to turn on or off · Enter to save · Esc to leave them",
+                width,
+            ),
+            palette::muted(),
+        )));
+        lines
     }
+
+    /// Rows the picker takes inside its border at `width`: its lines, and the typed-text row when it has one.
+    pub fn rows(&self, width: usize) -> usize {
+        self.lines(width).len() + usize::from(self.choice.accepts_text)
+    }
+}
+
+/// Cells before a toggle row's first column: the highlight and the box, `▸ [x] `.
+const TOGGLE_CELLS: usize = 6;
+
+/// The narrowest the last column is left, as `wisp models` leaves it, before columns are dropped.
+const MINIMUM_LAST: usize = 20;
+
+/// The indices of the columns that fit `width` with the last column at least `MINIMUM_LAST` cells: every one
+/// when they do, otherwise without the droppable ones, lowest `drop` rank first, until they do or only the
+/// undroppable are left. `wisp models` keeps columns the same way (`TerminalTable.fitting`).
+fn fitting(
+    columns: &[crate::protocol::ChoiceColumn],
+    widths: &[usize],
+    width: usize,
+) -> Vec<usize> {
+    let mut kept: Vec<usize> = (0..columns.len()).collect();
+    loop {
+        let before: usize = kept
+            .iter()
+            .take(kept.len().saturating_sub(1))
+            .map(|index| widths[*index] + 2)
+            .sum();
+        if before + MINIMUM_LAST <= width {
+            return kept;
+        }
+        let next = kept
+            .iter()
+            .filter(|index| columns[**index].drop > 0)
+            .min_by_key(|index| columns[**index].drop)
+            .copied();
+        match next {
+            Some(index) => kept.retain(|kept| *kept != index),
+            None => return kept,
+        }
+    }
+}
+
+/// `text` cut to `width` characters, the last one an ellipsis when anything was cut.
+fn cut(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(width.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
 }
 
 #[cfg(test)]
@@ -135,10 +311,14 @@ mod tests {
                     value: (*v).into(),
                     label: (*v).into(),
                     detail: String::new(),
+                    cells: Vec::new(),
+                    on: None,
                 })
                 .collect(),
             current: current.map(str::to_string),
             accepts_text,
+            toggles: false,
+            columns: Vec::new(),
         }
     }
 
@@ -165,14 +345,14 @@ mod tests {
             Some("rules".into()),
             "typed text only where it is taken"
         );
-        let lines = picker.lines();
+        let lines = picker.lines(80);
         assert_eq!(text(&lines[1]), "▸ rules");
         assert_eq!(text(&lines[3]), "  coreml *");
         assert_eq!(
             text(lines.last().unwrap_or(&Line::default())),
             "↑↓ to move · Enter to choose · Esc to leave it"
         );
-        assert_eq!(picker.rows(), 5);
+        assert_eq!(picker.rows(80), 5);
     }
 
     #[test]
@@ -180,10 +360,105 @@ mod tests {
         let open = Picker::new(choice(&[], None, true));
         assert_eq!(open.answer(" 30 "), Some("30".into()));
         assert_eq!(open.answer(""), None);
-        assert_eq!(open.rows(), 3, "the question, the keys, and the typed row");
+        assert_eq!(
+            open.rows(80),
+            3,
+            "the question, the keys, and the typed row"
+        );
         let both = Picker::new(choice(&["system"], None, true));
         assert_eq!(both.answer(""), Some("system".into()));
         assert_eq!(both.answer("ollama:x"), Some("ollama:x".into()));
+    }
+
+    /// The `/models` picker's choice: three models under four columns, the first two on.
+    fn models() -> Choice {
+        let row = |value: &str, cells: [&str; 4], on: bool| ChoiceOption {
+            value: value.into(),
+            label: value.into(),
+            detail: String::new(),
+            cells: cells.iter().map(|c| (*c).to_string()).collect(),
+            on: Some(on),
+        };
+        Choice {
+            id: "m".into(),
+            title: "Models".into(),
+            options: vec![
+                row(
+                    "system",
+                    ["system", "on-device", "8,192", "tools, vision"],
+                    true,
+                ),
+                row("ollama:a", ["ollama:a", "Ollama", "65,536", "tools"], true),
+                row(
+                    "ollama:b",
+                    ["ollama:b", "Ollama", "", "tools, thinking"],
+                    false,
+                ),
+            ],
+            current: Some("ollama:a".into()),
+            accepts_text: false,
+            toggles: true,
+            columns: [
+                ("MODEL", 0),
+                ("RUNTIME", 2),
+                ("CONTEXT", 7),
+                ("CAPABILITIES", 0),
+            ]
+            .iter()
+            .map(|(heading, drop)| crate::protocol::ChoiceColumn {
+                heading: (*heading).into(),
+                drop: *drop,
+            })
+            .collect(),
+        }
+    }
+
+    #[test]
+    fn a_choice_with_toggles_is_a_table_whose_rows_space_turns_on_and_off() {
+        let mut picker = Picker::new(models());
+        assert_eq!(picker.selected, 1, "the model in use is highlighted");
+        let lines = picker.lines(80);
+        assert_eq!(text(&lines[0]), "Models");
+        assert_eq!(
+            text(&lines[1]),
+            "        MODEL     RUNTIME    CONTEXT  CAPABILITIES"
+        );
+        assert_eq!(
+            text(&lines[2]),
+            "  [x]   system    on-device  8,192    tools, vision"
+        );
+        assert_eq!(
+            text(&lines[3]),
+            "▸ [x] * ollama:a  Ollama     65,536   tools"
+        );
+        assert_eq!(
+            text(&lines[4]),
+            "  [ ]   ollama:b  Ollama              tools, thinking"
+        );
+        assert_eq!(
+            text(lines.last().unwrap_or(&Line::default())),
+            "↑↓ to move · Space to turn on or off · Enter to save · Esc to leave them"
+        );
+        picker.toggle();
+        picker.step(true);
+        picker.toggle();
+        assert_eq!(
+            picker.values(),
+            Some(vec!["system".to_string(), "ollama:b".to_string()])
+        );
+        // Narrower: the runtime goes first, then the window; the name and capabilities stay, cut to fit.
+        let narrow = picker.lines(47);
+        assert_eq!(text(&narrow[1]), "        MODEL     CONTEXT  CAPABILITIES");
+        assert!(narrow.iter().all(|line| text(line).chars().count() <= 47));
+        let narrower = picker.lines(40);
+        assert_eq!(text(&narrower[1]), "        MODEL     CAPABILITIES");
+        assert_eq!(text(&narrower[2]), "  [x]   system    tools, vision");
+        let tiny = picker.lines(24);
+        assert_eq!(text(&tiny[2]), "  [x]   system    tools…");
+        // A plain choice has no values and no toggling.
+        let mut plain = Picker::new(choice(&["a"], None, false));
+        plain.toggle();
+        assert_eq!(plain.values(), None);
     }
 
     #[test]
@@ -192,7 +467,7 @@ mod tests {
         let refs: Vec<&str> = values.iter().map(String::as_str).collect();
         let mut picker = Picker::new(choice(&refs, Some("option15"), false));
         assert_eq!(picker.first_shown(), 7);
-        let lines = picker.lines();
+        let lines = picker.lines(80);
         assert_eq!(lines.len(), 1 + VISIBLE + 1);
         assert_eq!(text(&lines[VISIBLE]), "▸ option15 *");
         picker.selected = 0;

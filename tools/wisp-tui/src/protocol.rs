@@ -202,6 +202,22 @@ pub struct ChoiceOption {
     /// A line about it, or empty.
     #[serde(default)]
     pub detail: String,
+    /// In a choice with toggles, the row's cells, one per column.
+    #[serde(default)]
+    pub cells: Vec<String>,
+    /// In a choice with toggles, whether the row is on.
+    #[serde(default)]
+    pub on: Option<bool>,
+}
+
+/// A column of a choice with toggles.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct ChoiceColumn {
+    /// Its heading.
+    pub heading: String,
+    /// When a narrow picker drops it: 0 never, otherwise in rank order, 1 first.
+    #[serde(default)]
+    pub drop: u32,
 }
 
 /// A question with answers to pick from.
@@ -219,6 +235,12 @@ pub struct Choice {
     /// Whether typed text is taken as well as an option.
     #[serde(rename = "acceptsText", default)]
     pub accepts_text: bool,
+    /// Whether the rows are turned on and off and saved together (`/models`, ADR 0056), not one picked.
+    #[serde(default)]
+    pub toggles: bool,
+    /// For a choice with toggles, its columns.
+    #[serde(default)]
+    pub columns: Vec<ChoiceColumn>,
 }
 
 /// An approval request: this conversation's, or (with `source` `mcp`) a command waiting in a `wisp mcp`
@@ -347,6 +369,9 @@ pub enum Inbound {
         id: String,
         /// The value chosen.
         value: Option<String>,
+        /// For a choice with toggles, the values left on; absent otherwise.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        values: Option<Vec<String>>,
     },
     /// An answer to an approval.
     Answer {
@@ -460,10 +485,27 @@ mod tests {
         assert_eq!(
             Inbound::Choose {
                 id: "c".into(),
-                value: None
+                value: None,
+                values: None
             }
             .line(),
             "{\"type\":\"choose\",\"id\":\"c\",\"value\":null}\n"
+        );
+        // A choice with toggles: columns, cells, and on; answered with the values left on.
+        let toggles = Outbound::parse(
+            r#"{"type":"choice","id":"m","title":"Models","options":[{"value":"system","label":"system","detail":"","cells":["system","8,192"],"on":true}],"current":"system","acceptsText":false,"toggles":true,"columns":[{"heading":"MODEL","drop":0},{"heading":"CONTEXT","drop":7}]}"#,
+        );
+        assert!(
+            matches!(&toggles, Outbound::Choice(c) if c.toggles && c.columns[1].heading == "CONTEXT" && c.columns[1].drop == 7 && c.options[0].on == Some(true) && c.options[0].cells[1] == "8,192")
+        );
+        assert_eq!(
+            Inbound::Choose {
+                id: "m".into(),
+                value: None,
+                values: Some(vec!["system".into()])
+            }
+            .line(),
+            "{\"type\":\"choose\",\"id\":\"m\",\"value\":null,\"values\":[\"system\"]}\n"
         );
         assert_eq!(
             Outbound::parse(

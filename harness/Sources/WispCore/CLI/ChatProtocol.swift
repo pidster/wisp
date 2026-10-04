@@ -74,7 +74,11 @@ public enum ChatProtocol {
                     id: object["id"]?.stringValue ?? "", text: object["text"]?.stringValue ?? "",
                     cursor: object["cursor"]?.intValue)
             case "choose":
-                self = .answer(id: object["id"]?.stringValue ?? "", decision: object["value"]?.stringValue ?? "")
+                // A choice with toggles is answered with the values left on (ADR 0056); a plain one with a value.
+                let values = object["values"]?.arrayValue.map { $0.compactMap(\.stringValue) }
+                self = .answer(
+                    id: object["id"]?.stringValue ?? "",
+                    decision: values.map(ChatChoice.answer(values:)) ?? object["value"]?.stringValue ?? "")
             default:
                 self = .message(object["text"]?.stringValue ?? "")
             }
@@ -187,16 +191,31 @@ public enum ChatProtocol {
     }
 
     /// The `choice` line's fields: its id, title, options, the current value, and whether typed text
-    /// is taken.
+    /// is taken. A choice with toggles (ADR 0056) adds `toggles` (true), `columns` (each `heading` and `drop`, the
+    /// rank in which a narrow face drops it, 0 never), and on each option `cells` (one per column) and `on`.
     public static func choice(id: String, _ choice: ChatChoice) -> [String: JSONValue] {
-        [
+        var fields: [String: JSONValue] = [
             "id": .string(id), "title": .string(choice.title), "current": choice.current.map { .string($0) } ?? .null,
             "acceptsText": .bool(choice.acceptsText),
             "options": .array(
-                choice.options.map {
-                    .object(["value": .string($0.value), "label": .string($0.label), "detail": .string($0.detail)])
+                choice.options.map { option in
+                    var fields: [String: JSONValue] = [
+                        "value": .string(option.value), "label": .string(option.label),
+                        "detail": .string(option.detail),
+                    ]
+                    if let on = option.on {
+                        fields["on"] = .bool(on)
+                        fields["cells"] = .array(option.cells.map { .string($0) })
+                    }
+                    return .object(fields)
                 }),
         ]
+        if choice.toggles {
+            fields["toggles"] = true
+            fields["columns"] = .array(
+                choice.columns.map { .object(["heading": .string($0.heading), "drop": .int($0.drop)]) })
+        }
+        return fields
     }
 
     /// Asks the front end a choice and waits for its `choose` answer, bounded by `timeout`; silence, an

@@ -11,6 +11,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var instructions: String?
     /// Which model sessions run on; nil means `system`.
     public var model: ModelSelection?
+    /// Which models are turned off: hidden from `/model` and refused wherever a model is chosen (ADR 0056).
+    public var models: ModelsConfig?
     /// Wall-clock limit for `run_command`, in seconds.
     public var commandTimeoutSeconds: Int?
     /// Bytes kept from each of stdout and stderr by `run_command`.
@@ -47,6 +49,25 @@ public struct Config: Codable, Equatable, Sendable {
     public var context: ContextConfig?
     /// `wisp watch`: how long file changes must be quiet before a run starts.
     public var watch: WatchConfig?
+
+    /// The models the operator turned off ([ADR 0056](../../../../docs/decisions/0056-models-enabled-and-disabled.md)).
+    public struct ModelsConfig: Codable, Equatable, Sendable {
+        /// Models hidden from `/model`, Tab, and `/config set model`, and refused by `/model`, `--model`, `model`,
+        /// and an MCP caller's `model`, as `--model` spells them; absent or empty, every model is enabled.
+        public var disabled: [ModelSelection]?
+
+        /// Creates settings; nil fields take defaults.
+        public init(disabled: [ModelSelection]? = nil) {
+            self.disabled = disabled
+        }
+    }
+
+    /// The default model when the file also disables it, which would leave wisp refusing the model it starts on;
+    /// nil when the default is enabled.
+    public var disabledDefault: ModelSelection? {
+        let model = model ?? .default
+        return (models?.disabled ?? []).contains(model) ? model : nil
+    }
 
     /// `wisp watch` settings in the file.
     public struct WatchConfig: Codable, Equatable, Sendable {
@@ -408,8 +429,9 @@ public struct Config: Codable, Equatable, Sendable {
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
-        watch: WatchConfig? = nil
+        watch: WatchConfig? = nil, models: ModelsConfig? = nil
     ) {
+        self.models = models
         self.watch = watch
         self.context = context
         self.facts = facts
@@ -444,6 +466,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.facts?.validate()
         try config.context?.validate()
         try config.watch?.validate()
+        if let model = config.disabledDefault { throw ModelSelection.Failure.defaultDisabled(model: model.description) }
         return config
     }
 
@@ -461,6 +484,7 @@ public struct Config: Codable, Equatable, Sendable {
         Resolved(
             systemPromptExtension: systemPromptExtension ?? instructions,
             model: model ?? .default,
+            disabledModels: models?.disabled ?? [],
             runner: CommandRunner.Options(
                 timeout: .seconds(commandTimeoutSeconds ?? 60),
                 maxOutputBytes: commandMaxOutputBytes ?? 4096,
@@ -512,6 +536,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var systemPromptExtension: String?
         /// Which model sessions run on.
         public var model: ModelSelection
+        /// The models the operator turned off, in the file's order (ADR 0056).
+        public var disabledModels: [ModelSelection] = []
         /// Limits for `run_command`.
         public var runner: CommandRunner.Options
         /// Live MCP threads kept before eviction.

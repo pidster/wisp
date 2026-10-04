@@ -86,6 +86,18 @@ cached input tokens ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session
 makers and an optional token counter. See [ADR 0013](decisions/0013-model-selection.md).
 
+The models the operator turned off (`models.disabled`) are a session's `DisabledModels`, read when
+`Session.begin` loads the configuration and replaced by `Session.setModels`, which changes the file through
+`ConfigEdit` and, for a model a backend lists as `unlinked`, links it through `ModelBackend.link` (MLX:
+`ModelPull.cachedPlan` and the pull's `link`). `Session.begin` refuses a disabled `--model`, and
+`WispThread.openAgent` a disabled model however it was named, before anything resolves. `ModelListing` judges every
+candidate (each backend's installed models, the disabled ones, and the unlinked) into `Entry`s carrying every known
+fact, and `ModelTable` lays them out for each face: the terminal, fitted by `TerminalTable.fitting`; chat's
+`TextTable`; tab-separated fields; `--json`; and the `ChatChoice` with toggles that `wisp-tui`'s picker draws.
+`Session.openChatAgent` opens chat's conversation, on `system` (`ModelFallback`, audited as `model.fallback`) when
+the configured model is unavailable and was not named; `respond` and MCP open through `openAgent` and
+`Session.thread`, which never fall back ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+
 ### `Agent`
 
 Keeps the conversation in a `ThreadRecord` and asks a `ContextComposer` for each request's
@@ -547,7 +559,8 @@ which the plain chat prints and `--json` sends as a `view` line through `ChatLoo
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
 in a terminal and in the TUI. `TerminalTable` and `ListingLayout` lay out `wisp tools`, `models`, and
 `approvals` like `wisp --help` when standard output is a terminal, wrapped to its width, and keep the
-tab-separated lines when it is piped. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
+tab-separated lines when it is piped; `TerminalTable.fitting` drops the columns of the `models` table least worth
+their room when they do not fit, by the ranks `ModelTable` gives them. `/stats` reads `CallStats`, a fixed-size ring (`Mutex`, 256 calls) that
 `Session.begin` creates and every `WispThread` hands to its `Agent`, which records each turn's time,
 outcome, and reported prompt tokens; the classifier is wrapped in `TimedRiskClassifier` unless it is the
 rules alone, and a classifier's fallback verdict carries `RiskAssessment.failureKey` so it counts as a

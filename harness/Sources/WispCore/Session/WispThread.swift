@@ -21,6 +21,8 @@ public struct WispThread: Sendable {
     let config: Config.Resolved
     /// wisp's home, for backends that keep assets under it.
     let home: Home
+    /// The models the operator turned off, which the thread refuses to open on (ADR 0056).
+    let disabled: DisabledModels
     /// Where the agent records its turns: the session's store.
     let stats: CallStats
     /// The conversation's tool events, which the agent links its store's tool entries to.
@@ -64,7 +66,8 @@ public struct WispThread: Sendable {
         return WispThread(
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
-            model: model, config: session.config, home: session.home, stats: session.stats, toolEvents: toolEvents,
+            model: model, config: session.config, home: session.home, disabled: session.disabledModels,
+            stats: session.stats, toolEvents: toolEvents,
             facts: session.config.factsEnabled
                 ? FactSettings(
                     kinds: session.config.subjectKinds, session: session.sessionFacts,
@@ -86,12 +89,13 @@ public struct WispThread: Sendable {
     ///     `transcript`.
     ///   - override: A model other than the conversation's, as routing by input size chooses one.
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
-    /// - Throws: `ModelSelection.Failure` if the model cannot be used or lacks a needed capability.
+    /// - Throws: `ModelSelection.Failure` if the model is disabled, cannot be used, or lacks a needed capability.
     public func openAgent(
         transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil, store: ThreadRecord? = nil,
         model override: ModelSelection? = nil
     ) throws -> Agent {
-        try openAgent(
+        try disabled.check(override ?? model)
+        return try openAgent(
             on: try (override ?? model).resolve(config: config, home: home), transcript: transcript, links: links,
             store: store)
     }

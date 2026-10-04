@@ -133,11 +133,20 @@ public struct OllamaModel: LanguageModel, Sendable {
         case serverError(status: Int, body: String)
         /// A streamed chunk could not be understood.
         case badResponse(String)
+        /// The server accepted the request and stopped before the reply was done: the connection was lost, or
+        /// the stream ended without the chunk that says `done`. What had arrived is not a reply.
+        case interrupted(URL, String)
+        /// The server sent nothing for the configured timeout (`ollama.timeoutSeconds`).
+        case timedOut(URL, seconds: Int)
 
         /// Human-readable explanation.
         public var description: String {
             switch self {
             case .unreachable(let url, let detail): "no Ollama server at \(url): \(detail)"
+            case .interrupted(let url, let detail):
+                "Ollama at \(url) stopped before the reply was done (\(detail)); nothing of it was kept"
+            case .timedOut(let url, let seconds):
+                "Ollama at \(url) sent nothing for \(seconds) s (ollama.timeoutSeconds); the request was abandoned"
             case .noSuchModel(let name, let installed):
                 "Ollama has no model '\(name)'; installed: \(installed.isEmpty ? "none" : installed.joined(separator: ", "))"
             case .serverError(let status, let body): "Ollama returned HTTP \(status): \(body)"
@@ -154,15 +163,23 @@ public struct OllamaModel: LanguageModel, Sendable {
         public var size: Int
         /// The parameter count as Ollama reports it, such as `30.5B`.
         public var parameterSize: String?
+        /// The model's family as Ollama reports it, such as `granite`.
+        public var family: String?
+        /// The quantisation as Ollama reports it, such as `Q4_K_M`.
+        public var quantization: String?
 
         private enum CodingKeys: String, CodingKey { case name, size, details }
-        private enum Details: String, CodingKey { case parameter_size }
+        private enum Details: String, CodingKey { case parameter_size, family, quantization_level }
 
         /// Creates a record.
-        public init(name: String, size: Int, parameterSize: String?) {
+        public init(
+            name: String, size: Int, parameterSize: String?, family: String? = nil, quantization: String? = nil
+        ) {
             self.name = name
             self.size = size
             self.parameterSize = parameterSize
+            self.family = family
+            self.quantization = quantization
         }
 
         /// Decodes one entry of the tags list.
@@ -171,7 +188,15 @@ public struct OllamaModel: LanguageModel, Sendable {
             name = try container.decode(String.self, forKey: .name)
             size = try container.decodeIfPresent(Int.self, forKey: .size) ?? 0
             let details = try? container.nestedContainer(keyedBy: Details.self, forKey: .details)
-            parameterSize = try details?.decodeIfPresent(String.self, forKey: .parameter_size)
+            parameterSize = try? details?.decodeIfPresent(String.self, forKey: .parameter_size)
+            family = try? details?.decodeIfPresent(String.self, forKey: .family)
+            quantization = try? details?.decodeIfPresent(String.self, forKey: .quantization_level)
+        }
+
+        /// The family and quantisation, as the listing's format; nil when Ollama reports neither.
+        public var format: String? {
+            let parts = [family, quantization].compactMap { $0 }.filter { !$0.isEmpty }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
         }
     }
 
@@ -519,7 +544,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             do {
                 (bytes, response) = try await URLSession.shared.bytes(for: http)
             } catch {
-                throw Failure.unreachable(configuration.baseURL, error.localizedDescription)
+                throw Self.failure(error, configuration: configuration, streaming: false)
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else {
@@ -531,42 +556,22 @@ public struct OllamaModel: LanguageModel, Sendable {
             var input = 0
             var output = 0
             var thinking = ThinkingStretch()
-            for try await line in bytes.lines {
-                let chunk: Chunk
-                do {
-                    chunk = try JSONDecoder().decode(Chunk.self, from: Data(line.utf8))
-                } catch {
-                    throw Failure.badResponse(String(line.prefix(200)))
+            var done = false
+            do {
+                for try await line in bytes.lines {
+                    done = try await relay(
+                        line, request: request, status: status, calls: &calls, input: &input, output: &output,
+                        thinking: &thinking, channel: channel)
                 }
-                if let error = chunk.error { throw Failure.serverError(status: status, body: error) }
-                if let message = chunk.message {
-                    // Ollama streams a reasoning model's thinking before its reply, one token a chunk, whether or
-                    // not `think` was sent (probed 2026-10-04, ornith:9b: 42 thinking chunks, then 2 of reply).
-                    if let thought = message.thinking, !thought.isEmpty {
-                        thinking.think(thought)
-                        await channel.send(.reasoning(action: .appendText(thought, tokenCount: 1)))
-                    }
-                    if !message.content.isEmpty || !(message.tool_calls ?? []).isEmpty { thinking.end() }
-                    if !message.content.isEmpty {
-                        await channel.send(.response(action: .appendText(message.content, tokenCount: 1)))
-                    }
-                    for call in message.tool_calls ?? [] {
-                        calls += 1
-                        let schema = request.enabledToolDefinitions.first { $0.name == call.function.name }
-                            .map { Self.json($0.parameters) }
-                        let arguments =
-                            schema.map { Self.completed(call.function.arguments, schema: $0) }
-                            ?? call.function.arguments
-                        let encoded = (try? JSONEncoder().encode(arguments)) ?? Data("{}".utf8)
-                        await channel.send(
-                            .toolCalls(
-                                action: .toolCall(
-                                    id: "\(request.id.uuidString.lowercased())-\(calls)", name: call.function.name,
-                                    action: .appendArguments(String(decoding: encoded, as: UTF8.self), tokenCount: 1))))
-                    }
-                }
-                input = chunk.prompt_eval_count ?? input
-                output = chunk.eval_count ?? output
+            } catch let failure as Failure {
+                throw failure
+            } catch {
+                throw Self.failure(error, configuration: configuration, streaming: true)
+            }
+            // A stream that ends without `done` was cut short, however cleanly the connection closed: what came is
+            // not the whole reply, so it must not be taken for one.
+            guard done else {
+                throw Failure.interrupted(configuration.baseURL, "the stream ended before Ollama said it was done")
             }
             thinking.end()
             model.usage.inputTokens.withLock { $0 = input }
@@ -579,6 +584,79 @@ public struct OllamaModel: LanguageModel, Sendable {
                         output: .init(
                             totalTokenCount: max(output, thinking.tokens), reasoningTokenCount: thinking.tokens)
                     )))
+        }
+
+        /// The failure for an error from the connection: the timeout when the server went silent, an interruption
+        /// once the stream had begun or when the connection was lost, and otherwise no server.
+        ///
+        /// - Parameters:
+        ///   - error: What `URLSession` threw.
+        ///   - configuration: The server and its timeout.
+        ///   - streaming: Whether the response had begun.
+        /// - Returns: The failure to throw.
+        static func failure(_ error: any Error, configuration: Configuration, streaming: Bool) -> Failure {
+            let code = (error as? URLError)?.code
+            if code == .timedOut { return .timedOut(configuration.baseURL, seconds: configuration.timeoutSeconds) }
+            if streaming || code == .networkConnectionLost {
+                return .interrupted(configuration.baseURL, error.localizedDescription)
+            }
+            return .unreachable(configuration.baseURL, error.localizedDescription)
+        }
+
+        /// Sends one streamed line's content to the channel: thinking, reply text, and tool calls, and the counts.
+        ///
+        /// - Parameters:
+        ///   - line: The NDJSON line.
+        ///   - request: The request, for its tools' schemas and id.
+        ///   - status: The HTTP status, for an error chunk.
+        ///   - calls: Tool calls so far, for their ids.
+        ///   - input: The prompt tokens Ollama reported.
+        ///   - output: The tokens it generated.
+        ///   - thinking: The stretch of thinking under way.
+        ///   - channel: Where events go.
+        /// - Returns: Whether the chunk said the reply is done.
+        /// - Throws: `Failure.badResponse` or `Failure.serverError`.
+        nonisolated(nonsending) private func relay(
+            _ line: String, request: LanguageModelExecutorGenerationRequest, status: Int, calls: inout Int,
+            input: inout Int, output: inout Int, thinking: inout ThinkingStretch,
+            channel: LanguageModelExecutorGenerationChannel
+        ) async throws -> Bool {
+            let chunk: Chunk
+            do {
+                chunk = try JSONDecoder().decode(Chunk.self, from: Data(line.utf8))
+            } catch {
+                throw Failure.badResponse(String(line.prefix(200)))
+            }
+            if let error = chunk.error { throw Failure.serverError(status: status, body: error) }
+            if let message = chunk.message {
+                // Ollama streams a reasoning model's thinking before its reply, one token a chunk, whether or
+                // not `think` was sent (probed 2026-10-04, ornith:9b: 42 thinking chunks, then 2 of reply).
+                if let thought = message.thinking, !thought.isEmpty {
+                    thinking.think(thought)
+                    await channel.send(.reasoning(action: .appendText(thought, tokenCount: 1)))
+                }
+                if !message.content.isEmpty || !(message.tool_calls ?? []).isEmpty { thinking.end() }
+                if !message.content.isEmpty {
+                    await channel.send(.response(action: .appendText(message.content, tokenCount: 1)))
+                }
+                for call in message.tool_calls ?? [] {
+                    calls += 1
+                    let schema = request.enabledToolDefinitions.first { $0.name == call.function.name }
+                        .map { Self.json($0.parameters) }
+                    let arguments =
+                        schema.map { Self.completed(call.function.arguments, schema: $0) }
+                        ?? call.function.arguments
+                    let encoded = (try? JSONEncoder().encode(arguments)) ?? Data("{}".utf8)
+                    await channel.send(
+                        .toolCalls(
+                            action: .toolCall(
+                                id: "\(request.id.uuidString.lowercased())-\(calls)", name: call.function.name,
+                                action: .appendArguments(String(decoding: encoded, as: UTF8.self), tokenCount: 1))))
+                }
+            }
+            input = chunk.prompt_eval_count ?? input
+            output = chunk.eval_count ?? output
+            return chunk.done == true
         }
     }
 }
@@ -622,7 +700,9 @@ public struct OllamaBackend: ModelBackend {
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {
         try await OllamaModel.installed(at: config.ollama).map { model in
             let size = ByteCountFormatter.string(fromByteCount: Int64(model.size), countStyle: .file)
-            return InstalledModel(selection: .ollama(model.name), detail: "\(model.parameterSize ?? "?") \(size)")
+            return InstalledModel(
+                selection: .ollama(model.name), detail: "\(model.parameterSize ?? "?") \(size)",
+                parameters: model.parameterSize, bytes: model.size > 0 ? model.size : nil, format: model.format)
         }
     }
 

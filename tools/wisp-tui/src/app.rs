@@ -734,6 +734,15 @@ impl App {
                 decision: decision.to_string(),
             });
         }
+        // A choice with toggles takes Space, to turn the highlighted row on or off, and no typing.
+        if let Some(picker) = &mut self.picker
+            && picker.choice.toggles
+        {
+            if c == ' ' {
+                picker.toggle();
+            }
+            return Action::None;
+        }
         if self.holding() {
             self.held.push(Edit::Insert(c));
             return Action::None;
@@ -889,8 +898,9 @@ impl App {
         }
     }
 
-    /// Answers the open choice with `value`, `None` for no answer, and closes it.
-    fn choose(&mut self, value: Option<String>) -> Action {
+    /// Answers the open choice with `value`, `None` for no answer, and closes it; a choice with toggles is
+    /// answered with `values`, the rows left on, or with nothing when it is left.
+    fn choose(&mut self, value: Option<String>, values: Option<Vec<String>>) -> Action {
         let Some(picker) = self.picker.take() else {
             return Action::None;
         };
@@ -898,6 +908,7 @@ impl App {
         Action::Send(Inbound::Choose {
             id: picker.choice.id,
             value,
+            values,
         })
     }
 
@@ -906,14 +917,17 @@ impl App {
         if self.panel.take().is_some() {
             return Action::None;
         }
-        self.choose(None)
+        self.choose(None, None)
     }
 
     /// Enter: sends the input as a message, echoing it into history; with a choice open, answers it.
     pub fn submit(&mut self) -> Action {
         if let Some(picker) = &self.picker {
+            if let Some(values) = picker.values() {
+                return self.choose(None, Some(values));
+            }
             let answer = picker.answer(&self.editor.text());
-            return self.choose(answer);
+            return self.choose(answer, None);
         }
         if self.approval.is_some() || self.busy {
             return Action::None;
@@ -1036,7 +1050,7 @@ impl App {
     pub fn band_height(&self, width: u16) -> u16 {
         self.band_width.set(width);
         if let Some(picker) = &self.picker {
-            return u16::try_from(picker.rows())
+            return u16::try_from(picker.rows(dialog_width(width)))
                 .unwrap_or(u16::MAX)
                 .saturating_add(DIALOG_FRAME + DIALOG_SPACING);
         }
@@ -1067,7 +1081,7 @@ impl App {
     /// Draws an open choice in the input's place: a border around the question, the options, the keys,
     /// and the typed row with the terminal's cursor in it when the choice takes text.
     fn render_picker(&self, frame: &mut Frame, picker: &Picker, area: Rect, inset: Rect) {
-        let mut lines = picker.lines();
+        let mut lines = picker.lines(dialog_width(area.width));
         let typed_row = picker.choice.accepts_text.then(|| {
             lines.push(Line::from(vec![
                 Span::styled("› ", palette::prompt()),
@@ -2046,11 +2060,71 @@ mod tests {
                     value: (*v).into(),
                     label: (*v).into(),
                     detail: String::new(),
+                    cells: Vec::new(),
+                    on: None,
                 })
                 .collect(),
             current: Some("system-model".into()),
             accepts_text,
+            toggles: false,
+            columns: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_choice_with_toggles_takes_space_and_saves_the_rows_left_on() {
+        let mut app = App {
+            status: Some(Status::default()),
+            busy: true,
+            ..Default::default()
+        };
+        let mut models = choice(&["system", "ollama:a"], false);
+        models.toggles = true;
+        models.current = Some("system".into());
+        models.columns = vec![crate::protocol::ChoiceColumn {
+            heading: "MODEL".into(),
+            drop: 0,
+        }];
+        for (option, on) in models.options.iter_mut().zip([true, false]) {
+            option.cells = vec![option.value.clone()];
+            option.on = Some(on);
+        }
+        app.handle(Outbound::Choice(models.clone()));
+        let rows = drawn(&app, 80);
+        assert!(
+            rows.iter().any(|row| row.contains("▸ [x] * system")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.contains("  [ ]   ollama:a")),
+            "{rows:?}"
+        );
+        app.type_char(' ');
+        app.recall_next();
+        app.type_char(' ');
+        app.type_char('x');
+        assert!(
+            app.editor.is_empty(),
+            "a choice with toggles takes no typing"
+        );
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Choose {
+                id: "c1".into(),
+                value: None,
+                values: Some(vec!["ollama:a".into()])
+            })
+        );
+        // Esc leaves it: nothing is saved.
+        app.handle(Outbound::Choice(models));
+        assert_eq!(
+            app.cancel(),
+            Action::Send(Inbound::Choose {
+                id: "c1".into(),
+                value: None,
+                values: None
+            })
+        );
     }
 
     #[test]
@@ -2079,7 +2153,8 @@ mod tests {
             app.submit(),
             Action::Send(Inbound::Choose {
                 id: "c1".into(),
-                value: Some("coreml".into())
+                value: Some("coreml".into()),
+                values: None
             })
         );
         assert!(app.picker.is_none());
@@ -2093,7 +2168,8 @@ mod tests {
             app.submit(),
             Action::Send(Inbound::Choose {
                 id: "c1".into(),
-                value: Some("30".into())
+                value: Some("30".into()),
+                values: None
             })
         );
         assert!(app.editor.is_empty());
@@ -2102,7 +2178,8 @@ mod tests {
             app.cancel(),
             Action::Send(Inbound::Choose {
                 id: "c1".into(),
-                value: None
+                value: None,
+                values: None
             })
         );
         app.handle(Outbound::Choice(choice(&["a"], false)));

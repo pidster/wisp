@@ -367,14 +367,10 @@ struct Chat: AsyncParsableCommand {
         let style = Style.detect(isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
         let tap = ChatEvents.Tap()
         let host = session.host(approver: TerminalApprover(style: style), face: .terminal)
-        var agent: Agent
-        if let resume, let saved {
-            agent = try session.openAgent(
-                host: host, transcript: saved.transcript, links: saved.links, observer: tap)
-            Self.note("resumed '\(resume)' (\(agent.transcript.turnCount) turns)")
-        } else {
-            agent = try session.openAgent(host: host, observer: tap)
-        }
+        // The configured model falls back to system when it is unavailable, so the person reaches /model (ADR 0056).
+        let (agent, fallback) = try session.openChatAgent(
+            host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
+        if let resume, saved != nil { Self.note("resumed '\(resume)' (\(agent.transcript.turnCount) turns)") }
         let directory = FileManager.default.currentDirectoryPath
         let views = session.introspection
         let activity = ChatActivity()
@@ -389,9 +385,8 @@ struct Chat: AsyncParsableCommand {
                 git: GitState.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: banner,
-                models: { current, tools in
-                    await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
-                },
+                models: Chat.models(session: session), setModels: Chat.setModels(session: session),
+                width: { TerminalTable.detectWidth() }, notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
@@ -499,9 +494,12 @@ struct Chat: AsyncParsableCommand {
                 // The log is read only when an /audit argument is being completed.
                 let sessions =
                     text.hasPrefix("/audit ") ? (try? session.introspection.sessions().map(\.id)) ?? [] : []
+                // The models were fetched once; those turned off since are left out now (ADR 0056).
+                let disabled = session.disabledModels.all.map(\.description)
                 let result = ChatCompletion.complete(
-                    text, cursor: cursor, options: { known[$0.path] ?? [] }, approvalIDs: ids, sessionIDs: sessions,
-                    subjects: session.config.subjectKinds.kinds.map(\.name))
+                    text, cursor: cursor, options: { (known[$0.path] ?? []).filter { !disabled.contains($0) } },
+                    approvalIDs: ids, sessionIDs: sessions, subjects: session.config.subjectKinds.kinds.map(\.name),
+                    disabledModels: disabled)
                 send(ChatProtocol.encode("completions", ChatProtocol.completions(id: id, result)))
             }
         }
@@ -533,13 +531,8 @@ struct Chat: AsyncParsableCommand {
                 .init(
                     declared: { router.declares("notify") },
                     send: { send(ChatProtocol.encode("notify", ChatProtocol.notify($0))) })))
-        var agent: Agent
-        if let saved {
-            agent = try session.openAgent(
-                host: host, transcript: saved.transcript, links: saved.links, observer: tap)
-        } else {
-            agent = try session.openAgent(host: host, observer: tap)
-        }
+        let (agent, fallback) = try session.openChatAgent(
+            host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
         let views = session.introspection
         let activity = ChatActivity()
         activity.onChange { send(ChatProtocol.encode("activity", ChatProtocol.activity($0))) }
@@ -551,9 +544,8 @@ struct Chat: AsyncParsableCommand {
                 git: GitState.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
-                models: { current, tools in
-                    await ModelListing.table(config: session.config, home: Wisp.home, current: current, tools: tools)
-                },
+                models: Chat.models(session: session), setModels: Chat.setModels(session: session),
+                notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
@@ -583,11 +575,13 @@ struct Chat: AsyncParsableCommand {
     /// ML models under `~/.wisp/models/coreml`.
     static func configOptions(session: Session) -> @Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option] {
         let config = session.config
+        let disabled = session.disabledModels
         return { setting in
             switch setting.kind {
             case .model, .models:
-                return await ModelListing.entries(config: config, home: Wisp.home, tools: []).entries
-                    .filter { $0.problem == nil }
+                // A disabled model is not offered (ADR 0056); a cached one not linked cannot be chosen until enabled.
+                return await ModelListing.entries(config: config, home: Wisp.home, tools: [], disabled: disabled.all)
+                    .entries.filter(\.offered)
                     .map { ChatChoice.Option(value: $0.selection.description, detail: $0.detail) }
             case .coremlModel:
                 let store = ClassifierStore(home: Wisp.home)
@@ -606,6 +600,22 @@ struct Chat: AsyncParsableCommand {
                 return []
             }
         }
+    }
+
+    /// What `/models` lists: every model judged for the conversation's tools, with the session's disabled models
+    /// as this chat has left them.
+    static func models(session: Session) -> @Sendable ([any Tool]) async -> ModelListing.Listing {
+        let config = session.config
+        let disabled = session.disabledModels
+        return { tools in
+            await ModelListing.entries(config: config, home: Wisp.home, tools: tools, disabled: disabled.all)
+        }
+    }
+
+    /// How `/models enable|disable` and `wisp-tui`'s picker turn models on and off: through the session, audited as
+    /// from chat.
+    static func setModels(session: Session) -> @Sendable ([String], [String]) throws -> [String] {
+        { enable, disable in try session.setModels(enable: enable, disable: disable, source: "chat") }
     }
 
     /// Whether the last stdout write left the cursor mid-line, so a note can start on a fresh one.
@@ -796,19 +806,23 @@ struct ConfigCommand: ParsableCommand {
     }
 }
 
-/// The models a session can run on: listing them, and fetching an MLX one with the person's approval.
+/// The models a session can run on: listing them, turning them on and off, and fetching an MLX one with the
+/// person's approval.
 struct Models: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List the models usable with --model and config.json, or fetch an MLX model.",
-        subcommands: [List.self, Pull.self], defaultSubcommand: List.self)
+        abstract: "List, enable, or disable the models usable with --model and config.json, or fetch an MLX model.",
+        subcommands: [List.self, Enable.self, Disable.self, Pull.self], defaultSubcommand: List.self)
 
-    /// Lists the models a session can run on: Apple's two and whatever each local backend serves.
+    /// Lists the models a session can run on: Apple's two, whatever each local backend serves, and the cached MLX
+    /// models enabling would link, with every fact wisp knows about each (ADR 0056).
     struct List: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "List the models usable with --model and config.json.",
             discussion:
                 "A model is listed when it resolves and declares tool calling (or, with --no-tools, when it can "
-                + "hold a conversation at all). --all adds the rest with the reason each is excluded.")
+                + "hold a conversation at all), and so is every disabled model and every complete mlx-community "
+                + "model in the Hugging Face cache that enabling would link. --all adds the rest with the reason "
+                + "each is excluded.")
 
         @Flag(name: .long, help: "Also list the models that cannot be used, with the reason.")
         var all = false
@@ -816,27 +830,72 @@ struct Models: AsyncParsableCommand {
         @Flag(name: .customLong("no-tools"), help: "List the models usable for a conversation with no tools.")
         var noTools = false
 
+        @Flag(name: .long, help: "Print the listing as JSON, a field per column.")
+        var json = false
+
         func run() async throws {
             let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
             let tools: [any Tool] =
                 noTools
                 ? []
                 : ToolRegistry(runner: config.runner, disabled: config.disabledTools, custom: config.customTools).all
+            if json {
+                let listing = await ModelListing.entries(config: config, home: Wisp.home, tools: tools)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                let document = ModelTable.json(listing, current: config.model, all: all)
+                print(String(decoding: try encoder.encode(document), as: UTF8.self))
+                return
+            }
             let lines = await ModelListing.lines(
                 config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
                 width: TerminalTable.detectWidth())
             for line in lines { print(line) }
-            if let note = Self.unlinkedNote(config: config) { print(note) }
         }
+    }
 
-        /// The complete `mlx-community` snapshots in the Hugging Face cache that the MLX models directory does
-        /// not link yet, and how to use them; nil when there are none or MLX is not in this build.
-        static func unlinkedNote(config: Config.Resolved) -> String? {
-            guard MLXBackend.isCompiledIn else { return nil }
-            let unlinked = HubCache.current().unlinked(in: MLXBackend.modelsDirectory(config: config, home: Wisp.home))
-            guard !unlinked.isEmpty else { return nil }
-            return "  (in the Hugging Face cache, not linked: \(unlinked.joined(separator: ", ")); "
-                + "wisp models pull <repository> links one without downloading)"
+    /// Turns models on: a disabled model is offered and accepted again, and a cached MLX model is linked, fetching
+    /// nothing (ADR 0056).
+    struct Enable: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Enable models: offered by /model again; a cached MLX model is linked, with no download.")
+
+        @Argument(help: "The models, as --model names them.")
+        var names: [String]
+
+        func run() throws {
+            try Models.set(enable: names, disable: [])
+        }
+    }
+
+    /// Turns models off: hidden from `/model` and Tab, and refused by `/model`, `--model`, `config.json`'s `model`,
+    /// and an MCP caller's `model` (ADR 0056).
+    struct Disable: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Disable models: hidden from /model and refused everywhere; not the default model.")
+
+        @Argument(help: "The models, as --model names them.")
+        var names: [String]
+
+        func run() throws {
+            try Models.set(enable: [], disable: names)
+        }
+    }
+
+    /// Changes `models.disabled` through a session of entry point `models`, which records it, and prints what
+    /// happened.
+    ///
+    /// - Throws: `ValidationError` for a name that does not parse, the default being disabled, or a file that would
+    ///   not load.
+    static func set(enable: [String], disable: [String]) throws {
+        let session = try Wisp.begin(.init(entryPoint: .models))
+        defer { session.end() }
+        do {
+            for line in try session.setModels(enable: enable, disable: disable, source: "cli") { print(line) }
+        } catch let failure as ConfigEdit.Failure {
+            throw ValidationError("\(failure)")
+        } catch let failure as ModelSelection.Failure {
+            throw ValidationError("\(failure)")
         }
     }
 

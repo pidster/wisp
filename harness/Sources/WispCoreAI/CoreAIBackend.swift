@@ -90,17 +90,23 @@ public struct CoreAIBackend: ModelBackend {
         Self.bundles(in: Self.modelsDirectory(config: config, home: home)).map { url in
             let name = url.lastPathComponent
             var detail = "core ai bundle"
+            var format: String?
+            let bytes = Self.size(of: url)
             if let data = try? Data(contentsOf: url.appending(path: "metadata.json")),
                 let metadata = try? JSONDecoder().decode(JSONValue.self, from: data).objectValue
             {
                 let kind = metadata["kind"]?.stringValue ?? "?"
                 let compression = metadata["compression"]?.stringValue ?? "?"
                 let source = metadata["source"]?.objectValue?["hf_model_id"]?.stringValue
-                let size = Self.size(of: url).map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                let size = bytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
                 let window = Self.contextWindow(in: url).map { "\($0.window.formatted())-token window" }
                 detail = [kind, compression, source, size, window].compactMap { $0 }.joined(separator: " ")
+                let parts = [metadata["kind"]?.stringValue, metadata["compression"]?.stringValue].compactMap { $0 }
+                format = parts.isEmpty ? nil : parts.joined(separator: " ")
             }
-            return InstalledModel(selection: .local(backend: scheme, name: name), detail: detail)
+            return InstalledModel(
+                selection: .local(backend: scheme, name: name), detail: detail, bytes: bytes.map { Int($0) },
+                format: format)
         }
     }
 

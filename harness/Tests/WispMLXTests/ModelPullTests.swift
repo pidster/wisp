@@ -426,6 +426,43 @@ final class FakeHub: ModelPull.Transport {
         #expect(place.cache.unlinked(in: place.models).isEmpty)
     }
 
+    @Test func enablingACachedModelLinksItFromTheSnapshotWithoutTheHub() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let pull = place.pull(FakeHub(files: Self.repository))
+        _ = try await pull.fetch(try await pull.plan("mlx-community/q", into: place.models), available: 1 << 40)
+        // Listed as cached and not linked, with its format and weights from the snapshot.
+        let cached = MLXBackend.cached(in: place.cache, modelsDirectory: place.models)
+        #expect(cached.map(\.selection) == [.local(backend: "mlx", name: "q")])
+        #expect(cached.first?.location == .hubCacheNotLinked && cached.first?.format == "qwen3")
+        #expect(cached.first?.bytes == 4096)
+        // Linked from the snapshot alone: a hub that answers nothing is never asked.
+        let offline = ModelPull(
+            hub: Self.hubURL, transport: FakeHub(files: [:], listingStatus: 500), cache: place.cache)
+        let plan = try offline.cachedPlan("mlx-community/q", into: place.models)
+        #expect(plan.missing.isEmpty && plan.link == .absent)
+        #expect(plan.files.map(\.path) == Self.wantedFiles)
+        let config = Config(mlx: .init(modelsDirectory: place.models.path)).resolved
+        let home = Home(root: place.root)
+        let backend = MLXBackend(cache: place.cache)
+        let link = try backend.link("q", config: config, home: home)
+        #expect(link.outcome == "created" && link.files == 4 && link.repository == "mlx-community/q")
+        #expect(link.snapshot == plan.snapshot.path && link.destination == place.models.appending(path: "q").path)
+        #expect(
+            try FileManager.default.destinationOfSymbolicLink(atPath: place.models.appending(path: "q").path)
+                == plan.snapshot.path)
+        #expect(MLXBackend.cached(in: place.cache, modelsDirectory: place.models).isEmpty)
+        // Once linked it is installed, and lives in the Hugging Face cache.
+        let installed = try await backend.installed(config: config, home: home)
+        #expect(installed.first?.location == .hubCache && installed.first?.bytes == 4096)
+        #expect(try backend.link("q", config: config, home: home).outcome == "unchanged")
+        // Nothing complete in the cache: refused, with how to fetch it.
+        #expect(throws: ModelPull.Failure.notCached("mlx-community/other")) {
+            try offline.cachedPlan("mlx-community/other", into: place.models)
+        }
+        #expect("\(ModelPull.Failure.notCached("mlx-community/x"))".contains("wisp models pull mlx-community/x"))
+    }
+
     @Test func aFileThatIsNotWhatTheListingSaidIsRejected() async throws {
         let place = try Place()
         defer { place.remove() }
