@@ -191,8 +191,10 @@ saved with a transcript as `<name>.store` (since 2026-09-29). See [logging](logg
 
 The [model-controls proposal](model-controls.md) defines the draft contract for reasoning mode, effort,
 native speed mode, separate performance preferences and reasoning output. These are still proposed
-controls, not implemented settings. Ollama reports `thinking` for reasoning models such as
-`qwen3.8:27b`, but wisp neither requests nor relays their reasoning.
+controls, not implemented settings. *Partly*, since 0.19.0 ([ADR 0053](decisions/0053-the-models-thinking-shown.md)):
+Ollama's `think` is requested through `ollama.think` (`true`, `false`, or a level), and a reasoning model's
+thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat, `wisp-tui`,
+`wisp://threads/{id}/reasoning`), audited as `model.reasoning`, and never sent back to the model.
 
 - [ ] Describe supported controls and values per model/runtime/adapter combination, with provenance.
 - [ ] Translate common controls in each backend and reject unsupported explicit requests before use.
@@ -205,12 +207,19 @@ controls, not implemented settings. Ollama reports `thinking` for reasoning mode
 
 ## 7. Current work and backlog (2026-10-04)
 
-### Committed, not yet released (0.18.1)
+### Committed, not yet released (0.19.0)
 
-`CHANGELOG.md`, "Unreleased": `wisp chat` from the Homebrew install finds `wisp-tui` again (in a `bin`
-beside `libexec`), and `wisp doctor` says where it found it.
+`CHANGELOG.md`, "Unreleased": MLX on wisp's own executor, on a par with Ollama, and `wisp models pull` into the
+Hugging Face cache ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)); Core AI's window from its bundle;
+the model's thinking shown and `ollama.think` ([ADR 0053](decisions/0053-the-models-thinking-shown.md)); the
+sandbox's refusals checked and a nested wisp denied to the model
+([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)); cited entries checked
+([ADR 0055](decisions/0055-cited-entries-checked.md)); models enabled and disabled, the models table, capability
+checks on enable, and chat's fallback to `system` ([ADR 0056](decisions/0056-models-enabled-and-disabled.md));
+an Ollama reply cut short ending the turn.
 
-0.18.0 (2026-10-04) carried commands the person types in chat
+0.18.1 (2026-10-04): `wisp chat` from the Homebrew install finds `wisp-tui` again (in a `bin` beside `libexec`),
+and `wisp doctor` says where it found it. 0.18.0 (2026-10-04) carried commands the person types in chat
 ([ADR 0049](decisions/0049-commands-typed-in-chat.md)), the running summary in a place of its own, what
 each turn ran beside its reply ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)), a
 fact's value held once across sources, and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts
@@ -219,8 +228,8 @@ over MCP ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)) and MLX in the
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.22.0; next, 0.19.0: MLX on a par with Ollama, Core AI's
-context window, the model's thinking shown, and the sandbox's refusals checked. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget
+The [roadmap](roadmap.md) has each release to 0.22.0; next, 0.20.0: analysis, evals, and tuning, with MLX
+measured against Ollama and the local-model comparison. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget
 from the model's window, is proposed for 0.22.0.
 
 ### Open from the layered context
@@ -228,8 +237,10 @@ from the model's window, is proposed for 0.22.0.
 - the guard's 50% variants re-run, and the target and headroom tuned;
 - the assessment, if reconsidered: a task that changes only when the request restates it;
 - a specialised distiller, once reviewed pairs exist;
-- D10's model switch evaluated;
-- window sizing for Core AI and MLX, from their bundles' metadata (ADR 0043).
+- D10's model switch evaluated.
+
+Done 2026-10-04: window sizing for Core AI and MLX, from their bundles' metadata
+([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 
 ### Offered, not started
 

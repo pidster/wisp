@@ -25,6 +25,8 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
 
 - Done 2026-09-19: each simple command in a line is checked and approved separately, remembered by
   program ([ADR 0015](decisions/0015-per-command-approval.md)).
+- Done 2026-10-04: the sandbox's refusals checked against the writable roots, and a nested wisp agent denied to
+  the model and to typed `!` commands ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)).
 
 ## Enabling other harnesses (see the objective)
 
@@ -144,6 +146,16 @@ Three things wait on a Developer ID or App Store signature rather than on code.
 - Done 2026-09-20: context estimation from the runtime. `Agent` condenses ahead of a known window from
   the usage every reply reports; Ollama is asked for an explicit `contextLength`
   ([ADR 0025](decisions/0025-context-estimation.md)).
+- Done 2026-10-04: MLX on a par with Ollama. MLX models run through wisp's own executor, with the window sized
+  from the model and memory, exact token counts, usage, and each thread's processed prefix reused; Core AI reports
+  its bundle's window; `wisp models pull` fetches `mlx-community` models into the Hugging Face cache, reusing what
+  Hugging Face's tools already fetched, after asking ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
+  Measuring it against Ollama is 0.20.0's ([roadmap.md](roadmap.md)).
+- Done 2026-10-04: a reasoning model's thinking shown, counted, audited, and never sent back to the model, and
+  `ollama.think` ([ADR 0053](decisions/0053-the-models-thinking-shown.md)).
+- Done 2026-10-04: models enabled and disabled, `wisp models` as a table, an MLX model's capabilities checked on
+  the model when it is enabled, and chat falling back to `system` when its model is unavailable
+  ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
 - Done 2026-09-20: agent tests without the model. `ScriptedModel` drives `Agent`, the tool loop,
   `WispServer` over a real client and in its unit tests (the fake thread is gone), and the whole
   `wisp chat` loop, which moved into `WispCore` as `ChatLoop` with injected input and output.

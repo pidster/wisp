@@ -1,7 +1,7 @@
 # Roadmap
 
 The releases planned from 0.19.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0, and
-0.18.0 have shipped). Each release carries one or two
+0.18.x have shipped; 0.19.0 is the release being made). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
@@ -11,8 +11,8 @@ release's preflight still runs the eval's floors, as a guard against regressions
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; the local-model comparison |
+| 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window; the local-model comparison |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 
@@ -25,8 +25,8 @@ release's preflight still runs the eval's floors, as a guard against regressions
   D11) costs little; and fetching `mlx-community` models, with the person's approval. Measuring MLX
   against Ollama waits for 0.20.0. Built ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)): wisp's
   own executor, `mlx.contextLength` and `mlx.executor`, and `wisp models pull`; tested over a fake runtime and a
-  fake Hub, not yet on real weights, which `scripts/check mlx-live` checks before the release. What 0.20.0
-  measures is listed in the ADR.
+  fake Hub, and on real weights on 2026-10-04: `scripts/check mlx-live` passed all five tests with
+  `mlx-community/Qwen3-1.7B-4bit`, fetched by `wisp models pull`. What 0.20.0 measures is listed in the ADR.
 - **Core AI's context window** from its bundle's metadata, by the same path. Built (ADR 0052): the bundle's
   declared `max_context_length`.
 - **The model's thinking shown.** Built ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Ollama streams a reasoning model's thinking as `message.thinking`
@@ -62,7 +62,9 @@ release's preflight still runs the eval's floors, as a guard against regressions
   `/model` and Tab and refused by `/model`, `--model`, `model`, and MCP `respond`, the default never disabled;
   `wisp models enable|disable`, `/models enable|disable`, and `wisp-tui`'s `/models` picker; enabling a cached MLX
   model links it. `wisp models` became a table of every known fact, fitted to the terminal, the same in chat,
-  `--json`, and the picker (the operator's decisions, 2026-10-04).
+  `--json`, and the picker (the operator's decisions, 2026-10-04). Enabling an MLX model whose capabilities
+  `config.json` does not declare loads it and asks three short questions (a reply, a tool call, a structured reply),
+  recording what passes; `wisp models check` and `/models check` check again; audited as `model.verified`.
 - **Chat's fallback when its model is unavailable.** Built (ADR 0056). Probed on 2026-10-04 with `ollama.baseURL` at
   an unused port: every entry point failed fast and clearly, but `wisp chat` refused to start, so `/model` was out of
   reach. Chat now starts on `system` and says so; `--model`, `respond`, and MCP still fail.
@@ -83,7 +85,14 @@ The release given to measurement, once the four before it are out:
 - **The assessment reconsidered, if wanted.** It stays off: the checkpoint found it rewrote the inferred
   task on 8 to 11 of 22 requests. A version that changes the task only when a request restates it is the
   starting point.
-- **MLX against Ollama**, for the same models, now that 0.19.0 has MLX on a par.
+- **MLX against Ollama**, for the same models, now that 0.19.0 has MLX on a par, with the rest of what
+  [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must measure" (in its
+  Consequences): the bridge against wisp's executor, prefix reuse, the cache's real cost per token, the windows
+  sized for common models, the pull against the real Hub, and Core AI past its bundle's window.
+- **gemma4's window.** `wisp models` on 2026-10-04 showed `ollama:gemma4:12b` and `gemma4:26b` at 8,192 tokens
+  from `default`, not sized from memory, likely because Ollama reports gemma4's shape differently from what
+  [ADR 0043](decisions/0043-context-window-from-memory.md)'s sizing reads; both are in the model comparison, so
+  their windows must be sized first.
 - **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`,
   and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model

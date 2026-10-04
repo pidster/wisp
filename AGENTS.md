@@ -55,7 +55,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models, /model, /stats, /tokens, /inspect context|facts|summary, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models [enable|disable|check], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -67,7 +67,7 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 ## Architecture in one paragraph
 
 `Agent` wraps one `LanguageModelSession` created by a `ResolvedModel` (`ModelSelection`: `system` or
-`private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `coreai`, and `mlx`, ADR 0019; adapters are obsoleted on macOS 27, ADR 0013); the framework runs the tool loop. `ToolRegistry` is the single
+`private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `coreai`, and `mlx`, ADR 0019, through wisp's own executor too since ADR 0052; adapters are obsoleted on macOS 27, ADR 0013; a model in `DisabledModels` is refused wherever one is chosen, and enabling an MLX model checks its capabilities on the model, `ModelVerification`, ADR 0056); the framework runs the tool loop. `ToolRegistry` is the single
 list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`.
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
@@ -189,10 +189,10 @@ Which model to pass as `model` when a thread starts (measured in the Ollama sect
 | Complex: multi-step tasks, reading and reasoning over several files or outputs | `ollama:qwen3.8:27b` | The newest Qwen; it reasons before it answers, about 10 s more per turn |
 | Ollama not running | `system` | Always there; keep prompts short for its 8k-token window |
 
-If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
+If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. If it lists it with `ENABLED` `no`, `wisp models enable <name>` turns it on; ask before enabling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
 and `wisp://threads` show its state, and `wisp://threads/{thread_id}` a thread's: its `context` (what the
-model carries, per turn), `facts`, `summary`, `output`, and `audit`. Commands the model runs that need approval are asked
+model carries, per turn), `facts`, `summary`, `output`, `reasoning` (a thinking model's thinking), and `audit`. Commands the model runs that need approval are asked
 through MCP elicitation and, with `approval.outOfBand` (the default), through `wisp approvals` and
 `wisp-tui` too; a client without elicitation waits for that answer, up to `approval.timeoutSeconds`, and
 silence is a refusal (`docs/mcp.md`, "Approval").

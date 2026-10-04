@@ -6,6 +6,15 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Breaking:
+
+- The model can no longer start a wisp of its own. The default deny list refuses `wisp respond`, `wisp chat`,
+  `wisp mcp`, and `wisp "prompt"` (by any path, after `env` or `VAR=value`), and so do commands you type after `!`
+  in chat; run a nested wisp from another terminal instead. `wisp doctor`, `logs`, `tools`, `--version`, and the
+  other subcommands stay allowed (ADR 0054).
+- `wisp models` piped is a different shape: one tab-separated field per column of the new table, so the old
+  `detail; capabilities` field is gone. Scripts should read `wisp models --json` (see Changed).
+
 Added:
 
 - A reasoning model's thinking is shown (ADR 0053). Ollama streams it for models such as `qwen3.8:27b`, `gemma4` and
@@ -62,9 +71,6 @@ Changed:
   where commands may write, something else refused a path inside the roots, or, with no path to check, the sandbox
   may have refused it and no policy rule did. The note for a command you type after `!` uses the same check, and
   `command.outcome` records it as `sandboxRefusal` (ADR 0054).
-- The default deny list refuses the model starting a wisp of its own: `wisp respond`, `wisp chat`, `wisp mcp`, and
-  `wisp "prompt"`; `wisp doctor`, `logs`, `tools`, `--version`, and the other subcommands stay allowed. Commands
-  you type after `!` follow the same list (ADR 0054).
 - MLX models run through wisp's own executor, on a par with Ollama's: the context window is sized from the
   model's `config.json` and the Mac's memory (or `mlx.contextLength`) and shown by `wisp doctor`, token counts
   are exact with the model's tokenizer, usage is reported, and each thread's processed prompt is reused by its

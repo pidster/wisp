@@ -26,7 +26,7 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 | **The process tree**: a timeout kills the whole group. | **Inter-process messaging and the rest of macOS**: unchanged. |
 
 Before a command runs it must also pass a deny list (`sudo`, `rm -rf /`, piping into a shell, disk
-tools, answering an approval, keeping a permanent fact, and starting a wisp agent of its own: `wisp respond`,
+tools, answering an approval, keeping a permanent fact, fetching a model, and starting a wisp agent of its own: `wisp respond`,
 `chat`, `mcp`, or `wisp "prompt"`) and a risk check.
 
 **What the model is told when the sandbox refuses.** The sandbox fails a refused operation with `Operation not
@@ -103,6 +103,14 @@ command by the default policy. The files go into the Hugging Face cache, shared 
 and the models directory links to them; a directory already there is moved to the Trash only if you answer yes
 to a second question ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 
+Turning a model off (`wisp models disable`, `/models` in chat, `wisp-tui`'s picker) changes only
+`models.disabled` in `config.json`, and turning one on takes it out of that list. Enabling a complete MLX model already in the Hugging Face cache links it and
+downloads nothing. Enabling an MLX model whose capabilities `config.json` does not declare, or `wisp models check`,
+loads the model into wisp's own process and asks it three short questions, each within a time limit, with no tool
+of wisp's: the only tool it is offered is the check's own `record_word`, which records a word and touches nothing.
+What passes is written to `config.json` (`mlx.models.<name>`) and audited as `model.verified`
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+
 ## Switches that remove protection
 
 | Switch | Removes | Leaves |
@@ -130,14 +138,17 @@ remembered as ([logging](logging.md)).
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
-  writable set.
+  writable set, except the models you pulled into the Hugging Face cache, which Hugging Face's own tools share;
+  delete `<cache>/models--mlx-community--<name>` to remove one.
 - Uninstall: `brew uninstall wisp`.
 
 ## Files wisp writes
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
-| `~/.wisp/config.json` | your settings, written by you or by `wisp config set` and chat's `/config set` | yours; user-only once wisp writes it |
+| `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed) | yours; user-only once wisp writes it |
+| `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
+| the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, and your answers, until taken | user-only (directory 0700, files 0600) |

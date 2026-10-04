@@ -120,10 +120,11 @@ an entitlement that an unsigned command-line binary cannot carry, so it is refus
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model
 ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens, and a model in MLX
 layout with `--model mlx:<name>`, run in wisp's own process on the GPU; `wisp models` lists what will
-work.
+work, `wisp models pull` fetches an MLX model into the Hugging Face cache after asking, and `wisp models
+disable` hides one you do not want offered.
 
 **Every command passes a gate, and the gate is fast.** Before a command runs it must clear a deny list
-(`sudo`, `rm -rf /`, piping into a shell, disk tools), and it runs under a Seatbelt sandbox that
+(`sudo`, `rm -rf /`, piping into a shell, disk tools, starting a wisp of its own), and it runs under a Seatbelt sandbox that
 confines writes to the directory wisp was launched in, the temporary directory, and configured build
 caches. Then a classifier rates each simple command in the line `safe`, `moderate`, or `dangerous`.
 Rules set the floor and a Core ML text classifier, shipped with each release and trained on 2,135
