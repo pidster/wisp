@@ -38,7 +38,7 @@ struct EmbedSystemPrompt: BuildToolPlugin {
         commit=nil; modified=false; release=false
         if hash=$(git -C "$2" rev-parse --short=7 HEAD 2>/dev/null) && [ -n "$hash" ]; then
             commit="\\"$hash\\""
-            if [ -n "$(git -C "$2" status --porcelain 2>/dev/null)" ]; then modified=true; fi
+            if [ -n "$(git -C "$2" status --porcelain --untracked-files=no 2>/dev/null)" ]; then modified=true; fi
         fi
         if [ "$3" = 1 ]; then release=true; fi
         mkdir -p "$1"

@@ -30,7 +30,8 @@ fn main() {
     }
     let commit = git(&["rev-parse", "--short=7", "HEAD"]).filter(|hash| !hash.is_empty());
     let modified = commit.is_some()
-        && git(&["status", "--porcelain"]).is_some_and(|status| !status.is_empty());
+        && git(&["status", "--porcelain", "--untracked-files=no"])
+            .is_some_and(|status| !status.is_empty());
     let release = std::env::var("WISP_RELEASE").is_ok_and(|value| value == "1");
     println!(
         "cargo:rustc-env=WISP_BUILD_COMMIT={}",

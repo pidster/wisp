@@ -12,3 +12,5 @@ target/
 
 # Claude Code subagent worktrees
 .claude/worktrees/
+# Claude Code personal settings, never shared
+.claude/settings.local.json
