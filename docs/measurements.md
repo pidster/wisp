@@ -155,6 +155,24 @@ own call format, which its Ollama template leaves as text. The gemma4 models' 92
 verdict, makes them candidates for labelling training sets rather than for the gate. `qwen3.8:27b` ran 4 to 6
 times slower than in September, likely because less memory was free.
 
+### The Falcon comparison, 2026-10-05
+
+The two Falcon-H1 candidates through wisp's own MLX executor (`scripts/check eval compare`, not recorded),
+after `wisp models enable` checked them: Falcon-H1R-7B passed the tool check, Falcon-H1-7B-Instruct did not
+(it names tools it was not offered), so it ran as text only. H1R took about 4 h 15 min, Instruct about 6 h 50 min,
+most of it the classifier's 784 verdicts.
+
+| Model | `edit_file` | `system_info` | Schema | Drafts, small / medium / large | Classifier with rules | Context |
+| --- | --- | --- | --- | --- | --- | --- |
+| `mlx:Falcon-H1R-7B-4bit` | 22/30, 102 s a case | 14/16 | 4/6 | 6/10, 2/2, 0/2 | 287/392 (73%), p50 10.4 s | 6/6, 26.8 s a turn |
+| `mlx:Falcon-H1-7B-Instruct-4bit` | 0/30 | 0/16 | 5/6 | 1/10, 1/2, 0/2 | 341/392 (87%), p50 16.2 s, p95 300 s | 0/6 (tools off) |
+
+Neither earns a place: H1R trails `granite4.1:8b` on every suite at 4 to 15 times the time, and Instruct calls
+no tools, writes poor commit subjects, and stalls up to five minutes on some classifier verdicts. Both were
+disabled on 2026-10-06 (`models.disabled`), with `llama3.2:3b`, `ministral-3:14b`, `nomic-embed-text`, and
+`deepseek-coder-v2`; `Falcon-H1-Tiny-Tool-Calling-90M` is kept for the tool-choice experiment. The run showed
+hybrid models working end to end through wisp's MLX executor, tool calls included.
+
 The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
 test output is buffered, so a model's lines reach the log when its `swift test` ends.

@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded; MLX thinking shown |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
@@ -137,6 +137,12 @@ The release given to measurement, once the four before it are out:
   writing further turns). The comparison can now run through the evals: `WISP_EVAL_MODELS=mlx:…`
   ([measurements.md](measurements.md#comparing-models)). Instruct is usable with tools off only, so its tool-call
   suites would fail as things stand.
+  Compared on 2026-10-05: neither earns a place ([measurements.md](measurements.md), "The Falcon comparison");
+  both 7B models disabled, the 90M kept for the tool-choice experiment.
+- **The lockfile's MLX pins guarded.** `harness/Package.resolved` loses its MLX-only pins (mlx-swift,
+  mlx-swift-lm, swift-numerics, swift-syntax) whenever a build without the `MLX` trait resolves it, which the
+  gate's own build does; a commit on 2026-10-05 carried the loss and was put right the same day. The gate should
+  check the staged lockfile keeps the pins and restore them after its build.
 - **MLX thinking shown** (near term, the operator, 2026-10-04): ADR 0053 shows a reasoning model's thinking
   for Ollama only; the MLX executor needs the same `ThinkingStretch` hook (the chat template's `<think>`
   block split from the reply), so Falcon-H1R and Qwen3 on MLX show their thinking and count it.
