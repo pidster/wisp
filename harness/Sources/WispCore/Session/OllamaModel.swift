@@ -305,7 +305,10 @@ public struct OllamaModel: LanguageModel, Sendable {
         guard settings.contextLength == nil else {
             return OllamaModel(name: name, settings: settings, reported: shown.capabilities)
         }
-        guard let shape = ContextSizing.shape(from: shown.info, drafted: shown.drafted) else {
+        guard
+            let shape = ContextSizing.shape(
+                from: shown.info, drafted: shown.drafted, draftTokens: shown.draftTokens)
+        else {
             return OllamaModel(
                 name: name, settings: settings, reported: shown.capabilities, window: ContextSizing.floor,
                 windowReason:
@@ -328,6 +331,9 @@ public struct OllamaModel: LanguageModel, Sendable {
         /// Whether Ollama runs a draft model beside this one for speculative decoding: a `DRAFT` line in its
         /// `modelfile` (gemma4 has one), whose cache sizing counts too.
         public var drafted: Bool
+        /// Tokens Ollama drafts ahead per step (`PARAMETER draft_num_predict` in its `modelfile`; 4 for
+        /// qwen3.8:27b, 3 for gemma4), or 0 when it sets none.
+        public var draftTokens: Int
 
         private enum CodingKeys: String, CodingKey { case capabilities, model_info, modelfile }
 
@@ -337,7 +343,12 @@ public struct OllamaModel: LanguageModel, Sendable {
             capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
             info = (try? container.decodeIfPresent([String: JSONValue].self, forKey: .model_info)) ?? [:]
             let modelfile = (try? container.decodeIfPresent(String.self, forKey: .modelfile)) ?? nil
-            drafted = (modelfile ?? "").split(whereSeparator: \.isNewline).contains { $0.hasPrefix("DRAFT ") }
+            let lines = (modelfile ?? "").split(whereSeparator: \.isNewline)
+            drafted = lines.contains { $0.hasPrefix("DRAFT ") }
+            let draft = lines.map { $0.split(separator: " ") }.first { (words: [Substring]) in
+                words.count == 3 && words[0] == "PARAMETER" && words[1] == "draft_num_predict"
+            }
+            draftTokens = draft.flatMap { Int($0[2]) } ?? 0
         }
     }
 

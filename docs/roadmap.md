@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 
@@ -99,6 +99,14 @@ The release given to measurement, once the four before it are out:
   tokens with 30 GB available and 126,976 with 25 GB; 26b needs about 41.5 GB available to leave the floor (at
   most 217,088 tokens with all 51.5 GB free), so on this Mac it stays at 8,192 while much else is loaded. No other
   installed model's window changed.
+- **Hybrid models' windows.** Built ([ADR 0043](decisions/0043-context-window-from-memory.md), refined
+  2026-10-05). `qwen3.8:27b` (`qwen35`) interleaves 16 attention layers with 48 recurrent ones and was counted at
+  260 KiB a token for all 65 layers, so it never left the floor. Sizing now counts only the attention layers
+  (`full_attention_interval`) and the model's own draft layer per token, and the recurrent state as a fixed cost
+  from the `ssm.*` fields: 68 KiB a token and 748 MiB, both measured exactly in llama.cpp's allocations at 8,192
+  and 32,768 tokens. `ornith:9b` (same architecture) goes from 65,536 to 262,144 tokens with 30 GB available. MLX
+  applies the same principle to `config.json` (Falcon-H1's parallel Mamba-2 state, Qwen3.5's interval). Other
+  hybrid families' GGUF fields are unverified (listed in the ADR).
 - **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`,
   and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model

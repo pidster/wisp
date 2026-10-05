@@ -230,3 +230,16 @@ and usage for Core AI are unchanged.
   - `wisp models pull` against the real Hub: the listing's format (the LFS `oid` as SHA-256), throughput, and
     resuming after an interruption;
   - whether Core AI refuses or truncates a prompt past the bundle's window.
+
+**Refined 2026-10-05: hybrid models' windows.** ADR 0043's hybrid rule (refined 2026-10-05) applies to
+`config.json` as mlx-swift-lm builds the caches. With `full_attention_interval` (Qwen3.5, Qwen3-Next) only every
+interval's last layer keeps a key-value cache and the others a gated-delta state, sized from `linear_conv_kernel_dim`,
+`linear_num_value_heads` × `linear_value_head_dim`, and `linear_num_key_heads` × `linear_key_head_dim`. With
+`mamba_d_conv`, `mamba_d_ssm`, and `mamba_d_state` (Falcon-H1, whose `FalconH1.swift` gives every layer a
+`CacheList` of a Mamba cache and an attention cache) every layer keeps both: the cache is counted as before and the
+Mamba-2 state, with `mamba_n_groups` (else 1), is added as a fixed cost. The state is counted at 32 bits, as
+llama.cpp keeps it; MLX keeps the convolution window in the activations' type, so this errs towards a smaller
+window. For `Falcon-H1-7B-Instruct-4bit` and `Falcon-H1R-7B-4bit` (44 layers): 44 KiB a token as before and
+134 MiB of state, so 221,184 tokens with 30 GB available instead of 225,280; `Falcon-H1-Tiny-Tool-Calling-90M-bf16`
+(24 layers) 12 KiB a token and 5 MiB. `Qwen3-1.7B-4bit` sets none of these fields and sizes exactly as before. Not
+measured on MLX: no hybrid was run live for this.

@@ -141,3 +141,63 @@ drafted model, covers only at the smaller batches; the budget's half of availabl
 own scheduler predicted 12.5 GiB for 12b at 131,072 tokens, against 11.7 GiB by this rule.
 `gemma4:26b` (18.7 GB of weights) was not loaded: with about 19 GB available and another model in use it would
 not have fitted. Its estimate is 24 KiB a token (5 global layers of 2 heads, and its draft's) and 600 MiB fixed.
+
+## Refined 2026-10-05: hybrid attention and recurrent models
+
+`qwen3.8:27b` (architecture `qwen35`, 17.7 GB) sized at 8,192 tokens wherever it ran. Its `/api/show` reports
+`block_count` 65, 4 key-value heads of 256, `full_attention_interval` 4, `nextn_predict_layers` 1, and `ssm.*` fields
+(`conv_kernel` 4, `state_size` 128, `group_count` 16, `inner_size` 6,144). It is a hybrid: 64 layers of which every
+fourth attends and the rest are gated-delta recurrent layers, which keep a state of fixed size instead of a cache,
+and one multi-token-prediction layer after them that Ollama runs as a draft (`--spec-type draft-mtp
+--spec-draft-n-max 4`, from the Modelfile's `PARAMETER draft_num_predict 4`). The rule counted all 65 layers at
+260 KiB a token, 3.8 times the real cost. `ornith:9b` is the same architecture (32 layers, no draft layer), counted
+at 128 KiB against 32.
+
+The rule now counts only the layers that keep a cache:
+
+```
+attention layers = layers i < block_count − nextn_predict_layers with (i + 1) % full_attention_interval == 0,
+                   or, for a model reporting heads per layer, those with heads > 0
+bytes per token  = Σ over attention layers of heads × (key length + value length) × 2
+                   + the nextn_predict_layers' own, counted as draft layers (the working buffers twice)
+fixed bytes      = recurrent layers × 4 × ((conv_kernel − 1) × (inner_size + 2 × group_count × state_size)
+                                           + state_size × inner_size)
+                   × (1 + draft_num_predict, for a model that drafts)
+```
+
+`(i + 1) % interval == 0` is mlx-swift-lm's convention (`Qwen35.swift`); llama.cpp's source was not available
+here, but the layer counts it logged agree (16 of 64, 8 of 32). The state formula is llama.cpp's `n_embd_r` (the
+convolution's last inputs) plus `n_embd_s` (the state matrix) at 32 bits, reconstructed from the log rather than
+read in source, and it matches the log to the byte. llama.cpp keeps one copy of the state per drafted token to roll
+back to (`4 rs_seq`), so a drafting model's state is multiplied. A model that sets none of these fields is sized
+exactly as before; without the `ssm.*` fields the layers are still counted but no state is guessed at.
+
+Measured on this Mac (Ollama 0.35.1), reading what llama.cpp allocated from Ollama's server log:
+
+| Model | `num_ctx` | Attention cache | Draft layer's cache | Recurrent state |
+| --- | --- | --- | --- | --- |
+| `qwen3.8:27b` | 8,192 | 512 MiB (16 layers) | 32 MiB (1 layer) | 748.12 MiB (64 layers, `1 seqs 4 rs_seq`) |
+| `qwen3.8:27b` | 32,768 (2026-10-05) | 2,048 MiB | 128 MiB | 748.12 MiB |
+| `ornith:9b` | 8,192 (2026-09-23) | 256 MiB (8 layers) | none | 50.25 MiB (`0 rs_seq`) |
+| `ornith:9b` | 32,768 (2026-10-04) | 1,024 MiB | none | 50.25 MiB |
+
+The estimate is 68 KiB a token for qwen3.8 (64 for its attention layers, 4 for the draft layer) and 748.125 MiB
+fixed (48 layers × 3.12 MiB × 5 copies); 32 KiB a token for ornith and 50.25 MiB fixed (24 × 2.09 MiB): every
+figure in the table, exactly. With 30 GB available ornith now gets its full 262,144 tokens (65,536 before);
+with its 17.7 GB of weights qwen3.8 needs about 41 GB available to leave the floor (43 GB before), and at 50 GB
+available it gets 73,728 tokens, against 24,576 before.
+
+No other installed model changed: `llama`, `granite`, `mistral3`, `qwen3moe`, and `gemma4` set none of these fields.
+`deepseek2` (`deepseek-coder-v2`) reports `kv_lora_rank` 512, the compressed cache of multi-head latent attention,
+but llama.cpp did not use it for this GGUF: loaded at 8,192 tokens on 2026-10-05 it allocated 2,160 MiB, 270 KiB a
+token, the full 27 layers × 16 heads × (192 + 128) × 2 the rule already estimated. A newer deepseek2 GGUF that
+llama.cpp runs compressed would be over-estimated, the safe direction.
+
+Not verified, because no such model is installed and llama.cpp's source was not at hand: the GGUF fields of
+`granitehybrid`, `jamba`, `nemotron_h`, `lfm2`, `falcon-h1`, `mamba`/`mamba2`, and `qwen3next`. The rule covers them
+where they use the same names: a layer reported with no key-value heads is counted as recurrent, and the `ssm.*`
+state formula takes a missing `group_count` as 0 (Mamba-1's shape). A pure state-space model reports no
+key-value heads and falls back to 8,192 as before; `lfm2`'s short-convolution state is not sized (it is small);
+`falcon-h1`, which runs attention and Mamba-2 side by side in every layer, gets every layer counted per token but no
+state, which the 512 MiB of working buffers covers for the sizes published. MLX's side is in
+[ADR 0052](0052-mlx-on-a-par-with-ollama.md).

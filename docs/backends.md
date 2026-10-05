@@ -88,6 +88,13 @@ is selected, wisp works out its window from the model's shape and the Mac's memo
   cost taken off the budget first. A model whose Modelfile names a `DRAFT` (gemma4's speculative decoder) adds
   one more whole-window layer as wide as its widest, and its working buffers are counted twice. The reason says
   how the layers were counted, for example `40 of 48 layers sliding-window (1,024 tokens), with a draft model`;
+- a hybrid model, which interleaves attention with recurrent (state-space) layers (`qwen35`: qwen3.8, ornith), counts
+  only its attention layers per token: every `full_attention_interval`th layer, or, for a model reporting heads
+  per layer, those with heads. The recurrent layers' state does not grow with the window; it is sized from the
+  `ssm.*` fields as llama.cpp allocates it (32-bit, once plus once per drafted token for a model that drafts) and
+  taken off the budget first. The model's own draft layers (`nextn_predict_layers`) count as a draft model's do.
+  The reason names the class, for example `16 of 64 layers attention, with 1 draft layer of its own; 748 MiB
+  recurrent state`;
 - the window is the largest multiple of 4,096 at which the weights, the cache, and 512 MiB of buffers fit
   half the memory available now, and no more than three quarters of installed memory, capped at the
   model's maximum;
@@ -96,7 +103,9 @@ is selected, wisp works out its window from the model's shape and the Mac's memo
 On 2026-09-29, with 19.6 GB available, `granite4.1:8b` (131,072 at most) got 24,576 tokens, estimated at
 9.2 GiB; Ollama loaded it in 8.95 GiB. On 2026-10-04, `gemma4:12b` was measured at exactly the 18 KiB per token
 the per-layer rule estimates (16 KiB for its 8 global layers, 2 KiB for its draft model); with 30 GB available
-it gets its full 262,144 tokens. The
+it gets its full 262,144 tokens. On 2026-10-05, `qwen3.8:27b` was measured at the 68 KiB per token and 748 MiB of
+recurrent state the hybrid rule estimates (it had been counted at 260 KiB), at 8,192 and 32,768 tokens, and
+`ornith:9b` at 32 KiB and 50 MiB; with 30 GB available ornith now gets 262,144 tokens instead of 65,536. The
 `model.resolved` audit event records the window and why.
 Setting `contextLength` fixes one window for every model instead.
 
@@ -334,7 +343,11 @@ models and as the fallback until 0.20.0 has measured wisp's executor against it.
 
 **The window.** An MLX directory's `config.json` gives the shape ADR 0043's rule needs: `max_position_embeddings`,
 `num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else `hidden_size` ÷
-`num_attention_heads`), read from `text_config` first in a multimodal model. With the weights' size (the
+`num_attention_heads`), read from `text_config` first in a multimodal model. A hybrid model's recurrent layers
+are counted as for Ollama, from the fields mlx-swift-lm reads: with `full_attention_interval` (Qwen3.5,
+Qwen3-Next) only every interval's last layer has a cache and the rest a state sized from the `linear_*` fields;
+with the `mamba_*` fields (Falcon-H1) every layer has both, so the cache is counted as before and the Mamba-2
+state (134 MiB for the 7B models) is a fixed cost. With the weights' size (the
 `*.safetensors` files) and the Mac's memory now, wisp chooses the largest multiple of 4,096 that fits half the
 available memory and three quarters of the installed, capped at the model's maximum and never below 8,192;
 weights this process already holds count as available. `mlx.contextLength` sets the window for every MLX model

@@ -14,6 +14,12 @@ Fixed:
   and counts the draft model Ollama runs beside gemma4. With 30 GB available, 12b gets its full 262,144 tokens.
   The reason in `wisp models` and the `model.resolved` event says how the layers were counted, for example
   `40 of 48 layers sliding-window (1,024 tokens), with a draft model`. Other models' windows are unchanged.
+- Hybrid models, which interleave attention with recurrent layers, are sized by their attention layers only.
+  `ollama:qwen3.8:27b` was counted at 260 KiB a token for all 65 layers and stayed at 8,192 tokens; it is now
+  68 KiB a token plus 748 MiB of fixed recurrent state, as Ollama allocates it, and `ollama:ornith:9b` gets its
+  full 262,144 tokens with 30 GB available instead of 65,536. MLX's Falcon-H1 models count their Mamba-2 state.
+  The reason names the class, for example `16 of 64 layers attention, with 1 draft layer of its own; 748 MiB
+  recurrent state`. Other models' windows are unchanged.
 
 ## 0.19.0
 
