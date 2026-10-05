@@ -115,6 +115,31 @@ on-device model's place), and one context scenario. Add `record` to merge the me
   model resolves with `~/.wisp/config.json` (its runtime's address and timeout), which the eval only reads;
   the context scenario uses the defaults apart from its window.
 
+### The local-model comparison, 2026-10-04
+
+Seven Ollama models, `scripts/check eval compare` (not recorded into `measurements.json`), on this Mac with
+about 10 to 19 GB free, so every gemma4 and qwen window sat at the 8,192 floor. `qwen3.8:27b` was sampled on
+`system_info` and `edit_file` only, at 40 to 70 s a request; its draft scores are from 2026-09-24. Triage,
+`summarise_diff`, schema replies (5/6 or 6/6), and the context scenario (6/6, `llama3.2:3b` 5/6) did not tell
+the models apart and are left out.
+
+| Model | Size | `edit_file` | `system_info` | Drafts, small / medium / large | Classifier with rules | Request time |
+| --- | --- | --- | --- | --- | --- | --- |
+| `qwen3.8:27b` | 17.7 GB | 30/30 | 16/16 | 10/10, 2/2, 2/2 | not run | 38 to 69 s |
+| `gemma4:12b` | 8.0 GB | 30/30 | 16/16 | 10/10, 2/2, 0/2 | 361/392 (92%), p50 16 s | 12 to 18 s |
+| `gemma4:26b` | 18.7 GB | 26/30 | 16/16 | 8/10, 2/2, 1/2 | 362/392 (92%), p50 8.9 s | about 9 s |
+| `granite4.1:8b` | 5.4 GB | 28/30 | 14/16 | 9/10, 1/2, 1/2 | 330/392 (84%), p50 2.1 s | about 2 s |
+| `ministral-3:8b` | 6.0 GB | 27/30 | 14/16 | 2/10, 2/2, 2/2 | 304/392 (78%), p50 2.6 s | about 2.6 s |
+| `ministral-3:14b` | 9.1 GB | 0/30 | 2/16 | 8/10, 2/2, 2/2 | 327/392 (83%), p50 3.8 s | about 3.8 s |
+| `llama3.2:3b` | 2.0 GB | 4/30 | 9/16 | 3/10, 1/2, 0/2 | 259/392 (66%), p50 0.4 s | under 1 s |
+
+Decided with the operator the same day: `granite4.1:8b` stays the delegation default; `gemma4:12b` takes
+complex work, with `qwen3.8:27b` for large diffs (AGENTS.md); `llama3.2:3b` and `ministral-3:14b` are not for
+tool work. `ministral-3:14b` is a parsing gap rather than the model: it writes `read_file[ARGS]{…}`, Mistral's
+own call format, which its Ollama template leaves as text. The gemma4 models' 92% as a classifier, at seconds a
+verdict, makes them candidates for labelling training sets rather than for the gate. `qwen3.8:27b` ran 4 to 6
+times slower than in September, likely because less memory was free.
+
 The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
 test output is buffered, so a model's lines reach the log when its `swift test` ends.

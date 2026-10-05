@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); the local-model comparison |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 
@@ -110,6 +110,19 @@ The release given to measurement, once the four before it are out:
   Early evidence, not measured: in a chat on 2026-10-02 `llama3.2:3b` wrote tool calls as JSON text
   instead of making them, kept a wrong path through three corrections, and claimed a plan had run when
   it had only read the file.
+  Run on 2026-10-04 and 05: results and the decisions in [measurements.md](measurements.md), "The local-model
+  comparison, 2026-10-04". Follow-ups: read Mistral's `name[ARGS]{…}` calls from a reply's text, which
+  `ministral-3:14b` makes and its template leaves unparsed; and the gemma4 models as labellers for training sets.
+- **Falcon candidates**, chosen on 2026-10-04 from the Hugging Face listings: `mlx:Falcon-H1R-7B-4bit`, a
+  reasoning model for the complex-work slot that `qwen3.8:27b` holds at a quarter of its size, and
+  `mlx:Falcon-H1-7B-Instruct-4bit`, a delegation-default candidate against `granite4.1:8b`, in a second
+  comparison through wisp's MLX executor; and `Falcon-H1-Tiny-Tool-Calling-90M` as an experiment for the
+  backlog's tool-choice classifier (BFCL v3 relevance 94.4%, multi-turn 0%, per TII). All are hybrid
+  attention and Mamba-2, under the Falcon-LLM License; wisp's MLX sizing counts every layer as attention,
+  so it undersizes their windows until it reads the hybrid shape.
+- **MLX thinking shown** (near term, the operator, 2026-10-04): ADR 0053 shows a reasoning model's thinking
+  for Ollama only; the MLX executor needs the same `ThinkingStretch` hook (the chat template's `<think>`
+  block split from the reply), so Falcon-H1R and Qwen3 on MLX show their thinking and count it.
 
 ## 0.21.0
 
