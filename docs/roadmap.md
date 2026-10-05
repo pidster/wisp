@@ -1,6 +1,6 @@
 # Roadmap
 
-The releases planned from 0.19.0 to 0.22.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0, and
+The releases planned from 0.19.0 to 0.23.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0, and
 0.18.x have shipped; 0.19.0 is the release being made). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
@@ -13,8 +13,9 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
+| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
+| 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
 ## 0.19.0
 
@@ -140,6 +141,23 @@ The release given to measurement, once the four before it are out:
   and the request's dialect ([backlog.md](backlog.md),
   [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md)).
 
+- **A context length per model.** `ollama.contextLength` sets the window of every Ollama model at once;
+  a setting per model (beside `mlx.models.<name>`), so one model can be held to a size while the rest are
+  sized from memory. Raised on 2026-10-05 when qwen3.8 sat at the 8,192 floor.
+- **`wisp models pull` follow-ups**, from the Hugging Face cache work (ADR 0052, refined 2026-10-04):
+  resume a half-fetched file with HTTP range requests rather than restarting it; seed the cache from a
+  real directory's checked files instead of fetching them again; and Core AI's listing, which does not
+  follow a linked model directory, as MLX's once did.
+- **Token usage in `respond`'s receipt.** `mcp.md` says usage is not reported yet; the turn's input,
+  output, cached, and reasoning tokens, which the executors now report, belong in the receipt.
+- **qwen3.8's slowdown.** In the comparison of 2026-10-04 it took 40 to 70 s a request against about
+  10 s more per turn than granite in September; likely memory pressure with the window at the floor.
+  Measure it with memory free and the hybrid sizing in place, before it is written off for complex work.
+- **The README overview image** says the model runs "on device or through Ollama"; redraw both versions
+  with MLX (and Core AI), and the alt text with them.
+- **`docs/model-controls.md`**, a draft proposal of which `ollama.think` and the thinking display now
+  implement part: mark what is built and what is still proposed.
+
 ## 0.22.0
 
 - **The tool-output budget, and nothing past it dropped** (larger), proposed in [ADR
@@ -153,6 +171,26 @@ The release given to measurement, once the four before it are out:
   `inspect(audit)` by turn, one line per call, and noticing the same tool call repeated within a turn (six
   `inspect(audit)` calls in one turn of session ce87576a, 2026-10-04). `run_command` stops discarding all but the
   tail. Found when a model asked to check its turn read only its last 20 audit events.
+
+## 0.23.0
+
+- **A verification pass** (larger), [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)'s
+  open option: after a reply, a classifier or a model is given the reply and the turn's complete call list
+  from the audit log, not a slice the model fetched, and answers one narrow question: does the reply report
+  a result from a call that is not in the list? Flagged beside `ran:` when it does, behind a setting, with
+  an eval of its own built from the fabricated runs of 2026-10-04 (sessions `eefc5b0e`, `ba7865f0`,
+  `ce87576a`).
+- **Larger eval sets** for `edit_file`, `system_info`, and `draft_change`: their floors swing from run to
+  run (`edit_file` 16 to 23 of 30 across 0.17.0 to 0.19.0's preflights), so a release can pass or stop on
+  chance.
+- **Three details of permanent facts settled**, left unconfirmed since 0.17.0 (ADR 0048): a fact request's
+  wait reuses `approval.timeoutSeconds`; a drop is remembered only for the thread's life; a drop takes the
+  proposal off the proposed list. The operator confirms or changes each.
+- **The terminal-only answers reviewed.** `wisp approvals approve|deny` and `wisp facts keep|drop` answer
+  only from a terminal, kept on 2026-10-02 to see how it behaves; review it with the use since.
+- **The process title decided.** Whether wisp describes itself in the process list (`ps` shows a rewritten
+  argument list; Activity Monitor only the executable's name), or only names the processes it starts at
+  spawn; the operator is considering it (2026-10-04).
 
 ## Not scheduled
 
