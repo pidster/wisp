@@ -20,6 +20,16 @@ Fixed:
   full 262,144 tokens with 30 GB available instead of 65,536. MLX's Falcon-H1 models count their Mamba-2 state.
   The reason names the class, for example `16 of 64 layers attention, with 1 draft layer of its own; 748 MiB
   recurrent state`. Other models' windows are unchanged.
+- MLX models whose chat template uses ChatML's `<|im_end|>` stop there even when their generation config leaves it
+  out. `mlx:Falcon-H1-Tiny-Tool-Calling-90M-bf16` ran on to the token limit, writing tool results and further
+  turns of its own, and a tool call in a turn it wrote for you was taken as its call.
+- MLX tool calls written as a JSON array in one `<tool_call>` frame, the form Falcon-H1-Tiny-Tool-Calling's
+  template asks for, are read as calls; they were left as text.
+
+Added:
+
+- `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built
+  with the MLX trait for them (the Metal toolchain is needed then), and runs naming none build as before.
 
 ## 0.19.0
 

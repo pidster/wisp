@@ -114,6 +114,21 @@ on-device model's place), and one context scenario. Add `record` to merge the me
   and the run goes on (on the configured model an error in a suite that always failed on one still fails it); a context turn is bounded by `ollama.timeoutSeconds` and the scenario by an hour. A
   model resolves with `~/.wisp/config.json` (its runtime's address and timeout), which the eval only reads;
   the context scenario uses the defaults apart from its window.
+- **MLX models.** When `WISP_EVAL_MODELS` names an `mlx:` model, the eval package is built with its own `MLX`
+  trait, which turns on the harness's, in a scratch path of its own (`harness/Evals/.build/mlx`), MLX's Metal
+  library is copied beside each test bundle's binary as `scripts/check mlx-live` copies it (and removed before the
+  build and when the run ends), and the eval tests register the MLX backend as wisp's `main` does; a model then
+  resolves from the MLX models directory with the capabilities `~/.wisp/config.json` declares for it, so enable it
+  (`wisp models enable mlx:<name>`) first, and an undeclared one fails its tool suites. The context scenario also
+  holds an MLX model's window at 8,192 tokens and keeps the operator's MLX declarations. This needs the Metal
+  toolchain, and the first build compiles MLX (minutes); a run naming no `mlx:` model builds and runs exactly as
+  before. Proved on 2026-10-05 with `mlx:Qwen3-1.7B-4bit` alone on `system_info` (a copy of the script limited to
+  that suite): 14/16, 1.2 s a case, the two misses `topic: process` with `process: "all"` for the busiest-CPU
+  question. The Falcon comparison:
+
+  ```
+  WISP_EVAL_MODELS=mlx:Falcon-H1R-7B-4bit,mlx:Falcon-H1-7B-Instruct-4bit scripts/check eval compare
+  ```
 
 ### The local-model comparison, 2026-10-04
 

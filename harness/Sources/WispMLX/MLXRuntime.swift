@@ -81,7 +81,11 @@
         /// - Returns: The runtime.
         /// - Throws: When the weights cannot be loaded.
         static func load(from directory: URL) async throws -> sending MLXPromptRuntime {
-            let context = try await loadModel(from: directory, using: #huggingFaceTokenizerLoader())
+            var context = try await loadModel(from: directory, using: #huggingFaceTokenizerLoader())
+            let markers = ToolCallRecovery.endOfTurnMarkers(template: ToolCallRecovery.chatTemplate(in: directory))
+            for marker in markers where context.tokenizer.convertTokenToId(marker) != nil {
+                context.configuration.extraEOSTokens.insert(marker)
+            }
             return MLXPromptRuntime(context: context)
         }
 
@@ -104,8 +108,9 @@
         }
 
         /// Processes the suffix onto the cache and streams the reply; tool calls are parsed in the model's own
-        /// format and only for the tools the prompt offers. Waits for the generation task to finish, so the cache
-        /// is not in use when this returns.
+        /// format and only for the tools the prompt offers. When no call was recognised, a `<tool_call>` frame
+        /// mlx-swift-lm rejected as malformed is tried as a JSON array of calls (`ToolCallRecovery.framedArray`).
+        /// Waits for the generation task to finish, so the cache is not in use when this returns.
         ///
         /// - Throws: `CancellationError` when the request is cancelled; runtime failures.
         nonisolated(nonsending) func generate(
@@ -122,21 +127,36 @@
                 tokenizer: context.tokenizer, iterator: iterator, tools: tools.isEmpty ? nil : tools,
                 toolCallPolicy: parameters.toolCallPolicy)
             var generated = 0
+            var recognised = false
+            var malformed: [String] = []
             for await event in stream {
                 switch event {
                 case .chunk(let text): await emit(.text(text))
                 case .toolCall(let call):
+                    recognised = true
                     let data = (try? JSONEncoder().encode(call.function.arguments)) ?? Data("{}".utf8)
                     await emit(
                         .toolCall(
                             name: call.function.name, arguments: ChatMessage.json(String(decoding: data, as: UTF8.self))
                         ))
                 case .info(let info): generated = info.generationTokenCount
-                case .rejectedToolCall: break
+                case .rejectedToolCall(let rejected):
+                    if rejected.reason == .malformedSyntax, !rejected.isPreviewTruncated {
+                        malformed.append(rejected.rawTextPreview)
+                    }
                 }
             }
             await task.value
             try Task.checkCancellation()
+            if !recognised {
+                let offered = Set(
+                    prompt.tools.compactMap { $0.objectValue?["function"]?.objectValue?["name"]?.stringValue })
+                for raw in malformed {
+                    for call in ToolCallRecovery.framedArray(raw, offered: offered) ?? [] {
+                        await emit(.toolCall(name: call.name, arguments: call.arguments))
+                    }
+                }
+            }
             return generated
         }
 

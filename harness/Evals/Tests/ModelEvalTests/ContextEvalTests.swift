@@ -79,7 +79,7 @@ struct ContextEvalTests {
     /// test by its time limit, past which the remaining models' cells are left empty.
     @Test(.enabled(if: EvalModels.named != nil), .timeLimit(.minutes(60)))
     func comparisonOnEachModel() async throws {
-        let config = Config(ollama: .init(contextLength: 8192)).resolved
+        let config = EvalModels.contextConfig(window: 8192)
         for selection in EvalModels.selections {
             guard let model = EvalModels.resolve(selection, for: ["context"], config: config) else { continue }
             let run = try await Self.measure(model, variant: "window-8192", strategy: Self.stack)

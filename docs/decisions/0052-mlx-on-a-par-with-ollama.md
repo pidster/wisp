@@ -243,3 +243,27 @@ window. For `Falcon-H1-7B-Instruct-4bit` and `Falcon-H1R-7B-4bit` (44 layers): 4
 134 MiB of state, so 221,184 tokens with 30 GB available instead of 225,280; `Falcon-H1-Tiny-Tool-Calling-90M-bf16`
 (24 layers) 12 KiB a token and 5 MiB. `Qwen3-1.7B-4bit` sets none of these fields and sizes exactly as before. Not
 measured on MLX: no hybrid was run live for this.
+
+**Refined 2026-10-05: tool calls a template states and mlx-swift-lm misses.** Enabling the three Falcon-H1 models,
+`Falcon-H1-7B-Instruct-4bit` and `Falcon-H1-Tiny-Tool-Calling-90M-bf16` made no call in the capability check
+(ADR 0056), `Falcon-H1R-7B-4bit` did. Probed through the executor with the check's request, greedy: Instruct wrote
+a sentence, `</tool_call>` in the opening tag's place, a Python literal, and a tool it was not offered (`run`,
+`run_action`, `run_function` as the prompt varied), which no parser should turn into a call; Tiny wrote
+`<tool_call>` and a JSON array that never closed, without the argument. With the tool's schema less the
+framework's `x-order` and `title`, Tiny wrote the array its template asks for (`<tool_call>[{"name", "arguments"}]
+</tool_call>`), which mlx-swift-lm's JSON parser rejects as malformed, since it reads one object per frame; and it
+did not stop at `<|im_end|>`, which its `generation_config.json` leaves out, so it ran to the token limit writing
+tool results and user turns, and a call in a user turn it invented was parsed as its own. Two additions to the
+executor, generic and tested without MLX (`ToolCallRecovery`):
+
+- When a reply has no call mlx-swift-lm recognised, each frame it rejected as malformed is read as a JSON array of
+  calls, strictly: one frame, a non-empty array, each element exactly `name`, an offered tool, and `arguments`, an
+  object; all or nothing.
+- `<|im_end|>` is a stop token when the chat template uses it and the tokenizer holds it as one token, as
+  mlx-swift-lm's registry makes it for its ChatML models, which a model loaded from a directory does not reach.
+
+Neither makes Instruct or Tiny pass the check: Instruct's reply is not a call, and Tiny's, with the schema wisp
+sends, is malformed. Leaving the framework's schema keys out was not done: it would change every model's prompt,
+Ollama's too, on the evidence of one 90M model, and stays an open question. In a scratch home the check then gave H1R tool calling passed in
+8.2 s, Instruct and Tiny failed (0.5 s for Tiny, which now stops at its turn's end).
+

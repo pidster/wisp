@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WispMLX
 
 @testable import WispCore
 
@@ -62,6 +63,7 @@ enum EvalModels {
     static func resolve(
         _ selection: ModelSelection, for suites: [String], config: Config.Resolved = EvalModels.config
     ) -> ResolvedModel? {
+        registerBackends()
         do {
             return try selection.resolve(config: config, home: Home.resolve())
         } catch {
@@ -71,6 +73,31 @@ enum EvalModels {
             if floorsApply(to: selection) { Issue.record("\(selection) unavailable: \(error)") }
             return nil
         }
+    }
+
+    /// Registers the MLX backend, as wisp's `main` does, when a named model is an `mlx:` one; otherwise no backend
+    /// is registered and the eval resolves models exactly as before. Without the `MLX` trait the backend is there
+    /// and refuses each model, so its cells say why (`scripts/check eval` builds with the trait when one is named).
+    static func registerBackends() {
+        guard named?.contains(where: { $0.backend == MLXBackend().scheme }) == true else { return }
+        ModelBackends.register(MLXBackend())
+    }
+
+    /// The configuration the context comparison resolves with: the defaults, with the window held at `window` for
+    /// both local runtimes, and the operator's MLX models and their declared capabilities, which an `mlx:` model
+    /// needs to be offered tools.
+    ///
+    /// - Parameter window: The context window, in tokens.
+    /// - Returns: The configuration.
+    static func contextConfig(window: Int) -> Config.Resolved {
+        var resolved = Config(ollama: .init(contextLength: window)).resolved
+        let operatorConfig = config
+        resolved.mlxModelsDirectory = operatorConfig.mlxModelsDirectory
+        resolved.mlxModels = operatorConfig.mlxModels
+        resolved.mlxVerified = operatorConfig.mlxVerified
+        resolved.mlxExecutor = operatorConfig.mlxExecutor
+        resolved.mlxContextLength = window
+        return resolved
     }
 
     /// Runs one case on `selection` within `caseLimit`, timing it. A thrown error or the limit reached is printed

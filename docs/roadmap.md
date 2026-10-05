@@ -127,8 +127,16 @@ The release given to measurement, once the four before it are out:
   `mlx:Falcon-H1-7B-Instruct-4bit`, a delegation-default candidate against `granite4.1:8b`, in a second
   comparison through wisp's MLX executor; and `Falcon-H1-Tiny-Tool-Calling-90M` as an experiment for the
   backlog's tool-choice classifier (BFCL v3 relevance 94.4%, multi-turn 0%, per TII). All are hybrid
-  attention and Mamba-2, under the Falcon-LLM License; wisp's MLX sizing counts every layer as attention,
-  so it undersizes their windows until it reads the hybrid shape.
+  attention and Mamba-2, under the Falcon-LLM License; MLX sizing reads the hybrid shape (above).
+  Enabled on 2026-10-05: H1R passed the capability check's tool question, Instruct and Tiny did not. What they
+  wrote, probed through the executor ([backends.md](backends.md), "Tool calls"): Instruct a `</tool_call>` where
+  `<tool_call>` belongs, a Python literal, and a tool name it was not offered, so the model, not the parsing,
+  fails; Tiny an unclosed JSON array without the argument, and, with the schema less the framework's `x-order` and
+  `title`, the array form its template asks for, which mlx-swift-lm rejected. wisp's executor now reads that form
+  and stops at ChatML's `<|im_end|>`, which Tiny's generation config leaves out (it ran on to the token limit,
+  writing further turns). The comparison can now run through the evals: `WISP_EVAL_MODELS=mlx:…`
+  ([measurements.md](measurements.md#comparing-models)). Instruct is usable with tools off only, so its tool-call
+  suites would fail as things stand.
 - **MLX thinking shown** (near term, the operator, 2026-10-04): ADR 0053 shows a reasoning model's thinking
   for Ollama only; the MLX executor needs the same `ThinkingStretch` hook (the chat template's `<think>`
   block split from the reply), so Falcon-H1R and Qwen3 on MLX show their thinking and count it.

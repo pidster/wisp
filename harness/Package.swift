@@ -8,6 +8,8 @@ let package = Package(
         .executable(name: "wisp", targets: ["wisp"]),
         .library(name: "WispCore", targets: ["WispCore"]),
         .library(name: "WispMCP", targets: ["WispMCP"]),
+        // The MLX backend; also used by the evaluations package, which registers it when an `mlx:` model is named.
+        .library(name: "WispMLX", targets: ["WispMLX"]),
         // Scripted model and audit helpers; also used by the evaluations package in Evals/.
         .library(name: "WispTestSupport", targets: ["WispTestSupport"]),
     ],

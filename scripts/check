@@ -145,6 +145,17 @@ eval_() {
     out="$ROOT/harness/Evals/.build/evals"
     mkdir -p "$out"
     log="$out/eval-$(date +%Y%m%d-%H%M%S).log"
+    # An `mlx:` model needs the MLX backend, real only under the MLX trait: the eval package is then built with its
+    # own MLX trait (which turns on the harness's) in a scratch path of its own, with the Metal library staged as
+    # mlx-live stages it, and each run below uses that build. Without one, nothing changes.
+    mlx=""
+    case ",${WISP_EVAL_MODELS:-}," in
+        *,mlx:*) mlx="--traits MLX --scratch-path $ROOT/harness/Evals/.build/mlx --skip-build" ;;
+    esac
+    if [ -n "$mlx" ]; then
+        echo "==> building the evals with the MLX trait for the mlx: models named (needs the Metal toolchain)"
+        mlx_test_build harness/Evals "$ROOT/harness/Evals/.build/mlx"
+    fi
     if [ -n "$compare" ]; then
         if [ -z "${WISP_EVAL_MODELS:-}" ]; then
             echo "eval compare needs WISP_EVAL_MODELS, comma-separated, such as ollama:granite4.1:8b,ollama:llama3.2:3b" >&2
@@ -155,15 +166,15 @@ eval_() {
         models="$(echo "$WISP_EVAL_MODELS" | tr ',' ' ')"
         for model in $models; do
             echo "==> eval compare on $model: tool calls, schema replies, system_info, triage, summarise_diff, draft_change, the model classifier, one context scenario"
-            # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+            # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $mlx are split into words on purpose
             (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_MODELS="$model" WISP_EVAL_RECORD="$record" \
-                swift test $SWIFT_SANDBOX --no-parallel --filter "$EVAL_COMPARE_SUITES" 2>&1) \
+                swift test $SWIFT_SANDBOX $mlx --no-parallel --filter "$EVAL_COMPARE_SUITES" 2>&1) \
                 | tee -a "$log" | grep -E "$EVAL_LINES" || true
         done
     else
         echo "==> eval (on-device model; not part of the gate): $label"
-        # shellcheck disable=SC2086 # $scope is two words on purpose
-        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $scope 2>&1) \
+        # shellcheck disable=SC2086 # $scope and $mlx are split into words on purpose
+        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $mlx $scope 2>&1) \
             | tee -a "$log" | grep -E "$EVAL_LINES"
     fi
     eval_summary "$log" | tee "${log%.log}.summary.txt"
@@ -229,14 +240,23 @@ eval_summary() {
 # build's default.metallib is copied there as mlx.metallib first.
 mlx_live() {
     [ $# -eq 1 ] || { echo "usage: scripts/check mlx-live <model directory>" >&2; exit 64; }
-    scratch="$ROOT/harness/.build/mlx"
     echo "==> MLX live test (needs the Metal toolchain and a model; not part of the gate)"
-    bin="$(swift build --package-path harness --build-tests --traits MLX --scratch-path "$scratch" --show-bin-path)"
-    # The library copied into each test bundle below is unsigned, so a build that relinks a bundle fails to sign
-    # it: the copies are removed before building (an earlier run may have been killed) and when the run ends.
+    mlx_test_build harness "$ROOT/harness/.build/mlx"
+    WISP_MLX_TESTS=1 WISP_MLX_MODEL="$1" swift test --package-path harness $SWIFT_SANDBOX --traits MLX \
+        --scratch-path "$ROOT/harness/.build/mlx" --skip-build --filter 'MLXLiveTests|MetalLibraryTests'
+}
+
+# mlx_test_build <package> <scratch path>: builds the package's tests with the MLX trait in a scratch path of its own,
+# so the ordinary build is not rebuilt, and copies the build's default.metallib into each test bundle as
+# mlx.metallib, where MLX looks for it under `swift test` (ADR 0047). The copies are unsigned, so a build that
+# relinks a bundle fails to sign it: they are removed before building (an earlier run may have been killed) and
+# when the script exits.
+mlx_test_build() {
+    bin="$(swift build --package-path "$1" --build-tests --traits MLX --scratch-path "$2" --show-bin-path)"
     rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib
     trap 'rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib' EXIT
-    swift build --package-path harness $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$scratch"
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+    swift build --package-path "$1" $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$2"
     metallib=""
     for candidate in "$bin/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
         "$bin/mlx-swift_Cmlx.bundle/default.metallib"; do
@@ -244,8 +264,6 @@ mlx_live() {
     done
     [ -n "$metallib" ] || { echo "no default.metallib in $bin/mlx-swift_Cmlx.bundle" >&2; exit 1; }
     for dir in "$bin"/*.xctest/Contents/MacOS; do cp "$metallib" "$dir/mlx.metallib"; done
-    WISP_MLX_TESTS=1 WISP_MLX_MODEL="$1" swift test --package-path harness $SWIFT_SANDBOX --traits MLX \
-        --scratch-path "$scratch" --skip-build --filter 'MLXLiveTests|MetalLibraryTests'
 }
 
 # classifier-default: copy the risk train set into the bundled examples, then train the risk classifier

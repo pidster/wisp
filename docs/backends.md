@@ -362,6 +362,30 @@ reference changed something earlier. One copy of the weights serves every thread
 time; the threads' caches together hold at most one window, and the least recently used goes first. A schema
 reply runs on a cache of its own. How much this saves has not been measured yet; 0.20.0 measures it.
 
+**Tool calls.** mlx-swift-lm parses calls in the format the model's architecture or chat template names, the
+`<tool_call>{"name": …, "arguments": {…}}</tool_call>` JSON form when neither names one, and only for the tools the
+request offers. wisp's executor adds two things for formats a template states and mlx-swift-lm does not handle
+(ADR 0052, refined 2026-10-05):
+
+- **A JSON array in one frame.** When a reply has no call mlx-swift-lm recognised, a `<tool_call>` frame it
+  rejected as malformed is read as `[{"name": …, "arguments": {…}}, …]`, the form Falcon-H1-Tiny-Tool-Calling's
+  template asks for. Strictly: exactly one frame, a non-empty array, each element exactly `name`, a tool the
+  request offers, and `arguments`, an object; anything else stays text.
+- **ChatML's end of turn.** When the chat template uses `<|im_end|>` and the tokenizer has it as one token,
+  generation stops there, as mlx-swift-lm does for the ChatML models in its own registry. A checkpoint whose
+  `generation_config.json` lists only `<|end_of_text|>` (Falcon-H1-Tiny-Tool-Calling) otherwise ran on to the
+  token limit, writing tool results and further turns, and a call in a turn it wrote for the user was parsed as
+  its own.
+
+What the Falcon-H1 models wrote for the capability check's tool question on 2026-10-05, through the executor,
+greedy:
+
+| Model | Reply | Check |
+| --- | --- | --- |
+| `Falcon-H1R-7B-4bit` | A call mlx-swift-lm parses: its template asks for the JSON form and names `tool_call.name`, from which mlx-swift-lm infers it (the reply itself was not captured) | passes, in 8.2 s |
+| `Falcon-H1-7B-Instruct-4bit` | A sentence, then `</tool_call>` where `<tool_call>` belongs, a Python literal (`{'arguments': {'word': 'heron'}, 'name': 'run_function'}`, the quoting its template's example uses), and a tool name the request does not offer (`run`, `run_action`, `run_function` across variants of the prompt) | fails: no call to parse. Its template also leaves the system turn without `<|im_end|>`; closing it did not change the reply |
+| `Falcon-H1-Tiny-Tool-Calling-90M-bf16` | `<tool_call>\n[{"name": "record_word", "arguments": {}}\n</tool_call>`: an array that never closes, with no argument | fails: malformed. With the tool's schema less the framework's `x-order` and `title` keys it wrote a well-formed array with `heron`, which the array reading above takes; a 90M model's reply turns on such details |
+
 Verified on 2026-09-20 with `mlx-community/Qwen3-1.7B-4bit` (a Hugging Face cache snapshot, 938 MB)
 on an M4 Max, through the CLI built with `--traits MLX`: undeclared, a text-only reply in 2.5 s
 including the weight load; declared `toolCalling`, the `current_date` loop ran 3 of 3 attempts, about
