@@ -194,10 +194,33 @@ The release given to measurement, once the four before it are out:
 
 ## Not scheduled
 
-Waiting on data, a signing set-up, or someone asking; each is described in [backlog.md](backlog.md):
+Every item in [backlog.md](backlog.md) not yet given a release, grouped by what it waits on.
+
+Waiting on data:
 
 - a small specialised distiller, and a tool-choice classifier, once the audit log holds enough labelled
-  pairs;
-- a signed helper app, so notifications come from wisp itself;
+  pairs (`Falcon-H1-Tiny-Tool-Calling-90M`, pulled on 2026-10-04, is the experiment for the second);
+- classifiers from other providers: embedding nearest-neighbour over labelled examples, or an external
+  process speaking JSON Lines; and classifiers for other tasks: personal data for `redact`, log-line
+  categories.
+
+Waiting on signing (a Developer ID or App Store signature):
+
+- a notification helper app, so notifications come from wisp itself, with its icon and action buttons;
+- a DMG, with the package declaring where its parts are;
+- Private Cloud Compute, whose entitlement Apple grants only to signed App Store apps.
+
+Waiting on someone asking:
+
 - tools for embeddings and reranking;
-- the deferred uses: bulk classification, git chores, offline work.
+- reverse delegation through MCP sampling: the local model asks the calling agent's model when it is
+  stuck on a sub-step;
+- the deferred uses: bulk classification, and offline work (git chores shipped on 2026-09-24 as
+  `draft_change` and `wisp draft`).
+
+Waiting on a design decision:
+
+- escalations: approval and inquiry as distinct verbs, over more channels than MCP;
+- approval banners when the client's dialog works: with `approval.outOfBand` on, every approval under MCP
+  also posts a notification, even when the client's own dialog is showing;
+- waiting MCP requests in plain chat, which `wisp-tui` shows and the line chat does not.
