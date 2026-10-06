@@ -138,11 +138,18 @@ public struct Config: Codable, Equatable, Sendable {
         public var enabled: Bool?
         /// Which tools each request registers when it is: `request` (the default), `task`, or `all`.
         public var tools: AssessmentSettings.ToolSets?
+        /// When an inferred task may change: on `any` request the rules leave to the model (the default), or only
+        /// when a request states one (`restated`).
+        public var taskChanges: AssessmentSettings.TaskChanges?
 
         /// Creates settings; nil fields take defaults.
-        public init(enabled: Bool? = nil, tools: AssessmentSettings.ToolSets? = nil) {
+        public init(
+            enabled: Bool? = nil, tools: AssessmentSettings.ToolSets? = nil,
+            taskChanges: AssessmentSettings.TaskChanges? = nil
+        ) {
             self.enabled = enabled
             self.tools = tools
+            self.taskChanges = taskChanges
         }
     }
 
@@ -552,6 +559,7 @@ public struct Config: Codable, Equatable, Sendable {
             summaryShare: min(0.5, max(0, facts?.summaryShare ?? 0.05)),
             subjectKinds: SubjectKinds.defaults.applying(facts),
             assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request,
+            assessmentTaskChanges: assessment?.taskChanges ?? .any,
             contextTarget: ContextTarget(
                 share: context?.target ?? ContextTarget.default.share,
                 headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
@@ -645,6 +653,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var assessmentEnabled = false
         /// Which tools each assessed request registers.
         public var assessmentTools = AssessmentSettings.ToolSets.request
+        /// When an assessed request may change an inferred task.
+        public var assessmentTaskChanges = AssessmentSettings.TaskChanges.any
         /// What condensing aims for: the target share of the window and the next turn's headroom.
         public var contextTarget = ContextTarget.default
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.

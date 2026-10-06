@@ -102,6 +102,7 @@ public struct Introspection: Sendable {
             ]),
             "assessment": .object([
                 "enabled": .bool(config.assessmentEnabled), "tools": .string(config.assessmentTools.rawValue),
+                "taskChanges": .string(config.assessmentTaskChanges.rawValue),
             ]),
             "context": .object([
                 "target": .double(config.contextTarget.share),

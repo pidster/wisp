@@ -36,7 +36,8 @@ extension Agent {
         let context = AssessmentRules.Context(
             allowed: allowed, previous: assessed.previous, taskTools: assessed.taskTools, hasTask: task != nil,
             taskPinned: (task?.winner.rank ?? 0) >= FactSource.person.rank,
-            infersTask: settings.infersTask && facts != nil, selectsTools: settings.selectsTools)
+            infersTask: settings.infersTask && facts != nil, selectsTools: settings.selectsTools,
+            taskChanges: settings.taskChanges, restates: AssessmentRules.restatesTask(prompt))
         let decision = AssessmentRules.decide(prompt, context: context)
         var result = Assessment(
             method: .rules, tools: decision.tools, ruleTools: decision.tools, intent: nil, task: nil, facts: [],
@@ -45,7 +46,7 @@ extension Agent {
         if !decision.settled {
             let text = Assessor.prompt(
                 request: prompt, catalogue: ToolCatalogue.text(tools), task: task?.winner.value,
-                infersTask: context.infersTask && !context.taskPinned,
+                infersTask: context.mayChangeTask,
                 facts: view.groups.reversed().map { ($0.winner.id, $0.key) },
                 previous: allowed.filter(assessed.previous.contains))
             bytes = text.utf8.count
@@ -106,7 +107,7 @@ extension Agent {
         result.tools = allowed.filter(chosen.contains)
         let intent = answer.intent.trimmingCharacters(in: .whitespacesAndNewlines)
         result.intent = intent.isEmpty ? nil : OutputReference.shortened(intent, to: 200)
-        if context.infersTask, !context.taskPinned {
+        if context.mayChangeTask {
             let value = Assessor.taskValue(answer.task, objective: answer.objective)
             let current = view.group(taskKey)?.winner.value ?? ""
             if !value.isEmpty, !FactView.same(value, current) {

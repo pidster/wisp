@@ -28,6 +28,7 @@ Mac on one day; it is evidence, not a certification.
 | `chat.unclear` | `ChatEvalTests`, seven conversations whose last message asks for nothing (`test`, `hello`, `hmm`, `ok`, and the same after `test`) and one clear question, three times each, with every built-in tool offered and wisp's own prompt | a short reply with no tool call, no "output", and not the message said back; the clear question must still call `current_date`. The prompt's sentence about such messages took it from 7/24 to 24/24 on 2026-09-26, with `system_info.topic` at 16, 16, and 14 of 16 against 15, 14, and 14 without it |
 | `context.dropping`, `context.dropping.window-8192`, `context.dropping.window-32768`, `context.dropping.window-sized` | `ContextEvalTests`, the [layered-context proposal](proposals/2026-09-29-layered-context.md)'s eval: one scripted conversation of 14 turns (a task and four facts planted, 13 file reads including a ten-file digression, one fact changed midway) then six questions, through today's dropping; on the on-device model, and on `ollama:granite4.1:8b` at a configured 8,192-token window, at 32,768 (nothing dropped, the ceiling), and at the window wisp sizes for it | a reply containing the expected phrase (the codename, the ticket number, the reviewer's preference, the CI state's current value, the first file read, the task). A baseline: the floor is only that every question was asked and scored. The notes carry the run's condensations, median tokens after a turn, and load average; `p50Milliseconds` and `p95Milliseconds` are time per turn |
 | `context.dropping.recalling[…]`, `context.memory-target.recalling[…]`, `context.memory.recalling[…].budget-50`, `context.summary-target.recalling[…].budget-50`, `context.assessing[-task\|-all]-target.recalling[…].budget-50.all-tools` | `ContextEvalTests`, the layered-context design's checkpoint ([ADR 0045](decisions/0045-layered-context.md)): the `recalling` scenario (15 turns, then seven questions) at a window of 8,192, through dropping, the whole design (`memory-target`), phase 2's fixed four turns (`memory`), the design without `memory` (`summary-target`), and the assessment per request in its three tool sets; `[…]` is `.window-8192` for granite, `.budget-50` for half the window, and `.all-tools` for every built-in tool offered | a reply containing the expected phrase, as above, plus a detail of the first file read that no fact or summary carries. The notes carry the condensations, the fill after condensing and the turns between condensations, the distillations' times, the `memory` calls, the median tokens, and the load average |
+| `context.<strategy>.checkpoint.<cell>` | `ContextCheckpointTests`, context checkpoint 2 ([below](#context-checkpoint-2)): the `sustained` scenario (29 turns, then ten questions) and the `recalling` one, through the cells of each part; recorded only with `record` | as the context eval's, above; the notes add the model switches |
 | `edit_file.replace` | `ToolEvalTests`, ten small files | after read_file then edit_file replace by line number, the file is exactly as intended |
 | `respond.schema` | `ToolEvalTests`, six code snippets | the schema-shaped reply parses and names the language |
 
@@ -177,6 +178,36 @@ hybrid models working end to end through wisp's MLX executor, tool calls include
 The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
 test output is buffered, so a model's lines reach the log when its `swift test` ends.
+
+## Context checkpoint 2
+
+```
+WISP_EVAL_MODELS=system,ollama:granite4.1:8b scripts/check eval checkpoint
+```
+
+runs the second checkpoint of the layered-context design, whose plan, questions, and decision rules are
+[proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md). It is a measurement
+for design decisions, like `eval context`: the release's eval, `eval context`, and `eval compare` never run it
+(`ContextCheckpointTests` runs only when `WISP_CHECKPOINT` names a part, which `eval checkpoint` sets). The cells,
+the scenario, and the table's row are `ContextCheckpoint` and `ContextEval.sustained()` in `WispTestSupport`, tested in
+the gate without a model.
+
+| Variable | Default | What it sets |
+| --- | --- | --- |
+| `WISP_CHECKPOINT` | `all` | The parts, comma-separated: `grid` (target and headroom on the `sustained` scenario at the default budget), `half` (the 50% variants on `recalling`, under the guard), `memory` (`sustained` with and without `memory`), `assessment` (off, as built, and `restated`, every built-in tool offered), `switch` (a model switch mid-conversation) |
+| `WISP_EVAL_MODELS` | `system` | The models every part but `switch` runs on, one after another |
+| `WISP_CHECKPOINT_TARGETS` | `0.4,0.5,0.6` | The grid's targets |
+| `WISP_CHECKPOINT_HEADROOMS` | `0,1,8` | The grid's headrooms, in turns; the grid is every target with every headroom |
+| `WISP_CHECKPOINT_WINDOW` | `8192` | The window of Ollama and MLX models (the on-device model's is its own) |
+| `WISP_CHECKPOINT_RUNS` | `1` | Runs of each cell |
+| `WISP_CHECKPOINT_SWITCHES` | `system>ollama:granite4.1:8b>system;ollama:granite4.1:8b@32768>system` | Switch plans, `;` between plans, `>` between two or three models, `@N` for a model's window; the second model takes over at the return to the task (turn 16), the third at the first question (turn 30) |
+
+The parts run as one test each, one at a time. Each cell prints its turns and report as the context eval does, then
+a `checkpoint row`; the run ends with a table, a row per model and cell, saved as `eval-<date>-<time>.summary.txt`,
+and every row's fields (the answers, the switches, the load) as `.checkpoint.tsv` beside the log. A cell the grid and
+the memory part share (`t50-h8`, the defaults) runs once. Add `record` to merge each run's measurement into
+`measurements.json`. Not yet run; the plan estimates about two hours on the on-device model, an hour and a half on
+`granite4.1:8b`, and a quarter of an hour for the switches.
 
 ## Reading a measurement
 

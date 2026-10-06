@@ -41,6 +41,13 @@ Added:
   its thinking back.
 - `mlx.think` (`true` or `false`) asks MLX models whose chat template takes `enable_thinking`, such as Qwen3, to
   think or not; unset, a model thinks when `reasoning` is declared for it, as before.
+- `assessment.taskChanges` (`any` or `restated`): with the assessment on (`assessment.enabled`, still off by
+  default), `restated` lets a request change the task the model inferred only when it states a task, such as
+  `Today's task: …` or `Let's switch to …`, instead of on any request; other requests keep the task without a
+  model call for it. `any`, the default, behaves as before.
+- `scripts/check eval checkpoint` runs context checkpoint 2: the condensing target and headroom on a longer
+  conversation, the half-window variants, `memory` on and off, the assessment's task changes, and a model switch
+  mid-conversation, ending with a table (docs/measurements.md).
 
 ## 0.19.0
 

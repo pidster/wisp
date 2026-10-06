@@ -112,6 +112,10 @@ public enum ConfigSettings {
             path: "assessment.tools", summary: "which tools an assessed request registers",
             kind: .choice(AssessmentSettings.ToolSets.allCases.map(\.rawValue))),
         Setting(
+            path: "assessment.taskChanges",
+            summary: "when an assessed request may change the inferred task: any request, or one that states a task",
+            kind: .choice(AssessmentSettings.TaskChanges.allCases.map(\.rawValue))),
+        Setting(
             path: "context.target", summary: "the share of the window condensing brings the context down to",
             kind: .number(Config.ContextConfig.targetRange)),
         Setting(
@@ -161,6 +165,7 @@ public enum ConfigSettings {
         case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("as the model's declared reasoning")
         case "assessment.enabled": return .bool(d.assessmentEnabled)
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
+        case "assessment.taskChanges": return .string(d.assessmentTaskChanges.rawValue)
         case "context.target": return .double(d.contextTarget.share)
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
         case "watch.settle": return .double(d.watchSettle)

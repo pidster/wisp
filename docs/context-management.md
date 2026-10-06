@@ -469,7 +469,7 @@ needs, and the few facts that bear on it.
 | Settled | When |
 | --- | --- |
 | Tools | there is nothing to choose (every allowed tool is always registered, as on MCP's git thread); the request's words name a tool's domain (a date, a path or a file, a write, the Mac's ports, disk, or RAM, a notification, wisp's own config; a custom tool by a word of its name); the request is three words or fewer; or it follows up a turn that used tools (it opens with `and`, `also`, `then`, `again`, … or points back with `it`, `that`, … in twelve words or fewer) |
-| The task | it is not inferred here (over MCP, where the caller's `task` is the task); the person or a caller set it; the request is three words or fewer; or a model's task exists and the request is a follow-up |
+| The task | it is not inferred here (over MCP, where the caller's `task` is the task); the person or a caller set it; the request is three words or fewer; a model's task exists and the request is a follow-up; or, with `assessment.taskChanges: restated`, a model's task exists and the request does not state one |
 
 The rules' tools are always `run_command` (the general fallback) and `memory` (how earlier material comes back)
 when allowed, the tools named by the request's words, the task's expected tools (those called since the task last
@@ -483,7 +483,19 @@ objective (empty for no change), and the ids of the relevant facts (at most five
 rules', and only allowed ones count, so an explicit tool list (`--tool`, MCP `tools`) is never widened. A task it
 gives is recorded as a `model` fact with method `inferred`, `TASK; objective: DONE`, unless the person or a caller
 set the task. A failed call (a model without guided generation, an answer that does not parse, an error) falls
-back to every allowed tool with the task unchanged, and the turn goes on. Each assessment is audited as
+back to every allowed tool with the task unchanged, and the turn goes on.
+
+**When the task may change** (`assessment.taskChanges`). Under `any`, the default and what the phase-6 checkpoint
+measured, every request the rules leave to the model may revise the inferred task, and the checkpoint saw it
+rewritten on 8 to 11 of 22 requests, drifting to the latest question. Under `restated`, once there is a task only a
+request that states one may change it: a sentence that is not a question holding `task:` or `task is`, `goal` or
+`objective` the same way, `new task`, `from now on`, or `let's` (`we need to`, `I want you to`, …) followed by `work
+on`, `switch to`, `move on to`, `focus on`, `start on`, or `turn to` (`AssessmentRules.restatesTask`). `Today's task:
+…` and `Back to the task: …` state one; `What is the task?` and `Let's get back to the task we started with.` do not.
+Any other request keeps the task, and the rules settle it without the call, so the call is made only when the tools
+need it; the call is then told the task is fixed. The first task may still be inferred from any request. Built
+2026-10-06 to be measured by context checkpoint 2
+([proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md)); unmeasured. Each assessment is audited as
 `context.assessment` ([logging.md](logging.md)); none of it enters the context.
 
 **Tools per request (D4).** With `assessment.tools: request` (the default when on), each request's session
@@ -726,14 +738,18 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
   [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and stays off: at the phase-6
   checkpoint its call's time bought nothing measurable (the tokens it saved did not reduce condensing, and
   scores fell), and its inferred task drifted with each question ([ADR 0045](decisions/0045-layered-context.md)). Reconsidering it starts with a task that changes only
-  when the request restates it.
+  when the request restates it: built as `assessment.taskChanges: restated` (above), to be measured by context
+  checkpoint 2.
 - **The guard re-measured.** The target is capped at the budget less 0.2 (above), with a gate test that no
   target condenses on consecutive turns while turns of average size arrive; the 50% eval variants have not been
   re-run under it ([ADR 0045](decisions/0045-layered-context.md)). At a 50% budget on an 8,192 window the cap
-  (30%) may reach the floor, which says that budget is too tight for that window.
+  (30%) may reach the floor, which says that budget is too tight for that window. Prepared for context checkpoint 2
+  ([proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md)).
 - **The target and the headroom tuned.** The defaults are reasoned from the window's arithmetic (above); the
   checkpoint's default-budget runs never condensed, and the target at 0.4 and 0.6 and the headroom over one turn
-  or none were not run.
+  or none were not run. Context checkpoint 2 has a scenario long enough to condense at the default budget
+  (`ContextEval.sustained()`, 29 turns and ten questions) and runs that grid (`scripts/check eval checkpoint`,
+  [measurements.md](measurements.md#context-checkpoint-2)); not yet run.
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact
   but costs a model call. The ahead check uses the free usage report where a runtime gives one, and counts
   only for a model that reports nothing (ADR 0025, amendment of 2026-09-29).

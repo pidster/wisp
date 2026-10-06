@@ -168,9 +168,11 @@ coverage_baseline() {
 # measurement into the embedded measurements.json, to commit; a plain eval (what a release runs)
 # leaves the file alone, since the sets are small and a rerun re-rolls the numbers. `eval compare` runs the
 # suites that decide delegation on each model WISP_EVAL_MODELS names, one model at a time (docs/measurements.md).
+# `eval checkpoint` runs context checkpoint 2 (docs/proposals/2026-10-06-context-checkpoint-2.md), the parts
+# WISP_CHECKPOINT names (all by default), and ends with its own table, a row per model and cell.
 # Every run ends with a summary table, model by suite, saved with the run's whole output under
 # harness/Evals/.build/evals.
-EVAL_LINES='model classifier|measured:|eval:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run'
+EVAL_LINES='model classifier|measured:|eval:|checkpoint:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run'
 # The suites that decide delegation: tool calls and schema replies, system_info's topics, triage, summarise_diff,
 # draft_change, the classifier's model fallback alone and beside the rules, and one context scenario.
 EVAL_COMPARE_SUITES='ToolEvalTests|SystemInfoEvalTests|TriageEvalTests|DiffSummaryEvalTests|DraftEvalTests|ClassifierEvalTests/(measuresTheModelAlone|theDefaultAsTheGateRunsIt)|ContextEvalTests/comparisonOnEachModel'
@@ -179,6 +181,7 @@ eval_() {
     # `eval context`; the plain eval, which a release runs, covers every other suite and its floors.
     record=""
     compare=""
+    checkpoint=""
     scope="--skip ContextEvalTests"
     label="every suite but the context eval"
     for arg in "$@"; do
@@ -186,7 +189,12 @@ eval_() {
             record) record="$ROOT/harness/Sources/WispCore/Resources/measurements.json" ;;
             context) scope="--filter ContextEvalTests"; label="the context eval only" ;;
             compare) compare=1 ;;
-            *) echo "usage: scripts/check eval [context|compare] [record]" >&2; exit 64 ;;
+            checkpoint)
+                checkpoint="${WISP_CHECKPOINT:-all}"
+                scope="--no-parallel --filter ContextCheckpointTests"
+                label="context checkpoint 2: $checkpoint"
+                ;;
+            *) echo "usage: scripts/check eval [context|compare|checkpoint] [record]" >&2; exit 64 ;;
         esac
     done
     out="$ROOT/harness/Evals/.build/evals"
@@ -221,11 +229,18 @@ eval_() {
     else
         echo "==> eval (on-device model; not part of the gate): $label"
         # shellcheck disable=SC2086 # $scope and $mlx are split into words on purpose
-        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" swift test $SWIFT_SANDBOX $mlx $scope 2>&1) \
-            | tee -a "$log" | grep -E "$EVAL_LINES"
+        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" WISP_CHECKPOINT="$checkpoint" \
+            swift test $SWIFT_SANDBOX $mlx $scope 2>&1) | tee -a "$log" | grep -E "$EVAL_LINES"
     fi
-    eval_summary "$log" | tee "${log%.log}.summary.txt"
-    echo "==> output in $log, summary in ${log%.log}.summary.txt"
+    if [ -n "$checkpoint" ]; then
+        # The checkpoint's rows: a table to read, and the rows as tab-separated values to analyse.
+        checkpoint_summary "$log" | tee "${log%.log}.summary.txt"
+        { echo "$CHECKPOINT_HEADER"; grep '^checkpoint row	' "$log" | cut -f2-; } > "${log%.log}.checkpoint.tsv"
+        echo "==> output in $log, table in ${log%.log}.summary.txt, rows in ${log%.log}.checkpoint.tsv"
+    else
+        eval_summary "$log" | tee "${log%.log}.summary.txt"
+        echo "==> output in $log, summary in ${log%.log}.summary.txt"
+    fi
     if [ -n "$record" ]; then
         echo "==> measurements recorded in harness/Sources/WispCore/Resources/measurements.json; commit them"
     fi
@@ -277,6 +292,44 @@ eval_summary() {
                 for (s = 1; s <= suiteCount; s++)
                     if ((models[m], suites[s]) in notes) print "* " models[m] " " suites[s] ": " notes[models[m], suites[s]]
             print "- : no result (the suite did not finish, or was not run)"
+        }
+    ' "$1"
+}
+
+# The fields of a checkpoint row after its `checkpoint row` tag (ContextCheckpoint.rowHeader, which the gate tests).
+CHECKPOINT_HEADER="$(printf '%s\t' model part cell run passed total facts details task 'first file' condensations \
+    floors 'turns between' 'fill median' 'tokens median' 'tokens max' 'turn p50 s' 'turn p95 s' distillations \
+    'distilling s' 'memory calls' 'task changes' 'assessment calls' verdicts switches load | sed 's/\t$//')"
+
+# The checkpoint's table: each `checkpoint row` (ContextCheckpoint.row) as a line with the columns that answer the
+# plan's questions; the switches and every answer are in the saved rows.
+checkpoint_summary() {
+    awk -F '\t' '
+        $1 == "checkpoint row" { rows[++n] = $0 }
+        END {
+            if (n == 0) exit
+            print "==> context checkpoint 2: a row per model and cell (and run)"
+            split("model|cell|run|score|facts|details|task|cond|floors|between|fill|tokens max|turn p50|distil s|memory|task chg|assess", head, "|")
+            # Columns of the row (after the tag) shown, in order.
+            split("2|4|5|0|8|9|10|12|13|14|15|17|18|21|22|23|24", col, "|")
+            for (c = 1; c <= 17; c++) w[c] = length(head[c])
+            for (r = 1; r <= n; r++) {
+                split(rows[r], f, "\t")
+                for (c = 1; c <= 17; c++) {
+                    v = (col[c] == 0) ? f[6] "/" f[7] : f[col[c]]
+                    cell[r, c] = v
+                    if (length(v) > w[c]) w[c] = length(v)
+                }
+            }
+            line = ""
+            for (c = 1; c <= 17; c++) line = line sprintf("%-" w[c] "s  ", head[c])
+            sub(/ +$/, "", line); print line
+            for (r = 1; r <= n; r++) {
+                line = ""
+                for (c = 1; c <= 17; c++) line = line sprintf("%-" w[c] "s  ", cell[r, c])
+                sub(/ +$/, "", line); print line
+            }
+            print "cond: condensations; between: turns between them; fill: median tokens after one; distil s: seconds distilling"
         }
     ' "$1"
 }
@@ -485,5 +538,5 @@ case "${1:-all}" in
     palette) palette ;;
     all) hygiene; palette; lint; build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare] [record]|mlx-live <model directory>|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|mlx-live <model directory>|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
 esac

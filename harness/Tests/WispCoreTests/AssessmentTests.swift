@@ -213,6 +213,28 @@ import WispTestSupport
         #expect(agent.recordTask("another", method: .inferred) == nil)
     }
 
+    @Test func underRestatedTheTaskChangesOnlyOnARequestThatStatesOne() async throws {
+        let answer = { (task: String) in
+            #"{"intent":"x","tools":[],"task":"\#(task)","objective":"","facts":[]}"#
+        }
+        let model = ScriptedModel(steps: [
+            .say(answer("add a dry-run flag")), .say("ok"), .say("Blue Heron."),
+            .say(answer("fix the CI build")), .say("ok"),
+        ])
+        let sink = MemoryAuditSink()
+        let agent = Self.agent(
+            model, sink: sink, settings: AssessmentSettings(tools: .all, taskChanges: .restated), facts: true)
+        _ = try await agent.respond(to: "Today's task: add a dry-run flag to harbour sync for the next release.")
+        _ = try await agent.respond(to: "What is the codename for this release, as we agreed before?")
+        _ = try await agent.respond(to: "Change of plan. Let's switch to fixing the CI build before anything else.")
+        #expect(agent.taskHistory.map(\.value) == ["add a dry-run flag", "fix the CI build"])
+        let events = Self.assessments(sink)
+        #expect(events.map { $0.details["method"] } == ["model", "rules", "model"])
+        #expect(events.map { $0.details["taskChanged"] } == [true, false, true])
+        // The question took no assessment call: three requests for the replies, two for the assessments.
+        #expect(Self.requests(model).count == 5)
+    }
+
     @Test func aToolTheRequestDidNotRegisterIsAddedByOneRetry() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "wisp-assess-\(UUID().uuidString).txt")
         try "the notes\n".write(to: file, atomically: true, encoding: .utf8)
@@ -263,6 +285,11 @@ import WispTestSupport
         #expect(config.resolved.assessmentEnabled && config.resolved.assessmentTools == .task)
         #expect(ConfigSettings.setting("assessment.enabled")?.kind == .flag)
         #expect(ConfigSettings.defaultValue("assessment.tools") == "request")
+        #expect(ConfigSettings.defaultValue("assessment.taskChanges") == "any")
+        #expect(Config().resolved.assessmentTaskChanges == .any)
+        let restated = try JSONDecoder().decode(
+            Config.self, from: Data(#"{"assessment":{"enabled":true,"taskChanges":"restated"}}"#.utf8))
+        #expect(restated.resolved.assessmentTaskChanges == .restated)
         #expect(throws: (any Error).self) {
             try JSONDecoder().decode(Config.self, from: Data(#"{"assessment":{"tools":"some"}}"#.utf8))
         }

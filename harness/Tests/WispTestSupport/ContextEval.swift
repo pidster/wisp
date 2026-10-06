@@ -28,6 +28,8 @@ public enum ContextEval {
             case change
             /// Reads a file and asks to be shown its contents, so the reply is presentational text.
             case show
+            /// Asks for prose with no tool: a follow-up, or a line to write.
+            case talk
         }
 
         /// What the turn does.
@@ -221,6 +223,103 @@ public enum ContextEval {
             Question(
                 id: "release-date", probe: .noted, prompt: "When is the release date?",
                 check: .mentions(["14 november", "november 14", "14 nov", "nov 14", "14th november", "november 14th"])))
+        return scenario
+    }
+
+    /// The files the sustained scenario reads after the digression, on the task, in order; `SyncCommand.swift` is
+    /// read a second time between the changelog and the test output.
+    static let returnFiles = [
+        "Planner.swift", "PlannerTests.swift", "harbour-issue-212.md", "harbour-changelog.md", "SyncCommand.swift",
+        "swift-test-output.log", "harbour-review-notes.md",
+    ]
+
+    /// The noting scenario followed by a return to the task that a working session would have (context checkpoint 2,
+    /// docs/proposals/2026-10-06-context-checkpoint-2.md): 14 more turns, which restate the task, read the planner,
+    /// its tests, the issue that asked for the flag, the changelog, the command again, a failing test run, and review
+    /// notes, plant one more fact, and ask twice for prose with no tool (one a short follow-up); then four turns
+    /// that come back to earlier files (the flags reference, the planner, the configuration file) and ask for one more
+    /// line. Then the noting scenario's eight questions and two more: the late fact, and a detail of the issue (who
+    /// opened it) that no fact or summary need carry. 29 turns and ten questions, long enough to condense at the
+    /// default budget on the on-device model's 8,192 tokens, where the 22 turns of `recalling` never did (ADR 0045's
+    /// checkpoint).
+    ///
+    /// - Parameter fixtures: Where the fixture files are; defaults to the repository's.
+    /// - Returns: The scenario.
+    public static func sustained(fixtures: URL = fixturesDirectory) -> Scenario {
+        var scenario = noting(fixtures: fixtures)
+        scenario.name = "sustained"
+        scenario.summary +=
+            ", then 14 turns back on the task (the task restated, ten reads of which four are files read again, a "
+            + "fact planted, three replies with no tool), and two more questions"
+        let path = { (name: String) in fixtures.appending(path: name).path }
+        let files = returnFiles
+        scenario.steps += [
+            Step(
+                kind: .read,
+                prompt: "Back to the task: the --dry-run flag for `harbour sync`. Use read_file to read "
+                    + "\(path(files[0])). Summarise it in two sentences.",
+                file: files[0]),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[1])). Which cases do these tests cover? Answer in two "
+                    + "sentences.",
+                file: files[1]),
+            Step(kind: .talk, prompt: "And which case will the new flag need that they do not cover yet?"),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[2])), the issue that asked for this flag. Summarise the "
+                    + "request in two sentences.",
+                file: files[2]),
+            Step(
+                kind: .plant,
+                prompt: "The beta testers follow progress in the #harbour-beta channel; we'll post there when this "
+                    + "lands. Reply in one sentence to confirm."),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[3])). What did the last release change? Two sentences.",
+                file: files[3]),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[4])) again, and tell me in two sentences where the new "
+                    + "flag would be checked.",
+                file: files[4]),
+            Step(
+                kind: .read,
+                prompt: "I ran swift test after a first change. Use read_file to read \(path(files[5])) and tell me "
+                    + "in two sentences what failed.",
+                file: files[5]),
+            Step(kind: .talk, prompt: "Write the help text for the new flag, in one line."),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[6])), notes from the last review of this command. What "
+                    + "should this change take from them? Two sentences.",
+                file: files[6]),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(taskFiles[1])) again, and draft the new flag's entry in the "
+                    + "same style, in at most four lines.",
+                file: taskFiles[1]),
+            Step(kind: .talk, prompt: "Now the changelog line for it, in one sentence, as the review notes asked."),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(files[0])) again. Which call should the new flag stop "
+                    + "after? One sentence.",
+                file: files[0]),
+            Step(
+                kind: .read,
+                prompt: "Use read_file to read \(path(shownFile)) again. Should the new flag have a setting in this "
+                    + "file too? One sentence.",
+                file: shownFile),
+        ]
+        scenario.questions += [
+            Question(
+                id: "channel", probe: .fact, prompt: "Where do the beta testers follow progress?",
+                check: .mentions(["harbour beta"])),
+            Question(
+                id: "reporter", probe: .detail,
+                prompt: "Who opened the issue that asked for this flag? Give their name.",
+                check: .mentions(["solberg"])),
+        ]
         return scenario
     }
 
@@ -688,18 +787,21 @@ public struct AssessingStrategy: ContextStrategy {
             case .task: "assessing-task"
             case .all: "assessing-all"
             }
-        return base + ContextEval.suffix(policy)
+        return base + (taskChanges == .restated ? "-restated" : "") + ContextEval.suffix(policy)
     }
     /// What it does.
     public var summary: String {
         "memory, with each request assessed (rules, else one model call) for its tools, task, and relevant facts; "
             + "tools registered "
             + (tools == .request ? "per request" : tools == .task ? "as grown within the task" : "all, every request")
+            + (taskChanges == .restated ? "; the task changed only by a request that states one" : "")
     }
     /// Which tools each request registers.
     public var tools: AssessmentSettings.ToolSets
     /// Whether the task is inferred, as in chat.
     public var infersTask: Bool
+    /// When an inferred task may change: on any request (as phase 4d built it), or only on one that states a task.
+    public var taskChanges: AssessmentSettings.TaskChanges
     /// The fraction of the window a turn may start at before condensing (`Agent.contextBudget`).
     public var budget: Double
     /// How it condenses (`Agent.contextPolicy`).
@@ -714,14 +816,16 @@ public struct AssessingStrategy: ContextStrategy {
     /// - Parameters:
     ///   - tools: Which tools each request registers; per request by default (D4).
     ///   - infersTask: Whether the task is inferred; yes, as in chat.
+    ///   - taskChanges: When an inferred task may change; on any request by default, as the checkpoint measured it.
     ///   - budget: When to condense; the default is the agent's, 85%.
     ///   - policy: How it condenses; phase 2's four turns by default, as `MemoryStrategy`'s.
     public init(
-        tools: AssessmentSettings.ToolSets = .request, infersTask: Bool = true, budget: Double = 0.85,
-        policy: ContextPolicy = .fixed
+        tools: AssessmentSettings.ToolSets = .request, infersTask: Bool = true,
+        taskChanges: AssessmentSettings.TaskChanges = .any, budget: Double = 0.85, policy: ContextPolicy = .fixed
     ) {
         self.tools = tools
         self.infersTask = infersTask
+        self.taskChanges = taskChanges
         self.budget = budget
         self.policy = policy
     }
@@ -735,14 +839,21 @@ public struct AssessingStrategy: ContextStrategy {
         let thread = MemoryStrategy(budget: budget, policy: policy).open(
             model: model, tools: tools, instructions: instructions, audit: audit)
         if let agent = (thread as? AgentThread)?.agent {
-            agent.assessment = AssessmentSettings(tools: self.tools, infersTask: infersTask)
+            agent.assessment = AssessmentSettings(tools: self.tools, infersTask: infersTask, taskChanges: taskChanges)
         }
         return thread
     }
 }
 
+/// A conversation under test that runs on an `Agent`, so the runner can give it the run's tool events and read its
+/// store when the run ends: `AgentThread`, and `SwitchingThread`, whose agent changes when the model does.
+public protocol AgentHolding: AnyObject {
+    /// The agent the next turn goes to.
+    var agent: Agent { get }
+}
+
 /// An `Agent` as a conversation under test.
-public final class AgentThread: ContextThread {
+public final class AgentThread: ContextThread, AgentHolding {
     /// The agent, unchanged.
     public let agent: Agent
 
@@ -814,6 +925,8 @@ extension ContextEval {
         public var fills: [Int] = []
         /// The goal each of those condensations aimed for, in tokens (`target`), in the same order.
         public var targets: [Int] = []
+        /// Assessments during the turn that changed the task (`context.assessment` with `taskChanged`).
+        public var taskChanges = 0
 
         /// Creates a turn record.
         public init(
@@ -851,6 +964,7 @@ extension ContextEval {
                 + (summaries.isEmpty ? "" : ", summarised " + summaries.map(\.words).joined(separator: "+"))
                 + (memoryCalls.isEmpty ? "" : ", memory [\(memoryCalls.joined(separator: "; "))]")
                 + (assessments.isEmpty ? "" : ", assessed [\(assessments.joined(separator: "; "))]")
+                + (taskChanges == 0 ? "" : ", task changed")
                 + (fills.isEmpty
                     ? ""
                     : ", fill after "
@@ -917,6 +1031,8 @@ extension ContextEval {
         public var scenario: String
         /// The running summary's last version when the run ended, for a strategy that writes one.
         public var summary: RunningSummary?
+        /// Each model switch during the run, in words (`SwitchingThread.log`); empty when the model never changed.
+        public var switches: [String] = []
 
         /// Creates a run.
         public init(
@@ -937,6 +1053,7 @@ extension ContextEval {
             lhs.strategy == rhs.strategy && lhs.model == rhs.model && lhs.window == rhs.window
                 && lhs.turns == rhs.turns && lhs.answers == rhs.answers && lhs.load.start == rhs.load.start
                 && lhs.load.end == rhs.load.end && lhs.scenario == rhs.scenario && lhs.summary == rhs.summary
+                && lhs.switches == rhs.switches
         }
 
         /// Correct answers among the questions probing `probes`.
@@ -947,6 +1064,15 @@ extension ContextEval {
 
         /// Condensations over the whole run.
         public var condensations: Int { turns.map(\.condensations.count).reduce(0, +) }
+
+        /// Condensations to a target that could not reach it even at the floor of one literal turn.
+        public var floors: Int { turns.flatMap(\.condensations).filter { $0.hasSuffix(":floor") }.count }
+
+        /// Assessments that changed the task, over the whole run.
+        public var taskChanges: Int { turns.map(\.taskChanges).reduce(0, +) }
+
+        /// Assessments that called the model (`ContextEval.assessmentLine`'s method is `model`), over the whole run.
+        public var assessmentCalls: Int { turns.flatMap(\.assessments).filter { $0.hasPrefix("model ") }.count }
 
         /// Stretches of presentational text cut over the whole run.
         public var cuts: Int { turns.map(\.cuts).reduce(0, +) }
@@ -1050,7 +1176,7 @@ extension ContextEval {
                         format: "%.1f s, p95 %.1f s", (ContextEval.percentile(milliseconds, 0.5) ?? 0) / 1000,
                         (ContextEval.percentile(milliseconds, 0.95) ?? 0) / 1000)
                     + String(format: "; load average %.0f then %.0f", load.start, load.end),
-            ]
+            ] + switches.map { "switched at \($0)" }
         }
 
         /// The run as a measurement: every question counts once; the notes carry what was asked and the
@@ -1078,6 +1204,7 @@ extension ContextEval {
                     + (self.facts == 0 && distillations.isEmpty ? "" : "\(self.facts) facts recorded, \(distilled), ")
                     + (summaries.isEmpty ? "" : "\(summarised), ") + (recalled.isEmpty ? "" : "\(recalled), ")
                     + (condensing.isEmpty ? "" : "\(condensing), ")
+                    + (switches.isEmpty ? "" : "switched at \(switches.joined(separator: "; then at ")), ")
                     + "median "
                     + "\(ContextEval.percentile(tokens.map(Double.init), 0.5).map { String(Int($0)) } ?? "?") "
                     + String(format: "tokens after a turn, load average %.0f", load.start),
@@ -1138,7 +1265,7 @@ extension ContextEval {
         let audit = AuditLog(session: "context-eval", sink: TeeAuditSink([sink, trail]))
         let thread = strategy.open(
             model: model, tools: tools(audit), instructions: instructions, audit: audit)
-        if strategy.linksToolEvents, let agent = (thread as? AgentThread)?.agent {
+        if strategy.linksToolEvents, let agent = (thread as? any AgentHolding)?.agent {
             agent.toolEvents = trail
         }
         let loadAtStart = loadAverage()
@@ -1189,6 +1316,7 @@ extension ContextEval {
                         ? "noted" : "refused (\(event.details["failure"]?.stringValue ?? "?"))")
             }
             turn.assessments = events.filter { $0.kind == .assessment }.map(Self.assessmentLine)
+            turn.taskChanges = events.filter { $0.kind == .assessment && $0.details["taskChanged"] == true }.count
             let targeted = events.filter { $0.kind == .condensation && $0.details["fillAfter"] != nil }
             turn.fills = targeted.compactMap { $0.details["fillAfter"]?.intValue }
             turn.targets = targeted.compactMap { $0.details["target"]?.intValue }
@@ -1207,7 +1335,8 @@ extension ContextEval {
         var run = Run(
             strategy: strategy.name, model: model.selection.description, window: model.contextSize, turns: turns,
             answers: answers, load: (loadAtStart, loadAverage()), scenario: scenario.summary)
-        run.summary = (thread as? AgentThread)?.agent.store.summary
+        run.summary = (thread as? any AgentHolding)?.agent.store.summary
+        run.switches = (thread as? SwitchingThread)?.log ?? []
         return run
     }
 }

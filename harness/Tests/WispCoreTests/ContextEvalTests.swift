@@ -157,6 +157,8 @@ import WispTestSupport
         #expect(AssessingStrategy().name == "assessing" && AssessingStrategy(tools: .task).name == "assessing-task")
         #expect(AssessingStrategy(tools: .all, policy: .default).name == "assessing-all-target")
         #expect(MemoryStrategy(policy: .default).name == "memory-target" && AssessingStrategy().hasMemory)
+        let restated = AssessingStrategy(taskChanges: .restated, policy: .default)
+        #expect(restated.name == "assessing-restated-target" && restated.summary.hasSuffix("a request that states one"))
     }
 
     @Test func theShowingScenarioAddsOneShownFileAfterTheTaskFiles() {

@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built) |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (prepared) | The assessment reconsidered (built, to measure); MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built) |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
@@ -82,10 +82,15 @@ The release given to measurement, once the four before it are out:
   [ADR 0045](decisions/0045-layered-context.md): a scenario long enough to condense at the default
   budget, to tune the target and headroom; the 50% variants again, now that the target is capped below
   the trigger; a model switch mid-conversation (D10); and whether `memory` helps. By then the context
-  features will have been in use for several releases, which the checkpoint takes into account.
+  features will have been in use for several releases, which the checkpoint takes into account. Prepared on
+  2026-10-06, not yet run: the plan, its decision rules, and the commands are
+  [proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md); a scenario that
+  condenses at the default budget (`sustained`, 29 turns and ten questions), the grid, the switches, and
+  `scripts/check eval checkpoint` are built and pass the gate without a model.
 - **The assessment reconsidered, if wanted.** It stays off: the checkpoint found it rewrote the inferred
   task on 8 to 11 of 22 requests. A version that changes the task only when a request restates it is the
-  starting point.
+  starting point. Built on 2026-10-06 as `assessment.taskChanges: restated` (the default stays `any`), and measured
+  by the checkpoint's `assessment` part ([the plan](proposals/2026-10-06-context-checkpoint-2.md), question 5).
 - **MLX against Ollama**, for the same models, now that 0.19.0 has MLX on a par, with the rest of what
   [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must measure" (in its
   Consequences): the bridge against wisp's executor, prefix reuse, the cache's real cost per token, the windows

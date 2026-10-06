@@ -93,6 +93,49 @@ import WispTestSupport
         #expect(AssessmentRules.decide("hello there", context: context).settled)
     }
 
+    @Test func aRequestRestatesTheTaskOnlyWhenASentenceThatIsNotAQuestionStatesOne() {
+        for stated in [
+            "Today's task: add a --dry-run flag to `harbour sync`. Reply in one sentence.",
+            "Back to the task: the --dry-run flag for harbour sync.",
+            "The goal is a green build by Friday.",
+            "New task. Rename the config file.",
+            "Let's switch to the release notes now",
+            "We need to work on the installer next.",
+            "From now on, keep replies short.",
+        ] {
+            #expect(AssessmentRules.restatesTask(stated), "\(stated)")
+        }
+        for asked in [
+            "Let's get back to the task we started with. What is the task, and what is your first step?",
+            "What is the task?",
+            "Let's take a detour from the task for a while. Use read_file to read a.md.",
+            "Is the goal: a green build?",
+            "What is the codename for this release?",
+            "",
+        ] {
+            #expect(!AssessmentRules.restatesTask(asked), "\(asked)")
+        }
+    }
+
+    @Test func underRestatedATaskChangesOnlyWhenTheRequestStatesOne() {
+        let allowed = ["current_date", "run_command", "memory"]
+        let request = "What is the date today in Tokyo for the release plan?"
+        var context = AssessmentRules.Context(allowed: allowed, hasTask: true, taskChanges: .restated)
+        // A task exists and the request does not state one: settled, with no model call for the task.
+        #expect(AssessmentRules.decide(request, context: context).settled && !context.mayChangeTask)
+        // A request that states one may change it, so the model is asked.
+        context.restates = true
+        #expect(!AssessmentRules.decide(request, context: context).settled && context.mayChangeTask)
+        // With no task yet the first one may be inferred, as under `any`.
+        context.restates = false
+        context.hasTask = false
+        #expect(context.mayChangeTask && !AssessmentRules.decide(request, context: context).settled)
+        // Under `any`, the default, every request the rules leave open may change it.
+        let any = AssessmentRules.Context(allowed: allowed, hasTask: true)
+        #expect(any.mayChangeTask && !AssessmentRules.decide(request, context: any).settled)
+        #expect(AssessmentSettings().taskChanges == .any)
+    }
+
     @Test func relevantFactsAreChosenByWordOverlapLeavingOutTheNowBlocks() {
         let now = Date()
         func fact(_ id: String, _ scope: FactScope, _ subject: String, _ name: String, _ value: String) -> Fact {
@@ -184,5 +227,12 @@ import WispTestSupport
         var mcp = context
         mcp.infersTask = false
         #expect(Agent.applying(answer, to: rules, allowed: context.allowed, view: view, context: mcp).task == nil)
+        // Under `restated`, an existing task changes only when the request stated one.
+        var restated = context
+        restated.taskChanges = .restated
+        restated.hasTask = true
+        #expect(Agent.applying(answer, to: rules, allowed: context.allowed, view: view, context: restated).task == nil)
+        restated.restates = true
+        #expect(Agent.applying(answer, to: rules, allowed: context.allowed, view: view, context: restated).task != nil)
     }
 }

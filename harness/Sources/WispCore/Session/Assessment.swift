@@ -21,20 +21,35 @@ public struct AssessmentSettings: Sendable, Equatable {
         case task
     }
 
+    /// When an inferred task may change once there is one (ADR 0045, "Open"; the context checkpoint 2 plan,
+    /// docs/proposals/2026-10-06-context-checkpoint-2.md).
+    public enum TaskChanges: String, Sendable, Equatable, Codable, CaseIterable {
+        /// On any request the rules leave to the model, as phase 4d built it: the phase-6 checkpoint found the task
+        /// rewritten on 8 to 11 of 22 requests, drifting to the latest question.
+        case any
+        /// Only on a request that states a task (`AssessmentRules.restatesTask`), such as `Today's task: …` or
+        /// `Let's switch to …`; every other request keeps it, and the rules settle the task without a model call.
+        case restated
+    }
+
     /// Which tools each request registers.
     public var tools: ToolSets
     /// Whether the assessment may infer and revise the task (D6): yes in chat; no over MCP, where the caller's `task`
     /// argument is the task and a thread without one has none.
     public var infersTask: Bool
+    /// When an inferred task may change once there is one.
+    public var taskChanges: TaskChanges
 
     /// Creates settings.
     ///
     /// - Parameters:
     ///   - tools: Which tools each request registers; per request by default, as D4 decided.
     ///   - infersTask: Whether the task is inferred; yes by default, as in chat.
-    public init(tools: ToolSets = .request, infersTask: Bool = true) {
+    ///   - taskChanges: When an inferred task may change; on any request by default, as phase 4d built it.
+    public init(tools: ToolSets = .request, infersTask: Bool = true, taskChanges: TaskChanges = .any) {
         self.tools = tools
         self.infersTask = infersTask
+        self.taskChanges = taskChanges
     }
 
     /// Whether requests register a selection rather than every tool, so the instructions carry the catalogue.
@@ -211,6 +226,16 @@ enum AssessmentRules {
         /// Whether requests register a selection (`AssessmentSettings.selectsTools`); without one there is nothing
         /// to choose.
         var selectsTools = true
+        /// When an inferred task may change (`AssessmentSettings.taskChanges`).
+        var taskChanges = AssessmentSettings.TaskChanges.any
+        /// Whether the request states a task (`AssessmentRules.restatesTask`).
+        var restates = false
+
+        /// Whether this request may set or change the task: it is inferred here, nobody pinned it, and, under
+        /// `restated`, there is none yet or the request states one.
+        var mayChangeTask: Bool {
+            infersTask && !taskPinned && (taskChanges == .any || !hasTask || restates)
+        }
     }
 
     /// What the rules decided.
@@ -243,9 +268,32 @@ enum AssessmentRules {
         let toolsSettled =
             !context.selectsTools || selectable.isEmpty || !named.isEmpty || short
             || (followUp && !context.previous.isEmpty)
-        let taskSettled =
-            !context.infersTask || context.taskPinned || short || (context.hasTask && followUp)
+        let taskSettled = !context.mayChangeTask || short || (context.hasTask && followUp)
         return Decision(tools: allowed.filter(chosen.contains), settled: toolsSettled && taskSettled)
+    }
+
+    /// Phrases that state a task rather than ask about one: `Today's task: …`, `the goal is …`, `Let's switch to …`,
+    /// `new task`, `from now on`. Matched case-insensitively.
+    static let taskStatements =
+        #"\b(task|goal|objective)( now)?\s*(:|is\b)|\b(let'?s|we('ll| will| need to| should)|i('d like| want)( you)? to) (now )?(work on|switch to|move on to|focus on|start on|turn to)\b|\bnew task\b|\bfrom now on\b"#
+
+    /// Whether `request` states a task: one of its sentences that is not a question holds a `taskStatements` phrase.
+    /// "Today's task: add a flag." and "Back to the task: the flag." state one; "What is the task?" and "Let's get
+    /// back to the task we started with." do not. Under `AssessmentSettings.TaskChanges.restated` only such a request
+    /// may change an inferred task.
+    ///
+    /// - Parameter request: The person's request.
+    /// - Returns: Whether it states a task.
+    static func restatesTask(_ request: String) -> Bool {
+        guard let pattern = try? Regex(taskStatements).ignoresCase() else { return false }
+        var sentence = ""
+        for character in request + "\n" {
+            sentence.append(character)
+            guard ".!?\n".contains(character) else { continue }
+            if character != "?", sentence.contains(pattern) { return true }
+            sentence = ""
+        }
+        return false
     }
 
     /// The facts most relevant to `request` by word overlap (D7): each group's subject, name, and value against the

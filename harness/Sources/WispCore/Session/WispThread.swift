@@ -146,7 +146,8 @@ public struct WispThread: Sendable {
         agent.facts = facts
         agent.memory = memory
         if config.assessmentEnabled {
-            agent.assessment = AssessmentSettings(tools: config.assessmentTools, infersTask: infersTask)
+            agent.assessment = AssessmentSettings(
+                tools: config.assessmentTools, infersTask: infersTask, taskChanges: config.assessmentTaskChanges)
         }
         if config.auditEnabled { agent.archive = ContextArchive(directory: home.contexts, session: audit.session) }
         return agent

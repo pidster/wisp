@@ -1,0 +1,38 @@
+Building for debugging...
+[1/9] Compiling Harbour Planner.swift
+[2/9] Compiling Harbour Applier.swift
+[3/9] Compiling Harbour Scanner.swift
+[4/9] Compiling Harbour Manifest.swift
+[5/9] Compiling Harbour SyncOptions.swift
+[6/9] Emitting module Harbour
+[7/9] Compiling HarbourTests PlannerTests.swift
+[8/9] Compiling HarbourTests ManifestTests.swift
+[9/9] Linking HarbourPackageTests
+Build complete! (14.82s)
+Test Suite 'All tests' started at 2026-10-06 10:41:07.112.
+Test Suite 'HarbourPackageTests.xctest' started at 2026-10-06 10:41:07.113.
+Test Suite 'ManifestTests' started at 2026-10-06 10:41:07.113.
+Test Case '-[HarbourTests.ManifestTests testLoadsVersionTwo]' passed (0.004 seconds).
+Test Case '-[HarbourTests.ManifestTests testMigratesDotfileManifest]' passed (0.011 seconds).
+Test Case '-[HarbourTests.ManifestTests testRoundTripsDigests]' passed (0.002 seconds).
+Test Case '-[HarbourTests.ManifestTests testWriteIsAtomic]' passed (0.006 seconds).
+Test Suite 'ManifestTests' passed at 2026-10-06 10:41:07.137.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.023 (0.024) seconds
+Test Suite 'PlannerTests' started at 2026-10-06 10:41:07.137.
+Test Case '-[HarbourTests.PlannerTests testBytesToWriteCountsCopiesAndUpdates]' passed (0.001 seconds).
+Test Case '-[HarbourTests.PlannerTests testChangedSizeIsUpdated]' passed (0.001 seconds).
+Test Case '-[HarbourTests.PlannerTests testChangesAreSortedByPath]' passed (0.001 seconds).
+/Users/dev/harbour/Tests/HarbourTests/PlannerTests.swift:71: error: -[HarbourTests.PlannerTests testConflictWhenDestinationEdited] : XCTAssertEqual failed: ("0") is not equal to ("1")
+/Users/dev/harbour/Tests/HarbourTests/PlannerTests.swift:72: error: -[HarbourTests.PlannerTests testConflictWhenDestinationEdited] : XCTAssertTrue failed
+Test Case '-[HarbourTests.PlannerTests testConflictWhenDestinationEdited]' failed (0.009 seconds).
+Test Case '-[HarbourTests.PlannerTests testNewFileIsCopied]' passed (0.001 seconds).
+Test Case '-[HarbourTests.PlannerTests testPreviewLeavesTheManifestAlone]' passed (0.003 seconds).
+Test Case '-[HarbourTests.PlannerTests testUnchangedFileIsSkipped]' passed (0.001 seconds).
+Test Case '-[HarbourTests.PlannerTests testVanishedFileIsDeletedWithDelete]' passed (0.001 seconds).
+Test Case '-[HarbourTests.PlannerTests testVanishedFileIsKeptWithoutDelete]' passed (0.001 seconds).
+Test Suite 'PlannerTests' failed at 2026-10-06 10:41:07.156.
+	 Executed 9 tests, with 2 failures (0 unexpected) in 0.018 (0.019) seconds
+Test Suite 'HarbourPackageTests.xctest' failed at 2026-10-06 10:41:07.156.
+	 Executed 13 tests, with 2 failures (0 unexpected) in 0.041 (0.043) seconds
+Test Suite 'All tests' failed at 2026-10-06 10:41:07.157.
+	 Executed 13 tests, with 2 failures (0 unexpected) in 0.041 (0.043) seconds
