@@ -17,7 +17,7 @@ recorded as [decisions](decisions/).
 | `scripts/check eval [context\|compare]` | Runs the on-device model evaluation (the separate `harness/Evals` package, so the gate never builds it; `WISP_MODEL_TESTS=1` is set for you): every suite but the context eval, or with `context` only the context eval, which is a measurement for design decisions (ADR 0045) and takes hours, or with `compare` the suites that decide delegation on each model `WISP_EVAL_MODELS` names, one model at a time ([measurements.md](measurements.md#comparing-models)); reports classifier accuracy and every miss, asserts no dangerous command rated safe (not in the gate), and ends with a summary table, model by suite |
 | `scripts/check mlx-live <model directory>` | The MLX live test (`MLXLiveTests`) on real weights: builds with `--traits MLX` in `harness/.build/mlx`, so the gate's build is untouched, copies MLX's Metal library beside each test bundle's binary as `mlx.metallib`, and runs it with `WISP_MLX_TESTS=1` (needs the Metal toolchain and a model directory; not in the gate; ADR 0047) |
 | `scripts/check coverage` | `swift test --enable-code-coverage` plus an `llvm-cov` per-file line report for the harness sources (not in the gate) |
-| `scripts/check hygiene` | Staged-file checks: conflict markers, trailing whitespace, files over 1 MiB (one named exception, ADR 0042), commit author uses a GitHub noreply address |
+| `scripts/check hygiene` | Staged-file checks: conflict markers, trailing whitespace, files over 1 MiB (one named exception, ADR 0042), commit author uses a GitHub noreply address; the lockfiles keep their MLX pins (below) |
 | `scripts/check palette` | `Style.Palette` (Swift) and `tools/wisp-tui/src/palette.rs` define the colours twice; fails, naming the colour and both values, when a Swift colour is missing from Rust or differs. Names map by upper-casing at word breaks (`tokensIn` is `TOKENS_IN`); aliases (`tokensOut = glow`) are resolved; Rust may have colours of its own (`DEEP`, `SENT`, `WHITE`) |
 | `scripts/check all` | Everything above, in that order |
 | `scripts/check install-hooks` | Points `core.hooksPath` at `.githooks/` |
@@ -30,6 +30,23 @@ work-in-progress commits on a branch that will be squashed.
 its first crate. When the gate itself runs inside a Seatbelt sandbox (wisp running its own hook through
 `run_command`), the script detects it, passes `--disable-sandbox` to SwiftPM, and skips the nested-sandbox
 test step.
+
+### The lockfiles' MLX pins
+
+The release builds with `--traits MLX` (ADR 0047), so `harness/Package.resolved` must pin the packages only that
+trait resolves: `mlx-swift`, `mlx-swift-lm`, `swift-numerics`, and `swift-syntax`. Any build without the trait,
+the gate's own included, rewrites the lockfile without them; on 2026-10-05 a commit carried that loss. The gate
+guards both lockfiles, `harness/Package.resolved` and `harness/Evals/Package.resolved`, in two ways:
+
+- **Hygiene fails** when a lockfile lacks one of the pins, naming them and the fix. In a commit (the hook sets
+  `WISP_CHECK_COMMIT=1`) it checks the staged version; run by hand, the working copy.
+- **Every subcommand puts the lockfiles back on exit** when a build during the run left one without a pin: the
+  script copies them when it starts and restores the copy byte for byte, so `scripts/check` leaves the working
+  tree's lockfiles as it found them. A lockfile that changed in another way is left alone.
+
+The fix for a failure is the committed lockfile (`git checkout HEAD -- harness/Package.resolved`); when the
+dependencies really changed, resolve with the trait (`swift build --package-path harness --traits MLX
+--scratch-path harness/.build/mlx`) so the new lockfile carries the pins. Neither check uses the network.
 
 ## Definition of done
 

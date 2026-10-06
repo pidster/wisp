@@ -1,3 +1,5 @@
 #!/bin/sh
-# Installed via: scripts/check install-hooks
+# Installed via: scripts/check install-hooks. WISP_CHECK_COMMIT tells hygiene to check what is staged.
+WISP_CHECK_COMMIT=1
+export WISP_CHECK_COMMIT
 exec "$(git rev-parse --show-toplevel)/scripts/check" all

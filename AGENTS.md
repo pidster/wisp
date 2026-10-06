@@ -125,6 +125,10 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
   and runs commands under the outer sandbox instead (`docs/tools/run_command.md`).
 - Seatbelt matches real paths; profile paths go through `realpath` (`/tmp` and `/var` are symlinks).
 - Stdout is the MCP protocol channel while `wisp mcp` runs; diagnostics go to stderr or unified logging.
+- A build without `--traits MLX` (the gate's, a plain `swift build`) rewrites `harness/Package.resolved` without
+  the MLX-only pins the release needs. The gate puts the lockfile back after its own builds and fails a commit
+  whose staged lockfile lacks them; never commit a lockfile a non-trait build rewrote (`docs/engineering.md`,
+  "The lockfiles' MLX pins").
 
 ## Working through wisp's MCP server
 

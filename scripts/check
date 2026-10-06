@@ -20,6 +20,53 @@ nested_sandbox() {
 }
 if nested_sandbox; then SWIFT_SANDBOX="--disable-sandbox"; else SWIFT_SANDBOX=""; fi
 
+# The lockfiles' MLX pins. The release builds with --traits MLX (ADR 0047), which needs these packages pinned in
+# harness/Package.resolved; a build without the trait, the gate's own among them, resolves without them and
+# rewrites the lockfile without their pins. The gate keeps them: hygiene fails when a lockfile lacks one, and every
+# subcommand puts back a lockfile its builds stripped of them (restore_lockfiles, run on exit).
+LOCKFILES="harness/Package.resolved harness/Evals/Package.resolved"
+MLX_PINS="mlx-swift mlx-swift-lm swift-numerics swift-syntax"
+
+# missing_pins <file>: prints the MLX pins the lockfile <file> lacks, space-separated (nothing when it has them all).
+missing_pins() {
+    missing=""
+    for pin in $MLX_PINS; do
+        grep -Eq "\"identity\"[[:space:]]*:[[:space:]]*\"$pin\"" "$1" || missing="$missing $pin"
+    done
+    printf '%s' "${missing# }"
+}
+
+# Copies of the lockfiles as they were when the script started, in a directory of their own, and the MLX build
+# whose test bundles hold copied Metal libraries (mlx_test_build); both are dealt with on exit.
+LOCK_SAVED="$(mktemp -d)"
+for lockfile in $LOCKFILES; do
+    if [ -f "$lockfile" ]; then cp "$lockfile" "$LOCK_SAVED/$(printf '%s' "$lockfile" | tr '/' '_')"; fi
+done
+MLX_BIN=""
+
+# restore_lockfiles: puts back, byte for byte, each lockfile that a build during this run left without an MLX pin,
+# so the gate leaves the working tree's lockfiles as it found them. A lockfile that changed otherwise is left alone.
+restore_lockfiles() {
+    for lockfile in $LOCKFILES; do
+        saved="$LOCK_SAVED/$(printf '%s' "$lockfile" | tr '/' '_')"
+        [ -f "$saved" ] && [ -f "$lockfile" ] || continue
+        if ! cmp -s "$saved" "$lockfile" && [ -n "$(missing_pins "$lockfile")" ]; then
+            cp "$saved" "$lockfile"
+            echo "==> $lockfile: put back as it was before this run's build (which dropped its MLX pins)"
+        fi
+    done
+}
+
+# on_exit: everything the script must undo however it ends.
+on_exit() {
+    if [ -n "$MLX_BIN" ]; then rm -f "$MLX_BIN"/*.xctest/Contents/MacOS/mlx.metallib; fi
+    restore_lockfiles
+    rm -rf "$LOCK_SAVED"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 lint() {
     echo "==> lint (swift)"
     (cd harness && swift format lint --recursive --strict $SWIFT_PATHS)
@@ -254,7 +301,7 @@ mlx_live() {
 mlx_test_build() {
     bin="$(swift build --package-path "$1" --build-tests --traits MLX --scratch-path "$2" --show-bin-path)"
     rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib
-    trap 'rm -f "$bin"/*.xctest/Contents/MacOS/mlx.metallib' EXIT
+    MLX_BIN="$bin"
     # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
     swift build --package-path "$1" $SWIFT_SANDBOX --build-tests --traits MLX --scratch-path "$2"
     metallib=""
@@ -323,6 +370,29 @@ hygiene() {
         && ! printf '%s\n' "$staged" | grep -qE '^(docs/|CLAUDE\.md|README\.md)'; then
         echo "reminder: code changed but nothing under docs/ did; see the definition of done in docs/engineering.md"
     fi
+
+    # The lockfiles keep their MLX pins: the staged version in a commit (the hook sets WISP_CHECK_COMMIT), the
+    # working copy otherwise.
+    for lockfile in $LOCKFILES; do
+        if [ -n "${WISP_CHECK_COMMIT:-}" ]; then
+            git cat-file -e ":$lockfile" 2>/dev/null || continue
+            copy="$(mktemp)"
+            git show ":$lockfile" >"$copy"
+            where="staged"
+        else
+            [ -f "$lockfile" ] || continue
+            copy="$lockfile"
+            where="working"
+        fi
+        missing="$(missing_pins "$copy")"
+        if [ "$copy" != "$lockfile" ]; then rm -f "$copy"; fi
+        if [ -n "$missing" ]; then
+            echo "$lockfile ($where) lacks the MLX pins: $missing; a build without --traits MLX dropped them."
+            echo "  fix: put the pins back from the last commit (git checkout HEAD -- $lockfile), then rebuild with"
+            echo "  --traits MLX if the dependencies changed (docs/engineering.md, \"The lockfiles' MLX pins\")"
+            status=1
+        fi
+    done
 
     email=$(git config user.email || true)
     case "$email" in
