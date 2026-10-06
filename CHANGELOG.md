@@ -29,6 +29,16 @@ Fixed:
   the reply is exactly such calls. `ollama:ministral-3:14b` writes them and its template leaves them in the reply,
   so it made almost no calls (0 of 30 `edit_file` cases in the 2026-10-04 comparison). Text that only mentions the
   format, or names a tool the conversation does not offer, stays the reply.
+- MLX models are no longer told not to think when `reasoning` is not declared for them. `mlx:Qwen3-1.7B-4bit`
+  called `read_file`, then replied with the file instead of editing it: 2 of 30 `edit_file` cases against 20 of 30
+  for the same model on Ollama, which leaves thinking to the model. Unset, `mlx.think` now leaves the model's chat
+  template to decide, as an unset `ollama.think` leaves Ollama; the same cases then passed 13 of 30, and drafted
+  commit subjects 7 of 10 instead of 4. A model that thinks is slower: about 14 s an `edit_file` case instead of
+  1.3 s. Set `mlx.think: false` for the old behaviour.
+- An MLX schema reply, such as a `draft_change` subject, lets a model that thinks finish its thinking before the
+  reply is held to the schema, as Ollama does; it was held to JSON from the first token.
+- An MLX conversation no longer breaks after a tool call whose arguments hold a `null`: every later request failed
+  with "Cannot convert value of type NSNull to Jinja Value".
 
 Added:
 
@@ -40,7 +50,7 @@ Added:
   `model.reasoning`. It used to arrive in the reply, tags and all, when the model thought. The model never gets
   its thinking back.
 - `mlx.think` (`true` or `false`) asks MLX models whose chat template takes `enable_thinking`, such as Qwen3, to
-  think or not; unset, a model thinks when `reasoning` is declared for it, as before.
+  think or not; unset, a model declared `reasoning` thinks and any other is left to its template's default (below).
 - `assessment.taskChanges` (`any` or `restated`): with the assessment on (`assessment.enabled`, still off by
   default), `restated` lets a request change the task the model inferred only when it states a task, such as
   `Today's task: …` or `Let's switch to …`, instead of on any request; other requests keep the task without a

@@ -175,6 +175,28 @@ disabled on 2026-10-06 (`models.disabled`), with `llama3.2:3b`, `ministral-3:14b
 `deepseek-coder-v2`; `Falcon-H1-Tiny-Tool-Calling-90M` is kept for the tool-choice experiment. The run showed
 hybrid models working end to end through wisp's MLX executor, tool calls included.
 
+### MLX against Ollama, the same weights, 2026-10-06
+
+`mlx:Qwen3-1.7B-4bit` through wisp's MLX executor against `ollama:qwen3:1.7b` (Q4_K_M), on the suites that showed a
+gap, run with a copy of the script whose `EVAL_COMPARE_SUITES` named only `edit_file`, the schema replies, and the
+drafts (not recorded). Before is the full comparison of the morning; after is the fix that leaves thinking to the
+chat template and lets a schema reply think first ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined
+2026-10-06, which has the probes behind it).
+
+| Run | `edit_file` | Drafts, small / medium / large | Schema |
+| --- | --- | --- | --- |
+| MLX, before (thinking off) | 2/30, 1.3 s a case | 4/10, 0/2, 0/2 | 4/6 |
+| MLX, after (the template's default: thinks) | 13/30, 14.3 s | 7/10 14.0 s, 1/2 30.4 s, 1/2 113.8 s | 5/6, 6.4 s |
+| Ollama, morning (thinks by default) | 20/30, 12.0 s | 9/10, 1/2, 2/2 | 6/6 |
+| Ollama, after-run (the same code) | 15/30, 12.6 s | 9/10 2.3 s, 1/2 11.6 s, 2/2 37.9 s | 5/6, 2.5 s |
+| Ollama, `ollama.think: false` | 19/30, 1.5 s | 8/10, 2/2, 2/2 | 5/6 |
+| MLX on the bridge (thinking off unless declared) | 6/30, 2.2 s; 24 made no `edit_file` call | not run | not run |
+
+Ollama's two runs on the same code differ by five `edit_file` cases, so MLX after is within that spread; its drafts
+are close on content and two to three times slower. Without thinking the MLX conversion of the 1.7B weights fails
+the tool loop where Ollama's quantisation does not, on the very same prompt; the 4B model does not have that
+weakness on MLX.
+
 The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
 test output is buffered, so a model's lines reach the log when its `swift test` ends.

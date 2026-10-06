@@ -130,18 +130,22 @@ import Testing
         let engine = MLXExecutorTests.engine(log, tail: "<|im_start|>assistant\n<think>\n")
         let model = MLXModel(
             engine: engine, window: 4096, capabilities: [.reasoning], thinkingFormat: Self.think)
-        #expect(model.thinking)
+        #expect(model.thinking == true)
         let session = LanguageModelSession(model: model)
         #expect(try await session.respond(to: "2+2?").content == "Four.")
         #expect(session.usage.output.reasoningTokenCount == 2)
     }
 
-    @Test func mlxThinkDecidesOverTheDeclaredReasoning() {
+    /// `mlx.think` decides; unset, a declared `reasoning` asks for thinking, and otherwise nothing is set, so the
+    /// template's own default holds, as an unset `ollama.think` leaves Ollama's (ADR 0052, refined 2026-10-06).
+    /// Turning Qwen3's thinking off when nothing was declared is what cost the MLX executor its multi-step tool calls
+    /// against Ollama, which thinks by default.
+    @Test func mlxThinkDecidesOverTheDeclaredReasoningAndUnsetLeavesTheTemplatesDefault() {
         let engine = MLXExecutorTests.engine(RuntimeLog())
-        #expect(!MLXModel(engine: engine, window: 64, capabilities: []).thinking)
-        #expect(MLXModel(engine: engine, window: 64, capabilities: [.reasoning]).thinking)
-        #expect(!MLXModel(engine: engine, window: 64, capabilities: [.reasoning], think: false).thinking)
-        #expect(MLXModel(engine: engine, window: 64, capabilities: [], think: true).thinking)
+        #expect(MLXModel(engine: engine, window: 64, capabilities: []).thinking == nil)
+        #expect(MLXModel(engine: engine, window: 64, capabilities: [.reasoning]).thinking == true)
+        #expect(MLXModel(engine: engine, window: 64, capabilities: [.reasoning], think: false).thinking == false)
+        #expect(MLXModel(engine: engine, window: 64, capabilities: [], think: true).thinking == true)
         #expect(Config(mlx: .init(think: false)).resolved.mlxThink == false)
         #expect(Config().resolved.mlxThink == nil)
     }
@@ -152,5 +156,85 @@ import Testing
         let session = LanguageModelSession(model: model)
         #expect(try await session.respond(to: "hi").content == "<think>kept</think> as text")
         #expect(session.usage.output.reasoningTokenCount == 0)
+    }
+    /// A schema request with the template's thinking left on: the model thinks freely first, as Ollama lets it think
+    /// before applying a `format`, and the constraint starts from the prompt and what it thought, through the
+    /// closing tag (ADR 0052, refined 2026-10-06). Without this, the MLX executor constrained Qwen3 to JSON from the
+    /// first token, with no thinking, where Ollama's drafts thought first.
+    @Test func aSchemaReplyThinksFirstAndTheConstraintStartsAfterTheThought() async throws {
+        let chunks = ["<think>", "\nweigh", " it", "\n</think>", "\n\n{", "never"]
+        let log = RuntimeLog(thinking: chunks)
+        let engine = MLXExecutorTests.engine(log)
+        let messages: [ChatMessage] = [.init(role: "user", content: "answer")]
+        var request = MLXExecutorTests.request(messages, schema: #"{"type":"object"}"#)
+        request.thinking = Self.think
+        let events = Mutex<[EngineEvent]>([])
+        let usage = try await engine.respond(request, slot: UUID()) { event in events.withLock { $0.append(event) } }
+        #expect(
+            events.withLock { $0 } == [.reasoning("weigh"), .reasoning(" it"), .text(#"{"answer":"yes"}"#)])
+        let prompt = try WordTokenizer().tokens(for: MLXPrompt(messages: messages))
+        #expect(log.guidedPrompts.withLock { $0 } == [prompt + chunks.prefix(4).map(WordTokenizer.id)])
+        #expect(usage.generated == 4 + 5 && usage.prompt == prompt.count)
+    }
+
+    @Test func aSchemaReplyBegunWithoutThinkingIsConstrainedFromThePrompt() async throws {
+        let log = RuntimeLog(thinking: ["\n", "{\"answer\"", "more"])
+        let engine = MLXExecutorTests.engine(log)
+        let messages: [ChatMessage] = [.init(role: "user", content: "answer")]
+        var request = MLXExecutorTests.request(messages, schema: #"{"type":"object"}"#)
+        request.thinking = Self.think
+        let events = Mutex<[EngineEvent]>([])
+        let usage = try await engine.respond(request, slot: UUID()) { event in events.withLock { $0.append(event) } }
+        #expect(events.withLock { $0 } == [.text(#"{"answer":"yes"}"#)])
+        #expect(log.guidedPrompts.withLock { $0 } == [try WordTokenizer().tokens(for: MLXPrompt(messages: messages))])
+        #expect(log.thought.withLock { $0 } == [2] && usage.generated == 2 + 5)
+    }
+
+    @Test func thinkingCutOffIsClosedWithTheTemplatesTagBeforeTheConstraint() async throws {
+        let log = RuntimeLog(thinking: ["<think>", "\nstill", " going"])
+        let engine = MLXExecutorTests.engine(log)
+        let messages: [ChatMessage] = [.init(role: "user", content: "answer")]
+        var request = MLXExecutorTests.request(messages, schema: #"{"type":"object"}"#)
+        request.thinking = Self.think
+        let events = Mutex<[EngineEvent]>([])
+        _ = try await engine.respond(request, slot: UUID()) { event in events.withLock { $0.append(event) } }
+        #expect(events.withLock { $0 } == [.reasoning("still"), .reasoning(" going"), .text(#"{"answer":"yes"}"#)])
+        let prompt = try WordTokenizer().tokens(for: MLXPrompt(messages: messages))
+        let thought = ["<think>", "\nstill", " going"].map(WordTokenizer.id)
+        #expect(log.guidedPrompts.withLock { $0 } == [prompt + thought + [WordTokenizer.id("</think>")]])
+    }
+
+    @Test func aSchemaReplyWithThinkingTurnedOffIsConstrainedAtOnce() async throws {
+        let log = RuntimeLog(thinking: ["<think>", "unused"])
+        let engine = MLXExecutorTests.engine(log)
+        var request = MLXExecutorTests.request([.init(role: "user", content: "answer")], schema: #"{"type":"object"}"#)
+        request.thinking = Self.think
+        request.prompt.thinking = false
+        _ = try await engine.respond(request, slot: UUID()) { _ in }
+        #expect(log.thought.withLock { $0.isEmpty } && log.guided.withLock { $0.count } == 1)
+    }
+
+    /// Through the framework's session: an undeclared Qwen3 leaves `enable_thinking` unset, so its guided reply
+    /// thinks first and the thinking is counted as reasoning, as Ollama's is.
+    @Test func aGuidedRequestThroughTheSessionCountsItsThinking() async throws {
+        let log = RuntimeLog(thinking: ["<think>", "\nyes", " surely", "\n</think>"])
+        let model = MLXModel(
+            engine: MLXExecutorTests.engine(log), window: 4096, capabilities: [.guidedGeneration],
+            thinkingFormat: Self.think)
+        let session = LanguageModelSession(model: model)
+        let verdict = try await session.respond(to: "Is it?", generating: MLXExecutorTests.Verdict.self).content
+        #expect(verdict.answer == "yes")
+        #expect(session.usage.output.reasoningTokenCount == 2)
+        #expect(log.thought.withLock { $0 } == [4])
+    }
+
+    @Test func anUnsetToggleReachesTheTemplateAsNothing() async throws {
+        let log = RuntimeLog(steps: [[.text("Hi.")]])
+        let model = MLXModel(
+            engine: MLXExecutorTests.engine(log), window: 4096, capabilities: [], thinkingFormat: Self.think)
+        _ = try await LanguageModelSession(model: model).respond(to: "hi")
+        #expect(log.prompts.withLock { $0.first?.thinking } == .some(nil))
+        #expect(ChatTemplateValues.context(thinking: nil) == nil)
+        #expect(ChatTemplateValues.context(thinking: false)?["enable_thinking"] as? Bool == false)
     }
 }

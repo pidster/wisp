@@ -44,9 +44,10 @@ struct MLXModel: LanguageModel, UsageReporting {
     let slot: Slot
     /// How the chat template marks thinking, when it does; the reply is split by it (ADR 0053).
     let thinkingFormat: ThinkingFormat?
-    /// Whether the chat template is asked to let the model think: `mlx.think` when set, else whether the operator
-    /// declared `reasoning`.
-    let thinking: Bool
+    /// The chat template's `enable_thinking`: `mlx.think` when set, else true when the operator declared
+    /// `reasoning`, else nil, which leaves the template's own default, as an unset `ollama.think` leaves the model's
+    /// (ADR 0052, refined 2026-10-06).
+    let thinking: Bool?
     /// The last request's usage.
     let usage = UsageRecord()
 
@@ -67,7 +68,7 @@ struct MLXModel: LanguageModel, UsageReporting {
         self.capabilities = LanguageModelCapabilities(capabilities)
         slot = Slot(engine: engine)
         self.thinkingFormat = thinkingFormat
-        thinking = think ?? capabilities.contains(.reasoning)
+        thinking = think ?? (capabilities.contains(.reasoning) ? true : nil)
     }
 
     /// The thinking of one request, as the executor's event callback sees it: a `ThinkingStretch` behind a lock,

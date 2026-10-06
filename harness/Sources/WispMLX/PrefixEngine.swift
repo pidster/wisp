@@ -11,12 +11,13 @@ struct MLXPrompt: Equatable, Sendable {
     var messages: [ChatMessage]
     /// Each tool as `{"type": "function", "function": {"name", "description", "parameters"}}`.
     var tools: [JSONValue]
-    /// Whether the chat template is asked to let the model think (`enable_thinking`): `mlx.think` when set, else
-    /// whether the operator declared `reasoning`.
-    var thinking: Bool
+    /// What the chat template's `enable_thinking` is set to: `mlx.think` when set, else true when the operator
+    /// declared `reasoning`; nil sets nothing and leaves the template's own default (Qwen3's thinks), as an unset
+    /// `ollama.think` leaves Ollama's (ADR 0052, refined 2026-10-06).
+    var thinking: Bool?
 
     /// Creates a prompt.
-    init(messages: [ChatMessage], tools: [JSONValue] = [], thinking: Bool = false) {
+    init(messages: [ChatMessage], tools: [JSONValue] = [], thinking: Bool? = nil) {
         self.messages = messages
         self.tools = tools
         self.thinking = thinking
@@ -27,8 +28,8 @@ struct MLXPrompt: Equatable, Sendable {
     /// - Parameters:
     ///   - transcript: What the request carries.
     ///   - tools: The tools the request enables.
-    ///   - thinking: Whether the model may think.
-    init(transcript: Transcript, tools: [Transcript.ToolDefinition], thinking: Bool) {
+    ///   - thinking: The template's `enable_thinking`, or nil for its default.
+    init(transcript: Transcript, tools: [Transcript.ToolDefinition], thinking: Bool?) {
         self.init(
             messages: ChatMessage.messages(from: transcript), tools: tools.map(Self.specification),
             thinking: thinking)
@@ -39,9 +40,9 @@ struct MLXPrompt: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - transcript: The transcript.
-    ///   - thinking: Whether the model may think.
+    ///   - thinking: The template's `enable_thinking`, or nil for its default.
     /// - Returns: The prompt.
-    static func counting(_ transcript: Transcript, thinking: Bool) -> MLXPrompt {
+    static func counting(_ transcript: Transcript, thinking: Bool?) -> MLXPrompt {
         let tools = transcript.compactMap { entry -> [Transcript.ToolDefinition]? in
             if case .instructions(let instructions) = entry { return instructions.toolDefinitions }
             return nil
@@ -169,6 +170,9 @@ protocol PromptTokenizer: Sendable {
     /// Tokens as text, special tokens included: the end of a rendered prompt, to see whether the template left
     /// the model inside a thinking block.
     func text(of tokens: [Int]) -> String
+    /// Text as tokens, without the special tokens a tokenizer adds around a whole input: the closing tag of a
+    /// thinking block that generation stopped inside.
+    func tokens(of text: String) -> [Int]
 }
 
 /// The model in memory: what `PrefixEngine` needs to process a prompt onto a cache and generate. Not
@@ -205,6 +209,19 @@ protocol PromptRuntime {
         suffix: [Int], cache: Cache, prompt: MLXPrompt, maxTokens: Int, temperature: Double?,
         emit: @escaping @Sendable (EngineEvent) async -> Void
     ) async throws -> Int
+    /// Generates freely from the whole prompt on a cache of its own, without parsing tool calls, handing each chunk
+    /// of text to `emit` until it answers false or generation ends: the thinking a schema reply starts with.
+    ///
+    /// - Parameters:
+    ///   - prompt: The prompt tokens.
+    ///   - maxTokens: The most tokens to generate.
+    ///   - temperature: The sampling temperature, when set.
+    ///   - emit: Receives each chunk; false stops generation after it.
+    /// - Returns: The tokens generated, through the one whose text made `emit` stop, without a stop token.
+    /// - Throws: Runtime failures and cancellation.
+    nonisolated(nonsending) func think(
+        prompt: [Int], maxTokens: Int, temperature: Double?, emit: @escaping @Sendable (String) async -> Bool
+    ) async throws -> [Int]
     /// Generates a reply that follows a JSON Schema, from the whole prompt on a cache of its own.
     ///
     /// - Parameters:
@@ -330,9 +347,11 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
         }
         guard let runtime else { return EngineUsage(prompt: tokens.count, reused: 0, generated: 0) }
         if let schema = request.schema {
-            let reply = try await runtime.guided(prompt: tokens, schema: schema, maxTokens: budget)
+            let thought = try await think(before: request, prompt: tokens, budget: budget, runtime, tokenizer, emit)
+            let reply = try await runtime.guided(
+                prompt: tokens + thought.tokens, schema: schema, maxTokens: max(1, budget - thought.generated))
             await emit(.text(reply.text))
-            return EngineUsage(prompt: tokens.count, reused: 0, generated: reply.generated)
+            return EngineUsage(prompt: tokens.count, reused: 0, generated: thought.generated + reply.generated)
         }
         let held = pool.take(slot)
         var plan = PrefixPlan.plan(
@@ -366,5 +385,45 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
             pool.put(slot, tokens: tokens, cache: cache, capacity: request.window)
         }
         return EngineUsage(prompt: tokens.count, reused: plan.reused, generated: generated)
+    }
+    /// The thinking a schema reply starts with, as Ollama lets a model think before it applies a `format`: when the
+    /// template marks thinking and the request does not turn it off, the model generates freely until its thinking
+    /// closes (`ThinkingPhase`), streamed as reasoning, and the constraint then starts from the prompt and what it
+    /// thought. Thinking cut off by its budget, or by a stop token inside the block, is closed with the template's
+    /// tag; a model that begins its reply without thinking has its free tokens dropped. Without a thinking format, or
+    /// with `enable_thinking` false, nothing is generated (ADR 0052, refined 2026-10-06).
+    ///
+    /// - Parameters:
+    ///   - request: The request.
+    ///   - prompt: The rendered prompt's tokens.
+    ///   - budget: The most tokens the reply may take; thinking takes at most half.
+    ///   - runtime: The runtime.
+    ///   - tokenizer: The tokenizer.
+    ///   - emit: Receives the reasoning events.
+    /// - Returns: The tokens to follow the prompt into the constraint, and the tokens generated for them.
+    /// - Throws: Runtime failures and cancellation.
+    private func think(
+        before request: EngineRequest, prompt: [Int], budget: Int, _ runtime: Runtime,
+        _ tokenizer: any PromptTokenizer, _ emit: @escaping @Sendable (EngineEvent) async -> Void
+    ) async throws -> (tokens: [Int], generated: Int) {
+        guard let format = request.thinking, request.prompt.thinking != false, budget > 1 else { return ([], 0) }
+        let phase = ThinkingPhase(
+            format: format, primed: format.promptEndsInside(tokenizer.text(of: Array(prompt.suffix(16)))))
+        var generated = try await runtime.think(
+            prompt: prompt, maxTokens: budget / 2, temperature: request.temperature
+        ) { chunk in
+            let (events, more) = phase.feed(chunk)
+            for event in events { await emit(event) }
+            return more
+        }
+        let count = generated.count
+        switch phase.outcome {
+        case .answered: return ([], count)
+        case .closed: return (generated, count)
+        case .open:
+            for event in phase.finish() { await emit(event) }
+            if phase.unclosed { generated += tokenizer.tokens(of: "\n" + format.close + "\n\n") }
+            return phase.unclosed ? (generated, count) : ([], count)
+        }
     }
 }

@@ -348,7 +348,7 @@ which brings them level with Ollama's:
 | Usage | Input (with the reused prefix as cached tokens) and output tokens per request, as Ollama's executor reports them | Not reported to wisp |
 | The processed prompt | A thread's last prompt kept and reused (below) | Every request processed from the first token |
 | Text, tool calls, schema replies | Yes: tool calls parsed in the model's own format, schema replies through the same xgrammar loop the bridge uses | Yes |
-| Thinking | Asked for when `reasoning` is declared, or as `mlx.think` says; split from the reply by the chat template's tags, shown, counted, and never sent back (below) | Asked for only when `reasoning` is declared, plus a think-then-call phase for reasoning models with tools |
+| Thinking | As `mlx.think` says; unset, asked for when `reasoning` is declared and otherwise the template's default (Qwen3 thinks), as Ollama does; a schema reply thinks before its constraint starts; split from the reply by the chat template's tags, shown, counted, and never sent back (below) | Asked for only when `reasoning` is declared, plus a think-then-call phase for reasoning models with tools |
 | Images | No: `vision` is not offered | When `vision` is declared |
 
 The bridge is mlx-swift-lm's `MLXLanguageModel`, which ran every MLX model before 0.19.0. It stays for vision
@@ -365,12 +365,28 @@ template that opens the block itself in the generation prompt is seen from the r
 reply is thinking from its first token; thinking that is never closed stays thinking; a tool call ends it. A
 model whose template has no such tags has its text left as it is.
 
-Whether the model thinks is the template's `enable_thinking`: `true` when `reasoning` is declared, `false`
-otherwise, and `mlx.think` (`true` or `false`) overrides it for every MLX model whose template takes the flag
-(Qwen3's does; a template without it ignores it). It applies to wisp's executor; the bridge decides for itself.
+Whether the model thinks is the template's `enable_thinking`: `mlx.think` (`true` or `false`) sets it for every
+MLX model whose template takes the flag (Qwen3's does; a template without it ignores it); unset, it is `true` when
+`reasoning` is declared and otherwise not set at all, so the template's own default holds, as an unset
+`ollama.think` leaves a model to Ollama. Qwen3's template thinks by default. Until 2026-10-06 an undeclared model
+was told not to think, which cost Qwen3 its multi-step tool calls and its drafts against the same model on
+Ollama (below, "Against Ollama"). A schema reply on a model that thinks thinks first, as Ollama lets a model think
+before it applies a `format`: it generates freely until the thinking block closes (half the reply's budget at
+most; a block cut off is closed with the template's tag), streamed as thinking, and the schema's constraint then
+starts from the prompt and what it thought; a model that begins its reply without thinking is constrained from the
+prompt. This applies to wisp's executor; the bridge decides for itself (it turns thinking off unless `reasoning`
+is declared).
 Measured on this Mac on 2026-10-06 with `mlx:Qwen3-1.7B-4bit`, undeclared, and `mlx.think: true`: "Is 51 prime? One
 word." thought for 2.0 s and 181 tokens, then replied `No.`, the thinking folded under the `∴` line and none of it
 in the reply; with `mlx.think: false` it replied `51 is not prime.` in 1.0 s with 6 tokens and no thinking.
+
+**Against Ollama.** On 2026-10-06 the same Qwen3-1.7B weights scored far lower through wisp's executor than through
+Ollama on the tool loop and on drafts (`edit_file` 2/30 against 20/30) because an undeclared model was told not to
+think; leaving it to the template, MLX scored 13/30 against Ollama's 15/30 in one run, about 14 s a case. Without
+thinking, the MLX 4-bit conversion of this model does not make its second call even on Ollama's exact prompt, where
+Ollama's own quantisation does; `mlx-community/Qwen3-4B-4bit` does. The numbers are in
+[measurements.md](measurements.md) and the probes in [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined
+2026-10-06.
 
 **The window.** An MLX directory's `config.json` gives the shape ADR 0043's rule needs: `max_position_embeddings`,
 `num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else `hidden_size` ÷

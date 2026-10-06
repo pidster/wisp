@@ -15,6 +15,8 @@ struct WordTokenizer: PromptTokenizer {
 
     func text(of tokens: [Int]) -> String { tail }
 
+    func tokens(of text: String) -> [Int] { text.split(whereSeparator: \.isWhitespace).map { Self.id(String($0)) } }
+
     func tokens(for prompt: MLXPrompt) throws -> [Int] {
         var words: [String] = []
         for tool in prompt.tools {
@@ -52,11 +54,19 @@ final class RuntimeLog: Sendable {
 
     let generations = Mutex<[Generation]>([])
     let guided = Mutex<[String]>([])
+    /// The prompt tokens each guided generation began from.
+    let guidedPrompts = Mutex<[[Int]]>([])
+    /// The chunks a free thinking phase streams, and how many of them were taken before it was stopped.
+    let thinking: Mutex<[String]>
+    let thought = Mutex<[Int]>([])
     /// Every prompt generated from, in order.
     let prompts = Mutex<[MLXPrompt]>([])
     let steps: Mutex<[[EngineEvent]]>
 
-    init(steps: [[EngineEvent]] = []) { self.steps = Mutex(steps) }
+    init(steps: [[EngineEvent]] = [], thinking: [String] = []) {
+        self.steps = Mutex(steps)
+        self.thinking = Mutex(thinking)
+    }
 
     var last: Generation? { generations.withLock { $0.last } }
 }
@@ -91,12 +101,27 @@ struct WordRuntime: PromptRuntime {
         return extra + 1
     }
 
+    /// Streams the scripted thinking chunks, a token each, until `emit` stops it or they run out.
+    nonisolated(nonsending) func think(
+        prompt: [Int], maxTokens: Int, temperature: Double?, emit: @escaping @Sendable (String) async -> Bool
+    ) async throws -> [Int] {
+        let chunks = log.thinking.withLock { $0 }
+        var generated: [Int] = []
+        for chunk in chunks.prefix(maxTokens) {
+            generated.append(WordTokenizer.id(chunk))
+            if await !emit(chunk) { break }
+        }
+        log.thought.withLock { $0.append(generated.count) }
+        return generated
+    }
+
     nonisolated(nonsending) func guided(
         prompt: [Int], schema: String, maxTokens: Int
     ) async throws -> (
         text: String, generated: Int
     ) {
         log.guided.withLock { $0.append(schema) }
+        log.guidedPrompts.withLock { $0.append(prompt) }
         return (#"{"answer":"yes"}"#, 5)
     }
 }

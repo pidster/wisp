@@ -28,10 +28,9 @@
         /// - Throws: When the template cannot render the prompt.
         func tokens(for prompt: MLXPrompt) throws -> [Int] {
             try tokenizer.applyChatTemplate(
-                messages: prompt.messages.map(Self.dictionary),
-                tools: prompt.tools.isEmpty
-                    ? nil : prompt.tools.compactMap { Self.sendable($0) as? [String: any Sendable] },
-                additionalContext: ["enable_thinking": prompt.thinking])
+                messages: prompt.messages.map(ChatTemplateValues.message),
+                tools: ChatTemplateValues.tools(prompt.tools),
+                additionalContext: ChatTemplateValues.context(thinking: prompt.thinking))
         }
 
         /// Tokens as text, special tokens kept.
@@ -39,39 +38,9 @@
             tokenizer.decode(tokenIds: tokens, skipSpecialTokens: false)
         }
 
-        /// A message as the chat template takes it, in the shape mlx-swift-lm's own message generator writes.
-        ///
-        /// - Parameter message: The message.
-        /// - Returns: Its dictionary.
-        static func dictionary(_ message: ChatMessage) -> [String: any Sendable] {
-            var dictionary: [String: any Sendable] = ["role": message.role, "content": message.content]
-            if !message.toolCalls.isEmpty {
-                dictionary["tool_calls"] = message.toolCalls.map { call -> [String: any Sendable] in
-                    [
-                        "type": "function",
-                        "function": ["name": call.name, "arguments": sendable(call.arguments)]
-                            as [String: any Sendable],
-                    ]
-                }
-            }
-            if let name = message.toolName { dictionary["name"] = name }
-            return dictionary
-        }
-
-        /// A JSON value as the plain values the template engine reads.
-        ///
-        /// - Parameter value: The value.
-        /// - Returns: A string, number, boolean, array, dictionary, or `NSNull`.
-        static func sendable(_ value: WispCore.JSONValue) -> any Sendable {
-            switch value {
-            case .null: NSNull()
-            case .bool(let bool): bool
-            case .int(let int): int
-            case .double(let double): double
-            case .string(let string): string
-            case .array(let array): array.map(sendable)
-            case .object(let object): object.mapValues(sendable)
-            }
+        /// Text as tokens, without the tokens a tokenizer adds around a whole input.
+        func tokens(of text: String) -> [Int] {
+            tokenizer.encode(text: text, addSpecialTokens: false)
         }
     }
 
@@ -126,10 +95,10 @@
             if let temperature { parameters.temperature = Float(max(0, temperature)) }
             let iterator = try TokenIterator(
                 input: LMInput(tokens: MLXArray(suffix)), model: context.model, cache: cache, parameters: parameters)
-            let tools = prompt.tools.compactMap { MLXPromptTokenizer.sendable($0) as? [String: any Sendable] }
+            let tools = ChatTemplateValues.tools(prompt.tools)
             let (stream, task) = generateTask(
                 promptTokenCount: suffix.count, modelConfiguration: context.configuration,
-                tokenizer: context.tokenizer, iterator: iterator, tools: tools.isEmpty ? nil : tools,
+                tokenizer: context.tokenizer, iterator: iterator, tools: tools,
                 toolCallPolicy: parameters.toolCallPolicy)
             var generated = 0
             var recognised = false
@@ -162,6 +131,36 @@
                     }
                 }
             }
+            return generated
+        }
+
+        /// Free generation from the whole prompt on a cache of its own, streamed a token at a time as text, until
+        /// `emit` answers false or generation stops: the thinking before a schema reply. The generation task is
+        /// cancelled and drained before this returns, so the constrained generation that follows never overlaps it on
+        /// the GPU, as the bridge's think-then-call phase does.
+        ///
+        /// - Throws: `CancellationError` when the request is cancelled; runtime failures.
+        nonisolated(nonsending) func think(
+            prompt: [Int], maxTokens: Int, temperature: Double?, emit: @escaping @Sendable (String) async -> Bool
+        ) async throws -> [Int] {
+            var parameters = GenerateParameters(maxTokens: max(1, maxTokens))
+            if let temperature { parameters.temperature = Float(max(0, temperature)) }
+            let (stream, task) = try generateTokensTask(
+                input: LMInput(tokens: MLXArray(prompt)), cache: try makeCache(), parameters: parameters,
+                context: context)
+            var detokenizer = NaiveStreamingDetokenizer(tokenizer: context.tokenizer)
+            var generated: [Int] = []
+            for await event in stream {
+                guard case .token(let token) = event else { continue }
+                generated.append(token)
+                detokenizer.append(token: token)
+                guard let chunk = detokenizer.next() else { continue }
+                if await !emit(chunk) || Task.isCancelled { break }
+            }
+            task.cancel()
+            await task.value
+            Stream.gpu.synchronize()
+            try Task.checkCancellation()
             return generated
         }
 

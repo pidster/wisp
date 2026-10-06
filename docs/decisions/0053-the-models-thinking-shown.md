@@ -81,3 +81,7 @@ the declared `reasoning` that set it before; it has no levels, since the templat
 is unaffected: the slot keeps the rendered prompt, which never holds the thinking. Probed on this Mac on
 2026-10-06 with `mlx:Qwen3-1.7B-4bit` and `mlx.think: true`: 181 tokens of thinking in 2.0 s, shown and folded, and the
 reply `No.` without a tag; `mlx.think: false` gave a 6-token reply with no thinking.
+
+What `mlx.think` unset means changed the same day ([ADR 0052](0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06,
+"the MLX gap"): a model declared `reasoning` is still asked to think, and any other is left to its template's default
+instead of being told not to, as an unset `ollama.think` leaves a model to Ollama; a schema reply thinks first.

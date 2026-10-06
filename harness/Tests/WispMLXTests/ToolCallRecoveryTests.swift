@@ -93,3 +93,24 @@ import WispCore
         #expect(ToolCallRecovery.chatTemplate(in: directory) == "sidecar")
     }
 }
+
+/// The values a chat template reads (ADR 0052, refined 2026-10-06).
+@Suite struct ChatTemplateValuesTests {
+    /// A null is an empty optional, which the template engine reads as `none`; `NSNull`, which it cannot convert,
+    /// made every request after a tool call with a null argument fail to render.
+    @Test func aNullIsAnEmptyOptionalNotNSNull() throws {
+        let null = ChatTemplateValues.value(.null)
+        #expect(!(null is NSNull))
+        #expect(Mirror(reflecting: null).displayStyle == .optional && Mirror(reflecting: null).children.isEmpty)
+        let message = ChatTemplateValues.message(
+            ChatMessage(
+                role: "assistant", content: "",
+                toolCalls: [.init(name: "read_file", arguments: ["path": "/a", "offset": .null])]))
+        let calls = try #require(message["tool_calls"] as? [[String: any Sendable]])
+        let function = try #require(calls.first?["function"] as? [String: any Sendable])
+        let arguments = try #require(function["arguments"] as? [String: any Sendable])
+        #expect(arguments["path"] as? String == "/a" && !(arguments["offset"] is NSNull))
+        #expect(ChatTemplateValues.tools([]) == nil)
+        #expect(ChatTemplateValues.tools([["type": "function"]])?.count == 1)
+    }
+}

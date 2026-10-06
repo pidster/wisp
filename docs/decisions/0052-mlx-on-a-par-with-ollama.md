@@ -267,3 +267,74 @@ sends, is malformed. Leaving the framework's schema keys out was not done: it wo
 Ollama's too, on the evidence of one 90M model, and stays an open question. In a scratch home the check then gave H1R tool calling passed in
 8.2 s, Instruct and Tiny failed (0.5 s for Tiny, which now stops at its turn's end).
 
+
+**Refined 2026-10-06: the MLX gap, thinking left to the template.** `scripts/check eval compare` on the same weights
+through both runtimes (`mlx:Qwen3-1.7B-4bit` under wisp's executor, `ollama:qwen3:1.7b`, Q4_K_M) found wisp's MLX
+path far behind on multi-step tool work and drafting: `edit_file` 2/30 against 20/30, drafts 4/10, 0/2, 0/2 against
+9/10, 1/2, 2/2, schema 4/6 against 6/6, and MLX's `edit_file` cases ending in 1.3 s against Ollama's 12 s. Every MLX
+`edit_file` failure made no `edit_file` call: the model called `read_file`, then replied with the file's lines
+verbatim and stopped.
+
+*The cause* was the thinking toggle, not the executor's mechanics. This decision asked for thinking only when
+`reasoning` was declared, so an undeclared Qwen3 was rendered with `enable_thinking: false` (the empty
+`<think>\n\n</think>` block). Ollama sends no `think` unless `ollama.think` is set, and Qwen3 then thinks; its
+`edit_file` runs showed `model.reasoning` events before each call. Probed on this Mac, each hypothesis with the
+smallest experiment:
+
+- *Thinking.* The case's second request (after `read_file`), sampled ten times at the executor's defaults: no
+  `edit_file` call in 10 with `enable_thinking: false`, a call in 8 of 10 with it on. Through the CLI in a scratch
+  home, `mlx.think: true` made the case pass (18 s, thinking before both calls).
+- *Ollama without thinking.* The same suites on `ollama:qwen3:1.7b` with `ollama.think: false`: `edit_file` 19/30,
+  drafts 8/10, 2/2, 2/2, schema 5/6. So turning thinking off does not cost Ollama's weights what it cost MLX's.
+  Ollama's exact rendering of wisp's second request (Ollama 0.35.1's own template code run over the captured
+  `/api/chat` body; 829 tokens, the count its server logged) fed to the MLX weights: 0 calls in 12; the same text
+  through Ollama's raw endpoint: 8 in 8. The same text on `mlx-community/Qwen3-4B-4bit` and on `Qwen/Qwen3-4B`
+  (bf16) through the same MLX runtime: 12 in 12 each. Without thinking, the gap is in the 1.7B 4-bit MLX conversion's
+  weights, not in the prompt wisp renders or the runtime.
+- *The prompt.* Leaving the framework's `title`, `x-order`, and `additionalProperties` out of the tool schemas, and
+  adding Qwen3's `/no_think` as Ollama's template does with `think: false`: 0 calls in 12 for each variant.
+- *Prefix reuse.* Greedy, the second request with the slot warmed by the first (707 of 765 tokens reused) and on a
+  fresh slot: identical without thinking; with thinking they part after some sixty tokens (chunked prefill's
+  rounding) and both end in the same `edit_file` call. No corruption.
+- *The split and the parsing.* With thinking on, the call after the thinking was recognised every time; nothing was
+  dropped.
+- *Sampling.* MLX samples at mlx-swift-lm's defaults, temperature 0.6, top-p 1, no top-k, as the bridge does; the
+  mlx-community snapshot has no `generation_config.json`; Ollama's Modelfile adds top-p 0.95 and top-k 20. Without
+  thinking all twelve MLX samples were the same echo, so truncating the tail would not change it. Left as it is.
+
+Ollama with thinking also lets a model think before a `format` applies (a schema request with `think` unset returned
+`thinking` and then the JSON); this executor constrained a schema reply from its first token.
+
+*Changes*, tested without MLX over the fake runtime:
+
+- `mlx.think` unset no longer turns thinking off: a model declared `reasoning` is asked to think, and any other is
+  rendered without `enable_thinking`, so its template's default holds, as an unset `ollama.think` leaves a model to
+  Ollama. `mlx.think` still decides when set. Counting renders the same way. The bridge is unchanged: it turns
+  thinking off unless `reasoning` is declared.
+- A schema reply on a model whose template marks thinking, unless `enable_thinking` is false, thinks first: free
+  generation on a cache of its own until the block closes (`ThinkingPhase`), streamed and counted as reasoning, at
+  most half the reply's budget; the xgrammar loop then starts from the prompt and the thinking's own tokens through
+  the closing tag, as the bridge's think-then-call phase prefills them. A block cut off is closed with the template's
+  tag; a model that begins its reply without thinking is constrained from the prompt.
+- A null in a past tool call's arguments rendered as `NSNull`, which the template engine cannot convert ("Cannot
+  convert value of type NSNull to Jinja Value"), so every later request of that thread failed to render. Found by the
+  probe, not by the evals: the framework records MLX's calls without the nulls Ollama's carry. A null is now the
+  engine's `none`, written `null` as Ollama writes it. The conversion (`ChatTemplateValues`) moved out of the
+  MLX-only file so the gate tests it.
+
+*After*, the same suites, same day, both runtimes in one `eval compare` run (not recorded):
+
+| Suite | MLX before | MLX after | Ollama (thinking, the default) | Ollama, `think: false` |
+| --- | --- | --- | --- | --- |
+| `edit_file` | 2/30, 1.3 s | 13/30, 14.3 s | 20/30, 12 s, then 15/30, 12.6 s | 19/30, 1.5 s |
+| Drafts, small / medium / large | 4/10, 0/2, 0/2 | 7/10, 1/2, 1/2 | 9/10, 1/2, 2/2 both runs | 8/10, 2/2, 2/2 |
+| Schema | 4/6 | 5/6, 6.4 s | 6/6, then 5/6 | 5/6 |
+| `edit_file` on the bridge (`mlx.executor: "bridge"`) | 6/30, 2.2 s; 24 of 30 made no `edit_file` call | unchanged code | | |
+
+The gap on `edit_file` closes to within Ollama's own run-to-run spread (20 and 15 of 30 on the same code); MLX's
+failures are now Ollama's kind, a wrong line or lost indentation, and three cases of 30 ended without a reply. Drafts
+come close; MLX is two to three times slower on them, its thinking longer, and on the large band 114 s a case against
+38 s. *The executor decision*: wisp's executor stays the default for 0.20.0. The bridge scored 6/30 on `edit_file`, failing as wisp's
+executor did (24 of 30 made no `edit_file` call), since it also turns thinking off for an undeclared model, and it lacks the window's enforcement, usage,
+and prefix reuse. What 0.20.0 still measures is listed above; this answers its "MLX against Ollama" item for
+Qwen3-1.7B on these suites.

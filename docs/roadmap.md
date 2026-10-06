@@ -94,7 +94,12 @@ The release given to measurement, once the four before it are out:
 - **MLX against Ollama**, for the same models, now that 0.19.0 has MLX on a par, with the rest of what
   [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must measure" (in its
   Consequences): the bridge against wisp's executor, prefix reuse, the cache's real cost per token, the windows
-  sized for common models, the pull against the real Hub, and Core AI past its bundle's window.
+  sized for common models, the pull against the real Hub, and Core AI past its bundle's window. Measured for
+  `Qwen3-1.7B-4bit` on 2026-10-06 ([measurements.md](measurements.md), "MLX against Ollama"): MLX was far behind on
+  `edit_file` (2/30 against 20/30) and drafts because wisp told an undeclared model not to think, where Ollama lets it;
+  fixed (ADR 0052, refined 2026-10-06), MLX scores 13/30 against Ollama's 15/30 in the same run, drafts 7/10, 1/2,
+  1/2 against 9/10, 1/2, 2/2, slower. wisp's executor stays the default; the bridge scored 6/30 on `edit_file`, failing as the executor did before. The
+  rest of the list is still to measure.
 - **gemma4's window.** Built ([ADR 0043](decisions/0043-context-window-from-memory.md), refined 2026-10-04).
   `wisp models` on 2026-10-04 showed `ollama:gemma4:12b` and `gemma4:26b` at 8,192 tokens from `default`: Ollama
   reports gemma4's key-value heads and sliding-window attention per layer, as arrays, and sizing read only a

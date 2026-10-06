@@ -222,6 +222,7 @@ public struct MLXBackend: ModelBackend {
                 configuration: ModelConfiguration(directory: url), capabilities: capabilities,
                 weightsLocation: { _ in url },
                 load: { _, _ in try await loadModelContainer(from: url, using: #huggingFaceTokenizerLoader()) })
+            // The bridge asks for thinking only when `reasoning` is declared, and turns it off otherwise.
             let thinking = capabilities.contains(.reasoning)
             return ResolvedModel(
                 selection: selection, custom: model, capabilitySource: declared ? .configuration : .undeclared,

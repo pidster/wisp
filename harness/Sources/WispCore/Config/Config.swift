@@ -316,7 +316,8 @@ public struct Config: Codable, Equatable, Sendable {
         /// What runs MLX models: `wisp`, wisp's own executor (the default), or `bridge`, mlx-swift-lm's.
         public var executor: MLXExecutorChoice?
         /// Whether a model whose chat template takes `enable_thinking` is asked to think; unset asks a model the
-        /// operator declared `reasoning` for, and no other (ADR 0053).
+        /// operator declared `reasoning` for, and leaves every other to its template's default, as an unset
+        /// `ollama.think` leaves a model to Ollama's (ADR 0053; ADR 0052, refined 2026-10-06).
         public var think: Bool?
 
         /// Creates settings; nil takes the defaults.
@@ -619,8 +620,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var mlxContextLength: Int?
         /// What runs MLX models.
         public var mlxExecutor: MLXExecutorChoice = .wisp
-        /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil follows its
-        /// declared `reasoning`.
+        /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil asks one declared
+        /// `reasoning` and leaves the others to the template's default.
         public var mlxThink: Bool?
         /// Whether notifications are posted.
         public var notificationsEnabled: Bool = true

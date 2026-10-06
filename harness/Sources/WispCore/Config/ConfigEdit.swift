@@ -102,7 +102,7 @@ public enum ConfigSettings {
             kind: .choice(MLXExecutorChoice.allCases.map(\.rawValue))),
         Setting(
             path: "mlx.think",
-            summary: "whether an MLX model whose template takes enable_thinking thinks; unset follows its reasoning",
+            summary: "whether an MLX model thinks (enable_thinking); unset, declared reasoning or its template's",
             kind: .flag),
         Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
         Setting(
@@ -162,7 +162,7 @@ public enum ConfigSettings {
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
         case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
         case "mlx.executor": return .string(d.mlxExecutor.rawValue)
-        case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("as the model's declared reasoning")
+        case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("declared reasoning, else the template's")
         case "assessment.enabled": return .bool(d.assessmentEnabled)
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
         case "assessment.taskChanges": return .string(d.assessmentTaskChanges.rawValue)
