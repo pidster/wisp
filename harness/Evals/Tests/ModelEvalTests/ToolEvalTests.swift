@@ -45,14 +45,52 @@ struct ToolEvalTests {
         ]
         for selection in EvalModels.selections {
             guard let model = EvalModels.resolve(selection, for: ["edit_file"]) else { continue }
-            try await editFile(cases, in: dir, on: model)
+            try await editFile(
+                cases, in: dir, on: model, suite: "edit_file", task: "edit_file.replace",
+                notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
+                    + "attempted three times each; a pass is the file ending up exactly as intended",
+                floor: true)
+        }
+    }
+
+    /// Whitespace-only rewrites of one numbered line: indent, dedent, tabs to spaces, trailing spaces stripped. The
+    /// cases where keeping a line's indentation must not apply (ADR 0024, refined 2026-10-06), measured apart from
+    /// `edit_file.replace` so that score keeps its thirty cases. No floor: added 2026-10-06, before the configured
+    /// model was measured on it.
+    @Test func rewritesWhitespaceExactlyWithEditFile() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cases: [(name: String, before: String, find: String, replacement: String)] = [
+            ("k.py", "def f():\nreturn 1\n", "return 1", "    return 1"),
+            ("l.py", "x = 1\n    y = 2\n", "    y = 2", "y = 2"),
+            ("m.go", "func f() int {\n\treturn 1\n}\n", "\treturn 1", "    return 1"),
+            ("n.txt", "first line   \nsecond line\n", "first line   ", "first line"),
+        ]
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["edit_file.whitespace"]) else { continue }
+            try await editFile(
+                cases, in: dir, on: model, suite: "edit_file.whitespace", task: "edit_file.whitespace",
+                notes: "read a small file with read_file, then change only one numbered line's whitespace with "
+                    + "edit_file (indent, dedent, tabs to spaces, trailing spaces), four files attempted three times "
+                    + "each; a pass is the file ending up exactly as intended",
+                floor: false)
         }
     }
 
     /// The edit_file cases on one model, each attempted three times.
+    ///
+    /// - Parameters:
+    ///   - cases: Each file's name, its content, the line's text, and the line as it should end up.
+    ///   - dir: The scratch directory the files are written in.
+    ///   - model: The model measured.
+    ///   - suite: The column of the summary table.
+    ///   - task: The measurement's task.
+    ///   - notes: The measurement's notes.
+    ///   - floor: Whether the release's floor (half) applies on the configured model.
+    /// - Throws: A file error writing a case's file.
     private func editFile(
         _ cases: [(name: String, before: String, find: String, replacement: String)], in dir: URL,
-        on model: ResolvedModel
+        on model: ResolvedModel, suite: String, task: String, notes: String, floor: Bool
     ) async throws {
         let selection = model.selection
         let attempts = 3
@@ -87,14 +125,12 @@ struct ToolEvalTests {
                     + (ok ? "" : "file=\(after.replacingOccurrences(of: "\n", with: "⏎")) calls=\(calls ?? [])"))
         }
         let total = cases.count * attempts
-        EvalModels.result("edit_file", on: selection, passed: passed, total: total, milliseconds: times)
+        EvalModels.result(suite, on: selection, passed: passed, total: total, milliseconds: times)
         try? Measurements.report(
             Measurement(
-                task: "edit_file.replace", tool: "edit_file", model: selection.description, passed: passed,
-                total: total,
-                notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
-                    + "attempted three times each; a pass is the file ending up exactly as intended"))
-        if EvalModels.floorsApply(to: selection) {
+                task: task, tool: "edit_file", model: selection.description, passed: passed, total: total,
+                notes: notes))
+        if floor, EvalModels.floorsApply(to: selection) {
             #expect(passed * 2 >= total, "edit_file replace passed \(passed)/\(total)")
         }
     }

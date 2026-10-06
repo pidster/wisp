@@ -40,6 +40,14 @@ Fixed:
 - An MLX conversation no longer breaks after a tool call whose arguments hold a `null`: every later request failed
   with "Cannot convert value of type NSNull to Jinja Value".
 
+Changed:
+
+- `edit_file`'s line edits forgive two slips small models make, without guessing. A rewritten line sent without
+  its indentation (`return 10` for `    return 10`) keeps the old line's, unless only whitespace changes, so a
+  deliberate indent, dedent, or tab-to-space edit is written exactly. A stale line number with `find` edits the one
+  line that holds `find`; none or several still change nothing. The result says when either applied and shows the
+  edited line as it now reads, for example `line 2 now: "    return 10"`.
+
 Added:
 
 - `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built

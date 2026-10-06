@@ -50,3 +50,32 @@ gate, and Seatbelt; `read_file` runs the gate's rules only; `inspect` and `curre
 - Tests without the model: confinement including symlinks and look-alike siblings, every failure,
   each edit and its rendering (`FileWriterTests`); the tool's gate refusal, audit event, receipt
   entry, and classifier levels (`ToolWrapperTests`, `ReceiptTests`).
+
+**Refined 2026-10-06: line edits forgive two slips, without guessing.** `scripts/check eval compare` on Qwen3-1.7B
+(log `eval-20261006-143217.log`) classified the failed line edits, MLX then Ollama: the new line written without its
+indentation (asked for `    return 10`, the model sent `return 10`) 8 and 7; the wrong line, off by one, 6 and 4;
+further off, 5 and 3; no call, 3 and 1; several calls, 3 and 0. Larger models rarely fail this way (granite4.1:8b
+28/30, gemma4:12b 30/30). Several of the wrong lines came with a `find` that named the right one. Three rules, each
+acting only on an exact condition and saying what it did, so the principle above stands: exact text, nothing guessed.
+
+- **Keep indentation, narrowly.** With `line`, when `content` is not empty and starts with neither a space nor a tab,
+  the old line starts with spaces or tabs, and the two differ by more than whitespace at their ends, the line keeps
+  its indentation, and the result says so ("keeping the line's indentation (4 spaces)"). Every other content is
+  written exactly, so a deliberate indent, dedent (the stripped texts equal), tabs to spaces, or trailing spaces
+  stripped is not touched. The blind spot is a text change and a dedent to column zero in one edit: it keeps the
+  indentation, and the result line tells the model, which can redo it in two steps or by `find`.
+- **Reconcile `line` with `find`.** When the numbered line does not contain `find` and exactly one line of the file
+  does, that line is edited and the result says so ("line 2 did not contain "return 1"; replaced line 3 …, the one
+  line that does"). On no line or several, nothing changes, with the error as before. A number past the end is
+  still an error.
+- **Show the result.** A replacement's result ends with the edited line as it now reads (`line 3 now: "    return
+  10"`), escaped so whitespace shows and cut at 200 characters; a `find` replacement over several lines shows the
+  first three.
+
+Measured before and after the same day ([measurements.md](../measurements.md), "edit_file's line rules"), with a
+new measurement `edit_file.whitespace` (four whitespace-only edits, three attempts each) kept apart so
+`edit_file.replace` stays comparable: `mlx:Qwen3-1.7B-4bit` 11/30 to 27/30 and 9/12 to 11/12, `ollama:qwen3:1.7b`
+16/30 to 19/30 and 9/12 to 11/12, `ollama:llama3.2:3b` 3/30 to 1/30 and 5/12 to 3/12 (its failures are a `line` sent
+as text, refused before the tool runs), and `ollama:granite4.1:8b`, after only, 27/30 and 11/12 (its four failures an
+empty `find` beside a right `line`, which changed nothing before the rules too). No dropped indentation or stale
+number with `find` remained. Tested without the model in `FileWriterTests`.

@@ -52,7 +52,8 @@ public struct EditFileTool: WispTool {
             ?? "No write confinement (the sandbox is off)"
         return
             "\(confinement). replace loads files up to \(writer.maxBytes) bytes and needs exactly one match. "
-            + "With line, content is the whole new line and find, if given, must be on it. "
+            + "With line, content is the whole new line, keeping the old line's indentation when it has none and "
+            + "more than whitespace changes; find, if given, must be on that line or on exactly one other. "
             + "Every edit passes the risk classifier and needs the user's approval at moderate and above."
     }
     /// How to ask for it.
@@ -77,7 +78,8 @@ public struct EditFileTool: WispTool {
     /// Refusals and errors are returned as text so the model can react.
     ///
     /// - Parameter arguments: Path, mode, content, and for replace the text to find.
-    /// - Returns: One line saying what changed, or `error: …`.
+    /// - Returns: One line saying what changed, and for a replacement the edited lines as they now read, or
+    ///   `error: …`.
     public func call(arguments: Arguments) async -> String {
         let edit: FileWriter.Edit
         switch arguments.mode.trimmingCharacters(in: .whitespaces).lowercased() {

@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (prepared) | The assessment reconsidered (built, to measure); MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built) |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (prepared) | The assessment reconsidered (built, to measure); MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
@@ -133,6 +133,13 @@ The release given to measurement, once the four before it are out:
   comparison, 2026-10-04". Follow-ups: read Mistral's `name[ARGS]{…}` calls from a reply's text, which
   `ministral-3:14b` makes and its template leaves unparsed (built on 2026-10-06, [backends.md](backends.md),
   "Ollama"; not re-measured); and the gemma4 models as labellers for training sets.
+- **`edit_file`'s line edits forgiving.** Built ([ADR 0024](decisions/0024-edit-file.md), refined 2026-10-06). The
+  1.7B models' failed line edits were mostly a line written without its indentation and a stale number, often with
+  a `find` naming the right line. A line that lost its indentation keeps it unless only whitespace changes, a stale
+  number with `find` edits the one line holding it, and the result shows the line as it now reads. Measured before
+  and after ([measurements.md](measurements.md), "edit_file's line rules"): `mlx:Qwen3-1.7B-4bit` 11/30 to 27/30,
+  `ollama:qwen3:1.7b` 16/30 to 19/30, granite4.1:8b unharmed at 27/30, with a new `edit_file.whitespace`
+  measurement. Follow-up: an empty `find` beside `line` checks nothing yet changes nothing (granite's four failures).
 - **Falcon candidates**, chosen on 2026-10-04 from the Hugging Face listings: `mlx:Falcon-H1R-7B-4bit`, a
   reasoning model for the complex-work slot that `qwen3.8:27b` holds at a quarter of its size, and
   `mlx:Falcon-H1-7B-Instruct-4bit`, a delegation-default candidate against `granite4.1:8b`, in a second

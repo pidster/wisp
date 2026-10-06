@@ -30,6 +30,7 @@ Mac on one day; it is evidence, not a certification.
 | `context.dropping.recalling[…]`, `context.memory-target.recalling[…]`, `context.memory.recalling[…].budget-50`, `context.summary-target.recalling[…].budget-50`, `context.assessing[-task\|-all]-target.recalling[…].budget-50.all-tools` | `ContextEvalTests`, the layered-context design's checkpoint ([ADR 0045](decisions/0045-layered-context.md)): the `recalling` scenario (15 turns, then seven questions) at a window of 8,192, through dropping, the whole design (`memory-target`), phase 2's fixed four turns (`memory`), the design without `memory` (`summary-target`), and the assessment per request in its three tool sets; `[…]` is `.window-8192` for granite, `.budget-50` for half the window, and `.all-tools` for every built-in tool offered | a reply containing the expected phrase, as above, plus a detail of the first file read that no fact or summary carries. The notes carry the condensations, the fill after condensing and the turns between condensations, the distillations' times, the `memory` calls, the median tokens, and the load average |
 | `context.<strategy>.checkpoint.<cell>` | `ContextCheckpointTests`, context checkpoint 2 ([below](#context-checkpoint-2)): the `sustained` scenario (29 turns, then ten questions) and the `recalling` one, through the cells of each part; recorded only with `record` | as the context eval's, above; the notes add the model switches |
 | `edit_file.replace` | `ToolEvalTests`, ten small files | after read_file then edit_file replace by line number, the file is exactly as intended |
+| `edit_file.whitespace` | `ToolEvalTests`, four small files, three attempts each: indent a line, dedent one, tabs to spaces, trailing spaces stripped | as `edit_file.replace`; kept apart so that measurement stays thirty cases. No floor yet |
 | `respond.schema` | `ToolEvalTests`, six code snippets | the schema-shaped reply parses and names the language |
 
 Classifier measurements also carry `p50Milliseconds` and `p95Milliseconds`, the latency per verdict,
@@ -196,6 +197,38 @@ Ollama's two runs on the same code differ by five `edit_file` cases, so MLX afte
 are close on content and two to three times slower. Without thinking the MLX conversion of the 1.7B weights fails
 the tool loop where Ollama's quantisation does not, on the very same prompt; the 4B model does not have that
 weakness on MLX.
+
+### edit_file's line rules, 2026-10-06
+
+The two line-edit rules of [ADR 0024](decisions/0024-edit-file.md) (refined 2026-10-06: a line that lost its
+indentation keeps it, and a stale number with `find` moves to the one line holding it) and the edited line shown in
+the result, measured before and after with a copy of the script whose `EVAL_COMPARE_SUITES` named only the two
+`edit_file` measurements (not recorded). Before is the code without the rules; `llama3.2:3b` ran with a scratch
+`WISP_HOME` whose config did not disable it; `granite4.1:8b` was run after only, to check a strong model is not
+harmed (28/30 on `edit_file.replace` on 2026-10-04).
+
+| Model | `edit_file.replace` before | after | `edit_file.whitespace` before | after |
+| --- | --- | --- | --- | --- |
+| `ollama:qwen3:1.7b` | 16/30, 7.3 s a case | 19/30, 11.9 s | 9/12 | 11/12 |
+| `mlx:Qwen3-1.7B-4bit` | 11/30, 15.1 s | 27/30, 13.4 s | 9/12 | 11/12 |
+| `ollama:llama3.2:3b` | 3/30 | 1/30 | 5/12 | 3/12 |
+| `ollama:granite4.1:8b` | not run | 27/30, 8.9 s | not run | 11/12 |
+
+What failed, from each failing case's last call (`edit_file.replace`, then `edit_file.whitespace`):
+
+| Model | Before | After |
+| --- | --- | --- |
+| `ollama:qwen3:1.7b` | indentation dropped 7 / 1; wrong line, off by one 1 / 1, further 6 / 0; the turn ended in an error 0 / 1 | wrong line, off by one 3, further 7, all without `find`; an error 1 / a `find`-only call 1 |
+| `mlx:Qwen3-1.7B-4bit` | indentation dropped 10, two of them after several calls; wrong line with `find` 4; wrong content 1; "Session ended without producing a response" 4 / wrong whitespace sent 3 | that error 3 / 1 |
+| `ollama:llama3.2:3b` | no call, the turn ending in an error 9 / 2 (the run's 11 errors all `line` sent as text, refused before the tool ran: "GeneratedContent does not contain Double"); neither `line` nor `find` 8 / 2; other 10 / 3 | no call, an error 20 / 5 (the run's 23 errors: 22 `line` as text, one Ollama timeout); neither 3 / 3; other 6 / 1 |
+| `ollama:granite4.1:8b` | | `find` sent empty with a right `line` 3 / 1: an empty `find` is on no line, so nothing changed |
+
+The rules removed every failure they were for: no dropped indentation and no stale number with `find` remain, and no
+whitespace case was spoiled by the indentation rule. What is left is a wrong number without `find` (the Ollama
+1.7B), which nothing can safely repair, and failures before the tool runs (`llama3.2:3b`'s text `line`, MLX's empty
+sessions). Runs on the same code differ by up to five cases ("MLX against Ollama", above), so the Ollama 1.7B's
+gain and `llama3.2:3b`'s loss are within that spread; MLX's 11 to 27 is not. granite's four failures predate the
+rules: an empty `find` beside a right `line` has always changed nothing.
 
 The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The

@@ -6,7 +6,10 @@ import Foundation
 /// Three edits: write the whole file (created if absent), append, or replace: one exact occurrence of
 /// a piece of text, or one numbered line as `read_file` numbered it. Replacement demands exactly one
 /// match, or a line that still holds what the model expects, so it cannot change more than it showed
-/// it meant to. Every write is atomic: a temporary file beside the target, renamed over it.
+/// it meant to. Two refinements forgive a small model's commonest slips without guessing (ADR 0024, refined
+/// 2026-10-06): a rewritten line that lost its indentation keeps the old line's, and a stale number with a
+/// `find` that is on exactly one other line edits that line. Each says so in the result, which also shows
+/// the line as it now reads. Every write is atomic: a temporary file beside the target, renamed over it.
 /// Nothing here creates directories or follows the model outside the set.
 public struct FileWriter: Sendable {
     /// What to do to the file.
@@ -18,7 +21,9 @@ public struct FileWriter: Sendable {
         /// Replace the one occurrence of `find` with `replacement`.
         case replace(find: String, replacement: String)
         /// Replace the whole 1-based `line` with `content`; when `expecting` is given the line must
-        /// contain it, so a stale number changes nothing.
+        /// contain it, or else `expecting` must be on exactly one line of the file, which is edited instead,
+        /// so a stale number changes nothing it should not. A `content` without indentation for a line
+        /// with some keeps the line's indentation unless only whitespace differs (`FileWriter.indented`).
         case replaceLine(Int, content: String, expecting: String?)
 
         /// The spelling the model uses and the audit records.
@@ -33,6 +38,14 @@ public struct FileWriter: Sendable {
 
     /// What an edit did.
     public struct Result: Equatable, Sendable {
+        /// A line edit whose number did not hold `find`, moved to the one line that does.
+        public struct Moved: Equatable, Sendable {
+            /// The line number the model gave.
+            public var line: Int
+            /// The text that line did not contain.
+            public var find: String
+        }
+
         /// The path as given.
         public var path: String
         /// The edit's mode.
@@ -45,14 +58,73 @@ public struct FileWriter: Sendable {
         public var bytesAfter: Int
         /// For a replacement, the 1-based line where it started.
         public var line: Int?
+        /// For a line edit moved to the one line holding `find`: the number the model gave, and `find`.
+        public var movedFrom: Moved?
+        /// For a line edit that kept the old line's indentation, that indentation.
+        public var keptIndentation: String?
+        /// For a replacement, the first `shownLines` edited lines as they now read.
+        public var nowReads: [String] = []
+        /// For a replacement, how many lines it edited; more than `nowReads` holds when it spans many.
+        public var editedLines = 0
 
-        /// Model-facing rendering.
+        /// How many edited lines a result shows.
+        static let shownLines = 3
+        /// How many characters of each shown line a result keeps.
+        static let shownCharacters = 200
+
+        /// Model-facing rendering: what happened, in one line, and for a replacement the edited lines as
+        /// they now read, so a model that got it wrong can see it.
         public var rendered: String {
             switch mode {
-            case "replace": "replaced at line \(line ?? 0) of \(path); now \(bytesAfter) bytes"
-            case "append": "appended to \(path); now \(bytesAfter) bytes"
-            default: "\(created ? "created" : "wrote") \(path); now \(bytesAfter) bytes"
+            case "replace":
+                let place =
+                    if let movedFrom {
+                        "line \(movedFrom.line) did not contain \(Self.quoted(movedFrom.find)); replaced line "
+                            + "\(line ?? 0) of \(path), the one line that does"
+                    } else {
+                        "replaced at line \(line ?? 0) of \(path)"
+                    }
+                let kept = keptIndentation.map { ", keeping the line's indentation (\(Self.describe($0)))" } ?? ""
+                return "\(place)\(kept); now \(bytesAfter) bytes\(shown)"
+            case "append": return "appended to \(path); now \(bytesAfter) bytes"
+            default: return "\(created ? "created" : "wrote") \(path); now \(bytesAfter) bytes"
             }
+        }
+
+        /// `; line N now: "…"`, or `; lines N-M now: "…", "…"`, for the edited lines; empty when none.
+        private var shown: String {
+            guard let line, !nowReads.isEmpty else { return "" }
+            let quoted = nowReads.prefix(Self.shownLines).map(Self.quoted).joined(separator: ", ")
+            let count = max(editedLines, nowReads.count)
+            let more = count > nowReads.count ? " (and \(count - nowReads.count) more)" : ""
+            let label = count == 1 ? "line \(line)" : "lines \(line)-\(line + count - 1)"
+            return "; \(label) now: \(quoted)\(more)"
+        }
+
+        /// `text` in double quotes with backslashes, quotes, tabs, and carriage returns escaped, so its
+        /// whitespace is visible, cut at `shownCharacters`.
+        static func quoted(_ text: String) -> String {
+            let cut = text.count > shownCharacters ? String(text.prefix(shownCharacters)) + "…" : text
+            var escaped = ""
+            for character in cut {
+                switch character {
+                case "\\": escaped += "\\\\"
+                case "\"": escaped += "\\\""
+                case "\t": escaped += "\\t"
+                case "\r": escaped += "\\r"
+                default: escaped.append(character)
+                }
+            }
+            return "\"\(escaped)\""
+        }
+
+        /// Indentation in words: `4 spaces`, `1 tab`, `1 tab and 2 spaces`.
+        static func describe(_ indentation: String) -> String {
+            let tabs = indentation.count(where: { $0 == "\t" })
+            let spaces = indentation.count - tabs
+            let parts = [(tabs, "tab"), (spaces, "space")].filter { $0.0 > 0 }
+                .map { "\($0.0) \($0.1)\($0.0 == 1 ? "" : "s")" }
+            return parts.joined(separator: " and ")
         }
     }
 
@@ -185,7 +257,8 @@ public struct FileWriter: Sendable {
             isDirectory.boolValue
         else { throw Failure.noParent(path) }
         let before = exists ? try Data(contentsOf: url) : Data()
-        var line: Int?
+        var result = Result(
+            path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: 0, line: nil)
         let after: Data
         switch edit {
         case .write(let content):
@@ -193,39 +266,94 @@ public struct FileWriter: Sendable {
         case .append(let content):
             after = before + Data(content.utf8)
         case .replace(let find, let replacement):
-            guard before.count <= maxBytes else {
-                throw Failure.tooLarge(path: path, bytes: before.count, limit: maxBytes)
-            }
-            guard !before.contains(0) else { throw Failure.binary(path) }
-            let text = String(decoding: before, as: UTF8.self)
+            let text = try editableText(before, path: path)
             let ranges = text.ranges(of: find)
             guard let range = ranges.first, !find.isEmpty else { throw Failure.notFound(find: find) }
             guard ranges.count == 1 else { throw Failure.ambiguous(find: find, count: ranges.count) }
-            line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
-            after = Data(text.replacingCharacters(in: range, with: replacement).utf8)
+            let line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
+            let replaced = text.replacingCharacters(in: range, with: replacement)
+            // The lines the replacement now covers: one, plus one for each newline it holds, a final one
+            // ending the replacement's last line rather than starting another.
+            let newlines = replacement.count(where: { $0 == "\n" })
+            let edited = max(1, replacement.hasSuffix("\n") ? newlines : newlines + 1)
+            result.line = line
+            result.editedLines = edited
+            result.nowReads = replaced.split(separator: "\n", omittingEmptySubsequences: false)
+                .dropFirst(line - 1).prefix(min(edited, Result.shownLines)).map(String.init)
+            after = Data(replaced.utf8)
         case .replaceLine(let number, let content, let expecting):
-            guard before.count <= maxBytes else {
-                throw Failure.tooLarge(path: path, bytes: before.count, limit: maxBytes)
-            }
-            guard !before.contains(0) else { throw Failure.binary(path) }
-            let text = String(decoding: before, as: UTF8.self)
+            let text = try editableText(before, path: path)
             var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             let count = text.hasSuffix("\n") ? lines.count - 1 : lines.count
             guard number >= 1, number <= count else { throw Failure.noSuchLine(number, lines: count) }
+            var target = number
             if let expecting, !lines[number - 1].contains(expecting) {
-                throw Failure.lineMismatch(number, expected: expecting, actual: lines[number - 1])
+                // A stale number: the one line that holds `expecting` exactly is the line meant; none or
+                // several is not knowable, so nothing changes.
+                let holding = lines[..<count].indices.filter { lines[$0].contains(expecting) }
+                guard holding.count == 1, let only = holding.first else {
+                    throw Failure.lineMismatch(number, expected: expecting, actual: lines[number - 1])
+                }
+                target = only + 1
+                result.movedFrom = .init(line: number, find: expecting)
             }
             // A line has no newline of its own: one trailing newline is dropped, any other is refused,
             // so a model that pastes the page marker or a neighbour cannot corrupt the file.
             let single = content.hasSuffix("\n") ? String(content.dropLast()) : content
             guard !single.contains("\n") else { throw Failure.notOneLine(number) }
-            lines[number - 1] = single
-            line = number
+            let written = Self.indented(single, replacing: lines[target - 1])
+            lines[target - 1] = written.line
+            result.line = target
+            result.keptIndentation = written.kept
+            result.editedLines = 1
+            result.nowReads = [written.line]
             after = Data(lines.joined(separator: "\n").utf8)
         }
         try Self.writeAtomically(after, to: url, replacing: exists)
-        return Result(
-            path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: after.count,
-            line: line)
+        result.bytesAfter = after.count
+        return result
+    }
+
+    /// The file's text for a replacement, once it is known to be small enough and not binary.
+    ///
+    /// - Parameters:
+    ///   - data: The file's bytes.
+    ///   - path: The file, for the errors.
+    /// - Returns: The bytes decoded as UTF-8.
+    /// - Throws: `Failure.tooLarge` or `Failure.binary`.
+    private func editableText(_ data: Data, path: String) throws -> String {
+        guard data.count <= maxBytes else { throw Failure.tooLarge(path: path, bytes: data.count, limit: maxBytes) }
+        guard !data.contains(0) else { throw Failure.binary(path) }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The line to write for `content` in place of `old`, and the indentation kept, if any.
+    ///
+    /// Small models rewrite an indented line without its indentation (asked for `    return 10`, they send
+    /// `return 10`). When `content` has no leading spaces or tabs, `old` has some, and the two differ by
+    /// more than whitespace at their ends, the line keeps `old`'s indentation. Everything else is written
+    /// exactly: an empty line, any content with indentation of its own, and a whitespace-only change
+    /// (`    x` to `x` is a deliberate dedent). The one blind spot, a text change and a dedent to column
+    /// zero in one edit, keeps the indentation, and the result says so, so the model can redo it.
+    ///
+    /// - Parameters:
+    ///   - content: The new line, as the model gave it.
+    ///   - old: The line it replaces.
+    /// - Returns: The line to write, and the indentation it kept from `old` (nil when written exactly).
+    static func indented(_ content: String, replacing old: String) -> (line: String, kept: String?) {
+        let indentation = String(old.prefix(while: isIndentation))
+        guard let first = content.first, !isIndentation(first), !indentation.isEmpty,
+            trimmed(content) != trimmed(old)
+        else { return (content, nil) }
+        return (indentation + content, indentation)
+    }
+
+    /// Whether `character` indents a line: a space or a tab.
+    private static func isIndentation(_ character: Character) -> Bool { character == " " || character == "\t" }
+
+    /// `text` without the spaces and tabs at either end.
+    private static func trimmed(_ text: String) -> Substring {
+        let start = text.drop(while: isIndentation)
+        return start.prefix(start.count - start.reversed().prefix(while: isIndentation).count)
     }
 }

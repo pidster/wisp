@@ -48,7 +48,7 @@ import Testing
                 == "created \(file); now 6 bytes")
         #expect(
             await open.call(arguments: .init(path: file, mode: " Replace ", content: "bye", find: "hello", line: nil))
-                == "replaced at line 1 of \(file); now 4 bytes")
+                == "replaced at line 1 of \(file); now 4 bytes; line 1 now: \"bye\"")
         let write = sink.events.first { $0.kind == .fileWrite }
         #expect(write?.details["mode"] == "write" && write?.details["created"] == true)
         #expect(write?.details["bytesAfter"] == 6 && write?.details["path"] == .string(file))
@@ -58,7 +58,7 @@ import Testing
                 == "error: replace needs line (from read_file) or find (the exact text to replace)")
         #expect(
             await open.call(arguments: .init(path: file, mode: "replace", content: "BYE", find: "bye", line: 1))
-                == "replaced at line 1 of \(file); now 4 bytes")
+                == "replaced at line 1 of \(file); now 4 bytes; line 1 now: \"BYE\"")
         #expect(
             await open.call(arguments: .init(path: file, mode: "replace", content: "x", find: "bye", line: 1))
                 == "error: line 1 does not contain bye; it is: BYE")
