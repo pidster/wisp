@@ -12,7 +12,7 @@ Writes a text file: the whole file, an addition at the end, or one exact replace
 | `mode` | string | yes | `write` replaces the whole file, creating it if absent. `append` adds to the end, creating it if absent. `replace` changes one line, by number or by exact text. |
 | `content` | string | yes | The text to write or append; for `replace` with `line`, the whole new line (see "Line edits" for the one case its indentation is supplied); for `replace` with `find` alone, the replacement for `find` only. |
 | `line` | integer | for `replace` | The 1-based line to rewrite, as `read_file` numbered it. Past the end, nothing changes. Preferred: the model copies a number it just read instead of retyping the text. |
-| `find` | string | for `replace` | Without `line`: the exact existing text to replace, which must occur exactly once. With `line`: text that line must contain; when it does not, the one line of the file that does is edited instead, and when none or several do, nothing changes. |
+| `find` | string | for `replace` | Without `line`: the exact existing text to replace, which must occur exactly once. With `line`: text that line must contain (an empty `find` checks nothing); when it does not, the one line of the file that does is edited instead, and when none or several do, nothing changes. |
 
 Read the file first, then replace by `line`:
 

@@ -87,7 +87,10 @@ public struct EditFileTool: WispTool {
         case "append": edit = .append(arguments.content)
         case "replace":
             if let line = arguments.line {
-                edit = .replaceLine(line, content: arguments.content, expecting: arguments.find)
+                // An empty `find` beside `line` names nothing to check: models such as granite4.1:8b send `""`
+                // for an argument they do not need, which no line contains (2026-10-06).
+                let expecting = arguments.find.flatMap { $0.isEmpty ? nil : $0 }
+                edit = .replaceLine(line, content: arguments.content, expecting: expecting)
             } else if let find = arguments.find, !find.isEmpty {
                 edit = .replace(find: find, replacement: arguments.content)
             } else {

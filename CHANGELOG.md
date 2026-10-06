@@ -8,6 +8,8 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 Fixed:
 
+- `edit_file` with `line` and an empty `find` refused the edit (no line contains an empty string); an empty
+  `find` now checks nothing, as granite4.1:8b sends one for an argument it does not need.
 - `ollama:gemma4:12b` and `gemma4:26b` are sized from memory instead of falling back to 8,192 tokens. Ollama
   reports gemma4's key-value heads and sliding-window layers per layer, which sizing did not read; it now counts
   such a model layer by layer, so only the layers that attend to the whole window (8 of 48 in 12b) grow with it,

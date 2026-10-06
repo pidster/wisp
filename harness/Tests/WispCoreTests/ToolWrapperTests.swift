@@ -62,6 +62,10 @@ import Testing
         #expect(
             await open.call(arguments: .init(path: file, mode: "replace", content: "x", find: "bye", line: 1))
                 == "error: line 1 does not contain bye; it is: BYE")
+        // An empty find beside line checks nothing (granite4.1:8b sends "" for an argument it does not need).
+        #expect(
+            await open.call(arguments: .init(path: file, mode: "replace", content: "BYE", find: "", line: 1))
+                == "replaced at line 1 of \(file); now 4 bytes; line 1 now: \"BYE\"")
         #expect(
             await open.call(arguments: .init(path: file, mode: "delete", content: "x", find: nil, line: nil))
                 == "error: mode must be write, append, or replace")
