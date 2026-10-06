@@ -25,11 +25,22 @@ Fixed:
   turns of its own, and a tool call in a turn it wrote for you was taken as its call.
 - MLX tool calls written as a JSON array in one `<tool_call>` frame, the form Falcon-H1-Tiny-Tool-Calling's
   template asks for, are read as calls; they were left as text.
+- Ollama tool calls written as text in Mistral's own format, `read_file[ARGS]{"path": "…"}`, are read as calls when
+  the reply is exactly such calls. `ollama:ministral-3:14b` writes them and its template leaves them in the reply,
+  so it made almost no calls (0 of 30 `edit_file` cases in the 2026-10-04 comparison). Text that only mentions the
+  format, or names a tool the conversation does not offer, stays the reply.
 
 Added:
 
 - `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built
   with the MLX trait for them (the Metal toolchain is needed then), and runs naming none build as before.
+- An MLX reasoning model's thinking is shown as an Ollama model's is (ADR 0053): `mlx:Qwen3-1.7B-4bit` and other
+  models whose chat template marks a thinking block (`<think>…</think>`) say `thinking` while it lasts, show
+  `∴ thought for 2.0 s, 181 tokens` with the thinking folded under it, count its tokens, and audit it as
+  `model.reasoning`. It used to arrive in the reply, tags and all, when the model thought. The model never gets
+  its thinking back.
+- `mlx.think` (`true` or `false`) asks MLX models whose chat template takes `enable_thinking`, such as Qwen3, to
+  think or not; unset, a model thinks when `reasoning` is declared for it, as before.
 
 ## 0.19.0
 

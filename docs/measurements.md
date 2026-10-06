@@ -151,7 +151,8 @@ the models apart and are left out.
 Decided with the operator the same day: `granite4.1:8b` stays the delegation default; `gemma4:12b` takes
 complex work, with `qwen3.8:27b` for large diffs (AGENTS.md); `llama3.2:3b` and `ministral-3:14b` are not for
 tool work. `ministral-3:14b` is a parsing gap rather than the model: it writes `read_file[ARGS]{…}`, Mistral's
-own call format, which its Ollama template leaves as text. The gemma4 models' 92% as a classifier, at seconds a
+own call format, which its Ollama template leaves as text. Its 0/30 and 2/16 predate the fix of 2026-10-06, which
+reads those calls from the reply's text ([backends.md](backends.md), "Ollama"); it has not been measured since. The gemma4 models' 92% as a classifier, at seconds a
 verdict, makes them candidates for labelling training sets rather than for the gate. `qwen3.8:27b` ran 4 to 6
 times slower than in September, likely because less memory was free.
 

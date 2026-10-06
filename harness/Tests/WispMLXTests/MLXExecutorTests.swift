@@ -10,6 +10,11 @@ import WispCore
 /// tool's name, and a closing assistant marker as the generation prompt. Prefixes behave as a chat template's
 /// do: a conversation's rendering starts with the rendering of every conversation it extends.
 struct WordTokenizer: PromptTokenizer {
+    /// What the end of any rendered prompt reads as, for the thinking split's primed check.
+    var tail = "<assistant>"
+
+    func text(of tokens: [Int]) -> String { tail }
+
     func tokens(for prompt: MLXPrompt) throws -> [Int] {
         var words: [String] = []
         for tool in prompt.tools {
@@ -47,6 +52,8 @@ final class RuntimeLog: Sendable {
 
     let generations = Mutex<[Generation]>([])
     let guided = Mutex<[String]>([])
+    /// Every prompt generated from, in order.
+    let prompts = Mutex<[MLXPrompt]>([])
     let steps: Mutex<[[EngineEvent]]>
 
     init(steps: [[EngineEvent]] = []) { self.steps = Mutex(steps) }
@@ -76,6 +83,7 @@ struct WordRuntime: PromptRuntime {
         emit: @escaping @Sendable (EngineEvent) async -> Void
     ) async throws -> Int {
         log.generations.withLock { $0.append(.init(cached: cache.tokens.count, suffix: suffix.count)) }
+        log.prompts.withLock { $0.append(prompt) }
         cache.tokens += suffix
         let events = log.steps.withLock { $0.isEmpty ? [.text("done")] : $0.removeFirst() }
         for event in events { await emit(event) }
@@ -97,10 +105,10 @@ struct WordRuntime: PromptRuntime {
 /// `PrefixEngine` driving a fake runtime (ADR 0052).
 @Suite struct MLXExecutorTests {
     static func engine(
-        _ log: RuntimeLog, trimmable: Bool = true, extra: Int = 2
+        _ log: RuntimeLog, trimmable: Bool = true, extra: Int = 2, tail: String = "<assistant>"
     ) -> PrefixEngine<WordRuntime> {
         PrefixEngine<WordRuntime>(
-            loadTokenizer: { WordTokenizer() },
+            loadTokenizer: { WordTokenizer(tail: tail) },
             loadRuntime: { WordRuntime(log: log, trimmable: trimmable, extra: extra) })
     }
 

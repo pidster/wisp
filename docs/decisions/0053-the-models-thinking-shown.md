@@ -66,3 +66,18 @@ refusal message: `invalid think value: %q (must be "high", "medium", "low", "max
   `think` in the body only when configured and offered), the stretch's edges, the activity and the protocol flag,
   the rendered line and fold, `/show` and `/inspect thinking`, recall, condensing, the MCP resources, and in
   `wisp-tui` the frames, their order and loop, the wake, the box, and the panel.
+
+**Refined 2026-10-06: MLX's thinking shown.** wisp's MLX executor now does what the Ollama executor does, through
+the same `ThinkingStretch`. MLX streams one text, so the thinking is split from it by the chat template's own tags,
+read from the template rather than assumed: the first tag with `think` in its name whose closing tag the template
+also holds (`<think>` and `</think>` in Qwen3's). `PrefixEngine` splits each streamed chunk
+(`ThinkingSplitter`: a tag split across chunks held until whole, the template's newlines around a tag dropped,
+unclosed thinking kept as thinking, a tool call ending it) and starts inside the block when the rendered prompt's
+end has an unclosed opening tag, as a template that writes it into the generation prompt leaves it. The executor
+sends the thinking as reasoning events, counts a token a chunk within the tokens generated, and tells the turn's
+observer at both edges; the composition leaves the reasoning entry out as for Ollama, so no request carries it.
+`mlx.think` (`true` or `false`) sets the template's `enable_thinking` for a model whose template takes it, overriding
+the declared `reasoning` that set it before; it has no levels, since the template's flag has none. The prefix cache
+is unaffected: the slot keeps the rendered prompt, which never holds the thinking. Probed on this Mac on
+2026-10-06 with `mlx:Qwen3-1.7B-4bit` and `mlx.think: true`: 181 tokens of thinking in 2.0 s, shown and folded, and the
+reply `No.` without a tag; `mlx.think: false` gave a 6-token reply with no thinking.

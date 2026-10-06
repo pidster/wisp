@@ -42,6 +42,11 @@ struct MLXModel: LanguageModel, UsageReporting {
     let capabilities: LanguageModelCapabilities
     /// This model's slot.
     let slot: Slot
+    /// How the chat template marks thinking, when it does; the reply is split by it (ADR 0053).
+    let thinkingFormat: ThinkingFormat?
+    /// Whether the chat template is asked to let the model think: `mlx.think` when set, else whether the operator
+    /// declared `reasoning`.
+    let thinking: Bool
     /// The last request's usage.
     let usage = UsageRecord()
 
@@ -51,15 +56,40 @@ struct MLXModel: LanguageModel, UsageReporting {
     ///   - engine: The engine for the model's directory.
     ///   - window: The context window.
     ///   - capabilities: What the operator declared.
-    init(engine: any PromptEngine, window: Int, capabilities: [LanguageModelCapabilities.Capability]) {
+    ///   - thinkingFormat: How the chat template marks thinking, when it does.
+    ///   - think: `mlx.think`, when set.
+    init(
+        engine: any PromptEngine, window: Int, capabilities: [LanguageModelCapabilities.Capability],
+        thinkingFormat: ThinkingFormat? = nil, think: Bool? = nil
+    ) {
         self.engine = engine
         self.window = window
         self.capabilities = LanguageModelCapabilities(capabilities)
         slot = Slot(engine: engine)
+        self.thinkingFormat = thinkingFormat
+        thinking = think ?? capabilities.contains(.reasoning)
     }
 
-    /// Whether the chat template is asked to let the model think.
-    var thinking: Bool { capabilities.contains(.reasoning) }
+    /// The thinking of one request, as the executor's event callback sees it: a `ThinkingStretch` behind a lock,
+    /// since the callback is `@Sendable`.
+    final class Thoughts: Sendable {
+        /// The stretch.
+        private let stretch: Mutex<ThinkingStretch>
+
+        /// Creates one reporting to the turn's observer, if any.
+        init(observer: ReasoningObserver? = ReasoningObserver.current) {
+            stretch = Mutex(ThinkingStretch(observer: observer))
+        }
+
+        /// Adds a chunk of thinking, one token.
+        func think(_ text: String) { stretch.withLock { $0.think(text) } }
+
+        /// Ends the stretch under way, if any.
+        func end() { stretch.withLock { $0.end() } }
+
+        /// Tokens of thinking in the request.
+        var tokens: Int { stretch.withLock { $0.tokens } }
+    }
 
     /// Input tokens of the last request; nil before the first.
     var lastInputTokens: Int? { usage.inputTokens.withLock { $0 } }
@@ -94,7 +124,8 @@ struct MLXModel: LanguageModel, UsageReporting {
         }
 
         /// Generates through the engine, then reports usage: input as the rendered prompt with the reused
-        /// prefix as cached tokens, output as the tokens generated.
+        /// prefix as cached tokens, output as the tokens generated, the thinking among them. Thinking goes to the
+        /// framework as reasoning and to the turn's observer at its edges (ADR 0053), never into the reply.
         ///
         /// - Throws: `LanguageModelError.contextSizeExceeded` when the prompt does not fit; runtime failures.
         nonisolated(nonsending) func respond(
@@ -109,14 +140,21 @@ struct MLXModel: LanguageModel, UsageReporting {
                     transcript: request.transcript, tools: request.enabledToolDefinitions, thinking: model.thinking),
                 schema: request.schema.map(Self.schemaText), window: model.window,
                 maxTokens: request.generationOptions.maximumResponseTokens,
-                temperature: request.generationOptions.temperature)
+                temperature: request.generationOptions.temperature, thinking: model.thinkingFormat)
             let prefix = request.id.uuidString.lowercased()
+            let thoughts = Thoughts()
             let usage = try await model.engine.respond(engineRequest, slot: model.slot.id) { event in
                 switch event {
+                case .reasoning(let text):
+                    guard !text.isEmpty else { return }
+                    thoughts.think(text)
+                    await channel.send(.reasoning(action: .appendText(text, tokenCount: 1)))
                 case .text(let text):
                     guard !text.isEmpty else { return }
+                    thoughts.end()
                     await channel.send(.response(action: .appendText(text, tokenCount: 1)))
                 case .toolCall(let name, let arguments):
+                    thoughts.end()
                     let completed = schemas[name].map { ChatMessage.completed(arguments, schema: $0) } ?? arguments
                     let encoded = (try? JSONEncoder().encode(completed)) ?? Data("{}".utf8)
                     await channel.send(
@@ -126,12 +164,16 @@ struct MLXModel: LanguageModel, UsageReporting {
                                 action: .appendArguments(String(decoding: encoded, as: UTF8.self), tokenCount: 1))))
                 }
             }
+            thoughts.end()
             model.usage.inputTokens.withLock { $0 = usage.prompt }
+            // The runtime counts every token it generated; the thinking is one a streamed chunk, within that total.
             await channel.send(
                 .response(
                     action: .updateUsage(
                         input: .init(totalTokenCount: usage.prompt, cachedTokenCount: usage.reused),
-                        output: .init(totalTokenCount: usage.generated, reasoningTokenCount: 0))))
+                        output: .init(
+                            totalTokenCount: max(usage.generated, thoughts.tokens),
+                            reasoningTokenCount: thoughts.tokens))))
         }
     }
 }

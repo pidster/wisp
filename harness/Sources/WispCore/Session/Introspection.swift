@@ -125,6 +125,7 @@ public struct Introspection: Sendable {
             "mlx": .object([
                 "contextLength": config.mlxContextLength.map { .int($0) } ?? .string("sized per model (ADR 0052)"),
                 "executor": .string(config.mlxExecutor.rawValue),
+                "think": config.mlxThink.map { .bool($0) } ?? .string("unset"),
             ])
         ]
     }

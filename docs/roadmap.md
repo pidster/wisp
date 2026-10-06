@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded; MLX thinking shown |
+| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built) |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
@@ -121,7 +121,8 @@ The release given to measurement, once the four before it are out:
   it had only read the file.
   Run on 2026-10-04 and 05: results and the decisions in [measurements.md](measurements.md), "The local-model
   comparison, 2026-10-04". Follow-ups: read Mistral's `name[ARGS]{…}` calls from a reply's text, which
-  `ministral-3:14b` makes and its template leaves unparsed; and the gemma4 models as labellers for training sets.
+  `ministral-3:14b` makes and its template leaves unparsed (built on 2026-10-06, [backends.md](backends.md),
+  "Ollama"; not re-measured); and the gemma4 models as labellers for training sets.
 - **Falcon candidates**, chosen on 2026-10-04 from the Hugging Face listings: `mlx:Falcon-H1R-7B-4bit`, a
   reasoning model for the complex-work slot that `qwen3.8:27b` holds at a quarter of its size, and
   `mlx:Falcon-H1-7B-Instruct-4bit`, a delegation-default candidate against `granite4.1:8b`, in a second
@@ -142,10 +143,15 @@ The release given to measurement, once the four before it are out:
 - **The lockfile's MLX pins guarded.** `harness/Package.resolved` loses its MLX-only pins (mlx-swift,
   mlx-swift-lm, swift-numerics, swift-syntax) whenever a build without the `MLX` trait resolves it, which the
   gate's own build does; a commit on 2026-10-05 carried the loss and was put right the same day. The gate should
-  check the staged lockfile keeps the pins and restore them after its build.
+  check the staged lockfile keeps the pins and restore them after its build. Built: hygiene fails when the
+  staged lockfile (the working copy, run by hand) lacks a pin, and the gate puts both lockfiles back after its
+  builds ([engineering.md](engineering.md), "The lockfiles' MLX pins").
 - **MLX thinking shown** (near term, the operator, 2026-10-04): ADR 0053 shows a reasoning model's thinking
   for Ollama only; the MLX executor needs the same `ThinkingStretch` hook (the chat template's `<think>`
-  block split from the reply), so Falcon-H1R and Qwen3 on MLX show their thinking and count it.
+  block split from the reply), so Falcon-H1R and Qwen3 on MLX show their thinking and count it. Built
+  ([ADR 0053](decisions/0053-the-models-thinking-shown.md), refined 2026-10-06): the tags read from the chat
+  template, the reply split as it streams, and `mlx.think` for a template that takes `enable_thinking`; shown and
+  counted live with `mlx:Qwen3-1.7B-4bit` on 2026-10-06.
 
 ## 0.21.0
 

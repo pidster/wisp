@@ -131,6 +131,19 @@ the turn ended. The executor therefore fills a missing required string with `""`
 `[]`, and a missing boolean with `false` before the framework sees the call. A missing number or
 choice has no neutral value, so it is left out, and the call still fails.
 
+A Mistral model can write its calls as text in its own format, `name[ARGS]{…}`, which its Ollama template leaves
+in `content` instead of `tool_calls`. `ministral-3:14b` did so throughout the 2026-10-04 comparison, so wisp saw
+no calls ([measurements.md](measurements.md), "The local-model comparison, 2026-10-04"). Probed on 2026-10-06 with
+two files to read, it wrote the first call as text (`read_file[ARGS]{"path": "/tmp/notes.txt"}`, one token a
+chunk) and Ollama parsed the second. The executor therefore holds back a reply's text while it may still be such
+calls, which in practice means its first few characters, and at the reply's end reads it as calls if it is exactly
+that: one or several, each an offered tool's name followed directly by `[ARGS]` and one JSON object, with nothing
+else around them but whitespace and the `[TOOL_CALLS]` marker. Those calls are made before any Ollama parsed
+while the text was held, in the order the model wrote them. Anything else, such as text that mentions
+`read_file[ARGS]{…}` or a tool the request does not offer, is the reply as the model wrote it. The rules are the
+ones wisp's MLX executor applies to calls a template states and mlx-swift-lm misses (`TextToolCalls`). Only a
+request that offers tools and wants no schema reply holds anything back.
+
 Models tried on 2026-09-23 on an M4 Max with 48 GB, Ollama 0.33.3, wisp 0.8.1, through `wisp respond`
 with the default `contextLength`. Each ran five prompts three times: the git-thread instruction from
 `AGENTS.md` with `git log --oneline -3`; the same with a quoted, piped command
@@ -335,11 +348,29 @@ which brings them level with Ollama's:
 | Usage | Input (with the reused prefix as cached tokens) and output tokens per request, as Ollama's executor reports them | Not reported to wisp |
 | The processed prompt | A thread's last prompt kept and reused (below) | Every request processed from the first token |
 | Text, tool calls, schema replies | Yes: tool calls parsed in the model's own format, schema replies through the same xgrammar loop the bridge uses | Yes |
-| Thinking | Asked for only when `reasoning` is declared | The same, plus a think-then-call phase for reasoning models with tools |
+| Thinking | Asked for when `reasoning` is declared, or as `mlx.think` says; split from the reply by the chat template's tags, shown, counted, and never sent back (below) | Asked for only when `reasoning` is declared, plus a think-then-call phase for reasoning models with tools |
 | Images | No: `vision` is not offered | When `vision` is declared |
 
 The bridge is mlx-swift-lm's `MLXLanguageModel`, which ran every MLX model before 0.19.0. It stays for vision
 models and as the fallback until 0.20.0 has measured wisp's executor against it.
+
+**Thinking.** A reasoning model's thinking is shown as Ollama's is ([ADR 0053](decisions/0053-the-models-thinking-shown.md),
+refined 2026-10-06): wisp reads the thinking block's tags from the model's chat template (the first tag with
+`think` in its name whose closing tag the template also holds, `<think>` and `</think>` for Qwen3), splits each
+reply's text by them as it streams, a tag split across chunks held until it is whole and the template's newlines
+around it dropped, and sends the thinking to the framework as reasoning. Chat says `thinking` while it lasts and
+shows `∴ thought for 2.0 s, 181 tokens`, `/inspect thinking` lists it, usage counts it (one token a streamed
+chunk, within the tokens generated), it is audited as `model.reasoning`, and no later request carries it. A
+template that opens the block itself in the generation prompt is seen from the rendered prompt's end, so the
+reply is thinking from its first token; thinking that is never closed stays thinking; a tool call ends it. A
+model whose template has no such tags has its text left as it is.
+
+Whether the model thinks is the template's `enable_thinking`: `true` when `reasoning` is declared, `false`
+otherwise, and `mlx.think` (`true` or `false`) overrides it for every MLX model whose template takes the flag
+(Qwen3's does; a template without it ignores it). It applies to wisp's executor; the bridge decides for itself.
+Measured on this Mac on 2026-10-06 with `mlx:Qwen3-1.7B-4bit`, undeclared, and `mlx.think: true`: "Is 51 prime? One
+word." thought for 2.0 s and 181 tokens, then replied `No.`, the thinking folded under the `∴` line and none of it
+in the reply; with `mlx.think: false` it replied `51 is not prime.` in 1.0 s with 6 tokens and no thinking.
 
 **The window.** An MLX directory's `config.json` gives the shape ADR 0043's rule needs: `max_position_embeddings`,
 `num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else `hidden_size` ÷

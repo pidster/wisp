@@ -11,8 +11,8 @@ struct MLXPrompt: Equatable, Sendable {
     var messages: [ChatMessage]
     /// Each tool as `{"type": "function", "function": {"name", "description", "parameters"}}`.
     var tools: [JSONValue]
-    /// Whether the chat template is asked to let the model think (`enable_thinking`); only when the
-    /// operator declared `reasoning`.
+    /// Whether the chat template is asked to let the model think (`enable_thinking`): `mlx.think` when set, else
+    /// whether the operator declared `reasoning`.
     var thinking: Bool
 
     /// Creates a prompt.
@@ -76,12 +76,16 @@ struct EngineRequest: Sendable {
     var maxTokens: Int?
     /// The sampling temperature, when the caller set it.
     var temperature: Double?
+    /// How the chat template marks thinking, when it does: the reply is split into thinking and text by it.
+    var thinking: ThinkingFormat?
 }
 
 /// What generation streams back.
 enum EngineEvent: Equatable, Sendable {
     /// Reply text.
     case text(String)
+    /// The model's thinking, split from the reply by the chat template's tags (ADR 0053); never sent back.
+    case reasoning(String)
     /// A tool call, with its arguments as an object.
     case toolCall(name: String, arguments: JSONValue)
 }
@@ -162,6 +166,9 @@ protocol PromptTokenizer: Sendable {
     ///
     /// - Throws: When the chat template cannot render the prompt.
     func tokens(for prompt: MLXPrompt) throws -> [Int]
+    /// Tokens as text, special tokens included: the end of a rendered prompt, to see whether the template left
+    /// the model inside a thinking block.
+    func text(of tokens: [Int]) -> String
 }
 
 /// The model in memory: what `PrefixEngine` needs to process a prompt onto a cache and generate. Not
@@ -296,7 +303,8 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
     }
 
     /// Renders the prompt, refuses it when it does not fit, then generates under the engine's lock: a schema
-    /// reply on a cache of its own, anything else on the slot's cache after reusing its common prefix. The
+    /// reply on a cache of its own, anything else on the slot's cache after reusing its common prefix, its text
+    /// split into thinking and reply when the request carries the template's tags. The
     /// slot keeps the cache trimmed back to the prompt, so the next request's prefix is compared with exactly
     /// what was rendered; a failed request leaves the slot empty.
     ///
@@ -304,7 +312,8 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
     func respond(
         _ request: EngineRequest, slot: UUID, emit: @escaping @Sendable (EngineEvent) async -> Void
     ) async throws -> EngineUsage {
-        let tokens = try await renderer().tokens(for: request.prompt)
+        let tokenizer = try await renderer()
+        let tokens = try tokenizer.tokens(for: request.prompt)
         guard tokens.count < request.window else {
             throw LanguageModelError.contextSizeExceeded(
                 .init(
@@ -337,9 +346,21 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
             plan = .rebuild
             cache = try runtime.makeCache()
         }
+        // The reply split into thinking and text by the template's tags, when it has them.
+        let split = request.thinking.map { format in
+            ThinkingSplit(
+                format: format, primed: format.promptEndsInside(tokenizer.text(of: Array(tokens.suffix(16)))))
+        }
+        let routed: @Sendable (EngineEvent) async -> Void =
+            if let split {
+                { event in for routed in split.route(event) { await emit(routed) } }
+            } else {
+                emit
+            }
         let generated = try await runtime.generate(
             suffix: Array(tokens[plan.reused...]), cache: cache, prompt: request.prompt, maxTokens: budget,
-            temperature: request.temperature, emit: emit)
+            temperature: request.temperature, emit: routed)
+        for event in split?.finish() ?? [] { await emit(event) }
         let extra = runtime.processed(cache) - tokens.count
         if extra >= 0, extra == 0 || runtime.trim(cache, by: extra) {
             pool.put(slot, tokens: tokens, cache: cache, capacity: request.window)

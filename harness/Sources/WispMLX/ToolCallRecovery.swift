@@ -13,15 +13,16 @@ enum ToolCallRecovery {
     /// template asks for (`<tool_call>\n[{"name": …, "arguments": {…}}, …]\n</tool_call>`) and renders past calls
     /// in, which mlx-swift-lm's JSON parser rejects as malformed because it reads one object per frame.
     ///
-    /// Strict, all or nothing: the text, less surrounding whitespace, is exactly one frame; the payload is a
-    /// non-empty array; each element an object of exactly `name`, a tool the request offers, and `arguments`, an
-    /// object. Anything else is nil, and the reply stays as the model wrote it.
+    /// Strict, all or nothing, by the rules every text reading shares (`TextToolCalls`): the text, less surrounding
+    /// whitespace, is exactly one frame; the payload is a non-empty array; each element an object of exactly `name`,
+    /// a tool the request offers, and `arguments`, an object. Anything else is nil, and the reply stays as the model
+    /// wrote it.
     ///
     /// - Parameters:
     ///   - raw: The framed text mlx-swift-lm rejected.
     ///   - offered: The names of the tools the request offers.
     /// - Returns: The calls, in order, or nil.
-    static func framedArray(_ raw: String, offered: Set<String>) -> [(name: String, arguments: JSONValue)]? {
+    static func framedArray(_ raw: String, offered: Set<String>) -> [TextToolCalls.Call]? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasPrefix(frame.open), text.hasSuffix(frame.close), text.count > frame.open.count + frame.close.count
         else { return nil }
@@ -29,13 +30,13 @@ enum ToolCallRecovery {
         guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(payload.utf8)),
             case .array(let elements) = value, !elements.isEmpty
         else { return nil }
-        var calls: [(name: String, arguments: JSONValue)] = []
+        var calls: [TextToolCalls.Call] = []
         for element in elements {
-            guard case .object(let call) = element, Set(call.keys) == ["name", "arguments"],
-                case .string(let name) = call["name"], offered.contains(name),
-                let arguments = call["arguments"], case .object = arguments
+            guard case .object(let object) = element, Set(object.keys) == ["name", "arguments"],
+                case .string(let name) = object["name"], let arguments = object["arguments"],
+                let call = TextToolCalls.Call(name: name, arguments: arguments, offered: offered)
             else { return nil }
-            calls.append((name, arguments))
+            calls.append(call)
         }
         return calls
     }

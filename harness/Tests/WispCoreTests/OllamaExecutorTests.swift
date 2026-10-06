@@ -200,6 +200,90 @@ final class FakeOllama: URLProtocol {
         #expect(FakeOllama.bodies(for: "/api/chat").last?.contains("process=[] port=none") == true)
     }
 
+    /// A `read_file` that says what it read, for the calls written as text.
+    struct PathTool: Tool {
+        let name = "read_file"
+        let description = "Reads a file."
+        @Generable struct Arguments {
+            @Guide(description: "The path.") var path: String
+        }
+        func call(arguments: Arguments) async throws -> String { "contents of \(arguments.path)" }
+    }
+
+    /// Streamed reply chunks with these contents, then `done`.
+    static func chunks(_ contents: [String], then extra: [String] = []) -> String {
+        contents.map { content in
+            let encoded = String(decoding: (try? JSONEncoder().encode(content)) ?? Data(), as: UTF8.self)
+            return #"{"message":{"role":"assistant","content":"# + encoded + #"},"done":false}"#
+        }.joined(separator: "\n") + "\n" + extra.map { $0 + "\n" }.joined() + Self.doneChunk
+    }
+
+    /// ministral-3:14b's reply on 2026-10-06 to "Read the file /tmp/notes.txt and also the file /tmp/todo.txt." with
+    /// read_file offered: the first call written as text in `content`, one token a chunk, the second parsed by Ollama.
+    static let ministralTwoReads = chunks(
+        ["read", "_file", "[ARGS]", "{\"", "path", "\":", " \"/", "tmp", "/", "notes", ".txt", "\"}"],
+        then: [
+            #"{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_opeea9mb","function":{"index":0,"name":"read_file","arguments":{"path":"/tmp/todo.txt"}}}]},"done":false}"#
+        ])
+
+    @Test func mistralCallsWrittenAsTextAreMadeInTheOrderWritten() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: Self.shown)
+        FakeOllama.serve("/api/chat", body: Self.ministralTwoReads)
+        let model = try ModelSelection.ollama("q").resolve(config: Self.config)
+        let agent = Agent(instructions: "x", tools: [PathTool()], model: model)
+        let task = Task { try await agent.stream("read both") { _ in } }
+        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        FakeOllama.serve("/api/chat", body: Self.chunks(["Both read."]))
+        let reply = try await task.value
+        #expect(reply.text == "Both read.")
+        let last = try #require(FakeOllama.bodies(for: "/api/chat").last)
+        let notes = try #require(
+            last.range(of: "contents of \\/tmp\\/notes.txt") ?? last.range(of: "contents of /tmp/notes.txt"))
+        let todo = try #require(
+            last.range(of: "contents of \\/tmp\\/todo.txt") ?? last.range(of: "contents of /tmp/todo.txt"))
+        #expect(notes.lowerBound < todo.lowerBound, "\(last)")
+        #expect(!last.contains("[ARGS]"), "\(last)")
+    }
+
+    @Test func aMistralCallAloneWithTheMarkerIsMade() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: Self.shown)
+        FakeOllama.serve("/api/chat", body: Self.chunks(["[TOOL_CALLS]", "read_file[ARGS]", #"{"path": "/tmp/a"}"#]))
+        let model = try ModelSelection.ollama("q").resolve(config: Self.config)
+        let agent = Agent(instructions: "x", tools: [PathTool()], model: model)
+        let task = Task { try await agent.stream("read a") { _ in } }
+        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        FakeOllama.serve("/api/chat", body: Self.chunks(["Read."]))
+        #expect(try await task.value.text == "Read.")
+        #expect(FakeOllama.bodies(for: "/api/chat").last?.contains("contents of") == true)
+    }
+
+    @Test func textThatOnlyLooksLikeAMistralCallIsTheReply() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: Self.shown)
+        let model = try ModelSelection.ollama("q").resolve(config: Self.config)
+        for (contents, expected) in [
+            (
+                ["Use ", #"read_file[ARGS]{"path": "x"}"#, " to read it."],
+                #"Use read_file[ARGS]{"path": "x"} to read it."#
+            ),
+            (
+                ["read_file", #"[ARGS]{"path": "x"}"#, " would read it."],
+                #"read_file[ARGS]{"path": "x"} would read it."#
+            ),
+            ([#"write_file[ARGS]{"path": "x"}"#], #"write_file[ARGS]{"path": "x"}"#),
+            (["read", " the file"], "read the file"),
+        ] {
+            FakeOllama.serve("/api/chat", body: Self.chunks(contents))
+            let agent = Agent(instructions: "x", tools: [PathTool()], model: model)
+            let before = FakeOllama.bodies(for: "/api/chat").count
+            #expect(try await agent.stream("hi") { _ in }.text == expected)
+            // One request: no call was made.
+            #expect(FakeOllama.bodies(for: "/api/chat").count == before + 1)
+        }
+    }
+
     @Test func onlyStringsArraysAndBooleansAreCompletedAndOnlyWhenRequired() {
         let schema: JSONValue = [
             "type": "object", "required": ["topic", "process", "names", "all", "count", "level"],

@@ -111,7 +111,7 @@ public struct MLXBackend: ModelBackend {
             for: url, configured: config.mlxContextLength, memory: .current(), weightsHeld: engine.isLoaded)
         return try Self.make(
             url: url, selection: selection, capabilities: capabilities, declared: declared, engine: engine,
-            sizing: sizing, executor: config.mlxExecutor)
+            sizing: sizing, executor: config.mlxExecutor, think: config.mlxThink)
     }
 
     /// What MLX does when even the floor window does not fit, for the reason of a floor decision.
@@ -187,12 +187,17 @@ public struct MLXBackend: ModelBackend {
     ///   - declared: Whether the operator declared anything.
     ///   - sizing: The window and why.
     ///   - asset: The model directory's path.
+    ///   - thinkingFormat: How the chat template marks thinking, when it does (ADR 0053).
+    ///   - think: `mlx.think`, when set.
     /// - Returns: The resolved model.
     static func resolved(
         selection: ModelSelection, engine: any PromptEngine, capabilities: [LanguageModelCapabilities.Capability],
-        declared: Bool, sizing: ContextSizing.Decision, asset: String
+        declared: Bool, sizing: ContextSizing.Decision, asset: String, thinkingFormat: ThinkingFormat? = nil,
+        think: Bool? = nil
     ) -> ResolvedModel {
-        let model = MLXModel(engine: engine, window: sizing.window, capabilities: capabilities.filter { $0 != .vision })
+        let model = MLXModel(
+            engine: engine, window: sizing.window, capabilities: capabilities.filter { $0 != .vision },
+            thinkingFormat: thinkingFormat, think: think)
         return ResolvedModel(
             selection: selection, custom: model, capabilitySource: declared ? .configuration : .undeclared,
             asset: asset, contextSize: sizing.window, countTokens: { try await model.tokenCount(for: $0) },
@@ -205,12 +210,13 @@ public struct MLXBackend: ModelBackend {
         /// - Throws: Nothing in a build with MLX; the signature matches the build without it.
         private static func make(
             url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool,
-            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice
+            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice, think: Bool?
         ) throws -> ResolvedModel {
             guard executor == .bridge else {
                 return resolved(
                     selection: selection, engine: engine, capabilities: capabilities, declared: declared,
-                    sizing: sizing, asset: url.path)
+                    sizing: sizing, asset: url.path,
+                    thinkingFormat: ThinkingFormat.read(template: ToolCallRecovery.chatTemplate(in: url)), think: think)
             }
             let model = MLXLanguageModel(
                 configuration: ModelConfiguration(directory: url), capabilities: capabilities,
@@ -229,7 +235,7 @@ public struct MLXBackend: ModelBackend {
         /// - Throws: `ModelSelection.Failure.unavailable`.
         private static func make(
             url: URL, selection: ModelSelection, capabilities: [LanguageModelCapabilities.Capability], declared: Bool,
-            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice
+            engine: any PromptEngine, sizing: ContextSizing.Decision, executor: MLXExecutorChoice, think: Bool?
         ) throws -> ResolvedModel {
             throw ModelSelection.Failure.unavailable(model: selection.description, reason: "MLX is not compiled in")
         }
@@ -379,6 +385,7 @@ public struct MLXBackend: ModelBackend {
             "compiledIn": .bool(Self.isCompiledIn),
             "contextLength": config.mlxContextLength.map { .int($0) } ?? .string("sized per model (ADR 0052)"),
             "executor": .string(config.mlxExecutor.rawValue),
+            "think": config.mlxThink.map { .bool($0) } ?? .string("unset"),
             "models": .object(
                 Dictionary(
                     uniqueKeysWithValues: config.mlxModels.map { name, capabilities in

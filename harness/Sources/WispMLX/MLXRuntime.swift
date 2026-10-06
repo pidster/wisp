@@ -34,6 +34,11 @@
                 additionalContext: ["enable_thinking": prompt.thinking])
         }
 
+        /// Tokens as text, special tokens kept.
+        func text(of tokens: [Int]) -> String {
+            tokenizer.decode(tokenIds: tokens, skipSpecialTokens: false)
+        }
+
         /// A message as the chat template takes it, in the shape mlx-swift-lm's own message generator writes.
         ///
         /// - Parameter message: The message.

@@ -308,16 +308,20 @@ public struct Config: Codable, Equatable, Sendable {
         public var contextLength: Int?
         /// What runs MLX models: `wisp`, wisp's own executor (the default), or `bridge`, mlx-swift-lm's.
         public var executor: MLXExecutorChoice?
+        /// Whether a model whose chat template takes `enable_thinking` is asked to think; unset asks a model the
+        /// operator declared `reasoning` for, and no other (ADR 0053).
+        public var think: Bool?
 
         /// Creates settings; nil takes the defaults.
         public init(
             modelsDirectory: String? = nil, models: [String: MLXModelConfig]? = nil, contextLength: Int? = nil,
-            executor: MLXExecutorChoice? = nil
+            executor: MLXExecutorChoice? = nil, think: Bool? = nil
         ) {
             self.modelsDirectory = modelsDirectory
             self.models = models
             self.contextLength = contextLength
             self.executor = executor
+            self.think = think
         }
     }
 
@@ -536,7 +540,7 @@ public struct Config: Codable, Equatable, Sendable {
             mlxModelsDirectory: mlx?.modelsDirectory,
             mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
             mlxVerified: (mlx?.models ?? [:]).compactMapValues(\.verified),
-            mlxContextLength: mlx?.contextLength, mlxExecutor: mlx?.executor ?? .wisp,
+            mlxContextLength: mlx?.contextLength, mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
@@ -607,6 +611,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var mlxContextLength: Int?
         /// What runs MLX models.
         public var mlxExecutor: MLXExecutorChoice = .wisp
+        /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil follows its
+        /// declared `reasoning`.
+        public var mlxThink: Bool?
         /// Whether notifications are posted.
         public var notificationsEnabled: Bool = true
         /// At most this many notifications a minute.
