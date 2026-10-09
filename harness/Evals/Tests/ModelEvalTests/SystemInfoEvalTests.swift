@@ -4,9 +4,10 @@ import Testing
 @testable import WispCore
 
 /// Whether the configured model, or each model `WISP_EVAL_MODELS` names (`EvalModels`), reaches for `system_info` with the right topic when asked a plain
-/// question about the Mac, with `run_command` and `memory` also on offer as they are in `wisp "…"`: `memory` is
-/// the conversation's, and its name is shared with the `memory` topic (the Mac's RAM), so the turns that call it
-/// are counted, printed, and noted in the measurement. Needs the model
+/// question about the Mac, with `run_command` and `memory` also on offer, as they were in `wisp "…"` until `memory` went
+/// off by default (ADR 0057) and as they are with `context.memory` on: `memory` is the conversation's, and its name is
+/// shared with the `memory` topic (the Mac's RAM), so the turns that call it are counted, printed, and noted in the
+/// measurement. The set is explicit, so the measurement stays comparable with those recorded before. Needs the model
 /// (`scripts/check eval`). `run_command` sits behind a gate that refuses anything above safe, so the model
 /// cannot change the Mac while being measured. A pass is a `system_info` call in the turn naming the
 /// expected topic (and target, where the question gives one): a call the tool refuses with a directive

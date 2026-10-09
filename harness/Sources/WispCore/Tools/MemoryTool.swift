@@ -20,7 +20,8 @@ import FoundationModels
 /// is in every request (decision D4 measured them). A later page is named the same way (`recall entry 7 from line
 /// 60`). What it returns is an ordinary tool output: whole in its own turn, a reference after it (D12). Each call
 /// is audited as `context.memory`, and each note kept as `fact.recorded` when its turn ends. It changes no file
-/// and needs no approval.
+/// and needs no approval. It is off by default (ADR 0057): a conversation given every tool gets it only with
+/// `context.memory` on, and a tool list gets it by naming it.
 public struct MemoryTool: WispTool {
     /// The tool's name, as registries and the prompt name it.
     public static let toolName = "memory"
@@ -55,7 +56,7 @@ public struct MemoryTool: WispTool {
         "Recall pages of up to \(Recall.pageBytes) bytes; the end of a page names the next (\"recall entry 7 from "
             + "line 60\"). Reads only this conversation's record and the audit log; the result is in view for this "
             + "turn, then a reference. At most \(Memory.notesPerTurn) notes a turn, kept as the model's facts when "
-            + "the turn ends."
+            + "the turn ends. Off by default: a conversation gets it with context.memory on, or by naming it."
     }
     /// How to ask for it.
     public let examplePrompt =

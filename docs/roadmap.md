@@ -86,11 +86,15 @@ The release given to measurement, once the four before it are out:
   2026-10-06, not yet run: the plan, its decision rules, and the commands are
   [proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md); a scenario that
   condenses at the default budget (`sustained`, 29 turns and ten questions), the grid, the switches, and
-  `scripts/check eval checkpoint` are built and pass the gate without a model.
+  `scripts/check eval checkpoint` are built and pass the gate without a model. Run 2026-10-06 to 2026-10-08 and
+  decided 2026-10-09 ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)): `memory` off by default,
+  kept as `context.memory`; `context.target` 0.6; the headroom and the guard unchanged; the switch sound.
 - **The assessment reconsidered, if wanted.** It stays off: the checkpoint found it rewrote the inferred
   task on 8 to 11 of 22 requests. A version that changes the task only when a request restates it is the
   starting point. Built on 2026-10-06 as `assessment.taskChanges: restated` (the default stays `any`), and measured
-  by the checkpoint's `assessment` part ([the plan](proposals/2026-10-06-context-checkpoint-2.md), question 5).
+  by the checkpoint's `assessment` part ([the plan](proposals/2026-10-06-context-checkpoint-2.md), question 5). Run
+  and decided ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)): `restated` kept the task on every
+  run where `any` lost it on five of six, so it is the default; the assessment stays off.
 - **MLX against Ollama**, for the same models, now that 0.19.0 has MLX on a par, with the rest of what
   [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must measure" (in its
   Consequences): the bridge against wisp's executor, prefix reuse, the cache's real cost per token, the windows

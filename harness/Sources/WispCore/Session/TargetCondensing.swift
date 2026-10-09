@@ -212,7 +212,7 @@ extension ContextComposer {
     /// triggers the next condensation, so it condenses on almost every turn and each one distils (the phase 6
     /// checkpoint of ADR 0045 measured 70 of 84 gaps at a single turn, and distillations that corrupted facts).
     /// 0.2 of the window is several turns of lasting growth at the on-device model's 8,192 tokens, and leaves the
-    /// default share (0.5) alone at the default budget (0.85).
+    /// default share (0.6) alone at the default budget (0.85), whose cap is 0.65.
     static let targetMargin = 0.2
 
     /// The share of the window a condensation brings the context to: the target's `share`, capped at the budget

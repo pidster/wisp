@@ -49,7 +49,7 @@ request from it, most stable first, while you see every tool's full output whate
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/context-dark.svg">
-  <img alt="The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, recent turns word for word with tool output whole and then a reference, and last the task, ephemeral facts, and the request. The model sees only that, and its memory tool recalls earlier material or notes a fact. You see the transcript, built from the audit log, with every tool's full output; /show, /inspect context, /inspect facts, /fact, /task, and the wisp://threads resources cost the model no context. You reach it inline, in chat and wisp-tui, and through your coding agent over MCP." src="docs/images/context-light.svg" width="960">
+  <img alt="The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, recent turns word for word with tool output whole and then a reference, and last the task, ephemeral facts, and the request. The model sees only that, and, when it is turned on, its memory tool recalls earlier material or notes a fact. You see the transcript, built from the audit log, with every tool's full output; /show, /inspect context, /inspect facts, /fact, /task, and the wisp://threads resources cost the model no context. You reach it inline, in chat and wisp-tui, and through your coding agent over MCP." src="docs/images/context-light.svg" width="960">
 </picture>
 
 ## What you can do with it
@@ -193,7 +193,7 @@ and delete.
 | | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
 | Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
-| | Facts, the running summary, references to earlier output, and the model's `memory` tool | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
+| | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |
 | Seeing what happened | The audit log and `wisp logs`; `wisp doctor` | [logging.md](docs/logging.md), [wisp.md](docs/wisp.md) |

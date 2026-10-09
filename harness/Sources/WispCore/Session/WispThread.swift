@@ -32,8 +32,8 @@ public struct WispThread: Sendable {
     /// The facts the agent keeps, from the session's; nil when `facts.enabled` is false.
     let facts: FactSettings?
     /// What the thread's `memory` tool reads and writes, which its agent publishes; nil when the thread has no
-    /// `memory`. A thread has it when it was given every tool, or a list that names it: an explicit list is exactly
-    /// that list, so MCP's `tools: ["run_command"]` stays `run_command` alone.
+    /// `memory`. A thread has it when it was given every tool with `context.memory` on, or a list that names it: an
+    /// explicit list is exactly that list, so MCP's `tools: ["run_command"]` stays `run_command` alone.
     let memory: MemorySource?
     /// Whether an assessment may infer the task (decision D6): in chat; over MCP the caller's `task` is the task.
     let infersTask: Bool

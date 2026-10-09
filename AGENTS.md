@@ -68,7 +68,7 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 
 `Agent` wraps one `LanguageModelSession` created by a `ResolvedModel` (`ModelSelection`: `system` or
 `private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `coreai`, and `mlx`, ADR 0019, through wisp's own executor too since ADR 0052; adapters are obsoleted on macOS 27, ADR 0013; a model in `DisabledModels` is refused wherever one is chosen, and enabling an MLX model checks its capabilities on the model, `ModelVerification`, ADR 0056); the framework runs the tool loop. `ToolRegistry` is the single
-list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`.
+list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`; every tool by default is all but `memory`, which `context.memory` or a list naming it adds (ADR 0057).
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
 through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044; under `wisp mcp`
@@ -80,7 +80,7 @@ file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build ti
 unified logging. `Agent` keeps each conversation in a `ThreadRecord` that refers to the audit log, and
 `ContextComposer` composes every request from it: facts (`Facts/`), a running summary, recent turns with
 earlier tool output as references, and the request; `ContextPolicy` condenses it to a token target ahead
-of the window and on overflow, and the model's `memory` tool recalls what was dropped (ADR 0045). `Session.begin` is
+of the window and on overflow (ADR 0045), and, where a conversation has it, the model's `memory` tool recalls what was dropped (off by default, ADR 0057). `Session.begin` is
 the single set-up path for every face; `respond` and `chat` open the session's own `WispThread`, and
 `WispMCP` opens one per `thread_id` through `Session.thread` (threads held by
 `ThreadRegistry`/`ThreadActor` actors), so all of them share one config, approval store, and

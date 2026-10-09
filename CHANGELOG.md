@@ -44,6 +44,23 @@ Fixed:
 
 Changed:
 
+- New context defaults, from context checkpoint 2 (ADR 0057), which measured them over a 29-turn conversation on the
+  on-device model, `granite4.1:8b`, and `gemma4:12b`, three runs each:
+  - The model's `memory` tool is off by default. With it the model scored fewer answers on all three models (4.3
+    against 5.3 of 10 on the on-device model, 7.3 against 8.0 on granite, 8.0 against 9.3 on gemma4). A conversation
+    given every tool (`wisp "…"`, chat, MCP `respond` without `tools`) no longer has it, its instructions no longer
+    mention it, and references to earlier output say `call it again to see it` instead of `memory "recall entry 7"`;
+    facts, the summary, and the references are unchanged, and `/show` still shows any output. `wisp config set
+    context.memory true` (or `/config set context.memory on`) turns it on for every conversation; `--tool memory` or
+    an MCP caller's `tools` naming it gives it to one.
+  - `context.target` is 0.6 instead of 0.5: condensing keeps more of the conversation and runs a little later. It
+    scored 5.3 against 4.0 of 10 on the on-device model and 7.7 against 7.0 on granite.
+  - `assessment.taskChanges` is `restated` instead of `any`, which matters only with `assessment.enabled` (still off):
+    an inferred task changes only when a request states one. It kept the task on every run where `any` lost it on
+    five of six.
+
+  To restore the old behaviour: `wisp config set context.memory true`, `wisp config set context.target 0.5`, and
+  `wisp config set assessment.taskChanges any`.
 - `edit_file`'s line edits forgive two slips small models make, without guessing. A rewritten line sent without
   its indentation (`return 10` for `    return 10`) keeps the old line's, unless only whitespace changes, so a
   deliberate indent, dedent, or tab-to-space edit is written exactly. A stale line number with `find` edits the one
@@ -64,7 +81,7 @@ Added:
 - `assessment.taskChanges` (`any` or `restated`): with the assessment on (`assessment.enabled`, still off by
   default), `restated` lets a request change the task the model inferred only when it states a task, such as
   `Today's task: …` or `Let's switch to …`, instead of on any request; other requests keep the task without a
-  model call for it. `any`, the default, behaves as before.
+  model call for it. `restated` is the default (Changed, above); `any` behaves as before.
 - `scripts/check eval checkpoint` runs context checkpoint 2: the condensing target and headroom on a longer
   conversation, the half-window variants, `memory` on and off, the assessment's task changes, and a model switch
   mid-conversation, ending with a table (docs/measurements.md).

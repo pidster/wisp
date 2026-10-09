@@ -123,6 +123,10 @@ public enum ConfigSettings {
             summary: "the latest turns whose average size is kept free for the next turn; 0 for none",
             kind: .integer(Config.ContextConfig.headroomRange)),
         Setting(
+            path: "context.memory",
+            summary: "give a conversation with every tool the memory tool, to recall what condensing left out",
+            kind: .flag),
+        Setting(
             path: "watch.settle",
             summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
             kind: .number(Config.WatchConfig.settleRange)),
@@ -168,6 +172,7 @@ public enum ConfigSettings {
         case "assessment.taskChanges": return .string(d.assessmentTaskChanges.rawValue)
         case "context.target": return .double(d.contextTarget.share)
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
+        case "context.memory": return .bool(d.contextMemory)
         case "watch.settle": return .double(d.watchSettle)
         default: return nil
         }

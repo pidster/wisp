@@ -67,6 +67,16 @@ public struct ToolRegistry: Sendable {
         all = builtIns.filter { !disabled.contains($0.name) } + customs
     }
 
+    /// The names a conversation given every tool gets: the whole registry, less `memory` unless `memory` is true
+    /// (`context.memory`, off by default since [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
+    /// `memory` stays registered, so a list that names it still selects it.
+    ///
+    /// - Parameter memory: Whether `memory` is in the default set.
+    /// - Returns: The names, in registration order.
+    func defaultNames(memory: Bool) -> [String] {
+        all.map(\.name).filter { memory || $0 != MemoryTool.toolName }
+    }
+
     /// Tools whose names appear in `names`; unknown names are reported back.
     public func select(_ names: [String]) -> (tools: [any WispTool], unknown: [String]) {
         let byName = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0) })

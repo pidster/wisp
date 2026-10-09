@@ -73,8 +73,8 @@ struct ContextEvalTests {
 
     /// The local-model comparison's context scenario (docs/measurements.md, "Comparing models"), on each model
     /// `WISP_EVAL_MODELS` names and only when it names some: the baseline, the shortest scenario (14 turns, then
-    /// six questions), through the whole default stack (`stack`: memory, facts, the summary, references, condensing
-    /// to the target), at a window of 8,192 tokens, the on-device model's, so every model condenses the same
+    /// six questions), through the whole stack (`stack`: memory, explicitly, facts, the summary, references,
+    /// condensing to the target), at a window of 8,192 tokens, the on-device model's, so every model condenses the same
     /// conversation. Each turn is bounded by its runtime's request timeout (`ollama.timeoutSeconds`) and the whole
     /// test by its time limit, past which the remaining models' cells are left empty.
     @Test(.enabled(if: EvalModels.named != nil), .timeLimit(.minutes(60)))
@@ -320,7 +320,8 @@ struct ContextEvalTests {
     /// The on-device model.
     static func onDevice() throws -> ResolvedModel { try ModelSelection.system.resolve() }
 
-    /// The whole default stack: memory, facts, the summary, references, and condensing to the default target.
+    /// The whole stack: memory (the default until ADR 0057, set here explicitly), facts, the summary, references, and
+    /// condensing to the default target.
     static let stack = MemoryStrategy(policy: .default)
 
     /// The same at half the window.

@@ -96,18 +96,24 @@ public struct Config: Codable, Equatable, Sendable {
     }
 
     /// Condensing settings in the file (phase 5 of the
-    /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)).
+    /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)), and whether a
+    /// conversation given every tool gets `memory` ([ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
     public struct ContextConfig: Codable, Equatable, Sendable {
-        /// The share of the window a condensation brings the context down to; default 0.5, from 0.1 to 0.8.
+        /// The share of the window a condensation brings the context down to; default 0.6, from 0.1 to 0.8.
         public var target: Double?
         /// How many of the latest turns the next turn's headroom averages; default 8, 0 for none, 1 for the last
         /// turn alone.
         public var headroomTurns: Int?
+        /// Whether `memory` is among the tools a conversation given every tool gets; default false, since context
+        /// checkpoint 2 scored fewer answers with it on all three models it measured. A tool list that names
+        /// `memory` (`--tool memory`, an MCP caller's `tools`) gets it either way.
+        public var memory: Bool?
 
         /// Creates settings; nil fields take defaults.
-        public init(target: Double? = nil, headroomTurns: Int? = nil) {
+        public init(target: Double? = nil, headroomTurns: Int? = nil, memory: Bool? = nil) {
             self.target = target
             self.headroomTurns = headroomTurns
+            self.memory = memory
         }
 
         /// The range `target` must be in: above 0.8 a condensation would leave too little below the 0.85 budget
@@ -138,8 +144,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var enabled: Bool?
         /// Which tools each request registers when it is: `request` (the default), `task`, or `all`.
         public var tools: AssessmentSettings.ToolSets?
-        /// When an inferred task may change: on `any` request the rules leave to the model (the default), or only
-        /// when a request states one (`restated`).
+        /// When an inferred task may change: only when a request states one (`restated`, the default since ADR
+        /// 0057), or on `any` request the rules leave to the model.
         public var taskChanges: AssessmentSettings.TaskChanges?
 
         /// Creates settings; nil fields take defaults.
@@ -560,10 +566,11 @@ public struct Config: Codable, Equatable, Sendable {
             summaryShare: min(0.5, max(0, facts?.summaryShare ?? 0.05)),
             subjectKinds: SubjectKinds.defaults.applying(facts),
             assessmentEnabled: assessment?.enabled ?? false, assessmentTools: assessment?.tools ?? .request,
-            assessmentTaskChanges: assessment?.taskChanges ?? .any,
+            assessmentTaskChanges: assessment?.taskChanges ?? AssessmentSettings.TaskChanges.default,
             contextTarget: ContextTarget(
                 share: context?.target ?? ContextTarget.default.share,
                 headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
+            contextMemory: context?.memory ?? false,
             watchSettle: watch?.settle ?? WatchConfig.defaultSettle
         )
     }
@@ -655,9 +662,11 @@ public struct Config: Codable, Equatable, Sendable {
         /// Which tools each assessed request registers.
         public var assessmentTools = AssessmentSettings.ToolSets.request
         /// When an assessed request may change an inferred task.
-        public var assessmentTaskChanges = AssessmentSettings.TaskChanges.any
+        public var assessmentTaskChanges = AssessmentSettings.TaskChanges.default
         /// What condensing aims for: the target share of the window and the next turn's headroom.
         public var contextTarget = ContextTarget.default
+        /// Whether a conversation given every tool gets `memory` (`context.memory`); off by default (ADR 0057).
+        public var contextMemory = false
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
         public var watchSettle = WatchConfig.defaultSettle
     }

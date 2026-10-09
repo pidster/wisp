@@ -45,7 +45,9 @@ struct ChatEvalTests {
             let gate = ApprovalGate(
                 classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
                 threshold: .level(.moderate), audit: audit)
-            // Every built-in tool, memory wired to the agent, and the prompt with its memory rule: what chat opens.
+            // Every built-in tool, memory wired to the agent, and the prompt with its memory rule: what chat opens with
+            // context.memory on (memory is off by default since ADR 0057), set explicitly so the measurement stays
+            // comparable with those recorded before.
             let memory = MemorySource()
             let tools = ToolRegistry(audit: audit, approval: gate, memory: memory).select(ToolRegistry.builtInNames)
                 .tools

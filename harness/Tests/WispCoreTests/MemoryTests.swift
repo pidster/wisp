@@ -99,6 +99,8 @@ import WispTestSupport
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir)
         try home.ensure()
+        // memory is off by default (ADR 0057); this conversation turns it on, as the operator can.
+        try Data(#"{"context": {"memory": true}}"#.utf8).write(to: home.configFile)
         let sink = MemoryAuditSink()
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
         let thread = try session.thread(id: "notes", approver: DenyingApprover(reason: "not in tests"))
@@ -126,18 +128,28 @@ import WispTestSupport
         _ = try await agent.respond(to: "second")
     }
 
-    @Test func aThreadHasMemoryWithEveryToolOrWhenItsListNamesIt() throws {
+    @Test func aThreadHasMemoryWhenTheConfigTurnsItOnOrItsListNamesIt() throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-memory-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir)
         try home.ensure()
-        let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
         let deny = DenyingApprover(reason: "x")
+        // Off by default (ADR 0057): registered, but not among the tools a conversation given every tool gets.
         #expect(ToolRegistry.builtInNames.last == "memory" && ToolRegistry().all.last?.name == "memory")
-        let all = try session.thread(id: "all", approver: deny)
+        #expect(Config().resolved.contextMemory == false && ConfigSettings.defaultValue("context.memory") == false)
+        let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
+        let off = try session.thread(id: "off", approver: deny)
+        #expect(!off.tools.map(\.name).contains("memory") && off.memory == nil)
+        #expect(off.tools.map(\.name) == ToolRegistry.builtInNames.filter { $0 != "memory" })
+        // With context.memory on, every tool includes it, and the prompt carries its rule.
+        try Data(#"{"context": {"memory": true}}"#.utf8).write(to: home.configFile)
+        let on = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
+        let all = try on.thread(id: "all", approver: deny)
         #expect(all.tools.map(\.name).contains("memory") && all.memory != nil)
+        #expect(all.tools.map(\.name) == ToolRegistry.builtInNames)
         #expect(all.prompting.rendered(toolsAvailable: true, memory: true).contains(Prompting.memoryRule))
-        // An explicit list is exactly that list: MCP's git thread keeps run_command alone.
+        // An explicit list is exactly that list whatever the setting: MCP's git thread keeps run_command alone,
+        // and a list that names memory gets it with the setting off.
         let git = try session.thread(id: "git", approver: deny, tools: .named(["run_command"]))
         #expect(git.tools.map(\.name) == ["run_command"] && git.memory == nil)
         let named = try session.thread(id: "named", approver: deny, tools: .named(["read_file", "memory"]))
@@ -159,10 +171,46 @@ import WispTestSupport
         defer { try? FileManager.default.removeItem(at: dir) }
         let home = Home(root: dir)
         try home.ensure()
-        try Data(#"{"tools": {"disabled": ["memory"]}}"#.utf8).write(to: home.configFile)
+        // tools.disabled wins over context.memory: the tool is not registered at all.
+        try Data(#"{"tools": {"disabled": ["memory"]}, "context": {"memory": true}}"#.utf8).write(to: home.configFile)
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
         let thread = try session.thread(id: "all", approver: DenyingApprover(reason: "x"))
         #expect(!thread.tools.map(\.name).contains("memory") && thread.memory == nil)
         #expect(!thread.tools.isEmpty)
+        #expect(throws: Session.Failure.self) {
+            try session.thread(id: "named", approver: DenyingApprover(reason: "x"), tools: .named(["memory"]))
+        }
+    }
+
+    @Test func aDefaultConversationIsToldOfNoToolItDoesNotHave() async throws {
+        // Named without the word, which the reference's arguments line would otherwise carry.
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-recall-off-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "overview.md")
+        let text = (1...40).map { "line \($0) of the overview, with words enough to make it long" }
+        try Data((text.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let home = Home(root: dir.appending(path: "home"))
+        try home.ensure()
+        let session = try Session.begin(.init(entryPoint: .chat), home: home, dependencies: .testing())
+        let thread = try session.thread(id: "default", approver: DenyingApprover(reason: "not in tests"))
+        let model = ScriptedModel(steps: [
+            .call(name: "read_file", arguments: #"{"path":"\#(file.path)"}"#), .say("Forty lines."), .say("second"),
+        ])
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        #expect(agent.memory == nil)
+        _ = try await agent.respond(to: "Read \(file.path)")
+        _ = try await agent.respond(to: "How long was it?")
+        let requests = model.script.requests.withLock { $0 }
+        let last = try #require(requests.last)
+        // Neither the tool, the prompt's rule, nor a reference's recall hint: the reference says what it stands for
+        // and how to see it again without memory.
+        #expect(!last.enabledToolDefinitions.map(\.name).contains("memory"))
+        let instructions = ThreadRecord.text(of: try #require(last.transcript.first))
+        #expect(!instructions.contains(Prompting.memoryRule) && !instructions.contains("memory"))
+        let output = try #require(agent.store.entries.first { $0.kind == .toolOutput })
+        let reference = ThreadRecord.text(of: try #require(last.transcript.first { $0.id == output.value.id }))
+        #expect(reference.hasPrefix("[output of entry \(output.id) not repeated: read_file at "))
+        #expect(reference.contains("; call it again to see it]") && !reference.contains("memory"))
     }
 }

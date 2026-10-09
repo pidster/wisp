@@ -222,7 +222,9 @@ what follows `recall` (`entry 7`, `turn 3`, `task`, `summary`, `fact …`, with 
 material, and pages it at 4 KiB. An entry's content is read from the audit event its store entry refers to,
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
 its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
-(D8). `memory` is a built-in tool, so a thread given every tool has it and a named list only when it names it;
+(D8). `memory` is a built-in tool, off by default (ADR 0057): a thread given every tool has it only with
+`context.memory` on (`ToolRegistry.defaultNames(memory:)`, which `Session` resolves "every tool" through), and a
+named list only when it names it;
 `WispThread.openAgent` wires it and renders the prompt with its rule
 (`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each
 call records `context.memory`.

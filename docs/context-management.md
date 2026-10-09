@@ -153,8 +153,10 @@ paging: more from offset 101
 
 It names the tool, the store entry, when the output was recorded, success or failure (a command's exit
 status, or `failed` for an `error: …` result), the line and byte counts, what to do for the whole output
-(`to see it: memory "recall entry 7"`, or, in a conversation without the `memory` tool, `call it again to see
-it`),
+(`to see it: memory "recall entry 7"`, or, in a conversation without the `memory` tool, which is the default
+since [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md), `call it again to see it` for a tool that
+only reads, and `its output is not repeated; do not run it again to see it` for any other, so a command is never
+run a second time to see what it printed),
 the call's arguments, and the first and last whole lines of content: the trailers a tool appends
 (`read_file`'s paging hint and `[end of file]`, the bound's `[truncated: …]`, a timeout note) and a command's
 exit-status and stream frames are not content, a line next to a cut is marked with `…`, and `read_file`'s
@@ -436,12 +438,14 @@ note in the `MemorySource`, and the agent records it when the turn ends, with th
 is in the facts from the next request and in the turn's list of new facts. At most 12 a turn. Each note is
 audited as `context.memory` and, when recorded, `fact.recorded`.
 
-**Who has it.** A conversation given every tool has it as a built-in tool; one given a named list has it only
-when the list names it, so MCP's `tools: ["run_command"]` stays exact; `tools.disabled` can leave it out
-everywhere. With it, the system prompt carries one standing rule (D12's layer 1): "Earlier turns may reach you
+**Who has it.** Off by default since context checkpoint 2, which scored fewer answers with it than without on
+every model it measured ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)): a conversation given
+every tool has it only when `context.memory` is on; one given a named list has it only when the list names it,
+whatever the setting, so MCP's `tools: ["run_command"]` stays exact; `tools.disabled` can leave it out everywhere. With it, the system prompt carries one standing rule (D12's layer 1): "Earlier turns may reach you
 only as a summary, facts, or references; when a question needs detail they leave out, recall the entry or turn
 they name with memory instead of guessing or running a tool again." Without it, the rule is left out and
-references keep "call it again to see it". A fact a tool gave names the entry of its output in its source
+references keep "call it again to see it"; a person's command's notice says `its output is not repeated`, and
+nothing else the model reads names the tool. The facts, the summary, and the references are the same either way. A fact a tool gave names the entry of its output in its source
 (`from tool read_file, turn 2, entry 4`), since once the turn is dropped the fact is the only pointer to it.
 Before anything is stored, a recall answers that the first turn is all in view, not "none". Measured on the
 on-device model on 2026-09-30 with `tokenCount(for:)`: the rule costs 43 tokens (the prompt is 111 without it,
@@ -485,8 +489,8 @@ gives is recorded as a `model` fact with method `inferred`, `TASK; objective: DO
 set the task. A failed call (a model without guided generation, an answer that does not parse, an error) falls
 back to every allowed tool with the task unchanged, and the turn goes on.
 
-**When the task may change** (`assessment.taskChanges`). Under `any`, the default and what the phase-6 checkpoint
-measured, every request the rules leave to the model may revise the inferred task, and the checkpoint saw it
+**When the task may change** (`assessment.taskChanges`). Under `any`, the default until
+[ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md) and what the phase-6 checkpoint measured, every request the rules leave to the model may revise the inferred task, and the checkpoint saw it
 rewritten on 8 to 11 of 22 requests, drifting to the latest question. Under `restated`, once there is a task only a
 request that states one may change it: a sentence that is not a question holding `task:` or `task is`, `goal` or
 `objective` the same way, `new task`, `from now on`, or `let's` (`we need to`, `I want you to`, …) followed by `work
@@ -574,7 +578,7 @@ counts condensations so callers can tell the user; `chat` prints a note and MCP 
 `structuredContent.condensed`.
 
 **Condensing to a target.** Two marks, both shares of the window: the budget, 85% (`contextBudget`), and the
-target, 50% (`context.target`). A request is due a condensation when the context, the prompt (four bytes a
+target, 60% (`context.target`, 50% until [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)). A request is due a condensation when the context, the prompt (four bytes a
 token), and the **headroom** reach the budget. The headroom is the room the next turn needs: the average
 size of the latest eight turns (`context.headroomTurns`), each its tool calls, its tool output whole (as its
 own turn carries it), and its reply. The condensation then brings the context down to the **goal**: the
@@ -613,11 +617,14 @@ model's context window: with earlier turns condensed, the instructions, the last
 need about N of W tokens; shorten the request or start a new conversation`), not the framework's.
 
 **Why these defaults.** On the on-device model's 8,192 tokens, the instructions with every tool take about
-1,400 tokens and the earlier block at its cap 15% (facts 10%, summary 5%), about a third of the window
-together. A target of half leaves about 1,500 tokens of literal turns, several turns of file reading once
-their output is a reference (at most 640 bytes, about 160 tokens, each), and 35% of the window, about 2,900
+1,200 tokens (1,400 with `memory`) and the earlier block at its cap 15% (facts 10%, summary 5%), under a third of
+the window together. A target of 0.6 leaves about 2,500 tokens of literal turns, many turns of file reading once
+their output is a reference (at most 640 bytes, about 160 tokens, each), and a quarter of the window, about 2,000
 tokens, for the turns before the next condensation, less the headroom; a larger window keeps proportionally
-more of both. These are reasoned from the window's arithmetic. The headroom averages eight turns rather than taking the last one (D5's floor, `headroomTurns: 1`) so
+more of both. Context checkpoint 2 measured them on a 29-turn conversation that condenses at the default budget:
+0.6 scored above 0.5 in the mean of three runs on the on-device model (5.3 against 4.0 of 10) and on granite4.1:8b
+(7.7 against 7.0), with gaps of 6 or 7 turns between condensations on the on-device model, and a headroom of one
+turn did no better than eight ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)). The headroom averages eight turns rather than taking the last one (D5's floor, `headroomTurns: 1`) so
 that one short or one long turn does not swing when condensing starts; it counts output whole, since a
 turn's own output is whole until the turn ends.
 
@@ -628,6 +635,10 @@ budget less the prompt and the headroom, so each condensation ended just below t
 70 of 84 gaps between condensations were a single turn, each condensation distilled, and the runs scored below
 phase 2's fixed four turns. The fill after was at or below the goal in all 96 condensations, and the floor was
 never reached. A target at or near the budget is therefore a configuration to prevent; the guard above followed.
+Context checkpoint 2 re-ran those 50% variants under the guard (one run): the gaps between condensations were 2 or 3
+turns, with 4 and 6 distillations where there had been 7 to 12, and no run reached the floor; a model switch
+mid-conversation, in both directions between the on-device model and granite4.1:8b, neither failed nor overflowed
+([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)).
 
 `Agent.contextTokens()` exposes the framework's count for the current transcript, or, for a model
 that cannot count, the token usage the runtime reported for the last request; `chat` shows it with
@@ -737,19 +748,13 @@ the dropped turns can be read rather than guessed. Files are saved only while `a
 - **The assessment on by default.** The per-request assessment (phase 4d of the
   [layered-context proposal](proposals/2026-09-29-layered-context.md)) is built and stays off: at the phase-6
   checkpoint its call's time bought nothing measurable (the tokens it saved did not reduce condensing, and
-  scores fell), and its inferred task drifted with each question ([ADR 0045](decisions/0045-layered-context.md)). Reconsidering it starts with a task that changes only
-  when the request restates it: built as `assessment.taskChanges: restated` (above), to be measured by context
-  checkpoint 2.
-- **The guard re-measured.** The target is capped at the budget less 0.2 (above), with a gate test that no
-  target condenses on consecutive turns while turns of average size arrive; the 50% eval variants have not been
-  re-run under it ([ADR 0045](decisions/0045-layered-context.md)). At a 50% budget on an 8,192 window the cap
-  (30%) may reach the floor, which says that budget is too tight for that window. Prepared for context checkpoint 2
-  ([proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md)).
-- **The target and the headroom tuned.** The defaults are reasoned from the window's arithmetic (above); the
-  checkpoint's default-budget runs never condensed, and the target at 0.4 and 0.6 and the headroom over one turn
-  or none were not run. Context checkpoint 2 has a scenario long enough to condense at the default budget
-  (`ContextEval.sustained()`, 29 turns and ten questions) and runs that grid (`scripts/check eval checkpoint`,
-  [measurements.md](measurements.md#context-checkpoint-2)); not yet run.
+  scores fell), and its inferred task drifted with each question ([ADR 0045](decisions/0045-layered-context.md)).
+  Context checkpoint 2 measured `assessment.taskChanges: restated`, which kept the task on every run and is now the
+  default, but the assessment with it scored within a run's noise of the assessment off, at 7 to 10 more model calls
+  a conversation, so it stays off ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)).
+- **`memory` on a second scenario.** Checkpoint 2's one scenario is a reading conversation; whether `memory` pays
+  in one that edits, builds, and tests, or at windows far above 8,192, is unmeasured, so it is a setting
+  (`context.memory`) rather than gone ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)).
 - **Counting before each prompt, for every model.** Calling `tokenCount(for:)` before each prompt is exact
   but costs a model call. The ahead check uses the free usage report where a runtime gives one, and counts
   only for a model that reports nothing (ADR 0025, amendment of 2026-09-29).

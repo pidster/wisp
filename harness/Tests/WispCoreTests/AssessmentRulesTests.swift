@@ -79,7 +79,7 @@ import WispTestSupport
         let allowed = ["current_date", "run_command", "memory"]
         let request = "What is the date today in Tokyo for the release plan?"
         // In chat with no task, a named tool is not enough: the task is inferred.
-        var context = AssessmentRules.Context(allowed: allowed, infersTask: true)
+        var context = AssessmentRules.Context(allowed: allowed, infersTask: true, taskChanges: .any)
         #expect(!AssessmentRules.decide(request, context: context).settled)
         // The person's task is never replaced, so there is nothing to infer.
         context.hasTask = true
@@ -130,10 +130,12 @@ import WispTestSupport
         context.restates = false
         context.hasTask = false
         #expect(context.mayChangeTask && !AssessmentRules.decide(request, context: context).settled)
-        // Under `any`, the default, every request the rules leave open may change it.
-        let any = AssessmentRules.Context(allowed: allowed, hasTask: true)
+        // Under `any` every request the rules leave open may change it.
+        let any = AssessmentRules.Context(allowed: allowed, hasTask: true, taskChanges: .any)
         #expect(any.mayChangeTask && !AssessmentRules.decide(request, context: any).settled)
-        #expect(AssessmentSettings().taskChanges == .any)
+        // `restated` is the default since ADR 0057, for the settings and the rules alike.
+        #expect(AssessmentSettings().taskChanges == .restated && AssessmentSettings.TaskChanges.default == .restated)
+        #expect(!AssessmentRules.Context(allowed: allowed, hasTask: true).mayChangeTask)
     }
 
     @Test func relevantFactsAreChosenByWordOverlapLeavingOutTheNowBlocks() {

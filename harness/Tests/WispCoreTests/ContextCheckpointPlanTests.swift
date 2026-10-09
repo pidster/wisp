@@ -130,7 +130,7 @@ import WispTestSupport
         #expect(half.allSatisfy { $0.scenario.name == "recalling" })
         // The memory part's cell with memory is the grid's default cell, so a run of both does it once.
         let memory = checkpoint.cells(.memory)
-        #expect(memory.map(\.label) == ["t50-h8", "memory-off"] && grid.contains { $0.label == "t50-h8" })
+        #expect(memory.map(\.label) == ["t60-h8", "memory-off"] && grid.contains { $0.label == "t60-h8" })
         #expect(memory.map(\.strategy.hasMemory) == [true, false])
         let assessment = checkpoint.cells(.assessment)
         #expect(assessment.map(\.label) == ["assess-off", "assess-any", "assess-restated"])

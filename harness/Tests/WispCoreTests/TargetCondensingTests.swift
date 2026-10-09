@@ -386,12 +386,14 @@ import WispTestSupport
     @Test func fewerDeeperCondensationsThanTheFixedFourTurnsEachAtOrBelowTheTarget() async throws {
         // Turns of about 190 tokens on a 1,000-token window: four of them sit near the 85% budget, so the fixed
         // policy, once full, condenses before almost every turn, a turn at a time (the on-device model's pattern
-        // in the proposal's "Problem"). The target condenses to half the window and lasts a few turns.
+        // in the proposal's "Problem"). A target of half the window condenses deeper and lasts a few turns; it is
+        // set here, since the default share (0.6) leaves room for only one such turn on so small a window.
         let reply = String(repeating: "word ", count: 120)
         let steps = (1...24).map { _ in ScriptedModel.Step.say(reply) }
         let prompts = (1...24).map { "prompt \($0) " + String(repeating: "x", count: 120) }
         let targetSink = MemoryAuditSink()
-        let (target, _) = Self.countingAgent(steps: steps, window: 1000, policy: .default, sink: targetSink)
+        let half = ContextPolicy.target(ContextTarget(share: 0.5, headroomTurns: 8))
+        let (target, _) = Self.countingAgent(steps: steps, window: 1000, policy: half, sink: targetSink)
         let fixedSink = MemoryAuditSink()
         let (fixed, _) = Self.countingAgent(steps: steps, window: 1000, policy: .fixed, sink: fixedSink)
         for prompt in prompts {
@@ -467,8 +469,28 @@ import WispTestSupport
         #expect(config.resolved.contextTarget == ContextTarget(share: 0.6, headroomTurns: 1))
         #expect(throws: DecodingError.self) { try Config.ContextConfig(target: 0.9).validate() }
         #expect(throws: DecodingError.self) { try Config.ContextConfig(headroomTurns: -1).validate() }
-        #expect(ConfigSettings.defaultValue("context.target") == .double(0.5))
+        #expect(ConfigSettings.defaultValue("context.target") == .double(0.6))
+        // The default is checkpoint 2's (ADR 0057), and the guard leaves it alone at the default budget.
+        #expect(ContextTarget.default == ContextTarget(share: 0.6, headroomTurns: 8))
+        #expect(ContextComposer().effectiveShare(of: .default) == 0.6)
         #expect(ConfigSettings.defaultValue("context.headroomTurns") == .int(8))
         #expect(ConfigSettings.setting("context.target")?.kind == .number(0.1...0.8))
+    }
+
+    @Test func contextMemoryIsOffByDefaultAndRoundTripsThroughTheFile() throws {
+        #expect(Config().resolved.contextMemory == false)
+        #expect(ConfigSettings.setting("context.memory")?.kind == .flag)
+        // Set from chat or `wisp config set`, beside the other context keys, and read back as start-up reads it.
+        let file = Data(#"{"context": {"target": 0.5}}"#.utf8)
+        let on = try ConfigEdit.set("context.memory", to: "on", in: file)
+        #expect(on.old == nil && on.new == true && on.warning == nil)
+        let config = try JSONDecoder().decode(Config.self, from: on.data)
+        #expect(config.context == Config.ContextConfig(target: 0.5, memory: true))
+        #expect(config.resolved.contextMemory && config.resolved.contextTarget.share == 0.5)
+        let encoded = try JSONEncoder().encode(config)
+        #expect(try JSONDecoder().decode(Config.self, from: encoded) == config)
+        let off = try ConfigEdit.unset("context.memory", in: on.data)
+        #expect(try JSONDecoder().decode(Config.self, from: off.data).resolved.contextMemory == false)
+        #expect(try ConfigEdit.current("context.target", in: off.data) == .double(0.5))
     }
 }

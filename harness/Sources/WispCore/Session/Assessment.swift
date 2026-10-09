@@ -30,6 +30,10 @@ public struct AssessmentSettings: Sendable, Equatable {
         /// Only on a request that states a task (`AssessmentRules.restatesTask`), such as `Today's task: …` or
         /// `Let's switch to …`; every other request keeps it, and the rules settle the task without a model call.
         case restated
+
+        /// `restated`, since context checkpoint 2 found it keeping the task on every run where `any` lost it on
+        /// most, scoring as well or better ([ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
+        public static let `default` = TaskChanges.restated
     }
 
     /// Which tools each request registers.
@@ -45,8 +49,8 @@ public struct AssessmentSettings: Sendable, Equatable {
     /// - Parameters:
     ///   - tools: Which tools each request registers; per request by default, as D4 decided.
     ///   - infersTask: Whether the task is inferred; yes by default, as in chat.
-    ///   - taskChanges: When an inferred task may change; on any request by default, as phase 4d built it.
-    public init(tools: ToolSets = .request, infersTask: Bool = true, taskChanges: TaskChanges = .any) {
+    ///   - taskChanges: When an inferred task may change; only on a request that states one by default (ADR 0057).
+    public init(tools: ToolSets = .request, infersTask: Bool = true, taskChanges: TaskChanges = .default) {
         self.tools = tools
         self.infersTask = infersTask
         self.taskChanges = taskChanges
@@ -227,7 +231,7 @@ enum AssessmentRules {
         /// to choose.
         var selectsTools = true
         /// When an inferred task may change (`AssessmentSettings.taskChanges`).
-        var taskChanges = AssessmentSettings.TaskChanges.any
+        var taskChanges = AssessmentSettings.TaskChanges.default
         /// Whether the request states a task (`AssessmentRules.restatesTask`).
         var restates = false
 

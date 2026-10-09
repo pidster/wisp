@@ -4,7 +4,9 @@ Date: 2026-10-06. Status: prepared, not run. The measurement is built and passes
 waits for a Mac with nothing else on the GPU or in Ollama. The roadmap item is 0.20.0's "Context checkpoint 2"
 ([roadmap.md](../roadmap.md)); its questions are the open items of
 [ADR 0045](../decisions/0045-layered-context.md), whose first checkpoint (2026-10-01) is the baseline here. The
-[layered-context proposal](2026-09-29-layered-context.md) has the design and every earlier figure.
+[layered-context proposal](2026-09-29-layered-context.md) has the design and every earlier figure. Run 2026-10-06 to
+2026-10-08 and decided 2026-10-09 in [ADR 0057](../decisions/0057-context-defaults-from-checkpoint-2.md) ("Results",
+below).
 
 This page says what each question is, what is measured, which result would change which default, and the exact
 commands, so that the run and the decisions can follow it without a further design step.
@@ -209,3 +211,10 @@ WISP_EVAL_MODELS=system,ollama:granite4.1:8b scripts/check eval checkpoint recor
 ## Results
 
 Not yet run.
+
+**2026-10-09: run and decided.** The main pass ran on 2026-10-06 and 2026-10-07, and three confirming runs of the
+candidate cells on 2026-10-08, as command 4 says; the tables are in
+[measurements.md](../measurements.md#results-2026-10-06-to-2026-10-08), and the decisions, question by question, in
+[ADR 0057](../decisions/0057-context-defaults-from-checkpoint-2.md): `memory` off by default and kept as a setting
+(`context.memory`), `context.target` 0.6, `context.headroomTurns` 8, the guard unchanged, D10's switch sound, and the
+assessment off with `assessment.taskChanges` `restated` by default.

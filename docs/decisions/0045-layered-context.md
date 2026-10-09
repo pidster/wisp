@@ -9,7 +9,9 @@ D1 to D12 with what was considered and when to reopen each, and every evaluation
 record"): the store is the faithful record, and the model's context is composed from it. Leaves
 [ADR 0017](0017-three-layer-instructions.md) unchanged. Amended by [ADR 0048](0048-permanent-facts-over-mcp.md): the
 person admits a permanent fact an MCP caller asks for from a terminal (`wisp facts keep`) or `wisp-tui`, as well as
-from chat.
+from chat. Amended by [ADR 0057](0057-context-defaults-from-checkpoint-2.md), from context checkpoint 2: `memory` is
+off by default (`context.memory` turns it on), `context.target` is 0.6, and `assessment.taskChanges` is `restated`;
+the headroom, the guard, and the assessment's being off are unchanged.
 
 ## Context
 

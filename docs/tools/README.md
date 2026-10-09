@@ -13,12 +13,12 @@ result format) and the limits that protect the context window. `wisp tools` prin
 | [notify](notify.md) | Show the user a macOS notification; bounded, rate-limited, audited, no approval. |
 | [custom tools](custom.md) | Your own tools: command templates with typed arguments, declared in `~/.wisp/config.json`. |
 | [system_info](system_info.md) | Ports, free space, folder sizes, busy processes, memory, one process, battery, macOS, network; read-only. |
-| [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, or a fact's history that the context holds only as a reference, for one turn; `note` a fact, or propose the `task`, as the model. |
+| [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, or a fact's history that the context holds only as a reference, for one turn; `note` a fact, or propose the `task`, as the model. Off by default: `context.memory` turns it on. |
 
 Select tools per session with `--tool <name>` on the CLI or the `tools` argument of MCP `respond`. Every
-registered tool's schema is in the prompt on every turn, so enable only what a task needs. `memory` is one of
-all the tools; a named list has it only when it names it ([memory.md](memory.md)), and `tools.disabled` can
-leave it out.
+registered tool's schema is in the prompt on every turn, so enable only what a task needs. All the tools, the
+default, are every registered tool but `memory`, which joins them when `context.memory` is on; a named list has it
+only when it names it ([memory.md](memory.md)), and `tools.disabled` can leave it out everywhere.
 
 MCP clients discover these tools through the `wisp://tools` resource, generated from the registry; the
 limits and example prompt for each come from the tool itself (`WispTool.limits`, rendered from its live

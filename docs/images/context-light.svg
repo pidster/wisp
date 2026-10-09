@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540" role="img" aria-labelledby="title desc">
   <title id="title">How wisp composes the model's context</title>
-  <desc id="desc">The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, the literal turns with tool output whole in its own turn and a short reference after it, and last the task, ephemeral facts, and the request. The model sees only that, and its memory tool recalls or notes material. You see the transcript, built from the audit log: prompts, replies, and every tool's full output, the same in chat, wisp-tui, and over MCP. Showing an output, inspecting the context at any turn, and seeing or changing facts cost the model no context.</desc>
+  <desc id="desc">The audit log is the source of truth: every prompt, tool call, output, and reply, written once, verbatim. The thread record refers to it: entries by id, versioned facts, the running summary, and references to earlier output. For each request wisp composes the context from the record, most stable first: instructions and the tool catalogue, permanent facts, dynamic facts and the summary, the literal turns with tool output whole in its own turn and a short reference after it, and last the task, ephemeral facts, and the request. The model sees only that, and, when it is turned on, its memory tool recalls or notes material. You see the transcript, built from the audit log: prompts, replies, and every tool's full output, the same in chat, wisp-tui, and over MCP. Showing an output, inspecting the context at any turn, and seeing or changing facts cost the model no context.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#0969da"/>
@@ -72,7 +72,7 @@
   <text class="title" x="800" y="116">Sees only</text>
   <text class="title" x="800" y="136">the composed</text>
   <text class="title" x="800" y="156">context</text>
-  <text class="body" x="800" y="200">memory tool:</text>
+  <text class="body" x="800" y="200">memory tool, if on:</text>
   <text class="body" x="800" y="220">recall earlier</text>
   <text class="body" x="800" y="240">material, note</text>
   <text class="body" x="800" y="260">a fact</text>

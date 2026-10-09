@@ -78,6 +78,10 @@ import WispTestSupport
                 == "[output of entry 7 not repeated: read_file at 14:05:12, ok, 41 lines, \(Self.page.utf8.count) bytes; "
                 + "call it again to see it]")
         #expect(lines[1] == #"arguments: {"path":"/work/overview.md"}"#)
+        // A command is never suggested again: it may not print the same twice, or may change something.
+        let command = OutputReference.text(tool: "run_command", entry: 8, time: time, arguments: nil, output: "done")
+        #expect(command.contains("; its output is not repeated; do not run it again to see it]"))
+        #expect(!command.contains("call it again"))
         #expect(lines[2].hasPrefix("first line: 1\tline 1") && lines[3].hasPrefix("last line: 40\tline 40"))
         // Long arguments and lines are shortened; the whole never passes the bound.
         let huge = OutputReference.text(

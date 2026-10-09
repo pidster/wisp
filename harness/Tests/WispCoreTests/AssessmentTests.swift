@@ -285,11 +285,11 @@ import WispTestSupport
         #expect(config.resolved.assessmentEnabled && config.resolved.assessmentTools == .task)
         #expect(ConfigSettings.setting("assessment.enabled")?.kind == .flag)
         #expect(ConfigSettings.defaultValue("assessment.tools") == "request")
-        #expect(ConfigSettings.defaultValue("assessment.taskChanges") == "any")
-        #expect(Config().resolved.assessmentTaskChanges == .any)
-        let restated = try JSONDecoder().decode(
-            Config.self, from: Data(#"{"assessment":{"enabled":true,"taskChanges":"restated"}}"#.utf8))
-        #expect(restated.resolved.assessmentTaskChanges == .restated)
+        #expect(ConfigSettings.defaultValue("assessment.taskChanges") == "restated")
+        #expect(Config().resolved.assessmentTaskChanges == .restated)
+        let any = try JSONDecoder().decode(
+            Config.self, from: Data(#"{"assessment":{"enabled":true,"taskChanges":"any"}}"#.utf8))
+        #expect(any.resolved.assessmentTaskChanges == .any)
         #expect(throws: (any Error).self) {
             try JSONDecoder().decode(Config.self, from: Data(#"{"assessment":{"tools":"some"}}"#.utf8))
         }

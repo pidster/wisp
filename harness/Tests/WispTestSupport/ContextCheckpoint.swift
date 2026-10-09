@@ -199,7 +199,8 @@ public struct ContextCheckpoint: Sendable, Equatable {
     /// The switch plans: `;` between plans, `>` between legs, `@N` after a model for its window.
     public static let switchesVariable = "WISP_CHECKPOINT_SWITCHES"
 
-    /// The grid's targets by default: the default, and a tenth either side (ADR 0045's open item).
+    /// The grid's targets by default: 0.5 (the default when checkpoint 2 ran) and a tenth either side (ADR 0045's open
+    /// item), as that run measured them; ADR 0057 made 0.6 the default.
     public static let defaultTargets = [0.4, 0.5, 0.6]
     /// The grid's headrooms by default: none (phase 2's trigger), the last turn (D5's floor), and the default eight.
     public static let defaultHeadrooms = [0, 1, 8]
@@ -330,7 +331,8 @@ public struct ContextCheckpoint: Sendable, Equatable {
         "t\(Int((target * 100).rounded()))-h\(headroom)"
     }
 
-    /// The whole default stack at the default budget with `target`: memory, facts, the summary, references, and
+    /// The stack checkpoint 2 measured at the default budget with `target`: memory (on here, though off by default
+    /// since ADR 0057, so the memory part can compare it with `memory-off`), facts, the summary, references, and
     /// condensing to it.
     static func stack(_ target: ContextTarget = .default) -> MemoryStrategy {
         MemoryStrategy(policy: .target(target))

@@ -12,19 +12,36 @@ widened from a `recall` tool to `memory` on 2026-09-30.
 It is not the Mac's memory: `system_info`'s `memory` topic reports RAM. The tool's description says so, and
 the eval checks that questions about RAM still go to `system_info` (below).
 
+**Off by default.** Context checkpoint 2 scored fewer answers with `memory` than without it on every model it
+measured (the on-device model, `granite4.1:8b`, and `gemma4:12b`), so since
+[ADR 0057](../decisions/0057-context-defaults-from-checkpoint-2.md) a conversation gets it only when you turn it on
+or name it. Turn it on for every conversation given every tool:
+
+```
+wisp config set context.memory true
+```
+
+or `/config set context.memory on` in chat, or `"context": { "memory": true }` in `~/.wisp/config.json`; it applies
+from the next conversation. With it on, everything on this page behaves as it did before ADR 0057.
+
 ## When a conversation has it
 
 | Conversation | `memory` |
 | --- | --- |
-| Every tool (no `--tool`, MCP `respond` without `tools`, chat) | Yes, as a built-in tool |
-| A named list (`--tool read_file`, MCP `tools: ["run_command"]`) | Only when the list names `memory` |
+| Every tool (no `--tool`, MCP `respond` without `tools`, chat), `context.memory` off (the default) | No |
+| Every tool, `context.memory: true` | Yes, as a built-in tool |
+| A named list (`--tool read_file`, MCP `tools: ["run_command"]`) | Only when the list names `memory`, whatever `context.memory` says |
 | No tools (`--no-tools`, `tools: []`) | No |
-| `tools.disabled: ["memory"]` in `~/.wisp/config.json` | No, anywhere |
+| `tools.disabled: ["memory"]` in `~/.wisp/config.json` | No, anywhere: the tool is not registered, so a list that names it is refused |
 
 An explicit list is exactly that list, so the MCP git thread of `AGENTS.md` (`tools: ["run_command"]`) stays
-`run_command` alone. A conversation without `memory` is not given the system prompt's rule about it, and its
-references say to run the call again instead. With it, the tool is there from the first turn: a note needs
-nothing stored, and a recall before anything is stored says the first turn is all in view.
+`run_command` alone, and `--tool read_file --tool memory` has `memory` with the setting off. A conversation
+without `memory` is not given the system prompt's rule about it, and its references say `call it again to see it` for a tool that only reads, and `its output is not repeated; do
+not run it again to see it` for a command or an edit
+instead of naming a recall; the facts, the running summary, and the references themselves are the same. You can
+still see any earlier output with `/show` and `/inspect context`, which cost the model nothing. With `memory`, the
+tool is there from the first turn: a note needs nothing stored, and a recall before anything is stored says the
+first turn is all in view.
 
 ## Arguments
 
@@ -183,7 +200,10 @@ turn ends ([logging.md](../logging.md)).
 ## Evaluation
 
 Measured in the context eval's `recalling` and `noting` scenarios (`ContextEvalTests`, `MemoryStrategy`); the
-figures are in the proposal, "Memory, 2026-09-30". `SystemInfoEvalTests` offers `memory` beside
+figures are in the proposal, "Memory, 2026-09-30". Context checkpoint 2 compared the whole stack with and without
+`memory` on its `sustained` scenario, three runs on each of three models, and found it no help: 4.3 against 5.3 of 10
+on the on-device model, 7.3 against 8.0 on granite4.1:8b, and 8.0 against 9.3 on gemma4:12b
+([ADR 0057](../decisions/0057-context-defaults-from-checkpoint-2.md)). `SystemInfoEvalTests` offers `memory` beside
 `system_info` and `run_command` and counts the turns that call it on a question about the Mac: on
 2026-09-30, on the on-device model, none of 16 did.
 

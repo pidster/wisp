@@ -308,13 +308,14 @@ public struct Session: Sendable {
         return home.models.appending(path: "coreml").appending(path: configured)
     }
 
-    /// The whole registry for `.all`, or the names as given once each is known.
+    /// The whole registry for `.all` (without `memory` unless `context.memory` is on), or the names as given once
+    /// each is known.
     ///
     /// - Throws: `Failure.unknownTools`.
     private static func resolve(_ selection: ToolSelection, config: Config.Resolved) throws -> [String] {
         let registry = ToolRegistry(
             runner: config.runner, disabled: config.disabledTools, custom: config.customTools)
-        let names = selection.resolved(or: registry.all.map(\.name))
+        let names = selection.resolved(or: registry.defaultNames(memory: config.contextMemory))
         let unknown = registry.select(names).unknown
         guard unknown.isEmpty else { throw Failure.unknownTools(unknown) }
         return names

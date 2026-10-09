@@ -21,12 +21,13 @@ public enum ContextPolicy: Sendable, Equatable {
 
 /// What condensing to a target aims for (`ContextPolicy.target`).
 public struct ContextTarget: Sendable, Equatable {
-    /// The low-water mark: the share of the window a condensation brings the context down to. 0.5 by default:
-    /// on the on-device model's 8,192 tokens the instructions with every tool (about 1,400) and the earlier block
-    /// at its cap (15%) take about a third of the window, so half leaves about 1,500 tokens of literal turns
-    /// (several turns whose output is a reference of at most 640 bytes) and 35% of the window for the turns before
-    /// the next condensation; a larger window keeps proportionally more of both. Kept at the phase-6 checkpoint (ADR
-    /// 0045), which also found that a share at or near the budget condenses on nearly every turn.
+    /// The low-water mark: the share of the window a condensation brings the context down to. 0.6 by default
+    /// since context checkpoint 2 (ADR 0057), which scored it above 0.5 on the on-device model and granite4.1:8b
+    /// at the default budget: on the on-device model's 8,192 tokens the instructions with every tool (about 1,200)
+    /// and the earlier block at its cap (15%) take under a third of the window, so 0.6 leaves about 2,500 tokens of
+    /// literal turns and 25% of the window for the turns before the next condensation; a larger window keeps
+    /// proportionally more of both. The guard caps it at the budget less 0.2 (0.65 at the default budget); the
+    /// phase-6 checkpoint (ADR 0045) found that a share at or near the budget condenses on nearly every turn.
     public var share: Double
     /// How many of the latest turns the headroom kept for the next turn averages: a condensation is due when
     /// the context, the prompt, and a turn of that average size would pass the budget, and it condenses until
@@ -39,12 +40,12 @@ public struct ContextTarget: Sendable, Equatable {
     /// - Parameters:
     ///   - share: The low-water mark, as a share of the window.
     ///   - headroomTurns: How many latest turns the headroom averages.
-    public init(share: Double = 0.5, headroomTurns: Int = 8) {
+    public init(share: Double = 0.6, headroomTurns: Int = 8) {
         self.share = share
         self.headroomTurns = headroomTurns
     }
 
-    /// Half the window, with the average of the last eight turns as headroom.
+    /// Six tenths of the window, with the average of the last eight turns as headroom.
     public static let `default` = ContextTarget()
     /// The fewest literal turns a condensation keeps: the last whole turn (D5's floor).
     public static let floorTurns = 1

@@ -104,7 +104,8 @@ on-device model's place), and one context scenario. Add `record` to merge the me
   quick models, `compare` for a comparison.
 - **The context scenario** (`ContextEvalTests/comparisonOnEachModel`, which runs only when
   `WISP_EVAL_MODELS` is set): the baseline, the shortest scenario (14 turns, then six questions), through the
-  whole default stack (memory, facts, the summary, references, condensing to the target), at a window of 8,192
+  whole stack (memory, on here though off by default since ADR 0057, facts, the summary, references, condensing to
+  the target), at a window of 8,192
   tokens, the on-device model's, so every model condenses the same conversation; recorded as
   `context.memory-target.window-8192`.
 - **Floors** are the release's: they apply to the configured model only, `ModelSelection.default` (`system`),
@@ -260,9 +261,62 @@ the gate without a model.
 The parts run as one test each, one at a time. Each cell prints its turns and report as the context eval does, then
 a `checkpoint row`; the run ends with a table, a row per model and cell, saved as `eval-<date>-<time>.summary.txt`,
 and every row's fields (the answers, the switches, the load) as `.checkpoint.tsv` beside the log. A cell the grid and
-the memory part share (`t50-h8`, the defaults) runs once. Add `record` to merge each run's measurement into
-`measurements.json`. Not yet run; the plan estimates about two hours on the on-device model, an hour and a half on
-`granite4.1:8b`, and a quarter of an hour for the switches.
+the memory part share (the default target and headroom, `t60-h8` since ADR 0057; `t50-h8` when the checkpoint ran)
+runs once. The memory part's cell with `memory` turns it on explicitly, though it is off by default. Add `record` to
+merge each run's measurement into `measurements.json`. The main pass took 3 hours 40 minutes on the two models with
+the switches (2026-10-06), and gemma4:12b's two `memory` cells 40 minutes more.
+
+### Results, 2026-10-06 to 2026-10-08
+
+Run on this Mac without `record`, so nothing was merged into `measurements.json`; the logs and tables were kept
+outside the repository. The decisions they led to are [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md).
+Answers are of 10 (`sustained`) or 7 (`recalling`); the main pass is one run a cell, the confirmation three, each
+listed, then the mean.
+
+The main pass (2026-10-06 21:54 to 2026-10-07 02:13, load average 1 to 3), `grid`, answers of 10:
+
+| Model | t40-h0 | t40-h1 | t40-h8 | t50-h0 | t50-h1 | t50-h8 | t60-h0 | t60-h1 | t60-h8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `system` | 5 | 2 | 4 | 3 | 6 | 5 | 3 | 6 | 6 |
+| `granite4.1:8b` | 6 | 6 | 7 | 7 | 8 | 7 | 8 | 7 | 6 |
+
+The rest of the main pass, one run each:
+
+| Part | Cell | `system` | `granite4.1:8b` | `gemma4:12b` |
+| --- | --- | --- | --- | --- |
+| `half` | stack (gaps between condensations) | 3/7 (3, 3) | 4/7 (2, 3) | |
+| `half` | without `memory` (summary only) | 5/7 | 6/7 | |
+| `half` | phase 2's fixed four turns | 3/7 | 6/7 | |
+| `half` | dropping (gaps) | 0/7 (all 1) | 1/7 (all 1 but one) | |
+| `memory` | with (`t50-h8`) | 5/10 | 7/10 | 7/10 |
+| `memory` | `memory-off` | 4/10 | 4/10 | 10/10 |
+| `assessment` | off | 4/10 | 6/10 | |
+| `assessment` | `any` | 2/10 | 8/10 | |
+| `assessment` | `restated` | 6/10 | 9/10 | |
+| `switch` | `system>ollama:granite4.1:8b>system` | 6/10 | | |
+| `switch` | `ollama:granite4.1:8b@32768>system` | | 5/10 | |
+
+The confirmation, three runs (2026-10-08: `assessment` 09:09, `memory` on granite and gemma4 11:45, `grid` 14:24 to
+18:09, `memory` on the on-device model 21:53 to 22:47; load average 1 to 5):
+
+| Part | Cell | `system` | `granite4.1:8b` | `gemma4:12b` |
+| --- | --- | --- | --- | --- |
+| `memory` | with (`t50-h8`) | 4, 5, 4 (4.3) | 6, 9, 7 (7.3) | 8, 8, 8 (8.0) |
+| `memory` | `memory-off` | 4, 5, 7 (5.3) | 8, 8, 8 (8.0) | 10, 8, 10 (9.3) |
+| `grid` | `t50-h8` | 3, 7, 2 (4.0) | 7, 6, 8 (7.0) | |
+| `grid` | `t50-h1` | 2, 6, 3 (3.7) | 8, 7, 5 (6.7) | |
+| `grid` | `t60-h8` | 4, 4, 8 (5.3) | 9, 7, 7 (7.7) | |
+| `grid` | `t60-h1` | 5, 5, 4 (4.7) | 7, 6, 8 (7.0) | |
+| `assessment` | off | 4, 2, 1 (2.3) | 8, 7, 7 (7.3) | |
+| `assessment` | `any` | 3, 2, 5 (3.3) | 7, 7, 5 (6.3) | |
+| `assessment` | `restated` | 4, 3, 2 (3.0) | 6, 8, 9 (7.7) | |
+
+Beside the scores: the detail questions with `memory` 0, 1, and 4 of 6 (on-device, granite, gemma4) and without it 1,
+1, and 6; gemma4's 95th-percentile turn 188 to 358 s with `memory` and 27 to 190 s without; under `any` the `task`
+answer wrong in 2 of 3 on-device runs and 3 of 3 on granite, with 8 to 23 task changes, and under `restated` right in
+all six with 1 or 2; every default cell condensed at least once. Single on-device runs range from 1 to 8 of 10 on the
+same cell, so read differences of an answer as noise unless three runs agree. ADR 0057 has the per-cell
+condensations, floors, and times.
 
 ## Reading a measurement
 

@@ -58,8 +58,9 @@ import Testing
         let facts = top.objectValue?["facts"]?.objectValue
         #expect(facts?["enabled"] == true && facts?["share"] == .double(0.1))
         #expect(top.objectValue?["assessment"]?.objectValue?["tools"] == "request")
-        #expect(top.objectValue?["assessment"]?.objectValue?["taskChanges"] == "any")
-        #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.5))
+        #expect(top.objectValue?["assessment"]?.objectValue?["taskChanges"] == "restated")
+        #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.6))
+        #expect(top.objectValue?["context"]?.objectValue?["memory"] == false)
         #expect(Introspection.render(top).utf8.count < 6_000, "the configuration view stays bounded")
     }
 

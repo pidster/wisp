@@ -113,8 +113,12 @@ enum OutputReference {
     ///   - output: The output's text.
     ///   - timeZone: The zone the time is written in.
     ///   - recallable: Whether the conversation has `memory`, so the reference names the call that recalls it;
-    ///     without it, the reference says to run the call again.
+    ///     without it, a read-only tool's reference says to call it again, and any other's that it is not run again.
     /// - Returns: The reference, at most `maxBytes` bytes.
+    /// The tools that only read, so calling one again to see its output again changes nothing. Every other
+    /// tool (`run_command`, `edit_file`, `notify`, a custom tool) is never suggested again.
+    static let rereadable: Set<String> = ["read_file", "inspect", "system_info", "current_date"]
+
     static func text(
         tool: String, entry: Int, time: Date?, arguments: String?, output: String, timeZone: TimeZone = .current,
         recallable: Bool = false
@@ -122,7 +126,14 @@ enum OutputReference {
         let notes = notes(on: output, tool: tool)
         let clock = time.map { " at " + Self.clock($0, in: timeZone) } ?? ""
         let plural = { (count: Int, noun: String) in "\(count) \(noun)\(count == 1 ? "" : "s")" }
-        let hint = recallable ? "to see it: memory \"recall entry \(entry)\"" : "call it again to see it"
+        let hint =
+            recallable
+            ? "to see it: memory \"recall entry \(entry)\""
+            : rereadable.contains(tool)
+                ? "call it again to see it"
+                // A command is not run again to see its output: it may not print the same twice, may be slow or
+                // costly, or may change something (the operator, 2026-10-04; ADR 0050, ADR 0057).
+                : "its output is not repeated; do not run it again to see it"
         var lines = [
             "[output of entry \(entry) not repeated: \(shortened(tool, to: 40))\(clock), \(notes.status), "
                 + "\(plural(notes.lines, "line")), \(plural(notes.bytes, "byte")); \(hint)]"
