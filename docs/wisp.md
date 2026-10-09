@@ -56,7 +56,8 @@ session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and 
 In `wisp-tui`, Up and Down recall the lines submitted this session (the latest 100, a line repeating
 the one before it kept once): Up from a fresh line keeps what was typed as a draft, and Down past the
 newest line brings it back. The plain chat reads whole lines and has no recall; `/history` lists them
-in both. Ctrl-C or Ctrl-D with nothing open leaves `wisp-tui`: it sends `/quit` (so the transcript is
+in both. While a command you typed after `!` runs, the first Ctrl-C (or Ctrl-D) stops it instead and a second
+quits ("Commands you run yourself", below). Ctrl-C or Ctrl-D with nothing open leaves `wisp-tui`: it sends `/quit` (so the transcript is
 saved, as in the plain chat), closes wisp's input, and waits up to five seconds for wisp to exit before
 stopping it. Anything wisp wrote to stderr that was not yet shown, such as why it could not start, is
 printed after the band is gone, and `wisp-tui` exits with wisp's status when wisp failed (1 when it had
@@ -101,8 +102,9 @@ nothing. In the scrollback the command's line is a stripe in a darker, faded sha
 input. Up and Down bring a command back in command mode.
 
 While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
-place of the cursor, `… working: read_file README.md`, `… working: running git status`, or `… working:
-waiting for the model`. Keys typed meanwhile are held, not shown as typed and not lost: the box says how many
+place of the cursor, `… working: read_file README.md` or `… working: waiting for the model`; for a command you
+typed, which has no time limit, what it runs, for how long, and how to stop it, `… running ollama pull
+hf.co/… · 42 s · Ctrl-C stops it`, ticking each second, then `… stopping … · Ctrl-C again quits` once you have. Keys typed meanwhile are held, not shown as typed and not lost: the box says how many
 (`· 3 keys held`), and they are applied in order when the turn ends, as if typed then (a held `!` into the
 empty box enters command mode). Held keys only ever go into the input box: when the turn ends with an
 approval or a choice open, they stay held until it closes, so a letter typed ahead never answers a dialog.
@@ -153,8 +155,16 @@ is complete.
 
 A line that starts with `!` is a command you run, not a message: `! git status --short` and `!git status
 --short` both run `git status --short` in the conversation's working directory, as `run_command` would, with
-its bounds (the output tail, the timeout), and no model turn starts
-([ADR 0049](decisions/0049-commands-typed-in-chat.md)). A bare `!` runs nothing and says so. A `!` inside a
+its output bound (the tail of each stream) but no timeout, and no model turn starts
+([ADR 0049](decisions/0049-commands-typed-in-chat.md), amended 2026-10-09). A long command (`! ollama pull …`,
+a build) runs until it ends or you stop it: Ctrl-C while it runs, in the plain chat and in `wisp-tui`, sends its
+process group SIGTERM and, two seconds later, SIGKILL, so whatever it started stops too; its line then reads
+`↳ exit -15 (stopped by you)` and the chat goes on, the model told of it as of any command you ran. Ctrl-C does
+not quit chat while such a command runs; a second one, while it is still stopping, kills it at once and quits,
+as Ctrl-C quits during a model's turn and at the prompt. While it runs the plain chat's working line says
+`… 42 s · running ollama pull … · Ctrl-C stops it`, and after the first Ctrl-C notes `stopping ollama pull …;
+Ctrl-C again quits`. Esc does not stop it, as it does not stop a turn. If `wisp-tui` quits or closes wisp's
+input while one runs, wisp kills it, so none outlives the chat. A bare `!` runs nothing and says so. A `!` inside a
 message is text. `wisp-tui` has a command mode for it (above); the plain chat, which has no box, colours the
 line's prompt marker in the command colour once you press Enter.
 
@@ -270,7 +280,7 @@ What a session shows, and where it goes:
 | Command | Effect |
 | --- | --- |
 | `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, Ctrl-O, Ctrl-T, Left and Right in the context panel). |
-| `!COMMAND` | Run a shell command yourself, in the sandbox and without asking; the model is told on its next request. See "Commands you run yourself". |
+| `!COMMAND` | Run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops it); the model is told on its next request. See "Commands you run yourself". |
 | `/tools` | List the tools the model can call. |
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
@@ -333,7 +343,7 @@ Out, to the front end:
 | --- | --- | --- |
 | `note` | `text` | The banner, the help line, and anything chat would say on stderr. |
 | `status` | `model`, `directory`, `branch`, `dirty`, `added`, `removed` (lines in tracked files since the last commit), `approval`, `contextUsed` (nulls when unknown) | Before each prompt: the turn is over and input is wanted. |
-| `activity` | `doing`, `asking`, `turnSeconds`, and `thinking` while the model thinks | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `thinking`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. While a reasoning model thinks, `doing` is `thinking` and `thinking` is true; the field is absent otherwise ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). `wisp-tui` draws it in its busy box as a thought bubble that grows and then cycles its dots, a frame every 280 ms: `.`, `.o`, `.oO`, `.oO( thinking )`, `.oO( thinking. )`, `.oO( thinking.. )`, `.oO( thinking... )`, then the last four again for as long as it thinks. A command you typed after `!` sends `running <command>` while it runs and null when it ends, with no `turn` lines. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
+| `activity` | `doing`, `asking`, `turnSeconds`, and `thinking` while the model thinks | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `thinking`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. While a reasoning model thinks, `doing` is `thinking` and `thinking` is true; the field is absent otherwise ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). `wisp-tui` draws it in its busy box as a thought bubble that grows and then cycles its dots, a frame every 280 ms: `.`, `.o`, `.oO`, `.oO( thinking )`, `.oO( thinking. )`, `.oO( thinking.. )`, `.oO( thinking... )`, then the last four again for as long as it thinks. A command you typed after `!` sends `running <command>` with `stoppable` true while it runs (an `interrupt` line stops it), then `stopping <command>` with `stopping` true once one has, and null when it ends, with no `turn` lines; both fields are absent otherwise. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
 | `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens`, and `facts` when the turn recorded or changed any, and `ran` when there is a line of what the turn ran, and `cited` when the reply cites entries the conversation does not hold | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. `facts` lists the facts the turn recorded or changed, each `{ id, scope (permanent, thread, session), subject, name, value, source, proposed }`; the same facts arrive as a `note` line after the turn's end, which is what `wisp-tui` shows. `ran` is the line the terminal chat prints under the reply, such as `ran: read_file ×2 · run_command (1 failed)`, counted from the turn's audit events ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)); it is sent only here, and `wisp-tui` shows it under the reply as a muted note. `cited` is the line beside it naming the entries the reply cites that the conversation does not hold, such as `cited but not in this conversation: entries 19–30 (12)` ([ADR 0055](decisions/0055-cited-entries-checked.md)); `wisp-tui` shows it after `ran`. Slash commands and commands typed after `!` are not turns. |
 | `delta` | `text` | A fragment of the streamed reply. |
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
@@ -368,7 +378,10 @@ command the person runs, exactly as a line typed in the plain chat ([ADR 0049](d
 `wisp-tui` sends what is typed in command mode this way, `{"type":"message","text":"!git status"}`, so the
 protocol needs no type of its own for it and a front end without a command mode can still run one. No `turn`
 lines follow: the command's audit events arrive as `event` lines (`policy.decision`, `command.outcome`,
-`command.typed` with the output), then `status`. Then
+`command.typed` with the output), then `status`. While it runs, `{"type":"interrupt"}` stops it (Ctrl-C in
+`wisp-tui`): its process group gets SIGTERM, then SIGKILL two seconds later, and a second `interrupt` kills it at
+once; `command.outcome` and `command.typed` then carry `stopped: true`. With no command of yours running,
+`interrupt` does nothing. When wisp's input closes while one runs, it is killed. Then
 `{"type":"answer","id":"…","decision":"once|session|project|always|no"}` for an approval (`keep` or
 `drop` for a fact to keep), and
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, or for a choice

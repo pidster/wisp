@@ -1,7 +1,8 @@
 # ADR 0049: Commands the person types in chat
 
 Date: 2026-10-04. Status: accepted. Amended by [ADR 0054](0054-the-sandboxs-refusals-checked.md): the note for a
-command the sandbox refuses comes from a check of the paths in its error, not a guess.
+command the sandbox refuses comes from a check of the paths in its error, not a guess. Amended on 2026-10-09: a typed command
+has no timeout, and the person stops it with Ctrl-C (below).
 
 ## Context
 
@@ -101,3 +102,31 @@ source, and a `! pwd` that gives the same value still adds nothing. Also: a type
 condensing; it goes with the turn after it, so the floor of one turn keeps the last turn the model took part in
 ([context-management.md](../context-management.md), "Condensing"), and its notice without `memory` says not to
 run it again, as any command's reference does (ADR 0057).
+
+**Amendment, 2026-10-09: no timeout for a typed command.** The decision above ran a typed command "with its
+bounds (the output tail, the timeout)". The operator ran `! ollama pull hf.co/ornith-ai/Ornith-1.5-9B-GGUF:Q4_K_M`
+in chat, and wisp killed it at `run_command`'s 60-second timeout (exit -15) with 3.2 of 5.8 GB fetched; they asked
+for the timeout to go. The timeout stands in for the person, as the classifier and the approval do: it stops a
+model's command that would run unwatched, and the person who typed a command is watching it. So a typed command
+keeps the output bound (the tail of each stream, the fold, `/show`) and loses the timeout; the model's `run_command`
+keeps its timeout unchanged.
+
+- **The person stops it.** Since nothing stops it automatically, Ctrl-C does, in both faces: while a typed command
+  runs, the first Ctrl-C sends its process group SIGTERM and SIGKILL two seconds later (`CommandStop`, the runner's
+  group kill), and chat goes on; its outcome line reads `↳ exit -15 (stopped by you)`. Ctrl-C does not quit chat
+  then. A second Ctrl-C while it is still stopping kills it at once and quits, as Ctrl-C quits during a model's turn
+  and at the prompt, which this leaves as they were. Esc stops nothing, as it stops no turn.
+- **Over `wisp chat --json`** a new inbound line, `{"type":"interrupt"}`, is the front end's Ctrl-C; `wisp-tui`
+  sends it on the first Ctrl-C (or Ctrl-D) while a command it sent runs and quits on the second. The `activity`
+  line marks such a command `stoppable`, then `stopping`. When wisp's input closes while one runs, wisp kills it,
+  so a command outlives neither face.
+- **It shows that it is running and how to stop it**: `… 42 s · running ollama pull … · Ctrl-C stops it` in the
+  plain chat's working line and `wisp-tui`'s busy box, ticking each second, then `stopping … · Ctrl-C again quits`.
+- **Audited**: `command.outcome` and `command.typed` carry `stopped: true` for a command the person stopped, and the
+  thread record's entry says so, so the model's notice reads `exit status -15, stopped by the person`.
+- **Plain chat now takes SIGINT itself** for the whole session, raising it again with the default disposition when
+  no typed command runs, so that Ctrl-C still quits there; commands are spawned with SIGINT reset to its default,
+  since an ignored signal is inherited across `exec`.
+- **No setting.** A cap for typed commands is not added: the person who would set it is the one watching the
+  command, and Ctrl-C is the cap. Streaming a typed command's output live is left for later; the runner captures
+  output into buffers it reads at the end, so it needs a callback per chunk and a face that redraws the fold.

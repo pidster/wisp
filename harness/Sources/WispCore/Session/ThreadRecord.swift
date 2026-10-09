@@ -153,15 +153,53 @@ public struct ThreadRecord: Sendable {
         public var timedOut: Bool
         /// Whether its output lost leading bytes to the bound.
         public var truncated: Bool
+        /// Whether the person stopped it (Ctrl-C) before it finished (ADR 0049, amended 2026-10-09).
+        public var stopped: Bool
+
+        /// The keys it is saved under; `stopped` is written only when true, so a record saved before it existed reads.
+        private enum CodingKeys: String, CodingKey {
+            case line, directory, exitStatus, timedOut, truncated, stopped
+        }
 
         /// Creates a description.
-        public init(line: String, directory: String, exitStatus: Int32, timedOut: Bool = false, truncated: Bool = false)
-        {
+        public init(
+            line: String, directory: String, exitStatus: Int32, timedOut: Bool = false, truncated: Bool = false,
+            stopped: Bool = false
+        ) {
             self.line = line
             self.directory = directory
             self.exitStatus = exitStatus
             self.timedOut = timedOut
             self.truncated = truncated
+            self.stopped = stopped
+        }
+
+        /// Reads a saved description; one saved without `stopped` was not stopped.
+        ///
+        /// - Parameter decoder: The decoder.
+        /// - Throws: `DecodingError` when a required field is missing or of the wrong type.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            line = try container.decode(String.self, forKey: .line)
+            directory = try container.decode(String.self, forKey: .directory)
+            exitStatus = try container.decode(Int32.self, forKey: .exitStatus)
+            timedOut = try container.decode(Bool.self, forKey: .timedOut)
+            truncated = try container.decode(Bool.self, forKey: .truncated)
+            stopped = try container.decodeIfPresent(Bool.self, forKey: .stopped) ?? false
+        }
+
+        /// Writes the description, `stopped` only when true.
+        ///
+        /// - Parameter encoder: The encoder.
+        /// - Throws: `EncodingError` from the encoder.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(line, forKey: .line)
+            try container.encode(directory, forKey: .directory)
+            try container.encode(exitStatus, forKey: .exitStatus)
+            try container.encode(timedOut, forKey: .timedOut)
+            try container.encode(truncated, forKey: .truncated)
+            if stopped { try container.encode(stopped, forKey: .stopped) }
         }
     }
 

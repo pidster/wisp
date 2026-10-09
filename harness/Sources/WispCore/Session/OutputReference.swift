@@ -178,6 +178,7 @@ enum OutputReference {
         let plural = { (count: Int, noun: String) in "\(count) \(noun)\(count == 1 ? "" : "s")" }
         var status = "exit status \(command.exitStatus)"
         if command.timedOut { status += ", timed out" }
+        if command.stopped { status += ", stopped by the person" }
         let clock = time.map { " at " + Self.clock($0, in: timeZone) } ?? ""
         let head =
             "[the person ran `\(shortened(flat(command.line), to: argumentCharacters))` themselves in "

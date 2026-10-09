@@ -132,7 +132,8 @@ extension AuditEvent {
             return details
         }
 
-        /// `command.outcome`; `origin` is written only for a command the person typed.
+        /// `command.outcome`; `origin` is written only for a command the person typed, and `stopped` (true) only for
+        /// one the person stopped (ADR 0049, amended 2026-10-09).
         public static func commandOutcome(
             command: String, outcome: CommandRunner.Outcome, seconds: TimeInterval,
             origin: CommandRunner.Origin = .model
@@ -145,6 +146,7 @@ extension AuditEvent {
                 "stdout": .string(outcome.stdout), "stderr": .string(outcome.stderr), "seconds": .double(seconds),
             ]
             if origin == .person { details["origin"] = .string(origin.rawValue) }
+            if outcome.stopped { details["stopped"] = true }
             if let refusal = outcome.sandboxRefusal {
                 details["sandboxRefusal"] = .string(refusal.name)
                 if !refusal.paths.isEmpty { details["sandboxPaths"] = .array(refusal.paths.map { .string($0) }) }
@@ -154,7 +156,8 @@ extension AuditEvent {
 
         /// `command.typed`: a command the person typed in chat after `!` (ADR 0049), with what became of it.
         /// `verdict` is the policy's (`allowed` or `denied`, with its `reason`); for one that ran, its exit
-        /// status, whether it timed out or lost output to the bound, whether the sandbox refused it or may have
+        /// status, whether it timed out (only a model's command has a timeout, so this is false) or lost output to the
+        /// bound, `stopped` (true) when the person stopped it, whether the sandbox refused it or may have
         /// (`sandboxRefused`, with the check's `sandboxRefusal` and `sandboxPaths`, ADR 0054), and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
         /// size in `bytes`. `failure` says why one that was allowed could not start.
         public static func commandTyped(
@@ -173,6 +176,7 @@ extension AuditEvent {
                 details["exitStatus"] = .int(Int(outcome.exitStatus))
                 details["timedOut"] = .bool(outcome.timedOut)
                 details["truncated"] = .bool(outcome.truncated)
+                if outcome.stopped { details["stopped"] = true }
                 details["sandboxRefused"] = .bool(sandboxRefused)
                 if let refusal = outcome.sandboxRefusal {
                     details["sandboxRefusal"] = .string(refusal.name)
@@ -762,12 +766,12 @@ extension AuditEvent {
             ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin"]
         case .commandOutcome:
             [
-                "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin",
+                "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin", "stopped",
                 "sandboxRefusal", "sandboxPaths",
             ]
         case .commandTyped:
             [
-                "command", "workingDirectory", "verdict", "reason", "exitStatus", "timedOut", "truncated",
+                "command", "workingDirectory", "verdict", "reason", "exitStatus", "timedOut", "truncated", "stopped",
                 "sandboxRefused", "sandboxRefusal", "sandboxPaths", "output", "bytes", "seconds", "failure",
             ]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]

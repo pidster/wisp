@@ -176,6 +176,9 @@ public struct ChatLoop {
         /// Lines of each tool's output shown under its note before the rest is folded
         /// (`Config.Resolved.shownOutputLines`); 0 shows the note alone.
         public var shownOutputLines: Int
+        /// Where the face's Ctrl-C goes while a command the person typed runs, which has no timeout (ADR 0049,
+        /// amended 2026-10-09); nil leaves such a command to run to its end.
+        public var interrupt: ChatInterrupt?
 
         /// Creates a context.
         public init(
@@ -191,8 +194,9 @@ public struct ChatLoop {
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
-            shownOutputLines: Int = Config().resolved.shownOutputLines
+            shownOutputLines: Int = Config().resolved.shownOutputLines, interrupt: ChatInterrupt? = nil
         ) {
+            self.interrupt = interrupt
             self.shownOutputLines = shownOutputLines
             self.approvalStore = approvalStore
             self.activity = activity
@@ -467,6 +471,11 @@ public struct ChatLoop {
     /// turn. What it printed, a policy's refusal, and a sandbox's are shown by its audit events as they arrive
     /// through the tap, as a tool's are; this adds the activity while it runs and the facts it gave.
     ///
+    /// The command has no timeout (amended 2026-10-09): while it runs, the face's Ctrl-C reaches it through
+    /// `Context.interrupt`, which stops it (SIGTERM to its process group, SIGKILL after `CommandStop.grace`), and
+    /// the activity says so; its `command.outcome` line then reads `↳ exit -15 (stopped by you)` and the chat goes
+    /// on.
+    ///
     /// - Parameters:
     ///   - command: The command line, without the `!`; empty runs nothing.
     ///   - line: The line as typed, for the face's marker.
@@ -476,9 +485,15 @@ public struct ChatLoop {
             return
         }
         io.command(line)
-        context.activity?.begin(doing: "running " + ChatEvents.shortened(command))
-        let typed = await agent.runTyped(command, in: context.directory)
-        context.activity?.end()
+        let shortened = ChatEvents.shortened(command)
+        let stop = CommandStop()
+        let activity = context.activity
+        let interrupt = context.interrupt
+        activity?.begin(doing: "running " + shortened, stoppable: interrupt != nil)
+        interrupt?.arm(command, stop: stop) { _ in activity?.stopping("stopping " + shortened) }
+        let typed = await agent.runTyped(command, in: context.directory, stop: stop)
+        interrupt?.disarm()
+        activity?.end()
         switch typed.result {
         case .unavailable:
             io.note(style.ember("commands cannot be run here: this conversation has no command runner"))

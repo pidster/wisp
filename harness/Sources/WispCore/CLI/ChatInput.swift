@@ -150,7 +150,9 @@ public enum ChatInput: Equatable, Sendable {
             command: { _ in .help }),
         HelpEntry(
             usage: "!COMMAND",
-            about: "run a shell command yourself, in the sandbox and without asking; the model is told next turn"),
+            about:
+                "run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops "
+                + "it); the model is told next turn"),
         HelpEntry(
             usage: "/tools", about: "the tools the model can call", names: ["tools"],
             command: { _ in .tools }),

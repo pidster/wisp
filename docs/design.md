@@ -588,6 +588,11 @@ calls `Agent.runTyped` in the conversation's directory with no turn, its audit e
 tap as a tool's do, `ChatActivity.begin(doing:)` says what runs, and `ChatLoop.IO.command` lets the terminal colour
 the line's prompt marker (`ChatLoop.commandMarker`, the palette's `command`). Over `--json` the front end sends the
 same line as a `message`; `wisp-tui` keeps command mode, its colours, and keys held while busy on its side.
+The command has no timeout (`CommandRunner.timeout(for:)` is nil for `Origin.person`; ADR 0049, amended
+2026-10-09): the loop arms the context's `ChatInterrupt` with a `CommandStop` while it runs, the face's Ctrl-C
+calls `ChatInterrupt.press()` (plain chat from a SIGINT dispatch source, `--json` on an `interrupt` line), and the
+runner's `ProcessGroup` sends the group SIGTERM, then SIGKILL after `CommandStop.grace`, never once the leader is
+reaped; `ChatActivity` marks the work `stoppable`, then `stopping`.
 Exit codes follow swift-argument-parser conventions (64 for usage errors). The chat loop itself is
 `ChatLoop` in `WispCore`, with its input and output injected, so the executable only wires the
 terminal to it and `ChatLoopTests` runs the whole loop over a scripted model. Chat shows tool activity

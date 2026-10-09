@@ -377,6 +377,9 @@ struct Chat: AsyncParsableCommand {
         let directory = FileManager.default.currentDirectoryPath
         let views = session.introspection
         let activity = ChatActivity()
+        let interrupt = ChatInterrupt()
+        let interrupts = Self.interruptCommands(interrupt, style: style)
+        defer { interrupts.cancel() }
         let banner =
             "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools · "
             + "audit \(ChatStatus.abbreviated(Wisp.home.auditFile.path)) session \(session.audit.session)"
@@ -395,7 +398,7 @@ struct Chat: AsyncParsableCommand {
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity, shownOutputLines: session.config.shownOutputLines),
+                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt),
             style: style,
             io: .init(
                 readLine: { readLine() },
@@ -436,6 +439,33 @@ struct Chat: AsyncParsableCommand {
             isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
         defer { ticker?.cancel() }
         try await loop.run()
+    }
+
+    /// Takes Ctrl-C for the terminal chat (ADR 0049, amended 2026-10-09): while a command the person typed runs,
+    /// the first stops it (`ChatInterrupt`) and says so, and the chat goes on; a second kills it and quits. With no
+    /// such command running, Ctrl-C quits as it always has: the default disposition is restored and the signal
+    /// raised again. Handled off the main queue, which the blocking prompt read holds. Cancel the returned source
+    /// to restore the default.
+    ///
+    /// - Parameters:
+    ///   - interrupt: Where a typed command's stop is armed.
+    ///   - style: Styling for the note.
+    /// - Returns: The signal source.
+    private static func interruptCommands(_ interrupt: ChatInterrupt, style: Style) -> any DispatchSourceSignal {
+        signal(SIGINT, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global(qos: .userInteractive))
+        source.setEventHandler {
+            switch interrupt.press() {
+            case .stopping(let line):
+                note(style.muted(ChatInterrupt.stoppingNote(line)))
+            case .idle, .killing:
+                signal(SIGINT, SIG_DFL)
+                raise(SIGINT)
+            }
+        }
+        source.setCancelHandler { signal(SIGINT, SIG_DFL) }
+        source.resume()
+        return source
     }
 
     /// The terminal's width in columns, or nil when stderr is not a terminal.
@@ -509,8 +539,13 @@ struct Chat: AsyncParsableCommand {
         }
         let audit = session.audit
         router.onHello { audit.record(.hostHello, details: AuditEvent.Details.hostHello($0)) }
+        // Ctrl-C in the front end, sent as `interrupt`, stops a command the person typed (ADR 0049, amended
+        // 2026-10-09); and when the front end goes away, a command still running is killed, so none outlives it.
+        let interrupt = ChatInterrupt()
+        router.onInterrupt { _ = interrupt.press() }
         let reader = Thread {
             while let line = readLine() { router.receive(line) }
+            interrupt.kill()
             router.close()
         }
         reader.start()
@@ -555,7 +590,7 @@ struct Chat: AsyncParsableCommand {
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity, shownOutputLines: session.config.shownOutputLines),
+                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },

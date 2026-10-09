@@ -18,7 +18,17 @@ public final class ChatActivity: Sendable {
         public var asking: Bool
         /// Whether the model is thinking (ADR 0053): a face may draw it its own way, as `wisp-tui`'s thought bubble.
         public var thinking = false
+        /// Whether the person can stop it with Ctrl-C: a command they typed, which has no timeout (ADR 0049,
+        /// amended 2026-10-09).
+        public var stoppable = false
+        /// Whether the person has asked it to stop and it has not ended yet: a second Ctrl-C quits.
+        public var stopping = false
     }
+
+    /// What the line for a stoppable activity ends with.
+    public static let stopHint = "Ctrl-C stops it"
+    /// What the line for an activity being stopped ends with.
+    public static let stoppingHint = "Ctrl-C again quits"
 
     private let state = Mutex<State?>(nil)
     private let changed = Mutex<(@Sendable (State?) -> Void)?>(nil)
@@ -38,9 +48,25 @@ public final class ChatActivity: Sendable {
     public static let thinking = "thinking"
 
     /// A turn has begun: the message has gone to the model; or, with `doing`, something else is under way that
-    /// the face should show as work, such as a command the person typed (`running git status`).
-    public func begin(doing: String = "waiting for the model", at time: Date = Date()) {
-        set(State(doing: doing, since: time, turnStarted: time, asking: false))
+    /// the face should show as work, such as a command the person typed (`running git status`), `stoppable` when
+    /// Ctrl-C stops it.
+    public func begin(doing: String = "waiting for the model", stoppable: Bool = false, at time: Date = Date()) {
+        set(State(doing: doing, since: time, turnStarted: time, asking: false, stoppable: stoppable))
+    }
+
+    /// The person asked the stoppable activity under way to stop: it now says `doing`, such as `stopping git
+    /// status`, until it ends. Nothing changes when what is under way is not stoppable.
+    ///
+    /// - Parameters:
+    ///   - doing: What it says now.
+    ///   - time: When.
+    public func stopping(_ doing: String, at time: Date = Date()) {
+        guard var next = current, next.stoppable else { return }
+        next.doing = doing
+        next.stoppable = false
+        next.stopping = true
+        next.since = time
+        set(next)
     }
 
     /// The turn has ended.
@@ -50,7 +76,8 @@ public final class ChatActivity: Sendable {
 
     /// Follows one of the turn's audit events; events that change nothing are ignored.
     public func apply(_ event: AuditEvent, at time: Date = Date()) {
-        guard var next = current else { return }
+        // A command the person typed has no turn: its own events change nothing it shows.
+        guard var next = current, !next.stoppable, !next.stopping else { return }
         next.thinking = false
         switch event.kind {
         case .modelReasoning:
@@ -80,12 +107,14 @@ public final class ChatActivity: Sendable {
     }
 
     /// The line a face shows for `state` at `now`: the turn's time, what it is doing, and for how long
-    /// when that is not the whole turn, as `12 s · running git status (8 s)`.
+    /// when that is not the whole turn, as `12 s · running git status (8 s)`; a stoppable one ends with how to
+    /// stop it, `12 s · running ollama pull … · Ctrl-C stops it`.
     public static func line(_ state: State, now: Date = Date()) -> String {
         let turn = Int(now.timeIntervalSince(state.turnStarted).rounded(.down))
         let doing = Int(now.timeIntervalSince(state.since).rounded(.down))
         let part = state.since > state.turnStarted.addingTimeInterval(0.5) && doing != turn ? " (\(doing) s)" : ""
-        return "\(turn) s · \(state.doing)\(part)"
+        let hint = state.stopping ? " · " + stoppingHint : state.stoppable ? " · " + stopHint : ""
+        return "\(turn) s · \(state.doing)\(part)" + hint
     }
 
     private func set(_ new: State?) {
@@ -94,7 +123,9 @@ public final class ChatActivity: Sendable {
             current = new
             return old
         }
-        if old?.doing != new?.doing || old?.thinking != new?.thinking || (old == nil) != (new == nil) {
+        if old?.doing != new?.doing || old?.thinking != new?.thinking || old?.stoppable != new?.stoppable
+            || old?.stopping != new?.stopping || (old == nil) != (new == nil)
+        {
             changed.withLock { $0 }?(new)
         }
     }

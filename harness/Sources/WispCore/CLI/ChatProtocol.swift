@@ -18,8 +18,9 @@ import Synchronization
 /// `kind: "fact"`, answered `keep` or `drop` (ADR 0048). Inbound: `hello` (the first line, optional: the effects the
 /// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
 /// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
-/// and cursor to complete, by id; the cursor and the reply's `from` count Unicode scalars). A line of a type
-/// not listed here is ignored and reported once on the diagnostics channel.
+/// and cursor to complete, by id; the cursor and the reply's `from` count Unicode scalars), and `interrupt` (Ctrl-C
+/// while a command the person typed runs: stop it, ADR 0049 amended 2026-10-09). A line of a type not listed here is
+/// ignored and reported once on the diagnostics channel.
 public enum ChatProtocol {
     /// What a front end declared in its `hello`: the host effects it carries (`approve`, `notify`), and
     /// who it is.
@@ -52,6 +53,9 @@ public enum ChatProtocol {
         case answer(id: String, decision: String)
         /// A request to complete the input line at a cursor, counted in Unicode scalars (`ChatCompletion`).
         case complete(id: String, text: String, cursor: Int?)
+        /// Ctrl-C in the front end while a command the person typed runs: stop it, or kill it when it was asked
+        /// to stop before (`ChatInterrupt`); with none running it does nothing.
+        case interrupt
         /// A typed line of a type this version does not know: ignored, so a newer front end's line does not
         /// arrive as an empty message.
         case unknown(type: String)
@@ -85,6 +89,8 @@ public enum ChatProtocol {
                     decision: values.map(ChatChoice.answer(values:)) ?? object["value"]?.stringValue ?? "")
             case "message":
                 self = .message(object["text"]?.stringValue ?? "")
+            case "interrupt":
+                self = .interrupt
             default:
                 self = .unknown(type: type)
             }
@@ -159,7 +165,9 @@ public enum ChatProtocol {
     /// The `activity` line's fields: what the turn under way is doing (`doing`, such as `running git
     /// status`), whether a person is being asked, and the seconds since the turn began; `doing` is null
     /// when the turn has ended. While the model thinks, `doing` is `thinking` and `thinking` is true (ADR 0053), for a
-    /// front end that draws it its own way; the field is absent otherwise. A front end times the rest itself.
+    /// front end that draws it its own way; the field is absent otherwise. While a command the person typed runs,
+    /// `stoppable` is true (an `interrupt` line stops it), and once it was asked to stop, `stopping` is true instead
+    /// (ADR 0049, amended 2026-10-09); both are absent otherwise. A front end times the rest itself.
     public static func activity(_ state: ChatActivity.State?) -> [String: JSONValue] {
         guard let state else { return ["doing": .null] }
         var fields: [String: JSONValue] = [
@@ -167,6 +175,8 @@ public enum ChatProtocol {
             "turnSeconds": .double(state.since.timeIntervalSince(state.turnStarted)),
         ]
         if state.thinking { fields["thinking"] = true }
+        if state.stoppable { fields["stoppable"] = true }
+        if state.stopping { fields["stopping"] = true }
         return fields
     }
 
@@ -347,6 +357,7 @@ public final class LineRouter: Sendable {
     private let state = Mutex(State())
     private let available = DispatchSemaphore(value: 0)
     private let completer = Mutex<(@Sendable (String, String, Int?) -> Void)?>(nil)
+    private let interrupter = Mutex<(@Sendable () -> Void)?>(nil)
     private let declared = Mutex<ChatProtocol.Hello?>(nil)
     private let greeted = Mutex<(@Sendable (ChatProtocol.Hello) -> Void)?>(nil)
     /// The unknown line types already reported, so each is reported once (at most 32 of them).
@@ -370,6 +381,11 @@ public final class LineRouter: Sendable {
         completer.withLock { $0 = handle }
     }
 
+    /// Sets what an `interrupt` line does, off the chat loop, which is waiting on the command meanwhile.
+    public func onInterrupt(_ handle: @escaping @Sendable () -> Void) {
+        interrupter.withLock { $0 = handle }
+    }
+
     /// Creates an empty router.
     public init() {}
 
@@ -384,6 +400,8 @@ public final class LineRouter: Sendable {
             available.signal()
         case .complete(let id, let text, let cursor):
             completer.withLock { $0 }?(id, text, cursor)
+        case .interrupt:
+            interrupter.withLock { $0 }?()
         case .unknown(let type):
             // Said once per type, on the diagnostics channel: stdout is the protocol.
             let first = unknownTypes.withLock { seen in

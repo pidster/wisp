@@ -17,7 +17,8 @@ public struct CommandRunner: Sendable {
         /// from a per-command working directory, so a caller cannot widen the sandbox by choosing where
         /// to run.
         public var writableRoot: String
-        /// Wall-clock limit after which the command's process group is sent SIGTERM, then SIGKILL.
+        /// Wall-clock limit after which the command's process group is sent SIGTERM, then SIGKILL. A command the person
+        /// typed (`Origin.person`) has none.
         public var timeout: Duration
         /// Maximum bytes kept from each of stdout and stderr; earlier output is discarded.
         public var maxOutputBytes: Int
@@ -53,6 +54,8 @@ public struct CommandRunner: Sendable {
         public var timedOut: Bool
         /// Whether either stream lost leading bytes to the output limit.
         public var truncated: Bool
+        /// Whether the person stopped it (`CommandStop`, Ctrl-C in chat) and it was killed.
+        public var stopped: Bool = false
         /// For a confined command that failed with `Operation not permitted`, whether the sandbox refused it
         /// (ADR 0054); nil otherwise.
         public var sandboxRefusal: SandboxRefusal? = nil
@@ -63,6 +66,7 @@ public struct CommandRunner: Sendable {
         public var rendered: String {
             var lines = ["exit status: \(exitStatus)"]
             if timedOut { lines.append("timed out: the command was killed") }
+            if stopped { lines.append("stopped: the person stopped the command") }
             if truncated { lines.append("output truncated: only the tail of each stream is shown") }
             if !stdout.isEmpty { lines.append("stdout:\n\(stdout)") }
             if !stderr.isEmpty { lines.append("stderr:\n\(stderr)") }
@@ -99,7 +103,8 @@ public struct CommandRunner: Sendable {
         /// person when it is risky.
         case model
         /// The person, who typed it in chat after `!`: typing it is the approval, so the gate is not consulted.
-        /// The policy's lists, the sandbox, the bounds, and the audit apply as for the model.
+        /// The policy's lists, the sandbox, the output bound, and the audit apply as for the model; the timeout does
+        /// not, since the person stops it themselves (`CommandStop`, ADR 0049 amended 2026-10-09).
         case person
     }
 
@@ -136,21 +141,35 @@ public struct CommandRunner: Sendable {
         return process.terminationStatus != 0
     }()
 
-    /// Runs `command` through `/bin/sh -c` and waits for it to finish or time out.
+    /// Runs `command` through `/bin/sh -c` and waits for it to finish, time out, or be stopped.
     ///
     /// - Parameters:
     ///   - command: A POSIX shell command line.
     ///   - directory: Where to run it; nil means the process's current directory. Changes where the
     ///     command runs, never what it may write (see `Options.writableRoot`).
     ///   - origin: Who chose it. A command the person typed (`.person`) skips the approval gate, its classifier
-    ///     and its question, and is marked as theirs in the audit; everything else is the same.
+    ///     and its question, and has no timeout: the person stops it, through `stop` (ADR 0049, amended
+    ///     2026-10-09). It is marked as theirs in the audit; everything else is the same.
+    ///   - stop: Stops the command when asked: its process group is sent SIGTERM, then SIGKILL after
+    ///     `CommandStop.grace`, or SIGKILL at once on a second request; nil cannot be stopped but by the timeout.
     /// - Returns: The exit status and bounded output.
     /// - Throws: `Failure` if the policy rejects the command or it cannot be started.
-    public func run(_ command: String, in directory: String? = nil, origin: Origin = .model) async throws -> Outcome {
+    public func run(
+        _ command: String, in directory: String? = nil, origin: Origin = .model, stop: CommandStop? = nil
+    ) async throws -> Outcome {
         let workingDirectory = try Self.existingDirectory(directory)
         try await admit(command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin)
         decide(.allowed, command: command, in: workingDirectory, origin: origin)
-        return try await execute(command, in: workingDirectory, origin: origin)
+        return try await execute(command, in: workingDirectory, origin: origin, stop: stop)
+    }
+
+    /// The wall-clock limit for a command from `origin`: `Options.timeout` for the model's, none for one the person
+    /// typed, who stops it themselves (ADR 0049, amended 2026-10-09).
+    ///
+    /// - Parameter origin: Who chose the command.
+    /// - Returns: The limit, or nil for none.
+    func timeout(for origin: Origin) -> Duration? {
+        origin == .person ? nil : options.timeout
     }
 
     /// Whether commands run under Seatbelt here: the policy's sandbox is on and wisp is not already inside
@@ -268,12 +287,13 @@ public struct CommandRunner: Sendable {
 
     /// Launches an admitted command and records its outcome, marked as the person's when they typed it.
     private func execute(
-        _ command: String, in workingDirectory: String, origin: Origin = .model
+        _ command: String, in workingDirectory: String, origin: Origin = .model, stop: CommandStop? = nil
     ) async throws
         -> Outcome
     {
         let started = Date()
-        var outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed)
+        var outcome = try await launch(
+            command, in: workingDirectory, sandboxed: sandboxed, timeout: timeout(for: origin), stop: stop)
         if let refusal = sandboxRefusal(outcome, in: workingDirectory) {
             outcome.sandboxRefusal = refusal
             outcome.sandboxNote = refusal.note(roots: writableRoots)
@@ -296,7 +316,18 @@ public struct CommandRunner: Sendable {
 
     /// Spawns `/bin/sh -c command` in its own process group, under `sandbox-exec` when `sandboxed`,
     /// and captures its outcome. Exactly one launch per call.
-    private func launch(_ command: String, in workingDirectory: String, sandboxed: Bool) async throws -> Outcome {
+    ///
+    /// - Parameters:
+    ///   - command: The command line.
+    ///   - workingDirectory: Where it runs.
+    ///   - sandboxed: Whether to confine it.
+    ///   - timeout: When the watchdog stops it; nil never.
+    ///   - stop: Stops it when the person asks; nil cannot.
+    /// - Returns: The outcome.
+    /// - Throws: `Failure.launchFailed`.
+    private func launch(
+        _ command: String, in workingDirectory: String, sandboxed: Bool, timeout: Duration?, stop: CommandStop?
+    ) async throws -> Outcome {
         var argv = ["/bin/sh", "-c", command]
         if sandboxed {
             let profile = options.policy.seatbeltProfile(
@@ -315,17 +346,32 @@ public struct CommandRunner: Sendable {
         let stderrBuffer = OutputBuffer()
         let pid = try Spawn.spawn(argv, workingDirectory: workingDirectory, stdout: stdoutBuffer, stderr: stderrBuffer)
 
-        let timedOut = Mutex(false)
-        let timeout = options.timeout
-        let watchdog = Task {
-            guard (try? await Task.sleep(for: timeout)) != nil else { return }
-            timedOut.withLock { $0 = true }
-            kill(-pid, SIGTERM)
-            guard (try? await Task.sleep(for: .seconds(2))) != nil else { return }
-            kill(-pid, SIGKILL)
+        let group = ProcessGroup(pid)
+        let watchdog = timeout.map { timeout in
+            Task {
+                guard (try? await Task.sleep(for: timeout)) != nil else { return }
+                group.end(.timedOut)
+                guard (try? await Task.sleep(for: CommandStop.grace)) != nil else { return }
+                group.signal(SIGKILL)
+            }
+        }
+        // The person's stop: SIGTERM, then SIGKILL after the grace; a second request kills at once.
+        stop?.attach { request in
+            switch request {
+            case .stop:
+                group.end(.stopped)
+                Task {
+                    try? await Task.sleep(for: CommandStop.grace)
+                    group.signal(SIGKILL)
+                }
+            case .kill:
+                group.end(.stopped, signal: SIGKILL)
+            }
         }
         let status = await Spawn.wait(for: pid)
-        watchdog.cancel()
+        group.reaped()
+        stop?.detach()
+        watchdog?.cancel()
         // The leader is gone, but a child may live on in its group: one that ignored SIGTERM, or a job the
         // command put in the background. Nothing a command starts outlives it, so the group is killed now.
         await Self.killGroup(pid)
@@ -340,8 +386,9 @@ public struct CommandRunner: Sendable {
             exitStatus: status,
             stdout: out.text,
             stderr: err.text,
-            timedOut: timedOut.withLock { $0 },
-            truncated: out.truncated || err.truncated
+            timedOut: group.ending == .timedOut,
+            truncated: out.truncated || err.truncated,
+            stopped: group.ending == .stopped
         )
     }
 
@@ -363,6 +410,118 @@ public struct CommandRunner: Sendable {
     static func tail(_ data: Data, maxBytes: Int) -> (text: String, truncated: Bool) {
         guard data.count > maxBytes else { return (String(decoding: data, as: UTF8.self), false) }
         return (String(decoding: data.suffix(maxBytes), as: UTF8.self), true)
+    }
+}
+
+/// A command's process group while its leader runs, signalled by the watchdog and the person's stop: once the
+/// leader is reaped (`reaped()`) nothing more is sent, so a group id the kernel has freed and reused is never
+/// signalled. Records which of the two ended it first.
+final class ProcessGroup: Sendable {
+    /// What ended a command before it finished on its own.
+    enum Ending: Equatable {
+        /// The watchdog, at the timeout.
+        case timedOut
+        /// The person, through `CommandStop`.
+        case stopped
+    }
+
+    /// The process group id, the leader's pid.
+    private let id: pid_t
+    /// Whether the leader has been reaped, and what ended it, if anything did.
+    private let state = Mutex<(reaped: Bool, ending: Ending?)>((false, nil))
+
+    /// Creates the group led by `id`.
+    init(_ id: pid_t) { self.id = id }
+
+    /// What ended the command first, or nil when it finished on its own.
+    var ending: Ending? { state.withLock { $0.ending } }
+
+    /// Records `ending` unless something ended the command already, and sends `signal` to the group.
+    ///
+    /// - Parameters:
+    ///   - ending: Why.
+    ///   - signal: The signal; SIGTERM by default.
+    func end(_ ending: Ending, signal: Int32 = SIGTERM) {
+        state.withLock { state in
+            guard !state.reaped else { return }
+            if state.ending == nil { state.ending = ending }
+            kill(-id, signal)
+        }
+    }
+
+    /// Sends `signal` to the group while its leader has not been reaped.
+    func signal(_ signal: Int32) {
+        state.withLock { state in
+            if !state.reaped { kill(-id, signal) }
+        }
+    }
+
+    /// The leader has been reaped: nothing more is sent through this (`CommandRunner.killGroup` clears the rest).
+    func reaped() {
+        state.withLock { $0.reaped = true }
+    }
+}
+
+/// Stops a running command when the person asks (Ctrl-C in chat, an `interrupt` line from a front end): the first
+/// request sends its process group SIGTERM and SIGKILL after `grace`; a later one sends SIGKILL at once. A request
+/// made before the command starts takes effect as it starts; one made after it ended does nothing.
+public final class CommandStop: Sendable {
+    /// What a request asks of the command.
+    public enum Request: Sendable, Equatable {
+        /// End it: SIGTERM, then SIGKILL after the grace.
+        case stop
+        /// Kill it now.
+        case kill
+    }
+
+    /// How long a stopped command has between SIGTERM and SIGKILL.
+    public static let grace: Duration = .seconds(2)
+
+    /// The requests so far, and who acts on them while the command runs.
+    private let state = Mutex<(requests: Int, handler: (@Sendable (Request) -> Void)?)>((0, nil))
+
+    /// Creates a stop nobody has asked for.
+    public init() {}
+
+    /// Whether a stop has been asked for.
+    public var requested: Bool { state.withLock { $0.requests > 0 } }
+
+    /// Asks the command to stop: the first request is `.stop`, every later one `.kill`.
+    ///
+    /// - Returns: What was asked.
+    @discardableResult
+    public func request() -> Request {
+        let (request, handler) = state.withLock { state in
+            state.requests += 1
+            return (state.requests == 1 ? Request.stop : .kill, state.handler)
+        }
+        handler?(request)
+        return request
+    }
+
+    /// Asks the command to die now, whatever was asked before.
+    public func kill() {
+        let handler = state.withLock { state in
+            state.requests = max(state.requests, 2)
+            return state.handler
+        }
+        handler?(.kill)
+    }
+
+    /// Sets who acts on requests while the command runs; a request already made is acted on at once.
+    ///
+    /// - Parameter handler: Signals the command's group.
+    func attach(_ handler: @escaping @Sendable (Request) -> Void) {
+        let requests = state.withLock { state in
+            state.handler = handler
+            return state.requests
+        }
+        if requests > 0 { handler(requests == 1 ? .stop : .kill) }
+    }
+
+    /// The command has ended: later requests reach nobody.
+    func detach() {
+        state.withLock { $0.handler = nil }
     }
 }
 
@@ -438,11 +597,18 @@ enum Spawn {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK))
+        posix_spawnattr_setflags(
+            &attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
         posix_spawnattr_setpgroup(&attributes, 0)
         var noSignals = sigset_t()
         sigemptyset(&noSignals)
         posix_spawnattr_setsigmask(&attributes, &noSignals)
+        // Chat ignores SIGINT to take Ctrl-C itself (`ChatInterrupt`); an ignored signal is inherited across exec,
+        // so the command gets the default back.
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        sigaddset(&defaults, SIGINT)
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
 
         var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
         cArgs.append(nil)

@@ -94,9 +94,11 @@ answer winning; and refused in non-interactive `respond` unless `--yes`. Denials
 
 The person can run a command through the same runner by typing it in chat after `!`
 ([ADR 0049](../decisions/0049-commands-typed-in-chat.md); [wisp.md](../wisp.md), "Commands you run yourself").
-Such a command passes the same policy lists and runs under the same sandbox, bounds, and timeout, but is not
-classified and never asks: typing it is the approval. Its `policy.decision` and `command.outcome` carry
-`origin: "person"`.
+Such a command passes the same policy lists and runs under the same sandbox and output bound, but is not
+classified and never asks: typing it is the approval. It has no timeout: the person stops it with Ctrl-C, which
+ends its process group as the timeout does (SIGTERM, then SIGKILL two seconds later, or at once on a second
+Ctrl-C), and records `stopped: true` (ADR 0049, amended 2026-10-09). Its `policy.decision` and
+`command.outcome` carry `origin: "person"`.
 
 ### Symlinks
 
@@ -152,7 +154,9 @@ the writable root, so `workingDirectory: "/"` made everything writable.
 ### Process tree and timeouts
 
 Commands are spawned in their own process group (`posix_spawn` with `POSIX_SPAWN_SETPGROUP`), stdin from
-`/dev/null`. On timeout the whole group gets SIGTERM, then SIGKILL two seconds later. And whenever the shell
+`/dev/null`, and SIGINT at its default (chat ignores it to take Ctrl-C itself, and an ignored signal would
+otherwise be inherited). On timeout the whole group gets SIGTERM, then SIGKILL two seconds later; a command the
+person typed has no timeout and gets the same when they stop it. And whenever the shell
 exits, on its own or at the timeout, the group is sent SIGKILL until it is empty (for up to two seconds): nothing a
 command starts outlives it, neither a background job (`sleep 30 &`, a server the model started) nor a child that
 ignores SIGTERM. Before 0.21.1 the watchdog stopped when the shell was reaped, so both lived on. A descendant that

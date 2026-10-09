@@ -35,24 +35,30 @@ extension Agent {
 
     /// Runs a command the person typed in chat after `!` (ADR 0049) and tells the conversation of it. No model
     /// turn starts. The command runs through `commandRunner` as the person's (`CommandRunner.Origin.person`): the
-    /// policy's deny and allow lists, the sandbox, the bounds, and the audit apply, the classifier and the
+    /// policy's deny and allow lists, the sandbox, the output bound, and the audit apply, the classifier and the
     /// approval do not. The outcome is audited as `command.typed`; a command that ran is stored as the person's
     /// command (`ThreadRecord.Kind.command`), which the next request carries as a notice with its reference, and
     /// its output gives facts as `run_command`'s does, with source `person`. A refused command is audited and not
     /// stored: it did nothing the model needs to know.
     ///
+    /// It has no timeout (ADR 0049, amended 2026-10-09): the person stops it through `stop`, and one stopped is
+    /// recorded as it ended, `stopped` in its audit and its entry.
+    ///
     /// - Parameters:
     ///   - line: The command line, without the `!`.
     ///   - directory: Where to run it: the conversation's working directory.
+    ///   - stop: Stops it when the person asks (Ctrl-C); nil runs it to its end.
     /// - Returns: What became of it.
-    nonisolated(nonsending) public func runTyped(_ line: String, in directory: String) async -> TypedCommand {
+    nonisolated(nonsending) public func runTyped(
+        _ line: String, in directory: String, stop: CommandStop? = nil
+    ) async -> TypedCommand {
         guard let runner = commandRunner else {
             return TypedCommand(line: line, directory: directory, result: .unavailable)
         }
         let started = Date()
         let outcome: CommandRunner.Outcome
         do {
-            outcome = try await runner.run(line, in: directory, origin: .person)
+            outcome = try await runner.run(line, in: directory, origin: .person, stop: stop)
         } catch {
             let failure = (error as? CommandRunner.Failure) ?? .launchFailed("\(error)")
             var verdict = AuditEvent.Details.PolicyVerdict.allowed
@@ -82,7 +88,7 @@ extension Agent {
         let entry = store.record(
             command: ThreadRecord.PersonCommand(
                 line: line, directory: directory, exitStatus: outcome.exitStatus, timedOut: outcome.timedOut,
-                truncated: outcome.truncated),
+                truncated: outcome.truncated, stopped: outcome.stopped),
             output: shown, turn: turns.current + 1, sources: event.map { [$0] } ?? [], time: now)
         let facts = recordFacts(typed: line, in: directory, outcome: outcome, event: event, entry: entry, time: now)
         return TypedCommand(

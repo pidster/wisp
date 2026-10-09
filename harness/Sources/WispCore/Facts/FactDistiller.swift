@@ -116,6 +116,7 @@ enum FactDistiller {
     static func line(for command: ThreadRecord.PersonCommand) -> String {
         var status = "exit status \(command.exitStatus)"
         if command.timedOut { status += ", timed out" }
+        if command.stopped { status += ", stopped by the person" }
         return "(before this, the person ran `\(OutputReference.shortened(command.line, to: 200))` themselves in "
             + "\(OutputReference.shortened(command.directory, to: 100)): \(status))"
     }

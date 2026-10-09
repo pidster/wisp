@@ -23,6 +23,7 @@ public enum ChatEvents {
             let mark = status == 0 ? style.wisp("exit \(status)") : style.ember("exit \(status)")
             var extras: [String] = []
             if d["timedOut"]?.boolValue == true { extras.append("timed out") }
+            if d["stopped"]?.boolValue == true { extras.append("stopped by you") }
             if d["truncated"]?.boolValue == true { extras.append("output truncated") }
             return style.muted("  ↳ ") + mark
                 + style.muted(extras.isEmpty ? "" : " (\(extras.joined(separator: ", ")))")

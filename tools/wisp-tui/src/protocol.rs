@@ -39,6 +39,13 @@ pub enum Outbound {
         /// Whether the model is thinking (ADR 0053); absent, and so false, otherwise.
         #[serde(default)]
         thinking: bool,
+        /// Whether this is a command the person typed, which `interrupt` stops (ADR 0049, amended
+        /// 2026-10-09); absent, and so false, otherwise.
+        #[serde(default)]
+        stoppable: bool,
+        /// Whether that command was asked to stop and has not ended yet; absent, and so false, otherwise.
+        #[serde(default)]
+        stopping: bool,
     },
     /// An audit event of the conversation.
     Event(Event),
@@ -382,6 +389,9 @@ pub enum Inbound {
         /// `once`, `session`, `project`, `always`, or `no`.
         decision: String,
     },
+    /// Ctrl-C while a command the person typed runs: wisp stops it (SIGTERM to its process group, then
+    /// SIGKILL), or kills it at once when asked before (ADR 0049, amended 2026-10-09).
+    Interrupt,
 }
 
 impl Outbound {
@@ -661,5 +671,43 @@ mod tests {
             .line(),
             "{\"type\":\"answer\",\"id\":\"a\",\"decision\":\"session\"}\n"
         );
+        // The interrupt is a bare type, as wisp's `ChatProtocol.Inbound` reads it.
+        assert_eq!(Inbound::Interrupt.line(), "{\"type\":\"interrupt\"}\n");
+    }
+
+    #[test]
+    fn parses_a_stoppable_activity() {
+        let running = Outbound::parse(
+            r#"{"type":"activity","doing":"running ollama pull x","asking":false,"turnSeconds":0,"stoppable":true}"#,
+        );
+        assert!(matches!(
+            running,
+            Outbound::Activity {
+                stoppable: true,
+                stopping: false,
+                ..
+            }
+        ));
+        let stopping = Outbound::parse(
+            r#"{"type":"activity","doing":"stopping ollama pull x","asking":false,"turnSeconds":0,"stopping":true}"#,
+        );
+        assert!(matches!(
+            stopping,
+            Outbound::Activity {
+                stoppable: false,
+                stopping: true,
+                ..
+            }
+        ));
+        // A model's turn carries neither.
+        let turn = Outbound::parse(r#"{"type":"activity","doing":"waiting for the model"}"#);
+        assert!(matches!(
+            turn,
+            Outbound::Activity {
+                stoppable: false,
+                stopping: false,
+                ..
+            }
+        ));
     }
 }

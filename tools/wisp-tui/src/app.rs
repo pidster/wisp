@@ -358,6 +358,11 @@ pub struct App {
     pub suggestions: Option<Suggestions>,
     /// Whether a turn is in progress (input is held until the next status).
     pub busy: bool,
+    /// The command typed after `!` that wisp is running, until the next status: it has no timeout, so Ctrl-C
+    /// stops it rather than quitting (ADR 0049, amended 2026-10-09).
+    pub running_command: Option<String>,
+    /// Whether Ctrl-C has asked wisp to stop `running_command`; a second Ctrl-C then quits.
+    pub stopping: bool,
     /// Whether the input box is in command mode: `!` typed at the start of the line, so what is typed runs as a
     /// shell command (ADR 0049) and the box takes the command colour.
     pub command_mode: bool,
@@ -403,8 +408,12 @@ impl App {
     }
 
     /// What changes on screen with time alone while a turn runs: the working line's seconds and, while the
-    /// model thinks, the thought bubble's frame; an idle wake redraws only when this has changed.
+    /// model thinks, the thought bubble's frame; an idle wake redraws only when this has changed. While a
+    /// command typed after `!` runs, its seconds in the busy box.
     pub fn live_label(&self, now: Instant) -> Option<String> {
+        if self.busy && self.running_command.is_some() {
+            return Some(self.busy_label(now));
+        }
         let working = self.working_label(now)?;
         Some(match self.thinking_since() {
             Some(_) => format!("{working} {}", self.busy_label(now)),
@@ -469,6 +478,8 @@ impl App {
                 self.flush_partial();
                 self.status = Some(status);
                 self.busy = false;
+                self.running_command = None;
+                self.stopping = false;
                 self.show_next();
             }
             Outbound::Activity {
@@ -1073,6 +1084,8 @@ impl App {
         self.suggestions = None;
         let text = if let Some(command) = &command {
             self.push(&format!("! {command}"), LineKind::Command);
+            self.running_command = Some(command.clone());
+            self.stopping = false;
             format!("!{command}")
         } else {
             self.push(&format!("› {typed}"), LineKind::User);
@@ -1144,7 +1157,9 @@ impl App {
         }
     }
 
-    /// Ctrl-C or Ctrl-D: cancel a dialog first, otherwise quit.
+    /// Ctrl-C or Ctrl-D: cancel a dialog first; while a command typed after `!` runs, ask wisp to stop it
+    /// (`interrupt`), and quit on a second press while it is stopping, as Ctrl-C quits during a model's turn;
+    /// otherwise quit.
     pub fn interrupt(&mut self) -> Action {
         if self.panel.take().is_some() {
             return Action::None;
@@ -1161,6 +1176,10 @@ impl App {
                 id: approval.id,
                 decision: decision.into(),
             });
+        }
+        if self.busy && self.running_command.is_some() && !self.stopping {
+            self.stopping = true;
+            return Action::Send(Inbound::Interrupt);
         }
         Action::Quit
     }
@@ -1486,6 +1505,9 @@ impl App {
     /// tool and its argument, a command, waiting for the model), or the thought bubble's frame while the model
     /// thinks, and how many keys are held for when it ends.
     pub fn busy_label(&self, now: Instant) -> String {
+        if let Some(command) = &self.running_command {
+            return self.command_label(command, now);
+        }
         let doing = match (self.thinking_since(), self.activity.as_ref()) {
             (Some(since), _) => {
                 THINKING_FRAMES[thinking_frame(now.saturating_duration_since(since))].to_string()
@@ -1497,6 +1519,36 @@ impl App {
             0 => doing,
             1 => format!("{doing} · 1 key held"),
             n => format!("{doing} · {n} keys held"),
+        }
+    }
+
+    /// What the inactive box says while a command typed after `!` runs: what wisp says it is doing, for how
+    /// long, and how Ctrl-C stops it, as `running ollama pull … · 12 s · Ctrl-C stops it`; once asked to
+    /// stop, `stopping … · Ctrl-C again quits`. Held keys are counted as for a turn.
+    fn command_label(&self, command: &str, now: Instant) -> String {
+        let (doing, seconds) = match self.activity.as_ref() {
+            Some(activity) => (
+                activity.doing.clone(),
+                now.saturating_duration_since(activity.turn_started)
+                    .as_secs(),
+            ),
+            None => (format!("running {command}"), 0),
+        };
+        let doing = if self.stopping && !doing.starts_with("stopping") {
+            format!("stopping {command}")
+        } else {
+            doing
+        };
+        let hint = if self.stopping {
+            "Ctrl-C again quits"
+        } else {
+            "Ctrl-C stops it"
+        };
+        let label = format!("{doing} · {seconds} s · {hint}");
+        match self.held.len() {
+            0 => label,
+            1 => format!("{label} · 1 key held"),
+            n => format!("{label} · {n} keys held"),
         }
     }
 
@@ -3681,5 +3733,67 @@ mod tests {
             terminal.backend().buffer()[(0, INPUT_ROW)].bg,
             palette::DEEP
         );
+    }
+
+    #[test]
+    fn ctrl_c_stops_a_typed_command_and_a_second_press_quits() {
+        let mut app = App::default();
+        app.handle(Outbound::Status(Status::default()));
+        app.type_char('!');
+        for c in "ollama pull x".chars() {
+            app.type_char(c);
+        }
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "!ollama pull x".into()
+            })
+        );
+        assert_eq!(app.running_command.as_deref(), Some("ollama pull x"));
+        let now = Instant::now();
+        // Before wisp says what it is doing, the box names the command; then it says what wisp said.
+        assert_eq!(
+            app.busy_label(now),
+            "running ollama pull x · 0 s · Ctrl-C stops it"
+        );
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"running ollama pull x","asking":false,"turnSeconds":0,"stoppable":true}"#,
+        ));
+        assert!(
+            app.busy_label(Instant::now())
+                .starts_with("running ollama pull x · 0 s · Ctrl-C stops it")
+        );
+        // It ticks with no turn running, so a long command never looks hung.
+        assert!(app.live_label(Instant::now()).is_some());
+        // The first Ctrl-C asks wisp to stop it and does not quit; the box says so.
+        assert_eq!(app.interrupt(), Action::Send(Inbound::Interrupt));
+        assert!(app.stopping && app.busy);
+        assert!(
+            app.busy_label(Instant::now())
+                .starts_with("stopping ollama pull x · 0 s · Ctrl-C again quits")
+        );
+        // A second, while it is stopping, quits, as Ctrl-C does during a model's turn.
+        assert_eq!(app.interrupt(), Action::Quit);
+        // Once it has ended, Ctrl-C with nothing open quits as before.
+        app.handle(Outbound::Status(Status::default()));
+        assert!(app.running_command.is_none() && !app.stopping && !app.busy);
+        assert_eq!(app.interrupt(), Action::Quit);
+        // During a model's turn Ctrl-C quits at once, unchanged.
+        for c in "hi".chars() {
+            app.type_char(c);
+        }
+        assert!(matches!(
+            app.submit(),
+            Action::Send(Inbound::Message { .. })
+        ));
+        assert!(app.busy && app.running_command.is_none());
+        assert_eq!(app.interrupt(), Action::Quit);
+        // Esc does not stop a command, as it does not stop a turn.
+        app.handle(Outbound::Status(Status::default()));
+        app.type_char('!');
+        app.type_char('x');
+        assert!(matches!(app.submit(), Action::Send(_)));
+        assert_eq!(app.cancel(), Action::None);
+        assert!(!app.stopping);
     }
 }
