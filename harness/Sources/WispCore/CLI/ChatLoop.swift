@@ -401,7 +401,7 @@ public struct ChatLoop {
                 do {
                     let tokens = try await agent.contextTokens().map(String.init) ?? "unknown"
                     io.print(
-                        "\(tokens) tokens in \(agent.transcript.turnCount) turn\(agent.transcript.turnCount == 1 ? "" : "s"); "
+                        "\(tokens) tokens in \(agent.turnCount) turn\(agent.turnCount == 1 ? "" : "s"); "
                             + "condensed \(agent.condensations) time\(agent.condensations == 1 ? "" : "s")"
                     )
                 } catch {

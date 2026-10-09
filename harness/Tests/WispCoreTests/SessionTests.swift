@@ -120,6 +120,15 @@ import Testing
         #expect(rules.classifier is RuleRiskClassifier)
     }
 
+    /// The home a session is begun with is the one its commands and `edit_file` may never write, not the default
+    /// `~/.wisp` (the 2026-10-09 review).
+    @Test func theSessionsOwnHomeIsTheProtectedOne() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let session = try Session.begin(.init(entryPoint: .respond), home: home, dependencies: .testing())
+        #expect(session.config.runner.protectedPaths == [home.root.path])
+    }
+
     @Test func yesReplacesTheFacesApproverWithAutoApproval() async throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home.root) }

@@ -206,16 +206,18 @@ struct ElicitationApprover: Approver {
         // Clients render different parts of an elicitation, so the command appears in the title, the
         // message, and the description, and the scope picker's labels say exactly what each choice keeps.
         let level = request.assessment.level.rawValue
-        let reasons = request.assessment.reasons.map { "- \($0)" }.joined(separator: "\n")
-        let context = request.line == request.command ? "" : "\nPart of: \(request.line)"
+        // The model chose the command: control characters are shown escaped, so it cannot redraw the dialog.
+        let shown = ApprovalRequest.visible
+        let reasons = request.assessment.reasons.map { "- \(shown($0))" }.joined(separator: "\n")
+        let context = request.line == request.command ? "" : "\nPart of: \(shown(request.line))"
         let text = """
             Command:
-            \(request.command)\(context)
+            \(shown(request.command))\(context)
 
-            Directory: \(request.workingDirectory)
+            Directory: \(shown(request.workingDirectory))
             Risk: \(level)
             \(reasons)
-            Remembered as: \(request.pattern)
+            Remembered as: \(shown(request.pattern))
 
             Accept runs it. Decline refuses.\(timeout.map { " No answer within \($0) counts as Decline." } ?? "")
             """
@@ -226,7 +228,7 @@ struct ElicitationApprover: Approver {
                 "scope": .object([
                     "type": .string("string"),
                     "title": .string("Remember this approval"),
-                    "description": .string("How long to keep approving \(request.pattern)"),
+                    "description": .string("How long to keep approving \(shown(request.pattern))"),
                     "enum": .array(ApprovalScope.allCases.map { .string($0.rawValue) }),
                     "enumNames": .array([
                         .string("This turn"), .string("This session"),

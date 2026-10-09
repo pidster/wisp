@@ -126,4 +126,40 @@ import WispCore
         let notice = try #require(ElicitationTracker.cancellation(.number(8), reason: "r"))
         #expect(String(decoding: notice, as: UTF8.self).contains("notifications/cancelled"))
     }
+
+    /// The model chooses the command, so control characters in it are shown escaped in the client's dialog, as in the
+    /// terminal's: an escape sequence cannot redraw the dialog to hide what runs (the 2026-10-09 review).
+    @Test func theDialogShowsControlCharactersEscaped() async throws {
+        let transports = await InMemoryTransport.createConnectedPair()
+        let server = Server(name: "t", version: "0", capabilities: .init(tools: .init(listChanged: false)))
+        let flags = ClientCapabilityFlags()
+        try await server.start(transport: transports.server) { _, capabilities in
+            flags.elicitation.withLock { $0 = capabilities.elicitation != nil }
+        }
+        let seen = SeenMessages()
+        let client = Client(
+            name: "test-client", version: "0", capabilities: .init(elicitation: .init(form: .init())))
+        _ = await client.withElicitationHandler { parameters in
+            if case .form(let form) = parameters { seen.messages.withLock { $0.append(form.message) } }
+            return CreateElicitation.Result(action: .decline, content: nil)
+        }
+        _ = try await client.connect(transport: transports.client)
+        let hidden = ApprovalRequest(
+            command: "rm -rf ~/x\u{1B}[2K\rls", pattern: "rm -rf ~/x\u{1B}[2K\rls", workingDirectory: "/tmp",
+            assessment: RiskAssessment(level: .dangerous, reasons: ["deletes"], sources: ["rules"]))
+        let approver = ElicitationApprover(server: server, client: flags, timeout: .seconds(5))
+        _ = await approver.decide(hidden)
+        let message = try #require(seen.messages.withLock { $0.first })
+        #expect(message.contains("\u{1B}") == false)
+        #expect(message.contains("\r") == false)
+        #expect(message.contains(ApprovalRequest.visible(hidden.command)))
+        await client.disconnect()
+        await server.stop()
+    }
+}
+
+/// The messages a test client's dialogs showed.
+private final class SeenMessages: Sendable {
+    /// Each dialog's message, in order.
+    let messages = Mutex<[String]>([])
 }

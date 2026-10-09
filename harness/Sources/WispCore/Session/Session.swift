@@ -246,6 +246,8 @@ public struct Session: Sendable {
     ///   `dependencies.makeSink` throws.
     public static func begin(_ request: Request, home: Home, dependencies: Dependencies = .live) throws -> Session {
         var config = try loadConfig(home: home)
+        // The session's own home, not the default one, is what commands and edit_file may never write.
+        config.runner.protectedPaths = [home.root.path]
         var notes: [String] = []
         if let model = request.model {
             if model.isAmong(config.disabledModels, config: config, home: home) {
