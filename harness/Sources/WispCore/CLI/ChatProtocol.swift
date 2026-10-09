@@ -11,14 +11,15 @@ import Synchronization
 /// the conversation, raw, with the line the terminal chat would show for it as `text`), `approval` (a
 /// request the front end must answer), `choice` (a question a chat command asks, such as `/config set`),
 /// `completions` (the answer to a `complete`), `notify` (a notification for the front end to post, only
-/// when its `hello` declared `notify`), `withdrawn` (an approval the front end was shown that no longer
-/// waits, answered another way), `exit`. A front end whose `hello` declares `approve-mcp` is also sent the
+/// when its `hello` declared `notify`), `withdrawn` (an approval or choice the front end was shown that no
+/// longer waits: answered another way, or its wait lapsed), `exit`. A front end whose `hello` declares `approve-mcp` is also sent the
 /// commands waiting for approval in `wisp mcp` servers, as `approval` lines with `source: "mcp"` (ADR 0046),
 /// and one that declares `keep-facts` the facts their callers asked to keep, as `approval` lines with
 /// `kind: "fact"`, answered `keep` or `drop` (ADR 0048). Inbound: `hello` (the first line, optional: the effects the
 /// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
 /// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
-/// and cursor to complete, by id).
+/// and cursor to complete, by id; the cursor and the reply's `from` count Unicode scalars). A line of a type
+/// not listed here is ignored and reported once on the diagnostics channel.
 public enum ChatProtocol {
     /// What a front end declared in its `hello`: the host effects it carries (`approve`, `notify`), and
     /// who it is.
@@ -49,8 +50,11 @@ public enum ChatProtocol {
         case message(String)
         /// An answer to an approval request: `once`, `session`, `project`, `always`, or `no`.
         case answer(id: String, decision: String)
-        /// A request to complete the input line at a character index.
+        /// A request to complete the input line at a cursor, counted in Unicode scalars (`ChatCompletion`).
         case complete(id: String, text: String, cursor: Int?)
+        /// A typed line of a type this version does not know: ignored, so a newer front end's line does not
+        /// arrive as an empty message.
+        case unknown(type: String)
 
         /// Parses one line; text that is not a typed JSON object is a message.
         public init(line: String) {
@@ -79,8 +83,10 @@ public enum ChatProtocol {
                 self = .answer(
                     id: object["id"]?.stringValue ?? "",
                     decision: values.map(ChatChoice.answer(values:)) ?? object["value"]?.stringValue ?? "")
-            default:
+            case "message":
                 self = .message(object["text"]?.stringValue ?? "")
+            default:
+                self = .unknown(type: type)
             }
         }
     }
@@ -225,8 +231,26 @@ public enum ChatProtocol {
     ) async -> String? {
         let id = ShortID.make()
         send(encode("choice", Self.choice(id: id, choice)))
-        let answer = try? await Timeout.run(timeout) { await router.answer(for: id) }
-        return answer.flatMap { $0.isEmpty ? nil : $0 }
+        do {
+            let answer = try await Timeout.run(timeout) { await router.answer(for: id) }
+            return answer.isEmpty ? nil : answer
+        } catch {
+            withdraw(id, router: router, send: send)
+            return nil
+        }
+    }
+
+    /// Gives up on a question the front end was shown (an approval or a choice) whose wait lapsed: its waiter
+    /// is dropped, so a late answer goes nowhere, and the front end is sent `withdrawn` so it closes the
+    /// dialog or picker rather than take an answer nobody reads.
+    ///
+    /// - Parameters:
+    ///   - id: The question's protocol id.
+    ///   - router: Where its answer would have arrived.
+    ///   - send: Writes one protocol line.
+    static func withdraw(_ id: String, router: LineRouter, send: @Sendable (String) -> Void) {
+        router.withdraw(id)
+        send(encode("withdrawn", ["id": .string(id)]))
     }
 
     /// The `completions` line's fields.
@@ -284,13 +308,49 @@ public final class LineRouter: Sendable {
         var messages: [String] = []
         var closed = false
         var waiting: [String: CheckedContinuation<String?, Never>] = [:]
-        var early: [String: String] = [:]
+        /// Answers that arrived before their waiter registered (a relay shows a request, then starts waiting),
+        /// oldest first, at most `LineRouter.earlyLimit`: an answer for an id nobody ever waits for is not kept
+        /// for ever.
+        var early: [(id: String, decision: String)] = []
+        /// Ids withdrawn, newest last, at most `LineRouter.tombstoneLimit`: a waiter that registers after its id
+        /// was withdrawn gets nil at once instead of waiting for ever, and a late answer is dropped.
+        var withdrawn: [String] = []
+
+        /// Keeps an early answer, dropping the oldest beyond the bound.
+        mutating func keepEarly(_ id: String, _ decision: String) {
+            early.removeAll { $0.id == id }
+            early.append((id, decision))
+            if early.count > LineRouter.earlyLimit { early.removeFirst(early.count - LineRouter.earlyLimit) }
+        }
+
+        /// Takes the early answer for `id`, if one arrived.
+        mutating func takeEarly(_ id: String) -> String? {
+            guard let index = early.firstIndex(where: { $0.id == id }) else { return nil }
+            return early.remove(at: index).decision
+        }
+
+        /// Remembers that `id` was withdrawn, dropping the oldest tombstone beyond the bound.
+        mutating func tombstone(_ id: String) {
+            guard !withdrawn.contains(id) else { return }
+            withdrawn.append(id)
+            if withdrawn.count > LineRouter.tombstoneLimit {
+                withdrawn.removeFirst(withdrawn.count - LineRouter.tombstoneLimit)
+            }
+        }
     }
+
+    /// How many answers for ids nobody waits for yet are kept.
+    static let earlyLimit = 32
+    /// How many withdrawn ids are remembered.
+    static let tombstoneLimit = 256
+
     private let state = Mutex(State())
     private let available = DispatchSemaphore(value: 0)
     private let completer = Mutex<(@Sendable (String, String, Int?) -> Void)?>(nil)
     private let declared = Mutex<ChatProtocol.Hello?>(nil)
     private let greeted = Mutex<(@Sendable (ChatProtocol.Hello) -> Void)?>(nil)
+    /// The unknown line types already reported, so each is reported once (at most 32 of them).
+    private let unknownTypes = Mutex<Set<String>>([])
 
     /// What the front end declared in its `hello`; nil when it sent none, which keeps today's behaviour:
     /// approvals over the protocol, notifications posted by wisp.
@@ -324,10 +384,17 @@ public final class LineRouter: Sendable {
             available.signal()
         case .complete(let id, let text, let cursor):
             completer.withLock { $0 }?(id, text, cursor)
+        case .unknown(let type):
+            // Said once per type, on the diagnostics channel: stdout is the protocol.
+            let first = unknownTypes.withLock { seen in
+                guard seen.count < 32 else { return false }
+                return seen.insert(type).inserted
+            }
+            if first { Diagnostics.chat.error("ignoring front-end lines of unknown type \(type)") }
         case .answer(let id, let decision):
             let waiter = state.withLock { state -> CheckedContinuation<String?, Never>? in
                 if let waiter = state.waiting.removeValue(forKey: id) { return waiter }
-                state.early[id] = decision
+                if !state.withdrawn.contains(id) { state.keepEarly(id, decision) }  // a withdrawn id's answer is late
                 return nil
             }
             waiter?.resume(returning: decision)
@@ -357,11 +424,13 @@ public final class LineRouter: Sendable {
         await answerUnlessWithdrawn(for: id) ?? "no"
     }
 
-    /// The decision for approval `id`, waiting for the front end's answer, or nil once `withdraw(id)` is called.
+    /// The decision for approval `id`, waiting for the front end's answer, or nil once `withdraw(id)` is called,
+    /// before or while it waits.
     public func answerUnlessWithdrawn(for id: String) async -> String? {
         await withCheckedContinuation { continuation in
-            let early = state.withLock { state -> String? in
-                if let decision = state.early.removeValue(forKey: id) { return decision }
+            let early = state.withLock { state -> String?? in
+                if state.withdrawn.contains(id) { return .some(nil) }
+                if let decision = state.takeEarly(id) { return .some(decision) }
                 state.waiting[id] = continuation
                 return nil
             }
@@ -369,10 +438,12 @@ public final class LineRouter: Sendable {
         }
     }
 
-    /// Stops waiting for an answer to approval `id`: whoever waits gets nil, and a later answer is dropped.
+    /// Stops waiting for an answer to approval `id`: whoever waits gets nil, a wait that starts later gets nil
+    /// at once, and a later answer is dropped.
     public func withdraw(_ id: String) {
         let waiter = state.withLock { state -> CheckedContinuation<String?, Never>? in
-            state.early.removeValue(forKey: id)
+            _ = state.takeEarly(id)
+            state.tombstone(id)
             return state.waiting.removeValue(forKey: id)
         }
         waiter?.resume(returning: nil)
@@ -397,7 +468,8 @@ public struct JSONApprover: Approver {
         self.send = send
     }
 
-    /// Sends the request and maps the answer; silence within the timeout is unanswered. A front end whose
+    /// Sends the request and maps the answer; silence within the timeout is unanswered, and the front end is
+    /// sent `withdrawn` for it, so it closes the dialog. A front end whose
     /// `hello` did not declare `approve` cannot ask, so the request is denied without being sent.
     public func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
         if router.hello != nil, !router.declares("approve") {
@@ -410,8 +482,10 @@ public struct JSONApprover: Approver {
             let decision = try await Timeout.run(timeout) { await router.answer(for: id) }
             return TerminalApprover.parse(decision)
         } catch Timeout.Failure.elapsed(let waited) {
+            ChatProtocol.withdraw(id, router: router, send: send)
             return .unanswered(waited)
         } catch {
+            ChatProtocol.withdraw(id, router: router, send: send)
             return .denied("approval request failed: \(error)")
         }
     }

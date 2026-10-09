@@ -164,3 +164,12 @@ gate calls with the asking thread's log, and `ApprovalRequest` gained `thread`. 
   MCP path over the wire (a client without elicitation approved and denied from the command line; with
   elicitation, each way answering first, and the client receiving `notifications/cancelled`), the relay
   and the TUI's queue and withdrawal, and `respond`'s `notifications`.
+
+## Amendment, 2026-10-09: an MCP approval waits for an empty input box
+
+A request from `wisp mcp` can arrive at any moment, so in `wisp-tui` it no longer takes the band over
+while the input box has text: it waits in the queue, a note says so, the status line counts it
+(`⚠ 1 waiting`), and its dialog opens when the box is empty (the line sent or cleared). Every dialog then
+has a 500 ms grace before its keys answer it (ADR 0029, amendment of the same date). A `withdrawn` line now
+also closes an open choice, and wisp sends one when its own approval or choice times out; the note reads
+`⚠ no longer waiting: …`, since it may have been answered elsewhere or have lapsed.

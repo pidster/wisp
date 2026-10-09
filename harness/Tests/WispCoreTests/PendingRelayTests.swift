@@ -73,4 +73,15 @@ final class SentLines: Sendable {
         let pending = ChatProtocol.approval(id: "x", pending: request)
         #expect(pending["thread"] == "git" && pending["client"] == .null)
     }
+
+    @Test func aRequestWithdrawnBeforeItsWaitStartsDoesNotLeaveATaskWaiting() async throws {
+        // The relay shows a request and then starts a task to wait for it; a withdrawal can land in between.
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let router = LineRouter()
+        let relay = PendingRelay(channel: channel, router: router, audit: nil, send: { _ in })
+        let request = PendingApprovals.request(for: approvalRequest(), client: nil, timeout: nil)
+        router.withdraw(PendingRelay.protocolID(request.id))
+        try await Timeout.run(.seconds(5)) { await relay.awaitAnswer(request) }
+    }
 }

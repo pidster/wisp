@@ -73,3 +73,18 @@ that changes, with `doing` null when it ends. `ChatActivity` derives it from the
 terminal chat's working line and `wisp-tui`'s say the same thing. `wisp-tui` times it on its own
 clock. It redraws on an idle wake only when the text has changed, so the cursor still does not move four
 times a second.
+
+## Amendment, 2026-10-09: keys a dialog takes, and leaving
+
+A code review found two ways a letter typed for the input box answered an approval: a dialog that appeared
+while the person typed took the next key, and keys held while a turn ran were replayed into a dialog open
+when it ended (and into the one queued behind it). `wisp-tui` now replays held keys only into the input
+box; with a dialog or a choice open they stay held until it closes. A dialog takes its keys only once the
+keyboard has been quiet for 500 ms after it appears; a key sooner is held for the box and restarts the
+wait. A grace was chosen over a key then Enter because it keeps every answer one key, as the plain chat
+asks it, and it removes both paths: typing on never answers, and a person who stops to read the dialog
+loses nothing. Ctrl-C still refuses at once, since refusing is safe.
+
+Ctrl-C or Ctrl-D used to wait for wisp with its stdin still open, so `wisp-tui` hung and the transcript
+was not saved. It now sends `/quit`, closes wisp's stdin, waits up to five seconds before killing it,
+prints the rest of wisp's stderr after the band is gone, and exits with wisp's status when wisp failed.

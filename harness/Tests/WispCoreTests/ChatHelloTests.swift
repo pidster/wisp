@@ -80,7 +80,8 @@ import WispTestSupport
         // Declaring approve asks as before.
         router.receive(#"{"type":"hello","effects":["approve"]}"#)
         #expect(await approver.decide(request) == .unanswered(.milliseconds(50)))
-        #expect(sent.withLock { $0.count } == 1)
+        // The approval, and its withdrawal once the wait lapsed.
+        #expect(sent.withLock { $0.count } == 2)
     }
 
     @Test func theModelsNotifyReachesTheFrontEndThroughTheHost() async throws {

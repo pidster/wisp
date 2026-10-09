@@ -56,7 +56,11 @@ session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and 
 In `wisp-tui`, Up and Down recall the lines submitted this session (the latest 100, a line repeating
 the one before it kept once): Up from a fresh line keeps what was typed as a draft, and Down past the
 newest line brings it back. The plain chat reads whole lines and has no recall; `/history` lists them
-in both.
+in both. Ctrl-C or Ctrl-D with nothing open leaves `wisp-tui`: it sends `/quit` (so the transcript is
+saved, as in the plain chat), closes wisp's input, and waits up to five seconds for wisp to exit before
+stopping it. Anything wisp wrote to stderr that was not yet shown, such as why it could not start, is
+printed after the band is gone, and `wisp-tui` exits with wisp's status when wisp failed (1 when it had
+to be stopped).
 
 `wisp-tui`'s input edits in place, with readline's keys:
 
@@ -100,7 +104,9 @@ While a turn runs, or a command you typed, the input box is inactive: dimmed, wi
 place of the cursor, `… working: read_file README.md`, `… working: running git status`, or `… working:
 waiting for the model`. Keys typed meanwhile are held, not shown as typed and not lost: the box says how many
 (`· 3 keys held`), and they are applied in order when the turn ends, as if typed then (a held `!` into the
-empty box enters command mode). Enter is not held: a message is sent only once you can see it.
+empty box enters command mode). Held keys only ever go into the input box: when the turn ends with an
+approval or a choice open, they stay held until it closes, so a letter typed ahead never answers a dialog.
+Enter is not held: a message is sent only once you can see it.
 
 The input grows a row for each line or wrapped line of the message, up to six rows; beyond that it
 scrolls within them to keep the cursor's row in sight. It shrinks back only once the input is empty, as
@@ -118,7 +124,15 @@ the level, around the command (wrapped to four rows), the whole line when the co
 it, the directory, each reason, the pattern the answer is remembered under, and the keys, as `wisp
 chat` offers them. Lines too long for the dialog end in an ellipsis. The answer is recorded in the
 scrollback as one line, `⚠ approved for this session: git push` or `⚠ refused: …`, and the band gives
-the rows back to the input. Ctrl-C or Ctrl-D refuses.
+the rows back to the input. Ctrl-C or Ctrl-D refuses. A dialog takes its keys only once the keyboard has
+been quiet for half a second after it appears: a key pressed sooner was meant for the input (you were
+typing when it came up), so it is held for the box, as keys are while a turn runs, and the half second
+starts again. Typing on therefore never answers a dialog; pausing to read it, then pressing a key, does.
+Ctrl-C refuses at once. An approval from `wisp mcp` that arrives while the input box has text does not
+take the box over: a note says it waits (`⚠ waiting in wisp mcp: git push · its dialog opens when the
+input is empty`), the status line counts it (`⚠ 1 waiting`), and its dialog opens once the box is empty,
+when the line is sent or cleared. An approval or a choice that stops waiting (answered elsewhere, or its
+`approval.timeoutSeconds` passed) closes with `⚠ no longer waiting: …`.
 
 A choice, such as `/config set approval.classifier` without a value, takes the input's place the same
 way: a border titled `choose` around the question, up to eight options with `▸` on the highlighted one
@@ -326,8 +340,8 @@ Out, to the front end:
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result`, a `command.typed`, or a `model.reasoning` that ends a stretch of thinking `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show, and so does a `command.typed` whose command printed something (what it printed, stdout then stderr), and a `model.reasoning` with `phase` `end` (the thinking): `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, `facts`, `summary`, or `thinking`), `turn` (null for the next request's context, the turn list, and every turn's thinking), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`, `/inspect summary [all]`, or `/inspect thinking [N]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
-| `withdrawn` | `id` | An `approval` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped. Drop the dialog; an answer sent after this is ignored. |
-| `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from character `from` to the cursor, sorted. |
+| `withdrawn` | `id` | An `approval` or `choice` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped; or the chat's own approval or choice went unanswered for `approval.timeoutSeconds`. Drop the dialog or picker; an answer sent after this is ignored. |
+| `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from `from` to the cursor, sorted. `from`, like the request's `cursor`, counts Unicode scalars (a Rust `char`), not bytes or grapheme clusters, so a combining mark or an emoji sequence before the word counts as the front end's editor counts it. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
 | `exit` | | The loop has ended. |
@@ -344,7 +358,8 @@ Unknown effects are ignored; `client` and `version` are for the audit (`host.hel
 sends no `hello` keeps the behaviour from before it existed: approvals over the protocol, notifications
 posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
 `approve`, `approve-mcp`, and `keep-facts`, and `notify` when its terminal has a notification sequence
-(Ghostty, iTerm2, WezTerm, kitty). It queues an approval that arrives while another is shown, and marks one
+(Ghostty, iTerm2, WezTerm, kitty). It queues an approval that arrives while another is shown (and one from
+`wisp mcp` while its input box has text, with a note and a count in the status line), and marks one
 from `wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its
 title. A fact to keep is a dialog of its own, titled "keep as a permanent fact? · wisp mcp", answered with
 `k` (keep) or `d` (drop); Ctrl-C drops it, as it refuses a command.
@@ -359,10 +374,12 @@ lines follow: the command's audit events arrive as `event` lines (`policy.decisi
 `{"type":"choose","id":"…","value":"…"}` for a choice, with `value` null or absent for no answer, or for a choice
 with toggles `{"type":"choose","id":"…","values":["system","ollama:granite4.1:8b"]}`, the values left on; without
 `values` nothing changes, so a front end that answers it as a plain choice changes nothing, and
-`{"type":"complete","id":"…","text":"…","cursor":N}` to ask for completions of the input at character
+`{"type":"complete","id":"…","text":"…","cursor":N}` to ask for completions of the input at Unicode scalar
 `N`, answered by `completions` even while a turn is not running; completion comes from the same list of
 settings and values as `/config`, and the models this Mac can run are looked up once per session. A line that
-is not a JSON object is taken as a message, so the protocol can be driven by hand:
+is not a JSON object is taken as a message, so the protocol can be driven by hand; a JSON object of a `type` wisp
+does not know is ignored (and reported once on stderr under `WISP_LOG`), so a newer front end's line never
+arrives as an empty message:
 
 ```
 printf 'What is the date in Tokyo?\n/quit\n' | wisp chat --json
@@ -662,7 +679,9 @@ default applied, the model, the `run_command` policy, and the paths under `~/.wi
 `wisp config list` prints the settings that can be changed without editing the file, one per line:
 the setting, its value in `config.json` or `(default)`, and what it does. `wisp config set KEY VALUE`
 sets one and `wisp config unset KEY` removes one so its default applies
-([ADR 0040](decisions/0040-config-from-chat.md)); chat's `/config set` and `unset` do the same.
+([ADR 0040](decisions/0040-config-from-chat.md)); chat's `/config set` and `unset` do the same. A `config.json`
+that exists but cannot be read (its permissions, a directory in its place) refuses the change and writes nothing,
+so the settings in it are never lost; the command exits 1 with the reason.
 
 ```
 wisp config set approval.classifier coreml
@@ -912,7 +931,8 @@ approved (session): git push origin main for thread git
 ```
 
 An id that is unknown, stale, already answered, or whose request file was altered is refused with the
-reason; one answered another way first says so and exits 1. The notification that announced the request
+reason and exits 1, as does one answered another way first, which says so; only a decision that is not one, or a
+fact's id given to `wisp approvals`, is a usage error (exit 64). The notification that announced the request
 names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md); [mcp.md](mcp.md), "Approval").
 `wisp approvals approve` on a fact a caller asked to keep is refused with a pointer to `wisp facts`.
 
@@ -946,8 +966,9 @@ $ wisp facts keep a1b2c3d4
 kept as a permanent fact: release codename = BLUE HERON (thread git)
 ```
 
-An id that is unknown, stale, already answered, altered, or a command waiting for approval (answer that with
-`wisp approvals`) is refused with the reason. A request nobody answers within `approval.timeoutSeconds`
+An id that is unknown, stale, already answered, or altered is refused with the reason and exits 1, as does an
+answer that came after the request stopped waiting; a command waiting for approval (answer that with
+`wisp approvals`) is a usage error (exit 64). A request nobody answers within `approval.timeoutSeconds`
 keeps nothing. A running `wisp-tui` shows the same requests as dialogs. The default policy refuses
 `wisp facts keep|drop` when the model runs it.
 
@@ -972,7 +993,9 @@ wisp completions install --print-path  # where it would go; writes nothing
 
 Directories are created. A file already at the path is replaced only when it is wisp's (it carries the line
 starting `# wisp completions:` near its top); any other file is refused and left as it is, and an identical one
-is reported as current. Shell start-up files are never edited; instead `install` prints what to add:
+is reported as current. A symbolic link at the path (a dotfiles manager's) is kept: the script is written through
+it to the file it points to when that file is wisp's, and a link to anything else, or to nothing, is refused. A
+refused or unwritable path exits 1 with the reason; only a shell wisp cannot tell is a usage error (64). Shell start-up files are never edited; instead `install` prints what to add:
 
 ```
 $ wisp completions install zsh

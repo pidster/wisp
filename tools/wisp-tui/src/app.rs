@@ -39,6 +39,41 @@ pub const COMMAND_PLACEHOLDER: &str =
     "Run a command yourself: sandboxed, no approval, the model is told";
 /// How many submitted lines Up and Down can recall; the same bound as the chat's `/history`.
 pub const RECALL_LIMIT: usize = 100;
+/// How long the keyboard must be quiet after an approval dialog appears before a key answers it. A key
+/// pressed sooner was meant for the input box (the person was typing when the dialog came up): it is held
+/// for the box and the wait starts again, so a dialog is never answered by a letter typed before it was seen.
+pub const DIALOG_GRACE: Duration = Duration::from_millis(500);
+/// The longest a turn's seconds are taken as, so a nonsensical `turnSeconds` cannot overflow a `Duration`.
+const LONGEST_TURN: Duration = Duration::from_hours(24);
+
+/// The clock dialogs are timed by: the system's, unless a test has set it.
+#[derive(Debug, Default)]
+pub struct Clock {
+    /// The time a test has set; `None` reads the system clock.
+    fixed: Cell<Option<Instant>>,
+}
+
+impl Clock {
+    /// The time now.
+    pub fn now(&self) -> Instant {
+        self.fixed.get().unwrap_or_else(Instant::now)
+    }
+
+    /// Moves the clock on by `by`, fixing it from then on.
+    #[cfg(test)]
+    pub fn advance(&self, by: Duration) {
+        self.fixed.set(Some(self.now() + by));
+    }
+}
+
+/// `seconds` as a duration, for a value a front end only displays: negative, not a number, or past a day
+/// is taken as zero or a day rather than panicking.
+fn bounded_seconds(seconds: f64) -> Duration {
+    if seconds.is_nan() || seconds <= 0.0 {
+        return Duration::ZERO;
+    }
+    Duration::try_from_secs_f64(seconds).map_or(LONGEST_TURN, |duration| duration.min(LONGEST_TURN))
+}
 
 /// A line committed to scrollback, with its style.
 #[derive(Debug, Clone, PartialEq)]
@@ -304,8 +339,14 @@ pub struct App {
     /// An approval awaiting an answer.
     pub approval: Option<Approval>,
     /// Approvals that arrived while one was shown, oldest first: commands waiting in `wisp mcp` servers can
-    /// arrive at any time, beside this conversation's own.
+    /// arrive at any time, beside this conversation's own. One from `wisp mcp` also waits here while the input
+    /// box has text in it, so it never takes over a line being typed; the status line says it waits.
     pub queued: VecDeque<Approval>,
+    /// When the keyboard was last active around the approval shown: when it appeared, then each key pressed
+    /// within `DIALOG_GRACE` of the last. `None` once the grace has passed, and a key answers the dialog.
+    pub dialog_quiet_from: Option<Instant>,
+    /// The clock the grace is timed by.
+    pub clock: Clock,
     /// A choice awaiting an answer.
     pub picker: Option<Picker>,
     /// The id of the completion asked for and not yet answered.
@@ -320,8 +361,9 @@ pub struct App {
     /// Whether the input box is in command mode: `!` typed at the start of the line, so what is typed runs as a
     /// shell command (ADR 0049) and the box takes the command colour.
     pub command_mode: bool,
-    /// Keys typed while a turn runs, in order: not shown as accepted, and applied to the input when the turn
-    /// ends (the next status), as if typed then.
+    /// Keys typed while a turn runs, or in a dialog's grace, in order: not shown as accepted, and applied to the
+    /// input box when it next takes typing (the turn has ended and no dialog or choice is open), as if typed
+    /// then. They are never replayed into a dialog or a choice.
     pub held: Vec<Edit>,
     /// The turn under way, or how the last one ended, for the status line.
     pub turn: Option<TurnState>,
@@ -427,7 +469,7 @@ impl App {
                 self.flush_partial();
                 self.status = Some(status);
                 self.busy = false;
-                self.release_held();
+                self.show_next();
             }
             Outbound::Activity {
                 doing,
@@ -439,7 +481,7 @@ impl App {
                 self.activity = doing.map(|doing| Activity {
                     doing,
                     turn_started: now
-                        .checked_sub(Duration::from_secs_f64(turn_seconds.max(0.0)))
+                        .checked_sub(bounded_seconds(turn_seconds))
                         .unwrap_or(now),
                     since: now,
                     thinking,
@@ -484,32 +526,90 @@ impl App {
         }
     }
 
-    /// Shows an approval in place of any panel, or queues it behind the one shown.
+    /// Shows an approval in place of any panel, or queues it behind the one shown. One from `wisp mcp` that
+    /// arrives while the input box has text waits until the box is empty, with a note saying so.
     fn arrived(&mut self, approval: Approval) {
         self.flush_partial();
-        self.panel = None;
+        if self.approval.is_none() && approval.is_mcp() && !self.editor.is_empty() {
+            self.push(
+                &format!(
+                    "⚠ waiting in wisp mcp: {} · its dialog opens when the input is empty",
+                    approval.command
+                ),
+                LineKind::Note,
+            );
+        }
+        self.queued.push_back(approval);
+        self.show_next();
+    }
+
+    /// Brings up the next approval when none is shown, and gives the input box the keys held for it. This
+    /// conversation's own approvals show at once; one from `wisp mcp` only while the box is empty. A dialog
+    /// that appears starts its grace (`DIALOG_GRACE`). Held keys go into the box only with no turn running and
+    /// nothing open over it, and before a queued approval is considered, since they are typing in progress.
+    fn show_next(&mut self) {
+        self.release_held();
         if self.approval.is_some() {
-            self.queued.push_back(approval);
+            return;
+        }
+        let empty = self.editor.is_empty();
+        let Some(index) = self
+            .queued
+            .iter()
+            .position(|approval| !approval.is_mcp() || empty)
+        else {
+            return;
+        };
+        self.approval = self.queued.remove(index);
+        self.panel = None;
+        self.dialog_quiet_from = Some(self.clock.now());
+    }
+
+    /// Whether the approval shown is in its grace: it appeared, or a key was pressed, less than `DIALOG_GRACE`
+    /// ago. A key in the grace restarts it; once the keyboard has been quiet that long the grace ends for good.
+    fn in_grace(&mut self) -> bool {
+        let Some(since) = self.dialog_quiet_from else {
+            return false;
+        };
+        let now = self.clock.now();
+        if self.approval.is_some() && now.saturating_duration_since(since) < DIALOG_GRACE {
+            self.dialog_quiet_from = Some(now);
+            true
         } else {
-            self.approval = Some(approval);
+            self.dialog_quiet_from = None;
+            false
         }
     }
 
-    /// Drops an approval that no longer waits: the dialog shown is replaced by the next queued one, with a
-    /// note, and a queued one is removed quietly.
+    /// Drops an approval or a choice that no longer waits (answered another way, withdrawn, or timed out): the
+    /// dialog shown is replaced by the next queued one, and an open choice closes, each with a note; a queued
+    /// approval is removed quietly.
     fn withdrawn(&mut self, id: &str) {
         if self
+            .picker
+            .as_ref()
+            .is_some_and(|picker| picker.choice.id == id)
+        {
+            if let Some(picker) = self.picker.take() {
+                self.editor.take();
+                self.push(
+                    &format!("⚠ no longer waiting: {}", picker.choice.title),
+                    LineKind::Note,
+                );
+            }
+            self.show_next();
+        } else if self
             .approval
             .as_ref()
             .is_some_and(|approval| approval.id == id)
         {
             if let Some(approval) = self.approval.take() {
                 self.push(
-                    &format!("⚠ answered elsewhere: {}", approval.command),
+                    &format!("⚠ no longer waiting: {}", approval.command),
                     LineKind::Note,
                 );
             }
-            self.approval = self.queued.pop_front();
+            self.show_next();
         } else {
             self.queued.retain(|approval| approval.id != id);
         }
@@ -707,8 +807,13 @@ impl App {
         std::mem::take(&mut self.notices)
     }
 
-    /// A character typed.
+    /// A character typed. With an approval shown it is an answer, unless the dialog is in its grace, when it
+    /// is held for the input box instead.
     pub fn type_char(&mut self, c: char) -> Action {
+        if self.approval.is_some() && self.in_grace() {
+            self.held.push(Edit::Insert(c));
+            return Action::None;
+        }
         if let Some(approval) = &self.approval {
             let decision = if approval.is_fact() {
                 match c.to_ascii_lowercase() {
@@ -728,7 +833,8 @@ impl App {
             };
             let id = approval.id.clone();
             self.push(&answered(&approval.command, decision), LineKind::Note);
-            self.approval = self.queued.pop_front();
+            self.approval = None;
+            self.show_next();
             return Action::Send(Inbound::Answer {
                 id,
                 decision: decision.to_string(),
@@ -747,6 +853,13 @@ impl App {
             self.held.push(Edit::Insert(c));
             return Action::None;
         }
+        self.type_into_box(c);
+        Action::None
+    }
+
+    /// A character for the input box: `!` at the start of the line switches to command mode, anything else
+    /// is an edit.
+    fn type_into_box(&mut self, c: char) {
         // `!` at the start of the line is the switch to command mode, not text, whatever follows it; after
         // other text, or in command mode, it is text.
         if c == '!'
@@ -757,10 +870,9 @@ impl App {
         {
             self.command_mode = true;
             self.suggestions = None;
-            return Action::None;
+            return;
         }
-        self.edit(&Edit::Insert(c));
-        Action::None
+        self.edit_input(&Edit::Insert(c));
     }
 
     /// Whether keys are held rather than taken: while a turn runs and nothing else (a dialog, a choice, the
@@ -769,14 +881,16 @@ impl App {
         self.busy && self.approval.is_none() && self.picker.is_none() && self.panel.is_none()
     }
 
-    /// Applies the keys held while the turn ran, in order, as if typed now.
+    /// Applies the keys held, in order, as if typed now, into the input box only: with a turn running or a
+    /// dialog, a choice, or the panel open they stay held for later, so they can never answer a dialog.
     fn release_held(&mut self) {
+        if self.busy || self.approval.is_some() || self.picker.is_some() || self.panel.is_some() {
+            return;
+        }
         for edit in std::mem::take(&mut self.held) {
             match edit {
-                Edit::Insert(c) => {
-                    self.type_char(c);
-                }
-                other => self.edit(&other),
+                Edit::Insert(c) => self.type_into_box(c),
+                other => self.edit_input(&other),
             }
         }
     }
@@ -812,10 +926,21 @@ impl App {
         }
     }
 
-    /// An edit to the input: held while a turn is running, ignored while a dialog wants its keys. In command
-    /// mode, Backspace at the start of the line, or Delete in an empty box, returns to the normal prompt; a paste
-    /// that starts with `!` at the start of the line enters command mode, as typing `!` does.
+    /// An edit to the input: held while a turn is running or a dialog is in its grace, ignored while a dialog
+    /// wants its keys. An edit that leaves the box empty lets an approval waiting for that show.
     pub fn edit(&mut self, edit: &Edit) {
+        if self.approval.is_some() && self.in_grace() {
+            self.held.push(edit.clone());
+            return;
+        }
+        self.edit_input(edit);
+        self.show_next();
+    }
+
+    /// An edit to the input, as `edit` takes it, without a dialog's grace. In command mode, Backspace at the
+    /// start of the line, or Delete in an empty box, returns to the normal prompt; a paste that starts with `!`
+    /// at the start of the line enters command mode, as typing `!` does.
+    fn edit_input(&mut self, edit: &Edit) {
         if self.holding() {
             self.held.push(edit.clone());
             return;
@@ -962,6 +1087,7 @@ impl App {
         self.recall_at = None;
         self.draft.clear();
         self.busy = true;
+        self.show_next();
         Action::Send(Inbound::Message { text })
     }
 
@@ -1014,6 +1140,7 @@ impl App {
             self.recall_at = None;
             let draft = std::mem::take(&mut self.draft);
             self.set_line(&draft);
+            self.show_next();
         }
     }
 
@@ -1029,7 +1156,7 @@ impl App {
             // Refusing is the default answer: a command is not run, a fact is not kept.
             let decision = if approval.is_fact() { "drop" } else { "no" };
             self.push(&answered(&approval.command, decision), LineKind::Note);
-            self.approval = self.queued.pop_front();
+            self.show_next();
             return Action::Send(Inbound::Answer {
                 id: approval.id,
                 decision: decision.into(),
@@ -1414,7 +1541,17 @@ impl App {
             }
             spans
         };
-        let mut right = vec![Span::styled(status.approval.clone(), palette::muted())];
+        let mut right = Vec::new();
+        // An approval waiting behind the input box (from `wisp mcp`, while a line is typed) is named here, so
+        // it never waits unseen.
+        if self.approval.is_none() && !self.queued.is_empty() {
+            right.push(Span::styled(
+                format!("⚠ {} waiting", self.queued.len()),
+                palette::amber(),
+            ));
+            right.push(sep());
+        }
+        right.push(Span::styled(status.approval.clone(), palette::muted()));
         match self.turn {
             Some(TurnState::Running(number)) => {
                 right.push(sep());
@@ -2272,6 +2409,35 @@ mod tests {
     }
 
     #[test]
+    fn completion_indices_count_unicode_scalars_on_both_sides() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        // `é` written as `e` and a combining accent is two scalars and one grapheme; the ZWJ emoji is three
+        // scalars (person, joiner, laptop) and one grapheme. The protocol counts scalars, as Rust's chars do.
+        let line = "/fact add e\u{301} \u{1F469}\u{200D}\u{1F4BB} /he";
+        app.editor.set(line);
+        let scalars = line.chars().count();
+        assert_eq!(scalars, 20);
+        assert_eq!(
+            app.complete(),
+            Action::Send(Inbound::Complete {
+                id: "k1".into(),
+                text: line.into(),
+                cursor: scalars
+            })
+        );
+        // wisp answers with where the word starts, in scalars: the `/` of `/he`.
+        let from = scalars - 3;
+        app.handle(completions("k1", from, &["/help"]));
+        assert_eq!(
+            app.editor.text(),
+            "/fact add e\u{301} \u{1F469}\u{200D}\u{1F4BB} /help "
+        );
+    }
+
+    #[test]
     fn fenced_blocks_are_code_until_they_close_or_the_turn_ends() {
         let mut app = App::default();
         app.handle(Outbound::Delta {
@@ -2335,6 +2501,13 @@ mod tests {
         }));
         // The reasons are in the dialog, not the scrollback.
         assert!(app.take_pending().is_empty());
+        // A key pressed as the dialog appears was meant for the input: it is held for the box, not an answer,
+        // and the held key before it is not replayed into the dialog either.
+        assert_eq!(app.type_char('s'), Action::None);
+        assert!(app.approval.is_some());
+        assert_eq!(app.held, vec![Edit::Insert('x'), Edit::Insert('s')]);
+        // Once the keyboard has been quiet for the grace, the dialog's keys answer it.
+        settle(&app);
         assert_eq!(app.type_char('q'), Action::None);
         assert_eq!(
             app.type_char('S'),
@@ -2348,7 +2521,147 @@ mod tests {
             app.take_pending()[0].text,
             "⚠ approved for this session: git push"
         );
+        // The held keys go into the box when the turn ends.
+        app.handle(Outbound::Status(Status::default()));
+        assert_eq!(app.editor.text(), "xs");
+        app.editor.take();
         assert_eq!(app.interrupt(), Action::Quit);
+    }
+
+    /// Moves the clock past an approval dialog's grace, so its keys answer it.
+    fn settle(app: &App) {
+        app.clock.advance(DIALOG_GRACE);
+    }
+
+    #[test]
+    fn a_dialog_never_takes_keys_typed_before_it_was_seen() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.editor.set("run it");
+        app.submit();
+        // Typed ahead while the turn runs: y, s, a would each answer a dialog.
+        for c in "yes".chars() {
+            app.type_char(c);
+        }
+        app.handle(Outbound::Approval(approval("rm x", "rm x", &[])));
+        app.handle(Outbound::Approval(mcp_approval("mcp-1", "git tag v1")));
+        // Typing on as the dialog appears answers nothing: each key restarts the grace.
+        for c in "say".chars() {
+            app.clock.advance(Duration::from_millis(300));
+            assert_eq!(app.type_char(c), Action::None);
+        }
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("a"));
+        // Answering after a pause shows the next dialog, which starts a grace of its own.
+        settle(&app);
+        assert_eq!(
+            app.type_char('n'),
+            Action::Send(Inbound::Answer {
+                id: "a".into(),
+                decision: "no".into()
+            })
+        );
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-1"));
+        assert_eq!(app.type_char('y'), Action::None);
+        // The turn ends with a dialog up: the held keys stay held rather than answer it.
+        app.handle(Outbound::Status(Status::default()));
+        assert!(app.approval.is_some());
+        assert_eq!(app.held.len(), 7);
+        settle(&app);
+        assert_eq!(
+            app.type_char('n'),
+            Action::Send(Inbound::Answer {
+                id: "mcp-1".into(),
+                decision: "no".into()
+            })
+        );
+        // With the dialogs gone, everything typed is in the box, in order.
+        assert!(app.approval.is_none() && app.held.is_empty());
+        assert_eq!(app.editor.text(), "yessayy");
+    }
+
+    #[test]
+    fn an_mcp_approval_waits_while_a_line_is_typed() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        for c in "draft".chars() {
+            app.type_char(c);
+        }
+        app.handle(Outbound::Approval(mcp_approval("mcp-1", "git push")));
+        // It does not take over the box: a note says it waits, and the status line counts it.
+        assert!(app.approval.is_none());
+        assert_eq!(
+            app.take_pending()[0].text,
+            "⚠ waiting in wisp mcp: git push · its dialog opens when the input is empty"
+        );
+        assert!(drawn(&app, 80).join("\n").contains("⚠ 1 waiting"));
+        // Typing goes on into the box, `y` included.
+        app.type_char('y');
+        assert_eq!(app.editor.text(), "drafty");
+        // Emptying the box brings it up, in its grace.
+        app.edit(&Edit::KillToStart);
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-1"));
+        assert!(!drawn(&app, 80).join("\n").contains("waiting ·"));
+        assert_eq!(app.type_char('y'), Action::None);
+        settle(&app);
+        assert_eq!(
+            app.type_char('y'),
+            Action::Send(Inbound::Answer {
+                id: "mcp-1".into(),
+                decision: "once".into()
+            })
+        );
+        // The key held in the grace is typing, and goes into the box.
+        assert_eq!(app.editor.text(), "y");
+        // Sending a line empties the box too.
+        app.handle(Outbound::Approval(mcp_approval("mcp-2", "git tag")));
+        assert!(app.approval.is_none());
+        app.submit();
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-2"));
+    }
+
+    #[test]
+    fn a_timed_out_approval_or_choice_is_withdrawn() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Approval(approval("rm x", "rm x", &[])));
+        app.handle(Outbound::Withdrawn { id: "a".into() });
+        assert!(app.approval.is_none());
+        assert_eq!(app.take_pending()[0].text, "⚠ no longer waiting: rm x");
+        // A choice whose wait lapsed closes, and what was typed into it goes with it.
+        app.handle(Outbound::Choice(choice(&["system", "private-cloud"], true)));
+        app.type_char('z');
+        app.handle(Outbound::Withdrawn { id: "c9".into() });
+        assert!(app.picker.is_some());
+        app.handle(Outbound::Withdrawn { id: "c1".into() });
+        assert!(app.picker.is_none() && app.editor.is_empty());
+        assert_eq!(
+            app.take_pending()[0].text,
+            "⚠ no longer waiting: approval.classifier: what judges each command"
+        );
+        // A late Enter answers nothing.
+        assert_eq!(app.submit(), Action::None);
+    }
+
+    #[test]
+    fn a_nonsensical_turn_seconds_does_not_panic() {
+        for seconds in ["1e300", "-5", "1e20"] {
+            let mut app = App::default();
+            app.handle(Outbound::parse(&format!(
+                r#"{{"type":"activity","doing":"x","asking":false,"turnSeconds":{seconds}}}"#
+            )));
+            assert!(app.activity.is_some());
+        }
+        assert_eq!(bounded_seconds(f64::NAN), Duration::ZERO);
+        assert_eq!(bounded_seconds(f64::INFINITY), LONGEST_TURN);
+        assert_eq!(bounded_seconds(1e300), LONGEST_TURN);
+        assert_eq!(bounded_seconds(-1.0), Duration::ZERO);
+        assert_eq!(bounded_seconds(2.5), Duration::from_millis(2500));
     }
 
     fn approval(command: &str, line: &str, reasons: &[&str]) -> Approval {
@@ -2407,6 +2720,7 @@ mod tests {
             ..Default::default()
         };
         app.handle(Outbound::Approval(fact_to_keep("mcp-1")));
+        settle(&app);
         // The command keys mean nothing here.
         assert_eq!(app.type_char('y'), Action::None);
         assert!(app.approval.is_some());
@@ -2423,6 +2737,7 @@ mod tests {
                 .contains("kept as a permanent fact: release codename")
         }));
         app.handle(Outbound::Approval(fact_to_keep("mcp-2")));
+        settle(&app);
         assert_eq!(
             app.type_char('D'),
             Action::Send(Inbound::Answer {
@@ -2489,6 +2804,7 @@ mod tests {
         app.handle(Outbound::Approval(approval("git push", "git push", &[])));
         app.handle(Outbound::Approval(mcp_approval("mcp-1", "git tag v1")));
         app.handle(Outbound::Approval(mcp_approval("mcp-2", "git push --tags")));
+        settle(&app);
         assert_eq!(app.queued.len(), 2);
         // Answering the one shown brings up the next.
         assert_eq!(
@@ -2507,7 +2823,7 @@ mod tests {
         assert!(app.approval.is_none());
         assert_eq!(
             app.take_pending()[0].text,
-            "⚠ answered elsewhere: git tag v1"
+            "⚠ no longer waiting: git tag v1"
         );
         // An unknown id changes nothing.
         app.handle(Outbound::Withdrawn { id: "mcp-9".into() });
@@ -2597,6 +2913,7 @@ mod tests {
         let only_command = approval("git push", "git push", &[]);
         assert_eq!(dialog_lines(&only_command, 50).len(), 5);
         // Answering gives the band back to the input.
+        settle(&app);
         app.type_char('n');
         app.busy = false;
         assert_eq!(app.band_height(60), BAND_HEIGHT);

@@ -52,7 +52,7 @@ pub enum Outbound {
     Completions {
         /// The request's id.
         id: String,
-        /// The character index where the word being completed starts.
+        /// Where the word being completed starts, in Unicode scalars (Rust `char`s), as `cursor` is.
         from: usize,
         /// The words that fit.
         #[serde(default)]
@@ -60,9 +60,9 @@ pub enum Outbound {
     },
     /// A notification for the front end to post (ADR 0044), sent only when `hello` declared `notify`.
     Notify(Notice),
-    /// An approval shown earlier that no longer waits: answered another way, withdrawn, or expired.
+    /// An approval or a choice shown earlier that no longer waits: answered another way, or timed out.
     Withdrawn {
-        /// The approval's id.
+        /// The approval's or the choice's id.
         id: String,
     },
     /// wisp is exiting.
@@ -141,7 +141,9 @@ pub struct Event {
     /// The line to show, worded by wisp so every face agrees; `None` for events chat does not show.
     #[serde(default)]
     pub text: Option<String>,
-    /// For `tool.result`, the tool's output; absent for every other kind and for older wisps.
+    /// The output for the front end to show: for `tool.result`, a `command.typed` whose command printed
+    /// something (ADR 0049), and a `model.reasoning` that ends a stretch of thinking (ADR 0053), with the
+    /// thinking as its text; absent for every other kind and for older wisps.
     #[serde(default)]
     pub output: Option<ToolOutput>,
 }
@@ -360,7 +362,7 @@ pub enum Inbound {
         id: String,
         /// The input line.
         text: String,
-        /// The cursor, in characters.
+        /// The cursor, in Unicode scalars (Rust `char`s), not bytes or graphemes; wisp counts the same way.
         cursor: usize,
     },
     /// An answer to a choice; `None` is no answer.

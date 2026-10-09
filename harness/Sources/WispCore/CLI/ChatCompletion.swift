@@ -5,8 +5,8 @@
 public enum ChatCompletion {
     /// What completing a line offers.
     public struct Result: Equatable, Sendable {
-        /// The character index where the word being completed starts; the candidates replace the text
-        /// from here to the cursor.
+        /// The index, in Unicode scalars, where the word being completed starts; the candidates replace the
+        /// text from here to the cursor.
         public var from: Int
         /// The words that fit, sorted, without duplicates.
         public var candidates: [String]
@@ -20,11 +20,11 @@ public enum ChatCompletion {
     /// What `/inspect` shows.
     static let views = ["config", "status", "approvals", "audit", "context", "facts", "summary"]
 
-    /// The candidates for the word at `cursor` (a character index, the end by default) in `text`.
+    /// The candidates for the word at `cursor` (an index in Unicode scalars, the end by default) in `text`.
     ///
     /// - Parameters:
     ///   - text: The input line.
-    ///   - cursor: Where the cursor is, in characters; nil is the end.
+    ///   - cursor: Where the cursor is, in Unicode scalars (the protocol's unit, a Rust `char`); nil is the end.
     ///   - options: The values a setting offers beyond its kind's own, such as the models for `model`.
     ///   - approvalIDs: The standing approvals' ids, for `/approvals revoke`.
     ///   - sessionIDs: The audit log's recent session ids, for `/audit`.
@@ -39,10 +39,15 @@ public enum ChatCompletion {
         subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = [],
         disabledModels: [String] = []
     ) -> Result {
-        let head = String(text.prefix(cursor ?? text.count))
-        let from = head.lastIndex(of: " ").map { head.distance(from: head.startIndex, to: $0) + 1 } ?? 0
-        let word = String(head.dropFirst(from))
-        let before = head.prefix(from).split(separator: " ").map(String.init)
+        // Indices are Unicode scalars, the protocol's unit (a Rust `char`), not grapheme clusters: a combining
+        // mark or a ZWJ sequence before the word counts as the front end counts it.
+        let scalars = text.unicodeScalars
+        let head = String(String.UnicodeScalarView(scalars.prefix(cursor ?? scalars.count)))
+        let headScalars = head.unicodeScalars
+        let from =
+            headScalars.lastIndex(of: " ").map { headScalars.distance(from: headScalars.startIndex, to: $0) + 1 } ?? 0
+        let word = String(String.UnicodeScalarView(headScalars.dropFirst(from)))
+        let before = String(String.UnicodeScalarView(headScalars.prefix(from))).split(separator: " ").map(String.init)
         guard head.hasPrefix("/") else { return Result(from: from, candidates: []) }
         let pool: [String]
         switch before {

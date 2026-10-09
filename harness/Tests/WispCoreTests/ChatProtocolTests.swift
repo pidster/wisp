@@ -13,7 +13,7 @@ import WispTestSupport
             ChatProtocol.Inbound(line: #"{"type":"answer","id":"a1","decision":"session"}"#)
                 == .answer(id: "a1", decision: "session"))
         #expect(ChatProtocol.Inbound(line: #"{"type":"answer"}"#) == .answer(id: "", decision: "no"))
-        #expect(ChatProtocol.Inbound(line: #"{"type":"other"}"#) == .message(""))
+        #expect(ChatProtocol.Inbound(line: #"{"type":"other"}"#) == .unknown(type: "other"))
         #expect(ChatProtocol.Inbound(line: #"["not","an","object"]"#) == .message(#"["not","an","object"]"#))
     }
 
@@ -155,5 +155,75 @@ import WispTestSupport
         #expect(deltas.allSatisfy { $0.offset > turns[0].offset && $0.offset < turns[1].offset })
         #expect(events.allSatisfy { $0.contains(#""turn":1"#) })
         #expect(lines.withLock { $0 }.last?.contains(#""type":"output""#) == true || types.last == "status")
+    }
+
+    @Test func aLineOfAnUnknownTypeIsIgnoredRatherThanTakenAsAnEmptyMessage() {
+        // An empty message would send a spurious status, which clears a front end's busy state mid-turn.
+        let router = LineRouter()
+        router.receive(#"{"type":"from-the-future","text":"x"}"#)
+        router.receive(#"{"type":"from-the-future"}"#)
+        router.receive("typed")
+        router.close()
+        #expect(router.nextMessage() == "typed")
+        #expect(router.nextMessage() == nil)
+    }
+
+    @Test func anApprovalThatLapsesIsWithdrawnFromTheFrontEndAndALateAnswerDropped() async throws {
+        let router = LineRouter()
+        let sent = Mutex<[String]>([])
+        let approver = JSONApprover(router: router, timeout: .milliseconds(30)) { line in
+            sent.withLock { $0.append(line) }
+        }
+        let request = ApprovalRequest(
+            command: "ls", line: "ls", pattern: "ls *", workingDirectory: "/",
+            assessment: RiskAssessment(level: .moderate, reasons: [], sources: []))
+        #expect(await approver.decide(request) == .unanswered(.milliseconds(30)))
+        let lines = sent.withLock { $0 }.compactMap {
+            (try? JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)))?.objectValue
+        }
+        let id = try #require(lines.first?["id"]?.stringValue)
+        #expect(lines.map { $0["type"] } == ["approval", "withdrawn"])
+        #expect(lines.last?["id"] == .string(id))
+        // The waiter is gone: a late answer is dropped, and a new wait on the id ends at once.
+        router.receive(ChatProtocol.encode("answer", ["id": .string(id), "decision": "once"]))
+        #expect(try await Timeout.run(.seconds(5)) { await router.answerUnlessWithdrawn(for: id) } == nil)
+    }
+
+    @Test func aChoiceThatLapsesIsWithdrawnFromTheFrontEnd() async throws {
+        let router = LineRouter()
+        let sent = Mutex<[String]>([])
+        let choice = ChatChoice(title: "pick", options: [.init(value: "a", detail: "first")], current: "a")
+        let answer = await ChatProtocol.ask(choice, router: router, timeout: .milliseconds(30)) { line in
+            sent.withLock { $0.append(line) }
+        }
+        #expect(answer == nil)
+        let lines = sent.withLock { $0 }.compactMap {
+            (try? JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)))?.objectValue
+        }
+        #expect(lines.map { $0["type"] } == ["choice", "withdrawn"])
+        #expect(lines.first?["id"] != nil && lines.first?["id"] == lines.last?["id"])
+    }
+
+    @Test func aWithdrawalBeforeTheWaitStartsEndsTheWaitAtOnce() async throws {
+        let router = LineRouter()
+        router.withdraw("gone")
+        #expect(try await Timeout.run(.seconds(5)) { await router.answerUnlessWithdrawn(for: "gone") } == nil)
+        // A late answer for it is not kept as an early one either.
+        router.receive(#"{"type":"answer","id":"gone","decision":"once"}"#)
+        #expect(try await Timeout.run(.seconds(5)) { await router.answerUnlessWithdrawn(for: "gone") } == nil)
+    }
+
+    @Test func answersForIdsNobodyWaitsForAreBounded() async throws {
+        let router = LineRouter()
+        for index in 0..<(LineRouter.earlyLimit + 8) {
+            router.receive(ChatProtocol.encode("answer", ["id": .string("u\(index)"), "decision": "once"]))
+        }
+        // The newest are kept for a waiter that registers late; the oldest were dropped.
+        let newest = "u\(LineRouter.earlyLimit + 7)"
+        #expect(try await Timeout.run(.seconds(5)) { await router.answerUnlessWithdrawn(for: newest) } == "once")
+        let oldest = Task { await router.answerUnlessWithdrawn(for: "u0") }
+        try await Task.sleep(for: .milliseconds(50))
+        router.withdraw("u0")
+        #expect(await oldest.value == nil)
     }
 }

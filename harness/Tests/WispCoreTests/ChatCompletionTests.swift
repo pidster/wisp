@@ -61,4 +61,13 @@ import Testing
         let fields = ChatProtocol.completions(id: "k1", .init(from: 0, candidates: ["/config"]))
         #expect(fields == ["id": "k1", "from": 0, "candidates": ["/config"]])
     }
+
+    @Test func indicesCountUnicodeScalarsAsTheFrontEndDoes() {
+        // A combining mark (2 scalars, 1 grapheme) and a ZWJ family (5 scalars, 1 grapheme) before the word:
+        // `from` counts scalars, the unit wisp-tui's editor counts in (a Rust char).
+        #expect(ChatCompletion.complete("/fact e\u{301}\u{1F469}\u{200D}\u{1F469}\u{200D}\u{1F467} x").from == 14)
+        // A cursor between a letter and its combining mark is a scalar index too: the word is the bare `e`.
+        let result = ChatCompletion.complete("/approvals revoke e\u{301}x", cursor: 19, approvalIDs: ["e1", "f2"])
+        #expect(result == .init(from: 18, candidates: ["e1"]))
+    }
 }

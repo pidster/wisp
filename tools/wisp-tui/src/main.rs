@@ -14,7 +14,7 @@ mod picker;
 mod protocol;
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -45,6 +45,8 @@ enum Incoming {
     Line(String),
     /// A line from wisp's stderr.
     Stderr(String),
+    /// wisp's stderr closed: everything it wrote there has arrived.
+    StderrClosed,
     /// wisp's stdout closed.
     Closed,
     /// A terminal event.
@@ -73,8 +75,11 @@ fn main() -> Result<()> {
     // notifications when the terminal it runs in has a sequence for them (ADR 0044). Declaring `notify`
     // only then keeps the route simple: wisp never sends a notification this terminal cannot post.
     let sequence = notify::detect(|key| std::env::var(key).ok());
-    stdin.write_all(Inbound::hello(sequence.is_some()).line().as_bytes())?;
-    stdin.flush()?;
+    // A wisp that failed at start-up may already have closed its stdin; the loop then sees its stdout close,
+    // and its stderr is shown on the way out, so a failed write is not an error of its own.
+    let _ = stdin
+        .write_all(Inbound::hello(sequence.is_some()).line().as_bytes())
+        .and_then(|()| stdin.flush());
     let (tx, rx) = mpsc::channel::<Incoming>();
     let out_tx = tx.clone();
     thread::spawn(move || {
@@ -92,6 +97,7 @@ fn main() -> Result<()> {
                 return;
             }
         }
+        let _ = err_tx.send(Incoming::StderrClosed);
     });
     thread::spawn(move || {
         loop {
@@ -118,8 +124,89 @@ fn main() -> Result<()> {
     let result = run(&mut terminal, &rx, &mut stdin, sequence);
     let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::restore();
-    let _ = child.wait();
-    result
+    let ending = shut_down(&mut child, Some(stdin), QUIT_BOUND);
+    // What wisp wrote to stderr after the loop stopped reading, such as why it could not start.
+    for line in remaining_stderr(&rx, STDERR_BOUND) {
+        eprintln!("{line}");
+    }
+    if matches!(ending, Ending::Stopped) {
+        eprintln!(
+            "wisp-tui: wisp did not exit within {} s of /quit, so it was stopped",
+            QUIT_BOUND.as_secs()
+        );
+    }
+    result?;
+    if let Some(code) = exit_code(&ending) {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+/// How long wisp has, once asked to quit, to save its transcript and exit before it is stopped.
+const QUIT_BOUND: Duration = Duration::from_secs(5);
+
+/// How long the rest of wisp's stderr is waited for after it has exited.
+const STDERR_BOUND: Duration = Duration::from_secs(1);
+
+/// How wisp's process ended.
+#[derive(Debug)]
+enum Ending {
+    /// It exited, with this status.
+    Exited(ExitStatus),
+    /// It did not exit in time and was killed.
+    Stopped,
+}
+
+/// Ends wisp, bounded: sends `/quit` (which saves the transcript, as in the terminal chat), closes its stdin
+/// so that it reads the end of its input even if it did not take the line, and waits up to `bound` for it to
+/// exit, killing it after that. Leaving with Ctrl-C or Ctrl-D comes here, as wisp's own exit does.
+fn shut_down(child: &mut Child, stdin: Option<impl Write>, bound: Duration) -> Ending {
+    if let Some(mut stdin) = stdin {
+        let quit = Inbound::Message {
+            text: "/quit".into(),
+        };
+        // wisp may have gone already; then there is nothing to tell it.
+        let _ = stdin
+            .write_all(quit.line().as_bytes())
+            .and_then(|()| stdin.flush());
+    }
+    let deadline = Instant::now() + bound;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ending::Exited(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ending::Stopped;
+            }
+        }
+    }
+}
+
+/// The stderr lines still to arrive, up to the end of wisp's stderr or `bound`, whichever is first; every
+/// other kind of line is dropped, as nothing is drawn any more.
+fn remaining_stderr(rx: &mpsc::Receiver<Incoming>, bound: Duration) -> Vec<String> {
+    let deadline = Instant::now() + bound;
+    let mut lines = Vec::new();
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(Incoming::Stderr(line)) => lines.push(line),
+            Ok(Incoming::StderrClosed) | Err(_) => break,
+            Ok(_) => {}
+        }
+    }
+    lines
+}
+
+/// The exit code wisp-tui leaves with: none when wisp exited cleanly, wisp's own when it failed (1 for a
+/// signal), and 1 when it had to be stopped.
+fn exit_code(ending: &Ending) -> Option<i32> {
+    match ending {
+        Ending::Exited(status) if status.success() => None,
+        Ending::Exited(status) => Some(status.code().unwrap_or(1)),
+        Ending::Stopped => Some(1),
+    }
 }
 
 /// The version `--version` prints, the same rule as `WispVersion.display` in the harness: the bare version
@@ -232,7 +319,7 @@ fn run(
                     Action::Quit => return Ok(()),
                 }
             }
-            Some(Incoming::Terminal(_)) | None => {}
+            Some(Incoming::Terminal(_) | Incoming::StderrClosed) | None => {}
         }
         if !changed {
             continue;
@@ -267,7 +354,7 @@ fn post_notices(out: &mut impl Write, app: &mut App, sequence: Option<Sequence>,
 /// move the cursor four times a second, which some terminals paint as a flicker or a restarted blink.
 fn changes_the_band(incoming: Option<&Incoming>) -> bool {
     match incoming {
-        None => false,
+        None | Some(Incoming::StderrClosed) => false,
         Some(Incoming::Terminal(TermEvent::Key(key))) => key.kind == KeyEventKind::Press,
         Some(Incoming::Terminal(event)) => {
             matches!(event, TermEvent::Paste(_) | TermEvent::Resize(..))
@@ -498,8 +585,101 @@ mod tests {
         changes_the_band, command_for, next_height, post_notices, version_display,
         version_requested, wrapped_height,
     };
+    use super::{Ending, exit_code, remaining_stderr, shut_down};
     use super::{HistoryLine, Line, LineKind, palette, styled};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// A stand-in for wisp: `sh -c script` with its stdin piped.
+    fn fake_wisp(script: &str) -> std::io::Result<(Child, ChildStdin)> {
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| std::io::Error::other("no stdin"))?;
+        Ok((child, stdin))
+    }
+
+    #[test]
+    fn quitting_sends_quit_and_waits_for_wisp_to_exit() -> std::io::Result<()> {
+        // A wisp that leaves when told /quit, with a status of its own to show the line arrived.
+        let (mut child, stdin) = fake_wisp(
+            r#"while read -r line; do case "$line" in *'"/quit"'*) exit 7;; esac; done; exit 9"#,
+        )?;
+        let ending = shut_down(&mut child, Some(stdin), Duration::from_secs(10));
+        assert!(
+            matches!(&ending, Ending::Exited(status) if status.code() == Some(7)),
+            "{ending:?}"
+        );
+        assert_eq!(exit_code(&ending), Some(7));
+        Ok(())
+    }
+
+    #[test]
+    fn quitting_closes_wisps_stdin_so_reading_to_the_end_ends_it() -> std::io::Result<()> {
+        // One that ignores the line still reads the end of its input.
+        let (mut child, stdin) = fake_wisp("cat >/dev/null; exit 0")?;
+        let ending = shut_down(&mut child, Some(stdin), Duration::from_secs(10));
+        assert!(matches!(&ending, Ending::Exited(status) if status.success()));
+        assert_eq!(exit_code(&ending), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_wisp_that_does_not_exit_is_stopped_after_the_bound() -> std::io::Result<()> {
+        let (mut child, stdin) = fake_wisp("exec sleep 30")?;
+        let started = Instant::now();
+        let ending = shut_down(&mut child, Some(stdin), Duration::from_millis(200));
+        assert!(matches!(ending, Ending::Stopped), "{ending:?}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // Reaped: nothing is left running.
+        assert!(child.try_wait().is_ok_and(|status| status.is_some()));
+        assert_eq!(exit_code(&ending), Some(1));
+        Ok(())
+    }
+
+    #[test]
+    fn the_rest_of_stderr_is_read_to_its_end() {
+        let (tx, rx) = mpsc::channel();
+        for incoming in [
+            Incoming::Line("{}".into()),
+            Incoming::Stderr("error: no such model".into()),
+            Incoming::Stderr("see wisp models".into()),
+            Incoming::StderrClosed,
+            Incoming::Stderr("after the end".into()),
+        ] {
+            assert!(tx.send(incoming).is_ok());
+        }
+        assert_eq!(
+            remaining_stderr(&rx, Duration::from_secs(5)),
+            vec!["error: no such model", "see wisp models"]
+        );
+        // Without its end, the wait is bounded.
+        let started = Instant::now();
+        let (_tx, quiet) = mpsc::channel();
+        assert!(remaining_stderr(&quiet, Duration::from_millis(50)).is_empty());
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn wisp_tui_leaves_with_wisps_status_when_it_failed() {
+        assert_eq!(exit_code(&Ending::Exited(ExitStatus::from_raw(0))), None);
+        assert_eq!(
+            exit_code(&Ending::Exited(ExitStatus::from_raw(64 << 8))),
+            Some(64)
+        );
+        // Killed by a signal: no code of its own.
+        assert_eq!(exit_code(&Ending::Exited(ExitStatus::from_raw(9))), Some(1));
+    }
 
     #[test]
     fn only_what_can_change_the_band_redraws_it() {
