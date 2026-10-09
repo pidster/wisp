@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
@@ -22,7 +23,7 @@ final class SentLines: Sendable {
 }
 
 /// `wisp chat --json` shows a front end the commands waiting in `wisp mcp` servers and writes its answers back.
-@Suite struct PendingRelayTests {
+@Suite(.timeLimit(.minutes(1))) struct PendingRelayTests {
     @Test func showsAWaitingCommandAndWritesTheAnswer() async throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }
@@ -42,12 +43,8 @@ final class SentLines: Sendable {
         #expect(line["thread"] == "git" && line["client"] == "claude-code" && line["request"] == .string(request.id))
         #expect(line["command"] == "git push origin main" && line["level"] == "moderate")
         router.receive(#"{"type":"answer","id":"mcp-\#(request.id)","decision":"session"}"#)
-        var taken: PendingApprovals.Taken?
-        for _ in 0..<100 where taken == nil {
-            try await Task.sleep(for: .milliseconds(10))
-            taken = channel.take(request)
-        }
-        guard case .answer(let answer)? = taken else { Issue.record("no answer written"); return }
+        let taken = try await firstValue("the answer written") { channel.take(request) }
+        guard case .answer(let answer) = taken else { Issue.record("no answer written: \(taken)"); return }
         #expect(answer.decision == "session" && answer.via == "tui")
         #expect(sink.events.last?.kind == .approvalAnswered && sink.events.last?.details["via"] == "tui")
         // Once taken, the request is gone, and the front end is told to drop it.

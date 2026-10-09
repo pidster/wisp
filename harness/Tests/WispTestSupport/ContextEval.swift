@@ -141,6 +141,67 @@ public enum ContextEval {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/context")
     }
 
+    /// A fixed stand-in for `fixturesDirectory`, for tests whose figures count the bytes of a conversation: every
+    /// prompt and `read_file` call names a fixture by its full path, so with the real directory a checkout deeper
+    /// than the main one (a worktree) adds bytes to each and flips an estimate near its budget. Scenarios built on
+    /// this root say the same whatever the checkout, and `fixtureTools` reads them from the real directory. It is
+    /// as long as the main checkout's path, the one the estimates were calibrated on (2026-10-06).
+    public static let placeholderFixtures = URL(
+        fileURLWithPath: "/Users/someone/src/github.com/someone/wisp/harness/Tests/WispTestSupport/Fixtures/context")
+
+    /// The `read_file` tool, audited as `ToolRegistry` wraps it, reading paths under `placeholderFixtures` from
+    /// `fixturesDirectory`: what a test running a scenario built on the placeholder passes as `ContextEval.run`'s
+    /// tools.
+    ///
+    /// - Parameter audit: The run's audit log.
+    /// - Returns: The one tool.
+    public static func fixtureTools(_ audit: AuditLog) -> [any Tool] {
+        [AuditedTool(FixtureReadFileTool(placeholder: placeholderFixtures, real: fixturesDirectory), audit: audit)]
+    }
+
+    /// `ReadFileTool` with one root mapped to another before it reads: the model, scripted or real, names files under
+    /// `placeholder`, and they are read from `real`. Name, description, and limits are `ReadFileTool`'s, so the
+    /// conversation is byte for byte the one the real tool would give.
+    public struct FixtureReadFileTool: WispTool {
+        /// The tool read from.
+        public let base = ReadFileTool()
+        /// The root the conversation names.
+        public let placeholder: URL
+        /// The root the files are read from.
+        public let real: URL
+
+        /// Creates the tool.
+        ///
+        /// - Parameters:
+        ///   - placeholder: The root the conversation names.
+        ///   - real: The root the files are read from.
+        public init(placeholder: URL, real: URL) {
+            self.placeholder = placeholder
+            self.real = real
+        }
+
+        /// `ReadFileTool`'s name.
+        public var name: String { base.name }
+        /// `ReadFileTool`'s description.
+        public var description: String { base.description }
+        /// `ReadFileTool`'s limits.
+        public var limits: String { base.limits }
+        /// `ReadFileTool`'s example.
+        public var examplePrompt: String { base.examplePrompt }
+
+        /// Reads the page, the path's placeholder root replaced by the real one.
+        ///
+        /// - Parameter arguments: Path and optional line range.
+        /// - Returns: What `ReadFileTool` returns for the real path.
+        public func call(arguments: ReadFileTool.Arguments) async -> String {
+            var mapped = arguments
+            if mapped.path.hasPrefix(placeholder.path + "/") {
+                mapped.path = real.path + mapped.path.dropFirst(placeholder.path.count)
+            }
+            return await base.call(arguments: mapped)
+        }
+    }
+
     /// The on-task files, read in this order after the task is stated.
     static let taskFiles = ["harbour-sync-overview.md", "harbour-sync-flags.md", "SyncCommand.swift"]
     /// The digression: ten incident reviews from an unrelated shop, read in this order.

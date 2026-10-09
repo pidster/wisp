@@ -15,7 +15,7 @@ func proposedFact(
 
 /// The pending channel's second kind of request (ADR 0048): a fact a caller asked to keep as permanent, filed
 /// apart from commands, bound to what the person is shown, and answered `keep` or `drop` only.
-@Suite struct FactRequestTests {
+@Suite(.timeLimit(.minutes(1))) struct FactRequestTests {
     @Test func aFactRequestIsFiledApartFromCommandsAndAnsweredKeepOrDrop() throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }
@@ -181,11 +181,11 @@ func proposedFact(
         // An answer that is not keep or drop drops: refusing is the default.
         router.receive(#"{"type":"answer","id":"mcp-\#(other.id)","decision":"once"}"#)
         var answers: [String: String] = [:]
-        for _ in 0..<100 where answers.count < 2 {
-            try await Task.sleep(for: .milliseconds(10))
+        try await eventually("both answers written") {
             for request in [fact, other] where answers[request.id] == nil {
                 if case .answer(let answer)? = channel.take(request) { answers[request.id] = answer.decision }
             }
+            return answers.count == 2
         }
         #expect(answers == [fact.id: "keep", other.id: "drop"])
         let answered = sink.events.filter { $0.kind == .approvalAnswered }
@@ -215,7 +215,7 @@ final class AppliedAnswers: Sendable {
 
 /// Asking the person to keep a fact over MCP (ADR 0048): the call returns at once, the answer is applied when it
 /// comes, a drop is remembered, silence keeps nothing, and every step is audited on the thread.
-@Suite struct FactKeeperTests {
+@Suite(.timeLimit(.minutes(1))) struct FactKeeperTests {
     /// A keeper over `channel` that polls quickly and records what it posts.
     private func keeper(
         _ channel: PendingApprovals, timeout: Duration? = .seconds(5), posted: PostedNotifications = .init()

@@ -18,7 +18,7 @@ final class CancelFlag: Sendable {
 
 /// Asking through the pending channel and the client's dialog at once: the first answer wins, the other is
 /// withdrawn, silence and cancellation deny, and every step is audited.
-@Suite struct OutOfBandApproverTests {
+@Suite(.timeLimit(.minutes(1))) struct OutOfBandApproverTests {
     /// An approver over `channel`, polling quickly, recording notifications. The default wait is long, so a
     /// test that answers is never beaten by the timeout on a loaded machine (a 5 s default expired at 6.9 s on
     /// 2026-10-04); tests of the timeout pass a short one.
@@ -108,7 +108,8 @@ final class CancelFlag: Sendable {
         defer { try? FileManager.default.removeItem(at: channel.directory) }
         let flag = CancelFlag()
         // A dialog that is never answered, as when Claude Code's dialog sticks; it sees its cancellation.
-        let approver = approver(channel, timeout: nil) { _ in
+        // Bounded, so a lost answer fails the test (unanswered) instead of hanging the run.
+        let approver = approver(channel, timeout: .seconds(10)) { _ in
             await withTaskCancellationHandler {
                 try? await Task.sleep(for: .seconds(30))
                 return .answered(.denied("too late"))

@@ -5,7 +5,7 @@ import WispTestSupport
 
 @testable import WispCore
 
-@Suite struct ChatProtocolTests {
+@Suite(.timeLimit(.minutes(1))) struct ChatProtocolTests {
     @Test func parsesInboundLinesLeniently() {
         #expect(ChatProtocol.Inbound(line: "hello there") == .message("hello there"))
         #expect(ChatProtocol.Inbound(line: #"{"type":"message","text":"/help"}"#) == .message("/help"))
@@ -90,7 +90,7 @@ import WispTestSupport
         #expect(await ChatProtocol.ask(choice, router: router, timeout: .milliseconds(20), send: { _ in }) == nil)
     }
 
-    @Test func approverAsksThroughTheProtocolAndHonoursTheTimeout() async {
+    @Test func approverAsksThroughTheProtocolAndHonoursTheTimeout() async throws {
         let router = LineRouter()
         let sent = Mutex<[String]>([])
         let approver = JSONApprover(router: router, timeout: .seconds(5)) { line in sent.withLock { $0.append(line) } }
@@ -98,7 +98,7 @@ import WispTestSupport
             command: "ls", line: "ls", pattern: "ls *", workingDirectory: "/",
             assessment: RiskAssessment(level: .moderate, reasons: [], sources: []))
         let deciding = Task { await approver.decide(request) }
-        while sent.withLock({ $0.isEmpty }) { try? await Task.sleep(for: .milliseconds(5)) }
+        try await eventually("the approval line") { !sent.withLock { $0.isEmpty } }
         let line = sent.withLock { $0[0] }
         #expect(line.contains(#""type":"approval""#) && line.contains(#""command":"ls""#))
         let id =

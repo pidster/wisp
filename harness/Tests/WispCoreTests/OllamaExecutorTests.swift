@@ -93,7 +93,7 @@ final class FakeOllama: URLProtocol {
     }
 }
 
-@Suite(.serialized) struct OllamaExecutorTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct OllamaExecutorTests {
     static let settings = OllamaSettings(baseURL: URL(string: "http://fake.ollama:1")!, timeout: .seconds(5))
     static let config = Config(ollama: .init(baseURL: "http://fake.ollama:1", timeoutSeconds: 5)).resolved
     static let tags = #"{"models":[{"name":"q:latest","size":10,"details":{"parameter_size":"3B"}}]}"#
@@ -157,7 +157,7 @@ final class FakeOllama: URLProtocol {
         let agent = Agent(instructions: "x", tools: [CurrentDateTool()], model: model)
         // The fake serves one canned body per path, so swap it once the first request has been made.
         let task = Task { try await agent.stream("date?") { _ in } }
-        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually("the first chat request") { !FakeOllama.bodies(for: "/api/chat").isEmpty }
         FakeOllama.serve("/api/chat", body: text.joined(separator: "\n") + "\n")
         let reply = try await task.value
         #expect(reply.text == "The date.")
@@ -193,7 +193,7 @@ final class FakeOllama: URLProtocol {
         let model = try ModelSelection.ollama("q").resolve(config: Self.config)
         let agent = Agent(instructions: "x", tools: [TopicTool()], model: model)
         let task = Task { try await agent.stream("which processes?") { _ in } }
-        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually("the first chat request") { !FakeOllama.bodies(for: "/api/chat").isEmpty }
         FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"ok"},"done":true}"# + "\n")
         let reply = try await task.value
         #expect(reply.text == "ok")
@@ -233,7 +233,7 @@ final class FakeOllama: URLProtocol {
         let model = try ModelSelection.ollama("q").resolve(config: Self.config)
         let agent = Agent(instructions: "x", tools: [PathTool()], model: model)
         let task = Task { try await agent.stream("read both") { _ in } }
-        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually("the first chat request") { !FakeOllama.bodies(for: "/api/chat").isEmpty }
         FakeOllama.serve("/api/chat", body: Self.chunks(["Both read."]))
         let reply = try await task.value
         #expect(reply.text == "Both read.")
@@ -253,7 +253,7 @@ final class FakeOllama: URLProtocol {
         let model = try ModelSelection.ollama("q").resolve(config: Self.config)
         let agent = Agent(instructions: "x", tools: [PathTool()], model: model)
         let task = Task { try await agent.stream("read a") { _ in } }
-        while FakeOllama.bodies(for: "/api/chat").count < 1 { try await Task.sleep(for: .milliseconds(5)) }
+        try await eventually("the first chat request") { !FakeOllama.bodies(for: "/api/chat").isEmpty }
         FakeOllama.serve("/api/chat", body: Self.chunks(["Read."]))
         #expect(try await task.value.text == "Read.")
         #expect(FakeOllama.bodies(for: "/api/chat").last?.contains("contents of") == true)

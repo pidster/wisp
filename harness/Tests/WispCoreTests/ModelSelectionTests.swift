@@ -4,7 +4,7 @@ import Testing
 
 @testable import WispCore
 
-@Suite struct ModelSelectionTests {
+@Suite(.timeLimit(.minutes(1))) struct ModelSelectionTests {
     @Test func parsesKnownSpellings() throws {
         #expect(try ModelSelection(parsing: "system") == .system)
         #expect(try ModelSelection(parsing: "") == .system)
@@ -56,7 +56,9 @@ import Testing
             await ResolvedModel.readWindow(timeout: .milliseconds(50)) {
                 await withCheckedContinuation { (_: CheckedContinuation<Int, Never>) in }
             } == nil)
-        #expect(ContinuousClock.now - started < .seconds(2))
+        // TimeoutTests' bound: far over the 50 ms it waits, since a loaded Mac kept a timer from a thread for 12 s,
+        // and far under the minutes the hang this catches would take.
+        #expect(ContinuousClock.now - started < .seconds(30))
     }
 
     @Test func configCarriesTheModel() throws {

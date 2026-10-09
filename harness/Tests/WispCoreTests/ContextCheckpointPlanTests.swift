@@ -14,8 +14,13 @@ import WispTestSupport
     /// replying two sentences to each step and one line to each question, and counting three bytes a token plus 260
     /// for the tool definitions the count of the transcript leaves out. Calibrated on 2026-10-06 against ADR 0045's
     /// checkpoint, where `recalling` reached 6,239 and 6,511 tokens on real models without condensing: this estimate
-    /// gives it 5,718.
-    static func estimate(_ scenario: ContextEval.Scenario, target: ContextTarget = .default) async -> ContextEval.Run {
+    /// gives it 5,718. The scenario is built on `ContextEval.placeholderFixtures` and read through
+    /// `ContextEval.fixtureTools`, so the estimate is the same in any checkout: with the real path, a worktree's
+    /// longer one pushed `recalling` past the budget.
+    static func estimate(
+        _ make: (URL) -> ContextEval.Scenario, target: ContextTarget = .default
+    ) async -> ContextEval.Run {
+        let scenario = make(ContextEval.placeholderFixtures)
         var steps: [ScriptedModel.Step] = []
         let reply = String(repeating: "The file describes how the command plans and applies its changes. ", count: 4)
         for step in scenario.steps {
@@ -31,8 +36,7 @@ import WispTestSupport
             countTokens: { ContextComposer.bytes(of: $0) / 3 + 260 })
         return await ContextEval.run(
             scenario, strategy: ReferencingStrategy(policy: .target(target)), model: resolved,
-            instructions: Prompting().rendered(toolsAvailable: true, memory: true),
-            tools: { ToolRegistry(audit: $0).select(["read_file"]).tools })
+            instructions: Prompting().rendered(toolsAvailable: true, memory: true), tools: ContextEval.fixtureTools)
     }
 
     @Test func theSustainedScenarioContinuesNotingBackOnTheTask() throws {
@@ -74,16 +78,35 @@ import WispTestSupport
     }
 
     @Test func itCondensesAtTheDefaultBudgetWhereRecallingDoesNot() async {
-        let recalling = await Self.estimate(ContextEval.recalling())
+        let recalling = await Self.estimate(ContextEval.recalling)
         #expect(recalling.condensations == 0, "\(recalling.report)")
-        let sustained = await Self.estimate(ContextEval.sustained())
+        let sustained = await Self.estimate(ContextEval.sustained)
         let first = sustained.firstCondensation ?? 0
         #expect(sustained.condensations >= 1 && first > ContextEval.noting().steps.count, "\(sustained.report)")
         #expect(sustained.floors == 0 && sustained.turns.flatMap(\.condensations).allSatisfy { $0 == "budget" })
         // The grid moves it: a higher target condenses at least as often as a lower one.
-        let low = await Self.estimate(ContextEval.sustained(), target: ContextTarget(share: 0.4, headroomTurns: 8))
-        let high = await Self.estimate(ContextEval.sustained(), target: ContextTarget(share: 0.6, headroomTurns: 8))
+        let low = await Self.estimate(ContextEval.sustained, target: ContextTarget(share: 0.4, headroomTurns: 8))
+        let high = await Self.estimate(ContextEval.sustained, target: ContextTarget(share: 0.6, headroomTurns: 8))
         #expect(high.condensations >= low.condensations && high.fills.min() ?? 0 > low.fills.max() ?? 0)
+    }
+
+    @Test func thePlaceholderFixturesReadTheRealOnesAndOnlyThem() async throws {
+        let tool = ContextEval.FixtureReadFileTool(
+            placeholder: ContextEval.placeholderFixtures, real: ContextEval.fixturesDirectory)
+        #expect(tool.name == "read_file" && tool.description == ReadFileTool().description)
+        let real = try String(
+            contentsOf: ContextEval.fixturesDirectory.appending(path: "harbour.toml"), encoding: .utf8)
+        let page = await tool.call(
+            arguments: .init(path: ContextEval.placeholderFixtures.appending(path: "harbour.toml").path))
+        let firstLine = try #require(real.split(separator: "\n").first)
+        #expect(page.hasPrefix("1\t\(firstLine)") && page.hasSuffix("[end of file]"), "\(page)")
+        // A path outside the placeholder is passed through as it is.
+        let missing = await tool.call(arguments: .init(path: "/nonexistent/harbour.toml"))
+        #expect(missing.hasPrefix("error:"), "\(missing)")
+        // The scenarios built on it name only the placeholder.
+        let prompts = ContextEval.sustained(fixtures: ContextEval.placeholderFixtures).steps.map(\.prompt)
+        #expect(!prompts.joined().contains(ContextEval.fixturesDirectory.path))
+        #expect(ContextEval.fixtureTools(AuditLog(session: "t", sink: MemoryAuditSink())).map(\.name) == ["read_file"])
     }
 
     @Test func theCheckpointIsReadFromTheEnvironment() throws {

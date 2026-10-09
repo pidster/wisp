@@ -15,7 +15,7 @@ final class CancelledIDs: Sendable {
 
 /// Approval over MCP through another face (ADR 0046), driven over the real protocol: the server's own host
 /// asks, a scripted model runs a command that needs approval, and the test answers as `wisp approvals` would.
-@Suite struct OutOfBandWireTests {
+@Suite(.timeLimit(.minutes(1))) struct OutOfBandWireTests {
     /// A server whose threads use its own host, a client with or without a dialog, and a directory to work in.
     private func connected(
         steps: [ScriptedModel.Step], elicitation: (@Sendable () async throws -> CreateElicitation.Result)? = nil,
@@ -141,7 +141,7 @@ final class CancelledIDs: Sendable {
         #expect(settled?.details["via"] == "cli" && settled?.details["decision"] == "session")
         #expect(pair.sink.events.first { $0.kind == .approvalPending }?.details["alongside"] == "elicitation")
         // The client is told to drop the dialog.
-        for _ in 0..<100 where cancelled.ids.withLock({ $0.isEmpty }) { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually("the dialog cancelled") { !cancelled.ids.withLock { $0.isEmpty } }
         #expect(cancelled.ids.withLock { $0.count } == 1)
         await pair.client.disconnect()
         await pair.server.stop()

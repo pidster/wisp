@@ -1,12 +1,13 @@
 import Darwin
 import Foundation
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
 /// The pending channel's edges: the doctor's finding, the sweep of leftovers, the progress lines, and a relay
 /// answer that cannot be written.
-@Suite struct PendingApprovalsEdgeTests {
+@Suite(.timeLimit(.minutes(1))) struct PendingApprovalsEdgeTests {
     @Test func theDoctorReportsThePendingDirectory() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-pending-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -82,7 +83,7 @@ import Testing
         relay.poll()
         try channel.answer(request.id, decision: "no", via: "cli")  // the command line got there first
         router.receive(#"{"type":"answer","id":"mcp-\#(request.id)","decision":"once"}"#)
-        for _ in 0..<100 where sent.of("note").isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually("the note") { !sent.of("note").isEmpty }
         #expect(sent.of("note").first?["text"]?.stringValue?.contains("already has an answer") == true)
         #expect(sink.events.last?.details["delivery"] == "refused")
     }

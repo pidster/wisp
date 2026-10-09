@@ -17,7 +17,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
     return try await context.value
 }
 
-@Suite struct WispServerWireTests {
+@Suite(.timeLimit(.minutes(1))) struct WispServerWireTests {
     /// A connected client and server. `steps` scripts what the model does on each thread.
     private func connected(
         steps: [ScriptedModel.Step] = [
@@ -335,7 +335,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let result = try await pair.client.send(request).value
         #expect(result.isError == false)
         // Notifications are sent before the result; give the client's handler a moment to run.
-        for _ in 0..<50 where received.withLock({ $0.count }) < 4 { try await Task.sleep(for: .milliseconds(10)) }
+        try await eventually("four progress notifications") { received.withLock { $0.count } >= 4 }
         let progress = received.withLock { $0 }
         let lines = progress.compactMap(\.message)
         #expect(lines.first == "⚙ run_command touch spike.txt", "\(lines)")
