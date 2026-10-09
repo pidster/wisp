@@ -523,6 +523,23 @@ extension AuditEvent {
             ]
         }
 
+        /// `model.publisher`: who published a model `wisp models pull` was asked for, and whether it was pulled
+        /// (ADR 0052, amended 2026-10-09): the repository, its publisher, the decision (`trusted` when
+        /// `mlx.trustedPublishers` holds it, `flag` for `--trust-publisher`, `once` and `trust` for the person's
+        /// answers, `refused`), whether the person was asked, the licence the Hub gave and the bytes to download (null
+        /// when not asked), the reason for a refusal not asked (no terminal), and where it was decided (`cli`).
+        public static func modelPublisher(
+            repository: String, publisher: String, decision: String, asked: Bool, licence: String?, bytes: Int?,
+            reason: String?, source: String
+        ) -> [String: JSONValue] {
+            [
+                "repository": .string(repository), "publisher": .string(publisher), "decision": .string(decision),
+                "asked": .bool(asked), "licence": licence.map { .string($0) } ?? .null,
+                "bytes": bytes.map { .int($0) } ?? .null, "reason": reason.map { .string($0) } ?? .null,
+                "source": .string(source),
+            ]
+        }
+
         /// `model.verified`: wisp's check of what a model can do (ADR 0056, refined 2026-10-04): the model, what
         /// started it (`enable` or `check`), what it means (`refused`, `text only`, `usable`), each question's result, the capabilities recorded (null when the floor
         /// failed and nothing was), those the person declared by hand and kept though their check failed, those an
@@ -782,6 +799,8 @@ extension AuditEvent {
                 "fetched",
                 "link", "outcome", "reason", "seconds",
             ]
+        case .modelPublisher:
+            ["repository", "publisher", "decision", "asked", "licence", "bytes", "reason", "source"]
         case .modelVerified:
             ["model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds"]
         case .watchRun:

@@ -2,9 +2,10 @@ import CryptoKit
 import Foundation
 import WispCore
 
-/// Fetches an `mlx-community` model from Hugging Face into the Hugging Face cache, in `huggingface_hub`'s own
-/// layout, and links the MLX models directory to its snapshot, for `wisp models pull`
-/// ([ADR 0052](../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-04).
+/// Fetches an MLX model from Hugging Face into the Hugging Face cache, in `huggingface_hub`'s own layout, and links
+/// the MLX models directory to its snapshot, for `wisp models pull`
+/// ([ADR 0052](../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-04; any publisher since the
+/// amendment of 2026-10-09, one outside `mlx.trustedPublishers` confirmed by the person first, `PublisherCheck`).
 ///
 /// The cache is shared: a model any Hugging Face tool fetched is reused, file by file, and what wisp fetches
 /// other tools find. `plan` lists the repository and checks each wanted file against the cache (present, the
@@ -13,7 +14,8 @@ import WispCore
 /// directory already holds (an earlier copy, not a link), checked the same way, is copied into the cache instead of
 /// fetched; a blob left half-fetched is resumed with an HTTP range request whose answer must start where the part
 /// stops. The fetch is
-/// bounded: one organisation, the files an MLX model directory needs and nothing else, every size known before
+/// bounded: one repository, named as Hugging Face names one, the files an MLX model directory needs and nothing else,
+/// each with a plain name, every size known before
 /// the question and checked after each file, LFS files checked against their SHA-256 and the rest against their git
 /// blob id, and the whole refused
 /// when the disk lacks room for what will be downloaded. `link` then makes `<models>/<name>` a link to the
@@ -21,7 +23,7 @@ import WispCore
 public struct ModelPull: Sendable {
     /// Why a pull could not be planned or finished.
     public enum Failure: Error, CustomStringConvertible, Equatable {
-        /// The repository is not `mlx-community/<name>`.
+        /// The repository is not `<organisation>/<name>` with names Hugging Face accepts.
         case notAllowed(String)
         /// Hugging Face answered with an error status.
         case http(status: Int, url: String)
@@ -48,8 +50,10 @@ public struct ModelPull: Sendable {
         public var description: String {
             switch self {
             case .notAllowed(let repository):
-                "'\(repository)' is not an mlx-community model; wisp fetches only mlx-community/<name> "
-                    + "(put any other model directory under the models directory yourself)"
+                "'\(repository)' is not a Hugging Face repository; give it as <organisation>/<name>, such as "
+                    + "mlx-community/Qwen3-1.7B-4bit, each part 1 to \(TrustedPublishers.maxNameLength) of letters, "
+                    + "digits, '.', '_', and '-', starting and ending with a letter, a digit, or '_', and no '--' or "
+                    + "'..'"
             case .http(let status, let url): "Hugging Face returned HTTP \(status) for \(url)"
             case .badListing(let detail): "unexpected listing from Hugging Face: \(detail)"
             case .notAModel(let repository):
@@ -129,7 +133,7 @@ public struct ModelPull: Sendable {
 
     /// What a pull would fetch and link, for the person to approve.
     public struct Plan: Equatable, Sendable {
-        /// `mlx-community/<name>`.
+        /// `<organisation>/<name>`.
         public var repository: String
         /// The link's name, and what follows `mlx:` to select it.
         public var name: String
@@ -149,6 +153,12 @@ public struct ModelPull: Sendable {
         /// The files the model's own directory at `destination` holds, checked as the cache's are, which `fetch`
         /// copies into the cache (a clone on APFS) instead of fetching them.
         public var seeded: [String] = []
+        /// The licence the Hub's model information gives (`ModelPull.licence(fromInfo:)`); nil when it gives none, or
+        /// for a plan made from the cache alone.
+        public var licence: String?
+
+        /// The organisation that publishes the repository, the part before the `/`.
+        public var publisher: String { String(repository.prefix { $0 != "/" }) }
 
         /// The snapshot directory the link points at.
         public var snapshot: URL { cache.snapshot(revision, of: repository) }
@@ -270,8 +280,9 @@ public struct ModelPull: Sendable {
         return Int(match.1)
     }
 
-    /// The only organisation wisp fetches from.
-    public static let organisation = "mlx-community"
+    /// The organisation trusted always, whose complete snapshots in the cache `wisp models` lists and enabling links
+    /// without asking (ADR 0056); a pull fetches from any organisation (`PublisherCheck`).
+    public static let organisation = TrustedPublishers.builtIn
     /// Hugging Face.
     public static let hub = URL(string: "https://huggingface.co") ?? URL(filePath: "/")
     /// The free space kept after the files are in.
@@ -291,29 +302,55 @@ public struct ModelPull: Sendable {
         self.cache = cache
     }
 
-    /// The repository a request names: `mlx-community/<name>`, with or without `mlx:` before it.
+    /// The repository a request names: `<organisation>/<name>`, with or without `mlx:` before it, each part a name
+    /// Hugging Face accepts (`TrustedPublishers.isHubName`: no `/`, no leading dot, no `..`), whoever publishes it.
+    /// Whether the publisher is trusted is `PublisherCheck`'s question, not this one's.
     ///
     /// - Parameter text: What the person typed.
     /// - Returns: The repository and the model's name.
-    /// - Throws: `Failure.notAllowed` for any other organisation or a name with characters a path must not
-    ///   carry.
+    /// - Throws: `Failure.notAllowed` for anything else, such as a URL, a path, or a name with characters a path must
+    ///   not carry.
     public static func repository(_ text: String) throws -> (repository: String, name: String) {
         let trimmed = text.hasPrefix("mlx:") ? String(text.dropFirst(4)) : text
-        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false)
-        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        guard parts.count == 2, parts[0] == organisation, let name = parts.last, !name.isEmpty,
-            !name.hasPrefix("."), name.allSatisfy(allowed.contains)
-        else { throw Failure.notAllowed(text) }
-        return (trimmed, String(name))
+        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, parts.allSatisfy(TrustedPublishers.isHubName) else { throw Failure.notAllowed(text) }
+        return (trimmed, parts[1])
+    }
+
+    /// The licence the Hub's model information gives: the model card's `license` (with its `license_name` when that
+    /// is `other`), else a `license:` tag; nil when there is none. Only printable characters are kept, and at most 80
+    /// of them, since the text comes from the publisher and is shown on the person's terminal.
+    ///
+    /// - Parameter data: The body of `/api/models/<repo>/revision/main`.
+    /// - Returns: The licence, such as `apache-2.0`.
+    static func licence(fromInfo data: Data) -> String? {
+        let info = (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue
+        let card = info?["cardData"]?.objectValue
+        let declared =
+            card?["license"]?.stringValue
+            ?? card?["license"]?.arrayValue?.compactMap(\.stringValue).joined(separator: ", ")
+        var licence = declared
+        if declared == "other", let name = card?["license_name"]?.stringValue { licence = "other (\(name))" }
+        if licence?.isEmpty ?? true {
+            licence = info?["tags"]?.arrayValue?.compactMap(\.stringValue).first { $0.hasPrefix("license:") }
+                .map { String($0.dropFirst("license:".count)) }
+        }
+        let printable = String(
+            String.UnicodeScalarView((licence ?? "").unicodeScalars.filter { (32..<127).contains($0.value) })
+        ).trimmingCharacters(in: .whitespaces)
+        return printable.isEmpty ? nil : String(printable.prefix(80))
     }
 
     /// Whether a repository file belongs in an MLX model directory: the configuration, weights, and
-    /// tokenizer files at the top level, and nothing else (no README, images, or other formats).
+    /// tokenizer files at the top level, and nothing else (no README, images, or other formats). Its name must be
+    /// plain, letters, digits, `.`, `_`, and `-` with no leading dot, so a publisher cannot name a file that reaches
+    /// out of the snapshot or writes control characters to the terminal that lists it.
     ///
     /// - Parameter path: The file's path in the repository.
     /// - Returns: Whether to fetch it.
     public static func wanted(_ path: String) -> Bool {
-        guard !path.contains("/"), !path.hasPrefix(".") else { return false }
+        let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        guard !path.contains("/"), !path.hasPrefix("."), path.allSatisfy(plain.contains) else { return false }
         return ["json", "safetensors", "jinja", "txt", "model", "tiktoken"].contains(
             (path as NSString).pathExtension)
     }
@@ -392,7 +429,7 @@ public struct ModelPull: Sendable {
             }.map(\.path) : []
         return Plan(
             repository: repository, name: name, revision: revision, cache: cache, destination: destination,
-            link: link, files: files, reused: reused, seeded: seeded)
+            link: link, files: files, reused: reused, seeded: seeded, licence: Self.licence(fromInfo: info))
     }
 
     /// Whether `url` is the listed file: its size, and its content (`check(_:against:)`): for weights its SHA-256,

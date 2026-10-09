@@ -631,9 +631,9 @@ A model whose runtime reports its capabilities (`ollama:`, `coreai:`, `system`, 
 `check` says so. A failed question says why, such as `tool calling: failed in 1.3 s (no call to record_word
 arrived)` or `(no answer within 60 s)`.
 
-#### `wisp models pull <repository>`
+#### `wisp models pull <repository> [--trust-publisher]`
 
-Fetches an `mlx-community` model from Hugging Face into the Hugging Face cache and links the MLX models
+Fetches an MLX model from Hugging Face, `<organisation>/<name>`, into the Hugging Face cache and links the MLX models
 directory (`mlx.modelsDirectory`, default `<home>/models/mlx`) to it, after asking. The cache is
 `huggingface_hub`'s, shared with Hugging Face's own tools: `HF_HUB_CACHE`, else `HUGGINGFACE_HUB_CACHE`, else
 `$HF_HOME/hub`, else `$XDG_CACHE_HOME/huggingface/hub`, else `~/.cache/huggingface/hub`. A file already there
@@ -657,16 +657,47 @@ cached weights file is announced on stderr while its SHA-256 is checked, and eac
 says so and links. Then the model is `mlx:<name>`; `wisp models enable` checks what it can do and records it, or
 declare its capabilities in `config.json` yourself.
 
+Any organisation's repository can be pulled. One from a publisher in `mlx.trustedPublishers` (by default
+`["mlx-community"]`; `mlx-community` is trusted whatever the list holds) goes straight to the download question
+above. One from any other publisher is put to you first, after the file list, naming the publisher, the
+repository, its licence as the Hub's model information gives it (the model card's `license`, else a `license:`
+tag, else `unknown`), and what it would download:
+
+```
+$ wisp models pull ornith-ai/Ornith-1.5-9B-MLX-4bit
+ornith-ai/Ornith-1.5-9B-MLX-4bit at 89abcdef0123: 9 files, 5.2 GB
+  …
+ornith-ai is not a trusted publisher (mlx.trustedPublishers).
+  Publisher:   ornith-ai
+  Repository:  ornith-ai/Ornith-1.5-9B-MLX-4bit
+  Licence:     apache-2.0
+  Download:    5.2 GB in 9 of 9 files, 5.2 GB in all
+Its weights, tokenizer, and chat template would run in wisp's process on this Mac.
+Pull it once [o], trust ornith-ai from now on [t], or refuse [N]?
+```
+
+(Illustrative, like the example above.) `o` pulls it this once and changes nothing; `t` adds the publisher to
+`mlx.trustedPublishers` in `config.json` (recorded as `config.change`) and pulls, and later pulls from it are not
+asked about; anything else, an empty line included, refuses and fetches nothing. Either `o` or `t` approves the
+download it names, so the `[y/N]` question is not asked again; the question about a real directory at
+`<models>/<name>` still is. What pulling from another publisher means is in [trust.md](trust.md), "When you are asked".
+
+`--trust-publisher` pulls from a publisher not in the list this once without that question; the setting is
+unchanged, and the download question is still asked, so the pull still needs a terminal. Without a terminal and
+without the flag, a pull from a publisher not in the list is refused before any request, naming the flag and the
+setting. `--yes`, which approves commands elsewhere, is not an option of `wisp models pull`.
+
 | Rule | Detail |
 | --- | --- |
 | Who | The person: it runs only from a terminal, and the default command policy refuses `wisp models pull` to the model |
-| What | Only `mlx-community/<name>` (`mlx:` before it is accepted), and only the top-level `json`, `safetensors`, `jinja`, `txt`, `model`, and `tiktoken` files; no README, images, or other formats |
-| Where | `<cache>/models--mlx-community--<name>`, in `huggingface_hub`'s layout (`blobs/`, `snapshots/<commit>/` of relative links, `refs/main`); `<models>/<name>` links to the snapshot |
+| Publisher | Any Hugging Face organisation; one not in `mlx.trustedPublishers` (`mlx-community` always is) only after you answer once or trust, or with `--trust-publisher` |
+| What | `<organisation>/<name>` (`mlx:` before it is accepted), each part a name Hugging Face accepts: 1 to 96 letters, digits, `.`, `_`, and `-`, starting and ending with a letter, a digit, or `_`, no `--` or `..`; and only the top-level `json`, `safetensors`, `jinja`, `txt`, `model`, and `tiktoken` files with plain names (letters, digits, `.`, `_`, `-`, no leading dot); no README, images, or other formats |
+| Where | `<cache>/models--<organisation>--<name>`, in `huggingface_hub`'s layout (`blobs/`, `snapshots/<commit>/` of relative links, `refs/main`); `<models>/<name>` links to the snapshot |
 | Reuse | A file whose blob is in the cache with the listed size and content (for weights the listed SHA-256, for any other file the listed git blob id) is reused; a missing or wrong one is fetched. When `<models>/<name>` is a real directory (a copy made before the pull used the cache), each of its files that passes the same check is copied into the cache instead of fetched (`to copy from <name>/` in the list; an APFS clone, which takes no space until one of them changes, where the volume allows it) and the directory is left as it is |
 | Checks | Each fetched file's size against the listing, each weights file's SHA-256, and each other file's git blob id; a resumed part only from where it stopped (`Content-Range`); refused before any download when the disk lacks what will be downloaded plus 1 GiB |
-| At `<models>/<name>` | Nothing, or a link to another snapshot of the model: the link is made. A real directory: kept, unless you answer yes to a second question once the snapshot is complete, which moves it to the Trash and links in its place. Anything else: the pull is refused |
+| At `<models>/<name>` | Nothing, or a link to another snapshot of the same repository: the link is made. A link to another publisher's model of the same name is refused before any request, since repointing it would change what `mlx:<name>` runs; remove or rename it first. A real directory: kept, unless you answer yes to a second question once the snapshot is complete, which moves it to the Trash and links in its place. Anything else: the pull is refused |
 | Interrupted | Finished files stay in the cache, and a file cut off part-way stays as `blobs/<id>.incomplete`, wisp's or another Hugging Face tool's. Running the pull again fetches the rest and resumes that file from where it stopped with an HTTP range request (`resuming model.safetensors after 412 MB of 938 MB` on stderr); the whole file is then checked against the listing, so a part that does not continue into the listed SHA-256 is refused and fetched whole on the next run. A server that ignores the range sends the file whole, and the pull says it started again. Another program fetching the same file holds its lock, and the pull is refused until it finishes |
-| Audit | `model.pull`, with the outcome `fetched`, `linked`, `declined`, or `failed`, and `seeded`, the files copied from the directory ([logging.md](logging.md)) |
+| Audit | `model.publisher`, the publisher's decision (`trusted`, `flag`, `once`, `trust`, `refused`); then `model.pull`, with the outcome `fetched`, `linked`, `declined` (a refused publisher included), or `failed`, and `seeded`, the files copied from the directory ([logging.md](logging.md)) |
 
 See [backends.md](backends.md), "MLX Swift", and [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
 
@@ -718,6 +749,7 @@ wisp config unset approval.timeoutSeconds
 | `llamacpp.think` | `true` or `false`: the chat template's `enable_thinking`, sent as `chat_template_kwargs` with every llama.cpp request; unset sends nothing and leaves it to the template. LM Studio sets thinking per model in its app, so it has no such setting. |
 | `mlx.contextLength` | 1,024 to 1,048,576, for every MLX model; unset, each model's window is sized from its `config.json` and the Mac's memory. |
 | `ollama.models.<name>.contextLength`, `mlx.models.<name>.contextLength` | 1,024 to 1,048,576, for that one model, ahead of `ollama.contextLength` or `mlx.contextLength`; unset, the model takes the setting for every model, else is sized. The name is the model's whole name, dots and all (`wisp config set ollama.models.qwen3.8:27b.contextLength 16384`); an Ollama name matches with or without its `:latest` tag. `list` shows the ones the file sets. |
+| `mlx.trustedPublishers` | Hugging Face organisation names, as a JSON array or separated by commas or spaces, each 1 to 96 letters, digits, `.`, `_`, and `-`, starting and ending with a letter, a digit, or `_`, with no `--` or `..`: the publishers `wisp models pull` fetches from without asking about the publisher. Default `["mlx-community"]`; `mlx-community` is trusted whatever the list holds, so the list only adds to it. Names are compared exactly, case included. Answering `t` to the pull's question adds one (`wisp models pull`). |
 | `mlx.executor` | `wisp` (the default) or `bridge`: what runs MLX models ([backends.md](backends.md), "What runs the model"). |
 | `mlx.think` | `true` or `false`: the chat template's `enable_thinking` for every MLX model whose template takes it (Qwen3's does), under wisp's executor; unset, a model declared `reasoning` is asked to think and any other is left to its template's default, as an unset `ollama.think` leaves a model to Ollama (Qwen3's template thinks; [backends.md](backends.md), "Thinking"). |
 | `assessment.enabled` | `true` or `false`; off by default. |
@@ -1080,7 +1112,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, even one whose list names it; otherwise a conversation with all tools gets it when `context.memory` is on ([tools/memory.md](tools/memory.md)). A definition that breaks the rules makes the config malformed. |
 | `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": true }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` is the third route, `display notification` sent to the terminal app by its bundle identifier; on by default since a probe on 2026-09-30 showed macOS attributing the banner to the app (Terminal.app, Ghostty); see [tools/notify.md](tools/notify.md). |
 | `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories, or links to them, live for `mlx:<name>` models (`wisp models pull` links a Hugging Face cache snapshot there), and per model its capabilities (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`), declared by the operator or
-recorded with `verified` by `wisp models enable` and `check`. `contextLength`, when set, is the window of every MLX model, and a model's own `contextLength` beside its `capabilities` comes before it (an entry with only a `contextLength` declares nothing); unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). `think`, when set, is the chat template's `enable_thinking` for every model whose template takes it; unset asks a model declared `reasoning` to think and leaves any other to its template's default ([ADR 0053](decisions/0053-the-models-thinking-shown.md); [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). |
+recorded with `verified` by `wisp models enable` and `check`. `contextLength`, when set, is the window of every MLX model, and a model's own `contextLength` beside its `capabilities` comes before it (an entry with only a `contextLength` declares nothing); unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). `think`, when set, is the chat template's `enable_thinking` for every model whose template takes it; unset asks a model declared `reasoning` to think and leaves any other to its template's default ([ADR 0053](decisions/0053-the-models-thinking-shown.md); [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). `trustedPublishers` lists the Hugging Face organisations `wisp models pull` fetches from without asking who published the repository; unset it is `["mlx-community"]`, and `mlx-community` is trusted whatever it holds ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), amended 2026-10-09). |
 | `commandTimeoutSeconds` | 60 | Wall-clock limit for `run_command`. |
 | `commandMaxOutputBytes` | 4096 | Bytes kept from each of stdout and stderr by `run_command`. |
 | `maxThreads` | 32 | Live MCP conversation threads before the least recently used is evicted. |

@@ -313,7 +313,7 @@ _wisp_models_check() {
 
 _wisp_models_pull() {
     repeating_flags=()
-    non_repeating_flags=(--version -h --help)
+    non_repeating_flags=(--trust-publisher --version -h --help)
     repeating_options=()
     non_repeating_options=()
     __wisp_offer_flags_options 1

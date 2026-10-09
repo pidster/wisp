@@ -156,7 +156,7 @@ _wisp_models() {
             'enable:Enable models: offered by /model again; a cached MLX model is linked, with no download.'
             'disable:Disable models: hidden from /model and refused everywhere; not the default model.'
             'check:Check what MLX and llama.cpp models can do, on the models themselves, and record it in config.json.'
-            'pull:Fetch an mlx-community model into the Hugging Face cache and link it, after asking.'
+            'pull:Fetch an MLX model from Hugging Face into its cache and link it, after asking.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
@@ -226,6 +226,7 @@ _wisp_models_pull() {
     local -i ret=1
     local -ar arg_specs=(
         ':repository:'
+        '--trust-publisher[Pull from a publisher not in mlx.trustedPublishers this once, skipping the question about the publisher; the download question is still asked, and the setting is unchanged.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
