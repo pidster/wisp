@@ -220,3 +220,19 @@ as it was, and `Session.checkModels` turns it on or keeps it off, recorded as `m
 model already enabled is a question about it, not a request to change what is offered, and the person who wants it
 off has `disable`. Tests with the fake backend cover each outcome through chat's `/models enable` and the picker's
 save, and `check` leaving a refused model's state as it was.
+
+**Refined on 2026-10-09 (0.21.1), after a code review.** Two places where the decision above did not hold:
+
+- **Refused at every entry, under every spelling.** `DisabledModels` compared selections as spelled, so a model
+  disabled as `ollama:x` was opened as `ollama:x:latest`, a llama.cpp model disabled by its file's name was opened
+  by its `.gguf` path id, and an MLX model disabled as `mlx:<org>/<name>` was opened by its directory's absolute or
+  `~` path. Every place the list is consulted (`Session.begin`'s `--model`, `WispThread.openAgent`, the listing's
+  `ENABLED`, `setModels` and `setDisabled`, the default-disabled check when the file loads) now compares canonical
+  forms, which each backend gives (`ModelBackend.canonicalName`): Ollama adds `:latest` to a name without a tag;
+  llama.cpp and LM Studio take a `.gguf` path id's file name, the rule their listing uses; MLX and Core AI take the
+  real path of the directory a name points to. The file keeps the spellings the person wrote.
+- **A check's result takes precedence over what a server reports.** For llama.cpp, a failed tool check said
+  "usable only with tools off" and audited `text only`, yet the model resolved with tool calling when `/props`
+  reported the chat template supports tool calls, so a conversation with tools took it. The recorded check now
+  outranks the server's report: a capability in the check's `failed` is taken out unless the operator declared it
+  by hand. The three outcomes then mean what they say on every backend.

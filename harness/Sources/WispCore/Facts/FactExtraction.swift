@@ -60,6 +60,10 @@ enum FactExtraction {
         }
     }
 
+    /// The detail of a fact from a command the person typed in chat: an observation ranked with a tool's, which
+    /// `FactView.provenance` names as the person's command (ADR 0049, refined 2026-10-09).
+    static let personCommandDetail = "the person's command"
+
     /// What the calls say, as assertions from the tool, at most `perTurn`.
     ///
     /// - Parameters:
@@ -67,7 +71,8 @@ enum FactExtraction {
     ///   - kinds: The subject kinds, which name and normalise each fact, and the test commands.
     ///   - turn: The turn.
     ///   - entries: The store id of each call's output, by its `tool.result` event id.
-    ///   - source: Who the facts are from: the tool, or the person for a command they typed in chat (ADR 0049).
+    ///   - source: Who the facts are from: the tool, which a command the person typed in chat is ranked with too
+    ///     (ADR 0049, refined 2026-10-09).
     /// - Returns: The assertions, in call order.
     static func assertions(
         from calls: [Call], kinds: SubjectKinds, turn: Int?, entries: [String: Int] = [:], source: FactSource = .tool

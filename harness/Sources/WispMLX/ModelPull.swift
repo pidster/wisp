@@ -8,12 +8,14 @@ import WispCore
 ///
 /// The cache is shared: a model any Hugging Face tool fetched is reused, file by file, and what wisp fetches
 /// other tools find. `plan` lists the repository and checks each wanted file against the cache (present, the
-/// listed size, and for weights the listed SHA-256), so the question names only what will be downloaded;
+/// listed size, and the content: for weights the listed SHA-256, for any other file its git blob id), so the question names only what will be downloaded;
 /// nothing is fetched without the person's approval, and a complete snapshot fetches nothing. A file the model's own
 /// directory already holds (an earlier copy, not a link), checked the same way, is copied into the cache instead of
-/// fetched; a blob left half-fetched is resumed with an HTTP range request. The fetch is
+/// fetched; a blob left half-fetched is resumed with an HTTP range request whose answer must start where the part
+/// stops. The fetch is
 /// bounded: one organisation, the files an MLX model directory needs and nothing else, every size known before
-/// the question and checked after each file, LFS files checked against their SHA-256, and the whole refused
+/// the question and checked after each file, LFS files checked against their SHA-256 and the rest against their git
+/// blob id, and the whole refused
 /// when the disk lacks room for what will be downloaded. `link` then makes `<models>/<name>` a link to the
 /// snapshot; a real directory already there is left unless the person agrees to replace it.
 public struct ModelPull: Sendable {
@@ -141,7 +143,8 @@ public struct ModelPull: Sendable {
         public var link: Link
         /// The files to have.
         public var files: [File]
-        /// The files already in the cache, checked: the listed size, and the SHA-256 for weights.
+        /// The files already in the cache, checked: the listed size, and the SHA-256 for weights or the git blob id
+        /// for any other file.
         public var reused: [String]
         /// The files the model's own directory at `destination` holds, checked as the cache's are, which `fetch`
         /// copies into the cache (a clone on APFS) instead of fetching them.
@@ -159,6 +162,20 @@ public struct ModelPull: Sendable {
         public var remaining: Int { missing.reduce(0) { $0 + $1.size } }
     }
 
+    /// What a download's response said: its status and, for a partial response, where the bytes it sent start.
+    public struct Download: Equatable, Sendable {
+        /// The HTTP status.
+        public var status: Int
+        /// The first byte of a 206's body, from its `Content-Range`; nil for any other status, or a 206 without one.
+        public var rangeStart: Int?
+
+        /// Creates a record.
+        public init(status: Int, rangeStart: Int? = nil) {
+            self.status = status
+            self.rangeStart = rangeStart
+        }
+    }
+
     /// How a pull talks to Hugging Face; a protocol so tests serve the repository from memory.
     public protocol Transport: Sendable {
         /// The body and status of a GET.
@@ -167,16 +184,17 @@ public struct ModelPull: Sendable {
         func data(from url: URL) async throws -> (Data, Int)
         /// Writes a GET's body into `file` as it arrives, so an interrupted fetch leaves what it had. With an
         /// `offset` above 0 it asks for the bytes from there on (`Range: bytes=<offset>-`): a server that honours
-        /// it answers 206 and the body is appended after `offset` bytes of `file`; one that ignores it answers 200
-        /// and `file` is written from the start. Any other status writes nothing.
+        /// it answers 206 with a `Content-Range` starting at `offset`, and the body is appended after `offset` bytes
+        /// of `file`; one that ignores it answers 200 and `file` is written from the start. A 206 whose range starts
+        /// anywhere else, and any other status, writes nothing.
         ///
         /// - Parameters:
         ///   - url: What to fetch.
         ///   - offset: The bytes `file` already holds, to resume after; 0 for the whole.
         ///   - file: Where the body goes, created when absent.
-        /// - Returns: The status.
+        /// - Returns: The status and, for a 206, where its range starts.
         /// - Throws: When the request fails; what arrived before stays in `file`.
-        func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int
+        func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Download
     }
 
     /// URLSession, with a minute's limit on silence and none on a large file's total time.
@@ -199,20 +217,24 @@ public struct ModelPull: Sendable {
             return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
 
-        /// Streams a GET's body into `file`, from `offset` when the server honours the range.
+        /// Streams a GET's body into `file`, from `offset` when the server honours the range from there.
         ///
         /// - Parameters:
         ///   - url: What to fetch.
         ///   - offset: The bytes `file` already holds; 0 for the whole.
         ///   - file: Where the body goes.
-        /// - Returns: The status.
+        /// - Returns: The status and, for a 206, where its `Content-Range` starts.
         /// - Throws: When the request fails or `file` cannot be written.
-        public func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int {
+        public func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Download {
             var request = URLRequest(url: url)
             if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
             let (bytes, response) = try await session.bytes(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard status == 200 || (status == 206 && offset > 0) else { return status }
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
+            let start = status == 206 ? ModelPull.rangeStart(http?.value(forHTTPHeaderField: "Content-Range")) : nil
+            let answer = Download(status: status, rangeStart: start)
+            // A partial body is appended only when it starts where the file stops.
+            guard status == 200 || (status == 206 && offset > 0 && start == offset) else { return answer }
             if !FileManager.default.fileExists(atPath: file.path) {
                 FileManager.default.createFile(atPath: file.path, contents: nil)
             }
@@ -229,11 +251,23 @@ public struct ModelPull: Sendable {
                 }
             }
             try handle.write(contentsOf: buffer)
-            return status
+            return answer
         }
 
         /// Bytes gathered before each write.
         static let piece = 1 << 20
+    }
+
+    /// The first byte a `Content-Range` header names (`bytes 100-199/200` is 100); nil when there is none or it
+    /// does not parse.
+    ///
+    /// - Parameter header: The header's value.
+    /// - Returns: The first byte.
+    static func rangeStart(_ header: String?) -> Int? {
+        guard let header, let match = header.firstMatch(of: #/^\s*bytes\s+(\d+)-\d+\/(?:\d+|\*)\s*$/#) else {
+            return nil
+        }
+        return Int(match.1)
     }
 
     /// The only organisation wisp fetches from.
@@ -361,8 +395,8 @@ public struct ModelPull: Sendable {
             link: link, files: files, reused: reused, seeded: seeded)
     }
 
-    /// Whether `url` is the listed file: its size, and for weights its SHA-256, which `checking` is told of
-    /// before it is read.
+    /// Whether `url` is the listed file: its size, and its content (`check(_:against:)`): for weights its SHA-256,
+    /// which `checking` is told of before it is read, for any other file its git blob id.
     ///
     /// - Parameters:
     ///   - url: The candidate, followed through links.
@@ -472,15 +506,28 @@ public struct ModelPull: Sendable {
             try Self.complete(incomplete, as: blob)
             return 0
         }
-        let offset = held > 0 && held < file.size ? held : 0
+        var offset = held > 0 && held < file.size ? held : 0
         if offset == 0 { try? fileManager.removeItem(at: incomplete) }
         if offset > 0 {
             notice("resuming \(file.path) after \(Failure.size(offset)) of \(Failure.size(file.size))")
         }
         let url = hub.appending(path: "\(plan.repository)/resolve/\(plan.revision)/\(file.path)")
-        let status = try await request {
+        var answer = try await request {
             try await transport.download(from: url, resumingAt: offset, into: incomplete)
         }
+        // A part that starts anywhere but where the file stops would splice two pieces: the file starts again.
+        if answer.status == 206, offset > 0, answer.rangeStart != offset {
+            notice(
+                "Hugging Face sent \(file.path) from \(answer.rangeStart.map { "byte \($0)" } ?? "an unnamed offset"), "
+                    + "not byte \(offset); it was fetched from the start")
+            try? fileManager.removeItem(at: incomplete)
+            offset = 0
+            let restart = offset
+            answer = try await request {
+                try await transport.download(from: url, resumingAt: restart, into: incomplete)
+            }
+        }
+        let status = answer.status
         guard status == 200 || (status == 206 && offset > 0) else {
             throw Failure.http(status: status, url: url.absoluteString)
         }
@@ -664,7 +711,10 @@ public struct ModelPull: Sendable {
         (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
     }
 
-    /// Checks a file's size, and an LFS file's SHA-256.
+    /// Checks a file's size, then its content: an LFS file's SHA-256, or a file kept in git by its git blob id (the
+    /// SHA-1 of `blob <size>\0` and the content), the listing's `oid` and the name its blob takes in the cache, so
+    /// a blob's name never claims content it does not hold. A file the listing gave neither for (a cached plan's,
+    /// read from the snapshot itself) is checked by size alone.
     ///
     /// - Throws: `Failure.mismatch`.
     static func check(_ url: URL, against file: File) throws {
@@ -672,11 +722,35 @@ public struct ModelPull: Sendable {
         guard size == file.size else {
             throw Failure.mismatch(file: file.path, detail: "\(size) bytes, expected \(file.size)")
         }
-        guard let expected = file.sha256 else { return }
-        let digest = try sha256(of: url)
-        guard digest == expected.lowercased() else {
-            throw Failure.mismatch(file: file.path, detail: "SHA-256 \(digest), expected \(expected)")
+        if let expected = file.sha256 {
+            let digest = try sha256(of: url)
+            guard digest == expected.lowercased() else {
+                throw Failure.mismatch(file: file.path, detail: "SHA-256 \(digest), expected \(expected)")
+            }
+        } else if let expected = file.oid {
+            let id = try gitBlobID(of: url, size: size)
+            guard id == expected.lowercased() else {
+                throw Failure.mismatch(file: file.path, detail: "git blob id \(id), expected \(expected)")
+            }
         }
+    }
+
+    /// A file's git blob id as hex: the SHA-1 of `blob <size>\0` followed by its content, read in 4 MiB pieces.
+    ///
+    /// - Parameters:
+    ///   - url: The file.
+    ///   - size: Its size in bytes.
+    /// - Returns: The id, as hex.
+    /// - Throws: When the file cannot be read.
+    static func gitBlobID(of url: URL, size: Int) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = Insecure.SHA1()
+        hasher.update(data: Data("blob \(size)\0".utf8))
+        while let piece = try handle.read(upToCount: 4 << 20), !piece.isEmpty {
+            hasher.update(data: piece)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// A file's SHA-256 as hex, read in 4 MiB pieces.

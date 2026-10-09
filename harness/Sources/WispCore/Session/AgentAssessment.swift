@@ -53,11 +53,14 @@ extension Agent {
             do {
                 try model.checkGuidedGeneration()
                 let session = model.session(tools: [], instructions: Assessor.instructions)
-                let answer = try await session.respond(
-                    to: text, generating: Assessor.Answer.self,
-                    options: GenerationOptions(
-                        samplingMode: .greedy, maximumResponseTokens: Assessor.maximumResponseTokens)
-                ).content
+                // The assessment's thinking is not the turn's: no observer records it (ADR 0053).
+                let answer = try await ReasoningObserver.$current.withValue(nil) {
+                    try await session.respond(
+                        to: text, generating: Assessor.Answer.self,
+                        options: GenerationOptions(
+                            samplingMode: .greedy, maximumResponseTokens: Assessor.maximumResponseTokens)
+                    ).content
+                }
                 result = Self.applying(answer, to: result, allowed: allowed, view: view, context: context)
             } catch {
                 result.method = .fallback

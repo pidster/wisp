@@ -277,7 +277,8 @@ enum FactComposition {
     }
 
     /// Who a fact came from, in words: `the person`, `tool run_command, turn 3` (with `, entry 9` when it came from
-    /// one stored output, which `memory` recalls by that number once the turn is gone), `model, distilled: the person
+    /// one stored output, which `memory` recalls by that number once the turn is gone), `the person's command, turn 3,
+    /// entry 7` for what a command the person typed printed, `model, distilled: the person
     /// said, turns 1-12`, `model, noted, turn 4`, with `approved by the person` for a fact the person admitted to the shared store and
     /// `proposed` for one awaiting approval.
     static func provenance(_ fact: Fact) -> String {
@@ -286,8 +287,12 @@ enum FactComposition {
         case .person: words = "the person"
         case .caller: words = "the caller"
         case .tool:
+            // A command the person typed is an observation ranked with a tool's, named as theirs (ADR 0049).
+            let who =
+                fact.detail == FactExtraction.personCommandDetail
+                ? FactExtraction.personCommandDetail : "tool" + (fact.detail.map { " \($0)" } ?? "")
             words =
-                "tool" + (fact.detail.map { " \($0)" } ?? "") + (fact.turn.map { ", turn \($0)" } ?? "")
+                who + (fact.turn.map { ", turn \($0)" } ?? "")
                 + (fact.entries.count == 1 ? ", entry \(fact.entries[0])" : "")
         case .model:
             switch fact.method {

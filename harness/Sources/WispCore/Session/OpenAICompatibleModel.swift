@@ -143,12 +143,21 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
 
     /// What the model can do: schema replies always, since both servers hold the reply to the schema with a grammar
     /// whatever the model, and tool calling and thinking when the server reported them or `config.json` declares
-    /// them. The executor maps text only, so `vision` is never declared.
+    /// them, less what wisp's recorded check found it cannot do: a check's result takes precedence over the server's
+    /// report (llama.cpp's `/props` says what the chat template supports, not what the model does), so a model whose
+    /// tool check failed is text only, as the check said (ADR 0056's three outcomes, refined 2026-10-09). A capability
+    /// the operator declared by hand is kept whatever the check found. The executor maps text only, so `vision` is
+    /// never declared.
     public var capabilities: LanguageModelCapabilities {
-        let names = Set(reported.map(\.rawValue) + (declared ?? []) + [CapabilityName.guidedGeneration.rawValue])
+        var names = Set(reported.map(\.rawValue) + (declared ?? []) + [CapabilityName.guidedGeneration.rawValue])
+        names.subtract(Set(failedChecks).subtracting(declared ?? []))
         return .init(
             CapabilityName.allCases.filter { $0 != .vision && names.contains($0.rawValue) }.map(\.capability))
     }
+
+    /// The capabilities wisp's last recorded check of the model found it cannot do (`Config.CapabilityCheck.failed`);
+    /// empty when it was never checked.
+    var failedChecks: [String] { settings.declared[name]?.verified?.failed ?? [] }
 
     /// Who declared the capabilities: the configuration when it declares them, else the runtime when it reported
     /// tool calling or thinking, else nobody beyond the server's schema replies.
@@ -408,9 +417,24 @@ enum Catalogs {
             served.maximumContext = entry["max_context_length"]?.intValue
             let capabilities = entry["capabilities"]?.objectValue
             served.toolCalling = capabilities?["trained_for_tool_use"]?.boolValue
-            served.reasoning = capabilities?["reasoning"].map { $0 != .null } ?? false
+            served.reasoning = Self.reasons(capabilities?["reasoning"])
             return served
         }
+    }
+
+    /// Whether LM Studio's `capabilities.reasoning` says the model thinks: `true`, or an object of options (`{"allowed_
+    /// options":["off","on"],"default":"on"}`) that allows more than `off`; `false`, null, absent, or only `off` say it
+    /// does not.
+    ///
+    /// - Parameter value: The field.
+    /// - Returns: Whether the model thinks.
+    static func reasons(_ value: JSONValue?) -> Bool {
+        guard let value, value != .null else { return false }
+        if let flag = value.boolValue { return flag }
+        if let options = value.objectValue?["allowed_options"]?.arrayValue?.compactMap(\.stringValue) {
+            return options.contains { $0 != "off" }
+        }
+        return value.objectValue != nil
     }
 
     /// An OpenAI `/v1/models`: `data` of `id`, and nothing more.

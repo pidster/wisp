@@ -17,14 +17,21 @@ final class FakeHub: ModelPull.Transport {
     let listingStatus: Int
     let withOids: Bool
     let honoursRanges: Bool
+    /// Where a 206 says its range starts instead of the offset asked for, as a broken proxy might; nil answers from
+    /// the offset.
+    let misplacedRange: Int?
     /// The offset of each download asked for, in order.
     let offsets = Mutex<[Int]>([])
 
-    init(files: [String: Data], listingStatus: Int = 200, withOids: Bool = true, honoursRanges: Bool = true) {
+    init(
+        files: [String: Data], listingStatus: Int = 200, withOids: Bool = true, honoursRanges: Bool = true,
+        misplacedRange: Int? = nil
+    ) {
         self.files = files
         self.listingStatus = listingStatus
         self.withOids = withOids
         self.honoursRanges = honoursRanges
+        self.misplacedRange = misplacedRange
     }
 
     /// The git blob id of `data`, as the listing's `oid` gives it.
@@ -64,12 +71,14 @@ final class FakeHub: ModelPull.Transport {
         return (url.path.hasSuffix("/revision/main") ? information : listing, 200)
     }
 
-    func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int {
+    func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> ModelPull.Download {
         requested.withLock { $0.append(url.path) }
         offsets.withLock { $0.append(offset) }
         let name = url.lastPathComponent
-        guard let data = files[name] else { return 404 }
+        guard let data = files[name] else { return .init(status: 404) }
         let ranged = offset > 0 && honoursRanges
+        // A range from elsewhere writes nothing, as the transport's contract says.
+        if ranged, let misplacedRange { return .init(status: 206, rangeStart: misplacedRange) }
         let body = ranged ? data.dropFirst(offset) : data[...]
         var written = ranged ? ((try? Data(contentsOf: file)) ?? Data()).prefix(offset) : Data()
         // An interrupted transfer leaves the first half of what it was sending.
@@ -77,7 +86,7 @@ final class FakeHub: ModelPull.Transport {
         written += failing ? body.prefix(body.count / 2) : body
         try written.write(to: file)
         if failing { throw URLError(.networkConnectionLost) }
-        return ranged ? 206 : 200
+        return ranged ? .init(status: 206, rangeStart: offset) : .init(status: 200)
     }
 }
 
@@ -331,6 +340,61 @@ final class FakeHub: ModelPull.Transport {
         _ = try await pull.fetch(plan, available: 1 << 40)
         #expect(try Data(contentsOf: place.blob("model.safetensors")) == Self.repository["model.safetensors"])
         #expect(try Data(contentsOf: place.blob("tokenizer.json")) == Self.repository["tokenizer.json"])
+    }
+
+    @Test func aFileKeptInGitIsCheckedByItsBlobIDWhereverItComesFrom() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        // The right size, the wrong bytes, under the blob's name: not reused, fetched again.
+        let wrong = Data(#"{"a":2}"#.utf8)
+        #expect(wrong.count == Self.repository["tokenizer_config.json"]!.count)
+        let blob = place.blob("tokenizer_config.json")
+        try FileManager.default.createDirectory(at: blob.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try wrong.write(to: blob)
+        // A right-sized part of another file kept in git, left by an interrupted fetch: not taken as whole.
+        let config = place.blob("config.json")
+        let part = config.deletingLastPathComponent().appending(path: config.lastPathComponent + ".incomplete")
+        try Data(repeating: 0x20, count: Self.repository["config.json"]!.count).write(to: part)
+        let hub = FakeHub(files: Self.repository)
+        let pull = place.pull(hub)
+        let plan = try await pull.plan("mlx-community/q", into: place.models)
+        #expect(!plan.reused.contains("tokenizer_config.json") && plan.missing.map(\.path) == Self.wantedFiles)
+        _ = try await pull.fetch(plan, available: 1 << 40)
+        for path in Self.wantedFiles {
+            #expect(try Data(contentsOf: place.blob(path)) == Self.repository[path], "\(path)")
+        }
+        // The model's own directory with a right-sized file of other content does not seed the cache.
+        let other = try Place()
+        defer { other.remove() }
+        let destination = other.models.appending(path: "q")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try wrong.write(to: destination.appending(path: "tokenizer_config.json"))
+        let seeding = try await other.pull(FakeHub(files: Self.repository)).plan("mlx-community/q", into: other.models)
+        #expect(seeding.link == .directory && seeding.seeded.isEmpty)
+        #expect(throws: ModelPull.Failure.self) {
+            try ModelPull.check(blob, against: .init(path: "x", size: wrong.count, oid: FakeHub.gitBlobID(wrong) + "0"))
+        }
+        #expect(ModelPull.rangeStart("bytes 1000-4095/4096") == 1000 && ModelPull.rangeStart("bytes 0-9/*") == 0)
+        #expect(ModelPull.rangeStart(nil) == nil && ModelPull.rangeStart("items 1-2/3") == nil)
+    }
+
+    @Test func aPartialAnswerFromAnotherOffsetStartsTheFileAgain() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let (blob, incomplete) = try halfFetched(place, Data(repeating: 7, count: 1000))
+        let hub = FakeHub(files: Self.repository, misplacedRange: 0)
+        let pull = place.pull(hub)
+        let plan = try await pull.plan("mlx-community/q", into: place.models)
+        var notices: [String] = []
+        let fetched = try await pull.fetch(plan, available: 1 << 40) { _, _ in
+        } notice: {
+            notices.append($0)
+        }
+        // Asked from byte 1000, answered from byte 0: the part is dropped and the file fetched whole.
+        #expect(hub.offsets.withLock { $0 }.filter { $0 > 0 } == [1000])
+        #expect(try Data(contentsOf: blob) == Self.repository["model.safetensors"] && !HubCache.occupied(incomplete))
+        #expect(fetched == plan.remaining)
+        #expect(notices.contains { $0.contains("from byte 0, not byte 1000") }, "\(notices)")
     }
 
     /// Leaves `bytes` as the `.incomplete` of the weights' blob, as an interrupted fetch would.

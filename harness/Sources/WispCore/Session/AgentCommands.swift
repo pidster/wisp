@@ -90,8 +90,8 @@ extension Agent {
             facts: facts)
     }
 
-    /// Extracts the facts a typed command's output gives, as `run_command`'s would (`FactExtraction`), with the
-    /// person as their source, records them, and refreshes the facts the next request carries.
+    /// Extracts the facts a typed command's output gives, as `run_command`'s would (`FactExtraction`), as observations
+    /// ranked with a tool's and marked as the person's command (`FactExtraction.personCommandDetail`), records them, and refreshes the facts the next request carries.
     ///
     /// - Parameters:
     ///   - line: The command line.
@@ -110,9 +110,16 @@ extension Agent {
             tool: RunCommandTool().name,
             arguments: ["command": .string(line), "workingDirectory": .string(directory)], output: outcome.rendered,
             result: event, time: time)
+        // What a command printed is an observation, ranked with a tool's, so a later run (the person's or the
+        // model's) supersedes it; `person` is kept for what the person states (ADR 0049, refined 2026-10-09).
         let assertions = FactExtraction.assertions(
             from: [call], kinds: facts.kinds, turn: turns.current + 1,
-            entries: event.map { [$0.event: entry] } ?? [:], source: .person)
+            entries: event.map { [$0.event: entry] } ?? [:], source: .tool
+        ).map { assertion in
+            var observed = assertion
+            observed.detail = FactExtraction.personCommandDetail
+            return observed
+        }
         // The ids `record` adds are cleared when the next turn begins, so that turn's note does not repeat them.
         let before = turnFactIDs.count
         for assertion in assertions { record(assertion) }

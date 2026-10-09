@@ -201,7 +201,10 @@ import WispTestSupport
                 let text = ThreadRecord.text(of: entry)
                 return text.contains("`seq 1 400`") ? text : nil
             }.first)
-        #expect(long.contains("(exit status 0, 400 lines)") && long.contains("its output is not repeated"))
+        // Without memory, the notice tells the model not to run it again, as a command's reference does (ADR 0057).
+        #expect(
+            long.contains("(exit status 0, 400 lines)")
+                && long.contains("its output is not repeated; do not run it again to see it]"))
         #expect(long.contains("first line: 1") && long.contains("last line: 400") && !long.contains("\n200\n"))
         #expect(long.utf8.count < OutputReference.maxBytes)
         // The earlier command is still carried as its notice, under the same id, after its turn.
@@ -271,8 +274,11 @@ import WispTestSupport
             return
         }
         let workdir = try #require(typed.facts.first { $0.identity.subject == "workdir" })
-        #expect(workdir.source == .person && workdir.value == dir.standardizedFileURL.path)
-        #expect(agent.allFacts.contains { $0.id == workdir.id && $0.source == .person })
+        // An observation ranked with a tool's, named as the person's command (ADR 0049, refined 2026-10-09).
+        #expect(workdir.source == .tool && workdir.value == dir.standardizedFileURL.path)
+        #expect(workdir.detail == FactExtraction.personCommandDetail)
+        #expect(FactComposition.provenance(workdir).hasPrefix("the person's command, turn 1, entry \(entry)"))
+        #expect(agent.allFacts.contains { $0.id == workdir.id && $0.source == .tool })
         #expect(sink.events.contains { $0.kind == .factRecorded })
         // With memory, the notice says how to recall the output; recall reads it back whole.
         _ = try await agent.respond(to: "what did I run?")
@@ -408,5 +414,70 @@ import WispTestSupport
             .init(line: "sleep 99", directory: "/w", exitStatus: -15, timedOut: true, truncated: true), entry: 4,
             time: nil, output: String(repeating: "line\n", count: 200), recallable: true)
         #expect(timedOut.contains("(exit status -15, timed out, 200 lines)") && timedOut.contains("first line: …line"))
+        let unrecallable = OutputReference.personCommand(
+            .init(line: "seq 1 200", directory: "/w", exitStatus: 0), entry: 5, time: nil,
+            output: String(repeating: "line\n", count: 200))
+        #expect(unrecallable.contains("; this was not your action; \(OutputReference.notRepeatedHint)]"))
+        #expect(OutputReference.notRepeatedHint == "its output is not repeated; do not run it again to see it")
+    }
+
+    /// A store of two model turns with a command the person ran between them and one after the last.
+    private func storeWithCommands() -> ThreadRecord {
+        var store = ThreadRecord(
+            carrying: Transcript(entries: [
+                .instructions(.init(segments: [.text(.init(content: "x"))], toolDefinitions: []))
+            ]))
+        let text = { (content: String) in [Transcript.Segment.text(.init(content: content))] }
+        store.record(.prompt(.init(segments: text("first question"))), origin: .turn, turn: 1, sources: [])
+        store.record(
+            .response(.init(assetIDs: [], segments: text("first answer"))), origin: .turn, turn: 1, sources: [])
+        store.record(
+            command: .init(line: "git status", directory: "/w", exitStatus: 0), output: "M a.swift\n", turn: 2,
+            sources: [], time: Date())
+        store.record(.prompt(.init(segments: text("second question"))), origin: .turn, turn: 2, sources: [])
+        store.record(
+            .response(.init(assetIDs: [], segments: text("second answer"))), origin: .turn, turn: 2, sources: [])
+        store.record(
+            command: .init(line: "swift test", directory: "/w", exitStatus: 1), output: "failed\n", turn: 3,
+            sources: [], time: Date())
+        return store
+    }
+
+    @Test func aCommandGoesWithTheTurnAfterItAndTheFloorKeepsTheLastModelTurn() {
+        let store = storeWithCommands()
+        let literal = ContextComposer().literal(store)
+        // Two turns, not four: the commands are no turn of their own, whichever counts them.
+        #expect(literal.turnCount == 4)
+        #expect(store.turnCount(of: literal) == 2)
+        // The floor of one turn keeps the last model turn, with the command before it and the one after it.
+        let floor = store.condensed(literal, keepTurns: 1).map { ThreadRecord.text(of: $0) }
+        #expect(floor.count == 5, "\(floor)")
+        #expect(floor[1].hasPrefix("[the person ran `git status`") && floor[2] == "second question")
+        #expect(floor[3] == "second answer" && floor[4].hasPrefix("[the person ran `swift test`"))
+        // No turn kept: only the instructions and the command after the last turn, which the next request is about.
+        let none = store.condensed(literal, keepTurns: 0).map { ThreadRecord.text(of: $0) }
+        #expect(none.count == 2 && none[1].hasPrefix("[the person ran `swift test`"))
+        // Under phase 2's fixed turns, a command after the last turn is no reason to condense.
+        var composer = ContextComposer(policy: .condense(keepTurns: 2))
+        composer.cutsPresentation = false
+        #expect(composer.ahead(of: "next", in: store, used: 10_000, window: 8192) == nil)
+    }
+
+    @Test func aDroppedCommandReachesTheDistillerAndTheSummaryWithItsTurn() {
+        var store = storeWithCommands()
+        let literal = ContextComposer().literal(store)
+        store.retain(store.condensed(literal, keepTurns: 0), droppedBy: nil, at: 3)
+        // The first command went with the second turn, and the summary's batch carries it.
+        let unsummarised = store.unsummarised
+        #expect(unsummarised.contains { $0.kind == .command && $0.command?.line == "git status" })
+        #expect(!unsummarised.contains { $0.command?.line == "swift test" })
+        let turns = FactDistiller.turns(in: unsummarised)
+        #expect(turns.map(\.number) == [1, 2])
+        #expect(turns[0].prompt == "first question")
+        #expect(
+            turns[1].prompt
+                == "(before this, the person ran `git status` themselves in /w: exit status 0)\nsecond question")
+        // The command starts no turn of the summary's calls either.
+        #expect(SummaryWriter.calls(in: unsummarised).isEmpty)
     }
 }

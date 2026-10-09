@@ -214,12 +214,15 @@ chat after `!` is stored between turns as an entry of its own kind, `ThreadRecor
 prompt holding what the command printed (stdout, then stderr), its `PersonCommand` says what ran, where, and how it
 ended, its source is the `command.typed` event, and its `turn` is the turn whose first request carries it, the
 next. `Agent.runTyped` runs it, audits it, stores it (`ThreadRecord.record(command:…)`), and extracts facts from
-its output as from `run_command`'s, with source `person` (`FactExtraction.assertions(…, source:)`). The composer
+its output as from `run_command`'s, ranked as a tool's observation with the detail `the person's command`
+(`FactExtraction.personCommandDetail`), so a later run supersedes it. The composer
 always sends it as a notice (`OutputReference.personCommand`): that the person ran it, not the model, where, the
 exit status and line count, then the output whole when it is short, or its first and last lines and, where the
-conversation has `memory`, the call that recalls it (without it, that its output is not repeated); never as the bare output, whatever the switches (`literal` composes whenever the store
+conversation has `memory`, the call that recalls it (without it, that its output is not repeated and is not to be run again); never as the bare output, whatever the switches (`literal` composes whenever the store
 `carriesCommands`). It is never a turn's own entry, so the context of the turn it was typed after does not show
-it; `turnGroups` leaves it out of the headroom, since it is not the model's work; `ContextView` labels it "the
+it; `turnGroups` leaves it out of the headroom, since it is not the model's work, and condensing counts it as no
+turn but keeps it with the turn after it (`Transcript.condensed(keepTurns:commands:)`), always keeping one typed
+after the last turn; `ContextView` labels it "the
 person's command"; the snapshot saves its `PersonCommand`, and a record of kind `command` restores only with one;
 `Recall` reads its output from the `command.typed` event and labels it with the command.
 
@@ -260,7 +263,11 @@ context shows the definitions it carried.
 `FactBook` per scope: the conversation's in `ThreadRecord.facts`, a value saved with the store's
 links; the session's ephemeral facts and the shared permanent ones in `SharedFacts`, a `final class` with
 a `Mutex` since every operation is one short critical section, the permanent one written to
-`~/.wisp/facts.json` on each change. `Session` owns both shared books, and `WispThread.setUp` hands them,
+`~/.wisp/facts.json` on each change. Other `wisp` processes share that file, so a change is made to the file as it
+now is: under the mutex and an advisory `flock` on `facts.json.lock`, it re-reads the file, applies itself, and
+writes the result before letting go, so no process overwrites another's change or undoes its deletion; a reader
+takes the file again when it has changed. A file that does not decode is moved aside as
+`facts.json.unreadable-<time>`, never overwritten, and the session notes it. `Session` owns both shared books, and `WispThread.setUp` hands them,
 with the config's `SubjectKinds`, to each agent as `FactSettings`, so an MCP server's threads share the
 session's facts. `FactView` merges the current facts of the three books by `{subject, name}` and orders
 each group's heads by precedence; `FactComposition` renders the frame within `factsShare` of the window;

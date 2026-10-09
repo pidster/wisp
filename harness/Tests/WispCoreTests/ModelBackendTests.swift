@@ -42,8 +42,10 @@ private struct ScriptedBackend: ModelBackend {
         #expect(resolved.capabilitySource == .configuration)
         #expect(resolved.asset == "memory")
         #expect(
-            try await ModelBackends.backend(for: "scripted")?.installed(config: Config().resolved, home: Home.resolve())
-                .first?.detail
+            try await ModelBackends.backend(for: "scripted")?.installed(
+                config: Config().resolved, home: OfflineBackends.home
+            )
+            .first?.detail
                 == "scripted")
         let views = Introspection(home: Home(root: URL(filePath: "/tmp")), config: Config().resolved)
         #expect(views.configuration.objectValue?["backends"]?.objectValue?["scripted"] == ["scripts": 2])

@@ -126,14 +126,15 @@ final class FakeOllama: URLProtocol {
         #expect(OllamaModel(name: "q", settings: Self.settings).executorConfiguration.timeoutSeconds == 5)
         // The backend wraps all of it with the source and asset recorded.
         FakeOllama.serve("/api/show", body: Self.shown)
-        let resolved = try OllamaBackend().resolve("q", config: Self.config, home: Home.resolve())
+        let resolved = try OllamaBackend().resolve("q", config: Self.config, home: OfflineBackends.home)
         #expect(resolved.capabilitySource == .runtime)
         #expect(resolved.capabilityNames == ["toolCalling", "guidedGeneration"])
         #expect(resolved.asset == "http://fake.ollama:1 q")
         #expect(
-            try await OllamaBackend().installed(config: Self.config, home: Home.resolve()).first?.selection
+            try await OllamaBackend().installed(config: Self.config, home: OfflineBackends.home).first?.selection
                 == .ollama("q:latest"))
-        #expect(OllamaBackend().settings(in: Self.config, home: Home.resolve()).objectValue?["timeoutSeconds"] == 5)
+        #expect(
+            OllamaBackend().settings(in: Self.config, home: OfflineBackends.home).objectValue?["timeoutSeconds"] == 5)
         FakeOllama.serve("/api/tags", status: 500, body: "down")
         await #expect(throws: OllamaModel.Failure.serverError(status: 500, body: "down")) {
             _ = try await OllamaModel.installed(at: Self.settings)
@@ -471,7 +472,9 @@ final class FakeOllama: URLProtocol {
         #expect(!(try await body(think: nil, capabilities: thinking).contains(#""think""#)))
         #expect(!(try await body(think: .on, capabilities: #""completion""#).contains(#""think""#)))
         #expect(
-            OllamaBackend().settings(in: Config(ollama: .init(think: .level("low"))).resolved, home: Home.resolve())
-                .objectValue?["think"] == "low")
+            OllamaBackend().settings(
+                in: Config(ollama: .init(think: .level("low"))).resolved, home: OfflineBackends.home
+            )
+            .objectValue?["think"] == "low")
     }
 }

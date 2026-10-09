@@ -63,6 +63,19 @@ import Testing
         #expect(empty.json.objectValue?["seconds"] == .null)
     }
 
+    @Test func aFailedTurnIsCondensedOnlyWhenACondensationTookAStep() {
+        let failed = [event(.prompt, ["text": "go"]), event(.error, ["message": "turn failed"])]
+        // A condensation to a target that changed nothing (an overflow at the floor with no step to take).
+        let none = event(.condensation, ["reason": "overflow", "steps": .array([])])
+        #expect(!Receipt(events: [failed[0], none, failed[1]], turn: 1).condensed)
+        let dropped = event(.condensation, ["reason": "overflow", "steps": .array(["dropped 2 turns"])])
+        #expect(Receipt(events: [failed[0], dropped, failed[1]], turn: 1).condensed)
+        // Phase 2's events name no steps; each one dropped turns.
+        #expect(Receipt(events: [failed[0], event(.condensation, ["reason": "budget"]), failed[1]], turn: 1).condensed)
+        // Two condensations, the second with no step: the first still condensed.
+        #expect(Receipt(events: [failed[0], dropped, none, failed[1]], turn: 1).condensed)
+    }
+
     @Test func listsAreBoundedAndMissingFieldsDefault() {
         let calls = (0..<(Receipt.maxEntries + 5)).map { event(.toolCall, call: "c\($0)", ["tool": "t"]) }
         let receipt = Receipt(events: calls + [event(.commandOutcome), event(.approvalDecided)], turn: 1)

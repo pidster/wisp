@@ -135,7 +135,7 @@ enum TargetCondensing {
 
         while fill > goal {
             let literal = host.composer.literal(host.store)
-            let turns = literal.turnCount
+            let turns = host.store.turnCount(of: literal)
             let droppable = turns - ContextTarget.floorTurns
             guard droppable > 0 else { break }
             let drop =
@@ -143,7 +143,7 @@ enum TargetCondensing {
                     let bytes = ContextComposer.bytes(of: host.composer.dropping(drop, from: host.store))
                     return anchor.tokens + (bytes - anchor.bytes) / ContextComposer.bytesPerToken <= goal
                 } ?? droppable
-            let after = literal.condensed(keepTurns: turns - drop)
+            let after = host.store.condensed(literal, keepTurns: turns - drop)
             let kept = Set(after.map(\.id))
             let active = host.store.entries.filter { $0.state == .active }
             let leaving = active.filter { !kept.contains($0.value.id) }
@@ -266,7 +266,7 @@ extension ContextComposer {
     func dropping(_ count: Int, from store: ThreadRecord) -> Transcript {
         let literal = literal(store)
         var copy = store
-        copy.retain(literal.condensed(keepTurns: max(0, literal.turnCount - count)), droppedBy: nil)
+        copy.retain(store.condensed(literal, keepTurns: max(0, store.turnCount(of: literal) - count)), droppedBy: nil)
         return compose(copy)
     }
 }

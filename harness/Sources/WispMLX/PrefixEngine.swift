@@ -289,7 +289,8 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
         return loaded
     }
 
-    /// Waits until no other request holds the engine, then holds it.
+    /// Waits until no other request holds the engine, then holds it. A request cancelled while it waits still takes
+    /// its turn; `respond` checks for cancellation as soon as it holds the engine, and lets it go at once.
     private func acquire() async {
         guard busy else {
             busy = true
@@ -341,6 +342,8 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
         let budget = min(request.maxTokens ?? .max, request.window - tokens.count)
         await acquire()
         defer { relinquish() }
+        // A request cancelled while it waited for the engine goes no further: no weights load for it.
+        try Task.checkCancellation()
         if runtime == nil {
             runtime = try await loadRuntime()
             loaded.set()
@@ -348,8 +351,11 @@ actor PrefixEngine<Runtime: PromptRuntime>: PromptEngine {
         guard let runtime else { return EngineUsage(prompt: tokens.count, reused: 0, generated: 0) }
         if let schema = request.schema {
             let thought = try await think(before: request, prompt: tokens, budget: budget, runtime, tokenizer, emit)
+            // The constraint follows the prompt and what was thought, a closing tag wisp added included, all of it in
+            // the window; generated thinking that was dropped still counts against the request's limit.
+            let spent = max(thought.generated, thought.tokens.count)
             let reply = try await runtime.guided(
-                prompt: tokens + thought.tokens, schema: schema, maxTokens: max(1, budget - thought.generated))
+                prompt: tokens + thought.tokens, schema: schema, maxTokens: max(1, budget - spent))
             await emit(.text(reply.text))
             return EngineUsage(prompt: tokens.count, reused: 0, generated: thought.generated + reply.generated)
         }

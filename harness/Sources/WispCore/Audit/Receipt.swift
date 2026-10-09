@@ -154,7 +154,8 @@ public struct Receipt: Equatable, Sendable {
                 seconds = d["seconds"]?.doubleValue
                 usage = TurnTokens(json: d["usage"])
             case .condensation:
-                condensed = true
+                // A condensation to a target that took no step changed nothing; phase 2's events list no steps.
+                condensed = condensed || (d["steps"]?.arrayValue.map { !$0.isEmpty } ?? true)
             case .error:
                 let message = d["message"]?.stringValue ?? ""
                 if let call = event.call, let index = toolIndex[call] {

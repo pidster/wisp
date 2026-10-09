@@ -78,19 +78,26 @@ enum FactDistiller {
     }
 
     /// The turns in `entries`: each prompt with the text of the replies after it, in order. Tool calls and
-    /// output are left out.
+    /// output are left out. A command the person ran (ADR 0049) is no turn of its own: it is written, as one line
+    /// that names it and how it ended, ahead of the prompt of the turn after it, which it belongs to.
     ///
     /// - Parameter entries: The store entries leaving the active view.
     /// - Returns: The turns.
     static func turns(in entries: [ThreadRecord.Entry]) -> [Turn] {
         var turns: [Turn] = []
+        var commands: [String] = []
         for entry in entries {
             switch entry.kind {
+            case .command:
+                guard let command = entry.command else { continue }
+                commands.append(Self.line(for: command))
             case .prompt:
+                let prompt = ThreadRecord.text(of: entry.value)
                 turns.append(
                     Turn(
-                        number: entry.turn ?? turns.count + 1, prompt: ThreadRecord.text(of: entry.value),
-                        reply: ""))
+                        number: entry.turn ?? turns.count + 1,
+                        prompt: (commands + [prompt]).joined(separator: "\n"), reply: ""))
+                commands = []
             case .response:
                 guard !turns.isEmpty else { continue }
                 let text = ThreadRecord.text(of: entry.presented)
@@ -100,6 +107,17 @@ enum FactDistiller {
             }
         }
         return turns
+    }
+
+    /// How a command the person ran is written for the distiller and the summary: what, where, and how it ended.
+    ///
+    /// - Parameter command: The command.
+    /// - Returns: One line.
+    static func line(for command: ThreadRecord.PersonCommand) -> String {
+        var status = "exit status \(command.exitStatus)"
+        if command.timedOut { status += ", timed out" }
+        return "(before this, the person ran `\(OutputReference.shortened(command.line, to: 200))` themselves in "
+            + "\(OutputReference.shortened(command.directory, to: 100)): \(status))"
     }
 
     /// The prompt: the subjects, the known identities, and the turns, each bounded, all within `budgetBytes`.

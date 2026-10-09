@@ -129,6 +129,16 @@ public protocol ModelBackend: Sendable {
         _ declaration: Config.MLXModelConfig, for name: String, in config: Config.Resolved
     )
         -> Config.Resolved
+    /// The one spelling of `name` among the several that name the same model, so a model the operator disabled is
+    /// refused however it is spelled (ADR 0056): Ollama's tag, llama.cpp's file name for a path id, the directory an
+    /// MLX or Core AI name points to. Pure apart from resolving a path's symbolic links; never asks a runtime.
+    ///
+    /// - Parameters:
+    ///   - name: The part after the scheme.
+    ///   - config: The effective configuration, for a models directory; nil when there is none to hand.
+    ///   - home: wisp's home, for the default models directory; nil when there is none to hand.
+    /// - Returns: The canonical name.
+    func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String
 }
 
 extension ModelBackend {
@@ -155,6 +165,12 @@ extension ModelBackend {
     )
         -> Config.Resolved
     { config }
+
+    /// The name as given, or, when it is a path (absolute or `~`), the path with `~` expanded and its links
+    /// resolved.
+    public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
+        ModelBackends.canonicalPath(name) ?? name
+    }
 }
 
 /// The backends this process knows, by scheme. Ollama, llama.cpp, and LM Studio are built in, since they are HTTP
@@ -184,6 +200,16 @@ public enum ModelBackends {
 
     /// The registered schemes, sorted.
     public static var schemes: [String] { all.map(\.scheme) }
+
+    /// `name` as a real path when it is one (absolute or `~`): `~` expanded and symbolic links resolved
+    /// (`CommandPolicy.canonical`); nil for a name that is not a path.
+    ///
+    /// - Parameter name: A model name.
+    /// - Returns: The real path, or nil.
+    public static func canonicalPath(_ name: String) -> String? {
+        guard name.hasPrefix("/") || name.hasPrefix("~") else { return nil }
+        return CommandPolicy.canonical((name as NSString).expandingTildeInPath)
+    }
 }
 
 /// Where a model's declared capabilities came from, so a refusal can say what to change.

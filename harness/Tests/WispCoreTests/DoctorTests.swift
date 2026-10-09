@@ -101,6 +101,10 @@ import WispTestSupport
         try Data("{nope".utf8).write(to: home.factsFile)
         let broken = doctor.factsStore()
         #expect(!broken.ok && broken.detail.contains("does not parse") && broken.detail.contains("no permanent facts"))
+        // Once wisp has read it, it is set aside, not overwritten, and the doctor names where it went.
+        let aside = try #require(SharedFacts.permanent(home: home).setAside)
+        let moved = doctor.factsStore()
+        #expect(!moved.ok && moved.detail.contains(aside.path) && moved.detail.contains("could not read and set aside"))
     }
 
     @Test func subjectKindsNameWhatConfigAddsAndChanges() throws {

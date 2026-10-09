@@ -38,8 +38,12 @@ public final class Agent {
     /// The note for the person when a condensation this turn could not bring the context to its target even at
     /// its floor (`TargetCondensing`); nil otherwise. Cleared at the start of every turn and carried on the reply.
     public internal(set) var contextNote: String?
-    /// How many times the transcript has been condensed, to recover from overflow or ahead of it.
-    public internal(set) var condensations = 0
+    /// How many times the transcript has been condensed, to recover from overflow or ahead of it; kept with the store,
+    /// so it carries to an agent that takes the store over (`init(store:…)`).
+    public internal(set) var condensations: Int {
+        get { store.continuity.condensations }
+        set { store.continuity.condensations = newValue }
+    }
     /// The fraction of the context window a turn may start at before the transcript is condensed
     /// first. Runtimes such as Ollama truncate silently instead of failing, so the estimate is the
     /// only warning; the framework's models fail loudly and this merely saves the failed call.
@@ -71,16 +75,26 @@ public final class Agent {
         didSet { refreshFacts(quietly: true) }
     }
     /// The subjects and names whose heads disagreed at the last check, so each conflict is audited once when
-    /// it is raised and once when it is resolved.
-    var factConflicts: Set<FactIdentity.Key> = []
+    /// it is raised and once when it is resolved; kept with the store (`ThreadRecord.Continuity`).
+    var factConflicts: Set<FactIdentity.Key> {
+        get { store.continuity.factConflicts }
+        set { store.continuity.factConflicts = newValue }
+    }
     /// The ids of the facts recorded or changed since the current turn began (`factsChangedThisTurn`).
     var turnFactIDs: [String] = []
     /// What the last stored turn ran, counted from its audit events (ADR 0051); nil before the first, or for an
-    /// agent without a `ToolEventTrail`, which cannot see its tools' events.
-    var turnTools: TurnToolSummary?
+    /// agent without a `ToolEventTrail`, which cannot see its tools' events. Kept with the store.
+    var turnTools: TurnToolSummary? {
+        get { store.continuity.turnTools }
+        set { store.continuity.turnTools = newValue }
+    }
     /// How many times `reset` has started a fresh conversation; each is a conversation of its own among the
-    /// process's proposals (`threadID`), since its store numbers its facts from `c1` again.
-    private(set) var generation = 0
+    /// process's proposals (`threadID`), since its store numbers its facts from `c1` again. Kept with the store, so
+    /// `/model` after `/new` goes on under the same name.
+    private(set) var generation: Int {
+        get { store.continuity.generation }
+        set { store.continuity.generation = newValue }
+    }
     /// The share of the context window the facts may take in a request (`ContextComposer.factsShare`).
     public var factsShare: Double {
         get { composer.factsShare }
@@ -109,12 +123,17 @@ public final class Agent {
         didSet {
             composer.catalogue = assessment?.selectsTools == true ? ToolCatalogue.text(tools) : nil
             composer.registered = nil
-            assessed = AssessmentState()
+            // A change of settings starts afresh; setting them on an agent that took a store over (`/model`) keeps
+            // what the conversation's assessment carried.
+            if oldValue != nil { assessed = AssessmentState() }
             refreshFacts(quietly: true)
         }
     }
-    /// What the assessment carries from one request to the next.
-    var assessed = AssessmentState()
+    /// What the assessment carries from one request to the next; kept with the store.
+    var assessed: AssessmentState {
+        get { store.continuity.assessed }
+        set { store.continuity.assessed = newValue }
+    }
     /// The window as the model stated it, or as the last overflow error reported it; nil until known.
     public internal(set) var contextSize: Int?
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
@@ -270,10 +289,24 @@ public final class Agent {
     /// resuming, and what `/inspect context` saves.
     public var transcript: Transcript { composer.compose(store) }
 
-    /// Tokens the last request occupied, as the runtime reported them (`UsageReporting`); 0 for a
-    /// model that does not report or before the first request. `LanguageModelSession.usage` cannot
-    /// serve: it accumulates across requests.
-    public var lastInputTokens: Int { model.reportedInputTokens() ?? 0 }
+    /// The turns the next request carries: the transcript's prompts, less the person's commands, which are no turn
+    /// of their own (ADR 0049); what `/tokens` counts.
+    public var turnCount: Int { store.turnCount(of: transcript) }
+
+    /// Tokens the conversation's last request occupied, as the runtime reported them (`UsageReporting`); 0 for a
+    /// model that does not report, before the first request, or after `reset`. `LanguageModelSession.usage` cannot
+    /// serve: it accumulates across requests. The model's own figure cannot either: it is shared by every request to
+    /// the model, and the assessment, the distiller, and the summary each make one of their own, so the figure is
+    /// read right after the conversation's request and kept here (`conversationInputTokens`).
+    public var lastInputTokens: Int { conversationInputTokens ?? 0 }
+
+    /// The runtime's report of the conversation's last request, read as that request ended; nil before it, or for a
+    /// model that does not report. Kept with the store, so an agent that takes it over (`/model`) condenses ahead of
+    /// its first request from the context's size as the last request measured it.
+    private var conversationInputTokens: Int? {
+        get { store.continuity.inputTokens }
+        set { store.continuity.inputTokens = newValue }
+    }
 
     /// The agent's running token totals, in and out, as the framework counts them across requests; zero
     /// for a model that does not report. They are the sum over every session the agent has used, so they only
@@ -355,10 +388,17 @@ public final class Agent {
     /// Starts a fresh session with the same instructions and tools, discarding the conversation and its
     /// store, and records it as a `session.start` with reason `new`.
     public func reset() {
-        generation += 1
-        store = ThreadRecord(carrying: transcript.condensed(keepTurns: 0))
+        // The instructions as the session was created with them, every tool's definition and no catalogue: the
+        // composed transcript would carry the last request's narrowed definitions (and a command typed after the last
+        // turn) into the new conversation.
+        let instructions = store.entries.first { $0.kind == .instructions }.map { [$0.value] } ?? []
+        var continuity = store.continuity
+        continuity.generation += 1
+        continuity.assessed = AssessmentState()
+        continuity.inputTokens = nil
+        store = ThreadRecord(carrying: Transcript(entries: instructions))
+        store.continuity = continuity
         store.firstTurn = turns.current
-        assessed = AssessmentState()
         composer.registered = nil
         refreshFacts(quietly: true)
         materialise(fresh: true)
@@ -382,7 +422,8 @@ public final class Agent {
                 condensation, contextSize: overflow.contextSize, tokenCount: overflow.tokenCount, reason: "overflow",
                 fresh: true)
             Diagnostics.agent.info(
-                "condensed \(condensation.before.turnCount) -> \(condensation.after.turnCount) turns")
+                "condensed \(store.turnCount(of: condensation.before)) -> \(store.turnCount(of: condensation.after)) turns"
+            )
             return try await operation()
         }
     }
@@ -406,7 +447,8 @@ public final class Agent {
         let event = audit?.record(
             .condensation,
             details: AuditEvent.Details.condensation(
-                turnsBefore: condensation.before.turnCount, turnsAfter: condensation.after.turnCount,
+                turnsBefore: store.turnCount(of: condensation.before),
+                turnsAfter: store.turnCount(of: condensation.after),
                 contextSize: contextSize, tokenCount: tokenCount, reason: reason,
                 saved: saveCondensation(condensation.before, condensation.after)))
         let kept = Set(condensation.after.map(\.id))
@@ -660,12 +702,13 @@ public final class Agent {
         }
     }
 
-    /// Records one turn in `stats`, with the runtime's reported prompt tokens when there are any.
+    /// Records one turn in `stats`, with the runtime's reported prompt tokens for the conversation's request when there
+    /// are any.
     private func recordStats(started: Date, failure: String?) {
         stats?.record(
             CallStats.Call(
                 kind: .turn, model: model.selection.description, started: started,
-                seconds: Date().timeIntervalSince(started), failure: failure, inputTokens: model.reportedInputTokens()))
+                seconds: Date().timeIntervalSince(started), failure: failure, inputTokens: conversationInputTokens))
     }
 
     /// Records the prompt, runs `operation` with overflow recovery, and records the response or error.
@@ -689,6 +732,8 @@ public final class Agent {
             let text = try await ReasoningObserver.$current.withValue(ReasoningObserver.recording(to: audit)) {
                 try await withToolRecovery { try await withOverflowRecovery(operation) }
             }
+            // The conversation's request was the last the model served; no side call has run since.
+            conversationInputTokens = model.reportedInputTokens()
             var reply = Reply(text: text, condensed: condensations > before, contextNote: contextNote)
             recordStats(started: started, failure: nil)
             let responded = audit?.record(

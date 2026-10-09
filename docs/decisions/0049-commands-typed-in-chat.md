@@ -90,3 +90,14 @@ here the person does, which changes what each step is for.
   sandbox refusal, the output shown and folded, the entry the next request carries, the facts extracted,
   the audit, the TUI's colours (`command` and `commandSent` in both palettes, the gate's check) and the
   busy state, and that MCP is unchanged.
+
+**Refined on 2026-10-09 (0.21.1), after a code review.** A fact from a typed command's output no longer takes the
+source `person`. Ranked with the person, an observation pinned a stale value: a passing `! swift test` outranked
+the model's later failing run of the same command, and nothing but the person's own word could replace it. What a
+command printed is an observation, whoever ran it, so its facts are recorded with the source `tool` and the detail
+`the person's command` (shown as `from the person's command, turn N, entry M`), and the newer observation wins.
+`person` stays for what the person states (`/fact`, `/task`). The workdir a chat records at its start keeps its
+source, and a `! pwd` that gives the same value still adds nothing. Also: a typed command is no turn of its own in
+condensing; it goes with the turn after it, so the floor of one turn keeps the last turn the model took part in
+([context-management.md](../context-management.md), "Condensing"), and its notice without `memory` says not to
+run it again, as any command's reference does (ADR 0057).

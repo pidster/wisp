@@ -165,12 +165,18 @@ extension OpenAICompatibleModel {
             do {
                 (bytes, response) = try await URLSession.shared.bytes(for: http)
             } catch {
+                if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw failure(error, streaming: false)
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else {
-                var body = ""
-                for try await line in bytes.lines where body.count < 4096 { body += line }
+                let body: String
+                do {
+                    body = try await ConnectionFailure.boundedBody(bytes.lines, limit: 4096)
+                } catch {
+                    if ConnectionFailure.isCancellation(error) { throw CancellationError() }
+                    throw failure(error, streaming: true)
+                }
                 throw refusal(status: status, body: body, window: model.window)
             }
             var relay = ReplyRelay(request: request, channel: channel)
@@ -185,7 +191,19 @@ extension OpenAICompatibleModel {
             } catch let error as LanguageModelError {
                 throw error
             } catch {
+                if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw failure(error, streaming: true)
+            }
+            // A reply the server stopped at `length` with no `max_tokens` asked ran into the end of its window: the
+            // request did not fit, so the agent condenses and retries, as for a refusal that says so.
+            if stream.truncated, request.generationOptions.maximumResponseTokens == nil {
+                let used = (stream.usage?.prompt_tokens ?? 0) + (stream.usage?.completion_tokens ?? 0)
+                throw LanguageModelError.contextSizeExceeded(
+                    .init(
+                        contextSize: model.window, tokenCount: max(used, model.window + 1),
+                        debugDescription:
+                            "\(configuration.dialect.runtime) stopped the reply at the end of its window (finish_reason length)",
+                        metadata: [:]))
             }
             // A stream that ends before a choice finished was cut short, however cleanly the connection closed:
             // what came is not the whole reply, so it must not be taken for one, and no call it began is made.
@@ -232,6 +250,8 @@ extension OpenAICompatibleModel {
             var finished = false
             /// Whether the server sent `[DONE]`.
             var ended = false
+            /// Whether a choice finished at `length`: the token limit, or, with none asked, the end of the window.
+            var truncated = false
             /// The usage, from the chunk that carries it.
             var usage: Usage?
             /// The tool calls gathered from their fragments, in order.
@@ -363,7 +383,10 @@ extension OpenAICompatibleModel {
                     if let text = delta.content { await relay.reply(text) }
                     for fragment in delta.tool_calls ?? [] { Self.gather(fragment, into: &stream.calls) }
                 }
-                if choice.finish_reason != nil { stream.finished = true }
+                if let reason = choice.finish_reason {
+                    stream.finished = true
+                    if reason == "length" { stream.truncated = true }
+                }
             }
         }
 

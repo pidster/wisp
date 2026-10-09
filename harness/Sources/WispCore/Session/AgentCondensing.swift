@@ -11,10 +11,10 @@ extension Agent: CondensingHost {
     /// - Parameters:
     ///   - leaving: The entries about to be dropped.
     ///   - staying: The entries kept.
-    /// - Returns: Whether the agent keeps facts and the leaving entries had prose to distil.
+    /// - Returns: Whether a distillation of the leaving entries ran and succeeded, so the audit's `distilled N turns`
+    ///   step is never claimed for a distillation that was off, had no prose, or failed.
     nonisolated(nonsending) func distil(leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry]) async -> Bool {
         await handOn(leaving, staying: staying)
-        return facts != nil && !FactDistiller.turns(in: leaving).isEmpty
     }
 
     /// Recomputes the facts the next request carries.
@@ -126,7 +126,8 @@ extension Agent: CondensingHost {
         let condensed = outcome.changed || reason == "overflow"
         if condensed { condensations += 1 }
         var details = AuditEvent.Details.condensation(
-            turnsBefore: outcome.beforeView.turnCount, turnsAfter: outcome.afterView.turnCount, contextSize: window,
+            turnsBefore: store.turnCount(of: outcome.beforeView), turnsAfter: store.turnCount(of: outcome.afterView),
+            contextSize: window,
             tokenCount: tokenCount, reason: reason,
             saved: condensed ? saveCondensation(outcome.beforeView, outcome.afterView) : nil)
         details.merge(

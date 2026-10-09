@@ -16,6 +16,14 @@ public struct CoreAIBackend: ModelBackend {
     /// Creates the backend.
     public init() {}
 
+    /// The real path of the bundle `name` points to (`bundleURL(for:config:home:)`), so a name under the models
+    /// directory and the bundle's absolute or `~` path are one model; without a configuration and a home, a path
+    /// name's real path, and any other name as it is.
+    public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
+        guard let config, let home else { return ModelBackends.canonicalPath(name) ?? name }
+        return CommandPolicy.canonical(Self.bundleURL(for: name, config: config, home: home).path)
+    }
+
     /// The configured models directory, or the default under the home.
     public static func modelsDirectory(config: Config.Resolved, home: Home) -> URL {
         if let configured = config.coreaiModelsDirectory {

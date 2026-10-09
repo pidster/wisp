@@ -49,8 +49,9 @@ private struct ListingBackend: ModelBackend {
 @Suite(.serialized) struct ModelListingTests {
     init() { ModelBackends.register(ListingBackend()) }
 
-    /// Ollama pointed at a port nothing listens on, so its line is the unreachable one on any Mac.
-    private let config = Config(ollama: .init(baseURL: "http://127.0.0.1:1", timeoutSeconds: 1)).resolved
+    /// Every HTTP backend pointed at a port nothing listens on, so their lines are the unreachable ones on any Mac and
+    /// no test reaches a server this Mac runs.
+    private let config = OfflineBackends.config.resolved
     private let home = Home(
         root: FileManager.default.temporaryDirectory.appending(path: "wisp-listing-\(UUID().uuidString)"))
     private let tools = ModelSelection.local(backend: "listing", name: "tools")
@@ -86,8 +87,9 @@ private struct ListingBackend: ModelBackend {
         // A cached model is neither usable nor offered until it is linked.
         let cached = try #require(listing.entries.first { $0.selection == .local(backend: "listing", name: "cached") })
         #expect(!cached.linked && !cached.usable && !cached.enabled && cached.plainCapabilities.isEmpty)
-        let fromConfig = await ModelListing.entries(
-            config: Config(models: .init(disabled: [tools])).resolved, home: home, tools: [])
+        var disabling = OfflineBackends.config
+        disabling.models = .init(disabled: [tools])
+        let fromConfig = await ModelListing.entries(config: disabling.resolved, home: home, tools: [])
         #expect(fromConfig.entries.first { $0.selection == tools }?.enabled == false)
     }
 

@@ -6,7 +6,8 @@ import Synchronization
 public struct OllamaSettings: Equatable, Sendable {
     /// The server's base URL.
     public var baseURL: URL
-    /// Wall-clock limit for one generation request, including streaming.
+    /// How long a generation request may go with nothing arriving (`URLRequest.timeoutInterval`, an idle limit,
+    /// reset by every byte), before it is abandoned; not a limit on the whole request, which may stream for longer.
     public var timeout: Duration
     /// The context window to ask of the server for every model (`num_ctx`), when configured; nil sizes
     /// each model's window from its shape and the Mac's memory when it is selected (ADR 0043).
@@ -425,7 +426,8 @@ public struct OllamaModel: LanguageModel, Sendable {
         public struct Configuration: Hashable, Sendable {
             /// The server's base URL.
             public var baseURL: URL
-            /// Seconds allowed for one request, including streaming.
+            /// Seconds a request may go with nothing arriving, before it or its stream is abandoned (an idle limit,
+            /// not one on the whole request).
             public var timeoutSeconds: Int
 
             /// Creates a configuration.
@@ -574,12 +576,18 @@ public struct OllamaModel: LanguageModel, Sendable {
             do {
                 (bytes, response) = try await URLSession.shared.bytes(for: http)
             } catch {
+                if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw Self.failure(error, configuration: configuration, streaming: false)
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard status == 200 else {
-                var body = ""
-                for try await line in bytes.lines where body.count < 200 { body += line }
+                let body: String
+                do {
+                    body = try await ConnectionFailure.boundedBody(bytes.lines, limit: 200)
+                } catch {
+                    if ConnectionFailure.isCancellation(error) { throw CancellationError() }
+                    throw Self.failure(error, configuration: configuration, streaming: true)
+                }
                 throw Failure.serverError(status: status, body: body)
             }
             var input = 0
@@ -593,6 +601,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             } catch let failure as Failure {
                 throw failure
             } catch {
+                if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw Self.failure(error, configuration: configuration, streaming: true)
             }
             // A stream that ends without `done` was cut short, however cleanly the connection closed: what came is
@@ -675,6 +684,14 @@ public struct OllamaBackend: ModelBackend {
 
     /// Creates the backend.
     public init() {}
+
+    /// The name with its tag: Ollama takes a name without one as `:latest`, so `granite4.1` and
+    /// `granite4.1:latest` are one model. The tag is what follows a colon in the last path component
+    /// (`hf.co/org/model:Q4_K_M`); a registry's port (`host:5000/model`) is not one.
+    public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
+        let last = name.split(separator: "/", omittingEmptySubsequences: false).last ?? Substring(name)
+        return name.isEmpty || last.contains(":") ? name : name + ":latest"
+    }
 
     /// Checks the server lists the model, reads its capabilities, and wraps it.
     ///

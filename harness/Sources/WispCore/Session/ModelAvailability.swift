@@ -6,23 +6,37 @@ import Synchronization
 /// as a session holds them: read from the configuration when the session begins, and changed at once when the
 /// person enables or disables a model from this session's chat, so `/model` and Tab follow the change without a
 /// restart. Other processes see a change from their next session, as every configuration change.
+///
+/// A model is refused however it is spelled: each selection is compared by its canonical form
+/// (`ModelSelection.canonical(config:home:)`), so `ollama:x` and `ollama:x:latest`, a llama.cpp model's file name and
+/// its `.gguf` path, and an MLX model's name and its directory's path are one model.
 public final class DisabledModels: Sendable {
     /// The models, in the file's order.
     private let models: Mutex<[ModelSelection]>
+    /// The configuration that places the models directories, for the canonical forms; nil compares without it.
+    private let config: Config.Resolved?
+    /// wisp's home, for the default models directories; nil compares without it.
+    private let home: Home?
 
     /// Creates the set.
     ///
-    /// - Parameter models: The disabled models.
-    public init(_ models: [ModelSelection] = []) {
+    /// - Parameters:
+    ///   - models: The disabled models.
+    ///   - config: The effective configuration, for the canonical forms.
+    ///   - home: wisp's home, for the canonical forms.
+    public init(_ models: [ModelSelection] = [], config: Config.Resolved? = nil, home: Home? = nil) {
         self.models = Mutex(models)
+        self.config = config
+        self.home = home
     }
 
-    /// Every disabled model.
+    /// Every disabled model, as the file spells it.
     public var all: [ModelSelection] { models.withLock { $0 } }
 
-    /// Whether `selection` is disabled.
+    /// Whether `selection` is disabled, under any spelling of it.
     public func contains(_ selection: ModelSelection) -> Bool {
-        models.withLock { $0.contains(selection) }
+        let models = all
+        return selection.isAmong(models, config: config, home: home)
     }
 
     /// Replaces the set, after the configuration file changed.
@@ -35,6 +49,48 @@ public final class DisabledModels: Sendable {
     /// - Throws: `ModelSelection.Failure.disabled`.
     public func check(_ selection: ModelSelection) throws {
         if contains(selection) { throw ModelSelection.Failure.disabled(model: selection.description) }
+    }
+}
+
+extension ModelSelection {
+    /// The one spelling of this model among those that name it (`ModelBackend.canonicalName`), for comparing
+    /// selections: Apple's models as they are; a registered backend's name as the backend makes it canonical; an
+    /// unregistered backend's path name as its real path.
+    ///
+    /// - Parameters:
+    ///   - config: The effective configuration, for a models directory; nil when there is none to hand.
+    ///   - home: wisp's home, for the default models directory; nil when there is none to hand.
+    /// - Returns: The canonical selection.
+    public func canonical(config: Config.Resolved?, home: Home?) -> ModelSelection {
+        guard case .local(let scheme, let name) = self else { return self }
+        guard let backend = ModelBackends.backend(for: scheme) else {
+            return .local(backend: scheme, name: ModelBackends.canonicalPath(name) ?? name)
+        }
+        return .local(backend: scheme, name: backend.canonicalName(name, config: config, home: home))
+    }
+
+    /// Whether this selection and `other` name one model, by their canonical forms.
+    ///
+    /// - Parameters:
+    ///   - other: The other selection.
+    ///   - config: The effective configuration, for the canonical forms.
+    ///   - home: wisp's home, for the canonical forms.
+    /// - Returns: Whether they are one model.
+    public func names(_ other: ModelSelection, config: Config.Resolved?, home: Home?) -> Bool {
+        self == other || canonical(config: config, home: home) == other.canonical(config: config, home: home)
+    }
+
+    /// Whether one of `selections` names this model, by their canonical forms.
+    ///
+    /// - Parameters:
+    ///   - selections: The selections.
+    ///   - config: The effective configuration, for the canonical forms.
+    ///   - home: wisp's home, for the canonical forms.
+    /// - Returns: Whether it is among them.
+    public func isAmong(_ selections: [ModelSelection], config: Config.Resolved?, home: Home?) -> Bool {
+        if selections.contains(self) { return true }
+        let mine = canonical(config: config, home: home)
+        return selections.contains { $0.canonical(config: config, home: home) == mine }
     }
 }
 
@@ -150,18 +206,22 @@ extension Session {
     public func setModels(
         enable: [String], disable: [String], source: String, checking: Bool = false
     ) throws -> [String] {
+        // Every comparison is by canonical form, so `ollama:x` enables a model disabled as `ollama:x:latest` (ADR 0056).
+        func among(_ model: ModelSelection, _ models: [ModelSelection]) -> Bool {
+            model.isAmong(models, config: config, home: home)
+        }
         let enabling = try enable.map { try ModelSelection(parsing: $0) }
-        let disabling = try disable.map { try ModelSelection(parsing: $0) }.filter { !enabling.contains($0) }
+        let disabling = try disable.map { try ModelSelection(parsing: $0) }.filter { !among($0, enabling) }
         let data = FileManager.default.contents(atPath: home.configFile.path)
         let before =
             try ConfigEdit.current("models.disabled", in: data)?.arrayValue?.compactMap { value in
                 value.stringValue.flatMap { try? ModelSelection(parsing: $0) }
             } ?? []
         let waiting = checking ? try enabling.filter { try needsCheck($0, in: data) } : []
-        var after = before.filter { !enabling.contains($0) || waiting.contains($0) }
-        for model in disabling where !after.contains(model) { after.append(model) }
+        var after = before.filter { !among($0, enabling) || among($0, waiting) }
+        for model in disabling where !among(model, after) { after.append(model) }
         let configured = try ConfigEdit.current("model", in: data)?.stringValue.map { try ModelSelection(parsing: $0) }
-        if let model = disabling.first(where: { $0 == configured ?? .default }) {
+        if let model = disabling.first(where: { among($0, [configured ?? .default]) }) {
             throw ModelSelection.Failure.defaultDisabled(model: model.description)
         }
         var lines: [String] = []
@@ -193,12 +253,12 @@ extension Session {
             audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
         }
         disabledModels.replace(with: after)
-        for model in enabling where !waiting.contains(model) {
-            lines.append(before.contains(model) ? "enabled \(model)" : "\(model) is enabled")
+        for model in enabling where !among(model, waiting) {
+            lines.append(among(model, before) ? "enabled \(model)" : "\(model) is enabled")
         }
         for model in disabling {
             lines.append(
-                before.contains(model)
+                among(model, before)
                     ? "\(model) is disabled" : "disabled \(model): hidden from /model and refused until enabled")
         }
         return lines
@@ -233,13 +293,13 @@ extension Session {
             try ConfigEdit.current("models.disabled", in: data)?.arrayValue?.compactMap { value in
                 value.stringValue.flatMap { try? ModelSelection(parsing: $0) }
             } ?? []
-        var after = before.filter { $0 != selection }
+        var after = before.filter { !$0.names(selection, config: config, home: home) }
         if disabled { after.append(selection) }
         if disabled {
             let configured = try ConfigEdit.current("model", in: data)?.stringValue.map {
                 try ModelSelection(parsing: $0)
             }
-            if selection == configured ?? .default {
+            if selection.names(configured ?? .default, config: config, home: home) {
                 throw ModelSelection.Failure.defaultDisabled(model: selection.description)
             }
         }

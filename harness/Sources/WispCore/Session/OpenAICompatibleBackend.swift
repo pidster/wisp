@@ -15,6 +15,12 @@ public struct OpenAICompatibleBackend: ModelBackend {
         self.dialect = dialect
     }
 
+    /// The name a listing gives the model (`OpenAICompatibleModel.Served`): for an id that is a `.gguf` file's path,
+    /// as llama.cpp lists one, the file's name without `.gguf`, which a selection may use instead; else the id.
+    public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
+        OpenAICompatibleModel.Served.shortName(name)
+    }
+
     /// Checks the server lists the model, reads what it says about it, and wraps it.
     ///
     /// - Throws: `ModelSelection.Failure.unavailable` with the server's failure as the reason, or for a declared

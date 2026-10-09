@@ -103,6 +103,16 @@ enum OutputReference {
             status: status, lines: lines.count, bytes: output.utf8.count, first: first, last: last, more: more)
     }
 
+    /// The tools that only read, so calling one again to see its output again changes nothing. Every other
+    /// tool (`run_command`, `edit_file`, `notify`, a custom tool) is never suggested again.
+    static let rereadable: Set<String> = ["read_file", "inspect", "system_info", "current_date"]
+
+    /// What a reference or a person's command notice says when the conversation has no `memory` and the output
+    /// came from something that is not run again to see it. A command is not run again to see its output: it may
+    /// not print the same twice, may be slow or costly, or may change something (the operator, 2026-10-04;
+    /// ADR 0050, ADR 0057).
+    static let notRepeatedHint = "its output is not repeated; do not run it again to see it"
+
     /// The reference's text.
     ///
     /// - Parameters:
@@ -115,10 +125,6 @@ enum OutputReference {
     ///   - recallable: Whether the conversation has `memory`, so the reference names the call that recalls it;
     ///     without it, a read-only tool's reference says to call it again, and any other's that it is not run again.
     /// - Returns: The reference, at most `maxBytes` bytes.
-    /// The tools that only read, so calling one again to see its output again changes nothing. Every other
-    /// tool (`run_command`, `edit_file`, `notify`, a custom tool) is never suggested again.
-    static let rereadable: Set<String> = ["read_file", "inspect", "system_info", "current_date"]
-
     static func text(
         tool: String, entry: Int, time: Date?, arguments: String?, output: String, timeZone: TimeZone = .current,
         recallable: Bool = false
@@ -129,11 +135,7 @@ enum OutputReference {
         let hint =
             recallable
             ? "to see it: memory \"recall entry \(entry)\""
-            : rereadable.contains(tool)
-                ? "call it again to see it"
-                // A command is not run again to see its output: it may not print the same twice, may be slow or
-                // costly, or may change something (the operator, 2026-10-04; ADR 0050, ADR 0057).
-                : "its output is not repeated; do not run it again to see it"
+            : rereadable.contains(tool) ? "call it again to see it" : notRepeatedHint
         var lines = [
             "[output of entry \(entry) not repeated: \(shortened(tool, to: 40))\(clock), \(notes.status), "
                 + "\(plural(notes.lines, "line")), \(plural(notes.bytes, "byte")); \(hint)]"
@@ -186,7 +188,8 @@ enum OutputReference {
             return ToolOutput.bounded(
                 ([head + "; its output:]"] + lines).joined(separator: "\n"), maxBytes: maxBytes - 64)
         }
-        let hint = recallable ? "to see the output: memory \"recall entry \(entry)\"" : "its output is not repeated"
+        // Like any command's output, the person's is never to be seen again by running it (ADR 0057).
+        let hint = recallable ? "to see the output: memory \"recall entry \(entry)\"" : notRepeatedHint
         var notice = [head + "; " + hint + "]"]
         let content = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if var first = content.first.map({ shortened($0, to: lineCharacters) }) {

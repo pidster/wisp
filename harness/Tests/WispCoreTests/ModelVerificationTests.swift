@@ -121,7 +121,8 @@ private struct VerifyingBackend: ModelBackend {
     private func home(_ config: String? = nil) throws -> Home {
         let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-verifying-\(UUID())"))
         try home.ensure()
-        if let config { try Data(config.utf8).write(to: home.configFile) }
+        // Every HTTP backend offline, so listing and checking models never reach a server on this Mac.
+        try Data(OfflineBackends.file(config).utf8).write(to: home.configFile)
         return home
     }
 

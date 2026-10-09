@@ -54,12 +54,20 @@ public struct ContextTarget: Sendable, Equatable {
 extension Transcript {
     /// A copy that keeps the leading instructions entry, if any, and only the last `keepTurns` turns.
     ///
-    /// A turn starts at a `.prompt` entry and runs to the next prompt, so tool
-    /// calls and outputs stay with the prompt that caused them. Entries before
-    /// the first prompt other than instructions are dropped.
-    public func condensed(keepTurns: Int) -> Transcript {
+    /// A turn starts at a `.prompt` entry and runs to the next prompt, so tool calls and outputs stay with the
+    /// prompt that caused them. The person's commands (`commands`, held as prompts, ADR 0049) are no turn of
+    /// their own: each belongs to the turn after it, the one whose first request told the model of it, and those
+    /// after the last turn are always kept, so the floor of one turn keeps the last turn the model took part in.
+    /// Entries before the first prompt other than instructions and commands are dropped.
+    ///
+    /// - Parameters:
+    ///   - keepTurns: How many of the last turns to keep.
+    ///   - commands: The ids of the prompts that are the person's commands (`ThreadRecord.commandIDs`).
+    /// - Returns: The condensed transcript.
+    public func condensed(keepTurns: Int, commands: Set<Entry.ID> = []) -> Transcript {
         let entries = Array(self)
-        return Transcript(entries: Self.kept(entries.map(Kind.init), keepTurns: keepTurns).map { entries[$0] })
+        let kinds = entries.map { Kind($0, commands: commands) }
+        return Transcript(entries: Self.kept(kinds, keepTurns: keepTurns).map { entries[$0] })
     }
 
     /// What condensing needs to know of an entry.
@@ -68,48 +76,89 @@ extension Transcript {
         case instructions
         /// A `.prompt` entry, which starts a turn.
         case prompt
+        /// A command the person ran (a prompt by its framework kind), which belongs to the turn after it.
+        case command
         /// Anything else, which belongs to the turn before it.
         case other
 
         /// The kind of `entry`.
-        init(_ entry: Entry) {
+        ///
+        /// - Parameters:
+        ///   - entry: The entry.
+        ///   - commands: The ids of the prompts that are the person's commands.
+        init(_ entry: Entry, commands: Set<Entry.ID> = []) {
             switch entry {
             case .instructions: self = .instructions
-            case .prompt: self = .prompt
+            case .prompt: self = commands.contains(entry.id) ? .command : .prompt
             default: self = .other
             }
         }
     }
 
-    /// The positions `condensed(keepTurns:)` keeps, in order, for entries of these kinds: the first if it is
-    /// instructions, then every non-instructions entry of the last `keepTurns` turns. `ThreadRecord`
-    /// condenses through the same function, so the two cannot disagree.
+    /// The positions `condensed(keepTurns:commands:)` keeps, in order, for entries of these kinds: the first if it
+    /// is instructions, then every non-instructions entry of the last `keepTurns` turns, each with the commands
+    /// before it, and every command after the last turn. `ThreadRecord` condenses through the same function, so
+    /// the two cannot disagree.
     static func kept(_ kinds: [Kind], keepTurns: Int) -> [Int] {
         precondition(keepTurns >= 0, "keepTurns must not be negative")
         var kept: [Int] = []
         if kinds.first == .instructions { kept.append(0) }
         var turns: [[Int]] = []
+        var pending: [Int] = []
         for (position, kind) in kinds.enumerated() {
             switch kind {
             case .instructions:
                 continue
+            case .command:
+                pending.append(position)
             case .prompt:
-                turns.append([position])
+                turns.append(pending + [position])
+                pending = []
             case .other:
                 if turns.isEmpty { continue }
                 turns[turns.count - 1].append(position)
             }
         }
-        kept.append(contentsOf: turns.suffix(keepTurns).flatMap { $0 })
+        kept.append(contentsOf: (turns.suffix(keepTurns).flatMap { $0 } + pending).sorted())
         return kept
     }
 
-    /// Number of turns, counted as prompt entries.
-    public var turnCount: Int {
+    /// Number of turns, counted as prompt entries. A transcript does not know which of its prompts are the
+    /// person's commands; `turnCount(commands:)` and `ThreadRecord.turnCount(of:)` leave them out.
+    public var turnCount: Int { turnCount(commands: []) }
+
+    /// Number of turns, counted as prompt entries other than the person's commands.
+    ///
+    /// - Parameter commands: The ids of the prompts that are the person's commands.
+    /// - Returns: The turns.
+    public func turnCount(commands: Set<Entry.ID>) -> Int {
         reduce(0) { count, entry in
-            if case .prompt = entry { return count + 1 }
+            if case .prompt = entry, !commands.contains(entry.id) { return count + 1 }
             return count
         }
+    }
+}
+
+extension ThreadRecord {
+    /// The framework ids of the person's commands the store holds, active or dropped: the prompts that are no
+    /// turn of their own (`Transcript.condensed(keepTurns:commands:)`).
+    var commandIDs: Set<Transcript.Entry.ID> { Set(entries.filter { $0.kind == .command }.map(\.value.id)) }
+
+    /// The turns `view`, a composition of this store, holds: its prompts, less the person's commands.
+    ///
+    /// - Parameter view: The view.
+    /// - Returns: The turns.
+    func turnCount(of view: Transcript) -> Int { view.turnCount(commands: commandIDs) }
+
+    /// `view`, a composition of this store, condensed to its last `keepTurns` turns, the person's commands going
+    /// with the turn after them (`Transcript.condensed(keepTurns:commands:)`).
+    ///
+    /// - Parameters:
+    ///   - view: The view.
+    ///   - keepTurns: How many turns to keep.
+    /// - Returns: The condensed view.
+    func condensed(_ view: Transcript, keepTurns: Int) -> Transcript {
+        view.condensed(keepTurns: keepTurns, commands: commandIDs)
     }
 }
 

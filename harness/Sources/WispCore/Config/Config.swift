@@ -68,9 +68,17 @@ public struct Config: Codable, Equatable, Sendable {
 
     /// The default model when the file also disables it, which would leave wisp refusing the model it starts on;
     /// nil when the default is enabled.
-    public var disabledDefault: ModelSelection? {
+    public var disabledDefault: ModelSelection? { disabledDefault(home: nil) }
+
+    /// The default model when the file also disables it under any spelling of it (`ModelSelection.canonical`), with
+    /// the models directories placed under `home`; nil when the default is enabled.
+    ///
+    /// - Parameter home: wisp's home, for an MLX or Core AI name under the default models directory; nil compares
+    ///   such a name as it is spelled.
+    /// - Returns: The default, or nil.
+    public func disabledDefault(home: Home?) -> ModelSelection? {
         let model = model ?? .default
-        return (models?.disabled ?? []).contains(model) ? model : nil
+        return model.isAmong(models?.disabled ?? [], config: home.map { _ in resolved }, home: home) ? model : nil
     }
 
     /// `wisp watch` settings in the file.
@@ -563,8 +571,60 @@ public struct Config: Codable, Equatable, Sendable {
         try config.facts?.validate()
         try config.context?.validate()
         try config.watch?.validate()
-        if let model = config.disabledDefault { throw ModelSelection.Failure.defaultDisabled(model: model.description) }
+        try config.validateServers()
+        // The file lives in wisp's home, which places the default models directories.
+        if let model = config.disabledDefault(home: Home(root: url.deletingLastPathComponent())) {
+            throw ModelSelection.Failure.defaultDisabled(model: model.description)
+        }
         return config
+    }
+
+    /// The seconds a local server's `timeoutSeconds` may be: from one second to a day.
+    static let serverTimeoutRange = 1...86_400
+    /// The tokens a `contextLength` may be: from 512 to 4,194,304.
+    static let contextLengthRange = 512...4_194_304
+
+    /// Refuses a local server's section wisp would otherwise read past: a `baseURL` that is not an `http` or `https`
+    /// URL with a host (it fell back to the default before, so wisp asked another server than the one named), a
+    /// `timeoutSeconds` outside `serverTimeoutRange`, or a `contextLength` outside `contextLengthRange`.
+    ///
+    /// - Throws: `DecodingError.dataCorrupted` naming the setting and what it takes.
+    func validateServers() throws {
+        func check(_ section: String, baseURL: String?, timeoutSeconds: Int?, contextLengths: [(String, Int?)]) throws {
+            func fail(_ message: String) -> DecodingError {
+                .dataCorrupted(.init(codingPath: [], debugDescription: "\(section): \(message)"))
+            }
+            if let baseURL {
+                let url = URL(string: baseURL)
+                guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host() != nil else {
+                    throw fail(
+                        "baseURL '\(baseURL)' is not an http or https URL with a host, such as http://127.0.0.1:8080")
+                }
+            }
+            if let timeoutSeconds, !Self.serverTimeoutRange.contains(timeoutSeconds) {
+                throw fail("timeoutSeconds must be between 1 and 86400 (it was \(timeoutSeconds))")
+            }
+            for (key, length) in contextLengths {
+                guard let length, !Self.contextLengthRange.contains(length) else { continue }
+                throw fail("\(key) must be between 512 and 4194304 tokens (it was \(length))")
+            }
+        }
+        if let ollama {
+            try check(
+                "ollama", baseURL: ollama.baseURL, timeoutSeconds: ollama.timeoutSeconds,
+                contextLengths: [("contextLength", ollama.contextLength)]
+                    + (ollama.models ?? [:]).sorted { $0.key < $1.key }.map {
+                        ("models.\($0.key).contextLength", $0.value.contextLength)
+                    })
+        }
+        for (name, section) in [("llamacpp", llamacpp), ("lmstudio", lmstudio)] {
+            guard let section else { continue }
+            try check(
+                name, baseURL: section.baseURL, timeoutSeconds: section.timeoutSeconds,
+                contextLengths: (section.models ?? [:]).sorted { $0.key < $1.key }.map {
+                    ("models.\($0.key).contextLength", $0.value.contextLength)
+                })
+        }
     }
 
     /// Writes this config as pretty-printed JSON.

@@ -175,14 +175,17 @@ public enum ModelListing {
             }
             cached += backend.unlinked(config: config, home: home)
         }
-        for selection in disabled where !candidates.contains(where: { $0.selection == selection }) {
+        // Compared by canonical form: a model disabled under another spelling is the listed one (ADR 0056).
+        let named = { (one: ModelSelection, other: ModelSelection) in one.names(other, config: config, home: home) }
+        for selection in disabled where !candidates.contains(where: { named($0.selection, selection) }) {
             candidates.append(InstalledModel(selection: selection, detail: ""))
         }
         var entries = candidates.map { installed in
             var entry = Entry(
                 selection: installed.selection, detail: installed.detail, parameters: installed.parameters,
                 bytes: installed.bytes, format: installed.format, location: installed.location,
-                enabled: !disabled.contains(installed.selection), verified: installed.verified)
+                enabled: !installed.selection.isAmong(disabled, config: config, home: home),
+                verified: installed.verified)
             do {
                 let resolved = try installed.selection.resolve(config: config, home: home)
                 entry.capabilitySource = resolved.capabilitySource

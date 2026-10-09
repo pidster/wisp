@@ -8,7 +8,13 @@ import WispCore
 /// The MLX backend without weights: naming, declared capabilities, listing, settings, and the two
 /// refusals (not compiled in, no model directory).
 @Suite struct MLXBackendTests {
-    init() { ModelBackends.register(MLXBackend()) }
+    /// The backend over an empty Hugging Face cache in a temporary directory, never the real one, so no test reads
+    /// what this Mac has downloaded; registered, it is the one every other suite's listing asks too.
+    static let backend = MLXBackend(
+        cache: HubCache(
+            root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-empty-hub-\(UUID().uuidString)")))
+
+    init() { ModelBackends.register(MLXBackendTests.backend) }
 
     private func scratch() throws -> (home: Home, models: URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-\(UUID().uuidString)")
@@ -17,6 +23,24 @@ import WispCore
         let models = home.models.appending(path: "mlx")
         try FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
         return (home, models)
+    }
+
+    @Test func aDisabledModelIsRefusedByItsNameOrItsDirectorysPath() throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let directory = models.appending(path: "mlx-community/Qwen3-1.7B-4bit")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let config = Config().resolved
+        let named = ModelSelection.local(backend: "mlx", name: "mlx-community/Qwen3-1.7B-4bit")
+        let absolute = ModelSelection.local(backend: "mlx", name: directory.path)
+        // `/tmp` is a link to `/private/tmp`: the real path is what is compared.
+        let unresolved = ModelSelection.local(
+            backend: "mlx", name: directory.path.replacingOccurrences(of: "/private/var/", with: "/var/"))
+        for (disabled, chosen) in [(named, absolute), (absolute, named), (named, unresolved)] {
+            #expect(
+                DisabledModels([disabled], config: config, home: home).contains(chosen), "\(disabled) \(chosen)")
+        }
+        #expect(!DisabledModels([named], config: config, home: home).contains(.local(backend: "mlx", name: "other")))
     }
 
     @Test func namesCapabilitiesAndSettings() throws {
@@ -34,7 +58,7 @@ import WispCore
         let undeclared = try MLXBackend.declaredCapabilities(for: "other", config: config)
         #expect(!undeclared.declared && undeclared.capabilities.isEmpty)
         #expect(throws: ModelSelection.Failure.self) { try MLXBackend.declaredCapabilities(for: "bad", config: config) }
-        let settings = MLXBackend().settings(in: config, home: home).objectValue
+        let settings = MLXBackendTests.backend.settings(in: config, home: home).objectValue
         #expect(settings?["compiledIn"] == .bool(MLXBackend.isCompiledIn))
         #expect(
             settings?["models"]?.objectValue?["q"]?.objectValue?["capabilities"]
@@ -51,12 +75,12 @@ import WispCore
             to: model.appending(path: "config.json"))
         try FileManager.default.createDirectory(at: models.appending(path: "empty"), withIntermediateDirectories: true)
         let config = Config(mlx: .init(models: ["qwen3-4bit": .init(capabilities: ["toolCalling"])])).resolved
-        let installed = try await MLXBackend().installed(config: config, home: home)
+        let installed = try await MLXBackendTests.backend.installed(config: config, home: home)
         #expect(installed.map(\.selection) == [.local(backend: "mlx", name: "qwen3-4bit")])
         #expect(installed.first?.detail.hasPrefix("qwen3 4-bit capabilities: toolCalling") == true)
         #expect(installed.first?.verified == nil)
         // A check's record: the day it was verified, in the listing and the detail (ADR 0056, refined 2026-10-04).
-        let backend = MLXBackend()
+        let backend = MLXBackendTests.backend
         #expect(backend.declarationKeys(for: "Qwen3-1.7B-4bit") == ["mlx", "models", "Qwen3-1.7B-4bit"])
         let checked = backend.declaring(
             .init(
@@ -173,15 +197,15 @@ import WispCore
         // A window alone declares no capabilities, so the model is still undeclared.
         #expect(one.mlxModels["small"] == nil && one.mlxModelContextLengths == ["small": 4096])
         let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-settings"))
-        let models = MLXBackend().settings(in: one, home: home).objectValue?["models"]?.objectValue
+        let models = MLXBackendTests.backend.settings(in: one, home: home).objectValue?["models"]?.objectValue
         #expect(models?["small"] == .object(["contextLength": 4096]))
     }
 
     @Test func settingsCarryTheWindowAndTheExecutor() {
         let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-settings"))
-        let defaults = MLXBackend().settings(in: Config().resolved, home: home).objectValue
+        let defaults = MLXBackendTests.backend.settings(in: Config().resolved, home: home).objectValue
         #expect(defaults?["executor"] == "wisp" && defaults?["contextLength"] == "sized per model (ADR 0052)")
-        let set = MLXBackend().settings(
+        let set = MLXBackendTests.backend.settings(
             in: Config(mlx: .init(contextLength: 16384, executor: .bridge)).resolved, home: home
         ).objectValue
         #expect(set?["executor"] == "bridge" && set?["contextLength"] == 16384)
@@ -197,7 +221,7 @@ struct MLXLiveTests {
     static let directory = ProcessInfo.processInfo.environment["WISP_MLX_MODEL"] ?? ""
 
     @Test func textConversationThenToolsWhenDeclared() async throws {
-        ModelBackends.register(MLXBackend())
+        ModelBackends.register(MLXBackendTests.backend)
         let home = Home(
             root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-live-\(UUID().uuidString)"))
         try home.ensure()
@@ -239,7 +263,7 @@ struct MLXLiveTests {
     /// What 0.19.0 adds (ADR 0052): a sized window, exact counts, usage, and the second request of a
     /// conversation reusing the first's processed prompt. Timings are printed, not asserted; 0.20.0 measures.
     @Test func sizedWindowExactCountsUsageAndPrefixReuse() async throws {
-        ModelBackends.register(MLXBackend())
+        ModelBackends.register(MLXBackendTests.backend)
         let home = Home(
             root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-live-\(UUID().uuidString)"))
         try home.ensure()

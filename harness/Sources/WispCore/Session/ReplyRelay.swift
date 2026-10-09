@@ -158,6 +158,33 @@ enum ConnectionFailure: Equatable {
     }
 }
 
+extension ConnectionFailure {
+    /// Whether `error` is the request being cancelled (the task's cancellation, which `URLSession` reports as
+    /// `URLError.cancelled`), which is no failure of the server's: the executors rethrow it as `CancellationError`
+    /// rather than tell the person no server answered.
+    static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    /// The text of a refused response's body, read a line at a time until `limit` bytes, and no further: a server
+    /// that keeps sending is not read to its end.
+    ///
+    /// - Parameters:
+    ///   - lines: The body's lines.
+    ///   - limit: The most bytes to keep.
+    /// - Returns: The text, at most about `limit` bytes.
+    /// - Throws: What reading the body throws.
+    static func boundedBody<Lines: AsyncSequence>(_ lines: Lines, limit: Int) async throws -> String
+    where Lines.Element == String {
+        var body = ""
+        for try await line in lines {
+            body += line
+            if body.utf8.count >= limit { break }
+        }
+        return String(decoding: Data(body.utf8).prefix(limit), as: UTF8.self)
+    }
+}
+
 /// Holds the last request's input token count behind a mutex, for a model whose executor reports it
 /// (`UsageReporting`); a class so the value survives the model's copies.
 final class LastInputTokens: Sendable {

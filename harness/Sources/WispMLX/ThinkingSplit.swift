@@ -43,7 +43,9 @@ struct ThinkingFormat: Equatable, Sendable {
 
 /// Splits a reply's streamed text into thinking and reply as it arrives, by the template's tags. The tags are
 /// framing, belonging to neither; a tag split across chunks is held back until it is whole; whitespace next to a
-/// tag (the template's newlines) is dropped. Thinking that is never closed stays thinking.
+/// tag (the template's newlines) is dropped. Thinking that is never closed stays thinking. A reply has one thinking
+/// block, at its start: once it closes, everything after it is the reply, an opening tag the model writes later
+/// included (a reply that quotes `<think>` is not thinking).
 struct ThinkingSplitter: Sendable {
     /// A routed piece of the stream.
     enum Piece: Equatable, Sendable {
@@ -61,6 +63,8 @@ struct ThinkingSplitter: Sendable {
     private var held = ""
     /// Whether leading whitespace is dropped from what comes next, after a tag.
     private var trimLeading = false
+    /// Whether the thinking block has closed, so the rest of the stream is the reply, tags and all.
+    private var closed = false
 
     /// Creates a splitter.
     ///
@@ -82,9 +86,14 @@ struct ThinkingSplitter: Sendable {
         var rest = Substring(held + chunk)
         held = ""
         while true {
+            if closed {
+                append(String(rest), closing: false, to: &pieces)
+                return pieces
+            }
             let tag = inside ? format.close : format.open
             if let range = rest.range(of: tag) {
                 append(String(rest[..<range.lowerBound]), closing: true, to: &pieces)
+                if inside { closed = true }
                 inside.toggle()
                 trimLeading = true
                 rest = rest[range.upperBound...]
@@ -122,6 +131,7 @@ struct ThinkingSplitter: Sendable {
         guard inside else { return }
         held = ""
         inside = false
+        closed = true
         trimLeading = true
     }
 

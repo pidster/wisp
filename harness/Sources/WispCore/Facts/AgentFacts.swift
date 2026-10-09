@@ -247,14 +247,16 @@ extension Agent {
     /// - Parameters:
     ///   - leaving: The store entries a condensation is about to drop.
     ///   - staying: The entries it keeps, whose prompts the distiller reads for the latest values.
+    /// - Returns: Whether a distillation ran and its call succeeded.
+    @discardableResult
     nonisolated(nonsending) func distil(
         _ leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry] = []
     )
-        async
+        async -> Bool
     {
-        guard let facts, facts.distils else { return }
+        guard let facts, facts.distils else { return false }
         let distilled = FactDistiller.turns(in: leaving)
-        guard !distilled.isEmpty else { return }
+        guard !distilled.isEmpty else { return false }
         let window = contextSize ?? Self.assumedWindow
         let prompt = FactDistiller.prompt(
             turns: distilled, kinds: facts.kinds, existing: factView.groups.map(\.key),
@@ -285,6 +287,7 @@ extension Agent {
             details: AuditEvent.Details.distillation(
                 turns: distilled.map(\.number), entries: prose.count, bytes: prompt.utf8.count, facts: recorded,
                 seconds: Date().timeIntervalSince(started), model: model.selection, failure: failure))
+        return failure == nil
     }
 
     /// States a fact as `source` (the person, or an MCP caller): a person's assertion outranks a tool's and the

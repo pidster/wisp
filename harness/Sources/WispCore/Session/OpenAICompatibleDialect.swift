@@ -79,7 +79,8 @@ public struct OpenAICompatibleDialect: Hashable, Sendable, CustomStringConvertib
 public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     /// The server's base URL, without `/v1`.
     public var baseURL: URL
-    /// Wall-clock limit for one generation request while nothing arrives.
+    /// How long a generation request may go with nothing arriving (`URLRequest.timeoutInterval`, an idle limit,
+    /// reset by every byte), before it is abandoned; not a limit on the whole request.
     public var timeout: Duration
     /// The bearer token sent as `Authorization`, when the server wants one.
     public var apiKey: String?

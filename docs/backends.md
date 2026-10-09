@@ -64,7 +64,7 @@ hint otherwise. Who declares them:
 | --- | --- |
 | `system`, `private-cloud` | the framework |
 | `ollama` | the server's `/api/show` `capabilities` for that model (`tools`, `completion`, `thinking`, `vision`); a model without `completion`, such as an embedding model, is refused at resolution because it cannot hold a conversation |
-| `llamacpp` | schema replies always (the server holds the reply to the schema with a grammar); tool calling when `/props` says the chat template supports tool calls, else `config.json` (`llamacpp.models.<name>`), declared by the operator or recorded by wisp's check (`wisp models enable` or `check`) |
+| `llamacpp` | schema replies always (the server holds the reply to the schema with a grammar); tool calling when `/props` says the chat template supports tool calls and no recorded check found it fails, else `config.json` (`llamacpp.models.<name>`), declared by the operator or recorded by wisp's check (`wisp models enable` or `check`) |
 | `lmstudio` | schema replies always; tool calling from `/api/v1/models` `trained_for_tool_use`, thinking from its `reasoning`; an `embedding` model is refused at resolution |
 | `coreai` | the bundle: tool-call markers in the tokenizer, a thinking format, the engine's guided-generation support |
 | `mlx` | `config.json`: the operator's declaration, or what wisp's check of the model recorded when it was enabled or checked (`wisp models check`); an undeclared model is text only |
@@ -195,13 +195,18 @@ for what differs ([ADR 0058](decisions/0058-a-shared-http-executor.md)). What th
   without a reasoning count from the server, each chunk of thinking counts one token.
 - **The window is the server's.** The server holds the model at a window it chose, so wisp reads it instead of
   sizing one from memory; the listing's `FROM` says `server`. A request the server refuses as larger than its
-  window is condensed and retried.
+  window is condensed and retried, and so is one whose reply the server stops with `finish_reason` `length` when
+  wisp asked no `max_tokens`: with no limit asked, `length` is the end of the window, not of the reply.
 - **Errors.** `no llama.cpp server at <url>: …; start one with llama-server -m <model.gguf>, or set
   llamacpp.baseURL` (or the LM Studio equivalent) when nothing answers; `llama.cpp serves no model '<name>'; it
   serves: …`; `… refused the request (HTTP 401): … set WISP_LLAMACPP_API_KEY, or llamacpp.apiKey in config.json`;
   `llama.cpp at <url> stopped before the reply was done (…); nothing of it was kept` when the stream ends before a
   choice finishes or `[DONE]` comes, or the connection is lost; `… sent nothing for N s (llamacpp.timeoutSeconds)`
-  when it goes silent. Chat falls back to `system` when its configured model is unavailable, as for Ollama.
+  when it goes silent: `timeoutSeconds` (1 to 86,400; 120 by default, as for Ollama) is an idle limit, reset by
+  every byte, not a limit on the whole reply. A cancelled request is cancelled, never "no server". A refusal's
+  body is read to 4 KiB and no further. A `baseURL` that is not an `http` or `https` URL with a host, a
+  `timeoutSeconds` out of range, or a `contextLength` outside 512 to 4,194,304 is refused when `config.json` loads,
+  for every server section, rather than replaced by the default. Chat falls back to `system` when its configured model is unavailable, as for Ollama.
 - **The key.** When the server was started with one, set `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY` (it
   wins), or `apiKey` in the section. It is sent as `Authorization: Bearer …` and never logged; `wisp config` and
   `inspect` show only `set (…)` or `unset`. The environment keeps it out of `config.json`, which a tool that reads
@@ -233,7 +238,9 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   a model is usable with tools once `config.json` declares it, or once `wisp models check llamacpp:<name>` (or
   `enable`) has asked it the three short questions of [ADR 0056](decisions/0056-models-enabled-and-disabled.md)
   and recorded what passed under `llamacpp.models.<name>`. When `/props` reports the chat template supports tool
-  calls (`chat_template_caps`), that declares it. Schema replies need nothing.
+  calls (`chat_template_caps`), that declares it, unless wisp's recorded check found the model calls no tool: the
+  check outranks the server's report, which describes the template rather than the model, so such a model is text
+  only, as the check said (a capability the operator declared by hand is kept). Schema replies need nothing.
 - **Thinking.** `llamacpp.think` `true` or `false` is sent as the chat template's `enable_thinking`
   (`chat_template_kwargs`) for every model; unset sends nothing. The server separates thinking from the reply with
   `--reasoning-format` (`auto` by default); with `none`, thinking stays in the reply's text.
@@ -377,19 +384,21 @@ to the cache's snapshot. The cache is where `huggingface_hub` puts it: `HF_HUB_C
 ```
 
 The pull lists the repository at the commit `main` is at, checks each file against the cache (there, the
-listed size, and each weights file's SHA-256, which reads it), and says per file whether it is already in the
+listed size, and its content: each weights file's SHA-256, which reads it, and each other file's git blob id, the
+name its blob takes), and says per file whether it is already in the
 Hugging Face cache or to fetch. It asks before it downloads anything; when every file is already in the cache it
 asks nothing and only links. It runs only from a terminal, and the default command policy refuses it to the
 model. It fetches only `mlx-community` repositories and only the top-level files a model directory needs
-(`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each fetched file's size and each weights
-file's SHA-256 against the listing, and refuses before any download when the disk lacks what it will download
+(`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each fetched file's size and content (each
+weights file's SHA-256, each other file's git blob id) against the listing, and refuses before any download when the disk lacks what it will download
 plus 1 GiB. A file downloads into `blobs/<id>.incomplete` under `huggingface_hub`'s lock for it; another
 program holding the lock refuses the pull. An interrupted pull keeps the files it finished and the part of the
 one it was fetching; the next run fetches the rest, resuming that part with an HTTP range request (`Range:
-bytes=<offset>-`) and checking the whole file, so a part that does not continue into the listed SHA-256 is refused
+bytes=<offset>-`), taking the answer only when its `Content-Range` starts at that offset (an answer from anywhere
+else starts the file again), and checking the whole file, so a part that does not continue into the listed SHA-256 is refused
 and fetched whole next time. A server that ignores the range answers with the whole file, which is fetched from the
 start, and the pull says so. A real directory at `<home>/models/mlx/<name>` seeds the cache: each of its files whose
-size, and for weights SHA-256, match the listing is copied into `blobs/` (with `copyfile`'s clone, so on APFS it
+size and content (SHA-256 for weights, git blob id for the rest) match the listing is copied into `blobs/` (with `copyfile`'s clone, so on APFS it
 takes no space until one copy changes) instead of being fetched.
 
 At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the model, becomes the link. A real
@@ -460,7 +469,8 @@ around it dropped, and sends the thinking to the framework as reasoning. Chat sa
 shows `∴ thought for 2.0 s, 181 tokens`, `/inspect thinking` lists it, usage counts it (one token a streamed
 chunk, within the tokens generated), it is audited as `model.reasoning`, and no later request carries it. A
 template that opens the block itself in the generation prompt is seen from the rendered prompt's end, so the
-reply is thinking from its first token; thinking that is never closed stays thinking; a tool call ends it. A
+reply is thinking from its first token; thinking that is never closed stays thinking; a tool call ends it; once the
+block has closed, the rest is the reply, so a tag the reply itself writes later is text, not thinking. A
 model whose template has no such tags has its text left as it is.
 
 Whether the model thinks is the template's `enable_thinking`: `mlx.think` (`true` or `false`) sets it for every
@@ -471,7 +481,8 @@ was told not to think, which cost Qwen3 its multi-step tool calls and its drafts
 Ollama (below, "Against Ollama"). A schema reply on a model that thinks thinks first, as Ollama lets a model think
 before it applies a `format`: it generates freely until the thinking block closes (half the reply's budget at
 most; a block cut off is closed with the template's tag), streamed as thinking, and the schema's constraint then
-starts from the prompt and what it thought; a model that begins its reply without thinking is constrained from the
+starts from the prompt and what it thought, its limit what is left of the budget after the thinking and any closing
+tag wisp added; a model that begins its reply without thinking is constrained from the
 prompt. This applies to wisp's executor; the bridge decides for itself (it turns thinking off unless `reasoning`
 is declared).
 Measured on this Mac on 2026-10-06 with `mlx:Qwen3-1.7B-4bit`, undeclared, and `mlx.think: true`: "Is 51 prime? One
@@ -514,7 +525,8 @@ request offers. wisp's executor adds two things for formats a template states an
 
 - **A JSON array in one frame.** When a reply has no call mlx-swift-lm recognised, a `<tool_call>` frame it
   rejected as malformed is read as `[{"name": …, "arguments": {…}}, …]`, the form Falcon-H1-Tiny-Tool-Calling's
-  template asks for. Strictly: exactly one frame, a non-empty array, each element exactly `name`, a tool the
+  template asks for. Strictly: exactly one frame rejected as malformed in the reply, seen whole (two, or one cut
+  short, are not read), a non-empty array, each element exactly `name`, a tool the
   request offers, and `arguments`, an object; anything else stays text.
 - **ChatML's end of turn.** When the chat template uses `<|im_end|>` and the tokenizer has it as one token,
   generation stops there, as mlx-swift-lm does for the ChatML models in its own registry. A checkpoint whose

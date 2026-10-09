@@ -3,10 +3,23 @@ import Foundation
 /// The doctor's checks of what wisp keeps and how it is set: the facts store, the subject kinds, saved
 /// transcripts, numeric settings, and the context window.
 extension Doctor {
-    /// `~/.wisp/facts.json`: absent, or parses, is readable by the owner only, and how many current facts it holds.
+    /// `~/.wisp/facts.json`: no unreadable store set aside beside it, absent or parses, is readable by the owner
+    /// only, and how many current facts it holds.
     func factsStore() -> Finding {
         let name = "facts store"
         let file = home.factsFile
+        // A store wisp could not read is moved aside, never overwritten (`SharedFacts`); it waits for the person.
+        let prefix = file.lastPathComponent + SharedFacts.unreadableSuffix
+        let aside = ((try? FileManager.default.contentsOfDirectory(atPath: home.root.path)) ?? [])
+            .filter { $0.hasPrefix(prefix) }.sorted()
+        if let latest = aside.last {
+            let path = home.root.appending(path: latest).path
+            return Finding(
+                name: name, ok: false,
+                detail: "\(path) is a facts store wisp could not read and set aside"
+                    + (aside.count > 1 ? " (\(aside.count) such files)" : "")
+                    + "; its facts are not in force. Look at it, mend it into \(file.path) or remove it")
+        }
         guard FileManager.default.fileExists(atPath: file.path) else {
             return Finding(name: name, ok: true, detail: "no \(file.path); no permanent facts yet")
         }
@@ -22,8 +35,8 @@ extension Doctor {
         } catch {
             return Finding(
                 name: name, ok: false,
-                detail: "\(file.path) does not parse: \(error); wisp starts with no permanent facts until a change "
-                    + "replaces it")
+                detail: "\(file.path) does not parse: \(error); wisp moves it aside, to "
+                    + "\(prefix)<time>, when it next reads it, and starts with no permanent facts")
         }
         let current = book.current
         var counts = ""

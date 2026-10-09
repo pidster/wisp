@@ -56,6 +56,17 @@ import Testing
                 == [.thought("Is 91 7 times 13?"), .reply("No.")])
     }
 
+    @Test func aTagAfterTheBlockClosedIsReplyText() {
+        // The reply quotes the tag: once the block has closed, it is the reply's, whole.
+        #expect(
+            Self.split(["<think>\nhm\n</think>\n\nWrap it in <think> and ", "</think> tags."])
+                == [.thought("hm"), .reply("Wrap it in <think> and </think> tags.")])
+        // Split across chunks, and with the prompt priming the block.
+        #expect(
+            Self.split(["hm</th", "ink>Use <thi", "nk>x</think>."], primed: true)
+                == [.thought("hm"), .reply("Use <think>x</think>.")])
+    }
+
     @Test func tagsSplitAcrossChunksAreHeldUntilWhole() {
         let text = "<think>\nIs 91 7 times 13?\n</think>\n\nNo, it is not."
         let expected: [ThinkingSplitter.Piece] = [.thought("Is 91 7 times 13?"), .reply("No, it is not.")]
@@ -202,6 +213,21 @@ import Testing
         let prompt = try WordTokenizer().tokens(for: MLXPrompt(messages: messages))
         let thought = ["<think>", "\nstill", " going"].map(WordTokenizer.id)
         #expect(log.guidedPrompts.withLock { $0 } == [prompt + thought + [WordTokenizer.id("</think>")]])
+        // The closing tag wisp added takes room in the window too: the constraint's limit leaves it out.
+        #expect(log.guidedBudgets.withLock { $0 } == [request.window - prompt.count - thought.count - 1])
+    }
+
+    @Test func aRequestCancelledBeforeItHoldsTheEngineLoadsNothing() async throws {
+        let log = RuntimeLog()
+        let engine = MLXExecutorTests.engine(log)
+        let request = MLXExecutorTests.request([.init(role: "user", content: "hello")])
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await engine.respond(request, slot: UUID()) { _ in }
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        #expect(!engine.isLoaded && log.generations.withLock { $0.isEmpty })
     }
 
     @Test func aSchemaReplyWithThinkingTurnedOffIsConstrainedAtOnce() async throws {

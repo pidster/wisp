@@ -9,9 +9,16 @@ public struct TranscriptStore: Sendable {
         case invalidName(String)
         /// No transcript has this name.
         case notFound(String)
-        /// The transcript has no usable store beside it (`<name>.store` is missing, unreadable, or does not
-        /// match it), so it was saved by a wisp that did not keep one and cannot be resumed.
+        /// The transcript has no store beside it (`<name>.store` is missing), so it was saved by a wisp that did not
+        /// keep one, or by `save(_:as:)` with a transcript alone, and cannot be resumed.
         case notResumable(String)
+        /// The store beside the transcript cannot be read or decoded.
+        case unreadableStore(String, reason: String)
+        /// The store beside the transcript is of a format version this build does not read.
+        case storeVersion(String, version: Int)
+        /// The store beside the transcript does not describe it: another conversation's, or one half of a save that
+        /// did not finish.
+        case mismatchedStore(String)
 
         /// Human-readable explanation.
         public var description: String {
@@ -20,6 +27,15 @@ public struct TranscriptStore: Sendable {
             case .notFound(let name): "no saved transcript named '\(name)'"
             case .notResumable(let name):
                 "transcript '\(name)' was saved by an older wisp and cannot be resumed; start a new conversation"
+            case .unreadableStore(let name, let reason):
+                "transcript '\(name)' cannot be resumed: its store, \(name).store, cannot be read (\(reason)); start a "
+                    + "new conversation"
+            case .storeVersion(let name, let version):
+                "transcript '\(name)' cannot be resumed: its store is format \(version), and this wisp reads format "
+                    + "\(ThreadRecord.Snapshot.currentVersion); resume it with the wisp that saved it"
+            case .mismatchedStore(let name):
+                "transcript '\(name)' cannot be resumed: its store does not match it (another conversation's, or a "
+                    + "save that did not finish); start a new conversation"
             }
         }
     }
@@ -64,41 +80,94 @@ public struct TranscriptStore: Sendable {
     /// - Throws: `Failure.invalidName` or file-system errors.
     public func save(_ transcript: Transcript, as name: String) throws {
         let file = try url(for: name)
+        // The links go first, so a failed write never leaves them beside a transcript they do not describe.
+        let links = try linksURL(for: name)
+        if FileManager.default.fileExists(atPath: links.path) { try FileManager.default.removeItem(at: links) }
         try write(transcript, to: file)
-        try? FileManager.default.removeItem(at: linksURL(for: name))
     }
 
     /// Writes the store's active view under `name` as `save(_:as:)` does, and the whole store's links
-    /// (dropped entries included) beside it, both readable by the user only.
+    /// (dropped entries included) beside it, both readable by the user only. Both are encoded and written in full
+    /// beside their places before either takes its name, store first, so a save that fails part way leaves the
+    /// previous pair, or at worst a new store beside the old transcript, which `loadThread` reports as mismatched;
+    /// never a stale store that a new transcript would be resumed with.
     ///
     /// - Throws: `Failure.invalidName` or file-system errors.
     public func save(_ store: ThreadRecord, as name: String) throws {
         let file = try url(for: name)
         let links = try linksURL(for: name)
-        try write(store.active, to: file)
-        try write(store.snapshot, to: links)
+        let pendingLinks = try staged(store.snapshot, for: links)
+        defer { try? FileManager.default.removeItem(at: pendingLinks) }
+        let pendingFile = try staged(store.active, for: file)
+        defer { try? FileManager.default.removeItem(at: pendingFile) }
+        try place(pendingLinks, at: links)
+        try place(pendingFile, at: file)
     }
 
     /// Encodes `value` to `file` atomically, mode 0600.
     private func write(_ value: some Encodable, to file: URL) throws {
+        try place(try staged(value, for: file), at: file)
+    }
+
+    /// Encodes `value` into a new file, mode 0600, beside `file`, under a name `list` never shows.
+    ///
+    /// - Returns: The new file.
+    /// - Throws: Encoding or file-system errors.
+    private func staged(_ value: some Encodable, for file: URL) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(value).write(to: file, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        let data = try encoder.encode(value)
+        let pending = file.deletingLastPathComponent().appending(
+            path: ".\(file.lastPathComponent).\(UUID().uuidString).tmp")
+        guard
+            FileManager.default.createFile(atPath: pending.path, contents: data, attributes: [.posixPermissions: 0o600])
+        else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: pending.path]) }
+        return pending
+    }
+
+    /// Gives `pending` the name `file`, replacing what was there in one step (`rename(2)`).
+    ///
+    /// - Throws: The file system's error.
+    private func place(_ pending: URL, at file: URL) throws {
+        guard rename(pending.path, file.path) == 0 else {
+            throw CocoaError(
+                .fileWriteUnknown,
+                userInfo: [NSFilePathErrorKey: file.path, NSLocalizedDescriptionKey: String(cString: strerror(errno))])
+        }
     }
 
     /// Reads the transcript saved under `name` and the store links saved beside it. A transcript without
-    /// links, or with ones that do not decode or do not match it, cannot be resumed.
+    /// links, or with ones that do not decode or do not match it, cannot be resumed, each said apart.
     ///
-    /// - Throws: As `load`, and `Failure.notResumable`.
+    /// - Throws: As `load`, and `Failure.notResumable`, `unreadableStore`, `storeVersion`, or `mismatchedStore`.
     public func loadThread(_ name: String) throws -> Saved {
         let transcript = try load(name)
         let file = try linksURL(for: name)
-        guard let data = try? Data(contentsOf: file),
-            let snapshot = try? JSONDecoder().decode(ThreadRecord.Snapshot.self, from: data),
-            snapshot.restored(over: transcript) != nil
-        else { throw Failure.notResumable(name) }
+        guard FileManager.default.fileExists(atPath: file.path) else { throw Failure.notResumable(name) }
+        let snapshot: ThreadRecord.Snapshot
+        do {
+            snapshot = try JSONDecoder().decode(ThreadRecord.Snapshot.self, from: Data(contentsOf: file))
+        } catch {
+            throw Failure.unreadableStore(name, reason: Self.reason(error))
+        }
+        guard snapshot.version == ThreadRecord.Snapshot.currentVersion else {
+            throw Failure.storeVersion(name, version: snapshot.version)
+        }
+        guard snapshot.restored(over: transcript) != nil else { throw Failure.mismatchedStore(name) }
         return Saved(transcript: transcript, links: snapshot)
+    }
+
+    /// A read or decoding error in a few words.
+    private static func reason(_ error: any Error) -> String {
+        if let decoding = error as? DecodingError {
+            switch decoding {
+            case .dataCorrupted(let context), .keyNotFound(_, let context), .typeMismatch(_, let context),
+                .valueNotFound(_, let context):
+                return context.debugDescription
+            @unknown default: return "\(decoding)"
+            }
+        }
+        return error.localizedDescription
     }
 
     /// Reads the transcript saved under `name`.

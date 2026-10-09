@@ -13,7 +13,7 @@ extension OpenAICompatibleExecutorTests {
 
     @Test func llamaCppListsItsModelByFileNameAndReportsTheSlotsWindow() async throws {
         let backend = OpenAICompatibleBackend(.llamaCpp)
-        let installed = try await backend.installed(config: Self.llamaConfig, home: Home.resolve())
+        let installed = try await backend.installed(config: Self.llamaConfig, home: OfflineBackends.home)
         #expect(installed.map(\.selection.description) == ["llamacpp:Qwen3-8B-Q4_K_M"])
         #expect(installed.first?.parameters == "8.2B" && installed.first?.bytes == 5_027_783_488)
         let model = try Self.resolved(.llamaCpp, "Qwen3-8B-Q4_K_M")
@@ -37,6 +37,76 @@ extension OpenAICompatibleExecutorTests {
         #expect(floor.contextSize == 8192 && floor.contextNote?.contains("the default: llama.cpp") == true)
     }
 
+    @Test func aReplyStoppedAtLengthWithNoLimitAskedIsAnOverflowTheAgentCondensesFor() async throws {
+        let model = try Self.resolved(.llamaCpp, "Qwen3-8B-Q4_K_M")
+        // The first request runs into the end of the window; the retry after condensing finishes.
+        FakeChatServer.serve(
+            Self.llama, Self.chat,
+            Self.chunk(["content": "The answer is"]) + Self.chunk([:], finish: "length") + Self.done,
+            Self.reply(["Done."]))
+        let agent = Agent(instructions: "x", tools: [], model: model, contextPolicy: .condense(keepTurns: 1))
+        let reply = try await agent.respond(to: "hello")
+        #expect(reply.text.hasSuffix("Done.") && reply.condensed && agent.condensations == 1)
+        #expect(FakeChatServer.received(Self.llama, Self.chat).count == 2)
+        // With a limit asked, `length` is the limit, not the window: the reply stands as far as it went.
+        FakeChatServer.serve(
+            Self.llama, Self.chat,
+            Self.chunk(["content": "The answer is"]) + Self.chunk([:], finish: "length") + Self.done)
+        let session = model.session(tools: [], instructions: "x")
+        let limited = try await session.respond(to: "hello", options: GenerationOptions(maximumResponseTokens: 3))
+        #expect(limited.content == "The answer is")
+    }
+
+    @Test func aRefusalsBodyIsReadOnlyToItsBoundAndCancellationIsNoMissingServer() async throws {
+        // A body that never ends is read to the bound and no further.
+        let endless = AsyncStream<String> { continuation in
+            Task {
+                while !Task.isCancelled {
+                    continuation.yield(String(repeating: "x", count: 100))
+                    await Task.yield()
+                }
+            }
+        }
+        let body = try await ConnectionFailure.boundedBody(endless, limit: 4096)
+        #expect(body.utf8.count == 4096)
+        // A cancelled request is cancellation, not "no server; start one".
+        #expect(
+            ConnectionFailure.isCancellation(URLError(.cancelled))
+                && ConnectionFailure.isCancellation(CancellationError()))
+        #expect(!ConnectionFailure.isCancellation(URLError(.cannotConnectToHost)))
+        // LM Studio's `reasoning` capability: options that allow it, or `true`, say it thinks; `false` does not.
+        #expect(Catalogs.reasons(["allowed_options": ["off", "on"], "default": "on"]))
+        #expect(Catalogs.reasons(true))
+        #expect(!Catalogs.reasons(false) && !Catalogs.reasons(.null))
+        #expect(!Catalogs.reasons(["allowed_options": ["off"]]))
+        #expect(!Catalogs.reasons(nil))
+    }
+
+    @Test func aRecordedFailedToolCheckOutranksWhatTheServerReports() throws {
+        // The chat template says it calls tools; wisp's check found the model did not.
+        FakeChatServer.serve(
+            Self.llama, "/props",
+            #"{"default_generation_settings":{"n_ctx":8192},"chat_template_caps":{"supports_tool_calls":true}}"#)
+        let check = Config.CapabilityCheck(date: "2026-10-09", passed: ["guidedGeneration"], failed: ["toolCalling"])
+        let checked = Config(
+            llamacpp: .init(
+                baseURL: "http://\(Self.llama):1", timeoutSeconds: 5,
+                models: ["Qwen3-8B-Q4_K_M": .init(capabilities: ["guidedGeneration"], verified: check)])
+        ).resolved
+        let model = try ModelSelection.local(backend: "llamacpp", name: "Qwen3-8B-Q4_K_M").resolve(config: checked)
+        // Text only, as the check said and audited, so a conversation with tools refuses it.
+        #expect(model.capabilityNames == ["guidedGeneration"], "\(model.capabilityNames)")
+        #expect(throws: ModelSelection.Failure.self) { try model.check(tools: [PathTool()]) }
+        // A capability the operator declared by hand stays, whatever the check found.
+        let byHand = Config(
+            llamacpp: .init(
+                baseURL: "http://\(Self.llama):1", timeoutSeconds: 5,
+                models: ["Qwen3-8B-Q4_K_M": .init(capabilities: ["toolCalling", "guidedGeneration"], verified: check)])
+        ).resolved
+        let kept = try ModelSelection.local(backend: "llamacpp", name: "Qwen3-8B-Q4_K_M").resolve(config: byHand)
+        #expect(kept.capabilityNames.contains("toolCalling"))
+    }
+
     @Test func aLlamaCppRouterNamesTheModelInProps() throws {
         FakeChatServer.serve(
             Self.llama, "/v1/models",
@@ -51,7 +121,7 @@ extension OpenAICompatibleExecutorTests {
 
     @Test func lmStudioListsEveryModelWithWhatItReportsAndTheLoadedWindow() async throws {
         let backend = OpenAICompatibleBackend(.lmStudio)
-        let installed = try await backend.installed(config: Self.studioConfig, home: Home.resolve())
+        let installed = try await backend.installed(config: Self.studioConfig, home: OfflineBackends.home)
         #expect(
             installed.map(\.selection.description) == [
                 "lmstudio:qwen/qwen3-8b", "lmstudio:google/gemma-3-1b", "lmstudio:text-embedding-nomic",
@@ -96,7 +166,7 @@ extension OpenAICompatibleExecutorTests {
         }
         #expect(ContinuousClock.now - started < .seconds(5))
         await #expect(throws: OpenAICompatibleModel.Failure.self) {
-            _ = try await OpenAICompatibleBackend(dialect).installed(config: config, home: Home.resolve())
+            _ = try await OpenAICompatibleBackend(dialect).installed(config: config, home: OfflineBackends.home)
         }
         // Chat's fallback note says what to start.
         let note = ModelFallback(model: .local(backend: dialect.scheme, name: "m"), reason: "down").message

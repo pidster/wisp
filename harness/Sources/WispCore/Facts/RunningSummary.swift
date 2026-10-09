@@ -122,7 +122,8 @@ enum SummaryWriter {
         var number = 0
         for entry in entries {
             switch entry.value {
-            case .prompt:
+            // The person's command is held as a prompt but starts no turn (`FactDistiller.turns(in:)`).
+            case .prompt where entry.kind != .command:
                 number = entry.turn ?? number + 1
             case .toolCalls(let calls) where number > 0:
                 found[number, default: []] += calls.map {

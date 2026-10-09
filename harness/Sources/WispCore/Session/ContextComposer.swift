@@ -421,8 +421,8 @@ public struct ContextComposer: Sendable {
         let estimate = used + prompt.utf8.count / Self.bytesPerToken
         guard Double(estimate) >= Double(window) * budget else { return nil }
         let before = literal(store)
-        let after = before.condensed(keepTurns: keepTurns)
-        guard after.turnCount < before.turnCount else { return nil }
+        let after = store.condensed(before, keepTurns: keepTurns)
+        guard store.turnCount(of: after) < store.turnCount(of: before) else { return nil }
         return Condensation(before: before, after: after, estimate: estimate)
     }
 
@@ -435,6 +435,6 @@ public struct ContextComposer: Sendable {
     func overflow(in store: ThreadRecord) -> Condensation? {
         guard case .condense(let keepTurns) = policy else { return nil }
         let before = literal(store)
-        return Condensation(before: before, after: before.condensed(keepTurns: keepTurns), estimate: nil)
+        return Condensation(before: before, after: store.condensed(before, keepTurns: keepTurns), estimate: nil)
     }
 }

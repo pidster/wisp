@@ -56,6 +56,8 @@ final class RuntimeLog: Sendable {
     let guided = Mutex<[String]>([])
     /// The prompt tokens each guided generation began from.
     let guidedPrompts = Mutex<[[Int]]>([])
+    /// The token limit each guided generation was given.
+    let guidedBudgets = Mutex<[Int]>([])
     /// The chunks a free thinking phase streams, and how many of them were taken before it was stopped.
     let thinking: Mutex<[String]>
     let thought = Mutex<[Int]>([])
@@ -122,6 +124,7 @@ struct WordRuntime: PromptRuntime {
     ) {
         log.guided.withLock { $0.append(schema) }
         log.guidedPrompts.withLock { $0.append(prompt) }
+        log.guidedBudgets.withLock { $0.append(maxTokens) }
         return (#"{"answer":"yes"}"#, 5)
     }
 }

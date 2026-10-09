@@ -203,6 +203,26 @@ public struct ThreadRecord: Sendable {
     /// The running summary's versions, oldest first (phase 4b, decision D1): the last is current, each earlier
     /// one superseded by the next. Saved with the store; at most `RunningSummary.historyLimit` are kept.
     public internal(set) var summaries: [RunningSummary] = []
+    /// What the agent working on the conversation keeps from one turn to the next, held here so an agent that takes
+    /// the store over (chat's `/model`) goes on where the one before left off; this session's only, and not saved.
+    var continuity = Continuity()
+
+    /// What an agent keeps between turns that belongs to the conversation rather than to the model it runs on.
+    struct Continuity: Sendable {
+        /// How many times `Agent.reset` (chat's `/new`) has started a fresh conversation in this one's place, which
+        /// names it among the process's proposals (`Agent.threadID`).
+        var generation = 0
+        /// How many times the conversation has been condensed (`Agent.condensations`).
+        var condensations = 0
+        /// What the assessment carries from one request to the next.
+        var assessed = AssessmentState()
+        /// The facts whose heads disagreed at the last check (`Agent.factConflicts`).
+        var factConflicts: Set<FactIdentity.Key> = []
+        /// What the last stored turn ran (`Agent.turnTools`).
+        var turnTools: TurnToolSummary?
+        /// The runtime's report of the conversation's last request (`Agent.lastInputTokens`); nil before one.
+        var inputTokens: Int?
+    }
 
     /// The current running summary, or nil before the first is written.
     public var summary: RunningSummary? { summaries.last }
@@ -218,13 +238,18 @@ public struct ThreadRecord: Sendable {
         }
     }
 
-    /// The dropped entries the running summary does not cover yet: prompts, tool calls, and replies after its
-    /// `through`, in order. Condensing drops whole turns, so these are whole turns too.
+    /// The kinds of entry a running summary covers: the person's prompts and commands, the tool calls, and the
+    /// replies.
+    static let narrative: Set<Kind> = [.prompt, .command, .toolCalls, .response]
+
+    /// The dropped entries the running summary does not cover yet: prompts, the person's commands, tool calls, and
+    /// replies after its `through`, in order. Condensing drops whole turns, each with the commands typed before it,
+    /// so these are whole turns too.
     var unsummarised: [Entry] {
         let through = summary?.through ?? 0
         return entries.filter { entry in
             guard entry.id > through, entry.state != .active else { return false }
-            return [.prompt, .toolCalls, .response].contains(entry.kind)
+            return Self.narrative.contains(entry.kind)
         }
     }
 
@@ -398,7 +423,8 @@ public struct ThreadRecord: Sendable {
     /// The audit events that recorded each of a turn's new entries, in the same order.
     ///
     /// Prompts refer to the turn's `prompt` event and the last response to its `response` event; each reasoning
-    /// entry, in order, to the turn's `model.reasoning` events that ended a stretch of thinking (ADR 0053). Each tool
+    /// entry to one of the turn's `model.reasoning` events that ended a stretch of thinking (ADR 0053), the last entry
+    /// to the last event and so on back, so thinking an overflow retry discarded is left unlinked. Each tool
     /// call is matched to a `tool.call` event of the same tool, with the same arguments where one has them,
     /// latest first, so a call repeated after an overflow retry links to the retry's event; a tool output
     /// refers to the `tool.result` of the event its call matched.
@@ -446,13 +472,15 @@ public struct ThreadRecord: Sendable {
                 break
             }
         }
+        // Latest first, as tool calls are: a request an overflow retry replaced recorded thinking whose entries the
+        // retry's session does not hold, so the turn's entries are the last stretches recorded.
         var thoughts = toolEvents.filter { $0.kind == .modelReasoning && $0.details["phase"]?.stringValue == "end" }[
             ...]
-        for (index, entry) in entries.enumerated() {
+        for (index, entry) in entries.enumerated().reversed() {
             if case .toolOutput(let output) = entry, let call = auditCall[output.id], let result = results[call] {
                 sources[index] = [AuditReference(result)]
             }
-            if case .reasoning = entry, let thought = thoughts.popFirst() { sources[index] = [AuditReference(thought)] }
+            if case .reasoning = entry, let thought = thoughts.popLast() { sources[index] = [AuditReference(thought)] }
         }
         return sources
     }

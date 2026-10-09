@@ -30,22 +30,31 @@ extension Agent {
     /// What a condensation hands on before it drops `leaving`: the facts in the prose of those turns
     /// (`distil(_:staying:)`) and, when the batch is due, a new version of the running summary covering them and
     /// the turns dropped before them that it does not cover yet. With `FactSettings.summaryWithFacts`, both
-    /// come from one call; otherwise the summary has a call of its own after the facts'. Nothing here fails
-    /// the turn.
+    /// come from one call when the batch is only the turns leaving now; otherwise, and whenever the batch holds turns
+    /// an earlier condensation distilled, the summary has a call of its own after the facts', so no turn is distilled
+    /// twice. Nothing here fails the turn.
     ///
     /// - Parameters:
     ///   - leaving: The store entries a condensation is about to drop.
     ///   - staying: The entries it keeps.
-    nonisolated(nonsending) func handOn(_ leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry]) async {
-        guard let batch = summaryBatch(leaving: leaving) else {
-            await distil(leaving, staying: staying)
-            return
-        }
-        if let facts, facts.distils, facts.summaryWithFacts {
-            await distilAndSummarise(batch, leaving: leaving, staying: staying)
-        } else {
-            await distil(leaving, staying: staying)
+    /// - Returns: Whether the facts of `leaving` were distilled: a call ran and succeeded.
+    @discardableResult
+    nonisolated(nonsending) func handOn(_ leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry]) async -> Bool {
+        // The distiller's and the summary's thinking is not the turn's: no observer records it (ADR 0053).
+        await ReasoningObserver.$current.withValue(nil) {
+            guard let batch = summaryBatch(leaving: leaving) else {
+                return await distil(leaving, staying: staying)
+            }
+            // One call only when the batch is the turns leaving now: turns dropped before were distilled when they
+            // went, and distilling them again would re-assert their older values over newer facts.
+            let leavingNow = Set(leaving.map(\.id))
+            let distilledBefore = batch.contains { $0.kind == .prompt && !leavingNow.contains($0.id) }
+            if let facts, facts.distils, facts.summaryWithFacts, !distilledBefore {
+                return await distilAndSummarise(batch, leaving: leaving, staying: staying)
+            }
+            let distilled = await distil(leaving, staying: staying)
             await summarise(batch)
+            return distilled
         }
     }
 
@@ -57,8 +66,9 @@ extension Agent {
     /// - Returns: The batch, or nil.
     func summaryBatch(leaving: [ThreadRecord.Entry]) -> [ThreadRecord.Entry]? {
         guard facts != nil, composer.summarises else { return nil }
-        let narrative: Set<ThreadRecord.Kind> = [.prompt, .toolCalls, .response]
-        let batch = (store.unsummarised + leaving.filter { narrative.contains($0.kind) }).sorted { $0.id < $1.id }
+        let batch = (store.unsummarised + leaving.filter { ThreadRecord.narrative.contains($0.kind) }).sorted {
+            $0.id < $1.id
+        }
         guard FactDistiller.turns(in: batch).count >= max(1, composer.summaryBatchTurns) else { return nil }
         return batch
     }
@@ -109,10 +119,11 @@ extension Agent {
     ///   - batch: The entries the summary adds (`summaryBatch(leaving:)`), whose prose the facts come from too.
     ///   - leaving: The entries the condensation drops.
     ///   - staying: The entries it keeps, whose prompts are shown for the latest values.
+    /// - Returns: Whether the call succeeded.
     nonisolated(nonsending) private func distilAndSummarise(
         _ batch: [ThreadRecord.Entry], leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry]
-    ) async {
-        guard let facts else { return }
+    ) async -> Bool {
+        guard let facts else { return false }
         let turns = FactDistiller.turns(in: batch)
         let (cap, budget) = summaryBounds
         let prompt = FactDistiller.prompt(
@@ -153,6 +164,7 @@ extension Agent {
         auditSummary(
             turns: turns, entries: batch.count, bytes: prompt.utf8.count, started: started, combined: true,
             failure: failure ?? unsummarised)
+        return failure == nil
     }
 
     /// Records `answer`, fitted to `capBytes`, as the next version of the running summary covering `batch`.

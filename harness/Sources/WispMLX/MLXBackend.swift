@@ -51,6 +51,14 @@ public struct MLXBackend: ModelBackend {
         self.cache = cache
     }
 
+    /// The real path of the directory `name` points to (`modelURL(for:config:home:)`), so `mlx:<org>/<name>`,
+    /// `mlx:~/…`, and `mlx:/abs/…` naming one directory are one model; without a configuration and a home, a path
+    /// name's real path, and any other name as it is.
+    public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
+        guard let config, let home else { return ModelBackends.canonicalPath(name) ?? name }
+        return CommandPolicy.canonical(Self.modelURL(for: name, config: config, home: home).path)
+    }
+
     /// The configured models directory, or the default under the home.
     public static func modelsDirectory(config: Config.Resolved, home: Home) -> URL {
         if let configured = config.mlxModelsDirectory {

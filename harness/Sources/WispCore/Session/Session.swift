@@ -248,7 +248,9 @@ public struct Session: Sendable {
         var config = try loadConfig(home: home)
         var notes: [String] = []
         if let model = request.model {
-            if config.disabledModels.contains(model) { throw ModelSelection.Failure.disabled(model: model.description) }
+            if model.isAmong(config.disabledModels, config: config, home: home) {
+                throw ModelSelection.Failure.disabled(model: model.description)
+            }
             config.model = model
         }
         if request.unsafe {
@@ -261,6 +263,12 @@ public struct Session: Sendable {
             )
         }
         let toolNames = try Self.resolve(request.tools, config: config)
+        let permanentFacts = SharedFacts.permanent(home: home)
+        if let aside = permanentFacts.setAside {
+            notes.append(
+                "warning: \(home.factsFile.path) could not be read; it was moved to \(aside.path) and wisp starts with "
+                    + "no permanent facts")
+        }
         let sessionID = ShortID.make()
         let sink: any AuditSink = config.auditEnabled ? try dependencies.makeSink(home, config) : NullAuditSink()
         let audit = AuditLog(session: sessionID, sink: sink)
@@ -287,7 +295,8 @@ public struct Session: Sendable {
             notifier: Notifier(
                 enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute,
                 run: dependencies.notify),
-            stats: stats, permanentFacts: .permanent(home: home), disabledModels: DisabledModels(config.disabledModels))
+            stats: stats, permanentFacts: permanentFacts,
+            disabledModels: DisabledModels(config.disabledModels, config: config, home: home))
     }
 
     /// Where `approval.coremlModel` points: `risk@<version>` in the classifier store, absolute or `~`

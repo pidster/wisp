@@ -203,7 +203,7 @@ unless `facts.enabled` is false; an `Agent` made directly keeps none, and compos
 | --- | --- | --- | --- |
 | `dynamic` | The state of the work: the task, tests, files, the branch, the working directory | The conversation's store (`ThreadRecord.facts`, ids `c…`) | With the store in `transcripts/<name>.store`; `--resume` restores them |
 | `ephemeral` | The machine now: services, ports, memory | The session (`Session.sessionFacts`, ids `s…`), shared by every conversation of one process, so an MCP server's threads share them | Never; gone when the process ends |
-| `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and written on each change | Always |
+| `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and when it changes, and written on each change to the file as it then is, under a lock shared by every `wisp` process; one that does not decode is moved aside (`facts.json.unreadable-<time>`), never overwritten | Always |
 
 Only the person moves a fact into the shared store: by stating it (`/fact` under a permanent kind) or by
 moving one a tool or the model proposed (`/fact ID permanent`; [ADR 0044](decisions/0044-host-effects.md),
@@ -228,7 +228,10 @@ source's current fact already says it, an assertion from a source no stronger ad
 value, if any, gives way to that fact), and one from a stronger source replaces it, so the value stands
 under the strongest source that asserted it. Different values from different sources stand side by side,
 and precedence picks the winner: the person and an MCP caller, then a tool, then the model, the newer on a
-tie; a fact the person approved ranks with the person. When the current heads of different sources
+tie; a fact the person approved ranks with the person. What a command the person typed after `!` printed is an
+observation, not a statement: its facts rank with a tool's, named `the person's command` in their source, so a
+later run of the same command, the person's or the model's, supersedes it (a passing `! swift test` gives way to
+the model's later failing run; ADR 0049, refined 2026-10-09). When the current heads of different sources
 disagree (compared after case folding and collapsing whitespace), the identity is in conflict: the model
 sees the winner with a note of what the other source says, and the conflict is audited when it is raised
 and when it is resolved. The person resolves it by stating the value, or by deleting a side.
@@ -368,7 +371,10 @@ summary stays as it was, the turns are dropped as before, and the turn goes on.
 **One call or two.** By default the summary is written in the same call as the facts
 (`FactSettings.summaryWithFacts`): one `@Generable` answer with the facts and the updated summary, shown the
 subject kinds, the summary so far, and the batch's turns with their tool calls, bounded at the distiller's
-900 output tokens plus the summary's. When the batch is not due, the facts' call is as before; with
+900 output tokens plus the summary's. That one call is made only when the batch is the turns leaving now: when it
+also holds turns an earlier condensation dropped, which were distilled as they went, the facts' call reads only the
+turns leaving now and the summary has a call of its own, so an older value is never distilled again over a newer
+fact (found in review, 2026-10-09). When the batch is not due, the facts' call is as before; with
 `facts.distil` false, the summary has a call of its own, plain text. On the eval ([proposal](proposals/2026-09-29-layered-context.md), "Summary, 2026-09-30") one call held its
 schema on both models with no failure, took less time than the two (34 s against 57 s on the on-device
 model, 29 s against 32 s on granite, under heavy load), and scored as well or better.
@@ -444,8 +450,8 @@ every tool has it only when `context.memory` is on; one given a named list has i
 whatever the setting, so MCP's `tools: ["run_command"]` stays exact; `tools.disabled` can leave it out everywhere. With it, the system prompt carries one standing rule (D12's layer 1): "Earlier turns may reach you
 only as a summary, facts, or references; when a question needs detail they leave out, recall the entry or turn
 they name with memory instead of guessing or running a tool again." Without it, the rule is left out and
-references keep "call it again to see it"; a person's command's notice says `its output is not repeated`, and
-nothing else the model reads names the tool. The facts, the summary, and the references are the same either way. A fact a tool gave names the entry of its output in its source
+a read-only tool's reference says "call it again to see it" and any other's, like a person's command's notice,
+`its output is not repeated; do not run it again to see it`, and nothing else the model reads names the tool. The facts, the summary, and the references are the same either way. A fact a tool gave names the entry of its output in its source
 (`from tool read_file, turn 2, entry 4`), since once the turn is dropped the fact is the only pointer to it.
 Before anything is stored, a recall answers that the first turn is all in view, not "none". Measured on the
 on-device model on 2026-09-30 with `tokenCount(for:)`: the rule costs 43 tokens (the prompt is 111 without it,
@@ -573,7 +579,12 @@ conversation that keeps no facts still gets the tools line.
 
 `condensed(keepTurns:)` keeps the leading `.instructions` entry and the last N turns, where a turn is a
 `.prompt` plus everything up to the next prompt, so tool calls and outputs stay with the prompt that caused
-them. It is pure and tested, and the target policy drops turns through it too. `Agent.condensations`
+them. A command the person ran after `!` ([ADR 0049](decisions/0049-commands-typed-in-chat.md)), which the store holds
+as a prompt, is no turn of its own: it goes with the turn after it, the one whose request first told the model of
+it, and a command typed after the last turn is always kept, so the floor of one turn is still the last turn the
+model took part in, and the turn counts (the condensation event's, `/tokens`'s) leave commands out. A dropped
+command reaches the distiller and the running summary with its turn, as one line ahead of that turn's prompt. It
+is pure and tested, and the target policy drops turns through it too. `Agent.condensations`
 counts condensations so callers can tell the user; `chat` prints a note and MCP `respond` sets
 `structuredContent.condensed`.
 

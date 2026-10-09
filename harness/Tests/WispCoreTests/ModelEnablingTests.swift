@@ -59,7 +59,8 @@ private struct EnablingBackend: ModelBackend {
     private func home(_ config: String? = nil) throws -> Home {
         let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-enabling-\(UUID())"))
         try home.ensure()
-        if let config { try Data(config.utf8).write(to: home.configFile) }
+        // Every HTTP backend offline, so listing and checking models never reach a server on this Mac.
+        try Data(OfflineBackends.file(config).utf8).write(to: home.configFile)
         return home
     }
 
@@ -280,5 +281,72 @@ private struct EnablingBackend: ModelBackend {
         let none = ChatProtocol.Inbound(line: #"{"type":"choose","id":"c","values":[]}"#)
         if case .answer(_, let decision) = none { #expect(ChatChoice.values(answer: decision) == []) }
         #expect(ChatChoice.values(answer: "a") == nil && ChatChoice.values(answer: nil) == nil)
+    }
+
+    @Test func aDisabledModelIsRefusedUnderEverySpellingOfIt() throws {
+        // Ollama: a name without a tag is `:latest`; a registry's port is no tag.
+        let ollama = DisabledModels([.ollama("granite4.1"), .ollama("host:5000/team/m")])
+        #expect(ollama.contains(.ollama("granite4.1:latest")) && ollama.contains(.ollama("granite4.1")))
+        #expect(!ollama.contains(.ollama("granite4.1:8b")))
+        #expect(ollama.contains(.ollama("host:5000/team/m:latest")))
+        #expect(DisabledModels([.ollama("hf.co/org/m:latest")]).contains(.ollama("hf.co/org/m")))
+        // llama.cpp: a model listed by its file's path is also named by the file's name without `.gguf`.
+        let path = ModelSelection.local(backend: "llamacpp", name: "/models/Qwen3-8B-Q4_K_M.gguf")
+        let short = ModelSelection.local(backend: "llamacpp", name: "Qwen3-8B-Q4_K_M")
+        #expect(DisabledModels([path]).contains(short) && DisabledModels([short]).contains(path))
+        // A path name of a backend this build does not register, by its real path: `~` and links resolved.
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-alias-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appending(path: "m"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createSymbolicLink(
+            at: dir.appending(path: "link"), withDestinationURL: dir.appending(path: "m"))
+        let real = ModelSelection.local(backend: "unregistered", name: dir.appending(path: "m").path)
+        let linked = ModelSelection.local(backend: "unregistered", name: dir.appending(path: "link").path)
+        #expect(DisabledModels([real]).contains(linked))
+        let tilde = ModelSelection.local(backend: "unregistered", name: "~/wisp-alias-model")
+        let expanded = ModelSelection.local(
+            backend: "unregistered",
+            name: FileManager.default.homeDirectoryForCurrentUser.appending(path: "wisp-alias-model").path)
+        #expect(DisabledModels([tilde]).contains(expanded))
+    }
+
+    @Test func everyEntryRefusesAnAliasAndEnablingOneSpellingEnablesTheModel() throws {
+        let home = try home(#"{"models":{"disabled":["ollama:granite4.1"]}}"#)
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let tagged = ModelSelection.ollama("granite4.1:latest")
+        // --model, at the start of a session, and the thread an MCP caller or /model opens.
+        #expect(throws: ModelSelection.Failure.disabled(model: "ollama:granite4.1:latest")) {
+            try session(home, model: tagged)
+        }
+        let session = try session(home)
+        let thread = try session.thread(id: "t", approver: DenyingApprover(reason: "x"), model: tagged)
+        #expect(throws: ModelSelection.Failure.disabled(model: "ollama:granite4.1:latest")) { try thread.openAgent() }
+        // Enabling it under the other spelling takes it out of the file.
+        let lines = try session.setModels(enable: ["ollama:granite4.1:latest"], disable: [], source: "chat")
+        #expect(lines == ["enabled ollama:granite4.1:latest"])
+        #expect(try file(home).models?.disabled == nil)
+        #expect(!session.disabledModels.contains(tagged))
+        // Disabling one spelling and then the other keeps one entry; enabling the first spelling removes it.
+        try session.setDisabled(.ollama("granite4.1"), true, source: "chat")
+        try session.setDisabled(tagged, true, source: "chat")
+        #expect(try file(home).models?.disabled == [tagged])
+        try session.setDisabled(.ollama("granite4.1"), false, source: "chat")
+        #expect(try file(home).models?.disabled == nil)
+        // The default under another spelling cannot be disabled, by setModels or setDisabled, nor by the file.
+        try Data(OfflineBackends.file(#"{"model":"ollama:granite4.1"}"#).utf8).write(to: home.configFile)
+        #expect(throws: ModelSelection.Failure.defaultDisabled(model: "ollama:granite4.1:latest")) {
+            try session.setModels(enable: [], disable: ["ollama:granite4.1:latest"], source: "chat")
+        }
+        #expect(throws: ModelSelection.Failure.defaultDisabled(model: "ollama:granite4.1:latest")) {
+            try session.setDisabled(tagged, true, source: "chat")
+        }
+        try Data(#"{"model":"ollama:granite4.1","models":{"disabled":["ollama:granite4.1:latest"]}}"#.utf8).write(
+            to: home.configFile)
+        #expect(throws: ModelSelection.Failure.defaultDisabled(model: "ollama:granite4.1")) {
+            try Config.load(from: home.configFile)
+        }
+        #expect(
+            Config(model: .ollama("granite4.1"), models: .init(disabled: [tagged])).disabledDefault
+                == .ollama("granite4.1"))
     }
 }

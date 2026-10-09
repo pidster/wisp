@@ -123,6 +123,29 @@ import WispTestSupport
         #expect(throws: TranscriptStore.Failure.notFound("nope")) { try store.loadThread("nope") }
     }
 
+    @Test func aStoreHoldingTheModelsThinkingSavesAndResumes() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TranscriptStore(directory: dir)
+        let model = ScriptedModel(
+            steps: [.think("Is 91 prime? 7 times 13."), .say("No."), .say("ok")],
+            capabilities: [.toolCalling, .guidedGeneration, .reasoning])
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: model, contextSize: 10_000))
+        _ = try await agent.respond(to: "Is 91 prime?")
+        #expect(agent.store.holdsReasoning)
+        try store.save(agent.store, as: "chat")
+        // Nothing staged is left beside the pair.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted() == ["chat.json", "chat.store"])
+        let saved = try store.loadThread("chat")
+        let (resumed, _) = resume(saved)
+        let thought = try #require(resumed.store.entries.first { $0.kind == .reasoning })
+        #expect(ThreadRecord.text(of: thought.value) == "Is 91 prime? 7 times 13." && thought.origin == .resumed)
+        #expect(resumed.store.entries.map(\.kind) == agent.store.entries.map(\.kind))
+        // Still never composed into a request.
+        #expect(!resumed.transcript.contains { if case .reasoning = $0 { true } else { false } })
+    }
+
     @Test func aCorruptOrMismatchedStoreFileCannotBeResumed() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -133,17 +156,28 @@ import WispTestSupport
         let good = try Data(contentsOf: links)
         // Not JSON at all.
         try Data("{ nope".utf8).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
+        // Each cause is said apart (it was always "saved by an older wisp").
+        do {
+            _ = try store.loadThread("chat")
+            Issue.record("a corrupt store resumed")
+        } catch let failure as TranscriptStore.Failure {
+            guard case .unreadableStore("chat", _) = failure else {
+                Issue.record("\(failure)")
+                return
+            }
+            #expect(failure.description.contains("its store, chat.store, cannot be read"))
+        }
         // Links of another conversation: valid JSON that names entries the transcript does not have.
         let other = try await condensedAgent(sink: MemoryAuditSink())
         try store.save(other.store, as: "other")
         try Data(contentsOf: store.linksURL(for: "other")).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
+        #expect(throws: TranscriptStore.Failure.mismatchedStore("chat")) { try store.loadThread("chat") }
+        #expect(TranscriptStore.Failure.mismatchedStore("chat").description.contains("does not match it"))
         // A future version this build cannot read.
         var future = try JSONDecoder().decode(ThreadRecord.Snapshot.self, from: good)
         future.version = 99
         try JSONEncoder().encode(future).write(to: links)
-        #expect(throws: TranscriptStore.Failure.notResumable("chat")) { try store.loadThread("chat") }
+        #expect(throws: TranscriptStore.Failure.storeVersion("chat", version: 99)) { try store.loadThread("chat") }
         // The agent itself also carries the transcript alone when handed links that do not match.
         let (resumed, _) = resume(TranscriptStore.Saved(transcript: agent.transcript, links: future))
         #expect(resumed.store.entries.allSatisfy { $0.origin == .carried })

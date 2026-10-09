@@ -103,6 +103,7 @@
             var generated = 0
             var recognised = false
             var malformed: [String] = []
+            var malformedFrames = 0
             for await event in stream {
                 switch event {
                 case .chunk(let text): await emit(.text(text))
@@ -115,20 +116,21 @@
                         ))
                 case .info(let info): generated = info.generationTokenCount
                 case .rejectedToolCall(let rejected):
-                    if rejected.reason == .malformedSyntax, !rejected.isPreviewTruncated {
-                        malformed.append(rejected.rawTextPreview)
+                    if rejected.reason == .malformedSyntax {
+                        malformedFrames += 1
+                        if !rejected.isPreviewTruncated { malformed.append(rejected.rawTextPreview) }
                     }
                 }
             }
             await task.value
             try Task.checkCancellation()
-            if !recognised {
+            // Recovered only from exactly one malformed frame, wholly seen, in a reply with no recognised call
+            // (docs/backends.md): two frames, or one cut short, are not read as calls.
+            if !recognised, malformedFrames == 1, let raw = malformed.first {
                 let offered = Set(
                     prompt.tools.compactMap { $0.objectValue?["function"]?.objectValue?["name"]?.stringValue })
-                for raw in malformed {
-                    for call in ToolCallRecovery.framedArray(raw, offered: offered) ?? [] {
-                        await emit(.toolCall(name: call.name, arguments: call.arguments))
-                    }
+                for call in ToolCallRecovery.framedArray(raw, offered: offered) ?? [] {
+                    await emit(.toolCall(name: call.name, arguments: call.arguments))
                 }
             }
             return generated

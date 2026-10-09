@@ -246,6 +246,7 @@ import WispTestSupport
         let count: ((Transcript) async -> Int?)? = counting ? { trueTokens($0, definitions: definitions) } : nil
         var condensations = 0
         var floors = 0
+        var lastTurn: Transcript.Entry.ID?
         for number in 1...Int.random(in: 4...40, using: &rng) {
             host.condensingTurn = number
             host.composer.squeezesEarlier = false
@@ -267,10 +268,23 @@ import WispTestSupport
                 #expect(goal <= Int(Double(window) * target.share), "\(context)")
                 #expect(host.store.entries.count == entries, "the store keeps every entry: \(context)")
                 #expect(outcome.steps.filter { if case .dropped = $0 { true } else { false } }.count <= entries)
+                // The last turn the model took part in is never dropped, whatever commands came after it (D5's floor).
+                if let last = lastTurn {
+                    #expect(
+                        host.store.entries.first { $0.value.id == last }?.state == .active,
+                        "the last whole turn stays: \(context)")
+                }
+                // The person's commands and the model's reasoning are no turn of their own.
+                #expect(
+                    host.store.turnCount(of: host.composer.literal(host.store))
+                        == host.store.entries.filter { $0.kind == .prompt && $0.state == .active }.count,
+                    "\(context)")
                 if outcome.floor {
                     floors += 1
                     // Only at the floor: one literal turn or none, and the earlier block squeezed or empty.
-                    #expect(host.composer.literal(host.store).turnCount <= ContextTarget.floorTurns, "\(context)")
+                    #expect(
+                        host.store.turnCount(of: host.composer.literal(host.store)) <= ContextTarget.floorTurns,
+                        "\(context)")
                     #expect(host.composer.facts.earlier == nil || host.composer.squeezesEarlier, "\(context)")
                 } else {
                     // At or below the target, and a turn of average size fits under the budget after the prompt.
@@ -281,10 +295,23 @@ import WispTestSupport
                 }
             }
             let output = Bool.random(using: &rng) ? Int.random(in: 100...4096, using: &rng) : 0
-            for entry in turn(
+            var entries = turn(
                 number, prompt: promptBytes, output: output, reply: Int.random(in: 20...1600, using: &rng), &rng)
-            {
-                host.store.record(entry, origin: .turn, turn: number, sources: [])
+            // A thinking model's reasoning, kept for the person and never composed (ADR 0053).
+            if Int.random(in: 0..<4, using: &rng) == 0 {
+                entries.insert(
+                    .reasoning(
+                        .init(segments: [.text(.init(content: text(Int.random(in: 20...800, using: &rng), &rng)))])),
+                    at: 1)
+            }
+            for entry in entries { host.store.record(entry, origin: .turn, turn: number, sources: []) }
+            lastTurn = entries.first?.id
+            // Now and then the person runs commands of their own after the turn (ADR 0049).
+            for _ in 0..<[0, 0, 0, 1, 2].randomElement(using: &rng)! {
+                host.store.record(
+                    command: .init(line: "git status", directory: "/w", exitStatus: 0),
+                    output: text(Int.random(in: 10...2000, using: &rng), &rng), turn: number + 1, sources: [],
+                    time: Date())
             }
         }
         return (condensations, floors)
