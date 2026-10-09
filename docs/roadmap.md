@@ -13,7 +13,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | --- | --- | --- |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (run and decided, ADR 0057) | The assessment reconsidered (built and decided); MLX against Ollama (measured for Qwen3-1.7B, the gap fixed; the rest to measure); gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
-| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
 ## 0.20.0: analysis, evals, and tuning
@@ -174,6 +174,16 @@ The release given to measurement, once the four before it were out. What was bui
   `inspect(audit)` by turn, one line per call, and noticing the same tool call repeated within a turn (six
   `inspect(audit)` calls in one turn of session ce87576a, 2026-10-04). `run_command` stops discarding all but the
   tail. Found when a model asked to check its turn read only its last 20 audit events.
+
+- **Shell loops judged by what they run.** A standing approval `do *` was found on 2026-10-09: wisp had
+  remembered a `for … do …` loop by its first word, the shell keyword `do`, so the approval covered any later
+  loop whatever its body ran. The operator revoked it. The classifier and the approval patterns should look
+  through `for`, `while`, `until`, `if`, and `case` to the simple commands inside (as `CommandSplitter` does
+  for `;` and `&&`), rate the line by its riskiest command, and never remember a pattern by a keyword.
+- **Approvals for folders that are gone.** A project approval is tied to the directory it was given in, and
+  outlives it: `b12873de` (`git commit *`) belonged to an agent's worktree removed on 2026-10-04 and could
+  never match again (revoked 2026-10-09). `wisp approvals` should mark an approval whose directory no longer
+  exists, and offer to remove such approvals (`wisp approvals clear --gone`, or when listing).
 
 ## 0.23.0
 
