@@ -8,10 +8,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/harness/.build/release/wisp"
 
 if [ ! -x "$BIN" ]; then
+    # scripts/check mcp-build, not a bare `swift build -c release`: that one rewrites harness/Package.resolved
+    # without the MLX pins, and the gate and the release then refuse the tree.
     cat >&2 <<MSG
 wisp MCP server: no release build at $BIN
 Build it, then restart your agent harness (or run /mcp in Claude Code):
-    cd "$ROOT/harness" && swift build -c release
+    "$ROOT/scripts/check" mcp-build
 MSG
     exit 1
 fi

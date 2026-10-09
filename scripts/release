@@ -8,7 +8,9 @@ set -eu
 
 VERSION="${1:-}"
 [ -n "$VERSION" ] || { echo "usage: scripts/release X.Y.Z [--dry-run] [--skip-eval]" >&2; exit 64; }
-case "$VERSION" in *[!0-9.]*|.*|*.|*..*) echo "version must be X.Y.Z" >&2; exit 64 ;; esac
+# Exactly three dot-separated numbers: 1.2 or 1.2.3.4 would tag a version Homebrew and WispVersion disagree on.
+printf '%s\n' "$VERSION" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' \
+    || { echo "version must be X.Y.Z (three numbers, no leading zeros), not '$VERSION'" >&2; exit 64; }
 shift
 DRY_RUN=""
 SKIP_EVAL=""
@@ -63,6 +65,33 @@ SHIPPED="$(sed -n 's/^ *"version" : "\([^"]*\)",*$/\1/p' harness/Sources/WispCor
 [ "$SHIPPED" = "$VERSION-default" ] || { echo "the shipped classifier is $SHIPPED, not $VERSION-default; run scripts/check classifier-default after the bump" >&2; exit 1; }
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "tag $TAG exists" >&2; exit 1; fi
 gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated" >&2; exit 1; }
+# The remote, read only, before the slow steps: the tag must not exist on origin (a local check misses one pushed
+# from another clone), and origin/main must be HEAD, so the tag names a commit that is pushed and nothing on origin is
+# left out. A dry run, often made before pushing, reports these and goes on.
+remote_problem() {
+    if [ "$DRY_RUN" = "--dry-run" ]; then
+        echo "[dry-run] would stop here: $*" >&2
+    else
+        echo "$*" >&2
+        exit 1
+    fi
+}
+if remote_tag="$(git ls-remote --tags origin "refs/tags/$TAG")"; then
+    [ -z "$remote_tag" ] || remote_problem "tag $TAG exists on origin"
+else
+    remote_problem "could not ask origin for its tags (git ls-remote failed)"
+fi
+if remote_main="$(git ls-remote origin refs/heads/main | cut -f1)" && [ -n "$remote_main" ]; then
+    if [ "$remote_main" != "$START" ]; then
+        if git merge-base --is-ancestor "$remote_main" "$START" 2>/dev/null; then
+            remote_problem "main is not pushed: origin/main is $remote_main, HEAD is $START; push it first"
+        else
+            remote_problem "main is behind or has diverged from origin/main ($remote_main); pull, check, and rerun"
+        fi
+    fi
+else
+    remote_problem "could not read origin's main (git ls-remote failed)"
+fi
 NOTES="$(awk -v v="$VERSION" '
     $0 == "## " v { on = 1; next }
     /^## / { on = 0 }
@@ -70,6 +99,9 @@ NOTES="$(awk -v v="$VERSION" '
 ' CHANGELOG.md | sed -e '/./,$!d')"
 [ -n "$NOTES" ] || { echo "CHANGELOG.md has no section '## $VERSION'; write the release notes first" >&2; exit 1; }
 scripts/check all
+# The code only the MLX trait compiles, with its tests, warnings as errors: the release build below is the first
+# build of it otherwise, and a failure there comes after the eval's hour.
+scripts/check mlx-build
 scripts/check coverage-gate
 if [ -n "$SKIP_EVAL" ]; then
     echo "==> eval skipped (--skip-eval): it must have passed on this code already" >&2
@@ -125,14 +157,9 @@ echo "==> package"
 SHA="$(cut -d' ' -f1 "$OUT/$TARBALL.sha256")"
 ls -la "$OUT/$TARBALL"; echo "sha256 $SHA"
 
-echo "==> publish"
-unchanged
-remote git tag -a "$TAG" -m "wisp $VERSION"
-remote git push origin "$TAG"
-remote gh release create "$TAG" "$OUT/$TARBALL" "$OUT/$TARBALL.sha256" --title "wisp $VERSION" \
-    --notes-file "$OUT/notes.md"
-
-echo "==> tap formula"
+# The formula is written before anything is published, so a publish that fails part way has it to finish with.
+# No `version` line: Homebrew scans the version from the URL's releases/download/vX.Y.Z/, and `brew audit` calls a
+# `version` equal to the scanned one redundant (resource_auditor.rb, audit_version).
 FORMULA="$OUT/wisp.rb"
 cat > "$FORMULA" <<RUBY
 class Wisp < Formula
@@ -141,7 +168,6 @@ class Wisp < Formula
   url "https://github.com/pidster/wisp/releases/download/$TAG/$TARBALL"
   sha256 "$SHA"
   license "MIT"
-  version "$VERSION"
 
   depends_on arch: :arm64
   depends_on macos: :golden_gate
@@ -170,7 +196,50 @@ end
 RUBY
 echo "formula written to $FORMULA"
 TAP_DIR="$OUT/tap"
-remote sh -c "rm -rf '$TAP_DIR' && gh repo clone $TAP_REPO '$TAP_DIR' && mkdir -p '$TAP_DIR/Formula' && cp '$FORMULA' '$TAP_DIR/Formula/wisp.rb' && cd '$TAP_DIR' && git add Formula/wisp.rb && git commit -m 'wisp $VERSION' && git push"
+TAP_PUBLISH="rm -rf '$TAP_DIR' && gh repo clone $TAP_REPO '$TAP_DIR' && mkdir -p '$TAP_DIR/Formula' && cp '$FORMULA' '$TAP_DIR/Formula/wisp.rb' && cd '$TAP_DIR' && git add Formula/wisp.rb && git commit -m 'wisp $VERSION' && git push"
+
+echo "==> publish"
+unchanged
+# The publish step under way. A release that fails once it has tagged cannot simply be rerun (preflight refuses an
+# existing tag), so a failure from here on prints, exactly, the steps still to do, to run by hand; the artifacts and
+# the formula stay in $OUT until the next release run.
+STEP=""
+recovery() {
+    status=$?
+    [ "$status" -ne 0 ] && [ -n "$STEP" ] && [ "$DRY_RUN" != "--dry-run" ] || return 0
+    {
+        echo "==> the release stopped at '$STEP' (exit $status). Nothing is undone; to finish it, run in $ROOT:"
+        case "$STEP" in
+            tag) echo "    git tag -l $TAG | grep -q . || git tag -a $TAG -m 'wisp $VERSION'" ;;
+        esac
+        case "$STEP" in
+            tag | push) echo "    git push origin $TAG" ;;
+        esac
+        case "$STEP" in
+            tag | push | release)
+                echo "    if gh release view $TAG >/dev/null 2>&1; then gh release upload $TAG '$OUT/$TARBALL' '$OUT/$TARBALL.sha256' --clobber;"
+                echo "    else gh release create $TAG '$OUT/$TARBALL' '$OUT/$TARBALL.sha256' --title 'wisp $VERSION' --notes-file '$OUT/notes.md'; fi"
+                ;;
+        esac
+        echo "    sh -c \"$TAP_PUBLISH\""
+        case "$STEP" in
+            tag | push) echo "  or, to abandon it while nothing is pushed: git tag -d $TAG, fix, and rerun scripts/release $VERSION" ;;
+        esac
+    } >&2
+}
+trap recovery EXIT
+STEP=tag
+remote git tag -a "$TAG" -m "wisp $VERSION"
+STEP=push
+remote git push origin "$TAG"
+STEP=release
+remote gh release create "$TAG" "$OUT/$TARBALL" "$OUT/$TARBALL.sha256" --title "wisp $VERSION" \
+    --notes-file "$OUT/notes.md"
+
+echo "==> tap formula"
+STEP=tap
+remote sh -c "$TAP_PUBLISH"
+STEP=""
 
 echo "==> done"
 echo "verify: brew update && brew install pidster/tap/wisp && wisp doctor"

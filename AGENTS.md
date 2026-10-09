@@ -46,7 +46,7 @@ scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote s
 
 cd harness && swift build                                        # -> .build/debug/wisp
 cd harness && swift test --filter CommandRunnerTests             # one suite; append /testName for one test
-cd harness && swift build -c release                             # -> .build/release/wisp (what .mcp.json runs)
+scripts/check mcp-build             # -> harness/.build/release/wisp (what .mcp.json runs), MLX trait; leaves the lockfile alone
 ```
 
 Smoke-testing against the live model (never in unit tests):
@@ -94,8 +94,9 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
 - **Definition of done.** A change is done when it is tested (without the model), documented in code, and
   documented under `docs/` in the same commit: tool page, `wisp.md`, `mcp.md`, `logging.md`, `design.md`,
   or an ADR as appropriate. If no doc needs changing, say so in the commit message. The hook reminds you.
-  A user-visible change also gets a line under `## Unreleased` in `CHANGELOG.md`; the release script
-  publishes that section as the release notes and refuses to release without one.
+  A user-visible change also gets a line under `## Unreleased` in `CHANGELOG.md`; the version bump renames
+  that section `## X.Y.Z`, and the release script publishes it as the release notes and refuses to release
+  without one.
 - **Gate.** `scripts/check` must pass before every commit; the hook runs it. Strict lint, warnings as
   errors, strict concurrency, no escape hatches. Language rules are in `.claude/rules/`.
 - **Tests never need the model.** The model evaluations are the one model-dependent suite. They are a package of
@@ -180,7 +181,7 @@ connected, say so and ask the user to reconnect it rather than falling back to y
 
 The `wisp` server is this repository's own release build, for dogfooding, launched through
 `scripts/wisp-mcp`. **If the server fails to connect at start-up, the cause is almost always a missing
-release build**: tell the user to run `cd harness && swift build -c release` and reconnect, and offer to
+release build**: tell the user to run `scripts/check mcp-build` and reconnect, and offer to
 run the build yourself. The build is also stale after code changes until it is rerun. Use `respond` to
 delegate small, self-contained tasks to a local model (pass back `thread_id` to continue) and
 `close_thread` when done.
@@ -220,6 +221,6 @@ Mark anything you add here with the harness it is for. Nothing in this section a
 - Reads this file directly. There is no automatic path-scoped loading: open `.claude/rules/<lang>.md`
   for the language you are editing before you start.
 - Connect wisp as an MCP server in `~/.codex/config.toml` as shown in `docs/mcp.md`; the release build
-  must exist (`cd harness && swift build -c release`) or the server exits at start-up with instructions.
+  must exist (`scripts/check mcp-build`) or the server exits at start-up with instructions.
 - wisp 0.1.5 or later accepts Codex's `initialize` (earlier versions refused its `experimental`
   capability; see `docs/mcp.md`).

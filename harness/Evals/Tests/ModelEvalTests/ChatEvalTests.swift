@@ -35,58 +35,86 @@ struct ChatEvalTests {
         return reply.lowercased().contains("output") || letters(reply) == letters(message)
     }
 
-    @Test func answersAMessageWithNoRequestConversationally() async throws {
-        let model = try ModelSelection.default.resolve()
-        let attempts = 3
-        var passed = 0
-        for (round, item) in (1...attempts).flatMap({ round in Self.cases.map { (round, $0) } }) {
-            let sink = MemoryAuditSink()
-            let audit = AuditLog(session: "eval", sink: sink)
-            let gate = ApprovalGate(
-                classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
-                threshold: .level(.moderate), audit: audit)
-            // Every built-in tool, memory wired to the agent, and the prompt with its memory rule: what chat opens with
-            // context.memory on (memory is off by default since ADR 0057), set explicitly so the measurement stays
-            // comparable with those recorded before.
-            let memory = MemorySource()
-            let tools = ToolRegistry(audit: audit, approval: gate, memory: memory).select(ToolRegistry.builtInNames)
-                .tools
-            let agent = Agent(
-                instructions: Prompting().rendered(toolsAvailable: true, memory: true), tools: tools, model: model,
-                audit: audit)
-            agent.memory = memory
-            var reply = ""
-            var lastTurn = 0
-            do {
-                for message in item.messages {
-                    lastTurn = agent.turns.current + 1
-                    reply = try await agent.respond(to: message).text
-                }
-            } catch {
-                print("chat eval: on \(model.selection) \(item.messages): error \(error)")
-            }
-            let called = sink.events.filter { $0.kind == .toolCall && $0.turn == lastTurn }
-                .compactMap { $0.details["tool"]?.stringValue }
-            let ok: Bool
-            if let tool = item.tool {
-                ok = called.contains(tool)
-            } else {
-                ok = !reply.isEmpty && called.isEmpty && !Self.echoes(reply, item.messages.last ?? "")
-            }
-            if ok { passed += 1 }
-            let shown = reply.replacingOccurrences(of: "\n", with: "⏎").prefix(120)
-            print(
-                "chat eval: on \(model.selection) \(item.messages) #\(round): \(ok ? "pass" : "FAIL") tools=\(called) reply=\(shown)"
-            )
+    /// Runs one conversation on `model` as chat opens it: every built-in tool, memory wired to the agent, and the
+    /// prompt with its memory rule (what chat opens with context.memory on; memory is off by default since ADR 0057,
+    /// so it is set explicitly and the measurement stays comparable with those recorded before).
+    ///
+    /// - Parameters:
+    ///   - messages: The messages, in order.
+    ///   - model: The model.
+    /// - Returns: The last reply and the tools its turn called.
+    /// - Throws: What the agent throws.
+    static func converse(
+        _ messages: [String], on model: ResolvedModel
+    ) async throws -> (
+        reply: String, called: [String]
+    ) {
+        let sink = MemoryAuditSink()
+        let audit = AuditLog(session: "eval", sink: sink)
+        let gate = ApprovalGate(
+            classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
+            threshold: .level(.moderate), audit: audit)
+        let memory = MemorySource()
+        let tools = ToolRegistry(audit: audit, approval: gate, memory: memory).select(ToolRegistry.builtInNames)
+            .tools
+        let agent = Agent(
+            instructions: Prompting().rendered(toolsAvailable: true, memory: true), tools: tools, model: model,
+            audit: audit)
+        agent.memory = memory
+        var reply = ""
+        var lastTurn = 0
+        for message in messages {
+            lastTurn = agent.turns.current + 1
+            reply = try await agent.respond(to: message).text
         }
+        let called = sink.events.filter { $0.kind == .toolCall && $0.turn == lastTurn }
+            .compactMap { $0.details["tool"]?.stringValue }
+        return (reply, called)
+    }
+
+    /// Each model `EvalModels` names, each conversation bounded by its case limit; one that throws or runs out of
+    /// time is a failed case, and the floor applies to the configured model only.
+    @Test func answersAMessageWithNoRequestConversationally() async throws {
+        let attempts = 3
         let total = Self.cases.count * attempts
-        print("chat eval: on \(model.selection) measured: \(passed)/\(total)")
-        try? Measurements.report(
-            Measurement(
-                task: "chat.unclear", model: model.selection.description, passed: passed, total: total,
-                notes: "a message with no request (test, hello, hmm, and the same after test) answered with a short "
-                    + "reply, no tool, no echo; plus a clear question that must still call current_date; three "
-                    + "attempts each"))
-        #expect(passed * 2 >= total, "chat unclear passed \(passed)/\(total)")
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: ["chat"]) else { continue }
+            var passed = 0
+            var times: [Double] = []
+            for (round, item) in (1...attempts).flatMap({ round in Self.cases.map { (round, $0) } }) {
+                let (outcome, milliseconds) = await EvalModels.attempt(
+                    "chat eval: \(item.messages) #\(round)", on: selection
+                ) {
+                    try await Self.converse(item.messages, on: model)
+                }
+                times.append(milliseconds)
+                let reply = outcome?.reply ?? ""
+                let called = outcome?.called ?? []
+                let ok: Bool
+                if outcome == nil {
+                    ok = false
+                } else if let tool = item.tool {
+                    ok = called.contains(tool)
+                } else {
+                    ok = !reply.isEmpty && called.isEmpty && !Self.echoes(reply, item.messages.last ?? "")
+                }
+                if ok { passed += 1 }
+                let shown = reply.replacingOccurrences(of: "\n", with: "⏎").prefix(120)
+                print(
+                    "chat eval: on \(selection) \(item.messages) #\(round): \(ok ? "pass" : "FAIL") tools=\(called) "
+                        + "reply=\(shown)")
+            }
+            print("chat eval: on \(selection) measured: \(passed)/\(total)")
+            EvalModels.result("chat", on: selection, passed: passed, total: total, milliseconds: times)
+            if EvalModels.floorsApply(to: selection) {
+                #expect(passed * 2 >= total, "chat unclear passed \(passed)/\(total)")
+            }
+            try? Measurements.report(
+                Measurement(
+                    task: "chat.unclear", model: selection.description, passed: passed, total: total,
+                    notes: "a message with no request (test, hello, hmm, and the same after test) answered with a "
+                        + "short reply, no tool, no echo; plus a clear question that must still call current_date; "
+                        + "three attempts each"))
+        }
     }
 }

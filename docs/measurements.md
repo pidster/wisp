@@ -49,7 +49,16 @@ scripts/check eval record
 
 runs the evaluations (the `ModelEvalTests` target of the `harness/Evals` package) on the configured model with `WISP_EVAL_RECORD` pointing at
 `harness/Sources/WispCore/Resources/measurements.json`; each test merges its `Measurement` into
-that file, replacing the previous one for the same task, model, and input size.
+that file, replacing the previous one for the same task, model, and input size. The suites run in parallel, so the
+merge holds a lock for the process and an advisory `flock` on the file's directory for other processes, and replaces
+the file atomically: every suite's measurement lands, which a plain `eval record` could not promise before 0.21.1
+(two merges could interleave and one be lost). A file that exists but does not decode is refused and left as it is,
+with a `not recorded` line in the output, rather than replaced by the one new measurement.
+
+Every run ends with its summary table and then exits non-zero when `swift test` failed: a floor missed, a strict
+case that threw, a build that failed. Before 0.21.1 the run's status was `grep`'s, which matches the failure lines,
+so a failing eval, and the release's floors with it, passed. `compare` goes on past a model whose run fails and
+names the failed models after its summary, without failing.
 
 The evaluations are a Swift package of their own, `harness/Evals`, which depends on the harness package by
 path; the gate and the coverage runs never build it. Its tests `@testable import WispCore`, which works
@@ -116,7 +125,10 @@ on-device model's place), and one context scenario. Add `record` to merge the me
   parse) or that runs past five minutes (`EvalModels.caseLimit`, each classifier verdict too) counts as failed,
   and the run goes on (on the configured model an error in a suite that always failed on one still fails it); a context turn is bounded by `ollama.timeoutSeconds` and the scenario by an hour. A
   model resolves with `~/.wisp/config.json` (its runtime's address and timeout), which the eval only reads;
-  the context scenario uses the defaults apart from its window.
+  the context scenario uses the defaults apart from its window. Since 0.21.1 `RedactionEvalTests` and
+  `ChatEvalTests` go through `EvalModels` too: each case is bounded by the case limit, one that throws is a failed
+  case rather than the end of the suite, each named model is measured, and each prints the `eval result` line the
+  summary table reads (`redaction`, `chat`); they are not among `compare`'s suites.
 - **MLX models.** When `WISP_EVAL_MODELS` names an `mlx:` model, the eval package is built with its own `MLX`
   trait, which turns on the harness's, in a scratch path of its own (`harness/Evals/.build/mlx`), MLX's Metal
   library is copied beside each test bundle's binary as `scripts/check mlx-live` copies it (and removed before the

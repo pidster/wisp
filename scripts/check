@@ -76,9 +76,14 @@ lint() {
     fi
 }
 
+# The Swift compiler flags of every gate build, tests included. `swift test` passes the same ones, so it reuses the
+# build's products: a flag that differs between the two recompiles everything (about 20 s).
+SWIFT_STRICT="-Xswiftc -warnings-as-errors"
+
 build() {
-    echo "==> build (swift, warnings are errors)"
-    (cd harness && swift build $SWIFT_SANDBOX -Xswiftc -warnings-as-errors)
+    echo "==> build (swift, tests included, warnings are errors)"
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $SWIFT_STRICT are split into words on purpose
+    (cd harness && swift build $SWIFT_SANDBOX --build-tests $SWIFT_STRICT)
     completions_check
     if have_crates; then
         echo "==> build (rust, warnings are errors)"
@@ -88,21 +93,28 @@ build() {
 
 test_() {
     echo "==> test (swift)"
-    (cd harness && swift test $SWIFT_SANDBOX)
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $SWIFT_STRICT are split into words on purpose
+    (cd harness && swift test $SWIFT_SANDBOX $SWIFT_STRICT)
     if nested_sandbox; then
         echo "==> test (swift, runner suites inside an outer sandbox): already nested, skipped"
     else
         echo "==> test (swift, runner suites inside an outer sandbox)"
-        log="$(mktemp)"
-        if (cd harness && sandbox-exec -p '(version 1) (allow default)' swift test --disable-sandbox --filter 'CommandRunner|NestedSandbox' >"$log" 2>&1); then
+        log="$LOCK_SAVED/nested-test.log"
+        # shellcheck disable=SC2086 # $SWIFT_STRICT is split into words on purpose
+        if (cd harness && sandbox-exec -p '(version 1) (allow default)' swift test --disable-sandbox $SWIFT_STRICT \
+            --filter 'CommandRunner|NestedSandbox' >"$log" 2>&1); then
             grep -E 'Test run with' "$log" | tail -1
         else
             grep -E 'Test run with|✘|error' "$log" | tail -8
-            rm -f "$log"
             echo "nested-sandbox test step failed" >&2
             exit 1
         fi
-        rm -f "$log"
+        # A filter that matches nothing passes; the step counts only if it ran tests.
+        ran="$(test_count "$log")"
+        if [ "$ran" -eq 0 ]; then
+            echo "nested-sandbox test step ran no tests: the filter 'CommandRunner|NestedSandbox' matches no suite" >&2
+            exit 1
+        fi
     fi
     if have_crates; then
         echo "==> test (rust)"
@@ -110,10 +122,26 @@ test_() {
     fi
 }
 
+# test_count <log>: the tests a `swift test` log says ran, summed over its "Test run with N tests" lines; 0 for none.
+test_count() {
+    sed -n 's/.*Test run with \([0-9][0-9]*\) tests\{0,1\} .*/\1/p' "$1" | awk '{ n += $1 } END { print n + 0 }'
+}
+
+# coverage_report: runs the tests with coverage, once, and prints llvm-cov's per-file report. The tests' own output
+# goes to a log; when they fail, the failures go to stderr and the report is not printed, so no figure is taken from
+# a failed run. (Until 0.21.1 a failure was silently retried, so a flaky test could pass unnoticed.)
 coverage_report() {
+    log="$LOCK_SAVED/coverage-test.log"
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+    if ! (cd harness && swift test $SWIFT_SANDBOX --enable-code-coverage >"$log" 2>&1); then
+        {
+            echo "coverage: the tests failed, so there is no coverage figure; the failures:"
+            grep -E '✘|error:' "$log" | head -40
+        } >&2
+        return 1
+    fi
     (
         cd harness
-        swift test $SWIFT_SANDBOX --enable-code-coverage >/dev/null 2>&1 || swift test $SWIFT_SANDBOX --enable-code-coverage
         profile="$(dirname "$(swift test --show-codecov-path)")/default.profdata"
         set -- .build/out/Products/Debug/*.xctest/Contents/MacOS/*
         first="$1"; shift
@@ -130,9 +158,19 @@ coverage() {
     coverage_report
 }
 
-# The total line coverage as a number, such as 92.64.
+# The total line coverage as a number, such as 92.64. Fails, printing nothing, when the report failed or holds no
+# numeric total: a pipeline would take awk's status, and an empty figure once compared as 0 and was written as the
+# baseline.
 coverage_total() {
-    coverage_report | awk '/^TOTAL/ { sub("%", "", $7); print $7 }'
+    report="$(coverage_report)" || return 1
+    total="$(printf '%s\n' "$report" | awk '/^TOTAL/ { sub("%", "", $7); print $7 }')"
+    case "$total" in
+        '' | *[!0-9.]* | *.*.* | .*)
+            echo "coverage: no numeric TOTAL line in llvm-cov's report (got '$total')" >&2
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$total"
 }
 
 BASELINE_FILE="harness/coverage-baseline"
@@ -144,8 +182,14 @@ COVERAGE_TOLERANCE=0.1
 
 coverage_gate() {
     echo "==> coverage gate"
-    total="$(coverage_total)"
-    baseline="$(cat "$BASELINE_FILE" 2>/dev/null || echo 0)"
+    total="$(coverage_total)" || exit 1
+    baseline="$(cat "$BASELINE_FILE" 2>/dev/null || true)"
+    case "$baseline" in
+        '' | *[!0-9.]* | *.*.* | .*)
+            echo "$BASELINE_FILE holds '$baseline', not a figure; restore it from git (git checkout HEAD -- $BASELINE_FILE)" >&2
+            exit 1
+            ;;
+    esac
     echo "line coverage $total% (baseline $baseline%, tolerance $COVERAGE_TOLERANCE)"
     if awk -v t="$total" -v b="$baseline" -v e="$COVERAGE_TOLERANCE" 'BEGIN { exit !(t + 0 < b - e) }'; then
         echo "coverage fell below the baseline; add tests or, with a reason in the commit, lower $BASELINE_FILE" >&2
@@ -159,8 +203,9 @@ coverage_gate() {
 
 # Writes the current total line coverage as the baseline the gate compares against.
 coverage_baseline() {
-    total="$(coverage_total)"
-    echo "$total" > "$BASELINE_FILE"
+    # coverage_total fails rather than print an empty or non-numeric figure, so the file is never emptied.
+    total="$(coverage_total)" || exit 1
+    printf '%s\n' "$total" > "$BASELINE_FILE"
     echo "baseline set to $total% in $BASELINE_FILE"
 }
 
@@ -220,18 +265,20 @@ eval_() {
         # One `swift test` per model, its suites one after another, so a local runtime holds one model at a
         # time and each case's time is that model's alone. A model that fails or is missing fails its cells only.
         models="$(echo "$WISP_EVAL_MODELS" | tr ',' ' ')"
+        failed_models=""
         for model in $models; do
             echo "==> eval compare on $model: tool calls, schema replies, system_info, triage, summarise_diff, draft_change, the model classifier, one context scenario"
+            # A model that fails goes on to the next (its cells say why); the summary names it below.
             # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $mlx are split into words on purpose
-            (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_MODELS="$model" WISP_EVAL_RECORD="$record" \
-                swift test $SWIFT_SANDBOX $mlx --no-parallel --filter "$EVAL_COMPARE_SUITES" 2>&1) \
-                | tee -a "$log" | grep -E "$EVAL_LINES" || true
+            eval_swift_test "$log" env WISP_MODEL_TESTS=1 WISP_EVAL_MODELS="$model" WISP_EVAL_RECORD="$record" \
+                swift test $SWIFT_SANDBOX $mlx --no-parallel --filter "$EVAL_COMPARE_SUITES" \
+                || failed_models="$failed_models $model (exit $EVAL_STATUS)"
         done
     else
         echo "==> eval (on-device model; not part of the gate): $label"
         # shellcheck disable=SC2086 # $scope and $mlx are split into words on purpose
-        (cd harness/Evals && WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" WISP_CHECKPOINT="$checkpoint" \
-            swift test $SWIFT_SANDBOX $mlx $scope 2>&1) | tee -a "$log" | grep -E "$EVAL_LINES"
+        eval_swift_test "$log" env WISP_MODEL_TESTS=1 WISP_EVAL_RECORD="$record" WISP_CHECKPOINT="$checkpoint" \
+            swift test $SWIFT_SANDBOX $mlx $scope || true
     fi
     if [ -n "$checkpoint" ]; then
         # The checkpoint's rows: a table to read, and the rows as tab-separated values to analyse.
@@ -245,6 +292,33 @@ eval_() {
     if [ -n "$record" ]; then
         echo "==> measurements recorded in harness/Sources/WispCore/Resources/measurements.json; commit them"
     fi
+    # The run's verdict is swift test's own exit status, taken after the summary so the summary always prints.
+    if [ -n "$compare" ]; then
+        if [ -n "$failed_models" ]; then
+            echo "==> eval compare: swift test failed on:$failed_models; see their cells and $log" >&2
+        fi
+    elif [ "$EVAL_STATUS" -ne 0 ]; then
+        echo "==> eval FAILED: swift test exited $EVAL_STATUS (a floor missed, a case errored, or the build failed); see $log" >&2
+        exit 1
+    fi
+}
+
+# eval_swift_test <log> <command…>: runs the command (a `swift test`, behind `env` and its variables) in harness/Evals,
+# appending everything it prints to <log> and showing the lines EVAL_LINES selects as they come. Its exit status, and
+# EVAL_STATUS, are the command's own: in `cmd | tee | grep` the status is grep's, which matches `✘` and `Test run`
+# exactly when tests fail, so until 0.21.1 a failing eval, and the release's floors, passed.
+EVAL_STATUS=0
+eval_swift_test() {
+    log="$1"; shift
+    status_file="$LOCK_SAVED/eval.status"
+    printf '1\n' >"$status_file"
+    {
+        status=0
+        (cd harness/Evals && "$@" 2>&1) || status=$?
+        printf '%s\n' "$status" >"$status_file"
+    } | tee -a "$log" | grep --line-buffered -E "$EVAL_LINES" || true
+    EVAL_STATUS="$(cat "$status_file")"
+    return "$EVAL_STATUS"
 }
 
 # The summary of an eval's output: each suite's `eval result` line (EvalModels.result) as a table, a row per model
@@ -411,7 +485,10 @@ completion_script() {
 
 # The debug binary the last `swift build` wrote.
 debug_binary() {
-    printf '%s/wisp' "$(cd harness && swift build $SWIFT_SANDBOX --show-bin-path)"
+    # An assignment, so a failing `swift build` stops the script; inside printf's arguments its status was lost.
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+    bin_dir="$(cd harness && swift build $SWIFT_SANDBOX --show-bin-path)"
+    printf '%s/wisp' "$bin_dir"
 }
 
 completions_check() {
@@ -443,6 +520,41 @@ completions_write() {
     echo "rebuild to embed them (swift build), and commit them"
 }
 
+# mcp-build: the release build that .mcp.json runs as the `wisp` MCP server (scripts/wisp-mcp, at
+# harness/.build/release/wisp). With the Metal toolchain it is built with the MLX trait, as Homebrew's is, which
+# resolves with the lockfile's MLX pins; without it, a plain release build, whose stripped lockfile on_exit puts back.
+# Either way the working tree is left clean: a bare `swift build -c release`, once the advice, dropped the pins and
+# the gate then refused the commit.
+mcp_build() {
+    if xcrun -f metal >/dev/null 2>&1; then
+        echo "==> release build for the MCP server, with the MLX trait (as Homebrew ships it)"
+        # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+        swift build --package-path harness $SWIFT_SANDBOX -c release --traits MLX
+    else
+        echo "==> release build for the MCP server, without MLX (no Metal toolchain: xcodebuild -downloadComponent MetalToolchain adds it)"
+        # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
+        swift build --package-path harness $SWIFT_SANDBOX -c release
+    fi
+    echo "==> built harness/.build/release/wisp; reconnect the server (/mcp in Claude Code)"
+}
+
+# evals_build: compiles the model evaluations (harness/Evals, its own package, which the gate's build never sees)
+# without running them, warnings as errors, so a change to an API they call fails here rather than at release time.
+evals_build() {
+    echo "==> build (the model evaluations, harness/Evals, compiled only; warnings are errors)"
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $SWIFT_STRICT are split into words on purpose
+    swift build --package-path harness/Evals $SWIFT_SANDBOX --build-tests $SWIFT_STRICT
+}
+
+# mlx_build: builds the harness and its tests with the MLX trait, warnings as errors, in the scratch path mlx-live
+# uses, so the code only that trait compiles (the release's) is checked before the release builds it.
+mlx_build() {
+    echo "==> build (swift, MLX trait, tests included, warnings are errors; needs the Metal toolchain)"
+    # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $SWIFT_STRICT are split into words on purpose
+    swift build --package-path harness $SWIFT_SANDBOX --traits MLX --scratch-path "$ROOT/harness/.build/mlx" \
+        --build-tests $SWIFT_STRICT
+}
+
 format() {
     (cd harness && swift format --in-place --recursive $SWIFT_PATHS)
     if have_crates; then (cd tools && cargo fmt --all); fi
@@ -451,15 +563,24 @@ format() {
 hygiene() {
     echo "==> hygiene"
     status=0
-    staged=$(git diff --cached --name-only --diff-filter=ACMR)
+    # One path a line, unquoted (core.quotePath=false keeps non-ASCII names as they are). Git still quotes a name
+    # holding a newline, a tab, a quote, or a backslash, so a line starting with a quote is such a name.
+    staged=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)
 
-    for f in $staged; do
+    # Every check reads the staged blob (`git show :path`), which is what the commit holds, not the working copy.
+    # The loop reads a here-document, so it runs in this shell (status survives) and splits on newlines only.
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            \"*) printf 'unusual path name (git quotes it): %s; rename it\n' "$f"; status=1; continue ;;
+        esac
         case "$f" in *.swift|*.rs|*.toml|*.md|*.yml|*.yaml|*.json|*.sh|scripts/*)
-            if grep -nE '^(<<<<<<<|=======|>>>>>>>)( |$)' "$f" >/dev/null 2>&1; then
-                echo "conflict marker: $f"; status=1
+            # The markers that open and close a conflict; `=======` alone is also a Markdown setext underline.
+            if git show ":$f" 2>/dev/null | grep -qE '^(<<<<<<<|>>>>>>>)( |$)'; then
+                printf 'conflict marker: %s\n' "$f"; status=1
             fi
-            if grep -nE '[[:blank:]]+$' "$f" >/dev/null 2>&1; then
-                echo "trailing whitespace: $f"; status=1
+            if git show ":$f" 2>/dev/null | grep -qE '[[:blank:]]+$'; then
+                printf 'trailing whitespace: %s\n' "$f"; status=1
             fi
         esac
         # Files may not exceed 1 MiB, so nothing large is committed by accident. The one exception is the
@@ -468,12 +589,15 @@ hygiene() {
         case "$f" in
             harness/Sources/WispCore/Resources/personal-default.json) ;;
             *)
-                if [ -f "$f" ] && [ "$(wc -c <"$f")" -gt 1048576 ]; then
-                    echo "file over 1 MiB: $f"; status=1
+                size="$(git cat-file -s ":$f" 2>/dev/null || echo 0)"
+                if [ "$size" -gt 1048576 ]; then
+                    printf 'file over 1 MiB: %s\n' "$f"; status=1
                 fi
                 ;;
         esac
-    done
+    done <<EOF
+$staged
+EOF
 
     if printf '%s\n' "$staged" | grep -qE '^(harness/Sources|tools/)' \
         && ! printf '%s\n' "$staged" | grep -qE '^(docs/|CLAUDE\.md|README\.md)'; then
@@ -593,7 +717,10 @@ case "${1:-all}" in
     completions) completions_write ;;
     hygiene) hygiene ;;
     palette) palette ;;
-    all) hygiene; palette; lint; build; test_ ;;
+    evals-build) evals_build ;;
+    mlx-build) mlx_build ;;
+    mcp-build) mcp_build ;;
+    all) hygiene; palette; lint; build; evals_build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|mlx-live <model directory>|completions|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|mlx-live <model directory>|completions|mcp-build|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
 esac

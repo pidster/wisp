@@ -44,9 +44,11 @@ Commit it as "Bring the docs up to date for X.Y.Z", or "Docs sweep for X.Y.Z: no
 `scripts/release X.Y.Z` does all of it and refuses to continue at the first problem. `--dry-run` performs
 every local step and prints the remote ones instead of executing them.
 
-1. Preflight: every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag, `gh` is
+1. Preflight: the version is exactly three numbers, `X.Y.Z`; every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag here or on `origin`
+   (`git ls-remote`), `origin/main` is `HEAD` (pushed, and nothing on origin left out), `gh` is
    authenticated, `CHANGELOG.md` has a non-empty `## X.Y.Z` section, `scripts/check` passes (the full
-   test run), `scripts/check coverage-gate` passes, and `scripts/check eval` passes: every suite but the context eval, which is a measurement for design decisions
+   test run, and the evaluations compiled), `scripts/check mlx-build` passes (the harness and its tests with the MLX
+   trait, warnings as errors, before the release build is the first to compile that code), `scripts/check coverage-gate` passes, and `scripts/check eval` passes, judged by `swift test`'s own exit status (until 0.21.1 it was `grep`'s, so a missed floor passed): every suite but the context eval, which is a measurement for design decisions
    (ADR 0045) and runs on purpose with `scripts/check eval context`. `--skip-eval` leaves the eval out, for a release whose eval already
    passed on the same code (a dry run just before, with only docs changed since); 0.15.0 was the first. The release's eval only asserts the
    floors; it does not rewrite `harness/Sources/WispCore/Resources/measurements.json`, because the sets
@@ -67,10 +69,18 @@ every local step and prints the remote ones instead of executing them.
    staged `wisp completions zsh|bash|fish` prints the committed scripts in
    `harness/Sources/WispCore/Resources/completions/`, which the formula installs. MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
-3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file.
+   A dry run, often made before the bump is pushed, reports the two remote checks and goes on.
+3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file; and the formula,
+   `wisp.rb`, written from the template with the new URL and checksum before anything is published.
 4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with both assets and generated notes.
-5. Tap: clone or update `pidster/homebrew-tap`, write `Formula/wisp.rb` from the template with the new
-   URL and checksum, commit, push. The formula puts `wisp` and `mlx.metallib` in `libexec` with a link
+   A release that fails from here cannot simply be rerun, since preflight refuses an existing tag, so the
+   script prints, on its way out, the exact commands for the steps still to do (the tag push, the release
+   create or an upload with `--clobber` if it exists, the tap push), with the artifacts and the formula left in
+   `harness/.build/release-artifacts`.
+5. Tap: clone `pidster/homebrew-tap`, copy in `Formula/wisp.rb`, commit, push. The formula has no `version`
+   line: Homebrew scans the version from the URL's `releases/download/vX.Y.Z/`, and `brew audit` reports a
+   `version` equal to the scanned one as redundant (`resource_auditor.rb`, `audit_version`, read on
+   2026-10-09). The formula puts `wisp` and `mlx.metallib` in `libexec` with a link
    in `bin`, and runs `generate_completions_from_executable(bin/"wisp", "completions")`, which writes the output of
    `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
    `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library
