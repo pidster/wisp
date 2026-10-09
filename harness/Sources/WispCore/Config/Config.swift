@@ -31,6 +31,10 @@ public struct Config: Codable, Equatable, Sendable {
     public var approval: ApprovalConfig?
     /// Where a local Ollama serves `ollama:<name>` models.
     public var ollama: OllamaConfig?
+    /// Where llama.cpp's `llama-server` serves `llamacpp:<name>` models (ADR 0058).
+    public var llamacpp: OpenAICompatibleConfig?
+    /// Where LM Studio serves `lmstudio:<name>` models (ADR 0058).
+    public var lmstudio: OpenAICompatibleConfig?
     /// Where Core AI bundles for `coreai:<name>` models live.
     public var coreai: CoreAIConfig?
     /// Where MLX model directories for `mlx:<name>` models live, and what each may do.
@@ -427,6 +431,35 @@ public struct Config: Codable, Equatable, Sendable {
         }
     }
 
+    /// The settings of a runtime that serves OpenAI's chat-completions API, `llamacpp` or `lmstudio` in the file
+    /// ([ADR 0058](../../../../docs/decisions/0058-a-shared-http-executor.md)).
+    public struct OpenAICompatibleConfig: Codable, Equatable, Sendable {
+        /// The server's base URL, without `/v1`; default `http://127.0.0.1:8080` for llama.cpp and
+        /// `http://127.0.0.1:1234` for LM Studio.
+        public var baseURL: String?
+        /// Seconds a generation request may wait while nothing arrives; default 120.
+        public var timeoutSeconds: Int?
+        /// The server's API key, sent as a bearer token; `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY` wins
+        /// over it. Never logged or shown.
+        public var apiKey: String?
+        /// llama.cpp only: the chat template's `enable_thinking` for every request; unset sends nothing.
+        public var think: Bool?
+        /// llama.cpp only: what each model can do, declared by the operator or recorded by wisp's check (ADR 0056).
+        public var models: [String: MLXModelConfig]?
+
+        /// Creates settings; nil fields take defaults.
+        public init(
+            baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: Bool? = nil,
+            models: [String: MLXModelConfig]? = nil
+        ) {
+            self.baseURL = baseURL
+            self.timeoutSeconds = timeoutSeconds
+            self.apiKey = apiKey
+            self.think = think
+            self.models = models
+        }
+    }
+
     /// Approval settings in the file.
     public struct ApprovalConfig: Codable, Equatable, Sendable {
         /// Ask at this level and above: `safe`, `moderate`, `dangerous`, or `never`.
@@ -490,8 +523,11 @@ public struct Config: Codable, Equatable, Sendable {
         coreai: CoreAIConfig? = nil, mlx: MLXConfig? = nil, notifications: NotificationsConfig? = nil,
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
-        watch: WatchConfig? = nil, models: ModelsConfig? = nil
+        watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
+        lmstudio: OpenAICompatibleConfig? = nil
     ) {
+        self.llamacpp = llamacpp
+        self.lmstudio = lmstudio
         self.models = models
         self.watch = watch
         self.context = context
@@ -570,6 +606,10 @@ public struct Config: Codable, Equatable, Sendable {
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
                 contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength, think: ollama?.think,
                 modelContextLengths: (ollama?.models ?? [:]).compactMapValues(\.contextLength)),
+            llamacpp: OpenAICompatibleSettings.resolve(
+                llamacpp, dialect: .llamaCpp, environment: ProcessInfo.processInfo.environment),
+            lmstudio: OpenAICompatibleSettings.resolve(
+                lmstudio, dialect: .lmStudio, environment: ProcessInfo.processInfo.environment),
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
             // An entry that sets only a window declares nothing: the model stays undeclared, text only.
@@ -639,6 +679,19 @@ public struct Config: Codable, Equatable, Sendable {
         public var approvalOutOfBand: Bool = true
         /// Where Ollama is for `ollama:<name>` models.
         public var ollama: OllamaSettings
+        /// Where llama.cpp's server is for `llamacpp:<name>` models, and what its models are declared to do.
+        public var llamacpp = OpenAICompatibleSettings.defaults(for: .llamaCpp)
+        /// Where LM Studio's server is for `lmstudio:<name>` models.
+        public var lmstudio = OpenAICompatibleSettings.defaults(for: .lmStudio)
+
+        /// The settings of `dialect`'s runtime.
+        public subscript(server dialect: OpenAICompatibleDialect) -> OpenAICompatibleSettings {
+            get { dialect == .lmStudio ? lmstudio : llamacpp }
+            set {
+                if dialect == .lmStudio { lmstudio = newValue } else { llamacpp = newValue }
+            }
+        }
+
         /// Where Core AI bundles live, as configured; nil means `<home>/models/coreai`.
         public var coreaiModelsDirectory: String?
         /// Where MLX model directories live, as configured; nil means `<home>/models/mlx`.

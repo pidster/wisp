@@ -58,7 +58,13 @@ public struct ModelFallback: Equatable, Sendable {
     /// The note chat shows before the first prompt, such as `ollama:granite4.1:8b is unavailable (no Ollama server
     /// at …); using system. /model ollama:granite4.1:8b once Ollama is running`.
     public var message: String {
-        let when = model.backend == "ollama" ? "once Ollama is running" : "once it is available"
+        let when =
+            switch model.backend {
+            case "ollama": "once Ollama is running"
+            case "llamacpp": "once llama-server is running"
+            case "lmstudio": "once LM Studio's server is running"
+            default: "once it is available"
+            }
         let reason = reason.hasSuffix(".") ? String(reason.dropLast()) : reason
         return "\(model) is unavailable (\(reason)); using \(fallback). /model \(model) \(when)"
     }

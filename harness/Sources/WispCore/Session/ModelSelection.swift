@@ -5,8 +5,8 @@ import FoundationModels
 ///
 /// Parsed from `config.json`'s `model` or `--model`: `system` (default), `private-cloud`, or
 /// `<backend>:<name>` for a model served by a local runtime registered in `ModelBackends`
-/// (`ollama:`, and whatever the executable adds; ADR 0016, ADR 0019). Custom adapters are obsoleted
-/// in macOS 27.
+/// (`ollama:`, `llamacpp:`, `lmstudio:`, and whatever the executable adds; ADR 0016, ADR 0019, ADR 0058).
+/// Custom adapters are obsoleted in macOS 27.
 public enum ModelSelection: Hashable, Sendable, CustomStringConvertible, Codable {
     /// Apple's on-device model. Nothing leaves the machine.
     case system

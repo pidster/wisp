@@ -93,6 +93,12 @@ public enum ConfigSettings {
             summary:
                 "whether a model that can think is asked to: true, false, or a level; unset leaves it to the model",
             kind: .choice(OllamaThink.choices)),
+        Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
+        Setting(
+            path: "llamacpp.think",
+            summary: "the chat template's enable_thinking for llama.cpp models; unset leaves it to the template",
+            kind: .flag),
+        Setting(path: "lmstudio.baseURL", summary: "where LM Studio's server serves", kind: .text),
         Setting(
             path: "mlx.contextLength",
             summary: "the context window of every MLX model; unset sizes each from memory",
@@ -209,6 +215,9 @@ public enum ConfigSettings {
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
+        case "llamacpp.baseURL": return .string(d.llamacpp.baseURL.absoluteString)
+        case "llamacpp.think": return d.llamacpp.think.map { .bool($0) } ?? .string("the template's default")
+        case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)
         case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
         case "mlx.executor": return .string(d.mlxExecutor.rawValue)
         case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("declared reasoning, else the template's")

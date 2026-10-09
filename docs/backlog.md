@@ -220,10 +220,11 @@ contract 2, and latency in every classifier measurement. Next, in order:
 
 ## Model backends, deferred
 
-Candidates recorded on 2026-09-20 with the MLX and Core AI work, not implemented: llama.cpp; LM Studio
-(`llmster`); ONNX Runtime; PyTorch and Hugging Face Transformers; vLLM. Several serve an OpenAI-compatible
-HTTP API, so the Ollama executor's transcript-to-chat mapping is most of a shared HTTP executor for them,
-parameterised by base URL, auth, and the request dialect. Embeddings, reranking, and other
+Candidates recorded on 2026-09-20 with the MLX and Core AI work, not implemented: ONNX Runtime; PyTorch and
+Hugging Face Transformers; vLLM. llama.cpp and LM Studio were built on 2026-10-09 through a shared HTTP executor
+with a dialect per runtime ([ADR 0058](decisions/0058-a-shared-http-executor.md)); vLLM serves the same API, so it
+is most of the way there. Still to do for those two: a check against a real `llama-server` and LM Studio, neither
+of which was on this Mac when they were built. Embeddings, reranking, and other
 non-conversational models are not `LanguageModel`s and need task-specific interfaces (an `embed` tool, a
 `rerank` tool) rather than a backend; that is a separate design. The MLX packaging chores are done
 (2026-10-03, [ADR 0047](decisions/0047-mlx-in-the-release.md)): the release carries `mlx.metallib` beside

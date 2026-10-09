@@ -454,12 +454,12 @@ backend that does not answer gets one line in parentheses. The configured defaul
 | Column | Shows |
 | --- | --- |
 | `MODEL` | The name, as `--model` takes it, `*` before the default (in chat, the model in use) |
-| `RUNTIME` | `on-device` (Apple's model), `Private Cloud`, `Ollama`, `MLX`, or `Core AI` |
-| `PARAMS` | The parameter count, as the runtime reports it (Ollama) |
+| `RUNTIME` | `on-device` (Apple's model), `Private Cloud`, `Ollama`, `llama.cpp`, `LM Studio`, `MLX`, or `Core AI` |
+| `PARAMS` | The parameter count, as the runtime reports it (Ollama, llama.cpp, LM Studio) |
 | `SIZE` | The weights on disk |
 | `FORMAT` | Family or architecture and quantisation: Ollama's `granite Q4_K_M`, an MLX model's `qwen3 4-bit`, a Core AI bundle's kind and compression |
 | `CONTEXT` | The context window wisp would use, in tokens |
-| `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `model config` (the model's own `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `default` (8,192, with no shape to size from), `model` (the model's own, Apple's) |
+| `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `model config` (the model's own `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `server` (reported by the llama.cpp or LM Studio server that holds the model, [ADR 0058](decisions/0058-a-shared-http-executor.md)), `default` (8,192, with no shape to size from, or an LM Studio model not loaded), `model` (the model's own, Apple's) |
 | `WHERE` | MLX only: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it) |
 | `ENABLED` | `yes`, or `no` for a model you disabled or a cached one not linked |
 | `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only`; `(verified)` after them when wisp checked them on the model ([`wisp models check`](#wisp-models-check-name)), led by `text only` when the check found it calls no tools (such a model is listed, with the reason, though it cannot serve a conversation with tools) |
@@ -555,8 +555,9 @@ and asks nothing. The check decides the enabling:
 | The reply passes, tool calling fails | Enables it for use with tools off only: chat and agents with tools refuse it, and `/model` and Tab do not offer it; the listing shows `text only` | `mlx:X holds a conversation but did not call a tool; it is usable only with tools off: --no-tools, tools: [] over MCP, the condensers; chat and agents with tools refuse it` |
 | Both pass | Enables it, usable in chat and by agents | `enabled mlx:X` |
 
-A model the file already declares is not checked again; Ollama, Core AI, and Apple's models report their own
-capabilities.
+A model the file already declares is not checked again. A llama.cpp model is checked as an MLX model is, and what
+passes is recorded under `llamacpp.models.<name>`, since llama.cpp does not say which models call tools; Ollama, LM
+Studio, Core AI, and Apple's models report their own capabilities.
 
 ```
 $ wisp models disable ollama:nomic-embed-text:latest private-cloud
@@ -690,9 +691,10 @@ wisp config unset approval.timeoutSeconds
 | `shownOutputLines` | 0 to 10,000; 0 shows a tool call's note alone. |
 | `notifications.enabled`, `notifications.viaTerminalApp`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
 | `notifications.perMinute` | 1 to 60. |
-| `ollama.baseURL`, `systemPromptExtension` | Text. |
+| `ollama.baseURL`, `llamacpp.baseURL`, `lmstudio.baseURL`, `systemPromptExtension` | Text. |
 | `ollama.contextLength` | 1,024 to 1,048,576, for every Ollama model; unset, each model's window is sized from its shape and the Mac's memory. |
 | `ollama.think` | `true`, `false`, `low`, `medium`, `high`, or `max`: sent as `/api/chat`'s `think` to a model Ollama reports can think (`thinking` among its capabilities), and to no other; unset sends nothing and leaves it to Ollama and the model, which think in full. `false` asks a reasoning model to answer without thinking. The values are the ones Ollama 0.35.1 accepts, read from its own refusal message (2026-10-04); how a model without levels takes a level is Ollama's to decide. `config.json` may also hold a JSON `true` or `false`. |
+| `llamacpp.think` | `true` or `false`: the chat template's `enable_thinking`, sent as `chat_template_kwargs` with every llama.cpp request; unset sends nothing and leaves it to the template. LM Studio sets thinking per model in its app, so it has no such setting. |
 | `mlx.contextLength` | 1,024 to 1,048,576, for every MLX model; unset, each model's window is sized from its `config.json` and the Mac's memory. |
 | `ollama.models.<name>.contextLength`, `mlx.models.<name>.contextLength` | 1,024 to 1,048,576, for that one model, ahead of `ollama.contextLength` or `mlx.contextLength`; unset, the model takes the setting for every model, else is sized. The name is the model's whole name, dots and all (`wisp config set ollama.models.qwen3.8:27b.contextLength 16384`); an Ollama name matches with or without its `:latest` tag. `list` shows the ones the file sets. |
 | `mlx.executor` | `wisp` (the default) or `bridge`: what runs MLX models ([backends.md](backends.md), "What runs the model"). |
@@ -716,8 +718,8 @@ started with. The model cannot change the configuration; there is no tool for it
 ### `wisp doctor`
 
 Checks that this install can work and exits non-zero if anything fails: macOS 27 or later, the on-device
-model available, the configured model available when it is not `system` (for `ollama:<name>`, that the
-server answers and lists the model), the Core ML risk classifier preparing when `approval.classifier` is
+model available, the configured model available when it is not `system` (for `ollama:<name>`, `llamacpp:<name>`, or
+`lmstudio:<name>`, that the server answers, accepts the key if it wants one, and lists the model), the Core ML risk classifier preparing when `approval.classifier` is
 `coreml` (the default), MLX's Metal library loading in a build with MLX, `/usr/bin/sandbox-exec` present,
 `config.json` parses, `~/.wisp` writable. Run it first
 when something is wrong. `wisp --version` prints the version: bare (`0.16.0`) for a release build, and for any other build the version, `-dev`, and the commit it was built from (`0.16.0-dev+4ab6eec`), with ` (modified)` after it when tracked files had uncommitted changes (untracked files do not count) (`0.16.0-dev+4ab6eec (modified)`), so a build from `main` is not taken for the release whose number it carries. Where the commit is unknown (a source archive) it is `0.16.0-dev`. `wisp-tui --version` follows the same rule. The banner and `wisp doctor` print the same form; the audit log's `version`, the classifier versions, and the MCP handshake keep the bare version.
@@ -727,7 +729,7 @@ state, so an ok that needs a caveat carries it in its detail.
 
 | Finding | Not ok when |
 | --- | --- |
-| `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason, for an Ollama or MLX model), configured for this model (`ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), configured (`ollama.contextLength` or `mlx.contextLength`), declared by a Core AI bundle's `metadata.json`, the default when the model gave no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
+| `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason, for an Ollama or MLX model), configured for this model (`ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), configured (`ollama.contextLength` or `mlx.contextLength`), declared by a Core AI bundle's `metadata.json`, reported by a llama.cpp or LM Studio server, the default when the model gave no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
 | `MLX` | This build carries MLX (the release does) and its Metal library is missing from where MLX looks, or does not load on the GPU. The detail names the library found (`Metal library <path> loads`), or the directory searched and the fix: copy the build's `default.metallib` beside `wisp` as `mlx.metallib` ([backends.md](backends.md), [ADR 0047](decisions/0047-mlx-in-the-release.md)). A build without the `MLX` trait passes with `not in this build`. |
 | `settings` | `facts.share` or `facts.summaryShare` is outside 0 to 0.5, `context.target` outside 0.1 to 0.8, or `context.headroomTurns` outside 0 to 64, which loading the config refuses. A negative `inlineOutputBytes` or `shownOutputLines` is clamped to 0, and a `context.target` above 0.65 is used as 0.65, so each is ok with a note. |
 | `facts store` | `~/.wisp/facts.json` does not parse (wisp then starts with no permanent facts) or is readable by others (fix: `chmod 600 <path>`). Absent is ok; present, the detail counts the current permanent facts by subject. |
@@ -988,9 +990,11 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `systemPromptExtension` | none | Text added under wisp's own system prompt for every session and thread on this Mac: house style, standing assumptions. `instructions` is the pre-0.2 name and is read when this key is absent. See [ADR 0017](decisions/0017-three-layer-instructions.md). |
-| `model` | `system` | `system`, `private-cloud`, or `<backend>:<name>`: `ollama:<name>`, `coreai:<name>`, or `mlx:<name>` ([backends.md](backends.md)). See [ADR 0013](decisions/0013-model-selection.md), [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md), and [ADR 0019](decisions/0019-model-backends.md). |
+| `model` | `system` | `system`, `private-cloud`, or `<backend>:<name>`: `ollama:<name>`, `llamacpp:<name>`, `lmstudio:<name>`, `coreai:<name>`, or `mlx:<name>` ([backends.md](backends.md)). See [ADR 0013](decisions/0013-model-selection.md), [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md), and [ADR 0019](decisions/0019-model-backends.md). |
 | `models` | `{ "disabled": [] }` | `disabled`: models turned off, as `--model` spells them: not offered by `/model` and Tab, and refused by `/model`, `--model`, `model`, and an MCP caller's `model`; never the default. Changed by `wisp models enable\|disable` and `/models` ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
 | `ollama` | `{ "baseURL": "http://127.0.0.1:11434", "timeoutSeconds": 120 }` | Where Ollama serves `ollama:<name>` models and how long one generation request may take. `contextLength`, when set, is the context window asked of the server for every model (`num_ctx`), which wisp condenses against; unset, each model's window is sized when it is selected from its shape and the Mac's memory ([ADR 0043](decisions/0043-context-window-from-memory.md)). `models`, by model name, holds one model's own settings: `contextLength` there is that model's window, ahead of the one for every model. See [backends.md](backends.md). |
+| `llamacpp` | `{ "baseURL": "http://127.0.0.1:8080", "timeoutSeconds": 120 }` | Where llama.cpp's `llama-server` serves `llamacpp:<name>` models and how long a request may wait while nothing arrives. `apiKey`: the server's key (`--api-key`), sent as a bearer token; `WISP_LLAMACPP_API_KEY` wins over it, and keeps the key out of this file; never logged or shown, and not settable with `wisp config set`. `think`: the chat template's `enable_thinking`. `models`: per model, its capabilities, declared by the operator or recorded with `verified` by `wisp models enable` and `check`, as for `mlx`. The window is the server's (`/props`), not configured ([ADR 0058](decisions/0058-a-shared-http-executor.md), [backends.md](backends.md)). |
+| `lmstudio` | `{ "baseURL": "http://127.0.0.1:1234", "timeoutSeconds": 120 }` | Where LM Studio's server serves `lmstudio:<name>` models. `apiKey`: an API token, as for `llamacpp`, with `WISP_LMSTUDIO_API_KEY` winning. LM Studio reports what its models can do and the window it loaded each at, so there is no `think` or `models` here. |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
 | `tools` | `{ "disabled": [], "custom": [] }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, even one whose list names it; otherwise a conversation with all tools gets it when `context.memory` is on ([tools/memory.md](tools/memory.md)). A definition that breaks the rules makes the config malformed. |
@@ -1012,7 +1016,9 @@ recorded with `verified` by `wisp models enable` and `check`. `contextLength`, w
 
 Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
 stderr. `wisp models pull` and `wisp models` find the Hugging Face cache through `huggingface_hub`'s variables
-(`HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, `XDG_CACHE_HOME`).
+(`HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, `XDG_CACHE_HOME`). `WISP_LLAMACPP_API_KEY` and
+`WISP_LMSTUDIO_API_KEY` are the keys of a llama.cpp or LM Studio server that wants one, and win over `config.json`'s
+`apiKey`.
 
 ```json
 { "systemPromptExtension": "Prefer British spelling.", "commandTimeoutSeconds": 120 }
@@ -1043,7 +1049,9 @@ a name, or a `share` outside 0 to 0.5 makes the config malformed.
 The on-device model's window is 8,192 tokens on macOS 27, measured on 2026-09-29; an Ollama or MLX model's is
 sized from its shape and the Mac's memory when it is selected, or is the model's own
 `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`, else `ollama.contextLength` or
-`mlx.contextLength`, when one is set; a Core AI model's is the one its bundle was exported for.
+`mlx.contextLength`, when one is set; a Core AI model's is the one its bundle was exported for; a llama.cpp or LM Studio
+model's is the one the server holds it at, read when it is selected (8,192 when the server reports none, or
+LM Studio has not loaded it).
 
 The model does not carry the whole conversation. Each request is composed from the conversation's store:
 the instructions, the facts and the running summary, the recent turns with each tool's output whole in its

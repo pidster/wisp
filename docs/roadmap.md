@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (run and decided, ADR 0057) | The assessment reconsidered (built and decided); MLX against Ollama (measured for Qwen3-1.7B, the gap fixed; the rest to measure); gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done) |
+| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done) |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
@@ -126,11 +126,12 @@ The release given to measurement, once the four before it were out. What was bui
 
 ## 0.21.0
 
-- **A shared HTTP executor** (larger), bringing llama.cpp and LM Studio as backends. Several local
-  runtimes serve an OpenAI-compatible HTTP API, and the Ollama executor's mapping from a transcript to a
-  chat request is most of what they need; the executor is parameterised by base URL, authentication,
-  and the request's dialect ([backlog.md](backlog.md),
-  [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md)).
+- **A shared HTTP executor** (larger), bringing llama.cpp and LM Studio as backends. **Built**
+  ([ADR 0058](decisions/0058-a-shared-http-executor.md)): one executor for OpenAI's chat-completions API with a
+  small dialect, `llamacpp:<model>` and `lmstudio:<model>`, the key from the environment or `config.json`, the
+  window read from the server, and what it shares with Ollama's executor extracted (`ReplyRelay`). Tested
+  against a fake server for each dialect and live against Ollama's OpenAI-compatible endpoint; a real
+  `llama-server` and LM Studio remain to be tried.
 
 - **A context length per model.** `ollama.contextLength` sets the window of every Ollama model at once;
   a setting per model (beside `mlx.models.<name>`), so one model can be held to a size while the rest are

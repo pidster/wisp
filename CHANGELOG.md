@@ -8,6 +8,16 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 Added:
 
+- llama.cpp and LM Studio as model backends, through one shared executor for servers that speak OpenAI's
+  chat-completions API (ADR 0058): `llamacpp:<model>` for `llama-server` (default `http://127.0.0.1:8080`) and
+  `lmstudio:<model>` for LM Studio's server (default `http://127.0.0.1:1234`), each with a `config.json` section
+  (`baseURL`, `timeoutSeconds`, `apiKey`, and for llama.cpp `think` and `models`). Streaming, tool calls, schema
+  replies, the model's thinking, and usage work as for Ollama; `wisp models` lists each server's models; the
+  window is the one the server holds the model at (`FROM` `server`); a request the server refuses as too large is
+  condensed and retried. A server's API key comes from `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY`, or
+  `apiKey`, and is never logged or shown. LM Studio reports which models call tools; a llama.cpp model is usable
+  with tools once declared or checked with `wisp models check llamacpp:<model>`. Not yet tried against a real
+  `llama-server` or LM Studio; checked live against Ollama's own OpenAI-compatible endpoint.
 - A context window for one model: `ollama.models.<name>.contextLength` and `mlx.models.<name>.contextLength` hold
   that model to a size, ahead of `ollama.contextLength` or `mlx.contextLength`, while the rest are sized from
   memory (`wisp config set ollama.models.qwen3.8:27b.contextLength 16384`). `wisp models` shows `model config` as

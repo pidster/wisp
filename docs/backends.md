@@ -3,8 +3,9 @@
 Which models wisp can run a conversation on, how to get their assets onto this Mac, how to name
 them, what each declares it can do, and what goes wrong. The decisions are
 [ADR 0013](decisions/0013-model-selection.md), [ADR 0016](decisions/0016-local-runtimes-through-an-executor.md),
-[ADR 0019](decisions/0019-model-backends.md), and, for MLX and Core AI's windows,
-[ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
+[ADR 0019](decisions/0019-model-backends.md), for MLX and Core AI's windows,
+[ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), and, for llama.cpp and LM Studio,
+[ADR 0058](decisions/0058-a-shared-http-executor.md).
 
 ## How selection works
 
@@ -15,6 +16,8 @@ them, what each declares it can do, and what goes wrong. The decisions are
 | `system` (default) | Apple's Foundation Models | on device |
 | `private-cloud` (alias `pcc`) | Apple's Private Cloud Compute | Apple's servers, with a note on stderr |
 | `ollama:<name>` | a local Ollama server | on device, in Ollama's process |
+| `llamacpp:<name>` | llama.cpp's `llama-server` | on device, in the server's process |
+| `lmstudio:<name>` | LM Studio's server | on device, in LM Studio's process |
 | `coreai:<name-or-path>` | Apple's Core AI framework, in wisp's process | on device |
 | `mlx:<name-or-path>` | MLX Swift, in wisp's process | on device; in the release and in builds made with the `MLX` trait |
 
@@ -61,6 +64,8 @@ hint otherwise. Who declares them:
 | --- | --- |
 | `system`, `private-cloud` | the framework |
 | `ollama` | the server's `/api/show` `capabilities` for that model (`tools`, `completion`, `thinking`, `vision`); a model without `completion`, such as an embedding model, is refused at resolution because it cannot hold a conversation |
+| `llamacpp` | schema replies always (the server holds the reply to the schema with a grammar); tool calling when `/props` says the chat template supports tool calls, else `config.json` (`llamacpp.models.<name>`), declared by the operator or recorded by wisp's check (`wisp models enable` or `check`) |
+| `lmstudio` | schema replies always; tool calling from `/api/v1/models` `trained_for_tool_use`, thinking from its `reasoning`; an `embedding` model is refused at resolution |
 | `coreai` | the bundle: tool-call markers in the tokenizer, a thinking format, the engine's guided-generation support |
 | `mlx` | `config.json`: the operator's declaration, or what wisp's check of the model recorded when it was enabled or checked (`wisp models check`); an undeclared model is text only |
 
@@ -173,6 +178,84 @@ on every turn. `granite4.1:8b` matched `qwen3-coder` at under a third of the mem
 named the wrong weekday for the date; `current_date` returns an ISO timestamp without one. Five prompts
 are a smoke test, not an evaluation: they show that these models drive wisp's tools, not how well they
 handle longer tasks.
+
+## llama.cpp and LM Studio
+
+Both serve OpenAI's chat-completions API, and wisp speaks it to them through one executor with a small dialect
+for what differs ([ADR 0058](decisions/0058-a-shared-http-executor.md)). What they share:
+
+- **Requests.** Each request carries the whole conversation to `/v1/chat/completions` with `stream: true` and
+  `stream_options.include_usage`, the tools with their JSON Schemas, and for a schema reply `response_format` of
+  type `json_schema`. Calls carry positional ids (`call00001`, nine letters and digits, as Mistral's templates
+  require) and each tool output names the call it answers. The model's thinking is never sent back.
+- **The stream.** Reply text, thinking (`delta.reasoning_content` or `delta.reasoning`, shown and audited as
+  Ollama's is, [ADR 0053](decisions/0053-the-models-thinking-shown.md)), and tool-call fragments gathered by
+  `index` until the choice finishes; missing required strings, arrays, and booleans are filled as for Ollama,
+  and calls written as text in Mistral's format are read back the same way. Usage comes from the last chunk;
+  without a reasoning count from the server, each chunk of thinking counts one token.
+- **The window is the server's.** The server holds the model at a window it chose, so wisp reads it instead of
+  sizing one from memory; the listing's `FROM` says `server`. A request the server refuses as larger than its
+  window is condensed and retried.
+- **Errors.** `no llama.cpp server at <url>: …; start one with llama-server -m <model.gguf>, or set
+  llamacpp.baseURL` (or the LM Studio equivalent) when nothing answers; `llama.cpp serves no model '<name>'; it
+  serves: …`; `… refused the request (HTTP 401): … set WISP_LLAMACPP_API_KEY, or llamacpp.apiKey in config.json`;
+  `llama.cpp at <url> stopped before the reply was done (…); nothing of it was kept` when the stream ends before a
+  choice finishes or `[DONE]` comes, or the connection is lost; `… sent nothing for N s (llamacpp.timeoutSeconds)`
+  when it goes silent. Chat falls back to `system` when its configured model is unavailable, as for Ollama.
+- **The key.** When the server was started with one, set `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY` (it
+  wins), or `apiKey` in the section. It is sent as `Authorization: Bearer …` and never logged; `wisp config` and
+  `inspect` show only `set (…)` or `unset`. The environment keeps it out of `config.json`, which a tool that reads
+  files could otherwise read.
+
+None of this has been run against a real `llama-server` or LM Studio: neither was installed on this Mac when it was
+built (2026-10-09). The executor was checked live against Ollama 0.35.1's own OpenAI-compatible endpoint (a tool
+call through the loop, and thinking streamed as `delta.reasoning`), and every behaviour above is tested against a
+fake server for each dialect (`OpenAICompatibleExecutorTests`, `OpenAICompatibleBackendTests`).
+
+### llama.cpp
+
+Install llama.cpp (`brew install llama.cpp`, or a release from its repository) and serve one model:
+
+```
+llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
+```
+
+```json
+{ "model": "llamacpp:Qwen3-8B-Q4_K_M", "llamacpp": { "baseURL": "http://127.0.0.1:8080", "timeoutSeconds": 120 } }
+```
+
+- **Names.** `/v1/models` lists the model by the `-m` path or the `--alias` given; a path is named by its file's
+  name without `.gguf` (`llamacpp:Qwen3-8B-Q4_K_M`), and the path itself is accepted too. A router serving several
+  models (`--models-dir`) lists each, and wisp asks `/props` about the one it uses.
+- **Window.** `/props` `default_generation_settings.n_ctx`, the window of a slot, which one request gets: `-c`
+  divided among the slots (`--parallel`). Without it, 8,192, and the note says why.
+- **Tools.** llama.cpp gives any model tools (`--jinja`, its default) and does not say which models call them, so
+  a model is usable with tools once `config.json` declares it, or once `wisp models check llamacpp:<name>` (or
+  `enable`) has asked it the three short questions of [ADR 0056](decisions/0056-models-enabled-and-disabled.md)
+  and recorded what passed under `llamacpp.models.<name>`. When `/props` reports the chat template supports tool
+  calls (`chat_template_caps`), that declares it. Schema replies need nothing.
+- **Thinking.** `llamacpp.think` `true` or `false` is sent as the chat template's `enable_thinking`
+  (`chat_template_kwargs`) for every model; unset sends nothing. The server separates thinking from the reply with
+  `--reasoning-format` (`auto` by default); with `none`, thinking stays in the reply's text.
+
+### LM Studio
+
+Install [LM Studio](https://lmstudio.ai), download a model, and start the server from the Developer tab (or
+`lms server start`):
+
+```json
+{ "model": "lmstudio:qwen/qwen3-8b", "lmstudio": { "baseURL": "http://127.0.0.1:1234", "timeoutSeconds": 120 } }
+```
+
+- **Names.** A model's `key` as `/api/v1/models` lists it (`lmstudio:qwen/qwen3-8b`). That listing (LM Studio
+  0.4.0 and later) gives every downloaded model's parameter count, size, architecture and quantisation, and what
+  it can do; an older server's `/v1/models` gives the names only, and wisp then knows nothing more.
+- **Window.** A loaded model's window is the one LM Studio loaded it at. A model not loaded is loaded by LM Studio
+  at its own default when the first request comes, which wisp cannot see, so it uses 8,192 (or the model's maximum
+  when smaller) and says so; load it at the window you want and choose it again.
+- **Tools and thinking.** As LM Studio reports them: `trained_for_tool_use` and `reasoning`. A model it does not
+  report as trained for tools is usable with tools off only. Thinking is set per model in LM Studio, so the section
+  has no `think`. An embedding model is refused.
 
 ## Core AI
 
@@ -470,8 +553,8 @@ first reply is slow.
 
 ## Deferred candidates
 
-Recorded, not implemented: llama.cpp; LM Studio (`llmster`); ONNX Runtime; PyTorch and Hugging Face
-Transformers; vLLM. Several of these serve an OpenAI-compatible HTTP API, and the Ollama executor's
-transcript-to-chat mapping is most of a shared HTTP executor for them. Embeddings, reranking, and other
+Recorded, not implemented: ONNX Runtime; PyTorch and Hugging Face Transformers; vLLM. vLLM serves an
+OpenAI-compatible HTTP API, so the shared executor that serves llama.cpp and LM Studio
+([ADR 0058](decisions/0058-a-shared-http-executor.md)) is most of what it needs: a dialect value. Embeddings, reranking, and other
 non-conversational models need task-specific interfaces rather than a `LanguageModel`, and are a
 separate design.

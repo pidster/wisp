@@ -157,10 +157,15 @@ extension ModelBackend {
     { config }
 }
 
-/// The backends this process knows, by scheme. Ollama is built in; the executable registers the
-/// others at launch so `WispCore` never links their runtimes.
+/// The backends this process knows, by scheme. Ollama, llama.cpp, and LM Studio are built in, since they are HTTP
+/// servers wisp needs no library to talk to (ADR 0016, ADR 0058); the executable registers the others at launch so
+/// `WispCore` never links their runtimes.
 public enum ModelBackends {
-    private static let registry = Mutex<[String: any ModelBackend]>(["ollama": OllamaBackend()])
+    private static let registry = Mutex<[String: any ModelBackend]>(
+        [
+            "ollama": OllamaBackend(), "llamacpp": OpenAICompatibleBackend(.llamaCpp),
+            "lmstudio": OpenAICompatibleBackend(.lmStudio),
+        ])
 
     /// Adds or replaces a backend under its scheme.
     public static func register(_ backend: any ModelBackend) {

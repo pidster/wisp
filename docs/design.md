@@ -84,7 +84,18 @@ transcript, and guided generation are unchanged above it. See
 model directory's `PrefixEngine` with the thread's slot, and reports usage in the same shape, the reused prefix as
 cached input tokens ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 
-`ModelSelection` names the model (`system`, `private-cloud`, or `ollama:<name>`); `resolve()` checks
+`OpenAICompatibleModel` is the backend for runtimes that serve OpenAI's chat-completions API, llama.cpp's
+`llama-server` (`llamacpp:`) and LM Studio (`lmstudio:`), registered as two `OpenAICompatibleBackend`s, one per
+`OpenAICompatibleDialect`; the dialect holds what differs (default port, where the runtime describes its models,
+whether it takes `think`, whether its models' capabilities are declared). Its executor maps the same `ChatMessage`s
+onto OpenAI's messages (positional call ids, each tool output answering its call's id), reads the server-sent
+events, gathers tool-call fragments by `index`, and, like Ollama's executor, hands thinking, text, and calls to a
+`ReplyRelay`, which owns the `ThinkingStretch`, the argument completion, and the hold on calls written as text for
+both. A connection's failure is named by `ConnectionFailure` for both, and a server's refusal of a request larger
+than its window becomes `contextSizeExceeded`, which `Agent` condenses for. The window is the one the server reports
+it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
+
+`ModelSelection` names the model (`system`, `private-cloud`, or `<backend>:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session
 makers and an optional token counter. See [ADR 0013](decisions/0013-model-selection.md).
 

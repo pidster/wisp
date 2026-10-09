@@ -74,6 +74,8 @@ public enum ModelListing {
             case "system": "on-device"
             case "private-cloud": "Private Cloud"
             case "ollama": "Ollama"
+            case "llamacpp": "llama.cpp"
+            case "lmstudio": "LM Studio"
             case "mlx": "MLX"
             case "coreai": "Core AI"
             case let other: other
@@ -83,14 +85,15 @@ public enum ModelListing {
         /// How the window is known, in a word: `memory` (sized from the weights and the Mac's memory, ADR 0043),
         /// `model config` (the model's own `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`),
         /// `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle),
-        /// `default` (the floor, with no shape to size from), or `model` (the model states its own); nil without a
-        /// window.
+        /// `server` (reported by the llama.cpp or LM Studio server that holds the model, ADR 0058), `default` (the
+        /// floor, with no shape to size from), or `model` (the model states its own); nil without a window.
         public var contextFrom: String? {
             guard contextSize != nil else { return nil }
             guard let note = contextNote else { return "model" }
             if note.hasPrefix(ContextSizing.perModelPrefix) { return "model config" }
             if note.hasPrefix("configured") { return "config" }
             if note.hasPrefix("declared by") { return "bundle" }
+            if note.hasPrefix("reported by") { return "server" }
             if note.contains(", the default") || note.hasPrefix("the default") { return "default" }
             return "memory"
         }

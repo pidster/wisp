@@ -232,8 +232,8 @@ public struct OllamaModel: LanguageModel, Sendable {
     public let window: Int
     /// Why the window is what it is, for the `model.resolved` audit event.
     public let windowReason: String
-    /// The last request's usage, written by the executor; a class so the value survives copies.
-    private let usage = UsageRecord()
+    /// The last request's input tokens, written by the executor; a class so the value survives copies.
+    private let usage = LastInputTokens()
 
     /// Creates a model; `resolve` on the selection checks it exists, reads its capabilities, and sizes
     /// its window first. Without a sized `window`, the configured one, else `ContextSizing.floor`.
@@ -257,13 +257,7 @@ public struct OllamaModel: LanguageModel, Sendable {
     }
 
     /// Input tokens of the last request, from `prompt_eval_count`; nil before the first.
-    public var lastInputTokens: Int? { usage.inputTokens.withLock { $0 } }
-
-    /// Holds the last request's input token count behind a mutex.
-    final class UsageRecord: Sendable {
-        /// The count, or nil before any request.
-        let inputTokens = Mutex<Int?>(nil)
-    }
+    public var lastInputTokens: Int? { usage.value.withLock { $0 } }
 
     /// What Ollama reported for this model: `tools` gives tool calling, `completion` gives JSON-schema
     /// output through the chat API's `format`. Nothing is declared before `check()`, and an embedding
@@ -588,17 +582,13 @@ public struct OllamaModel: LanguageModel, Sendable {
                 for try await line in bytes.lines where body.count < 200 { body += line }
                 throw Failure.serverError(status: status, body: body)
             }
-            var calls = 0
             var input = 0
             var output = 0
-            var thinking = ThinkingStretch()
-            var held = HeldReply(request: request)
+            var relay = ReplyRelay(request: request, channel: channel)
             var done = false
             do {
                 for try await line in bytes.lines {
-                    done = try await relay(
-                        line, request: request, status: status, calls: &calls, input: &input, output: &output,
-                        thinking: &thinking, held: &held, channel: channel)
+                    done = try await hand(line, status: status, input: &input, output: &output, to: &relay)
                 }
             } catch let failure as Failure {
                 throw failure
@@ -610,30 +600,16 @@ public struct OllamaModel: LanguageModel, Sendable {
             guard done else {
                 throw Failure.interrupted(configuration.baseURL, "the stream ended before Ollama said it was done")
             }
-            thinking.end()
-            if !held.text.isEmpty {
-                // The whole reply was held: calls in Mistral's format when it is exactly that, else the reply.
-                if let recovered = TextToolCalls.mistral(held.text, offered: held.offered) {
-                    for call in recovered {
-                        await send(call.name, call.arguments, request: request, calls: &calls, channel: channel)
-                    }
-                } else {
-                    await channel.send(.response(action: .appendText(held.text, tokenCount: 1)))
-                }
-                for call in held.calls {
-                    await send(
-                        call.function.name, call.function.arguments, request: request, calls: &calls, channel: channel)
-                }
-            }
-            model.usage.inputTokens.withLock { $0 = input }
+            await relay.finish()
+            model.usage.value.withLock { $0 = input }
             // Ollama reports no count of its own for the thinking; it streams one token a chunk, so the chunks are
             // the count, within the output's total.
+            let thought = relay.thinkingTokens
             await channel.send(
                 .response(
                     action: .updateUsage(
                         input: .init(totalTokenCount: input, cachedTokenCount: 0),
-                        output: .init(
-                            totalTokenCount: max(output, thinking.tokens), reasoningTokenCount: thinking.tokens)
+                        output: .init(totalTokenCount: max(output, thought), reasoningTokenCount: thought)
                     )))
         }
 
@@ -646,32 +622,26 @@ public struct OllamaModel: LanguageModel, Sendable {
         ///   - streaming: Whether the response had begun.
         /// - Returns: The failure to throw.
         static func failure(_ error: any Error, configuration: Configuration, streaming: Bool) -> Failure {
-            let code = (error as? URLError)?.code
-            if code == .timedOut { return .timedOut(configuration.baseURL, seconds: configuration.timeoutSeconds) }
-            if streaming || code == .networkConnectionLost {
-                return .interrupted(configuration.baseURL, error.localizedDescription)
+            switch ConnectionFailure(error, streaming: streaming) {
+            case .timedOut: .timedOut(configuration.baseURL, seconds: configuration.timeoutSeconds)
+            case .interrupted(let detail): .interrupted(configuration.baseURL, detail)
+            case .unreachable(let detail): .unreachable(configuration.baseURL, detail)
             }
-            return .unreachable(configuration.baseURL, error.localizedDescription)
         }
 
-        /// Sends one streamed line's content to the channel: thinking, reply text, and tool calls, and the counts.
+        /// Hands one streamed line's content to the reply's relay: thinking, reply text, and tool calls, and keeps
+        /// the counts.
         ///
         /// - Parameters:
         ///   - line: The NDJSON line.
-        ///   - request: The request, for its tools' schemas and id.
         ///   - status: The HTTP status, for an error chunk.
-        ///   - calls: Tool calls so far, for their ids.
         ///   - input: The prompt tokens Ollama reported.
         ///   - output: The tokens it generated.
-        ///   - thinking: The stretch of thinking under way.
-        ///   - held: The reply's text held back while it may be calls written as text.
-        ///   - channel: Where events go.
+        ///   - relay: The reply's relay.
         /// - Returns: Whether the chunk said the reply is done.
         /// - Throws: `Failure.badResponse` or `Failure.serverError`.
-        nonisolated(nonsending) private func relay(
-            _ line: String, request: LanguageModelExecutorGenerationRequest, status: Int, calls: inout Int,
-            input: inout Int, output: inout Int, thinking: inout ThinkingStretch, held: inout HeldReply,
-            channel: LanguageModelExecutorGenerationChannel
+        nonisolated(nonsending) private func hand(
+            _ line: String, status: Int, input: inout Int, output: inout Int, to relay: inout ReplyRelay
         ) async throws -> Bool {
             let chunk: Chunk
             do {
@@ -683,90 +653,15 @@ public struct OllamaModel: LanguageModel, Sendable {
             if let message = chunk.message {
                 // Ollama streams a reasoning model's thinking before its reply, one token a chunk, whether or
                 // not `think` was sent (probed 2026-10-04, ornith:9b: 42 thinking chunks, then 2 of reply).
-                if let thought = message.thinking, !thought.isEmpty {
-                    thinking.think(thought)
-                    await channel.send(.reasoning(action: .appendText(thought, tokenCount: 1)))
-                }
-                if !message.content.isEmpty || !(message.tool_calls ?? []).isEmpty { thinking.end() }
-                if !message.content.isEmpty {
-                    if held.active {
-                        // Held while it may be calls written as text (`TextToolCalls.mistral`); sent as the reply,
-                        // with any calls Ollama parsed meanwhile, once it plainly is not.
-                        held.text += message.content
-                        if !TextToolCalls.mayBeMistral(held.text, offered: held.offered) {
-                            held.active = false
-                            await channel.send(.response(action: .appendText(held.text, tokenCount: 1)))
-                            held.text = ""
-                            for call in held.calls {
-                                await send(
-                                    call.function.name, call.function.arguments, request: request, calls: &calls,
-                                    channel: channel)
-                            }
-                            held.calls = []
-                        }
-                    } else {
-                        await channel.send(.response(action: .appendText(message.content, tokenCount: 1)))
-                    }
-                }
-                for call in message.tool_calls ?? [] {
-                    // Behind held text, a parsed call waits, so the calls keep the order the model wrote them in.
-                    if held.active && !held.text.isEmpty {
-                        held.calls.append(call)
-                    } else {
-                        await send(
-                            call.function.name, call.function.arguments, request: request, calls: &calls,
-                            channel: channel)
-                    }
-                }
+                if let thought = message.thinking { await relay.think(thought) }
+                // Text a Mistral model's template leaves in `content` may be calls written as text; the relay holds
+                // it while it may be, and Ollama's own parsed calls wait behind it.
+                await relay.reply(message.content)
+                for call in message.tool_calls ?? [] { await relay.call(call.function.name, call.function.arguments) }
             }
             input = chunk.prompt_eval_count ?? input
             output = chunk.eval_count ?? output
             return chunk.done == true
-        }
-
-        /// Sends one tool call to the channel, its arguments completed against the tool's schema, with the next id.
-        ///
-        /// - Parameters:
-        ///   - name: The tool's name.
-        ///   - arguments: The arguments as the model wrote them.
-        ///   - request: The request, for its tools' schemas and id.
-        ///   - calls: Tool calls so far, for the id.
-        ///   - channel: Where the call goes.
-        nonisolated(nonsending) private func send(
-            _ name: String, _ arguments: JSONValue, request: LanguageModelExecutorGenerationRequest, calls: inout Int,
-            channel: LanguageModelExecutorGenerationChannel
-        ) async {
-            calls += 1
-            let schema = request.enabledToolDefinitions.first { $0.name == name }.map { Self.json($0.parameters) }
-            let completed = schema.map { Self.completed(arguments, schema: $0) } ?? arguments
-            let encoded = (try? JSONEncoder().encode(completed)) ?? Data("{}".utf8)
-            await channel.send(
-                .toolCalls(
-                    action: .toolCall(
-                        id: "\(request.id.uuidString.lowercased())-\(calls)", name: name,
-                        action: .appendArguments(String(decoding: encoded, as: UTF8.self), tokenCount: 1))))
-        }
-
-        /// A reply's text held back while it may be tool calls written as text in Mistral's format, which a Mistral
-        /// model's Ollama template can leave in `content` (`TextToolCalls.mistral`), with the calls Ollama parsed
-        /// while it was held. Only a request that offers tools and wants no schema reply holds anything.
-        struct HeldReply {
-            /// The names of the tools the request offers.
-            let offered: Set<String>
-            /// Whether text is still being held.
-            var active: Bool
-            /// The text held.
-            var text = ""
-            /// Ollama's own parsed calls that came while text was held.
-            var calls: [Message.ToolCall] = []
-
-            /// The state for a request.
-            ///
-            /// - Parameter request: The request.
-            init(request: LanguageModelExecutorGenerationRequest) {
-                offered = Set(request.enabledToolDefinitions.map(\.name))
-                active = !offered.isEmpty && request.schema == nil
-            }
         }
     }
 }
