@@ -25,6 +25,9 @@ public enum ConfigSettings {
         /// A Core ML model: `risk@<version>` from the classifier store, a file under
         /// `<home>/models/coreml`, or an absolute or `~` path.
         case coremlModel
+        /// Hugging Face organisations, as a JSON array or separated by commas or spaces, each a name Hugging Face
+        /// accepts (`TrustedPublishers.isHubName`).
+        case publishers
     }
 
     /// One setting.
@@ -110,6 +113,10 @@ public enum ConfigSettings {
             path: "mlx.think",
             summary: "whether an MLX model thinks (enable_thinking); unset, declared reasoning or its template's",
             kind: .flag),
+        Setting(
+            path: TrustedPublishers.setting,
+            summary: "Hugging Face organisations wisp models pull fetches from without asking; mlx-community always",
+            kind: .publishers),
         Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
         Setting(
             path: "assessment.enabled",
@@ -221,6 +228,7 @@ public enum ConfigSettings {
         case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
         case "mlx.executor": return .string(d.mlxExecutor.rawValue)
         case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("declared reasoning, else the template's")
+        case TrustedPublishers.setting: return .array(d.mlxTrustedPublishers.map { .string($0) })
         case "assessment.enabled": return .bool(d.assessmentEnabled)
         case "assessment.tools": return .string(d.assessmentTools.rawValue)
         case "assessment.taskChanges": return .string(d.assessmentTaskChanges.rawValue)
@@ -335,6 +343,17 @@ public enum ConfigEdit {
                         + ToolRegistry.builtInNames.joined(separator: ", "))
             }
             return .array(names.map { .string($0) })
+        case .publishers:
+            let names = list(text)
+            if let wrong = names.first(where: { !TrustedPublishers.isHubName($0) }) {
+                throw invalid(
+                    "'\(wrong)' is not a Hugging Face organisation name (1 to \(TrustedPublishers.maxNameLength) of "
+                        + "letters, digits, '.', '_', and '-', starting and ending with a letter, a digit, or '_', "
+                        + "and no '--' or '..')")
+            }
+            var unique: [String] = []
+            for name in names where !unique.contains(name) { unique.append(name) }
+            return .array(unique.map { .string($0) })
         }
     }
 

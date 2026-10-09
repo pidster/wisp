@@ -337,17 +337,22 @@ public struct Config: Codable, Equatable, Sendable {
         /// operator declared `reasoning` for, and leaves every other to its template's default, as an unset
         /// `ollama.think` leaves a model to Ollama's (ADR 0053; ADR 0052, refined 2026-10-06).
         public var think: Bool?
+        /// The Hugging Face organisations `wisp models pull` fetches from without asking; nil is
+        /// `["mlx-community"]`, and `mlx-community` is trusted whatever the list holds (`TrustedPublishers`; ADR 0052,
+        /// amended 2026-10-09).
+        public var trustedPublishers: [String]?
 
         /// Creates settings; nil takes the defaults.
         public init(
             modelsDirectory: String? = nil, models: [String: MLXModelConfig]? = nil, contextLength: Int? = nil,
-            executor: MLXExecutorChoice? = nil, think: Bool? = nil
+            executor: MLXExecutorChoice? = nil, think: Bool? = nil, trustedPublishers: [String]? = nil
         ) {
             self.modelsDirectory = modelsDirectory
             self.models = models
             self.contextLength = contextLength
             self.executor = executor
             self.think = think
+            self.trustedPublishers = trustedPublishers
         }
     }
 
@@ -679,6 +684,7 @@ public struct Config: Codable, Equatable, Sendable {
             mlxContextLength: mlx?.contextLength,
             mlxModelContextLengths: (mlx?.models ?? [:]).compactMapValues(\.contextLength),
             mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
+            mlxTrustedPublishers: TrustedPublishers.resolve(mlx?.trustedPublishers),
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
@@ -770,6 +776,9 @@ public struct Config: Codable, Equatable, Sendable {
         /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil asks one declared
         /// `reasoning` and leaves the others to the template's default.
         public var mlxThink: Bool?
+        /// The publishers `wisp models pull` fetches from without asking: `mlx.trustedPublishers` and
+        /// `mlx-community`, which is always trusted (ADR 0052, amended 2026-10-09).
+        public var mlxTrustedPublishers: [String] = [TrustedPublishers.builtIn]
         /// Whether notifications are posted.
         public var notificationsEnabled: Bool = true
         /// At most this many notifications a minute.

@@ -109,14 +109,32 @@ shown, wisp's own model is refused `wisp facts keep|drop` by the default policy,
 terminal on standard input. Unanswered, nothing is kept. A caller cannot change or remove a permanent fact;
 only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
-wisp downloads a model only when you run `wisp models pull mlx-community/<name>` in a terminal and answer yes
-after it has said which files, how many bytes, and where. It fetches from `mlx-community` alone, only the files
-a model directory needs, and checks each against Hugging Face's listing; wisp's own model is refused the
-command by the default policy. The files go into the Hugging Face cache, shared with Hugging Face's own tools,
+wisp downloads a model only when you run `wisp models pull <organisation>/<name>` in a terminal and answer yes
+after it has said which files, how many bytes, and where. It fetches only the files a model directory needs, with
+plain names, and checks each against Hugging Face's listing; wisp's own model is refused the command by the
+default policy. The files go into the Hugging Face cache, shared with Hugging Face's own tools,
 and the models directory links to them; a file cut off part-way resumes from where it stopped and is checked
 whole, and the intact files of a real directory already at `~/.wisp/models/mlx/<name>` are copied into the cache
 instead of fetched again; a directory already there is moved to the Trash only if you answer yes
 to a second question ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
+
+**A model from a publisher you have not trusted.** Any Hugging Face organisation can be pulled, but only one in
+`mlx.trustedPublishers` (`mlx-community`, the organisation that publishes MLX conversions, always is) is pulled
+without asking who published it. For any other, the pull first names the publisher, the repository, the licence
+the Hub gives (or `unknown`), and the download, and refuses unless you answer `o` (this once) or `t` (trust the
+publisher from now on, written to `config.json`); without a terminal it is refused unless you pass
+`--trust-publisher`. What you are agreeing to: the publisher's weights, tokenizer files, and chat template are
+loaded into wisp's own process and run whenever you choose `mlx:<name>`. They are data, not programs: the weights
+are `safetensors` (tensors and a JSON header, no pickled code), the model's architecture is one of those built
+into wisp (mlx-swift-lm's, picked by `model_type` in `config.json`; a repository cannot supply its own code), and
+the chat template is Jinja rendered by wisp's own interpreter (swift-jinja, through swift-transformers), which has
+no access to files, the network, or processes. What a hostile or careless publisher can still do: give you a
+model that answers badly or misleadingly, or a template that adds text of its own to every prompt, such as
+instructions to call tools; ask for commands, which pass the policy, the sandbox, the classifier, and your
+approval like any model's; or ship files crafted against a bug in the parsers that read them. The licence shown is
+what the publisher declared, not a check of it. The name rules, the file rules, the size and digest checks, and
+the link rules are the same for every publisher, and each decision is audited as `model.publisher`
+([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), amended 2026-10-09).
 
 Turning a model off (`wisp models disable`, `/models` in chat, `wisp-tui`'s picker) changes only
 `models.disabled` in `config.json`, and turning one on takes it out of that list. Enabling a complete MLX model already in the Hugging Face cache links it and
@@ -155,7 +173,7 @@ remembered as ([logging](logging.md)).
   caller asks for waits for `wisp facts keep`.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
   writable set, except the models you pulled into the Hugging Face cache, which Hugging Face's own tools share
-  (delete `<cache>/models--mlx-community--<name>` to remove one), and the completion script `wisp completions
+  (delete `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions
   install` wrote for your shell (delete the file it named).
 - Uninstall: `brew uninstall wisp`.
 
@@ -163,7 +181,7 @@ remembered as ([logging](logging.md)).
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
-| `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed) | yours; user-only once wisp writes it |
+| `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |
 | `~/.zsh/completions/_wisp`, bash-completion's or fish's per-user completions directory | the shell completion script, only when you run `wisp completions install`; it replaces only a file wisp wrote ([wisp.md](wisp.md), "`wisp completions`") | your default (umask) |

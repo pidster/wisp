@@ -22,11 +22,14 @@ final class FakeHub: ModelPull.Transport {
     let misplacedRange: Int?
     /// The offset of each download asked for, in order.
     let offsets = Mutex<[Int]>([])
+    /// More of the model information, such as `cardData` and `tags`, for the licence.
+    let card: [String: JSONValue]
 
     init(
         files: [String: Data], listingStatus: Int = 200, withOids: Bool = true, honoursRanges: Bool = true,
-        misplacedRange: Int? = nil
+        misplacedRange: Int? = nil, card: [String: JSONValue] = [:]
     ) {
+        self.card = card
         self.files = files
         self.listingStatus = listingStatus
         self.withOids = withOids
@@ -44,10 +47,10 @@ final class FakeHub: ModelPull.Transport {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The model information: the commit `main` is at.
+    /// The model information: the commit `main` is at, and whatever `card` adds.
     var information: Data {
-        (try? JSONEncoder().encode(JSONValue.object(["id": "mlx-community/q", "sha": .string(Self.revision)])))
-            ?? Data()
+        let info = card.merging(["id": "mlx-community/q", "sha": .string(Self.revision)]) { _, fixed in fixed }
+        return (try? JSONEncoder().encode(JSONValue.object(info))) ?? Data()
     }
 
     /// The tree listing: every file with its git blob id, and LFS digests for the weights.
@@ -139,18 +142,74 @@ final class FakeHub: ModelPull.Transport {
         return plan
     }
 
-    @Test func onlyMLXCommunityRepositoriesAreFetched() throws {
+    /// Any publisher's repository is named (whether it is trusted is `PublisherCheck`'s question), and the name
+    /// rules hold for every publisher: two parts, each a name Hugging Face accepts, so neither reaches out of the
+    /// cache or the models directory (ADR 0052, amended 2026-10-09).
+    @Test func anyPublishersRepositoryIsNamedAndTheNameRulesHoldForEvery() throws {
         #expect(
             try ModelPull.repository("mlx-community/Qwen3-1.7B-4bit") == (
                 "mlx-community/Qwen3-1.7B-4bit", "Qwen3-1.7B-4bit"
             ))
         #expect(try ModelPull.repository("mlx:mlx-community/q").name == "q")
+        #expect(
+            try ModelPull.repository("mlx:ornith-ai/Ornith-1.5-9B-MLX-4bit") == (
+                "ornith-ai/Ornith-1.5-9B-MLX-4bit", "Ornith-1.5-9B-MLX-4bit"
+            ))
+        #expect(try ModelPull.repository("someone_1/model").name == "model")
+        let long = String(repeating: "a", count: 97)
         for refused in [
-            "someone/model", "mlx-community", "mlx-community/", "mlx-community/a/b", "mlx-community/..",
-            "mlx-community/a b", "https://huggingface.co/mlx-community/q",
+            "mlx-community", "mlx-community/", "mlx-community/a/b", "mlx-community/..", "mlx-community/a b",
+            "https://huggingface.co/mlx-community/q", "../x", "x/..", "./x", "x/.", ".hidden/x", "x/.hidden",
+            "/x", "x/", "a b/x", "a--b/x", "x/a--b", "x/a..b", "-x/y", "x/y-", "x./y", "~/x", "x/\u{1b}[2J",
+            "ornith-ai/\(long)", "\(long)/x", "",
         ] {
             #expect(throws: ModelPull.Failure.notAllowed(refused), "\(refused)") { try ModelPull.repository(refused) }
         }
+        #expect(ModelPull.Failure.notAllowed("../x").description.contains("<organisation>/<name>"))
+    }
+
+    /// The licence comes from the model information the plan already reads: the card's, `other` with its name, a
+    /// `license:` tag when the card names none, and nothing when neither does; only printable text, bounded.
+    @Test func theLicenceIsReadFromTheModelInformation() {
+        func licence(_ info: [String: JSONValue]) -> String? {
+            ModelPull.licence(fromInfo: (try? JSONEncoder().encode(JSONValue.object(info))) ?? Data())
+        }
+        #expect(licence(["cardData": ["license": "apache-2.0"], "tags": ["license:mit"]]) == "apache-2.0")
+        #expect(licence(["cardData": ["license": "other", "license_name": "gemma"]]) == "other (gemma)")
+        #expect(licence(["cardData": ["license": ["mit", "apache-2.0"]]]) == "mit, apache-2.0")
+        #expect(licence(["tags": ["mlx", "license:mit"]]) == "mit")
+        #expect(licence(["cardData": [:], "tags": ["mlx"]]) == nil)
+        #expect(licence([:]) == nil)
+        #expect(ModelPull.licence(fromInfo: Data("not json".utf8)) == nil)
+        #expect(licence(["cardData": ["license": "mit\u{1b}[2J\n"]]) == "mit[2J")
+        #expect(licence(["cardData": ["license": .string(String(repeating: "x", count: 500))]])?.count == 80)
+    }
+
+    /// A pull from another publisher plans as one from mlx-community does, into that publisher's cache folder,
+    /// with the licence the Hub gives; a link at the name to another publisher's model of that name is refused
+    /// before any request, since repointing it would change what `mlx:<name>` runs.
+    @Test func anotherPublishersPlanIsTheSameButItsOwnAndCarriesTheLicence() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let hub = FakeHub(files: Self.repository, card: ["cardData": ["license": "apache-2.0"]])
+        let plan = try await place.pull(hub).plan("ornith-ai/q", into: place.models)
+        #expect(plan.publisher == "ornith-ai" && plan.licence == "apache-2.0" && plan.name == "q")
+        #expect(plan.files.map(\.path) == Self.wantedFiles)
+        #expect(plan.snapshot.path.contains("/models--ornith-ai--q/snapshots/"))
+        #expect(
+            hub.requested.withLock { $0 } == [
+                "/api/models/ornith-ai/q/revision/main", "/api/models/ornith-ai/q/tree/\(FakeHub.revision)",
+            ])
+        #expect(
+            try await place.pull(FakeHub(files: Self.repository)).plan("ornith-ai/q", into: place.models).licence == nil
+        )
+        // mlx-community/q pulled and linked as `q`; ornith-ai/q may not take its link.
+        try await pulled(place)
+        let other = FakeHub(files: Self.repository)
+        await #expect(throws: ModelPull.Failure.exists(place.models.appending(path: "q").path)) {
+            try await place.pull(other).plan("ornith-ai/q", into: place.models)
+        }
+        #expect(other.requested.withLock { $0.isEmpty })
     }
 
     @Test func onlyTheFilesAModelDirectoryNeedsAreWanted() {
@@ -160,7 +219,10 @@ final class FakeHub: ModelPull.Transport {
         ] {
             #expect(ModelPull.wanted(wanted), "\(wanted)")
         }
-        for unwanted in ["README.md", ".gitattributes", "images/x.json", "model.gguf", "weights.bin"] {
+        for unwanted in [
+            "README.md", ".gitattributes", "images/x.json", "model.gguf", "weights.bin", "a b.json",
+            "x\u{1b}[2J.json", "../x.json", "model\u{0}.safetensors",
+        ] {
             #expect(!ModelPull.wanted(unwanted), "\(unwanted)")
         }
     }

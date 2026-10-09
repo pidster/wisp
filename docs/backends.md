@@ -362,12 +362,19 @@ swift build --package-path harness -c release --traits MLX
 Preparing an asset: a model directory holding `config.json`, the `*.safetensors`, and the tokenizer files
 (`tokenizer.json`, `tokenizer_config.json`). A Hugging Face snapshot works as it is, and the
 `mlx-community` quantised repositories are the usual choice. Put the directory, or a link to it, under
-`<home>/models/mlx` (`config.json` `mlx.modelsDirectory`), or name it by path, or have wisp fetch an
-`mlx-community` one:
+`<home>/models/mlx` (`config.json` `mlx.modelsDirectory`), or name it by path, or have wisp fetch one from
+Hugging Face:
 
 ```
 wisp models pull mlx-community/Qwen3-1.7B-4bit
 ```
+
+Any organisation's repository can be pulled. A publisher in `mlx.trustedPublishers` (by default
+`["mlx-community"]`, and `mlx-community` always) is pulled as above. Any other is put to you first, naming the
+publisher, the repository, its licence, and the download, refused unless you answer to pull it once or to trust
+the publisher from now on, which adds it to `mlx.trustedPublishers`; `--trust-publisher` skips that question once
+([wisp.md](wisp.md), "`wisp models pull`"; [trust.md](trust.md), "When you are asked"). Every check below applies to every
+publisher alike.
 
 The pull keeps the model in the Hugging Face cache, in `huggingface_hub`'s own layout, so a model Hugging
 Face's tools fetched is reused and one wisp fetches is theirs too; `<home>/models/mlx/<name>` becomes a link
@@ -388,8 +395,9 @@ listed size, and its content: each weights file's SHA-256, which reads it, and e
 name its blob takes), and says per file whether it is already in the
 Hugging Face cache or to fetch. It asks before it downloads anything; when every file is already in the cache it
 asks nothing and only links. It runs only from a terminal, and the default command policy refuses it to the
-model. It fetches only `mlx-community` repositories and only the top-level files a model directory needs
-(`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each fetched file's size and content (each
+model. It fetches one repository, both parts of whose name are names Hugging Face accepts (no `/`, no leading
+dot, no `--` or `..`), and only the top-level files a model directory needs (`json`, `safetensors`, `jinja`,
+`txt`, `model`, `tiktoken`) with plain names (letters, digits, `.`, `_`, `-`, no leading dot), checks each fetched file's size and content (each
 weights file's SHA-256, each other file's git blob id) against the listing, and refuses before any download when the disk lacks what it will download
 plus 1 GiB. A file downloads into `blobs/<id>.incomplete` under `huggingface_hub`'s lock for it; another
 program holding the lock refuses the pull. An interrupted pull keeps the files it finished and the part of the
@@ -401,11 +409,13 @@ start, and the pull says so. A real directory at `<home>/models/mlx/<name>` seed
 size and content (SHA-256 for weights, git blob id for the rest) match the listing is copied into `blobs/` (with `copyfile`'s clone, so on APFS it
 takes no space until one copy changes) instead of being fetched.
 
-At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the model, becomes the link. A real
+At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the same repository, becomes the link;
+a link to another publisher's model of that name refuses the pull, as anything else there does. A real
 directory, such as a copy fetched before the pull used the cache, stays unless you answer yes to a second
 question, asked once the snapshot is complete and checked; yes moves it to the Trash and links in its place.
 Anything else there refuses the pull. The model is then `mlx:<name>`; `wisp models enable` checks its
-capabilities and records them, or you declare them. Each pull is audited as `model.pull` ([logging.md](logging.md)). `wisp models` lists the complete
+capabilities and records them, or you declare them. Each pull is audited as `model.publisher`, the publisher's
+decision, and `model.pull` ([logging.md](logging.md)). `wisp models` lists the complete
 `mlx-community` snapshots in the cache that nothing links yet, `WHERE` `HF cache, not linked` and `ENABLED` `no`;
 `wisp models enable mlx:<name>` (or the pull) links one without downloading
 ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).

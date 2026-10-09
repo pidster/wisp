@@ -113,7 +113,8 @@ its reason reach the agent, `model.resolved`, and `wisp doctor` as Ollama's do.
 - **Only from a terminal, and only after asking.** It lists the repository, prints how many files and bytes it
   would fetch and where, and asks `[y/N]`; anything but yes fetches nothing. Without a terminal it refuses, as
   `wisp approvals approve` does, and the default command policy refuses `wisp models pull` to the model.
-- **Bounded.** Only `mlx-community`, the organisation that publishes MLX conversions; only top-level files with
+- **Bounded.** Only `mlx-community`, the organisation that publishes MLX conversions (replaced by the amendment of
+  2026-10-09, at the end: any publisher, one outside `mlx.trustedPublishers` confirmed by the person); only top-level files with
   the extensions a model directory needs (`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`); sizes
   known before the question and checked after each file; LFS files (the weights) checked against the listing's
   SHA-256; refused before any request when the volume lacks the files plus 1 GiB; a minute's limit on silence.
@@ -362,3 +363,82 @@ The 0.21.0 follow-ups of the cache refinement above.
   the digest refused and fetched whole next time; a real directory's intact files seeding the cache while a changed
   one is fetched; and Core AI's linked directory and bundle. Not verified against the live Hub: that its download
   redirects keep the `Range` header and answer 206.
+
+## Amendment, 2026-10-09: any publisher, confirmed by the person
+
+**Context.** `wisp models pull mlx:ornith-ai/Ornith-1.5-9B-MLX-4bit` was refused: "is not an mlx-community model;
+wisp fetches only mlx-community/<name>". MLX conversions are published by many organisations besides
+`mlx-community`, often by a model's own authors, and the only way to run one was to fetch it with another tool and
+link it by hand, which skipped every check the pull makes. The operator asked that installs from other publishers
+be permitted, handled interactively or through a further permission question, and that it go into 0.21.1.
+
+**Decision.** "Bounded: only `mlx-community`" is replaced by this rule: any Hugging Face organisation can be
+pulled, and who publishes a repository is a question for the person, not a refusal.
+
+- **Trusted publishers.** A new setting, `mlx.trustedPublishers`, lists the organisations pulled without the
+  question; its default is `["mlx-community"]`, and `mlx-community` is trusted whatever the list holds, so the list
+  only adds to it (a person who edits the list cannot lose the organisation the pull was built for, and there is no
+  setting that turns the question off for every publisher). Names are compared exactly, case included, so a
+  spelling the list does not hold is asked about rather than trusted. Each entry must be a name Hugging Face
+  accepts (below); `wisp config set` refuses any other, and one written by hand that is not is ignored.
+- **The question.** For a publisher outside the list the pull lists the repository first, as before, then names
+  the publisher, the repository, its licence (the model card's `license`, with its `license_name` when that is
+  `other`, else a `license:` tag, else `unknown`; read from the model information the plan already fetches, so no
+  extra request, and only printable characters, at most 80, since the text is the publisher's and goes to the
+  person's terminal), and what it would download (bytes and files to fetch, and the whole). The answers are `o`,
+  pull once; `t`, trust the publisher from now on, which adds it to `mlx.trustedPublishers` through `ConfigEdit`
+  (the file must still load) and is recorded as `config.change`; and anything else, refuse, the default, which an
+  empty line and the end of input also mean. Once or trust approves the download it names, so the `[y/N]` download
+  question is not asked as well; the question about replacing a real directory at the link's path still is.
+- **The flag.** `--trust-publisher` skips the question for one pull and changes nothing. It answers only the
+  publisher question: the download question is still asked, so the pull still needs a terminal. `--yes` is not an
+  option of `wisp models pull`; command approvals and model pulls stay apart.
+- **Without a terminal.** The person cannot be asked, so a publisher outside the list without the flag is refused
+  before any request, with a message naming `--trust-publisher` and `mlx.trustedPublishers`.
+- **Faces.** Only the CLI pulls. Chat has no `/models pull` and `wisp-tui` no pull of its own (`/models` there lists,
+  enables, disables, and checks), and `wisp mcp` exposes no pull: its tools do not include one, and the default
+  command policy refuses `wisp models pull` to the model behind `respond` (`ModelPullPolicyTests`). So there is no
+  question to route through MCP elicitation or `wisp approvals`, and none was added; a pull over MCP would need a
+  decision of its own.
+- **What still bounds a pull, for every publisher alike.** The repository's two parts must each be a name Hugging
+  Face accepts, as `huggingface_hub`'s `validate_repo_id` checks one: 1 to 96 letters, digits, `.`, `_`, and `-`,
+  starting and ending with a letter, a digit, or `_`, with no `--` or `..` (so neither part is a path, and the
+  cache's `models--<organisation>--<name>` stays unambiguous); before this, only the name was checked, and only for
+  `/`, a leading dot, and the characters. Only top-level files with the model directory's extensions are fetched,
+  and now only with plain names (letters, digits, `.`, `_`, `-`, no leading dot), so a publisher cannot name a file
+  that writes control characters to the terminal listing it; every real MLX file name checked fits. The revision is a
+  40-digit hex commit; each LFS file is checked against its SHA-256 and every other against its git blob id; a
+  resumed part only from where its `Content-Range` says; the cache's lock; the 1 GiB margin. The link rules hold,
+  and they now also keep publishers apart: a link at `<models>/<name>` into another publisher's cache folder is
+  "something else" and refuses the pull before any request, since repointing it would change what `mlx:<name>`
+  runs. Enabling still checks the capabilities on the model (ADR 0056). `wisp models` still lists, and enabling
+  still links without asking, only complete `mlx-community` snapshots in the cache: a cached snapshot of another
+  publisher was fetched by some other tool, never confirmed here, and two publishers may share a model name.
+- **What trusting a publisher means** (docs/trust.md): its weights, tokenizer, and chat template are loaded into
+  wisp's process. They are data: `safetensors` weights (no pickled code; `.bin` and other formats are never
+  fetched), an architecture chosen from those built into mlx-swift-lm by `model_type` (a repository cannot supply
+  code), and a Jinja template rendered by swift-jinja through swift-transformers, an interpreter with no access to
+  files, the network, or processes (read in the pinned checkouts on 2026-10-09: no process, file, or network calls in
+  its sources). A hostile publisher can still ship a model that misleads, a template that adds instructions to every
+  prompt, or files crafted against a parser bug; its commands pass the policy, the sandbox, the classifier, and the
+  person's approval like any model's.
+- **Audit.** A new event, `model.publisher`: `repository`, `publisher`, `decision` (`trusted`, `flag`, `once`,
+  `trust`, `refused`), `asked`, `licence`, `bytes`, `reason` (`no terminal`), and `source` (`cli`), one per pull
+  once the repository is listed and one for a refusal without a terminal. A refused question leaves `model.pull`
+  `declined`. A new event rather than fields on `model.pull`, because a refusal without a terminal happens before
+  any listing, when `model.pull` has nothing to report.
+
+**Consequences.** The decision logic is `PublisherCheck` in `WispMLX` (screen before the listing, settle after it),
+and the setting and its rule `TrustedPublishers` in `WispCore`; the command only prints and reads. Tests, without a
+model, the network, a terminal, or the real cache (the fake Hub, a fake model information body for the licence,
+scripted answers, temporary homes and caches): a trusted publisher pulled without asking, `mlx-community` with no
+file or a list that omits it; an untrusted one asked and refused for every answer but once or trust, end of input
+included; once leaving the setting as it was and the next pull asking again; trust writing the setting, keeping the
+rest of the file, recorded as `config.change`, and the next session not asking; the flag skipping the question,
+without a terminal too; no terminal and no flag refused before any request with the guidance; the question's
+publisher, repository, licence, and sizes, an unknown licence, and nothing to download; the licence's sources and
+its bounds; the name rules refusing `../x`, `x/..`, `a--b/x`, control characters, and a 97-character name for any
+publisher; another publisher planned into its own cache folder; a link to another publisher's model of the same name
+refused before any request; the setting's validation and default; and the event's fields. Not verified against the
+live Hub, like the rest of the pull: that the revision endpoint's body carries `cardData` and `tags` as the model
+information endpoint documents them.

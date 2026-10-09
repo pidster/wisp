@@ -136,7 +136,7 @@ extension ChatLoop {
                 current: shown)
         case .model, .coremlModel:
             return ChatChoice(title: title, options: known, current: shown, acceptsText: true)
-        case .integer, .number, .text, .models, .tools:
+        case .integer, .number, .text, .models, .tools, .publishers:
             let hint = shown.map { " (now \($0))" } ?? " (now the default)"
             return ChatChoice(title: title + hint, options: known, current: shown, acceptsText: true)
         }

@@ -12,7 +12,7 @@ regressions, not a measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; MLX pulls from any publisher, confirmed by the person; the rest of the 2026-10-09 review |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; one set of model actions, for the person and the model; the rest of the 2026-10-09 review |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
 ## 0.22.0
@@ -41,15 +41,14 @@ regressions, not a measurement.
   never match again (revoked 2026-10-09). `wisp approvals` should mark an approval whose directory no longer
   exists, and offer to remove such approvals (`wisp approvals clear --gone`, or when listing).
 
-- **MLX pulls from any publisher, confirmed by the person**, asked for on 2026-10-09 when
-  `ornith-ai/Ornith-1.5-9B-MLX-4bit` was refused: `wisp models pull` fetches only `mlx-community`
-  ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), "Bounded"), so a publisher's own conversion cannot be
-  pulled. Any organisation may be pulled; one outside `mlx.trustedPublishers` (initially `mlx-community`) is
-  first put to the person, naming the publisher, repository, licence, and size, refused by default, with an
-  answer to trust the publisher from then on; under MCP or without a terminal it goes through the approval
-  channels (elicitation, `wisp approvals`, `wisp-tui`) and silence refuses it. The file checks stay for every
-  publisher. Amends ADR 0052.
-
+- **One set of model actions, for the person and the model**, proposed in [ADR
+  0059](decisions/0059-one-set-of-model-actions.md) on 2026-10-09 after the operator asked for a tool for managing
+  models in chat "so the agent and user can both do it", adapting `/models` and `/model` rather than adding beside
+  them. One `ModelActions` layer behind `wisp models`, `/models`, and `/model`; `/models pull` and `trust` in chat and
+  `wisp-tui`, with the publisher question as a dialog, progress in the status line, and Ctrl-C to cancel; a `models`
+  tool for the model, off by default, which lists and shows freely and asks the person for every pull, enable,
+  disable, or check, a pull never remembered and `trust` the person's alone. (MLX pulls from any publisher, first
+  planned here, moved to 0.21.1 at the operator's request, where it is built.)
 - **The rest of the 2026-10-09 review**, deferred from 0.21.1 because each belongs with this release's budget
   work: `run_command` holding every byte until it trims to the tail (a ring buffer of the bound, with a count
   of what was dropped); `wisp://threads/{id}/audit` and `wisp://audit/{session}` unbounded (paged like the other

@@ -1013,31 +1013,60 @@ struct Models: AsyncParsableCommand {
         }
     }
 
-    /// Fetches an `mlx-community` model from Hugging Face into the Hugging Face cache and links the MLX models
-    /// directory to its snapshot, after saying what it will fetch and asking (ADR 0052, refined 2026-10-04). Files
-    /// already in the cache are reused, and a complete snapshot is only linked, without a download question.
-    /// Only from a terminal: the questions are the person's to answer.
+    /// Fetches an MLX model from Hugging Face into the Hugging Face cache and links the MLX models directory to its
+    /// snapshot, after saying what it will fetch and asking (ADR 0052, refined 2026-10-04). Files already in the cache
+    /// are reused, and a complete snapshot is only linked, without a download question. Any publisher can be pulled; one
+    /// outside `mlx.trustedPublishers` is put to the person first, naming its licence and the download, unless
+    /// `--trust-publisher` is given (`PublisherCheck`; ADR 0052, amended 2026-10-09). Only from a terminal: the
+    /// questions are the person's to answer.
     struct Pull: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Fetch an mlx-community model into the Hugging Face cache and link it, after asking.",
+            abstract: "Fetch an MLX model from Hugging Face into its cache and link it, after asking.",
             discussion:
                 "Lists the repository, checks which files the Hugging Face cache already holds (HF_HUB_CACHE, "
                 + "$HF_HOME/hub, or ~/.cache/huggingface/hub), says how many files and bytes it would fetch, and "
                 + "asks before fetching. Only the configuration, weights, and tokenizer files are fetched; each is "
-                + "checked against the listing's size and, for weights, its SHA-256. The models directory's "
-                + "<name> then links to the cache's snapshot; a directory already there is replaced only if you "
-                + "agree. Runs only from a terminal.")
+                + "checked against the listing's size and SHA-256 or git blob id. The models directory's <name> then "
+                + "links to the cache's snapshot; a directory already there is replaced only if you agree. A "
+                + "repository from a publisher not in mlx.trustedPublishers (mlx-community is always trusted) is "
+                + "first put to you with its licence and download size: pull it once, trust the publisher from now "
+                + "on (added to mlx.trustedPublishers), or refuse, the default. Runs only from a terminal.")
 
-        @Argument(help: "The repository, such as mlx-community/Qwen3-1.7B-4bit (mlx: before it is accepted).")
+        @Argument(
+            help: ArgumentHelp(
+                "The repository, <organisation>/<name>, such as mlx-community/Qwen3-1.7B-4bit (mlx: before it is "
+                    + "accepted)."))
         var repository: String
 
+        @Flag(
+            name: .long,
+            help: ArgumentHelp(
+                "Pull from a publisher not in mlx.trustedPublishers this once, skipping the question about the "
+                    + "publisher; the download question is still asked, and the setting is unchanged."))
+        var trustPublisher = false
+
         func run() async throws {
-            guard isatty(STDIN_FILENO) != 0 else {
+            let named: String
+            do {
+                named = try ModelPull.repository(repository).repository
+            } catch let failure as ModelPull.Failure {
+                throw ValidationError("\(failure)")
+            }
+            let interactive = isatty(STDIN_FILENO) != 0
+            let session = try Wisp.begin(.init(entryPoint: .models))
+            defer { session.end() }
+            let check = PublisherCheck(session: session, trustFlag: trustPublisher, source: "cli")
+            let screened: PublisherCheck.Decision?
+            do {
+                screened = try check.screen(named, interactive: interactive)
+            } catch let refusal as PublisherCheck.Refusal {
+                throw ValidationError("\(refusal)")
+            }
+            guard interactive else {
                 throw ValidationError(
                     "wisp models pull asks the person before it fetches, so it runs only from a terminal")
             }
-            let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
-            let directory = MLXBackend.modelsDirectory(config: config, home: Wisp.home)
+            let directory = MLXBackend.modelsDirectory(config: session.config, home: session.home)
             let pull = ModelPull()
             let plan: ModelPull.Plan
             do {
@@ -1049,11 +1078,28 @@ struct Models: AsyncParsableCommand {
             }
             print(Self.summary(of: plan))
             var started = ContinuousClock.now
-            if !plan.missing.isEmpty {
+            let decision: PublisherCheck.Decision
+            do {
+                decision = try check.settle(plan, screened: screened) { lines in
+                    for line in lines.dropLast() { print(line) }
+                    print(lines.last ?? "", terminator: "")
+                    started = ContinuousClock.now
+                    return readLine()
+                }
+            } catch let failure as ConfigEdit.Failure {
+                throw ValidationError("\(failure)")
+            }
+            guard decision.pulls else {
+                record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started, in: session)
+                print("Nothing fetched.")
+                return
+            }
+            if decision == .trust { print("\(plan.publisher) is trusted from now on (\(TrustedPublishers.setting)).") }
+            if !plan.missing.isEmpty, !decision.approvedDownload {
                 print("Fetch \(plan.missing.count) of them, \(Self.size(plan.remaining))? [y/N] ", terminator: "")
                 started = ContinuousClock.now
                 guard Self.answeredYes() else {
-                    record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started)
+                    record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started, in: session)
                     print("Nothing fetched.")
                     return
                 }
@@ -1075,12 +1121,13 @@ struct Models: AsyncParsableCommand {
                 }
                 linked = try pull.link(plan, replacingDirectory: replace)
             } catch {
-                record(plan, fetched: 0, outcome: "failed", link: nil, reason: "\(error)", started: started)
+                record(
+                    plan, fetched: 0, outcome: "failed", link: nil, reason: "\(error)", started: started, in: session)
                 throw ValidationError("\(error)")
             }
             record(
                 plan, fetched: fetched, outcome: plan.missing.isEmpty ? "linked" : "fetched", link: linked,
-                reason: nil, started: started)
+                reason: nil, started: started, in: session)
             print(Self.closing(plan, linked))
         }
 
@@ -1158,12 +1205,11 @@ struct Models: AsyncParsableCommand {
             }
         }
 
-        /// Records the pull in the audit log as `model.pull`.
+        /// Records the pull in the session's audit log as `model.pull`.
         func record(
             _ plan: ModelPull.Plan, fetched: Int, outcome: String, link: ModelPull.LinkOutcome?, reason: String?,
-            started: ContinuousClock.Instant
+            started: ContinuousClock.Instant, in session: Session
         ) {
-            guard let session = try? Wisp.begin(.init(entryPoint: .models)) else { return }
             let elapsed = ContinuousClock.now - started
             session.audit.record(
                 .modelPull,
@@ -1174,7 +1220,6 @@ struct Models: AsyncParsableCommand {
                     fetchedFiles: outcome == "fetched" ? plan.missing.count : 0, fetched: fetched, link: link?.rawValue,
                     outcome: outcome, reason: reason,
                     seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
-            session.end()
         }
     }
 }
