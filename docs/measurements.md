@@ -159,6 +159,16 @@ reads those calls from the reply's text ([backends.md](backends.md), "Ollama"); 
 verdict, makes them candidates for labelling training sets rather than for the gate. `qwen3.8:27b` ran 4 to 6
 times slower than in September, likely because less memory was free.
 
+### qwen3.8:27b re-measured, 2026-10-09
+
+`system_info` and `edit_file` on `ollama:qwen3.8:27b` with every other Ollama model unloaded (22.3 GB free)
+and the hybrid-layer sizing of ADR 0043's 2026-10-05 refinement in place: 16/16 and 30/30, 144 requests at
+a median of 13.7 s (p90 25.1 s), the two suites taking 11 and 22 minutes against 8 and 25 on 2026-10-05.
+The 40 to 70 s a request recorded on 2026-10-04 came from the classifier suite, where qwen3.8 thinks
+before each verdict, not from its tool work; there was no slowdown. Its window stays at the 8,192 floor
+here: its 17.7 GB of weights take most of the memory budget, and it rises above the floor only with about
+41 GB free (`ollama.models.qwen3.8:27b.contextLength` can hold it to a size).
+
 ### The Falcon comparison, 2026-10-05
 
 The two Falcon-H1 candidates through wisp's own MLX executor (`scripts/check eval compare`, not recorded),

@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (run and decided, ADR 0057) | The assessment reconsidered (built and decided); MLX against Ollama (measured for Qwen3-1.7B, the gap fixed; the rest to measure); gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
+| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown (measured: none in tool work); the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
@@ -146,9 +146,11 @@ The release given to measurement, once the four before it were out. What was bui
 - **Token usage in `respond`'s receipt.** `mcp.md` says usage is not reported yet; the turn's input,
   output, cached, and reasoning tokens, which the executors now report, belong in the receipt. Built:
   `receipt.usage`, and `usage` on the `response` audit event ([mcp.md](mcp.md)).
-- **qwen3.8's slowdown.** In the comparison of 2026-10-04 it took 40 to 70 s a request against about
-  10 s more per turn than granite in September; likely memory pressure with the window at the floor.
-  Measure it with memory free and the hybrid sizing in place, before it is written off for complex work.
+- **qwen3.8's slowdown.** Measured 2026-10-09: no slowdown in tool work. With nothing else loaded and the
+  hybrid sizing in place it scored 16/16 and 30/30 at a median of 13.7 s a request, the two suites taking
+  about as long as on 2026-10-05; the 40 to 70 s of 2026-10-04 were the classifier suite, where it thinks
+  before each of 784 verdicts ([measurements.md](measurements.md), "qwen3.8:27b re-measured"). Its window
+  stays at the 8,192 floor on this Mac for memory, not arithmetic.
 - **The README overview image** says the model runs "on device or through Ollama"; redraw both versions
   with MLX (and Core AI), and the alt text with them. Done 2026-10-09: "on device, Ollama, MLX, or Core AI" in both
   versions, the `<desc>`, and the alt text, rendered in headless Chrome. The HTTP runtimes (llama.cpp, LM Studio)

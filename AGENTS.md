@@ -191,7 +191,7 @@ Which model to pass as `model` when a thread starts (measured in the 2026-10-04 
 | --- | --- | --- |
 | Default: git, single commands, fixed instructions, short lookups | `ollama:granite4.1:8b` | About 2 s a request, 5 to 10 times faster than the most accurate models, and close to them on the 2026-10-04 comparison (`edit_file` 28/30, `system_info` 14/16), at 5.4 GB |
 | Complex: multi-step tasks, reading and reasoning over several files or outputs | `ollama:gemma4:12b` | Perfect on tools and small drafts on 2026-10-04 (`edit_file` 30/30, `system_info` 16/16, commits 10/10), at 8 GB and 12 to 18 s a request; it thinks before it answers |
-| Large diffs and long drafts | `ollama:qwen3.8:27b` | As accurate, and the only one with both large-diff drafts right (2/2), but 17.7 GB and 40 to 70 s a request on 2026-10-04 |
+| Large diffs and long drafts | `ollama:qwen3.8:27b` | As accurate, and the only one with both large-diff drafts right (2/2), but 17.7 GB; tool work at a median of 14 s a request (2026-10-09), and far slower as a classifier, where it thinks before every verdict |
 | Ollama not running | `system` | Always there; keep prompts short for its 8k-token window |
 
 Not for tool work: `llama3.2:3b` (it writes tool calls as text and misses edits) and `ministral-3:14b` (Ollama's template leaves its `name[ARGS]{…}` calls as text, so none are made). If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. If it lists it with `ENABLED` `no`, `wisp models enable <name>` turns it on; ask before enabling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
