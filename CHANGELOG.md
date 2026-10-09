@@ -9,6 +9,17 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 A patch release from a code and test review of the whole codebase on 2026-10-09. The approval gate, the
 quality gate, and the front ends each had a way to do less than they promised; every fix has a test.
 
+Two small additions came with it, at the operator's request: MLX pulls from any publisher, and no timeout for a
+command you type yourself.
+
+Added:
+
+- `wisp models pull` fetches MLX models from any Hugging Face organisation, not only `mlx-community`. A publisher
+  not in the new `mlx.trustedPublishers` setting (default `["mlx-community"]`, which is always trusted) is put to
+  you first, with its licence and download size: pull it once, trust the publisher from now on, or refuse, the
+  default. `--trust-publisher` skips that question for one pull; without a terminal and without it, the pull is
+  refused. Every file check stays for every publisher, and each decision is audited as `model.publisher`.
+
 Fixed, in the approval gate and the sandbox:
 
 - A `;` or newline inside parentheses no longer hides a command from the risk check: in `(curl … ; true)` the
@@ -91,6 +102,11 @@ Fixed, in the quality gate and the release:
 - `scripts/check mcp-build` builds the MCP server without stripping the MLX pins from `harness/Package.resolved`.
 
 Changed:
+
+- A command you type after `!` in chat or `wisp-tui` no longer has `run_command`'s 60-second timeout, so `! ollama
+  pull …` runs to the end. Ctrl-C stops it instead (SIGTERM to its process group, SIGKILL two seconds later), chat
+  carries on with `↳ exit -15 (stopped by you)`, and a second Ctrl-C quits. The working line says "Ctrl-C stops
+  it"; `wisp chat --json` gains an inbound `interrupt` line, and the audit records `stopped: true`.
 
 - Facts from a command typed after `!` rank as observations, as a tool's do, so a later run of the same command
   replaces them; what you state with `/fact` still wins.

@@ -49,6 +49,9 @@ regressions, not a measurement.
   tool for the model, off by default, which lists and shows freely and asks the person for every pull, enable,
   disable, or check, a pull never remembered and `trust` the person's alone. (MLX pulls from any publisher, first
   planned here, moved to 0.21.1 at the operator's request, where it is built.)
+- **Ctrl-C during a model turn.** In plain chat it still quits wisp at once, and a `run_command` the model started
+  in that turn can outlive it (found on 2026-10-09 while giving typed commands Ctrl-C). The first Ctrl-C should
+  stop the turn and its command, as it now stops a typed command, and the second quit.
 - **The rest of the 2026-10-09 review**, deferred from 0.21.1 because each belongs with this release's budget
   work: `run_command` holding every byte until it trims to the tail (a ring buffer of the bound, with a count
   of what was dropped); `wisp://threads/{id}/audit` and `wisp://audit/{session}` unbounded (paged like the other
