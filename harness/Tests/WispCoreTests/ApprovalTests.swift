@@ -140,7 +140,7 @@ import Testing
         let approver = Recording(.approved(.session))
         let sink = MemoryAuditSink()
         let gate = ApprovalGate(
-            classifier: Fixed(level: .dangerous), approver: approver, threshold: .level(.moderate),
+            classifier: Fixed(level: .moderate), approver: approver, threshold: .level(.moderate),
             audit: AuditLog(session: "s", sink: sink))
         try await gate.clear(command: "git push", workingDirectory: "/a")
         try await gate.clear(command: "git push", workingDirectory: "/a")

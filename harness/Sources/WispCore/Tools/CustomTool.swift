@@ -163,23 +163,36 @@ public struct CustomTool: WispTool {
         }
     }
 
-    /// The command line with each placeholder replaced by its rendered value.
+    /// The command line with each placeholder replaced by its rendered value, in one pass over the template:
+    /// a value is never searched for placeholders, so a value holding `{b}` cannot splice in `b`'s value
+    /// outside its quotes.
     ///
     /// - Throws: `Failure.invalid` when a value is missing or does not fit its argument.
     static func commandLine(_ definition: Definition, values: [String: JSONValue]) throws -> String {
-        var line = definition.command
+        var rendered: [String: String] = [:]
         for name in definition.argumentNames {
             guard let argument = definition.arguments?[name] else { continue }
             guard let value = values[name] ?? argument.default else {
                 throw Failure.invalid(tool: definition.name, reason: "the argument '\(name)' is required")
             }
-            guard let rendered = render(value, as: argument) else {
+            guard let text = render(value, as: argument) else {
                 let allowed = argument.enum.map { ": one of \($0.joined(separator: ", "))" } ?? ""
                 throw Failure.invalid(tool: definition.name, reason: "'\(name)' must be a \(argument.type)\(allowed)")
             }
-            line = line.replacingOccurrences(of: "{\(name)}", with: rendered)
+            rendered[name] = text
         }
-        return line
+        let template = definition.command
+        guard let regex = try? RegexCache.regex(placeholderPattern) else { return template }
+        var line = ""
+        var cursor = template.startIndex
+        for match in regex.matches(in: template, range: NSRange(template.startIndex..., in: template)) {
+            guard let whole = Range(match.range, in: template), let name = Range(match.range(at: 1), in: template),
+                let value = rendered[String(template[name])]
+            else { continue }
+            line += template[cursor..<whole.lowerBound] + value
+            cursor = whole.upperBound
+        }
+        return line + template[cursor...]
     }
 
     /// The schema the model fills in, built from the declared arguments.

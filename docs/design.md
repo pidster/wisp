@@ -633,10 +633,12 @@ session work into detached tasks.
 
 Actor or `Mutex` is chosen by one rule. A type is an actor when its operations suspend (awaiting a human,
 the model, or another actor) or when a change is a multi-step sequence that must not interleave, such as
-the approval store's load-mutate-save: `ApprovalGate`, `ApprovalStore`, `ThreadRegistry`,
-`ThreadActor`, `TurnQueue`. An actor is reentrant: while one of its methods awaits, another call can run on it.
-When a sequence spans awaits and must not interleave with another caller's, as a thread's turn does, hold an
-explicit queue across it (`TurnQueue`, a first-come-first-served async lock) rather than rely on the actor. A type is a `final class` holding a `Mutex` when every operation is a short
+the approval store's load-mutate-save (which also holds an advisory `flock` on `approvals.json.lock`, since other
+processes share the file): `ApprovalGate`, `ApprovalStore`, `ThreadRegistry`, `ThreadActor`, `TurnQueue`. An
+actor is reentrant: while one of its methods awaits, another call can run on it. When a sequence spans awaits
+and must not interleave with another caller's, as a thread's turn does, hold an explicit queue across it
+(`TurnQueue`, a first-come-first-served async lock) rather than rely on the actor. A type is a `final class`
+holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`.
 

@@ -23,17 +23,21 @@ public struct CommandRunner: Sendable {
         public var maxOutputBytes: Int
         /// What may run and how it is confined.
         public var policy: CommandPolicy
+        /// Directories no command may write, even inside the writable set: wisp's own home, where its approvals,
+        /// facts, configuration, and pending answers live. `edit_file` refuses them too.
+        public var protectedPaths: [String]
 
-        /// Creates options. Defaults are a 60-second timeout, 4 KiB per stream, the default policy, and
-        /// the current directory as the writable root.
+        /// Creates options. Defaults are a 60-second timeout, 4 KiB per stream, the default policy, the
+        /// current directory as the writable root, and wisp's home (`Home.resolve()`) protected.
         public init(
             writableRoot: String? = nil, timeout: Duration = .seconds(60), maxOutputBytes: Int = 4096,
-            policy: CommandPolicy = .default
+            policy: CommandPolicy = .default, protectedPaths: [String]? = nil
         ) {
             self.writableRoot = writableRoot ?? FileManager.default.currentDirectoryPath
             self.timeout = timeout
             self.maxOutputBytes = maxOutputBytes
             self.policy = policy
+            self.protectedPaths = protectedPaths ?? [Home.resolve().root.path]
         }
     }
 
@@ -299,8 +303,12 @@ public struct CommandRunner: Sendable {
                 writableRoot: options.writableRoot,
                 temporaryDirectory: FileManager.default.temporaryDirectory.path,
                 userCacheDirectory: Self.userCacheDirectory,
-                home: FileManager.default.homeDirectoryForCurrentUser.path
+                home: FileManager.default.homeDirectoryForCurrentUser.path,
+                protected: options.protectedPaths
             )
+            if profile.contains("\n; note: ") {
+                Diagnostics.policy.info("wisp's home is inside the writable set; the sandbox still denies writes to it")
+            }
             argv = ["/usr/bin/sandbox-exec", "-p", profile] + argv
         }
         let stdoutBuffer = OutputBuffer()
@@ -318,6 +326,9 @@ public struct CommandRunner: Sendable {
         }
         let status = await Spawn.wait(for: pid)
         watchdog.cancel()
+        // The leader is gone, but a child may live on in its group: one that ignored SIGTERM, or a job the
+        // command put in the background. Nothing a command starts outlives it, so the group is killed now.
+        await Self.killGroup(pid)
         // The group is dead, so writers close and EOF arrives; a descendant that escaped the group
         // could hold the pipe, so the drain is bounded rather than blocking.
         await stdoutBuffer.drain(deadline: .seconds(1))
@@ -332,6 +343,20 @@ public struct CommandRunner: Sendable {
             timedOut: timedOut.withLock { $0 },
             truncated: out.truncated || err.truncated
         )
+    }
+
+    /// Sends SIGKILL to process group `group` until it is empty (`kill` reports `ESRCH`), checking every
+    /// 10 ms for up to `deadline`. Called once its leader has been reaped: the kernel keeps the group's id
+    /// from reuse while any member lives, so the signal reaches only what the command started.
+    ///
+    /// - Parameters:
+    ///   - group: The process group id, the leader's pid.
+    ///   - deadline: How long to keep trying; a member stuck in the kernel can outlast it.
+    static func killGroup(_ group: pid_t, deadline: Duration = .seconds(2)) async {
+        let stop = ContinuousClock.now + deadline
+        while kill(-group, SIGKILL) == 0 || errno == EPERM, ContinuousClock.now < stop {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     /// Keeps at most `maxBytes` from the end of `data`, decoded as UTF-8 with replacement.

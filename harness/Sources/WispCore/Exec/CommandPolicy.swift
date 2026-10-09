@@ -93,10 +93,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"\|\s*(ba|z|da)?sh(\s|$)"#,
         #"(^|[\s;&|(])(mkfs|diskutil\s+erase|newfs_)"#,
         #"(^|[\s;&|(])dd\s.*\bof=/dev/"#,
-        // Answering a pending approval is the person's alone (ADR 0046); the model never answers its own.
-        #"(^|[\s;&|(/])wisp\s+approvals\s+(approve|deny)\b"#,
+        // Answering a pending approval is the person's alone (ADR 0046); the model never answers its own. Quotes
+        // and a backslash around or inside the words do not hide it.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?approvals["']?\s+["']?(approve|deny)\b"#,
         // Nor does it keep or drop a permanent fact a caller asked for (ADR 0048): admitting one is the person's.
-        #"(^|[\s;&|(/])wisp\s+facts\s+(keep|drop)\b"#,
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?facts["']?\s+["']?(keep|drop)\b"#,
         // Nor does it start a wisp of its own (ADR 0054): `wisp respond`, `wisp chat`, `wisp mcp`, or the bare
         // `wisp "prompt"`, which is `respond`, is a nested agent with its own model, tools, and approvals, and under
         // the sandbox it fails anyway, unable to write wisp's home. Matched where wisp is the program a simple
@@ -106,11 +107,13 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"(^|[\s;&|(/])wisp\s+models\s+pull\b"#,
     ]
 
-    /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, by any path and after `env`, `exec`, `nohup`, or
-    /// `VAR=value`, followed by options and then `respond`, `chat`, `mcp`, or a quoted prompt (the bare
-    /// `wisp "prompt"`). Kept short: the configuration view that lists the deny patterns is bounded.
+    /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, quoted or not, by any path, after any of `env`
+    /// and its options, `exec`, `nohup`, `nice`, `time`, `command`, `builtin`, `caffeinate`, `xargs`, `timeout N`,
+    /// `VAR=value`, `{`, `then`, `do`, `else`, or `!`, followed by options and then `respond`, `chat`, `mcp`, or a
+    /// quoted prompt (the bare `wisp "prompt"`). Kept short: the configuration view that lists the deny patterns is
+    /// bounded.
     public static let nestedWisp =
-        #"^ *((env|exec|nohup) +|\S*=\S* +)*(\S*/)?wisp( +-\S*( +[^- ]\S*)?)* +(respond|chat|mcp|["'])"#
+        #"^\s*(?>(env|exec|nohup|nice|time|command|builtin|caffeinate|xargs|timeout|\{|then|do|else|!|-\S*|\d\S*|\S*=\S*)\s+)*["']?(\S*/)?wisp["']?(\s+-\S*(\s+[^-\s]\S*)?)*\s+["']?(respond|chat|mcp|["'])"#
 
     /// Checks that every pattern compiles.
     ///
@@ -145,9 +148,14 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     ///     its module cache; without it a build that compiles a C module inside the sandbox fails. Nil
     ///     omits it.
     ///   - home: The user's home, for expanding `~` in the configured paths.
+    ///   - protected: Directories never writable, whatever the writable set holds: wisp's own home, whose
+    ///     approvals, facts, configuration, and pending answers a command must not change. Denied after the
+    ///     allow rule, so the denial wins (Seatbelt applies the last matching rule); a protected directory
+    ///     inside the writable set is noted in a comment in the profile.
     /// - Returns: The profile text for `sandbox-exec -p`.
     public func seatbeltProfile(
-        writableRoot: String, temporaryDirectory: String, userCacheDirectory: String? = nil, home: String
+        writableRoot: String, temporaryDirectory: String, userCacheDirectory: String? = nil, home: String,
+        protected: [String] = []
     ) -> String {
         let writable = writableRoots(
             writableRoot: writableRoot, temporaryDirectory: temporaryDirectory,
@@ -159,6 +167,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
             "(deny file-write*)",
             "(allow file-write* \(subpaths.joined(separator: " ")) (literal \"/dev/null\") (regex #\"^/dev/(tty|fd/)\"))",
         ]
+        let denied = protected.map(Self.canonical)
+        for path in Self.inside(denied, writable) {
+            lines.append("; note: \(path) is inside the writable set; writes to it stay denied")
+        }
+        lines += denied.map { "(deny file-write* (subpath \(Self.quote($0))))" }
         if !sandbox.allowNetwork {
             lines.append("(deny network*)")
         }
@@ -181,6 +194,21 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         if let userCacheDirectory { writable.append(userCacheDirectory) }
         writable += sandbox.writablePaths.map { $0.hasPrefix("~") ? home + $0.dropFirst() : $0 }
         return writable.map { Self.canonical($0) }
+    }
+
+    /// The canonical `paths` that lie under one of the canonical `roots` (or are one).
+    ///
+    /// - Parameters:
+    ///   - paths: Canonical paths.
+    ///   - roots: Canonical directories.
+    /// - Returns: The paths inside, in order.
+    public static func inside(_ paths: [String], _ roots: [String]) -> [String] {
+        paths.filter { path in roots.contains { Self.contains($0, path) } }
+    }
+
+    /// Whether the canonical `path` is the canonical `root` or lies under it.
+    static func contains(_ root: String, _ path: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 
     /// Why a policy is unusable.

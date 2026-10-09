@@ -95,6 +95,53 @@ func approvalRequest(_ command: String = "git push origin main", thread: String?
         }
     }
 
+    /// The reasons shown and the expiry are bound too: changing either in the file refuses the answer, and a file
+    /// changed to claim the older binding is refused by the server, which keeps the binding it computed (the
+    /// 2026-10-09 review). A request filed by an older wisp, without a binding version, can still be answered.
+    @Test func reasonsAndExpiryAreBoundAndOlderRequestsStillAnswer() throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let request = PendingApprovals.request(for: approvalRequest("git status"), client: nil, timeout: .seconds(600))
+        #expect(request.bindingVersion == 2 && request.binding == request.expectedBinding)
+        var reasons = request
+        reasons.reasons = ["a harmless read"]
+        #expect(reasons.expectedBinding != request.binding)
+        var expiry = request
+        expiry.expiresAt = request.expiresAt?.addingTimeInterval(3600)
+        #expect(expiry.expectedBinding != request.binding)
+        try channel.file(request)
+        let file = channel.directory.appending(path: "\(request.id).request.json")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        try Data(text.replacingOccurrences(of: "publishes commits", with: "a harmless read").utf8).write(to: file)
+        #expect(throws: PendingApprovals.Failure.altered(request.id)) {
+            try channel.answer(request.id, decision: "once", via: "cli")
+        }
+        // Claiming the first binding set: the answer is computed over it, and the server refuses it.
+        var downgraded = request
+        downgraded.bindingVersion = nil
+        downgraded.binding = downgraded.expectedBinding
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(downgraded).write(to: file)
+        try channel.answer(request.id, decision: "once", via: "cli")
+        guard case .rejected = channel.take(request) else {
+            Issue.record("a downgraded binding was taken")
+            return
+        }
+        // An older request file, with no binding version, decodes and answers as before.
+        var older = PendingApprovals.request(for: approvalRequest("git log"), client: nil, timeout: nil)
+        older.bindingVersion = nil
+        older.binding = older.expectedBinding
+        try channel.file(older)
+        let decoded = try channel.request(id: older.id)
+        #expect(decoded.bindingVersion == nil && decoded.expectedBinding == older.binding)
+        try channel.answer(older.id, decision: "once", via: "cli")
+        guard case .answer = channel.take(older) else {
+            Issue.record("an older request was not answered")
+            return
+        }
+    }
+
     @Test func anAnswerBoundToAnotherRequestIsRejectedAndTheWaitGoesOn() throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }

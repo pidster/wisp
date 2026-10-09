@@ -65,7 +65,10 @@ Writes land only under the directories the sandbox lets `run_command` write unde
 was launched in, the temporary directory, `/private/tmp`, the user cache directory, and
 `sandbox.writablePaths` from `config.json`. The check canonicalises the path (symlinks resolved, so
 `/tmp` is `/private/tmp`) and refuses anything else before touching the file system. With the sandbox
-off (`sandbox.enabled: false` or `--unsafe`) there is no confinement, as for commands.
+off (`sandbox.enabled: false` or `--unsafe`) there is no confinement, as for commands, with one exception: wisp's
+own home (`~/.wisp`, or `WISP_HOME`) is never written, sandbox or not and inside the writable set or not
+(`error: cannot write …: it is in wisp's own home, which edits never change`), as the sandbox denies it to
+commands.
 
 ## Approval
 

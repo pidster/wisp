@@ -8,6 +8,52 @@ import Testing
         FileManager.default.temporaryDirectory.appending(path: "wisp-approvals-\(UUID().uuidString)/approvals.json")
     }
 
+    /// Two stores on one file, as `wisp mcp` and `wisp approvals revoke` in a terminal are: each sees the other's
+    /// grants, and a revocation made by one is never undone by the other's next grant (the 2026-10-09 review).
+    @Test func twoStoresOnOneFileMergeAndRevocationsWin() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let server = ApprovalStore(url: url)
+        let terminal = ApprovalStore(url: url)
+        let first = try await server.grant(
+            pattern: "touch *", directory: "/a", scope: .project, level: .moderate, source: "mcp")
+        let second = try await terminal.grant(
+            pattern: "mv *", directory: "/a", scope: .project, level: .moderate, source: "cli")
+        #expect(Set(await server.all.map(\.id)) == [first.id, second.id])
+        #expect(try await terminal.revoke(id: first.id))
+        #expect(await server.find(pattern: "touch *", directory: "/a") == nil)
+        let third = try await server.grant(
+            pattern: "cp *", directory: "/a", scope: .project, level: .moderate, source: "mcp")
+        #expect(Set(await terminal.all.map(\.id)) == [second.id, third.id])
+        #expect(Set(await ApprovalStore(url: url).all.map(\.id)) == [second.id, third.id])
+        try await terminal.clear()
+        #expect(await server.all.isEmpty)
+        // Written whole and private, with the lock beside it.
+        let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        #expect(FileManager.default.fileExists(atPath: url.path + ".lock"))
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).sorted() == [
+                "approvals.json", "approvals.json.lock",
+            ])
+    }
+
+    @Test func concurrentGrantsFromTwoStoresAreAllKept() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let stores = [ApprovalStore(url: url), ApprovalStore(url: url)]
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    try await stores[index % 2].grant(
+                        pattern: "p\(index) *", directory: "/a", scope: .project, level: .safe, source: "t")
+                }
+            }
+            try await group.waitForAll()
+        }
+        #expect(await stores[0].all.count == 20)
+    }
+
     @Test func grantsFindsPersistsAndRevokes() async throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

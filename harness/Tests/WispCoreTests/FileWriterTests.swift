@@ -92,7 +92,11 @@ import Testing
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let inside = FileWriter(roots: [CommandPolicy.canonical(dir.path)])
-        let outside = FileManager.default.homeDirectoryForCurrentUser.appending(path: "wisp-must-not-exist.txt").path
+        // Outside the working directory and the temporary directory: the home. Unique, and removed even when a
+        // regression wrote it, so the assertion below fails once rather than on every later run.
+        let outside = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "wisp-must-not-exist-\(UUID().uuidString).txt").path
+        defer { try? FileManager.default.removeItem(atPath: outside) }
         #expect(
             throws: FileWriter.Failure.outsideWritableSet(path: outside, roots: [CommandPolicy.canonical(dir.path)])
         ) {

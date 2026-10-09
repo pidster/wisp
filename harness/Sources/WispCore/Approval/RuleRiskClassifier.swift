@@ -132,8 +132,9 @@ public struct RuleRiskClassifier: RiskClassifier {
                 + #"(mkfs|diskutil\s+(erase|partition|zeroDisk|secureErase|reformat|apfs\s+(delete|erase))|newfs_|dd\s.*\bof=/dev/)"#,
             .dangerous,
             "destroys a disk or volume"),
+        // In any case: the file system is case-insensitive, so `~/.SSH/ID_RSA` is the same key.
         Rule(
-            #"(\.ssh/|id_rsa|id_ed25519|\.aws/credentials|\.netrc|\.gnupg|keychain|\.config/gh/hosts\.yml|\.git-credentials|\.npmrc|\.pypirc|\.docker/config\.json|\.kube/config)"#,
+            #"(?i)(\.ssh/|id_rsa|id_ed25519|id_ecdsa|\.aws/credentials|\.netrc|\.gnupg|keychain|\.config/gh/hosts\.yml|\.git-credentials|\.npmrc|\.pypirc|\.docker/config\.json|\.kube/config)"#,
             .dangerous, "touches credentials"
         ),
         Rule(start + #"(kill\s+-9\s+-1|killall|pkill\s+-9)\b"#, .dangerous, "kills processes broadly"),
@@ -174,6 +175,10 @@ public struct RuleRiskClassifier: RiskClassifier {
             start + #"(open|osascript|defaults\s+write|crontab|at)(?=\s|$)"#, .moderate,
             "affects the desktop or scheduling"),
         Rule(start + #"(kill|pkill)\b"#, .moderate, "signals a process"),
+        // Printing the whole environment prints every secret in it.
+        Rule(
+            start + #"(env|printenv)(\s+(-0|--null))?\s*($|[;&|)`])"#, .moderate,
+            "prints the whole environment, secrets included"),
     ]
 
     /// The one reason given when no rule matches, so a caller can tell "safe by a rule" from "no rule
@@ -186,10 +191,15 @@ public struct RuleRiskClassifier: RiskClassifier {
     /// Applies every rule and returns the highest level with all matching reasons. A command no rule
     /// matches that is on the read-only list is marked `RiskAssessment.knownSafeKey`, so a composite asks
     /// no other classifier about it.
+    ///
+    /// The rules run over the command as written and over its `normalisedForms`, so quoting a word
+    /// (`"sudo" ls`, `sh -c 'rm -rf ~/x'`), continuing a line (`git push \⏎ --force`), or putting git's global
+    /// options before its verb (`git -C . push --force`) hides nothing from them.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         var level = RiskLevel.safe
         var reasons: [String] = []
-        for (regex, rule) in compiled where regex.matches(anywhereIn: command) {
+        let forms = [command] + Self.normalisedForms(of: command).filter { $0 != command }
+        for (regex, rule) in compiled where forms.contains(where: regex.matches(anywhereIn:)) {
             level = max(level, rule.level)
             if !reasons.contains(rule.reason) { reasons.append(rule.reason) }
         }
@@ -200,5 +210,29 @@ public struct RuleRiskClassifier: RiskClassifier {
         }
         if reasons.isEmpty { reasons = [Self.noSignals] }
         return RiskAssessment(level: level, reasons: reasons, sources: ["rules"])
+    }
+
+    /// Git's options that come before the verb and take a separate value.
+    private static let gitValueOptions: Set<String> = [
+        "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix",
+    ]
+
+    /// Another spelling of `command` for the rules: its words (quotes removed, `$'…'` read, line
+    /// continuations joined) joined by single spaces, with git's global options (`-C <dir>`, `-c <k=v>`,
+    /// `--no-pager`, `--git-dir=…`) dropped so the verb follows `git` directly. Unquoting can make a harmless
+    /// word look like an operator (`grep -E "a|sh"`), which only ever raises a verdict.
+    static func normalisedForms(of command: String) -> [String] {
+        var words: [String] = []
+        var remaining = CommandSplitter.words(of: command)[...]
+        while let word = remaining.popFirst() {
+            words.append(word)
+            guard word == "git" || word.hasSuffix("/git") else { continue }
+            while let option = remaining.first, option.hasPrefix("-") {
+                remaining.removeFirst()
+                let name = String(option.prefix { $0 != "=" })
+                if gitValueOptions.contains(name), !option.contains("="), !remaining.isEmpty { remaining.removeFirst() }
+            }
+        }
+        return [words.joined(separator: " ")]
     }
 }

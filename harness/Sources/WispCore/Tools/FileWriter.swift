@@ -132,6 +132,8 @@ public struct FileWriter: Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         /// The path is outside every writable directory.
         case outsideWritableSet(path: String, roots: [String])
+        /// The path is under wisp's own home, which nothing the model does may change.
+        case protected(String)
         /// The parent directory does not exist.
         case noParent(String)
         /// The path is a directory.
@@ -158,6 +160,7 @@ public struct FileWriter: Sendable {
             switch self {
             case .outsideWritableSet(let path, let roots):
                 "cannot write \(path): outside the writable directories (\(roots.joined(separator: ", ")))"
+            case .protected(let path): "cannot write \(path): it is in wisp's own home, which edits never change"
             case .noParent(let path): "cannot write \(path): its directory does not exist"
             case .isDirectory(let path): "path is a directory: \(path)"
             case .binary(let path): "file appears to be binary: \(path)"
@@ -183,6 +186,8 @@ public struct FileWriter: Sendable {
 
     /// Canonical directories writes may land under; nil means anywhere (the sandbox is off).
     public let roots: [String]?
+    /// Canonical directories never written, inside the roots or not, sandbox or not: wisp's own home.
+    public let protected: [String]
     /// Largest file loaded for a replacement.
     public let maxBytes: Int
 
@@ -190,33 +195,35 @@ public struct FileWriter: Sendable {
     ///
     /// - Parameters:
     ///   - roots: Canonical directories, as `CommandPolicy.writableRoots` gives them; nil confines nothing.
+    ///   - protected: Directories never written, canonicalised here; by default wisp's home (`Home.resolve()`).
     ///   - maxBytes: Largest file a replacement will load (default 1 MiB).
-    public init(roots: [String]?, maxBytes: Int = 1 << 20) {
+    public init(roots: [String]?, protected: [String]? = nil, maxBytes: Int = 1 << 20) {
         self.roots = roots
+        self.protected = (protected ?? [Home.resolve().root.path]).map(CommandPolicy.canonical)
         self.maxBytes = maxBytes
     }
 
     /// A writer confined exactly as `options` confines commands: the same roots the Seatbelt profile
-    /// is built from, or nothing when the sandbox is off.
+    /// is built from, or nothing when the sandbox is off, and never wisp's home (`Options.protectedPaths`).
     public init(options: CommandRunner.Options) {
         guard options.policy.sandbox.enabled else {
-            self.init(roots: nil)
+            self.init(roots: nil, protected: options.protectedPaths)
             return
         }
         self.init(
             roots: options.policy.writableRoots(
                 writableRoot: options.writableRoot, temporaryDirectory: FileManager.default.temporaryDirectory.path,
                 userCacheDirectory: CommandRunner.userCacheDirectory,
-                home: FileManager.default.homeDirectoryForCurrentUser.path))
+                home: FileManager.default.homeDirectoryForCurrentUser.path),
+            protected: options.protectedPaths)
     }
 
-    /// Whether `path` (canonicalised) lies under one of the roots.
+    /// Whether `path` (canonicalised) lies under one of the roots and under none of the protected directories.
     public func permits(_ path: String) -> Bool {
-        guard let roots else { return true }
         let canonical = CommandPolicy.canonical(path)
-        return roots.contains { root in
-            canonical == root || canonical.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-        }
+        guard !protected.contains(where: { CommandPolicy.contains($0, canonical) }) else { return false }
+        guard let roots else { return true }
+        return roots.contains { CommandPolicy.contains($0, canonical) }
     }
 
     /// Writes `data` to a temporary file beside `url`, gives it the existing file's mode, and renames
@@ -248,7 +255,11 @@ public struct FileWriter: Sendable {
     /// - Returns: What happened.
     /// - Throws: `Failure`, or a file-system error from the write.
     public func apply(_ edit: Edit, to path: String) throws -> Result {
-        guard permits(path) else { throw Failure.outsideWritableSet(path: path, roots: roots ?? []) }
+        guard permits(path) else {
+            let canonical = CommandPolicy.canonical(path)
+            if protected.contains(where: { CommandPolicy.contains($0, canonical) }) { throw Failure.protected(path) }
+            throw Failure.outsideWritableSet(path: path, roots: roots ?? [])
+        }
         let url = URL(fileURLWithPath: path)
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)

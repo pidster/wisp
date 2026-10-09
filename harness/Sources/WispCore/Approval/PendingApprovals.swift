@@ -111,15 +111,21 @@ public struct PendingApprovals: Sendable {
         public var expiresAt: Date?
         /// The SHA-256 binding the answer to exactly these fields.
         public var binding: String
+        /// Which fields `binding` covers: 2 adds the reasons and the expiry to a command's; nil, as `wisp` 0.21.0
+        /// and earlier filed them, is the first set. A server only ever accepts the binding it computed itself, so
+        /// a file changed to claim the older set is still refused when answered.
+        public var bindingVersion: Int? = nil
 
         /// The binding these fields hash to.
         public var expectedBinding: String {
             if kind == .fact {
                 return PendingApprovals.binding(fact: fact, id: id, thread: thread, pid: pid, createdAt: createdAt)
             }
-            return PendingApprovals.binding(
+            let base = PendingApprovals.binding(
                 id: id, command: command, line: line, pattern: pattern, directory: directory, level: level,
                 thread: thread, pid: pid, createdAt: createdAt)
+            guard bindingVersion == PendingApprovals.bindingVersion else { return base }
+            return PendingApprovals.binding(base: base, reasons: reasons, expiresAt: expiresAt)
         }
 
         /// What it asks about, for a person: the command, or the fact as one line.
@@ -230,6 +236,18 @@ public struct PendingApprovals: Sendable {
         ])
     }
 
+    /// The binding version a command request is filed with now (`Request.bindingVersion`).
+    static let bindingVersion = 2
+
+    /// A command request's binding at version 2: the first set's hash with the reasons shown and the expiry,
+    /// so neither can be changed in the file without the answer being refused.
+    static func binding(base: String, reasons: [String], expiresAt: Date?) -> String {
+        hash([
+            .string(base), .array(reasons.map(JSONValue.string)),
+            expiresAt.map { .int(Int($0.timeIntervalSince1970)) } ?? .null,
+        ])
+    }
+
     /// The binding of a fact request, led by the kind so it can never equal a command's.
     static func binding(fact: ProposedFact?, id: String, thread: String?, pid: Int32, createdAt: Date) -> String {
         hash([
@@ -255,15 +273,13 @@ public struct PendingApprovals: Sendable {
         let id = makeID()
         let created = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
         let expires = timeout.map { created.addingTimeInterval(TimeInterval($0.components.seconds)) }
-        return Request(
+        var request = Request(
             id: id, command: approval.command, line: approval.line, pattern: approval.pattern,
             directory: approval.workingDirectory, level: approval.assessment.level,
             reasons: approval.assessment.reasons, thread: approval.thread, client: client, pid: pid,
-            createdAt: created, expiresAt: expires,
-            binding: binding(
-                id: id, command: approval.command, line: approval.line, pattern: approval.pattern,
-                directory: approval.workingDirectory, level: approval.assessment.level, thread: approval.thread,
-                pid: pid, createdAt: created))
+            createdAt: created, expiresAt: expires, binding: "", bindingVersion: bindingVersion)
+        request.binding = request.expectedBinding
+        return request
     }
 
     /// A fact request: the person is asked to keep `fact` as a permanent fact.
@@ -595,5 +611,6 @@ extension PendingApprovals.Request {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
         binding = try container.decode(String.self, forKey: .binding)
+        bindingVersion = try container.decodeIfPresent(Int.self, forKey: .bindingVersion)
     }
 }

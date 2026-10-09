@@ -27,9 +27,10 @@ The final line is either `[more: call again with offset N]` or `[end of file]`. 
 
 ## Approval
 
-Paths go through the approval gate's rule classifier as if they were `cat <path>`: credential-like paths
-(`.ssh`, `.aws/credentials`, `.netrc`, keys) are rated dangerous and ask, or are refused where nobody can
-answer, exactly as the command would be. Ordinary files pass without a model call. Refusals come back as
+Paths go through the approval gate's rule classifier as if they were `cat '<path>'`, the path shell-quoted, with
+`# resolves to '<real path>'` after it when following links leads to a file the rules rate higher: credential-like paths (`.ssh`,
+`.aws/credentials`, `.netrc`, keys), by the name given or the file it leads to and in any case (`.SSH/ID_RSA`),
+are rated dangerous and ask, or are refused where nobody can answer, exactly as the command would be. Ordinary files pass without a model call. Refusals come back as
 `error: read not approved: …`.
 
 The gate is the only control on reads. The read happens in wisp's own process with your permissions:

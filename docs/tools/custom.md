@@ -50,7 +50,8 @@ audit. Only your own config can define them; a project cannot. Decided in
 
 Values are substituted into the command: strings single-quoted, so a value cannot break out of its
 argument (`it's` becomes `'it'\''s'`), and checked against the `enum`; integers, numbers, and booleans
-as written. A missing required value or one of the wrong type comes back to the model as `error: …`
+as written. Substitution is one pass over the template, so a value that holds another placeholder (`{b}`) stays
+text and is never filled in itself (before 0.21.1 it was, which let one value unquote another). A missing required value or one of the wrong type comes back to the model as `error: …`
 without running anything. The substituted line then goes through `run_command`'s runner: the policy's
 deny patterns, the risk classifier and approval (judged on the substituted line, so a template that
 writes, installs, or reaches the network is asked about as the same command would be), the sandbox, the timeout, and the output bound. The result is `run_command`'s:

@@ -80,10 +80,14 @@ public struct ClassifierStore: Sendable {
         case protected(String, reason: String)
         /// A reference that is not `risk@<version>`.
         case notAReference(String)
+        /// A version name that could reach outside the store (`..`, `/`) or holds other characters.
+        case invalidVersion(String)
 
         /// Human-readable explanation.
         public var description: String {
             switch self {
+            case .invalidVersion(let version):
+                "'\(version)' is not a classifier version: use letters, digits, '.', '_', '+', and '-', without '..'"
             case .unknownVersion(let version): "no classifier version \(version); 'wisp classifier list' shows them"
             case .protected(let version, let reason): "\(version) cannot be removed: \(reason)"
             case .notAReference(let text): "'\(text)' is not a classifier version; use risk@<version>"
@@ -105,10 +109,20 @@ public struct ClassifierStore: Sendable {
     }
 
     /// The version a `risk@<version>` reference names, or nil for anything else (a path, a file name).
+    /// A malformed version (`risk@../../x`, one with a `/`) is not a reference: it would name a directory
+    /// outside the store.
     public static func version(of reference: String) -> String? {
         let prefix = "\(task)@"
         guard reference.hasPrefix(prefix), reference.count > prefix.count else { return nil }
-        return String(reference.dropFirst(prefix.count))
+        let version = String(reference.dropFirst(prefix.count))
+        return isValidVersion(version) ? version : nil
+    }
+
+    /// Whether `version` can name a directory in the store and nothing outside it: letters, digits, `.`, `_`,
+    /// `+`, and `-`, not starting with `.`, and without `..` or `/`.
+    public static func isValidVersion(_ version: String) -> Bool {
+        !version.isEmpty && version.count <= 128 && !version.hasPrefix(".") && !version.contains("..")
+            && version.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._+-".contains($0)) }
     }
 
     /// The reference for `version`, as config names it.
@@ -153,6 +167,7 @@ public struct ClassifierStore: Sendable {
 
     /// The manifest of `version`, or nil.
     public func manifest(_ version: String) -> Manifest? {
+        guard Self.isValidVersion(version) else { return nil }
         let url = directory(version).appending(path: "manifest.json")
         return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
     }
@@ -179,6 +194,7 @@ public struct ClassifierStore: Sendable {
     ///
     /// - Throws: A file-system error, including when the version exists.
     public func add(model: URL, manifest: Manifest) throws {
+        guard Self.isValidVersion(manifest.version) else { throw Failure.invalidVersion(manifest.version) }
         let dir = directory(manifest.version)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
@@ -233,6 +249,7 @@ public struct ClassifierStore: Sendable {
         throws -> (manifest: Manifest, outcome: RiskClassifierTraining.Outcome)
     {
         let version = version ?? nextLocalVersion()
+        guard Self.isValidVersion(version) else { throw Failure.invalidVersion(version) }
         let staging = FileManager.default.temporaryDirectory.appending(path: "wisp-train-\(UUID().uuidString).mlmodel")
         let outcome = try RiskClassifierTraining.train(examples, writingTo: staging, version: version)
         let manifest = Manifest(

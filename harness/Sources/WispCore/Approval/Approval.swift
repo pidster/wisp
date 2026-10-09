@@ -28,6 +28,27 @@ public struct ApprovalRequest: Equatable, Sendable {
         self.assessment = assessment
         self.thread = thread
     }
+
+    /// `text` as it is safe to show a person: every C0 and C1 control character and DEL (ESC, CR,
+    /// backspace, a newline among them) and every bidirectional override written as an escape (`\e`, `\r`,
+    /// `\n`, `\t`, or `\u{9B}`), so what a terminal or a notification shows is exactly the text the
+    /// command holds.
+    public static func visible(_ text: String) -> String {
+        var shown = ""
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x1B: shown += "\\e"
+            case 0x0D: shown += "\\r"
+            case 0x0A: shown += "\\n"
+            case 0x09: shown += "\\t"
+            // The bidirectional overrides and isolates reorder what is shown as surely.
+            case 0x00..<0x20, 0x7F..<0xA0, 0x200E, 0x200F, 0x202A...0x202E, 0x2066...0x2069:
+                shown += "\\u{" + String(scalar.value, radix: 16, uppercase: true) + "}"
+            default: shown.unicodeScalars.append(scalar)
+            }
+        }
+        return shown
+    }
 }
 
 /// What the approver decided.
@@ -89,18 +110,21 @@ public struct TerminalApprover: Approver {
 
     /// The dialog for `request`: the level and command, the whole line when it differs, each reason
     /// shortened to a line, the pattern it is remembered under, and the one-line key.
+    /// Every text from the request is shown with its control characters escaped (`ApprovalRequest.visible`),
+    /// so a command cannot move the cursor, clear the line, or recolour the dialog to hide what it is.
     public static func render(_ request: ApprovalRequest, style: Style) -> String {
+        let visible = ApprovalRequest.visible
         var lines = [
             "",
             style.amber("⚠ approve") + " [" + style.level(request.assessment.level) + "] "
-                + style.bold(request.command),
+                + style.bold(visible(request.command)),
         ]
-        if request.line != request.command { lines.append(style.muted("  part of: \(request.line)")) }
-        lines.append(style.muted("  in \(ChatStatus.abbreviated(request.workingDirectory))"))
-        for reason in request.assessment.reasons {
+        if request.line != request.command { lines.append(style.muted("  part of: \(visible(request.line))")) }
+        lines.append(style.muted("  in \(visible(ChatStatus.abbreviated(request.workingDirectory)))"))
+        for reason in request.assessment.reasons.map(visible) {
             lines.append(style.muted("  - " + (reason.count > 110 ? String(reason.prefix(110)) + "…" : reason)))
         }
-        lines.append(style.muted("  remembered as: \(request.pattern)"))
+        lines.append(style.muted("  remembered as: \(visible(request.pattern))"))
         lines.append("  [y]once  [s]ession  [p]roject 30d  [a]lways 30d  [n]o " + style.prompt("›") + " ")
         return lines.joined(separator: "\n")
     }
@@ -128,16 +152,19 @@ public struct TerminalApprover: Approver {
 /// Session-scoped approvals shared by every gate in a process, so an answer of "this session" given
 /// on one MCP thread covers the others.
 public final class SessionApprovals: Sendable {
-    private let keys = Mutex<Set<String>>([])
+    /// Each approved key with the highest level approved under it.
+    private let keys = Mutex<[String: RiskLevel]>([:])
 
     /// Creates an empty set.
     public init() {}
 
-    /// Whether `key` was approved for the session.
-    func contains(_ key: String) -> Bool { keys.withLock { $0.contains(key) } }
+    /// The highest level approved under `key` for the session, or nil.
+    func level(for key: String) -> RiskLevel? { keys.withLock { $0[key] } }
 
-    /// Records `key` as approved for the session.
-    func insert(_ key: String) { keys.withLock { _ = $0.insert(key) } }
+    /// Records `key` as approved for the session at `level`, keeping a higher level approved before.
+    func insert(_ key: String, level: RiskLevel) {
+        keys.withLock { $0[key] = max($0[key] ?? level, level) }
+    }
 
     /// How many patterns are approved for the session.
     public var count: Int { keys.withLock { $0.count } }
@@ -179,27 +206,74 @@ public actor ApprovalGate {
     private let source: EntryPoint?
     private let sessionApprovals: SessionApprovals
     private let turns: TurnClock
-    /// Per-turn state: once-approvals and refusals, dropped when the clock moves on.
-    private var turnState: (turn: Int, approved: Set<String>, refusals: [Refusal]) = (0, [], [])
+    /// Per-turn state: once-approvals, each key with the highest level approved under it, and refusals,
+    /// dropped when the clock moves on.
+    private var turnState: (turn: Int, approved: [String: RiskLevel], refusals: [Refusal]) = (0, [:], [])
 
     /// The state for the current turn, discarding an earlier turn's.
     private func currentTurn() -> Int {
         let turn = turns.current
-        if turnState.turn != turn { turnState = (turn, [], []) }
+        if turnState.turn != turn { turnState = (turn, [:], []) }
         return turn
     }
 
-    /// The persisted approval covering `segment`: under its pattern, or under the pre-verb pattern
-    /// (`git *`) an older approvals file may hold.
-    private func standingApproval(for segment: SimpleCommand, in directory: String) async -> ApprovalStore.Entry? {
-        if let entry = await store?.find(pattern: segment.pattern, directory: directory) { return entry }
+    /// The persisted approval covering `segment` at `level`: under its pattern, or under the pre-verb
+    /// pattern (`git *`) an older approvals file may hold, granted at `level` or above.
+    private func standingApproval(
+        for segment: SimpleCommand, in directory: String, level: RiskLevel
+    ) async -> ApprovalStore.Entry? {
+        if let entry = await store?.find(pattern: segment.pattern, directory: directory, level: level) {
+            return entry
+        }
         guard let legacy = segment.legacyPattern else { return nil }
-        return await store?.find(pattern: legacy, directory: directory)
+        return await store?.find(pattern: legacy, directory: directory, level: level)
     }
 
-    /// Session approvals are keyed on the pattern (`head *`) in the exact directory.
+    /// Session and turn approvals are keyed on the pattern (`head *`) in the exact directory.
     private static func key(_ pattern: String, _ workingDirectory: String) -> String {
         "\(workingDirectory)\u{0}\(pattern)"
+    }
+
+    /// The key of an approval of exactly `text` in the directory: what a dangerous verdict is remembered
+    /// under, never a pattern. Marked so it can never equal a pattern's key.
+    private static func exactKey(_ text: String, _ workingDirectory: String) -> String {
+        "\(workingDirectory)\u{0}\u{1}\(text)"
+    }
+
+    /// Whether an approval held in `approved` (a key to the highest level approved under it) covers
+    /// `segment` judged at `level`: one of its exact text at that level or above, or, below dangerous,
+    /// one of its pattern at that level or above. A moderate approval of `rm *` never covers a dangerous
+    /// `rm -rf ~`; a dangerous command is covered only by an approval of the very same text.
+    private static func covers(
+        _ approved: (String) -> RiskLevel?, _ segment: SimpleCommand, at level: RiskLevel, in directory: String
+    ) -> Bool {
+        if let exact = approved(exactKey(segment.text, directory)), exact >= level { return true }
+        guard level < .dangerous, let held = approved(key(segment.pattern, directory)) else { return false }
+        return held >= level
+    }
+
+    /// The text `read_file` and the condensing tools' reads are judged as: `cat` with the path shell-quoted,
+    /// and, when following links leads to a file the rules rate higher (`notes.txt` linked to `~/.ssh/id_rsa`),
+    /// `# resolves to` the real path, so the credential rules see the file actually read as well as the name it
+    /// was asked by. A link that changes nothing the rules see (`/var` to `/private/var`) is left out.
+    ///
+    /// - Parameters:
+    ///   - path: The path as given.
+    ///   - workingDirectory: What a relative path is relative to.
+    /// - Returns: The command text.
+    static func readingLine(_ path: String, workingDirectory: String) async -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        let absolute =
+            expanded.hasPrefix("/") ? expanded : URL(fileURLWithPath: workingDirectory).appending(path: expanded).path
+        let standard = URL(fileURLWithPath: absolute).standardized.path
+        let real = CommandPolicy.canonical(standard)
+        let line = "cat " + CommandSplitter.quoted(path)
+        guard real != standard else { return line }
+        let resolved = line + " # resolves to " + CommandSplitter.quoted(real)
+        let rules = RuleRiskClassifier.standard
+        let asGiven = await rules.classify(command: line, workingDirectory: workingDirectory).level
+        let asResolved = await rules.classify(command: "cat " + CommandSplitter.quoted(real), workingDirectory: "/")
+        return asResolved.level > asGiven ? resolved : line
     }
 
     /// Creates a gate.
@@ -240,14 +314,18 @@ public actor ApprovalGate {
     /// Returns normally if reading `path` is acceptable.
     ///
     /// Reads are cheap and frequent, so only the rule classifier runs, over the equivalent
-    /// `cat <path>`: credential paths are rated dangerous and ask (or are refused) exactly as the
-    /// command would be; ordinary files pass without a model call.
+    /// `cat '<path>'` with the real path beside it when a link leads to a riskier file (`readingLine`): credential
+    /// paths, by either name and in any case, are rated dangerous and ask (or are refused) exactly as
+    /// the command would be; ordinary files pass without a model call.
     ///
+    /// - Parameters:
+    ///   - path: The file as the model or caller named it.
+    ///   - workingDirectory: What a relative path is relative to, and where project approvals apply.
     /// - Throws: `Failure.refused` with the reason otherwise.
     public func clear(readingFile path: String, workingDirectory: String) async throws {
-        let line = "cat \(path)"
+        let line = await Self.readingLine(path, workingDirectory: workingDirectory)
         try await clear(
-            parts: CommandSplitter.split(line), line: line, workingDirectory: workingDirectory,
+            parts: [SimpleCommand(text: line, executable: "cat")], line: line, workingDirectory: workingDirectory,
             classifier: RuleRiskClassifier.standard)
     }
 
@@ -291,21 +369,39 @@ public actor ApprovalGate {
         // Every simple command in the line is checked and approved on its own, so a dangerous part
         // cannot hide behind a safe first command, and approvals are remembered per pattern.
         let segments = parts.isEmpty ? [SimpleCommand(text: line, executable: line)] : parts
+        var highest = RiskLevel.safe
         for segment in segments {
             do {
-                try await clearSegment(segment, line: line, workingDirectory: workingDirectory, classifier: classifier)
+                let level = try await clearSegment(
+                    segment, line: line, workingDirectory: workingDirectory, classifier: classifier)
+                highest = max(highest, level)
             } catch Failure.refused(let reason) where segments.count > 1 {
                 throw Failure.refused("\(segment.text): \(reason)")
             }
         }
+        // Some signals belong to the line, not to any one part: `curl … | sh`, `env | grep TOKEN`. The rules
+        // judge the whole line once more, and when they rate it above every part it is asked about as a whole,
+        // remembered by its exact text.
+        let whole = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard segments.count > 1 || segments.first?.text != whole else { return }
+        let lineVerdict = await RuleRiskClassifier.standard.classify(command: line, workingDirectory: workingDirectory)
+        guard lineVerdict.level > highest else { return }
+        try await clearSegment(
+            SimpleCommand(text: whole, executable: whole), line: line, workingDirectory: workingDirectory,
+            classifier: RuleRiskClassifier.standard)
     }
 
+    /// Classifies one simple command and, at the threshold or above, clears it by a held approval or by
+    /// asking.
+    ///
+    /// - Returns: The level it was judged at.
+    /// - Throws: `Failure.refused` when it may not run.
+    @discardableResult
     private func clearSegment(
         _ segment: SimpleCommand, line: String, workingDirectory: String, classifier: any RiskClassifier
-    ) async throws {
+    ) async throws -> RiskLevel {
         let started = Date()
         let assessment = await classifier.classify(command: segment.text, workingDirectory: workingDirectory)
-        let key = Self.key(segment.pattern, workingDirectory)
         func decided(
             _ decision: String, scope: ApprovalScope? = nil, reason: String? = nil, approvalID: String? = nil,
             expiresAt: Date? = nil, downgradedFrom: ApprovalScope? = nil, persistError: String? = nil
@@ -322,37 +418,44 @@ public actor ApprovalGate {
             details: AuditEvent.Details.classifierVerdict(
                 command: segment.text, pattern: segment.pattern, line: line, assessment: assessment,
                 seconds: Date().timeIntervalSince(started)))
-        guard threshold.requiresApproval(at: assessment.level) else { return }
-        if sessionApprovals.contains(key) {
+        let level = assessment.level
+        guard threshold.requiresApproval(at: level) else { return level }
+        if Self.covers(sessionApprovals.level(for:), segment, at: level, in: workingDirectory) {
             decided("cached")
-            return
+            return level
         }
         _ = currentTurn()
-        if turnState.approved.contains(key) {
+        let turnApproved = turnState.approved
+        if Self.covers({ turnApproved[$0] }, segment, at: level, in: workingDirectory) {
             decided("cached-turn")
-            return
+            return level
         }
-        if assessment.level < .dangerous, let standing = await standingApproval(for: segment, in: workingDirectory) {
+        if level < .dangerous, let standing = await standingApproval(for: segment, in: workingDirectory, level: level) {
             decided("cached-\(standing.scope.rawValue)", approvalID: standing.id)
-            return
+            return level
         }
+        // A dangerous command is remembered by its exact text, anything else by its pattern at its level.
+        let remembered = level == .dangerous ? segment.text : segment.pattern
+        let key =
+            level == .dangerous
+            ? Self.exactKey(segment.text, workingDirectory) : Self.key(segment.pattern, workingDirectory)
         audit?.record(
             .approvalRequested,
             details: AuditEvent.Details.approvalRequested(
-                command: segment.text, pattern: segment.pattern, line: line, level: assessment.level))
+                command: segment.text, pattern: segment.pattern, line: line, level: level))
         let decision = await approver.decide(
             ApprovalRequest(
-                command: segment.text, line: line, pattern: segment.pattern, workingDirectory: workingDirectory,
+                command: segment.text, line: line, pattern: remembered, workingDirectory: workingDirectory,
                 assessment: assessment, thread: audit?.session),
             audit: audit)
         switch decision {
         case .approved(let requested):
             // A dangerous command is never remembered beyond the session, whatever was chosen.
-            let scope = (requested.isPersistent && assessment.level == .dangerous) ? .session : requested
+            let scope = (requested.isPersistent && level == .dangerous) ? .session : requested
             if scope == .once {
-                turnState.approved.insert(key)
+                turnState.approved[key] = max(turnState.approved[key] ?? level, level)
             } else {
-                sessionApprovals.insert(key)
+                sessionApprovals.insert(key, level: level)
             }
             var approvalID: String?
             var expiresAt: Date?
@@ -372,6 +475,7 @@ public actor ApprovalGate {
             decided(
                 "approved", scope: scope, approvalID: approvalID, expiresAt: expiresAt,
                 downgradedFrom: scope != requested ? requested : nil, persistError: persistError)
+            return level
         case .denied(let reason):
             decided("denied", reason: reason)
             turnState.refusals.append(Refusal(command: segment.text, reason: reason))

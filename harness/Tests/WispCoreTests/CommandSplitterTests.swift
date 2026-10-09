@@ -35,7 +35,9 @@ import Testing
         #expect(executables("timeout 5 nice -n 10 ./scripts/check") == ["check"])
         #expect(executables("sudo -u root ls") == ["ls"])
         #expect(CommandSplitter.split("head -x 1 -y 2 -z 3").first?.pattern == "head *")
-        #expect(CommandSplitter.split("FOO=bar").isEmpty)
+        // Fails closed: a segment no command can be read from is judged as written.
+        #expect(CommandSplitter.split("FOO=bar").map(\.text) == ["FOO=bar"])
+        #expect(CommandSplitter.split("FOO=bar").first?.pattern == "FOO=bar")
         #expect(CommandSplitter.split("   ").isEmpty)
         #expect(CommandSplitter.split("# just a comment").isEmpty)
     }

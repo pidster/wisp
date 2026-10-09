@@ -24,6 +24,29 @@ import Testing
         #expect("\(ClassifierStore.Failure.notAReference("x"))".contains("risk@<version>"))
     }
 
+    /// A version that could name a directory outside the store is refused everywhere one is taken (the
+    /// 2026-10-09 review).
+    @Test func versionsThatReachOutsideTheStoreAreRefused() throws {
+        for bad in ["../x", "../../etc", "a/b", "/abs", ".hidden", "a..b", "x y", ""] {
+            #expect(ClassifierStore.version(of: "risk@\(bad)") == nil, "\(bad)")
+            #expect(!ClassifierStore.isValidVersion(bad), "\(bad)")
+        }
+        #expect(ClassifierStore.isValidVersion("0.21.1-local.2") && ClassifierStore.isValidVersion("0.13.0-default"))
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ClassifierStore(home: home)
+        #expect(store.manifest("../../x") == nil)
+        #expect(throws: ClassifierStore.Failure.unknownVersion("../x")) { try store.remove("../x", inUse: nil) }
+        let manifest = ClassifierStore.Manifest(
+            task: "risk", version: "../escape", wispVersion: "0", created: "", examplesSource: "", examples: 0,
+            perLevel: [:], examplesDigest: "", parent: nil, measurements: [])
+        #expect(throws: ClassifierStore.Failure.invalidVersion("../escape")) {
+            try store.add(model: home.root.appending(path: "none.mlmodel"), manifest: manifest)
+        }
+        #expect(!FileManager.default.fileExists(atPath: home.root.appending(path: "classifiers/escape").path))
+        #expect("\(ClassifierStore.Failure.invalidVersion("../x"))".contains("not a classifier version"))
+    }
+
     @Test func trainingAddsVersionsAndNeverReplacesOne() throws {
         let home = try home()
         defer { try? FileManager.default.removeItem(at: home.root) }

@@ -40,14 +40,18 @@ configured under `commandPolicy` in `config.json`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048), `wisp models pull` (so is fetching a model, ADR 0052), and a nested wisp agent: `wisp respond`, `wisp chat`, `wisp mcp`, or the quoted bare `wisp "prompt"`, by any path and after options, `env`, or `VAR=value`, where wisp is the program a segment of the line runs; `wisp --version`, `doctor`, `logs`, `tools`, `models`, `config`, and its other subcommands stay allowed (ADR 0054) | Regexes; a match rejects the command. Patterns are compiled once per process. |
+| `deny` | `sudo`, `rm -rf /` and `rm -rf /*`, `\| sh`, `mkfs`/`diskutil erase`, `dd of=/dev/…`, `wisp approvals approve`/`deny` (answering an approval is the person's, ADR 0046), `wisp facts keep`/`drop` (so is keeping a permanent fact, ADR 0048), `wisp models pull` (so is fetching a model, ADR 0052), and a nested wisp agent: `wisp respond`, `wisp chat`, `wisp mcp`, or the quoted bare `wisp "prompt"`, by any path, quoted or not, after options, `env` and its options, `exec`, `nohup`, `nice`, `time`, `command`, `caffeinate`, `xargs`, `timeout N`, `VAR=value`, or `{`, `then`, `do`, where wisp is the program a segment of the line runs (the approval and fact answers are refused quoted too); `wisp --version`, `doctor`, `logs`, `tools`, `models`, `config`, and its other subcommands stay allowed (ADR 0054) | Regexes; a match rejects the command. Patterns are compiled once per process. |
 | `allow` | `[]` | Regexes; when non-empty the command must match one. Deny wins. |
 | `sandbox.enabled` | `true` | Run under `sandbox-exec`. |
 | `sandbox.allowNetwork` | `true` | Set `false` to deny all networking inside the sandbox. |
 | `sandbox.writablePaths` | `~/Library/Caches`, `~/.cargo/registry`, `~/.cargo/git` | Writable in addition to the directory wisp was launched in, `$TMPDIR`, the per-user cache directory (`getconf DARWIN_USER_CACHE_DIR`, where Clang keeps its module cache), and `/private/tmp`. A command's own `workingDirectory` never widens this. `~` expands. |
 
 Inside the sandbox everything is readable and executable, but writes outside the writable set fail with
-`Operation not permitted`. A denied pattern comes back to the model as `error: command denied by policy: …`
+`Operation not permitted`. So do writes to wisp's own home (`~/.wisp`, or `WISP_HOME`), wherever it is: the
+profile denies it after the allow rule (Seatbelt applies the last rule that matches), so a command can never change
+wisp's approvals, facts, configuration, or pending answers, even when the home lies inside the writable set (the
+profile then carries a `; note:` comment saying so, and diagnostics log it). wisp itself writes its home in its
+own process, outside the sandbox. A denied pattern comes back to the model as `error: command denied by policy: …`
 so it can try something else.
 
 When a confined command fails with `Operation not permitted`, wisp checks whether the sandbox refused it
@@ -148,9 +152,12 @@ the writable root, so `workingDirectory: "/"` made everything writable.
 ### Process tree and timeouts
 
 Commands are spawned in their own process group (`posix_spawn` with `POSIX_SPAWN_SETPGROUP`), stdin from
-`/dev/null`. On timeout the whole group gets SIGTERM, then SIGKILL two seconds later, so background
-children (`sleep 30 &`, a server the model started) die with the shell instead of holding the output pipe
-open. Output capture after exit is bounded by one second in case a descendant escaped the group.
+`/dev/null`. On timeout the whole group gets SIGTERM, then SIGKILL two seconds later. And whenever the shell
+exits, on its own or at the timeout, the group is sent SIGKILL until it is empty (for up to two seconds): nothing a
+command starts outlives it, neither a background job (`sleep 30 &`, a server the model started) nor a child that
+ignores SIGTERM. Before 0.21.1 the watchdog stopped when the shell was reaped, so both lived on. A descendant that
+left the group (`setsid`) is beyond this; output capture after exit is bounded by one second in case one holds the
+pipe.
 
 Reads are not restricted; omit the tool (`--tool current_date`, or the MCP `respond` `tools` argument)
 where even that is too much. There is no direct MCP `run_command`; other harnesses reach it only through

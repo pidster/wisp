@@ -36,7 +36,7 @@ private struct Boom: WispTool {
         let refused = await tool.call(arguments: .init(path: url.path, offset: nil, limit: nil))
         #expect(refused == "error: read not approved: no reads")
         #expect(sink.events.first?.kind == .classifierVerdict)
-        #expect(sink.events.first?.details["command"] == .string("cat \(url.path)"))
+        #expect(sink.events.first?.details["command"] == .string("cat '\(url.path)'"))
         let open = ReadFileTool(
             approval: ApprovalGate(classifier: RuleRiskClassifier.standard, approver: AutoApprover(), threshold: .never)
         )

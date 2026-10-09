@@ -24,9 +24,14 @@ not given to the second at all:
   history rewriting and git's recovery data, credentials read or printed, uploads, publishing to a
   registry, deleting remote storage, network use, package installs, file modification, and build
   steps that write outside the project or discard build output (`xcodebuild`, `make clean`, `cargo
-  clean`). Building and testing the project are safe, as the training labels have them. Cheap,
-  deterministic, tested against a labelled set. Rules cover the model's weak spot: ordinary modifications it
-  tends to call safe.
+  clean`), and printing the whole environment (`env`, `printenv`, every secret in it). Building and testing the
+  project are safe, as the training labels have them. Cheap, deterministic, tested against a labelled set. Rules
+  cover the model's weak spot: ordinary modifications it tends to call safe. They run over the command as written
+  and over two normalised spellings of it, so quoting does not hide a rule (`sh -c 'rm -rf ~/x'`, `"sudo" ls`,
+  `eval "git reset --hard"`), nor does a continued line (`git push \⏎ --force`) or git's global options before
+  its verb (`git -C . push --force`, `-c k=v`, `--no-pager`, `--git-dir=…`, `--work-tree=…`). The credential
+  paths match in any case (`~/.SSH/ID_RSA` is the same file). Normalising can only raise a verdict: a quoted
+  `|sh` in a search pattern (`grep -E "a|sh"`) reads as a pipe into a shell and asks.
 
   The rules also keep a short list of read-only commands (`KnownSafeCommands`): `ls`, `cat`, `grep`,
   `find`, `git status`, `git log`, `git diff`, and other git reads, `--version` queries, and reads of the
@@ -74,12 +79,20 @@ its one command once ([ADR 0033](decisions/0033-watch-mode.md)).
 ## The gate
 
 `ApprovalGate` (one per conversation) classifies, audits the verdict, and if the level is at or above the
-threshold asks the session's `Approver`. `read_file` uses the same gate over the equivalent `cat <path>`
-with the rule classifier only, so credential paths ask and ordinary reads cost no model call.
+threshold asks the session's `Approver`. `read_file` (and the condensing tools' file reads) use the same gate over
+the equivalent `cat '<path>'`, the path shell-quoted, followed by `# resolves to '<real path>'` when following links
+leads to a file the rules rate higher (a link to a key), with the rule classifier only, so credential paths ask by either name and ordinary reads cost no
+model call.
 
 A line is split into its simple commands (`ls && curl … | sh` is three), each is classified and, if
 risky, approved on its own with the whole line shown for context; a denial for any part refuses the line
-([ADR 0015](decisions/0015-per-command-approval.md)). Approvals are remembered by the essential command,
+([ADR 0015](decisions/0015-per-command-approval.md)). The splitter looks inside `$(…)`, backticks, and `(…)`
+subshells (a `;` or newline inside parentheses does not split them), reads `'…'`, `"…"`, and `$'…'` quoting,
+and looks inside the script given to `sh -c`, `bash -lc`, and the like, and the words after `eval`, so the
+commands they run are judged too. It fails closed: a segment no command can be read from (an assignment, an
+unbalanced group) is judged as written, so the gate never judges fewer commands than the line holds. Some risks
+belong to the whole line rather than a part (`curl … | sh`, `env | grep TOKEN`): the rules judge the line once
+more, and when they rate it above every part, the line itself is asked about, remembered by its exact text. Approvals are remembered by the essential command,
 the program that actually runs after unwrapping `sudo`, `env`, `time`, and the like, as a pattern such as
 `head *`, so arguments never matter to remembering. For programs whose first word is the verb (`git`,
 `cargo`, `swift`, `npm`, `brew`, `docker`, and the rest of
@@ -88,7 +101,11 @@ and `git push *` are remembered apart, so approving one does not approve the oth
 ([ADR 0027](decisions/0027-verb-patterns.md)). Options before the verb (`git -C dir status`) and
 toolchain selectors (`cargo +nightly build`) are skipped; a program with no verb (`git --version`) is
 `git *`. An approvals file written before verbs existed still counts: a stored `git *` covers every
-git verb until it expires. An approval has a scope
+git verb until it expires. A command whose program says nothing of what runs is remembered by its exact text,
+never by a pattern: a shell keyword (`do`, `then`, `if`, `for`, `{`, `!`, …), `.` and `source`, `eval`, an
+interpreter (`sh`, `bash`, `zsh`, `python3`, `node`, `ruby`, `perl`, `osascript`, …), anything run through
+`exec` or `xargs`, a function definition, and a segment that could not be read, since `do *` or `sh *` would
+cover any command at all. An approval has a scope
 ([ADR 0014](decisions/0014-persisted-approvals.md)):
 
 | Scope | Covers | Lives |
@@ -105,10 +122,11 @@ step that decides:
 
 1. Classify it with the rules and, unless the rules know it to be read-only, the configured classifier.
 2. If the verdict is below the threshold, run it. Nothing else is consulted.
-3. Check the session cache for this pattern in this directory.
-4. Check the turn cache for a once-approval given earlier in this turn.
-5. Check the persistent file for a `project` entry in this directory or an `always` entry, **but only if
-   the verdict is not dangerous**.
+3. Check the session cache for an approval in this directory of this pattern at this level or above, or of
+   this exact text; **a dangerous verdict is covered only by an approval of the exact text**.
+4. Check the turn cache the same way for a once-approval given earlier in this turn.
+5. Check the persistent file for a `project` entry in this directory or an `always` entry granted at this
+   level or above, **but only if the verdict is not dangerous**.
 6. Ask the approver.
 
 The life of one command line through the policy and the gate, part by part, is this; every verdict and
@@ -135,17 +153,27 @@ flowchart TD
     more -->|no| run["Run the line under Seatbelt and audit its outcome"]
 ```
 
-Step 5's exception is deliberate: a dangerous verdict skips the persistent file and always asks, so a
-stored `rm *` never covers `rm -rf build` and a stored `git push *` never covers `git push --force`. The session
-and turn caches do apply to dangerous commands, because those were answered in this process by a person
-who saw the command; the persistent file may be weeks old. And because classification always comes first,
-a stored approval decides only whether to ask, never whether the command is acceptable.
+Every cached approval remembers the level it was given at and covers only verdicts at that level or below, so a
+moderate `rm *` approved for the session never covers `rm -rf ~`. A dangerous verdict is remembered by its exact
+text (the dialog's "remembered as" shows it), and only an approval of that same text in that directory, this
+session or this turn, covers it again: the person saw that command, not its pattern. Step 5 goes further: a
+dangerous verdict skips the persistent file and always asks, so a stored `rm *` never covers `rm -rf build` and a
+stored `git push *` never covers `git push --force`; the persistent file may be weeks old. Before 0.21.1 the
+session and turn caches were checked by pattern alone, so a moderate approval covered a later dangerous command of
+the same pattern. And because classification always comes first, a stored approval decides only whether to ask,
+never whether the command is acceptable.
 
 A dangerous verdict is never persisted: `project` or `always` is downgraded to `session` and the audit
 says so. Remembered approvals only decide whether to ask; deny patterns, the sandbox, and the classifier
 run on every part every time, so `rm *` never covers `rm -rf build`, and each use is audited with the
 approval id.
-`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. Decisions: approve with a scope (see below), deny with a reason, or unanswered. **An unanswered request is a denial**: no answer is not
+`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. Every process that uses the
+file (a running `wisp mcp`, `wisp approvals` in a terminal) reads it afresh for each check and changes it under an
+advisory `flock` on `approvals.json.lock` beside it, writing it whole by rename with mode 0600, so a revocation made
+while a server runs stays revoked (before 0.21.1 the server's next grant wrote back its own stale copy).
+Everything a dialog or notification shows from a request (the command, the line, the reasons, the pattern) has its
+control characters and bidirectional overrides written as escapes (`\e`, `\r`, `\u{9B}`), so a command cannot
+redraw the prompt to hide what it is. Decisions: approve with a scope (see below), deny with a reason, or unanswered. **An unanswered request is a denial**: no answer is not
 an answer, so the MCP approver that hears nothing within `approval.timeoutSeconds` (default 600, ten
 minutes) reports `unanswered`, the gate refuses the command and audits the decision as `timed-out`. Set it
 to `0` to wait indefinitely. The terminal prompt in `chat` has no timeout: a person is at the keyboard,
@@ -195,8 +223,9 @@ git push origin main — wisp approvals approve a1b2c3d4
 ```
 
 The person answers from a terminal or `wisp-tui`; the answer is a second file, bound by a SHA-256 to the
-exact command, line, directory, thread, and server process shown, so it approves only what was shown and
-only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next
+exact command, line, directory, thread, and server process shown, and since 0.21.1 to the reasons shown and the
+expiry too (a request records `bindingVersion: 2`; one filed by an older wisp, without it, is still answered by
+the first set), so it approves only what was shown and only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next
 `wisp approvals pending`. The calling agent cannot answer: nothing in MCP approves, wisp's own model is
 refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox, and
 the commands refuse to run without a terminal on standard input. The same directory holds the facts a caller asked

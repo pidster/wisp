@@ -67,8 +67,10 @@ public struct OutOfBandApprover: Approver {
     /// - Parameter request: The filed request.
     /// - Returns: The message; `Notifier` bounds it.
     public static func message(for request: PendingApprovals.Request) -> Notifier.Message {
-        let command = request.command.count > 120 ? String(request.command.prefix(119)) + "…" : request.command
-        let from = [request.client, request.thread.map { "thread \($0)" }].compactMap(\.self).joined(separator: ", ")
+        let shown = ApprovalRequest.visible(request.command)
+        let command = shown.count > 120 ? String(shown.prefix(119)) + "…" : shown
+        let from = [request.client, request.thread.map { "thread \($0)" }].compactMap(\.self)
+            .map(ApprovalRequest.visible).joined(separator: ", ")
         return Notifier.Message(
             title: "wisp: approval needed",
             body: "\(command) — wisp approvals approve \(request.id)",

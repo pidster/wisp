@@ -82,6 +82,15 @@ import WispTestSupport
         #expect(try CustomTool.commandLine(head, values: ["path": "a b.txt"]) == "head -n 5 'a b.txt'")
         #expect(try CustomTool.commandLine(head, values: ["path": "x", "lines": 2]) == "head -n 2 'x'")
         #expect(throws: CustomTool.Failure.self) { try CustomTool.commandLine(head, values: [:]) }
+        // One pass over the template: a value holding another placeholder is not substituted again, so it
+        // cannot splice that value outside its quotes (the 2026-10-09 review).
+        let two = Definition(
+            name: "two_args", description: "Two.",
+            arguments: ["a": Argument(type: "string"), "b": Argument(type: "string")], command: "grep {a} {b}")
+        #expect(
+            try CustomTool.commandLine(two, values: ["a": "{b}", "b": "x; touch pwned"])
+                == "grep '{b}' 'x; touch pwned'")
+        #expect(try CustomTool.commandLine(two, values: ["a": "{a}", "b": "{a}{b}"]) == "grep '{a}' '{a}{b}'")
         #expect(throws: CustomTool.Failure.self) { try CustomTool.commandLine(head, values: ["path": .int(1)]) }
         #expect(CustomTool.placeholders(in: "a {x} {y_2} {Z} {x}") == ["x", "y_2", "x"])
     }

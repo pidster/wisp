@@ -213,8 +213,8 @@ import Testing
         #expect(!outcome.stdout.contains("done"))
     }
 
-    @Test func modelChosenDirectoryDoesNotWidenTheSandbox() async throws {
-        guard !CommandRunnerPolicyTests.nested else { return }
+    @Test(.disabled(if: CommandRunnerPolicyTests.nested, "enforcement cannot be asserted inside an outer sandbox"))
+    func modelChosenDirectoryDoesNotWidenTheSandbox() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-root-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

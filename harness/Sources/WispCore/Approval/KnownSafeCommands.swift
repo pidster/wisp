@@ -19,7 +19,7 @@ enum KnownSafeCommands {
     /// Read-only forms, each matched against the whole simple command.
     static let patterns: [String] = [
         #"cd(?:\s+"# + argument + ")?",
-        #"(?:pwd|whoami|uptime|sw_vers|arch|tty|true|nproc|vm_stat|groups|id|uname|hostname|locale|env|printenv)"#
+        #"(?:pwd|whoami|uptime|sw_vers|arch|tty|true|nproc|vm_stat|groups|id|uname|hostname|locale)"#
             + #"(?:\s+-[A-Za-z]+)*"#,
         #"printenv\s+(?:PATH|HOME|SHELL|USER|PWD|TERM|LANG|TMPDIR)"#,
         #"date(?:\s+(?:-u|-R|\+\S+|'\+[^']*'|"\+[^"]*"))*"#,

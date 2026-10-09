@@ -23,6 +23,29 @@ import WispTestSupport
         }
     }
 
+    /// Wrappers, keywords, other whitespace, and a quoted program name do not hide a nested wisp or the person's
+    /// own answers (the 2026-10-09 review). Checked against the policy only; nothing runs.
+    @Test func wrappersQuotesAndKeywordsDoNotHideIt() {
+        let policy = CommandPolicy()
+        for line in [
+            "nice wisp chat", "nice -n 10 wisp respond x", "time wisp mcp", "command wisp chat", "builtin wisp chat",
+            "timeout 5 wisp chat", "timeout 5s wisp mcp", "caffeinate -i wisp chat", "env -i wisp mcp",
+            "env -i PATH=/usr/bin wisp mcp", "nohup nice wisp mcp", "{ wisp chat", "then wisp chat", "do wisp mcp",
+            "xargs wisp respond", "\"wisp\" chat", "'wisp' respond x", "wisp\tchat", "wisp  \t mcp",
+            "\"/opt/homebrew/bin/wisp\" mcp", "wisp \"chat\"",
+            "\"wisp\" approvals approve abc", "wisp 'approvals' approve abc", "wisp\tapprovals\tdeny abc",
+            "'wisp' facts keep c1", "\\wisp approvals approve abc", "{ wisp facts drop c1",
+        ] {
+            #expect(policy.check(line) != .allowed, "\(line)")
+        }
+        // Each segment of a compound line is checked alone, as `CommandRunner` does.
+        let compound = "if true; then wisp chat; fi"
+        #expect(CommandSplitter.split(compound).map(\.text).contains { policy.check($0) != .allowed })
+        for line in ["\"wisp\" approvals pending", "nice wisp doctor", "time wisp --version", "echo 'wisp' chat"] {
+            #expect(policy.check(line) == .allowed, "\(line)")
+        }
+    }
+
     @Test func wispsOtherSubcommandsAndMentionsOfItStayAllowed() {
         let policy = CommandPolicy()
         for line in [
