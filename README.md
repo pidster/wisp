@@ -297,7 +297,7 @@ How we work, in short:
   for the classifier and every delegated task ([measurements.md](docs/measurements.md)).
 - A change is done when it is tested, documented in code, and documented in `docs/`, in the same
   commit. A choice that is non-obvious or hard to reverse gets a decision record.
-- Dogfooding: `.mcp.json` registers this repository's own release build (`swift build -c release`) as
+- Dogfooding: `.mcp.json` registers this repository's own release build (`scripts/check mcp-build`) as
   an MCP server, so Claude Code sessions here use it.
 
 [engineering.md](docs/engineering.md) is the full standard, and [AGENTS.md](AGENTS.md) the orientation

@@ -209,9 +209,17 @@ thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat
 
 ## 7. Current work and backlog (2026-10-09)
 
-### Committed, not yet released (0.21.0)
+### Committed, not yet released (0.21.1)
 
-`CHANGELOG.md`, "Unreleased": llama.cpp and LM Studio as backends through one shared executor for
+`CHANGELOG.md`, "Unreleased": a patch from a code and test review of the whole codebase on 2026-10-09, about
+sixty fixes, each with a test. The approval gate judges every command a line runs (a `;` inside parentheses hid
+one), remembers approvals only at the level given and keywords and interpreters only by exact text, and sees
+through quotes, continuations, and `git -C`; commands and `edit_file` can no longer write `~/.wisp`; approvals and
+permanent facts merge across processes under a lock. `wisp-tui` no longer answers a dialog with typed keys and
+quits cleanly; an MCP thread runs one turn at a time. `scripts/check eval` fails when the evaluation fails, which
+it never could. The rest of the review is 0.22.0's.
+
+0.21.0 (2026-10-09) carried llama.cpp and LM Studio as backends through one shared executor for
 OpenAI-compatible servers, the window read from the server and the key from the environment or `config.json`
 ([ADR 0058](decisions/0058-a-shared-http-executor.md)), tested against a fake server per dialect and live against
 Ollama's OpenAI-compatible endpoint, not yet against a real `llama-server` or LM Studio; a context window for one

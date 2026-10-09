@@ -1,7 +1,8 @@
 # Roadmap
 
-The releases planned from 0.21.0 to 0.23.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0,
-0.18.x, 0.19.0, and 0.20.0 have shipped; 0.21.0 is the release being made). Each release carries one or two
+The releases planned from 0.22.0 to 0.23.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0,
+0.18.x, 0.19.0, 0.20.0, and 0.21.0 have shipped; 0.21.1, a patch from the code review of 2026-10-09, is the
+release being made). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
@@ -11,48 +12,8 @@ regressions, not a measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown (measured: none in tool work); the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
-| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; MLX pulls from any publisher, confirmed by the person |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; MLX pulls from any publisher, confirmed by the person; the rest of the 2026-10-09 review |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
-
-## 0.21.0
-
-- **A shared HTTP executor** (larger), bringing llama.cpp and LM Studio as backends. **Built**
-  ([ADR 0058](decisions/0058-a-shared-http-executor.md)): one executor for OpenAI's chat-completions API with a
-  small dialect, `llamacpp:<model>` and `lmstudio:<model>`, the key from the environment or `config.json`, the
-  window read from the server, and what it shares with Ollama's executor extracted (`ReplyRelay`). Tested
-  against a fake server for each dialect and live against Ollama's OpenAI-compatible endpoint; a real
-  `llama-server` and LM Studio remain to be tried.
-
-- **A context length per model.** `ollama.contextLength` sets the window of every Ollama model at once;
-  a setting per model (beside `mlx.models.<name>`), so one model can be held to a size while the rest are
-  sized from memory. Raised on 2026-10-05 when qwen3.8 sat at the 8,192 floor. Built:
-  `ollama.models.<name>.contextLength` and `mlx.models.<name>.contextLength`, ahead of the runtime's setting
-  ([wisp.md](wisp.md), "`wisp config`"; [backends.md](backends.md)).
-- **`wisp models pull` follow-ups**, from the Hugging Face cache work (ADR 0052, refined 2026-10-04):
-  resume a half-fetched file with HTTP range requests rather than restarting it; seed the cache from a
-  real directory's checked files instead of fetching them again; and Core AI's listing, which does not
-  follow a linked model directory, as MLX's once did. Built
-  ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09).
-- **Token usage in `respond`'s receipt.** `mcp.md` says usage is not reported yet; the turn's input,
-  output, cached, and reasoning tokens, which the executors now report, belong in the receipt. Built:
-  `receipt.usage`, and `usage` on the `response` audit event ([mcp.md](mcp.md)).
-- **qwen3.8's slowdown.** Measured 2026-10-09: no slowdown in tool work. With nothing else loaded and the
-  hybrid sizing in place it scored 16/16 and 30/30 at a median of 13.7 s a request, the two suites taking
-  about as long as on 2026-10-05; the 40 to 70 s of 2026-10-04 were the classifier suite, where it thinks
-  before each of 784 verdicts ([measurements.md](measurements.md), "qwen3.8:27b re-measured"). Its window
-  stays at the 8,192 floor on this Mac for memory, not arithmetic.
-- **The README overview image** says the model runs "on device or through Ollama"; redraw both versions
-  with MLX (and Core AI), and the alt text with them. Done 2026-10-09: "on device, Ollama, MLX, or Core AI" in both
-  versions, the `<desc>`, and the alt text, rendered in headless Chrome. The HTTP runtimes (llama.cpp, LM Studio),
-  built in this release too, are not in the drawing yet.
-- **`docs/model-controls.md`**, a draft proposal of which `ollama.think` and the thinking display now
-  implement part: mark what is built and what is still proposed. Done 2026-10-09: a "What is built" section,
-  the proposal otherwise as written.
-- **Shell completions**, asked for on 2026-10-09: completion scripts for zsh, bash, and fish embedded in the
-  binary, `wisp completions <shell>` to print one and `wisp completions install` to put it in place, and the
-  Homebrew formula installing all three. Built: generated from the command tree and kept current by the gate,
-  with ids, settings, and tools completed from `~/.wisp` ([wisp.md](wisp.md), "`wisp completions`").
 
 ## 0.22.0
 
@@ -70,9 +31,11 @@ regressions, not a measurement.
 
 - **Shell loops judged by what they run.** A standing approval `do *` was found on 2026-10-09: wisp had
   remembered a `for … do …` loop by its first word, the shell keyword `do`, so the approval covered any later
-  loop whatever its body ran. The operator revoked it. The classifier and the approval patterns should look
-  through `for`, `while`, `until`, `if`, and `case` to the simple commands inside (as `CommandSplitter` does
-  for `;` and `&&`), rate the line by its riskiest command, and never remember a pattern by a keyword.
+  loop whatever its body ran. The operator revoked it. 0.21.1 stopped the harm: keywords and interpreters are
+  remembered by exact text, and `sh -c` and `eval` bodies are judged. What remains: judge and key `do X` and
+  `then X` by `X`'s own pattern, with loop variables understood, so each new loop body does not ask again; look
+  into `python -c`, `perl -e`, `find -exec sh -c`, and `| python3`; normalise `w''isp`, `${IFS}`, and a variable
+  as the program name; and ask once, not twice, for a line whose risk only the whole line shows.
 - **Approvals for folders that are gone.** A project approval is tied to the directory it was given in, and
   outlives it: `b12873de` (`git commit *`) belonged to an agent's worktree removed on 2026-10-04 and could
   never match again (revoked 2026-10-09). `wisp approvals` should mark an approval whose directory no longer
@@ -86,6 +49,14 @@ regressions, not a measurement.
   answer to trust the publisher from then on; under MCP or without a terminal it goes through the approval
   channels (elicitation, `wisp approvals`, `wisp-tui`) and silence refuses it. The file checks stay for every
   publisher. Amends ADR 0052.
+
+- **The rest of the 2026-10-09 review**, deferred from 0.21.1 because each belongs with this release's budget
+  work: `run_command` holding every byte until it trims to the tail (a ring buffer of the bound, with a count
+  of what was dropped); `wisp://threads/{id}/audit` and `wisp://audit/{session}` unbounded (paged like the other
+  collections); a reused `thread_id` (`git`) mixing every earlier thread's history into its resources (one audit
+  session per opened thread); pipes and files opened without close-on-exec, so concurrent commands inherit each
+  other's descriptors; `read_file` of a FIFO or a file with no newlines; `write` and `append` loading a whole
+  file; `run_command`'s result bound as a whole, its note included; and the review's low findings.
 
 ## 0.23.0
 

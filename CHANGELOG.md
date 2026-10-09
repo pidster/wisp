@@ -4,6 +4,102 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+A patch release from a code and test review of the whole codebase on 2026-10-09. The approval gate, the
+quality gate, and the front ends each had a way to do less than they promised; every fix has a test.
+
+Fixed, in the approval gate and the sandbox:
+
+- A `;` or newline inside parentheses no longer hides a command from the risk check: in `(curl … ; true)` the
+  `curl` was never judged or asked about. A part of a line wisp cannot read is now judged as written.
+- An approval covers only commands judged at its level or below: approving a moderate `rm build/x.o` for the
+  session or the turn no longer covers `rm -rf ~/Documents`. A dangerous command is remembered by its exact
+  text only, and standing approvals are bound to their level too.
+- Shell keywords and interpreters (`do`, `then`, `sh`, `bash`, `eval`, `python3`, `xargs`, …) are remembered by
+  the exact command, never as `do *` or `sh *`, which covered anything; the scripts given to `sh -c` and `eval`
+  are judged too.
+- The risk rules see through quotes (`sh -c 'rm -rf ~/x'`, `"sudo" ls`), line continuations, and git's options
+  before its verb (`git -C . push --force`). Risks only the whole line shows (`curl … | sh`, `env | grep
+  TOKEN`) are now asked about, and a bare `env` or `printenv`, which prints every secret, asks.
+- Commands and `edit_file` can no longer write wisp's own home (`~/.wisp`), even when it lies inside the
+  writable directories, so a command cannot answer its own approval or rewrite `config.json`.
+- `wisp approvals revoke` while `wisp mcp` runs is no longer undone by the server's next approval; processes
+  sharing `approvals.json` merge their changes under a lock.
+- A command's background jobs, and children that ignore SIGTERM, no longer outlive it.
+- `read_file` of a link to a credential, or of a credential path in another case (`~/.SSH/ID_RSA`), asks as the
+  credential itself would.
+- Approval dialogs and notifications, the MCP client's included, show control characters escaped, so a command
+  cannot redraw the dialog to hide itself.
+- A custom tool's argument containing another placeholder (`{b}`) can no longer unquote that argument's value.
+- `$'…'` quoting no longer confuses the command splitter. The deny list catches a nested `wisp chat`,
+  `respond`, or `mcp`, and `wisp approvals approve|deny` or `wisp facts keep|drop`, behind `nice`, `time`,
+  `timeout`, `env -i`, `{`, `then`, or `do`, or with the name quoted. Classifier versions containing `/` or `..`
+  are refused, and a pending approval's binding covers the reasons shown and its expiry.
+
+Fixed, in the front ends and the MCP server:
+
+- `wisp-tui` no longer answers an approval with a letter typed for the input: held keys go only into the input
+  box, and a dialog takes keys only after half a second of quiet once it appears. An approval from `wisp mcp`
+  that arrives while you are typing waits until the box is empty, with a note and a count in the status line.
+- Ctrl-C and Ctrl-D in `wisp-tui` no longer hang: it sends `/quit` so the transcript is saved, stops wisp after
+  five seconds, shows wisp's start-up errors, and exits with wisp's status when wisp failed.
+- Two `respond` calls on one `thread_id` no longer interleave and swap receipts and refusals: a thread's turns
+  run one at a time, and `close_thread` waits for the turn under way.
+- An approval or choice that times out is withdrawn from `wisp-tui` and from the MCP client's dialog, instead of
+  staying up with an answer that is ignored.
+- `wisp config set|unset` and `/config` refuse to write when `config.json` exists but cannot be read, instead of
+  replacing it and losing every other setting; `config.json` itself refuses an unparsable `baseURL` or an
+  out-of-range `timeoutSeconds` or `contextLength` instead of silently using defaults.
+- The condensing tools' `path` reads only regular files, and only up to their bound, so `/dev/zero`, a FIFO, or
+  `/dev/stdin` can no longer hang `wisp mcp` or read its protocol channel; `flaky_tests` takes at most 10 paths.
+- `wisp completions install` writes through a symlink to wisp's script instead of replacing the link. Failures
+  at run time (`wisp approvals approve|deny` too late, `wisp facts`, a refused install) exit 1, not the usage
+  code 64. An unknown `wisp chat --json` line is ignored instead of clearing the front end's busy state;
+  completion indices count Unicode scalars on both sides; `wisp-tui` no longer panics on a huge `turnSeconds`.
+
+Fixed, in conversations, facts, and models:
+
+- Permanent facts are saved under a lock and merged with what other wisp processes wrote, so none is lost or
+  undone; an unreadable `~/.wisp/facts.json` is moved aside as `facts.json.unreadable-<time>`, not overwritten,
+  and wisp and `wisp doctor` say so.
+- A command typed after `!` is no longer counted as a turn, so condensing keeps the last real turn and a dropped
+  command reaches the running summary; its note says not to run it again, as other commands' references do.
+- A disabled model is refused however it is spelled (`ollama:x` or `ollama:x:latest`, a llama.cpp model's name
+  or `.gguf` path, an MLX name or its directory).
+- `wisp models pull` checks every file's content, by its git blob id where the listing has no SHA-256, and
+  restarts a file whose resumed download comes back from the wrong offset.
+- A llama.cpp model whose recorded tool check failed is text only, even when the server says it supports tools.
+- Condensing ahead, `/tokens`, and the status line use the conversation's own token count, not an assessment's
+  or a distiller's; a distiller's thinking is no longer recorded as the turn's; `/model` after `/new` keeps the
+  conversation's name and counters, and `/new` starts from the full instructions; facts and summary written in
+  one call no longer re-distil turns already distilled.
+- Saved conversations that cannot be resumed say why, and a failed save no longer leaves a stale store.
+- llama.cpp and LM Studio: a reply cut off at the end of the window is condensed and retried; a cancelled
+  request is no longer reported as "no server"; error bodies are read only to their bound; LM Studio's
+  `reasoning: false` means no thinking. MLX: a later `<think>` in a reply stays reply text, a schema reply's
+  budget allows for the closing tag, a request cancelled while waiting loads nothing, and a tool call is
+  recovered only from a single malformed frame.
+
+Fixed, in the quality gate and the release:
+
+- `scripts/check eval` fails when the evaluation fails. It took `grep`'s status, which matches a failed run's
+  lines, so no eval, and no release's eval floors, could fail.
+- `scripts/check eval record` keeps every suite's measurement when suites finish together, and refuses rather
+  than overwrites a `measurements.json` it cannot read; the coverage commands refuse when the tests fail instead
+  of comparing or writing an empty figure, and no longer retry failed tests silently.
+- `scripts/check mcp-build` builds the MCP server without stripping the MLX pins from `harness/Package.resolved`.
+
+Changed:
+
+- Facts from a command typed after `!` rank as observations, as a tool's do, so a later run of the same command
+  replaces them; what you state with `/fact` still wins.
+- Thread, session, and transcript names admit only ASCII `[A-Za-z0-9._-]`, as the rule always said.
+- The gate compiles the tests and the model evaluations with warnings as errors, bounds every test's wait, and no
+  longer rebuilds everything between its build and test steps; the release preflight builds the MLX trait, checks
+  the remote tag and that `main` is pushed, and prints the commands to finish a release that failed after
+  tagging. The Homebrew formula drops its redundant `version` line.
+
 ## 0.21.0
 
 Added:
