@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (run and decided, ADR 0057) | The assessment reconsidered (built and decided); MLX against Ollama (measured for Qwen3-1.7B, the gap fixed; the rest to measure); gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done) |
+| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
@@ -156,6 +156,10 @@ The release given to measurement, once the four before it were out. What was bui
 - **`docs/model-controls.md`**, a draft proposal of which `ollama.think` and the thinking display now
   implement part: mark what is built and what is still proposed. Done 2026-10-09: a "What is built" section,
   the proposal otherwise as written.
+- **Shell completions**, asked for on 2026-10-09: completion scripts for zsh, bash, and fish embedded in the
+  binary, `wisp completions <shell>` to print one and `wisp completions install` to put it in place, and the
+  Homebrew formula installing all three. Built: generated from the command tree and kept current by the gate,
+  with ids, settings, and tools completed from `~/.wisp` ([wisp.md](wisp.md), "`wisp completions`").
 
 ## 0.22.0
 

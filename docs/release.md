@@ -12,7 +12,9 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
 - A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
   checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp` and `mlx.metallib` in the
   Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
-  beside the binary's real path ([ADR 0047](decisions/0047-mlx-in-the-release.md)).
+  beside the binary's real path ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The formula also installs
+  the shell completions for bash, zsh, and fish into Homebrew's completion directories, so a Homebrew user has
+  them with no further step.
 
 The binary is unsigned for now; Homebrew does not quarantine what it downloads, so Gatekeeper does not
 intervene. A signed and notarised `.pkg` is a possible later channel.
@@ -61,13 +63,18 @@ every local step and prints the remote ones instead of executing them.
    `mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib` into the stage as `mlx.metallib`, `strip`
    both binaries, verify `wisp --version` and `wisp-tui --version` print `X.Y.Z` (the crate version in
    `tools/wisp-tui/Cargo.toml` is bumped with `WispVersion.current`) and `wisp doctor` passes on the build
-   machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle. MLX
+   machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle, and that the
+   staged `wisp completions zsh|bash|fish` prints the committed scripts in
+   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
 3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file.
 4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with both assets and generated notes.
 5. Tap: clone or update `pidster/homebrew-tap`, write `Formula/wisp.rb` from the template with the new
    URL and checksum, commit, push. The formula puts `wisp` and `mlx.metallib` in `libexec` with a link
-   in `bin`, and its test checks both versions and that the library is installed.
+   in `bin`, and runs `generate_completions_from_executable(bin/"wisp", "completions")`, which writes the output of
+   `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
+   `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library
+   and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
 6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`.
 
 Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.

@@ -8,7 +8,9 @@ import PackagePlugin
 /// `Resources/risk-examples.tsv` as `RiskExamplesText.text`, and `Resources/risk-default.json` (the shipped
 /// risk classifier, its model in base64) as `RiskDefaultText.text`, and `Resources/personal-default.json` (the
 /// personal-data classifier, likewise) as `PersonalDefaultText.text`, and `Resources/subject-kinds.json` (the default
-/// subject kinds of facts) as `SubjectKindsText.text`. The text goes into a raw multi-line literal, so it needs no escaping; the
+/// subject kinds of facts) as `SubjectKindsText.text`, and the shell completion scripts in `Resources/completions/`
+/// (`_wisp`, `wisp.bash`, `wisp.fish`) as `ZshCompletionText.text`, `BashCompletionText.text`, and
+/// `FishCompletionText.text`. The text goes into a raw multi-line literal, so it needs no escaping; the
 /// one sequence that would end the literal early is refused.
 ///
 /// It also writes `BuildInfo` before every build (a prebuild command, since the commit changes without any
@@ -58,7 +60,8 @@ struct EmbedSystemPrompt: BuildToolPlugin {
         ("system-prompt.md", "SystemPromptText"), ("measurements.json", "MeasurementsText"),
         ("multiplexers.txt", "MultiplexersText"), ("risk-examples.tsv", "RiskExamplesText"),
         ("risk-default.json", "RiskDefaultText"), ("personal-default.json", "PersonalDefaultText"),
-        ("subject-kinds.json", "SubjectKindsText"),
+        ("subject-kinds.json", "SubjectKindsText"), ("completions/_wisp", "ZshCompletionText"),
+        ("completions/wisp.bash", "BashCompletionText"), ("completions/wisp.fish", "FishCompletionText"),
     ]
 
     func createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {

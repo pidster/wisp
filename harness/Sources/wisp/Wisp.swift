@@ -18,7 +18,7 @@ struct Wisp: AsyncParsableCommand {
             Respond.self, Chat.self, Tools.self, Models.self, Mcp.self, Logs.self, ConfigCommand.self,
             DoctorCommand.self,
             Approvals.self, FactsCommand.self, Notify.self, Scan.self, Redact.self, Watch.self, Draft.self,
-            ClassifierCommand.self,
+            ClassifierCommand.self, CompletionsCommand.self,
         ],
         defaultSubcommand: Respond.self
     )
@@ -38,7 +38,9 @@ struct SessionOptions: ParsableArguments {
         help: "Instructions for this conversation, added under wisp's system prompt and config.json's extension.")
     var instructions: String?
 
-    @Option(name: .customLong("tool"), help: "Tool to enable (repeatable). All tools are enabled when omitted.")
+    @Option(
+        name: .customLong("tool"), help: "Tool to enable (repeatable). All tools are enabled when omitted.",
+        completion: DynamicCompletions.tools)
     var toolNames: [String] = []
 
     @Flag(name: .customLong("no-tools"), help: "Give the model no tools: a text-only conversation any model can run.")
@@ -49,7 +51,8 @@ struct SessionOptions: ParsableArguments {
 
     @Option(
         name: [.short, .customLong("model")],
-        help: "Model: system, private-cloud, or <backend>:<name> (see wisp models). Defaults to config.json.")
+        help: "Model: system, private-cloud, or <backend>:<name> (see wisp models). Defaults to config.json.",
+        completion: DynamicCompletions.models)
     var model: String?
 
     /// The session request these flags describe.
@@ -734,7 +737,7 @@ struct ConfigCommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Print one setting's value, and whether it is set or the default.")
 
-        @Argument(help: "The setting, as 'wisp config list' names it.")
+        @Argument(help: "The setting, as 'wisp config list' names it.", completion: DynamicCompletions.settings)
         var path: String
 
         func run() throws {
@@ -780,7 +783,7 @@ struct ConfigCommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "set", abstract: "Set a setting, such as: approval.classifier coreml")
 
-        @Argument(help: "The setting, as 'wisp config list' names it.")
+        @Argument(help: "The setting, as 'wisp config list' names it.", completion: DynamicCompletions.settings)
         var path: String
 
         @Argument(parsing: .remaining, help: "The value; a list may be JSON or words separated by spaces.")
@@ -795,7 +798,7 @@ struct ConfigCommand: ParsableCommand {
     struct Unset: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Remove a setting so its default applies.")
 
-        @Argument(help: "The setting, as 'wisp config list' names it.")
+        @Argument(help: "The setting, as 'wisp config list' names it.", completion: DynamicCompletions.settings)
         var path: String
 
         func run() throws {
@@ -885,7 +888,7 @@ struct Models: AsyncParsableCommand {
                 + "time limit, and records the capabilities that pass in config.json. 'wisp models check' checks "
                 + "again.")
 
-        @Argument(help: "The models, as --model names them.")
+        @Argument(help: "The models, as --model names them.", completion: DynamicCompletions.disabledModels)
         var names: [String]
 
         func run() async throws {
@@ -1527,7 +1530,7 @@ struct Approvals: AsyncParsableCommand {
     struct Revoke: AsyncParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Revoke one standing approval by id.")
 
-        @Argument(help: "The id shown by 'wisp approvals'.")
+        @Argument(help: "The id shown by 'wisp approvals'.", completion: DynamicCompletions.approvals)
         var id: String
 
         func run() async throws {
@@ -1573,7 +1576,9 @@ struct Approvals: AsyncParsableCommand {
                 + "server's process), project (30 days, this command in this directory), or always (30 days). "
                 + "A dangerous command is never remembered beyond the session.")
 
-        @Argument(help: "The id shown by 'wisp approvals pending' and in the notification.")
+        @Argument(
+            help: "The id shown by 'wisp approvals pending' and in the notification.",
+            completion: DynamicCompletions.pendingCommands)
         var id: String
 
         @Option(name: .long, help: "once, session, project, or always.")
@@ -1588,7 +1593,9 @@ struct Approvals: AsyncParsableCommand {
     struct Deny: AsyncParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Deny a command waiting for approval.")
 
-        @Argument(help: "The id shown by 'wisp approvals pending' and in the notification.")
+        @Argument(
+            help: "The id shown by 'wisp approvals pending' and in the notification.",
+            completion: DynamicCompletions.pendingCommands)
         var id: String
 
         func run() async throws {

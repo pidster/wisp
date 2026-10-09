@@ -29,6 +29,10 @@ Added:
 - `respond`'s receipt carries the turn's token usage, `usage` with `input`, `output`, `cached`, and `reasoning`, for
   a runtime that reports it (Ollama, MLX); the `response` audit event records it too. Apple's models report none,
   and their receipts have no `usage`.
+- Shell completions for zsh, bash, and fish. Homebrew installs them with wisp; otherwise `wisp completions install`
+  writes the script for your shell (from `$SHELL`, or named) to its per-user directory, replacing only a file wisp
+  wrote, and says how to turn it on; `wisp completions zsh|bash|fish` prints it. Model names, tools, settings,
+  approval ids, and the ids of requests waiting in `~/.wisp/pending` are completed from wisp's own files.
 
 Changed:
 

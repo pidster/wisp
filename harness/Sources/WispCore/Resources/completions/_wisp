@@ -1,0 +1,796 @@
+#compdef wisp
+# wisp completions: generated from wisp's commands by scripts/check completions; wisp completions install replaces only a file with this line.
+
+__wisp_complete() {
+    local -ar non_empty_completions=("${@:#(|:*)}")
+    local -ar empty_completions=("${(M)@:#(|:*)}")
+    _describe -V '' non_empty_completions -- empty_completions -P $'\'\''
+}
+
+__wisp_custom_complete() {
+    local -a completions
+    completions=("${(@f)"$("${command_name}" "${@}" "${command_line[@]}")"}")
+    if [[ "${#completions[@]}" -gt 1 ]]; then
+        __wisp_complete "${completions[@]:0:-1}"
+    fi
+}
+
+__wisp_cursor_index_in_current_word() {
+    if [[ -z "${QIPREFIX}${IPREFIX}${PREFIX}" ]]; then
+        printf 0
+    else
+        printf %s "${#${(z)LBUFFER}[-1]}"
+    fi
+}
+
+_wisp() {
+    emulate -RL zsh -G
+    setopt extendedglob nullglob numericglobsort
+    unsetopt aliases banghist
+
+    local -xr SAP_SHELL=zsh
+    local -x SAP_SHELL_VERSION
+    SAP_SHELL_VERSION="$(builtin emulate zsh -c 'printf %s "${ZSH_VERSION}"')"
+    local -r SAP_SHELL_VERSION
+
+    local context state state_descr line
+    local -A opt_args
+
+    local -r command_name="${words[1]}"
+    local -ar command_line=("${words[@]}")
+    local -ir current_word_index="$((CURRENT - 1))"
+
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'respond:Generate a response to a prompt, calling tools as needed.'
+            'chat:Start an interactive chat session.'
+            'tools:List the tools available to the model.'
+            'models:List, enable, or disable the models usable with --model and config.json, or fetch an MLX model.'
+            'mcp:Serve wisp'\''s tools to an MCP client over stdio.'
+            'logs:Show the audit log.'
+            'config:Show or change the configuration.'
+            'doctor:Check that wisp can run on this Mac.'
+            'approvals:Show or revoke standing command approvals, and answer commands waiting for approval.'
+            'facts:Answer requests to keep a fact as a permanent fact.'
+            'notify:Show a macOS notification.'
+            'scan:Scan text for credentials and personal data.'
+            'redact:Redact credentials and personal data from text.'
+            'watch:Rerun a command when files change, and notify when it starts or stops failing.'
+            'draft:Draft a commit message, a PR description, or a changelog line from a diff.'
+            'classifier:Train, measure, and choose risk classifiers for the approval gate.'
+            'completions:Print or install wisp'\''s shell completions for zsh, bash, or fish.'
+            'help:Show subcommand help information.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|notify|scan|redact|watch|draft|classifier|completions|help)
+            "_wisp_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_respond() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':prompt:'
+        '(-i --instructions)'{-i,--instructions}'[Instructions for this conversation, added under wisp'\''s system prompt and config.json'\''s extension.]:instructions:'
+        '*--tool[Tool to enable (repeatable). All tools are enabled when omitted.]:tool:{__wisp_custom_complete ---completion respond -- --tool "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--no-tools[Give the model no tools\: a text-only conversation any model can run.]'
+        '--unsafe[Disable the run_command policy and sandbox.]'
+        '(-m --model)'{-m,--model}'[Model\: system, private-cloud, or <backend>\:<name> (see wisp models). Defaults to config.json.]:model:{__wisp_custom_complete ---completion respond -- --model "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--stream[Stream the output as it is generated.]'
+        '--no-stream[Stream the output as it is generated.]'
+        '(-y --yes)'{-y,--yes}'[Approve risky commands without asking (non-interactive).]'
+        '--schema[Path to a JSON Schema; the reply is JSON of that shape (not streamed).]:schema:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_chat() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '(-i --instructions)'{-i,--instructions}'[Instructions for this conversation, added under wisp'\''s system prompt and config.json'\''s extension.]:instructions:'
+        '*--tool[Tool to enable (repeatable). All tools are enabled when omitted.]:tool:{__wisp_custom_complete ---completion chat -- --tool "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--no-tools[Give the model no tools\: a text-only conversation any model can run.]'
+        '--unsafe[Disable the run_command policy and sandbox.]'
+        '(-m --model)'{-m,--model}'[Model\: system, private-cloud, or <backend>\:<name> (see wisp models). Defaults to config.json.]:model:{__wisp_custom_complete ---completion chat -- --model "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '(-y --yes)'{-y,--yes}'[Approve risky commands without asking.]'
+        '(-r --resume)'{-r,--resume}'[Resume a saved transcript by name.]:resume:'
+        '--save[Save the transcript under this name on exit. Defaults to the resumed name.]:save:'
+        '--list[List saved transcripts (for --resume) and exit.]'
+        '--json[Headless\: JSON Lines on stdin and stdout, for a front end such as wisp-tui.]'
+        '--plain[The plain line-based chat, even when wisp-tui is installed beside wisp.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_tools() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--json[Print the full catalogue (schemas, limits, example prompts) as JSON.]'
+        '--markdown[Print the full catalogue as Markdown, the same text as the MCP resource wisp\://tools.md.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'list:List the models usable with --model and config.json.'
+            'enable:Enable models: offered by /model again; a cached MLX model is linked, with no download.'
+            'disable:Disable models: hidden from /model and refused everywhere; not the default model.'
+            'check:Check what MLX models can do, on the models themselves, and record it in config.json.'
+            'pull:Fetch an mlx-community model into the Hugging Face cache and link it, after asking.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        list|enable|disable|check|pull)
+            "_wisp_models_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_models_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--all[Also list the models that cannot be used, with the reason.]'
+        '--no-tools[List the models usable for a conversation with no tools.]'
+        '--json[Print the listing as JSON, a field per column.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_enable() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '*:names:{__wisp_custom_complete ---completion models enable -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_disable() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '*:names:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_check() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '*:names:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_pull() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':repository:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_mcp() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '(-i --instructions)'{-i,--instructions}'[Instructions for this conversation, added under wisp'\''s system prompt and config.json'\''s extension.]:instructions:'
+        '*--tool[Tool to enable (repeatable). All tools are enabled when omitted.]:tool:{__wisp_custom_complete ---completion mcp -- --tool "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--no-tools[Give the model no tools\: a text-only conversation any model can run.]'
+        '--unsafe[Disable the run_command policy and sandbox.]'
+        '(-m --model)'{-m,--model}'[Model\: system, private-cloud, or <backend>\:<name> (see wisp models). Defaults to config.json.]:model:{__wisp_custom_complete ---completion mcp -- --model "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '(-y --yes)'{-y,--yes}'[Approve risky commands without asking the client'\''s user.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_logs() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--session[Only this session id.]:session:'
+        '*--kind[Only these event kinds (repeatable), e.g. tool.call, policy.decision.]:kind:'
+        '--tool[Only tool events for this tool name.]:tool:'
+        '(--last -l)'{--last,-l}'[Only the last N matching events.]:last:'
+        '--json[Print raw JSON Lines instead of one-line summaries.]'
+        '(-f --follow)'{-f,--follow}'[Keep printing matching events as they are written, MCP calls included, until Ctrl-C. Starts with the last 10 unless --last says otherwise.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_config() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'show:Print the effective configuration as JSON.'
+            'list:List the settings '\''set'\'' can change.'
+            'get:Print one setting'\''s value, and whether it is set or the default.'
+            'set:Set a setting, such as: approval.classifier coreml'
+            'unset:Remove a setting so its default applies.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        show|list|get|set|unset)
+            "_wisp_config_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_config_show() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_config_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_config_get() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':path:{__wisp_custom_complete ---completion config get -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_config_set() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':path:{__wisp_custom_complete ---completion config set -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '*:value:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_config_unset() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':path:{__wisp_custom_complete ---completion config unset -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_doctor() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'list:List standing approvals.'
+            'revoke:Revoke one standing approval by id.'
+            'clear:Revoke every standing approval.'
+            'pending:List commands waiting for approval in wisp mcp servers.'
+            'approve:Approve a command waiting for approval, from a terminal.'
+            'deny:Deny a command waiting for approval.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        list|revoke|clear|pending|approve|deny)
+            "_wisp_approvals_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_approvals_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals_revoke() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion approvals revoke -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals_clear() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals_pending() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals_approve() {
+    local -i ret=1
+    local -ar ___scope=('once' 'session' 'project' 'always')
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion approvals approve -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--scope[once, session, project, or always.]:scope:{__wisp_complete "${___scope[@]}"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_approvals_deny() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion approvals deny -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_facts() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'pending:List facts wisp mcp callers asked to keep as permanent facts.'
+            'keep:Keep a fact as a permanent fact, as yours, from a terminal.'
+            'drop:Leave a fact in its thread rather than keep it; the thread does not ask again.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        pending|keep|drop)
+            "_wisp_facts_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_facts_pending() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_facts_keep() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion facts keep -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_facts_drop() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion facts drop -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_notify() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':message:'
+        '(-t --title)'{-t,--title}'[The title (default\: wisp).]:title:'
+        '--subtitle[A second line under the title.]:subtitle:'
+        '--sound[Play the default notification sound.]'
+        '--route[Use only this route\: host, terminal, app, or osascript. app is tried even when notifications.viaTerminalApp is off, to probe which app the banner is attributed to.]:route:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_scan() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '*:paths:'
+        '--personal[Report personal data too\: emails, phone and card numbers, public IPs, addresses, private hostnames, user names, and lines the personal-data classifier flags.]'
+        '--thorough[Also have the model look for what rules cannot recognise\: up to three turns of about 2 s per 4 KiB.]'
+        '(-m --model)'{-m,--model}'[Model for --thorough. Defaults to routing.tasks.secrets, else the measured default (system).]:model:'
+        '--json[Print the reports as JSON, one per line.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_redact() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':path:'
+        '--secrets-only[Replace credentials only and keep personal data.]'
+        '--thorough[Also have the model find names, addresses, and identifiers\: up to three turns of about 2 s per 4 KiB.]'
+        '(-m --model)'{-m,--model}'[Model for --thorough. Defaults to routing.tasks.secrets, else the measured default (system).]:model:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_watch() {
+    local -i ret=1
+    local -ar ___notify=('change' 'failure' 'always' 'never')
+    local -ar arg_specs=(
+        ':command:'
+        '(-C --directory)'{-C,--directory}'[Directory to run the command in. Default\: the current one.]:directory:'
+        '*--path[A directory to watch for changes (repeatable). Default\: --directory.]:path:'
+        '--no-files[Do not watch files; run on the interval only.]'
+        '--every[Also run every this many seconds.]:every:'
+        '--settle[Seconds without a file change before a run starts; 0 runs on every change. Default\: watch.settle, 1.]:settle:'
+        '--notify[When to notify\: change (default), failure, always, never.]:notify:{__wisp_complete "${___notify[@]}"}'
+        '--no-triage[Do not have the model triage a failing run.]'
+        '--max-runs[Stop after this many runs.]:max-runs:'
+        '(-m --model)'{-m,--model}'[Model for triage. Defaults to config.json.]:model:'
+        '(-y --yes)'{-y,--yes}'[Approve risky commands without asking.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_draft() {
+    local -i ret=1
+    local -ar _kind=('commit' 'pr' 'changelog')
+    local -ar arg_specs=(
+        ':kind:{__wisp_complete "${_kind[@]}"}'
+        '(-m --model)'{-m,--model}'[Model to write with. Defaults to config.json.]:model:'
+        '(-y --yes)'{-y,--yes}'[Approve running git diff without asking.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_classifier() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'list:List the risk classifier versions on this Mac.'
+            'train:Train a new risk classifier version on this Mac from labelled commands.'
+            'measure:Measure a risk classifier'\''s accuracy and speed on labelled commands.'
+            'use:Use a risk classifier version for the approval gate, from the next session.'
+            'remove:Remove a risk classifier version trained here; not the default, not the one in use.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        list|train|measure|use|remove)
+            "_wisp_classifier_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_classifier_list() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_classifier_train() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--examples[Labelled commands to learn from. Defaults to the bundled examples.]:examples:'
+        '--from-audit[Also learn from the on-device model'\''s verdicts in this Mac'\''s audit log, secrets redacted.]'
+        '--use[Use the new version at once, as '\''wisp classifier use'\'' would.]'
+        '*--exclude[Labelled commands to leave out of training, such as a test set; repeatable.]:exclude:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_classifier_measure() {
+    local -i ret=1
+    local -ar ___classifier=('rules' 'system-model' 'coreml')
+    local -ar arg_specs=(
+        ':reference:'
+        '--examples[Labelled commands. Defaults to the bundled training examples.]:examples:'
+        '--classifier[rules, system-model, or coreml. Defaults to approval.classifier.]:classifier:{__wisp_complete "${___classifier[@]}"}'
+        '--coreml-model[A Core ML model file for --classifier coreml, instead of a version.]:coreml-model:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_classifier_use() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':reference:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_classifier_remove() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':reference:'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_completions() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'print:Print the completion script for a shell (the default).'
+            'install:Install the completion script where your shell looks for it.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        print|install)
+            "_wisp_completions_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_completions_print() {
+    local -i ret=1
+    local -ar _shell=('zsh' 'bash' 'fish')
+    local -ar arg_specs=(
+        ':shell:{__wisp_complete "${_shell[@]}"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_completions_install() {
+    local -i ret=1
+    local -ar _shell=('zsh' 'bash' 'fish')
+    local -ar arg_specs=(
+        ':shell:{__wisp_complete "${_shell[@]}"}'
+        '--print-path[Print where the script would go, and write nothing.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_help() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '*:subcommands:'
+        '--version[Show the version.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+if [[ "${funcstack[1]}" = _wisp ]]; then
+    _wisp "${@}"
+else
+    compdef _wisp wisp
+fi

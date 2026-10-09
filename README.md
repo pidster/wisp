@@ -216,6 +216,9 @@ wisp doctor                     # checks the model, MLX, sandbox, classifier, co
 wisp "What is the date in Tokyo?"
 ```
 
+Homebrew also installs shell completions for zsh, bash, and fish; with any other install, `wisp completions install`
+writes them for your shell ([wisp.md](docs/wisp.md), "`wisp completions`").
+
 State lives in `~/.wisp`: an optional `config.json` (change it with `wisp config set` or `/config set`
 in chat), saved transcripts, remembered approvals, the facts you keep (`facts.json`), the audit log, and
 the classifier versions. Upgrade

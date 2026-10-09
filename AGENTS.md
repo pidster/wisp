@@ -9,7 +9,7 @@ one). If you are a different harness, read this file in full and take only your 
 
 An on-device, tool-using AI microharness for macOS, written in Swift on Apple's Foundation Models framework
 (the model behind Apple Intelligence and the `fm` CLI). One binary, `wisp`, with two faces: a CLI
-(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`) and an MCP server over stdio (`mcp`) that other
+(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`) and an MCP server over stdio (`mcp`) that other
 harnesses delegate local work to. Every command the model runs passes a policy, a Seatbelt sandbox, a risk classifier, and,
 when risky, human approval; everything is written to a verbatim audit log.
 

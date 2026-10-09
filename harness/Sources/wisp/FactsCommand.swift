@@ -41,7 +41,9 @@ struct FactsCommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Keep a fact as a permanent fact, as yours, from a terminal.")
 
-        @Argument(help: "The id shown by 'wisp facts pending' and in the notification.")
+        @Argument(
+            help: "The id shown by 'wisp facts pending' and in the notification.",
+            completion: DynamicCompletions.pendingFacts)
         var id: String
 
         func run() async throws {
@@ -54,7 +56,9 @@ struct FactsCommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Leave a fact in its thread rather than keep it; the thread does not ask again.")
 
-        @Argument(help: "The id shown by 'wisp facts pending' and in the notification.")
+        @Argument(
+            help: "The id shown by 'wisp facts pending' and in the notification.",
+            completion: DynamicCompletions.pendingFacts)
         var id: String
 
         func run() async throws {

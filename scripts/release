@@ -109,6 +109,11 @@ cp LICENSE "$OUT/stage/LICENSE"
 STAGE_REAL="$(cd "$OUT/stage" && pwd -P)"
 "$OUT/stage/wisp" doctor | grep -qxF "ok   MLX: Metal library $STAGE_REAL/mlx.metallib loads" \
     || { echo "the staged wisp does not load the staged mlx.metallib (wisp doctor's MLX finding)" >&2; exit 1; }
+# The formula installs the completions from 'wisp completions <shell>'; the staged binary must print the committed ones.
+for entry in zsh:_wisp bash:wisp.bash fish:wisp.fish; do
+    "$OUT/stage/wisp" completions "${entry%%:*}" | cmp -s - "harness/Sources/WispCore/Resources/completions/${entry#*:}" \
+        || { echo "the staged wisp's ${entry%%:*} completions differ from the committed ${entry#*:}" >&2; exit 1; }
+done
 
 echo "==> package"
 {
@@ -147,12 +152,19 @@ class Wisp < Formula
     libexec.install "wisp", "mlx.metallib"
     bin.install_symlink libexec/"wisp"
     bin.install "wisp-tui"
+    # The completion scripts are embedded in the binary; this runs 'wisp completions bash|zsh|fish' into
+    # bash_completion, zsh_completion, and fish_completion.
+    generate_completions_from_executable(bin/"wisp", "completions")
   end
 
   test do
     assert_equal "$VERSION", shell_output("#{bin}/wisp --version").strip
     assert_equal "$VERSION", shell_output("#{bin}/wisp-tui --version").strip
     assert_path_exists libexec/"mlx.metallib"
+    assert_path_exists zsh_completion/"_wisp"
+    assert_path_exists bash_completion/"wisp"
+    assert_path_exists fish_completion/"wisp.fish"
+    assert_match "#compdef wisp", shell_output("#{bin}/wisp completions zsh")
   end
 end
 RUBY
