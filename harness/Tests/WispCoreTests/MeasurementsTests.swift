@@ -44,4 +44,40 @@ import Testing
         #expect(described.first { $0.name == "read_file" }?.measurements.isEmpty == true)
         #expect(registry.descriptions.map(\.name) == registry.all.map(\.name))
     }
+
+    /// Eval suites run in parallel and each reports into the same file: every report lands, none is lost to
+    /// another's read-merge-write.
+    @Test func concurrentReportsAllLand() async throws {
+        let record = FileManager.default.temporaryDirectory.appending(path: "wisp-measure-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: record) }
+        let count = 64
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<count {
+                group.addTask {
+                    let measurement = Measurement(
+                        task: "task-\(index)", model: "system", passed: index, total: count, notes: "n")
+                    try? Measurements.report(measurement, to: record.path)
+                }
+            }
+        }
+        let recorded = try #require(Measurements.decode(try String(contentsOf: record, encoding: .utf8)))
+        #expect(Set(recorded.map(\.task)) == Set((0..<count).map { "task-\($0)" }), "\(recorded.count) recorded")
+    }
+
+    /// A record file that does not decode is refused and left byte for byte; an empty one is a fresh start.
+    @Test func aCorruptRecordIsLeftUntouched() throws {
+        let record = FileManager.default.temporaryDirectory.appending(path: "wisp-measure-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: record) }
+        let corrupt = Data(#"[{"task": "triage", "model": "#.utf8)
+        try corrupt.write(to: record)
+        let triage = Measurement(task: "triage", model: "system", passed: 7, total: 7, notes: "found")
+        #expect(throws: Measurements.Failure.undecodable(record.path)) {
+            try Measurements.report(triage, to: record.path)
+        }
+        #expect(try Data(contentsOf: record) == corrupt)
+        #expect("\(Measurements.Failure.undecodable("x"))".contains("left untouched"))
+        try Data("\n".utf8).write(to: record)
+        try Measurements.report(triage, to: record.path)
+        #expect(Measurements.decode(try String(contentsOf: record, encoding: .utf8)) == [triage])
+    }
 }

@@ -87,21 +87,92 @@ public enum Measurements {
             + [new]
     }
 
+    /// Why a measurement was not recorded.
+    public enum Failure: Error, CustomStringConvertible, Equatable {
+        /// The record file exists but is not a JSON array of measurements; it is left as it is.
+        case undecodable(String)
+
+        /// What went wrong, for a person.
+        public var description: String {
+            switch self {
+            case .undecodable(let path):
+                "\(path) is not a JSON array of measurements; left untouched, fix or remove it and rerun"
+            }
+        }
+    }
+
+    /// Serialises the read-merge-write of a record file within this process: the eval suites run in parallel,
+    /// and two reports interleaving would each write the file without the other's measurement.
+    private static let recordLock = Mutex(())
+
     /// Prints the measurement and, when `WISP_EVAL_RECORD` (or `path`) names a file, merges it into
     /// that file. Eval tests call this so a run leaves its numbers behind.
+    ///
+    /// The merge holds a lock for the process and an advisory `flock` on the file's directory for other
+    /// processes, and replaces the file atomically, so concurrent reports all land and a reader never sees half a
+    /// file. A file that exists but does not decode is refused, not overwritten: a measurement must never cost
+    /// the ones already recorded.
     ///
     /// - Parameters:
     ///   - measurement: What was measured.
     ///   - path: The record file; defaults to the environment variable, nil records nothing.
-    /// - Throws: A file error from writing the record.
+    /// - Throws: `Failure.undecodable` for a record file that does not decode, or a file error.
     public static func report(
         _ measurement: Measurement, to path: String? = ProcessInfo.processInfo.environment[recordVariable]
     ) throws {
         print("measured: \(measurement.task) on \(measurement.model): \(measurement.summary)")
         guard let path, !path.isEmpty else { return }
-        let url = URL(fileURLWithPath: path)
-        let existing = (try? String(contentsOf: url, encoding: .utf8)).flatMap(decode) ?? []
-        try Data(encode(merge(existing, with: measurement)).utf8).write(to: url)
+        do {
+            try record(measurement, at: URL(fileURLWithPath: path))
+        } catch {
+            print("measured: \(measurement.task) on \(measurement.model): not recorded: \(error)")
+            throw error
+        }
+    }
+
+    /// Merges `measurement` into the record file at `url`, under both locks.
+    ///
+    /// - Parameters:
+    ///   - measurement: What was measured.
+    ///   - url: The record file; created when missing.
+    /// - Throws: `Failure.undecodable`, or a file error.
+    static func record(_ measurement: Measurement, at url: URL) throws {
+        try recordLock.withLock { _ in
+            try withDirectoryLock(url.deletingLastPathComponent()) {
+                let existing: [Measurement]
+                if FileManager.default.fileExists(atPath: url.path) {
+                    let text = try String(contentsOf: url, encoding: .utf8)
+                    if text.allSatisfy(\.isWhitespace) {
+                        existing = []
+                    } else if let decoded = decode(text) {
+                        existing = decoded
+                    } else {
+                        throw Failure.undecodable(url.path)
+                    }
+                } else {
+                    existing = []
+                }
+                try Data(encode(merge(existing, with: measurement)).utf8).write(to: url, options: .atomic)
+            }
+        }
+    }
+
+    /// Runs `body` holding an exclusive advisory lock (`flock`) on `directory`, so eval processes recording into
+    /// the same file take turns. The directory is locked rather than the file because an atomic write replaces
+    /// the file, and a lock on the old one would no longer exclude anyone. When the directory cannot be opened
+    /// the body runs anyway, and its own write reports the problem.
+    ///
+    /// - Parameters:
+    ///   - directory: The record file's directory.
+    ///   - body: The read-merge-write.
+    /// - Throws: Whatever `body` throws.
+    private static func withDirectoryLock(_ directory: URL, _ body: () throws -> Void) throws {
+        let descriptor = open(directory.path, O_RDONLY)
+        guard descriptor >= 0 else { return try body() }
+        defer { close(descriptor) }
+        _ = flock(descriptor, LOCK_EX)
+        defer { _ = flock(descriptor, LOCK_UN) }
+        try body()
     }
 
     /// The measurements for one tool, by name.
