@@ -4,7 +4,7 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.21.1
 
 A patch release from a code and test review of the whole codebase on 2026-10-09. The approval gate, the
 quality gate, and the front ends each had a way to do less than they promised; every fix has a test.
