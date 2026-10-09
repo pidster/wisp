@@ -12,7 +12,7 @@ regressions, not a measurement.
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio (built, ADR 0058) | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown (measured: none in tool work); the README overview image (done); `model-controls.md` brought up to date (done); shell completions (built) |
-| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; MLX pulls from any publisher, confirmed by the person |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
 ## 0.21.0
@@ -77,6 +77,15 @@ regressions, not a measurement.
   outlives it: `b12873de` (`git commit *`) belonged to an agent's worktree removed on 2026-10-04 and could
   never match again (revoked 2026-10-09). `wisp approvals` should mark an approval whose directory no longer
   exists, and offer to remove such approvals (`wisp approvals clear --gone`, or when listing).
+
+- **MLX pulls from any publisher, confirmed by the person**, asked for on 2026-10-09 when
+  `ornith-ai/Ornith-1.5-9B-MLX-4bit` was refused: `wisp models pull` fetches only `mlx-community`
+  ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), "Bounded"), so a publisher's own conversion cannot be
+  pulled. Any organisation may be pulled; one outside `mlx.trustedPublishers` (initially `mlx-community`) is
+  first put to the person, naming the publisher, repository, licence, and size, refused by default, with an
+  answer to trust the publisher from then on; under MCP or without a terminal it goes through the approval
+  channels (elicitation, `wisp approvals`, `wisp-tui`) and silence refuses it. The file checks stay for every
+  publisher. Amends ADR 0052.
 
 ## 0.23.0
 
