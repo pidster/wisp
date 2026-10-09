@@ -14,6 +14,9 @@ public struct OllamaSettings: Equatable, Sendable {
     /// Whether a model that can think is asked to (`ollama.think`, ADR 0053); nil sends nothing and leaves it to
     /// Ollama and the model.
     public var think: OllamaThink?
+    /// The window of each model that sets its own (`ollama.models.<name>.contextLength`), ahead of
+    /// `contextLength`.
+    public var modelContextLengths: [String: Int] = [:]
 
     /// The Ollama defaults: the local server on port 11434, two minutes per request, windows sized per model.
     public static let `default` = OllamaSettings(baseURL: defaultBaseURL, timeout: .seconds(120))
@@ -28,11 +31,29 @@ public struct OllamaSettings: Equatable, Sendable {
     }()
 
     /// Creates settings.
-    public init(baseURL: URL, timeout: Duration, contextLength: Int? = nil, think: OllamaThink? = nil) {
+    public init(
+        baseURL: URL, timeout: Duration, contextLength: Int? = nil, think: OllamaThink? = nil,
+        modelContextLengths: [String: Int] = [:]
+    ) {
         self.contextLength = contextLength
         self.think = think
         self.baseURL = baseURL
         self.timeout = timeout
+        self.modelContextLengths = modelContextLengths
+    }
+
+    /// The window configured for `name`: its own setting, else the one for every model; nil sizes it.
+    ///
+    /// - Parameter name: The model as it was selected, with or without its `:latest` tag.
+    /// - Returns: The window and the setting that gave it.
+    public func configuredWindow(for name: String) -> ContextSizing.Decision? {
+        let bare = name.hasSuffix(":latest") ? String(name.dropLast(":latest".count)) : name
+        for key in [name, bare, "\(bare):latest"] {
+            if let window = modelContextLengths[key] {
+                return .init(window: window, reason: ContextSizing.perModelReason("ollama", name: key))
+            }
+        }
+        return contextLength.map { .init(window: $0, reason: "configured as ollama.contextLength") }
     }
 }
 
@@ -223,10 +244,9 @@ public struct OllamaModel: LanguageModel, Sendable {
         self.name = name
         self.settings = settings
         self.reported = reported
-        self.window = window ?? settings.contextLength ?? ContextSizing.floor
-        self.windowReason =
-            windowReason
-            ?? (settings.contextLength != nil ? "configured as ollama.contextLength" : "the default, not sized")
+        let configured = settings.configuredWindow(for: name)
+        self.window = window ?? configured?.window ?? ContextSizing.floor
+        self.windowReason = windowReason ?? configured?.reason ?? "the default, not sized"
     }
 
     /// The `think` value each request sends: the configured `ollama.think`, only for a model that reports `thinking`;
@@ -302,7 +322,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             throw Failure.noSuchModel(name, installed: installed.map(\.name))
         }
         let shown = try Blocking.run { try await Self.show(name, at: settings) }
-        guard settings.contextLength == nil else {
+        guard settings.configuredWindow(for: name) == nil else {
             return OllamaModel(name: name, settings: settings, reported: shown.capabilities)
         }
         guard
@@ -803,6 +823,10 @@ public struct OllamaBackend: ModelBackend {
             "timeoutSeconds": .int(Int(config.ollama.timeout.components.seconds)),
             "contextLength": config.ollama.contextLength.map { .int($0) } ?? .string("sized per model (ADR 0043)"),
         ]
+        if !config.ollama.modelContextLengths.isEmpty {
+            settings["models"] = .object(
+                config.ollama.modelContextLengths.mapValues { .object(["contextLength": .int($0)]) })
+        }
         // Unset leaves it to the model (ADR 0053).
         settings["think"] = .string(config.ollama.think?.text ?? "unset")
         return .object(settings)

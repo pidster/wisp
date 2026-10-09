@@ -110,6 +110,7 @@ private struct ListingBackend: ModelBackend {
         #expect(entry(nil).contextFrom == "model")
         #expect(entry(nil, size: nil).contextFrom == nil)
         #expect(entry("configured as ollama.contextLength").contextFrom == "config")
+        #expect(entry(ContextSizing.perModelReason("mlx", name: "q")).contextFrom == "model config")
         #expect(entry("declared by the bundle (metadata.json max_context_length)").contextFrom == "bundle")
         #expect(entry("8,192, the default: Ollama reported no model shape to size from").contextFrom == "default")
         #expect(entry("the default, not sized").contextFrom == "default")

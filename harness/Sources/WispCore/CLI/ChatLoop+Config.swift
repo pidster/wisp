@@ -111,7 +111,7 @@ extension ChatLoop {
     /// The settings to choose from, each with its value; with `onlySet`, only those in the file.
     func settingChoice(title: String, onlySet: Bool) -> ChatChoice {
         let data = configData
-        let options = ConfigSettings.all.compactMap { setting -> ChatChoice.Option? in
+        let options = ConfigSettings.listed(in: data).compactMap { setting -> ChatChoice.Option? in
             let current: JSONValue? = (try? ConfigEdit.current(setting.path, in: data)) ?? nil
             if onlySet, current == nil { return nil }
             return ChatChoice.Option(
@@ -145,7 +145,7 @@ extension ChatLoop {
     /// The settings as a table: each path, its value in the file or `(default)`, and what it does.
     func configList() -> [String] {
         let data = configData
-        let rows = ConfigSettings.all.map { setting -> [String] in
+        let rows = ConfigSettings.listed(in: data).map { setting -> [String] in
             let current: JSONValue? = (try? ConfigEdit.current(setting.path, in: data)) ?? nil
             return [setting.path, current.map(Self.shown) ?? "(default)", setting.summary]
         }

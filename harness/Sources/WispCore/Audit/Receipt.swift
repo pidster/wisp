@@ -91,6 +91,9 @@ public struct Receipt: Equatable, Sendable {
     public var condensed = false
     /// Wall-clock seconds from prompt to response, when the turn completed.
     public var seconds: Double?
+    /// The tokens the turn's requests used, as the runtime reported them; nil when it reported none (Apple's
+    /// models) or the turn did not complete.
+    public var usage: TurnTokens?
 
     /// Folds the events of `turn` into a receipt. Events of other turns are ignored.
     ///
@@ -149,6 +152,7 @@ public struct Receipt: Equatable, Sendable {
             case .response:
                 condensed = d["condensed"]?.boolValue ?? false
                 seconds = d["seconds"]?.doubleValue
+                usage = TurnTokens(json: d["usage"])
             case .condensation:
                 condensed = true
             case .error:
@@ -173,8 +177,15 @@ public struct Receipt: Equatable, Sendable {
         if list.count < Self.maxEntries { list.append(element) }
     }
 
-    /// The receipt as JSON, the shape `respond` returns (`docs/mcp.md`).
+    /// The receipt as JSON, the shape `respond` returns (`docs/mcp.md`); `usage` only when the runtime reported it.
     public var json: JSONValue {
+        guard var fields = fields.objectValue else { return fields }
+        if let usage { fields["usage"] = usage.json }
+        return .object(fields)
+    }
+
+    /// Every field but `usage`.
+    private var fields: JSONValue {
         .object([
             "turn": .int(turn),
             "tools": .array(

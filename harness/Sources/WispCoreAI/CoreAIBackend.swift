@@ -48,11 +48,14 @@ public struct CoreAIBackend: ModelBackend {
                     + (found.isEmpty ? "none" : found.joined(separator: ", "))
                     + "; export one with `uv run coreai.llm.export <hf-model-id> --output-dir \(directory.path)`")
         }
-        let window = Self.contextWindow(in: url)
+        // A linked bundle is used by its real directory, as MLX's linked models are: Foundation's listings and a
+        // loader do not follow a link at the end of the path.
+        let real = url.resolvingSymlinksInPath()
+        let window = Self.contextWindow(in: real)
         do {
-            let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: url) }
+            let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: real) }
             return ResolvedModel(
-                selection: selection, custom: model, capabilitySource: .runtime, asset: url.path,
+                selection: selection, custom: model, capabilitySource: .runtime, asset: real.path,
                 contextSize: window?.window, contextNote: window?.reason)
         } catch {
             throw ModelSelection.Failure.unavailable(model: selection.description, reason: "\(error)")
@@ -77,10 +80,12 @@ public struct CoreAIBackend: ModelBackend {
         return .init(window: legacy, reason: "declared by the bundle (metadata.json max_context_length)")
     }
 
-    /// Subdirectories of `directory` that hold a `metadata.json`, sorted.
+    /// Subdirectories of `directory` (or links to them) that hold a `metadata.json`, sorted; a `directory` that is
+    /// itself a link is followed.
     static func bundles(in directory: URL) -> [URL] {
         let entries =
-            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory.resolvingSymlinksInPath(), includingPropertiesForKeys: nil)) ?? []
         return entries.filter { FileManager.default.fileExists(atPath: $0.appending(path: "metadata.json").path) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }

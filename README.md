@@ -40,7 +40,7 @@ before it touches your Mac:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.svg">
-  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device or through Ollama, with its eight tools. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
+  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its eight tools. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
 The model never carries the whole conversation. The audit log keeps everything, and wisp composes each

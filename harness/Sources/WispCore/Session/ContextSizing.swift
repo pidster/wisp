@@ -202,6 +202,20 @@ public enum ContextSizing {
         }
     }
 
+    /// Why a window is what one model's own setting makes it, such as
+    /// `configured for this model as ollama.models.qwen3.8:27b.contextLength`.
+    ///
+    /// - Parameters:
+    ///   - runtime: The settings' section, `ollama` or `mlx`.
+    ///   - name: The model's key in `<runtime>.models`.
+    /// - Returns: The reason.
+    public static func perModelReason(_ runtime: String, name: String) -> String {
+        "\(perModelPrefix)\(runtime).models.\(name).contextLength"
+    }
+
+    /// How a reason for a window set for one model begins.
+    public static let perModelPrefix = "configured for this model as "
+
     /// Windows are multiples of this.
     public static let step = 4096
     /// The smallest window chosen, as before this rule.

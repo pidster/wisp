@@ -54,6 +54,32 @@ import WispTestSupport
         #expect(try ConfigEdit.set("model", to: "system", in: nil).new == "system")
     }
 
+    @Test func aModelsOwnWindowIsSetUnderItsWholeName() throws {
+        let path = "ollama.models.qwen3.8:27b.contextLength"
+        #expect(ConfigSettings.keys(path) == ["ollama", "models", "qwen3.8:27b", "contextLength"])
+        #expect(try setting(path).kind == .integer(1024...1_048_576))
+        #expect(ConfigSettings.setting("ollama.models..contextLength") == nil)
+        #expect(ConfigSettings.defaultValue(path) == "sized per model")
+        let file = Data(#"{"mlx": {"models": {"Qwen3-1.7B-4bit": {"capabilities": ["toolCalling"]}}}}"#.utf8)
+        let set = try ConfigEdit.set(path, to: "12288", in: file)
+        #expect(set.path == path && set.new == 12288)
+        let config = try JSONDecoder().decode(Config.self, from: set.data).resolved
+        #expect(config.ollama.modelContextLengths == ["qwen3.8:27b": 12288])
+        #expect(try ConfigEdit.current(path, in: set.data) == 12288)
+        // An MLX model's window sits beside its declaration and keeps it.
+        let mlx = try ConfigEdit.set("mlx.models.Qwen3-1.7B-4bit.contextLength", to: "4096", in: set.data)
+        let both = try JSONDecoder().decode(Config.self, from: mlx.data).resolved
+        #expect(both.mlxModels["Qwen3-1.7B-4bit"] == ["toolCalling"])
+        #expect(both.mlxModelContextLengths == ["Qwen3-1.7B-4bit": 4096])
+        #expect(
+            ConfigSettings.listed(in: mlx.data).suffix(2).map(\.path) == [
+                path, "mlx.models.Qwen3-1.7B-4bit.contextLength",
+            ])
+        #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set(path, to: "12", in: nil) }
+        let unset = try ConfigEdit.unset(path, in: mlx.data)
+        #expect(try ConfigEdit.object(unset.data)["ollama"] == nil)
+    }
+
     @Test func refusalsNameTheProblemAndWriteNothing() throws {
         #expect(throws: ConfigEdit.Failure.unknownSetting("approval.clasifier")) {
             try ConfigEdit.set("approval.clasifier", to: "rules", in: nil)

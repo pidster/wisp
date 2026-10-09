@@ -338,3 +338,27 @@ come close; MLX is two to three times slower on them, its thinking longer, and o
 executor did (24 of 30 made no `edit_file` call), since it also turns thinking off for an undeclared model, and it lacks the window's enforcement, usage,
 and prefix reuse. What 0.20.0 still measures is listed above; this answers its "MLX against Ollama" item for
 Qwen3-1.7B on these suites.
+
+**Refined 2026-10-09: a half-fetched file resumed, the cache seeded from a copy, and Core AI's links followed.**
+The 0.21.0 follow-ups of the cache refinement above.
+
+- **Resuming.** The transport now writes each download into `blobs/<id>.incomplete` as it arrives, so an
+  interrupted fetch leaves its part (before, it downloaded to a temporary file and moved it in whole, so a part
+  never survived). The next run asks for the rest with `Range: bytes=<offset>-`. A 206 is appended to the part; a
+  200, a server that ignored the range, rewrites the file from the start and the pull tells the person it started
+  again. The whole file is then checked as a fresh one is (size, and the SHA-256 of weights, read in one pass over
+  the part and the rest), so a part that does not continue into the listed digest is refused and removed, and the
+  next run fetches it whole. A part as long as the file is checked as it is and kept if it passes; a longer one is
+  started again. This replaces "an `.incomplete` blob is started again, not resumed".
+- **Seeding.** When `<models>/<name>` is a real directory, such as a copy fetched before the pull used the cache,
+  the plan checks its files as it checks the cache's blobs, and each that passes is copied into `blobs/` instead of
+  fetched, with `copyfile`'s `COPYFILE_CLONE` (an APFS clone, a copy where the volume cannot clone), under the
+  blob's lock, and checked again, since the directory may change between the question and the copy. The directory
+  is left as it is; the second question still decides whether the link replaces it. `model.pull` adds `seeded`.
+- **Core AI** lists a models directory that is a link, and resolves a linked bundle through its real directory,
+  as MLX's resolution was made to above.
+- **Tests**, with the fake Hub and temporary directories: an interrupted fetch leaving its part and the next run
+  resuming it; a part resumed and checked whole; a server that ignores the range; a part that does not continue into
+  the digest refused and fetched whole next time; a real directory's intact files seeding the cache while a changed
+  one is fetched; and Core AI's linked directory and bundle. Not verified against the live Hub: that its download
+  redirects keep the `Range` header and answer 206.

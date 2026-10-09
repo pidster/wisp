@@ -188,6 +188,10 @@ import WispTestSupport
         #expect(sized.contains("32,768 tokens, sized from memory (ADR 0043): 32,768 of 131,072"))
         let configured = try detail(.init(size: 16384, note: "configured as ollama.contextLength"), .ollama("x"))
         #expect(configured == "16,384 tokens, configured (ollama.contextLength)")
+        let own = try detail(
+            .init(size: 12288, note: ContextSizing.perModelReason("ollama", name: "qwen3.8:27b")),
+            .ollama("qwen3.8:27b"))
+        #expect(own == "12,288 tokens, configured for this model (ollama.models.qwen3.8:27b.contextLength)")
         let fallback = try detail(
             .init(size: 8192, note: "8,192, the default: Ollama reported no model shape"), .ollama("x"))
         #expect(fallback.contains("the default, not sized"))

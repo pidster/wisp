@@ -1,11 +1,32 @@
 # Draft: common model controls
 
-Date: 2026-09-20. Status: proposal; not implemented by this document.
+Date: 2026-09-20. Status: proposal, partly built since (brought up to date 2026-10-09; see "What is built").
+The rest of the page is the proposal as written; the section below says which parts wisp now has.
 
 Give callers a common way to request reasoning mode, reasoning effort and native speed mode.
 Each model/backend combination declares what it can honour and translates supported requests to its
 native controls. This extends the [routing and audit backlog](on-device-ai-todo.md); it does not select
 a production model, introduce remote routing, or change runtime behaviour.
+
+## What is built
+
+Two backend settings and the thinking display implement part of this proposal, per runtime rather than through the
+common vocabulary below ([ADR 0053](decisions/0053-the-models-thinking-shown.md), refined 2026-10-06;
+[ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06):
+
+| Proposed here | What wisp has | Where |
+| --- | --- | --- |
+| `reasoning.mode` and `reasoning.effort`, for Ollama | `ollama.think`: `true`, `false`, or a level (`low`, `medium`, `high`, `max`, the values Ollama 0.35.1 accepts), sent as `/api/chat`'s `think` only to a model that reports `thinking`; unset sends nothing and leaves the model's default. One operator setting for every Ollama model, not per request or per model | [wisp.md](wisp.md), "`wisp config`"; ADR 0053 |
+| `reasoning.mode`, for MLX | `mlx.think`: `true` or `false`, the chat template's `enable_thinking` for a model whose template takes it; unset asks a model declared `reasoning` to think and leaves any other to its template's default. No levels: the template's flag has none | [backends.md](backends.md), "Thinking"; ADR 0053 and ADR 0052, both refined 2026-10-06 |
+| `reasoning.output: separate`, and "Reasoning channels" | The thinking is separated at the executor: Ollama's `message.thinking` chunks, and for MLX the block between the template's own thinking tags, split as it streams (a tag split across chunks held until whole, a prompt that opens the block seen from the rendered prompt's end, unclosed thinking kept as thinking, a tool call ending it). It is shown to the person (`thinking` while it lasts, `∴ thought for …` folded after), counted in usage's reasoning tokens, audited as `model.reasoning`, kept in the store, and never sent back to the model. Over MCP it is the thread's `reasoning` resource, not part of `respond`'s text | ADR 0053; [mcp.md](mcp.md) |
+| Recording the turn's tokens | `respond`'s receipt carries `usage` (input, output, cached, reasoning) where the runtime reports it | [mcp.md](mcp.md) |
+
+Still proposed, as the rest of this page describes: the common vocabulary and its descriptors per model and adapter,
+per-request and per-conversation controls with the precedence below, strict rejection of an unsupported value
+(`ollama.think` passes a level to Ollama and leaves its meaning to Ollama, which this page would refuse to do
+silently), `speed.mode` and `performance.preference`, Foundation Models' `reasoningLevel`, Core AI's reasoning
+controls, the controls in introspection, and the audit of requested against resolved controls. No ADR accepts the
+contract yet; the checklist under "Audit and implementation work" is unchanged.
 
 ## Control vocabulary
 

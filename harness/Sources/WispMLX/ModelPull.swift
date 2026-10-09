@@ -9,7 +9,9 @@ import WispCore
 /// The cache is shared: a model any Hugging Face tool fetched is reused, file by file, and what wisp fetches
 /// other tools find. `plan` lists the repository and checks each wanted file against the cache (present, the
 /// listed size, and for weights the listed SHA-256), so the question names only what will be downloaded;
-/// nothing is fetched without the person's approval, and a complete snapshot fetches nothing. The fetch is
+/// nothing is fetched without the person's approval, and a complete snapshot fetches nothing. A file the model's own
+/// directory already holds (an earlier copy, not a link), checked the same way, is copied into the cache instead of
+/// fetched; a blob left half-fetched is resumed with an HTTP range request. The fetch is
 /// bounded: one organisation, the files an MLX model directory needs and nothing else, every size known before
 /// the question and checked after each file, LFS files checked against their SHA-256, and the whole refused
 /// when the disk lacks room for what will be downloaded. `link` then makes `<models>/<name>` a link to the
@@ -37,6 +39,8 @@ public struct ModelPull: Sendable {
         case busy(String)
         /// The cache holds no complete snapshot of the repository to link without fetching.
         case notCached(String)
+        /// A file of the model's own directory could not be copied into the cache.
+        case copy(file: String, detail: String)
 
         /// Human-readable explanation.
         public var description: String {
@@ -61,6 +65,7 @@ public struct ModelPull: Sendable {
             case .notCached(let repository):
                 "the Hugging Face cache holds no complete snapshot of \(repository); wisp models pull \(repository) "
                     + "fetches it, after asking"
+            case .copy(let file, let detail): "could not copy \(file) into the Hugging Face cache: \(detail)"
             }
         }
 
@@ -138,11 +143,16 @@ public struct ModelPull: Sendable {
         public var files: [File]
         /// The files already in the cache, checked: the listed size, and the SHA-256 for weights.
         public var reused: [String]
+        /// The files the model's own directory at `destination` holds, checked as the cache's are, which `fetch`
+        /// copies into the cache (a clone on APFS) instead of fetching them.
+        public var seeded: [String] = []
 
         /// The snapshot directory the link points at.
         public var snapshot: URL { cache.snapshot(revision, of: repository) }
         /// The files to download.
-        public var missing: [File] { files.filter { !reused.contains($0.path) } }
+        public var missing: [File] { files.filter { !reused.contains($0.path) && !seeded.contains($0.path) } }
+        /// The files to copy from the model's own directory.
+        public var seeding: [File] { files.filter { seeded.contains($0.path) } }
         /// Bytes of every file.
         public var bytes: Int { files.reduce(0) { $0 + $1.size } }
         /// Bytes still to download.
@@ -155,10 +165,18 @@ public struct ModelPull: Sendable {
         ///
         /// - Throws: When the request fails.
         func data(from url: URL) async throws -> (Data, Int)
-        /// Downloads a GET's body to a temporary file, returning it and the status.
+        /// Writes a GET's body into `file` as it arrives, so an interrupted fetch leaves what it had. With an
+        /// `offset` above 0 it asks for the bytes from there on (`Range: bytes=<offset>-`): a server that honours
+        /// it answers 206 and the body is appended after `offset` bytes of `file`; one that ignores it answers 200
+        /// and `file` is written from the start. Any other status writes nothing.
         ///
-        /// - Throws: When the request fails.
-        func download(from url: URL) async throws -> (URL, Int)
+        /// - Parameters:
+        ///   - url: What to fetch.
+        ///   - offset: The bytes `file` already holds, to resume after; 0 for the whole.
+        ///   - file: Where the body goes, created when absent.
+        /// - Returns: The status.
+        /// - Throws: When the request fails; what arrived before stays in `file`.
+        func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int
     }
 
     /// URLSession, with a minute's limit on silence and none on a large file's total time.
@@ -181,13 +199,41 @@ public struct ModelPull: Sendable {
             return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
 
-        /// Downloads a GET's body to a temporary file.
+        /// Streams a GET's body into `file`, from `offset` when the server honours the range.
         ///
-        /// - Throws: When the request fails.
-        public func download(from url: URL) async throws -> (URL, Int) {
-            let (file, response) = try await session.download(from: url)
-            return (file, (response as? HTTPURLResponse)?.statusCode ?? 0)
+        /// - Parameters:
+        ///   - url: What to fetch.
+        ///   - offset: The bytes `file` already holds; 0 for the whole.
+        ///   - file: Where the body goes.
+        /// - Returns: The status.
+        /// - Throws: When the request fails or `file` cannot be written.
+        public func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int {
+            var request = URLRequest(url: url)
+            if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
+            let (bytes, response) = try await session.bytes(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 200 || (status == 206 && offset > 0) else { return status }
+            if !FileManager.default.fileExists(atPath: file.path) {
+                FileManager.default.createFile(atPath: file.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            if status == 206 { try handle.seek(toOffset: UInt64(offset)) } else { try handle.truncate(atOffset: 0) }
+            var buffer = Data()
+            buffer.reserveCapacity(Self.piece)
+            for try await byte in bytes {
+                buffer.append(byte)
+                if buffer.count >= Self.piece {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            try handle.write(contentsOf: buffer)
+            return status
         }
+
+        /// Bytes gathered before each write.
+        static let piece = 1 << 20
     }
 
     /// The only organisation wisp fetches from.
@@ -301,13 +347,31 @@ public struct ModelPull: Sendable {
         let link = try Self.linkState(
             at: destination, snapshot: cache.snapshot(revision, of: repository), cache: cache, repository)
         let reused = files.filter { file in
-            let blob = cache.blob(file.blob, of: repository)
-            if file.sha256 != nil, Self.size(of: blob) == file.size { checking(file) }
-            return (try? Self.check(blob, against: file)) != nil
+            Self.holds(cache.blob(file.blob, of: repository), file, checking: checking)
         }.map(\.path)
+        // A real directory of the model's own (an earlier copy) seeds the cache with the files it holds intact.
+        let seeded =
+            link == .directory
+            ? files.filter { file in
+                !reused.contains(file.path)
+                    && Self.holds(destination.appending(path: file.path), file, checking: checking)
+            }.map(\.path) : []
         return Plan(
             repository: repository, name: name, revision: revision, cache: cache, destination: destination,
-            link: link, files: files, reused: reused)
+            link: link, files: files, reused: reused, seeded: seeded)
+    }
+
+    /// Whether `url` is the listed file: its size, and for weights its SHA-256, which `checking` is told of
+    /// before it is read.
+    ///
+    /// - Parameters:
+    ///   - url: The candidate, followed through links.
+    ///   - file: The listing's record.
+    ///   - checking: Told of a weights file of the right size before its digest is read.
+    /// - Returns: Whether it matches.
+    static func holds(_ url: URL, _ file: File, checking: (File) -> Void) -> Bool {
+        if file.sha256 != nil, size(of: url) == file.size { checking(file) }
+        return (try? check(url, against: file)) != nil
     }
 
     /// The plan for a model whose `main` snapshot is already complete in the cache, made from the snapshot alone,
@@ -336,21 +400,27 @@ public struct ModelPull: Sendable {
             files: files, reused: files.map(\.path))
     }
 
-    /// Fetches the files the plan lacks into the cache's blobs, checking each, then links every file into the
-    /// snapshot and points `refs/main` at it. With nothing to fetch it only links.
+    /// Copies the files the model's own directory holds into the cache's blobs, fetches the rest the plan lacks,
+    /// checking each, then links every file into the snapshot and points `refs/main` at it. With nothing to fetch
+    /// or copy it only links.
     ///
-    /// Each blob is fetched under `huggingface_hub`'s lock for it, into `<id>.incomplete`, which takes the
-    /// blob's name once checked; an `.incomplete` left by an interrupted fetch, wisp's or another tool's, is
-    /// started again rather than resumed.
+    /// Each blob is written under `huggingface_hub`'s lock for it, into `<id>.incomplete`, which takes the
+    /// blob's name once checked. An `.incomplete` left by an interrupted fetch, wisp's or another tool's, is
+    /// resumed from where it stopped with a range request; the whole file is then checked, so a part that does not
+    /// continue into the listed SHA-256 is refused. A server that ignores the range sends the whole file, and
+    /// `notice` says it started again.
     ///
     /// - Parameters:
     ///   - plan: The approved plan.
     ///   - available: Bytes free on the cache's volume; nil reads them.
     ///   - progress: Told of each file as it starts, with its index from 1 among those to fetch.
+    ///   - notice: Told, in a line for the person, of a file copied from the model's directory, resumed, or
+    ///     started again because the server ignored the range.
     /// - Returns: Bytes fetched by this run.
-    /// - Throws: `Failure`; the blobs fetched so far stay for the next run.
+    /// - Throws: `Failure`; the blobs fetched so far, and the part of one being fetched, stay for the next run.
     public func fetch(
-        _ plan: Plan, available: Int? = nil, progress: (File, Int) -> Void = { _, _ in }
+        _ plan: Plan, available: Int? = nil, progress: (File, Int) -> Void = { _, _ in },
+        notice: (String) -> Void = { _ in }
     ) async throws -> Int {
         let fileManager = FileManager.default
         let blobs = cache.folder(of: plan.repository).appending(path: "blobs", directoryHint: .isDirectory)
@@ -363,13 +433,18 @@ public struct ModelPull: Sendable {
                 throw Failure.noRoom(needed: plan.remaining + Self.margin, available: free)
             }
         }
+        for file in plan.seeding {
+            notice("copying \(file.path) from \(plan.destination.path) into the Hugging Face cache")
+            try await Self.locked(cache.lock(file.blob, of: plan.repository)) {
+                try seedBlob(file, of: plan)
+            }
+        }
         var fetched = 0
         for (index, file) in missing.enumerated() {
             progress(file, index + 1)
-            try await Self.locked(cache.lock(file.blob, of: plan.repository)) {
-                try await fetchBlob(file, of: plan)
+            fetched += try await Self.locked(cache.lock(file.blob, of: plan.repository)) {
+                try await fetchBlob(file, of: plan, notice: notice)
             }
-            fetched += file.size
         }
         for file in plan.files {
             try Self.linkIntoSnapshot(file, at: plan.snapshot)
@@ -382,27 +457,88 @@ public struct ModelPull: Sendable {
         return fetched
     }
 
-    /// Fetches one blob into `<id>.incomplete`, checks it, and gives it the blob's name.
+    /// Fetches one blob into `<id>.incomplete`, resuming a part already there, checks it, and gives it the blob's
+    /// name.
     ///
-    /// - Throws: `Failure`.
-    private func fetchBlob(_ file: File, of plan: Plan) async throws {
+    /// - Returns: Bytes this request downloaded.
+    /// - Throws: `Failure`; a file that fails its check is removed, so the next run fetches it whole.
+    private func fetchBlob(_ file: File, of plan: Plan, notice: (String) -> Void) async throws -> Int {
         let fileManager = FileManager.default
         let blob = cache.blob(file.blob, of: plan.repository)
-        let incomplete = blob.deletingLastPathComponent().appending(path: "\(file.blob).incomplete")
-        try? fileManager.removeItem(at: incomplete)
+        let incomplete = Self.incomplete(of: blob)
+        let held = Self.size(of: incomplete)
+        // A part as long as the file may be whole already; one longer, or that fails the check, starts again.
+        if held == file.size, (try? Self.check(incomplete, against: file)) != nil {
+            try Self.complete(incomplete, as: blob)
+            return 0
+        }
+        let offset = held > 0 && held < file.size ? held : 0
+        if offset == 0 { try? fileManager.removeItem(at: incomplete) }
+        if offset > 0 {
+            notice("resuming \(file.path) after \(Failure.size(offset)) of \(Failure.size(file.size))")
+        }
         let url = hub.appending(path: "\(plan.repository)/resolve/\(plan.revision)/\(file.path)")
-        let (temporary, status) = try await request { try await transport.download(from: url) }
-        defer { try? fileManager.removeItem(at: temporary) }
-        guard status == 200 else { throw Failure.http(status: status, url: url.absoluteString) }
-        try fileManager.moveItem(at: temporary, to: incomplete)
+        let status = try await request {
+            try await transport.download(from: url, resumingAt: offset, into: incomplete)
+        }
+        guard status == 200 || (status == 206 && offset > 0) else {
+            throw Failure.http(status: status, url: url.absoluteString)
+        }
+        if offset > 0, status == 200 {
+            notice("Hugging Face ignored the range for \(file.path) and sent it whole; it was fetched from the start")
+        }
         do {
             try Self.check(incomplete, against: file)
         } catch {
             try? fileManager.removeItem(at: incomplete)
             throw error
         }
-        try? fileManager.removeItem(at: blob)
-        try fileManager.moveItem(at: incomplete, to: blob)
+        try Self.complete(incomplete, as: blob)
+        return status == 206 ? file.size - offset : file.size
+    }
+
+    /// Copies one file from the model's own directory into `<id>.incomplete` (a clone where the volume can make
+    /// one, a copy otherwise), checks it again, since the directory may have changed since the plan, and gives it
+    /// the blob's name.
+    ///
+    /// - Throws: `Failure.mismatch` when it no longer matches the listing, or the copy's error.
+    private func seedBlob(_ file: File, of plan: Plan) throws {
+        let blob = cache.blob(file.blob, of: plan.repository)
+        let incomplete = Self.incomplete(of: blob)
+        try? FileManager.default.removeItem(at: incomplete)
+        let source = plan.destination.appending(path: file.path).resolvingSymlinksInPath()
+        try Self.clone(source, to: incomplete)
+        do {
+            try Self.check(incomplete, against: file)
+        } catch {
+            try? FileManager.default.removeItem(at: incomplete)
+            throw error
+        }
+        try Self.complete(incomplete, as: blob)
+    }
+
+    /// `<id>.incomplete` beside a blob, where it is written before it is checked.
+    static func incomplete(of blob: URL) -> URL {
+        blob.deletingLastPathComponent().appending(path: "\(blob.lastPathComponent).incomplete")
+    }
+
+    /// Gives a checked `.incomplete` the blob's name, replacing whatever was there.
+    ///
+    /// - Throws: The file system's error.
+    static func complete(_ incomplete: URL, as blob: URL) throws {
+        try? FileManager.default.removeItem(at: blob)
+        try FileManager.default.moveItem(at: incomplete, to: blob)
+    }
+
+    /// Copies `source` to `destination`, which must not exist, as an APFS clone when the volume allows it
+    /// (`copyfile`'s `COPYFILE_CLONE`, which copies when it cannot clone), so seeding the cache from a directory on
+    /// the same volume takes no space until one of them changes.
+    ///
+    /// - Throws: `Failure.copy` naming the error when neither works.
+    static func clone(_ source: URL, to destination: URL) throws {
+        guard copyfile(source.path, destination.path, nil, copyfile_flags_t(COPYFILE_CLONE)) == 0 else {
+            throw Failure.copy(file: source.path, detail: String(cString: strerror(errno)))
+        }
     }
 
     /// Makes `snapshot/<path>` the relative link `../../blobs/<id>`, replacing whatever else was there.

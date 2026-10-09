@@ -42,8 +42,8 @@ not the differentiator. Items, in order of leverage:
 
 - Done 2026-09-20: receipts. Every `respond` result carries `structuredContent.receipt`, the turn's tool
   calls, commands with exit status, denials, approvals, and errors, folded from the audit events
-  ([ADR 0021](decisions/0021-receipts.md)). Open: token usage, once wisp records what a runtime reports
-  (see "Context estimation from the runtime").
+  ([ADR 0021](decisions/0021-receipts.md)). Token usage added 2026-10-09: the turn's input, output, cached,
+  and reasoning tokens, where the runtime reports them ([mcp.md](mcp.md)).
 - Done 2026-09-20: structured output. `respond` and the CLI (`--schema`) take a JSON Schema and return
   JSON of that shape through guided generation ([ADR 0022](decisions/0022-structured-output.md)).
 - **Condensing tools.** Purpose-built MCP tools that keep raw content on the device and return small

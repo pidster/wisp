@@ -768,7 +768,7 @@ struct ConfigCommand: ParsableCommand {
 
         func run() throws {
             let data = try? Data(contentsOf: Wisp.home.configFile)
-            for setting in ConfigSettings.all {
+            for setting in ConfigSettings.listed(in: data) {
                 let current: JSONValue? = (try? ConfigEdit.current(setting.path, in: data)) ?? nil
                 print("\(setting.path)\t\(current.map(ChatLoop.shown) ?? "(default)")\t\(setting.summary)")
             }
@@ -998,7 +998,7 @@ struct Models: AsyncParsableCommand {
             let plan: ModelPull.Plan
             do {
                 plan = try await pull.plan(repository, into: directory) { file in
-                    Self.note("checking \(file.path) (\(Self.size(file.size))) in the Hugging Face cache")
+                    Self.note("checking \(file.path) (\(Self.size(file.size))) against the listing's SHA-256")
                 }
             } catch let failure as ModelPull.Failure {
                 throw ValidationError("\(failure)")
@@ -1017,9 +1017,11 @@ struct Models: AsyncParsableCommand {
             let fetched: Int
             let linked: ModelPull.LinkOutcome
             do {
-                fetched = try await pull.fetch(plan) { file, index in
-                    Self.note("[\(index)/\(plan.missing.count)] \(file.path) (\(Self.size(file.size)))")
-                }
+                fetched = try await pull.fetch(
+                    plan,
+                    progress: { file, index in
+                        Self.note("[\(index)/\(plan.missing.count)] \(file.path) (\(Self.size(file.size)))")
+                    }, notice: { Self.note($0) })
                 var replace = false
                 if plan.link == .directory {
                     print(
@@ -1066,7 +1068,11 @@ struct Models: AsyncParsableCommand {
                 "\(plan.repository) at \(plan.revision.prefix(12)): \(plan.files.count) files, \(size(plan.bytes))"
             ]
             for file in plan.files {
-                let state = plan.reused.contains(file.path) ? "already in the Hugging Face cache" : "to fetch"
+                let state =
+                    plan.reused.contains(file.path)
+                    ? "already in the Hugging Face cache"
+                    : plan.seeded.contains(file.path)
+                        ? "to copy from \(plan.destination.lastPathComponent)/" : "to fetch"
                 lines.append("  \(padded(file.path, width))  \(padded(size(file.size), sizeWidth))  \(state)")
             }
             lines.append("Snapshot: \(plan.snapshot.path)")
@@ -1082,7 +1088,10 @@ struct Models: AsyncParsableCommand {
                         + "replace it")
             }
             if plan.missing.isEmpty {
-                lines.append("Every file is already in the Hugging Face cache; nothing to fetch.")
+                lines.append(
+                    plan.seeded.isEmpty
+                        ? "Every file is already in the Hugging Face cache; nothing to fetch."
+                        : "Every file is in the Hugging Face cache or \(plan.destination.path); nothing to fetch.")
             }
             return lines.joined(separator: "\n")
         }
@@ -1117,6 +1126,7 @@ struct Models: AsyncParsableCommand {
                 details: AuditEvent.Details.modelPull(
                     model: "mlx:\(plan.name)", repository: plan.repository, directory: plan.destination.path,
                     cache: plan.snapshot.path, files: plan.files.count, bytes: plan.bytes, reused: plan.reused.count,
+                    seeded: outcome == "declined" ? 0 : plan.seeded.count,
                     fetchedFiles: outcome == "fetched" ? plan.missing.count : 0, fetched: fetched, link: link?.rawValue,
                     outcome: outcome, reason: reason,
                     seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))

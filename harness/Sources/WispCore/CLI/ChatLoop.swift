@@ -39,18 +39,44 @@ public struct TurnTokens: Equatable, Sendable {
     public var input: Int
     /// Tokens written.
     public var output: Int
+    /// Of `input`, the tokens the runtime reused from its cache rather than processed again (Ollama reports none;
+    /// MLX under wisp's executor reports the reused prefix).
+    public var cached: Int = 0
+    /// Of `output`, the tokens spent thinking, as the runtime counted them.
+    public var reasoning: Int = 0
 
     /// Creates a count.
-    public init(input: Int, output: Int) {
+    public init(input: Int, output: Int, cached: Int = 0, reasoning: Int = 0) {
         self.input = input
         self.output = output
+        self.cached = cached
+        self.reasoning = reasoning
     }
 
     /// The difference between two readings of a session's running totals, or nil when the model
     /// reported nothing.
     public static func between(_ before: TurnTokens, _ after: TurnTokens) -> TurnTokens? {
-        let used = TurnTokens(input: max(0, after.input - before.input), output: max(0, after.output - before.output))
+        let used = TurnTokens(
+            input: max(0, after.input - before.input), output: max(0, after.output - before.output),
+            cached: max(0, after.cached - before.cached), reasoning: max(0, after.reasoning - before.reasoning))
         return used.input == 0 && used.output == 0 ? nil : used
+    }
+
+    /// The count as `respond`'s receipt and the `response` audit event carry it.
+    public var json: JSONValue {
+        .object(["input": .int(input), "output": .int(output), "cached": .int(cached), "reasoning": .int(reasoning)])
+    }
+
+    /// The count `json` wrote, or nil when `value` is not one.
+    ///
+    /// - Parameter value: The JSON.
+    public init?(json value: JSONValue?) {
+        guard let object = value?.objectValue, let input = object["input"]?.intValue,
+            let output = object["output"]?.intValue
+        else { return nil }
+        self.init(
+            input: input, output: output, cached: object["cached"]?.intValue ?? 0,
+            reasoning: object["reasoning"]?.intValue ?? 0)
     }
 }
 

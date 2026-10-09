@@ -285,7 +285,19 @@ public final class Agent {
         let usage = session.usage
         return TurnTokens(
             input: carried.input + usage.input.totalTokenCount,
-            output: carried.output + usage.output.totalTokenCount)
+            output: carried.output + usage.output.totalTokenCount,
+            cached: carried.cached + usage.input.cachedTokenCount,
+            reasoning: carried.reasoning + usage.output.reasoningTokenCount)
+    }
+
+    /// The tokens the turn's requests used since `before`, when the runtime reports usage (`UsageReporting`); nil
+    /// for one that does not, such as Apple's models, whose framework totals count only the tokens it streamed.
+    ///
+    /// - Parameter before: `tokensUsed` at the start of the turn.
+    /// - Returns: The turn's usage, or nil.
+    private func turnUsage(since before: TurnTokens) -> TurnTokens? {
+        guard model.reportedInputTokens() != nil else { return nil }
+        return TurnTokens.between(before, tokensUsed)
     }
 
     /// Makes `next` the live session after adding what the current one has counted to the carried total.
@@ -667,6 +679,7 @@ public final class Agent {
         let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
         let started = Date()
         let before = condensations
+        let tokensBefore = tokensUsed
         let referenced = referenceOutputs()
         if assessment != nil { await assess(prompt) }
         refreshFacts()
@@ -681,7 +694,8 @@ public final class Agent {
             let responded = audit?.record(
                 .response,
                 details: AuditEvent.Details.response(
-                    text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started)))
+                    text: text, condensed: reply.condensed, seconds: Date().timeIntervalSince(started),
+                    usage: turnUsage(since: tokensBefore)))
             remember(prompt: prompted, response: responded, started: started)
             cutPresentation(turn: turns.current)
             reply.facts = factsChangedThisTurn

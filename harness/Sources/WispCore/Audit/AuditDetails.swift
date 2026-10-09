@@ -66,9 +66,16 @@ extension AuditEvent {
             return details
         }
 
-        /// `response`.
-        public static func response(text: String, condensed: Bool, seconds: TimeInterval) -> [String: JSONValue] {
-            ["text": .string(text), "condensed": .bool(condensed), "seconds": .double(seconds)]
+        /// `response`, with the turn's `usage` (`input`, `output`, `cached`, `reasoning` tokens over the turn's
+        /// requests) when the runtime reported any.
+        public static func response(
+            text: String, condensed: Bool, seconds: TimeInterval, usage: TurnTokens? = nil
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "text": .string(text), "condensed": .bool(condensed), "seconds": .double(seconds),
+            ]
+            if let usage { details["usage"] = usage.json }
+            return details
         }
 
         /// `model.reasoning` as the model begins thinking within one request (ADR 0053): `phase` `start`, nothing
@@ -499,15 +506,18 @@ extension AuditEvent {
         /// `model.pull`: a model fetched with the person's approval (`wisp models pull`) into the Hugging Face
         /// cache and linked from the MLX models directory: the selection it becomes, where from, the link's path
         /// and the cache's snapshot, how many files and bytes the repository lists, how many files the cache
-        /// already held, how many files and bytes this run fetched, what happened at the link's path, and how it
+        /// already held, how many it copied from the model's own directory, how many files and bytes this run
+        /// fetched, what happened at the link's path, and how it
         /// ended (`fetched`, `linked`, `declined`, `failed`), with why.
         public static func modelPull(
             model: String, repository: String, directory: String, cache: String, files: Int, bytes: Int, reused: Int,
-            fetchedFiles: Int, fetched: Int, link: String?, outcome: String, reason: String?, seconds: Double
+            seeded: Int = 0, fetchedFiles: Int, fetched: Int, link: String?, outcome: String, reason: String?,
+            seconds: Double
         ) -> [String: JSONValue] {
             [
                 "model": .string(model), "repository": .string(repository), "directory": .string(directory),
                 "cache": .string(cache), "files": .int(files), "bytes": .int(bytes), "reused": .int(reused),
+                "seeded": .int(seeded),
                 "fetchedFiles": .int(fetchedFiles), "fetched": .int(fetched), "link": link.map { .string($0) } ?? .null,
                 "outcome": .string(outcome), "reason": reason.map { .string($0) } ?? .null, "seconds": .double(seconds),
             ]
@@ -744,7 +754,7 @@ extension AuditEvent {
             ["model", "backend", "asset", "capabilities", "capabilitySource", "tools", "contextSize", "contextNote"]
         case .modelFallback: ["model", "reason", "fallback"]
         case .prompt: ["text", "schema"]
-        case .response: ["text", "condensed", "seconds"]
+        case .response: ["text", "condensed", "seconds", "usage"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
         case .toolCall: ["tool", "arguments"]
         case .toolResult: ["tool", "output", "bytes", "seconds"]
@@ -768,7 +778,8 @@ extension AuditEvent {
         case .modelRouted: ["task", "inputBytes", "model", "reason"]
         case .modelPull:
             [
-                "model", "repository", "directory", "cache", "files", "bytes", "reused", "fetchedFiles", "fetched",
+                "model", "repository", "directory", "cache", "files", "bytes", "reused", "seeded", "fetchedFiles",
+                "fetched",
                 "link", "outcome", "reason", "seconds",
             ]
         case .modelVerified:

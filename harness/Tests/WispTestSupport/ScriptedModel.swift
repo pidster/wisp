@@ -37,8 +37,12 @@ public struct ScriptedModel: LanguageModel {
         public let partialBeforeOverflow: String
         /// Input tokens the last request reported; the model plays a runtime that reports usage.
         public let lastInputTokens = Mutex<Int?>(nil)
-        /// Whether requests report their input tokens; false plays the on-device model, which does not.
+        /// Whether requests report their usage; false plays the on-device model, which does not.
         public let reportsUsage: Bool
+        /// Input tokens each request reports as cached, as a runtime that reuses a prefix does; 0 by default.
+        public var cachedTokens: Int { cached.withLock { $0 } }
+        /// Holds `cachedTokens`, which a test may set.
+        public let cached = Mutex(0)
 
         init(steps: [Step], overflowOnce: Bool, partialBeforeOverflow: String, reportsUsage: Bool) {
             self.steps = Mutex(steps)
@@ -124,12 +128,15 @@ public struct ScriptedModel: LanguageModel {
                     let fragment = index == 0 ? String(word) : " " + word
                     await channel.send(.response(action: .appendText(fragment, tokenCount: 1)))
                 }
-                if script.reportsUsage { script.lastInputTokens.withLock { $0 = 40 } }
-                await channel.send(
-                    .response(
-                        action: .updateUsage(
-                            input: .init(totalTokenCount: 40, cachedTokenCount: 0),
-                            output: .init(totalTokenCount: words.count + thought, reasoningTokenCount: thought))))
+                // A model that plays the on-device one reports no usage at all.
+                if script.reportsUsage {
+                    script.lastInputTokens.withLock { $0 = 40 }
+                    await channel.send(
+                        .response(
+                            action: .updateUsage(
+                                input: .init(totalTokenCount: 40, cachedTokenCount: script.cachedTokens),
+                                output: .init(totalTokenCount: words.count + thought, reasoningTokenCount: thought))))
+                }
             }
         }
     }

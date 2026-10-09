@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
 | Release | Larger | Smaller |
 | --- | --- | --- |
 | 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (run and decided, ADR 0057) | The assessment reconsidered (built and decided); MLX against Ollama (measured for Qwen3-1.7B, the gap fixed; the rest to measure); gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
-| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
+| 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model (built); `wisp models pull` follow-ups (built); token usage in `respond`'s receipt (built); qwen3.8's slowdown; the README overview image (done); `model-controls.md` brought up to date (done) |
 | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
@@ -134,20 +134,27 @@ The release given to measurement, once the four before it were out. What was bui
 
 - **A context length per model.** `ollama.contextLength` sets the window of every Ollama model at once;
   a setting per model (beside `mlx.models.<name>`), so one model can be held to a size while the rest are
-  sized from memory. Raised on 2026-10-05 when qwen3.8 sat at the 8,192 floor.
+  sized from memory. Raised on 2026-10-05 when qwen3.8 sat at the 8,192 floor. Built:
+  `ollama.models.<name>.contextLength` and `mlx.models.<name>.contextLength`, ahead of the runtime's setting
+  ([wisp.md](wisp.md), "`wisp config`"; [backends.md](backends.md)).
 - **`wisp models pull` follow-ups**, from the Hugging Face cache work (ADR 0052, refined 2026-10-04):
   resume a half-fetched file with HTTP range requests rather than restarting it; seed the cache from a
   real directory's checked files instead of fetching them again; and Core AI's listing, which does not
-  follow a linked model directory, as MLX's once did.
+  follow a linked model directory, as MLX's once did. Built
+  ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09).
 - **Token usage in `respond`'s receipt.** `mcp.md` says usage is not reported yet; the turn's input,
-  output, cached, and reasoning tokens, which the executors now report, belong in the receipt.
+  output, cached, and reasoning tokens, which the executors now report, belong in the receipt. Built:
+  `receipt.usage`, and `usage` on the `response` audit event ([mcp.md](mcp.md)).
 - **qwen3.8's slowdown.** In the comparison of 2026-10-04 it took 40 to 70 s a request against about
   10 s more per turn than granite in September; likely memory pressure with the window at the floor.
   Measure it with memory free and the hybrid sizing in place, before it is written off for complex work.
 - **The README overview image** says the model runs "on device or through Ollama"; redraw both versions
-  with MLX (and Core AI), and the alt text with them.
+  with MLX (and Core AI), and the alt text with them. Done 2026-10-09: "on device, Ollama, MLX, or Core AI" in both
+  versions, the `<desc>`, and the alt text, rendered in headless Chrome. The HTTP runtimes (llama.cpp, LM Studio)
+  join the drawing when the shared executor ships.
 - **`docs/model-controls.md`**, a draft proposal of which `ollama.think` and the thinking display now
-  implement part: mark what is built and what is still proposed.
+  implement part: mark what is built and what is still proposed. Done 2026-10-09: a "What is built" section,
+  the proposal otherwise as written.
 
 ## 0.22.0
 

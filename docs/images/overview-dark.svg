@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 960 400" width="960" height="400" role="img" aria-labelledby="title desc">
   <title id="title">How wisp is put together</title>
-  <desc id="desc">You at the terminal (wisp, wisp chat, wisp-tui), and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread), both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device or through Ollama, with its eight tools. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
+  <desc id="desc">You at the terminal (wisp, wisp chat, wisp-tui), and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread), both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its eight tools. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#4493f8"/>
@@ -45,17 +45,18 @@
   <!-- The model and its tools -->
   <rect class="box" x="414" y="60" width="170" height="284" rx="10"/>
   <text class="title" x="434" y="90">The model</text>
-  <text class="body" x="434" y="112">on device, or Ollama</text>
-  <line class="rule" x1="434" y1="128" x2="564" y2="128"/>
-  <text class="label" x="434" y="152">TOOLS</text>
-  <text class="body" x="434" y="176">run_command</text>
-  <text class="body" x="434" y="196">read_file</text>
-  <text class="body" x="434" y="216">edit_file</text>
-  <text class="body" x="434" y="236">system_info</text>
-  <text class="body" x="434" y="256">notify</text>
-  <text class="body" x="434" y="276">inspect</text>
-  <text class="body" x="434" y="296">current_date</text>
-  <text class="body" x="434" y="316">memory</text>
+  <text class="body" x="434" y="112">on device, Ollama,</text>
+  <text class="body" x="434" y="130">MLX, or Core AI</text>
+  <line class="rule" x1="434" y1="145" x2="564" y2="145"/>
+  <text class="label" x="434" y="167">TOOLS</text>
+  <text class="body" x="434" y="187">run_command</text>
+  <text class="body" x="434" y="206">read_file</text>
+  <text class="body" x="434" y="225">edit_file</text>
+  <text class="body" x="434" y="244">system_info</text>
+  <text class="body" x="434" y="263">notify</text>
+  <text class="body" x="434" y="282">inspect</text>
+  <text class="body" x="434" y="301">current_date</text>
+  <text class="body" x="434" y="320">memory</text>
 
   <!-- The gate, in the order the code checks -->
   <rect class="gate" x="616" y="60" width="170" height="284" rx="10"/>

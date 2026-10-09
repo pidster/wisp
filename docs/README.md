@@ -13,7 +13,7 @@
 | [local-model-evaluation.md](local-model-evaluation.md) | Local-model research, candidate shortlist, and agreed workload/delegation evaluation design |
 | [local-model-installation.md](local-model-installation.md) | Selected model revisions, local installation, offline smoke results, and remaining integration work |
 | [on-device-ai-todo.md](on-device-ai-todo.md) | Living backlog for on-device AI: routing, context assembly, approval classification, local generation, audit, model controls; progress per track, what shipped since the last release, and what is planned |
-| [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output |
+| [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output; marks the part `ollama.think`, `mlx.think`, and the thinking display build (ADR 0053) |
 | [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, approval under `wisp mcp` from `wisp approvals` and `wisp-tui`, eval results |
 | [logging.md](logging.md) | The audit log (format, kinds, `wisp logs`) and diagnostics (`WISP_LOG`, unified logging) |
 | [context-management.md](context-management.md) | The small context window: the store and the composer, output handling, facts, the running summary, `memory`, the assessment, condensing to a target, design rules, and what was measured |

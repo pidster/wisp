@@ -347,11 +347,14 @@ public struct Config: Codable, Equatable, Sendable {
         /// wisp's last check of the model's capabilities; nil when wisp has not checked it, so every capability
         /// listed is the operator's own declaration.
         public var verified: CapabilityCheck?
+        /// This model's context window, ahead of `mlx.contextLength` and sizing from memory; nil leaves it to them.
+        public var contextLength: Int?
 
         /// Creates a declaration.
-        public init(capabilities: [String]? = nil, verified: CapabilityCheck? = nil) {
+        public init(capabilities: [String]? = nil, verified: CapabilityCheck? = nil, contextLength: Int? = nil) {
             self.capabilities = capabilities
             self.verified = verified
+            self.contextLength = contextLength
         }
     }
 
@@ -391,20 +394,36 @@ public struct Config: Codable, Equatable, Sendable {
         public var baseURL: String?
         /// Seconds allowed for one generation request; default 120.
         public var timeoutSeconds: Int?
-        /// Context window asked of the server (`num_ctx`) and condensed against; default 8192.
+        /// Context window asked of the server (`num_ctx`) for every model and condensed against; unset sizes each
+        /// model from memory (ADR 0043).
         public var contextLength: Int?
         /// Whether a model that can think is asked to: `true`, `false`, or a level (`OllamaThink`); unset leaves it
         /// to Ollama and the model (ADR 0053).
         public var think: OllamaThink?
+        /// Settings for one model, by its name as Ollama lists it (`qwen3.8:27b`).
+        public var models: [String: OllamaModelConfig]?
 
         /// Creates settings; nil fields take defaults.
         public init(
-            baseURL: String? = nil, timeoutSeconds: Int? = nil, contextLength: Int? = nil, think: OllamaThink? = nil
+            baseURL: String? = nil, timeoutSeconds: Int? = nil, contextLength: Int? = nil, think: OllamaThink? = nil,
+            models: [String: OllamaModelConfig]? = nil
         ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
             self.contextLength = contextLength
             self.think = think
+            self.models = models
+        }
+    }
+
+    /// One Ollama model's settings.
+    public struct OllamaModelConfig: Codable, Equatable, Sendable {
+        /// This model's context window, ahead of `ollama.contextLength` and sizing from memory; nil leaves it to them.
+        public var contextLength: Int?
+
+        /// Creates settings.
+        public init(contextLength: Int? = nil) {
+            self.contextLength = contextLength
         }
     }
 
@@ -549,12 +568,17 @@ public struct Config: Codable, Equatable, Sendable {
             ollama: OllamaSettings(
                 baseURL: ollama?.baseURL.flatMap(URL.init(string:)) ?? OllamaSettings.default.baseURL,
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
-                contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength, think: ollama?.think),
+                contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength, think: ollama?.think,
+                modelContextLengths: (ollama?.models ?? [:]).compactMapValues(\.contextLength)),
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
-            mlxModels: (mlx?.models ?? [:]).mapValues { $0.capabilities ?? [] },
+            // An entry that sets only a window declares nothing: the model stays undeclared, text only.
+            mlxModels: (mlx?.models ?? [:]).filter { $0.value.capabilities != nil || $0.value.contextLength == nil }
+                .mapValues { $0.capabilities ?? [] },
             mlxVerified: (mlx?.models ?? [:]).compactMapValues(\.verified),
-            mlxContextLength: mlx?.contextLength, mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
+            mlxContextLength: mlx?.contextLength,
+            mlxModelContextLengths: (mlx?.models ?? [:]).compactMapValues(\.contextLength),
+            mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
@@ -625,6 +649,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var mlxVerified: [String: CapabilityCheck] = [:]
         /// The context window for every MLX model, when configured; nil sizes each from memory (ADR 0052).
         public var mlxContextLength: Int?
+        /// The context window of each MLX model that sets one (`mlx.models.<name>.contextLength`), ahead of
+        /// `mlxContextLength`.
+        public var mlxModelContextLengths: [String: Int] = [:]
         /// What runs MLX models.
         public var mlxExecutor: MLXExecutorChoice = .wisp
         /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil asks one declared

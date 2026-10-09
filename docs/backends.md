@@ -107,7 +107,15 @@ it gets its full 262,144 tokens. On 2026-10-05, `qwen3.8:27b` was measured at th
 recurrent state the hybrid rule estimates (it had been counted at 260 KiB), at 8,192 and 32,768 tokens, and
 `ornith:9b` at 32 KiB and 50 MiB; with 30 GB available ornith now gets 262,144 tokens instead of 65,536. The
 `model.resolved` audit event records the window and why.
-Setting `contextLength` fixes one window for every model instead.
+Setting `contextLength` fixes one window for every model instead, and `ollama.models.<name>.contextLength` one
+model's, ahead of it, so one model can be held to a size while the rest are sized from memory:
+
+```
+wisp config set ollama.models.qwen3.8:27b.contextLength 16384
+```
+
+`wisp models` (`FROM` is `model config`) and `wisp doctor` ("configured for this model") say which setting gave
+the window.
 
 Errors: `no Ollama server at <url>` when nothing listens; `Ollama has no model '<name>'; installed: …`
 when the name is unknown (the `:latest` tag may be omitted). Once the server has the request: `Ollama at <url>
@@ -191,7 +199,9 @@ Naming: `coreai:<bundle-directory-name>` under the models directory, or `coreai:
 { "model": "coreai:qwen3_0_6b_4bit_dynamic", "coreai": { "modelsDirectory": "~/.wisp/models/coreai" } }
 ```
 
-`modelsDirectory` defaults to `<home>/models/coreai`. wisp never exports or downloads.
+`modelsDirectory` defaults to `<home>/models/coreai`. wisp never exports or downloads. A models directory
+that is a link, and a bundle linked into it by name, are listed and resolved through their real directories, as
+MLX's are.
 
 Capabilities come from the bundle: the bridge detects tool-call markers in the tokenizer vocabulary,
 a thinking format, and whether the loaded engine supports guided generation. What wisp has verified,
@@ -291,8 +301,13 @@ model. It fetches only `mlx-community` repositories and only the top-level files
 (`json`, `safetensors`, `jinja`, `txt`, `model`, `tiktoken`), checks each fetched file's size and each weights
 file's SHA-256 against the listing, and refuses before any download when the disk lacks what it will download
 plus 1 GiB. A file downloads into `blobs/<id>.incomplete` under `huggingface_hub`'s lock for it; another
-program holding the lock refuses the pull. An interrupted pull keeps the files it finished, and the next run
-fetches the rest (a file cut off part-way starts again).
+program holding the lock refuses the pull. An interrupted pull keeps the files it finished and the part of the
+one it was fetching; the next run fetches the rest, resuming that part with an HTTP range request (`Range:
+bytes=<offset>-`) and checking the whole file, so a part that does not continue into the listed SHA-256 is refused
+and fetched whole next time. A server that ignores the range answers with the whole file, which is fetched from the
+start, and the pull says so. A real directory at `<home>/models/mlx/<name>` seeds the cache: each of its files whose
+size, and for weights SHA-256, match the listing is copied into `blobs/` (with `copyfile`'s clone, so on APFS it
+takes no space until one copy changes) instead of being fetched.
 
 At `<home>/models/mlx/<name>`: nothing, or a link to an older snapshot of the model, becomes the link. A real
 directory, such as a copy fetched before the pull used the cache, stays unless you answer yes to a second
@@ -307,7 +322,7 @@ wisp follows a linked model to its real directory when it resolves it, for the w
 loading. The pull uses Hugging Face's model information (`/api/models/<repo>/revision/main`), its tree
 listing at that commit, and `resolve/<commit>/<file>` downloads, tested against a repository served from memory
 and a temporary cache; it has not yet been run against the Hub ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)
-lists what is unverified).
+lists what is unverified; the range request and the seeding were built the same way, refined 2026-10-09).
 
 Capabilities come from `config.json`, because MLX never infers them, and are recorded there only once verified;
 an undeclared model runs text-only conversations. wisp verifies them itself when you enable a model that declares
@@ -398,7 +413,7 @@ state (134 MiB for the 7B models) is a fixed cost. With the weights' size (the
 `*.safetensors` files) and the Mac's memory now, wisp chooses the largest multiple of 4,096 that fits half the
 available memory and three quarters of the installed, capped at the model's maximum and never below 8,192;
 weights this process already holds count as available. `mlx.contextLength` sets the window for every MLX model
-instead. `model.resolved` and `wisp doctor` give the window and why, in the form `<window> of <maximum>: <needed> of a
+instead, and `mlx.models.<name>.contextLength` one model's, ahead of it. `model.resolved` and `wisp doctor` give the window and why, in the form `<window> of <maximum>: <needed> of a
 <budget> budget`, as for Ollama; a directory whose `config.json` has no shape gets 8,192 with a reason saying so.
 
 **The processed prompt.** wisp composes every request afresh ([ADR 0045](decisions/0045-layered-context.md)), so

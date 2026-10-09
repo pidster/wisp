@@ -40,6 +40,13 @@ import WispTestSupport
         #expect(custom.timeout == .seconds(30))
         #expect(custom.contextLength == 4096)
         #expect(OllamaSettings.default.contextLength == nil)  // sized per model (ADR 0043)
+        let json = #"{"ollama":{"contextLength":16384,"models":{"qwen3.8:27b":{"contextLength":12288},"g":{}}}}"#
+        let perModel = try JSONDecoder().decode(Config.self, from: Data(json.utf8)).resolved.ollama
+        #expect(perModel.modelContextLengths == ["qwen3.8:27b": 12288])
+        #expect(perModel.configuredWindow(for: "qwen3.8:27b")?.window == 12288)
+        #expect(
+            perModel.configuredWindow(for: "g") == .init(window: 16384, reason: "configured as ollama.contextLength"))
+        #expect(OllamaSettings.default.configuredWindow(for: "g") == nil)
     }
 
     @Test func transcriptMapsOntoChatMessages() async throws {

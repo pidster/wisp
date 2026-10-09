@@ -108,7 +108,8 @@ public struct MLXBackend: ModelBackend {
         let (capabilities, declared) = try Self.declaredCapabilities(for: name, config: config)
         let engine = Self.engine(for: url)
         let sizing = Self.window(
-            for: url, configured: config.mlxContextLength, memory: .current(), weightsHeld: engine.isLoaded)
+            for: url, configured: Self.configuredWindow(for: name, config: config), memory: .current(),
+            weightsHeld: engine.isLoaded)
         return try Self.make(
             url: url, selection: selection, capabilities: capabilities, declared: declared, engine: engine,
             sizing: sizing, executor: config.mlxExecutor, think: config.mlxThink)
@@ -117,20 +118,34 @@ public struct MLXBackend: ModelBackend {
     /// What MLX does when even the floor window does not fit, for the reason of a floor decision.
     static let shortfall = "so the cache may not fit in memory and the Mac may swap"
 
-    /// The window for the model in `directory`: configured (`mlx.contextLength`), or sized from its
+    /// The window configured for `name`: its own `mlx.models.<name>.contextLength`, else `mlx.contextLength`; nil
+    /// when neither is set, so it is sized.
+    ///
+    /// - Parameters:
+    ///   - name: The model as it was selected.
+    ///   - config: The effective configuration.
+    /// - Returns: The window and the setting that gave it.
+    static func configuredWindow(for name: String, config: Config.Resolved) -> ContextSizing.Decision? {
+        if let window = config.mlxModelContextLengths[name] {
+            return .init(window: window, reason: ContextSizing.perModelReason("mlx", name: name))
+        }
+        return config.mlxContextLength.map { .init(window: $0, reason: "configured as mlx.contextLength") }
+    }
+
+    /// The window for the model in `directory`: configured (`configuredWindow`), or sized from its
     /// `config.json` and the weights' size as ADR 0043 sizes an Ollama model's, or the floor when the
     /// configuration gives no shape.
     ///
     /// - Parameters:
     ///   - directory: The model directory.
-    ///   - configured: `mlx.contextLength`, when set.
+    ///   - configured: The configured window and why, when one is set.
     ///   - memory: The Mac's memory now.
     ///   - weightsHeld: Whether this process already holds the weights, which then count as available.
     /// - Returns: The window and why.
     static func window(
-        for directory: URL, configured: Int?, memory: MemoryState, weightsHeld: Bool
+        for directory: URL, configured: ContextSizing.Decision?, memory: MemoryState, weightsHeld: Bool
     ) -> ContextSizing.Decision {
-        if let configured { return .init(window: configured, reason: "configured as mlx.contextLength") }
+        if let configured { return configured }
         guard let data = try? Data(contentsOf: directory.appending(path: "config.json")),
             let json = try? JSONDecoder().decode(WispCore.JSONValue.self, from: data).objectValue,
             let shape = ContextSizing.shape(fromModelConfig: json)
@@ -389,8 +404,14 @@ public struct MLXBackend: ModelBackend {
             "think": config.mlxThink.map { .bool($0) } ?? .string("unset"),
             "models": .object(
                 Dictionary(
-                    uniqueKeysWithValues: config.mlxModels.map { name, capabilities in
-                        (name, WispCore.JSONValue.object(["capabilities": .array(capabilities.map { .string($0) })]))
+                    uniqueKeysWithValues: Set(config.mlxModels.keys).union(config.mlxModelContextLengths.keys).map {
+                        name in
+                        var entry: [String: WispCore.JSONValue] = [:]
+                        if let capabilities = config.mlxModels[name] {
+                            entry["capabilities"] = .array(capabilities.map { .string($0) })
+                        }
+                        if let window = config.mlxModelContextLengths[name] { entry["contextLength"] = .int(window) }
+                        return (name, WispCore.JSONValue.object(entry))
                     })),
         ])
     }

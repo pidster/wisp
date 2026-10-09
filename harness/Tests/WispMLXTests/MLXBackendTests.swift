@@ -148,13 +148,33 @@ import WispCore
         let directory = try modelDirectory(config: Self.qwen3)
         defer { try? FileManager.default.removeItem(at: directory) }
         let memory = MemoryState(installed: 16 * Self.gib, available: 8 * Self.gib)
+        let configured = ContextSizing.Decision(window: 12288, reason: "configured as mlx.contextLength")
         #expect(
-            MLXBackend.window(for: directory, configured: 12288, memory: memory, weightsHeld: false)
-                == .init(window: 12288, reason: "configured as mlx.contextLength"))
+            MLXBackend.window(for: directory, configured: configured, memory: memory, weightsHeld: false)
+                == configured)
         let bare = try modelDirectory(config: #"{"model_type":"mystery"}"#)
         defer { try? FileManager.default.removeItem(at: bare) }
         let fallback = MLXBackend.window(for: bare, configured: nil, memory: memory, weightsHeld: false)
         #expect(fallback.window == ContextSizing.floor && fallback.reason.contains("the default"))
+    }
+
+    @Test func aModelsOwnWindowComesBeforeTheOneForEveryModel() {
+        let both = Config(
+            mlx: .init(models: ["small": .init(contextLength: 4096), "other": .init()], contextLength: 16384)
+        ).resolved
+        #expect(
+            MLXBackend.configuredWindow(for: "small", config: both)
+                == .init(window: 4096, reason: "configured for this model as mlx.models.small.contextLength"))
+        #expect(
+            MLXBackend.configuredWindow(for: "other", config: both)
+                == .init(window: 16384, reason: "configured as mlx.contextLength"))
+        let one = Config(mlx: .init(models: ["small": .init(contextLength: 4096)])).resolved
+        #expect(MLXBackend.configuredWindow(for: "large", config: one) == nil)
+        // A window alone declares no capabilities, so the model is still undeclared.
+        #expect(one.mlxModels["small"] == nil && one.mlxModelContextLengths == ["small": 4096])
+        let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-mlx-settings"))
+        let models = MLXBackend().settings(in: one, home: home).objectValue?["models"]?.objectValue
+        #expect(models?["small"] == .object(["contextLength": 4096]))
     }
 
     @Test func settingsCarryTheWindowAndTheExecutor() {

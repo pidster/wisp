@@ -4,6 +4,32 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- A context window for one model: `ollama.models.<name>.contextLength` and `mlx.models.<name>.contextLength` hold
+  that model to a size, ahead of `ollama.contextLength` or `mlx.contextLength`, while the rest are sized from
+  memory (`wisp config set ollama.models.qwen3.8:27b.contextLength 16384`). `wisp models` shows `model config` as
+  where the window came from, and `wisp doctor` says `configured for this model`.
+- `wisp models pull` resumes a file cut off part-way from where it stopped, with an HTTP range request, and checks
+  the whole file against the listing's SHA-256; a server that ignores the range sends it whole, and the pull says so.
+  A real directory at `~/.wisp/models/mlx/<name>` seeds the Hugging Face cache: its files that match the listing are
+  copied (cloned on APFS) instead of fetched again.
+- `respond`'s receipt carries the turn's token usage, `usage` with `input`, `output`, `cached`, and `reasoning`, for
+  a runtime that reports it (Ollama, MLX); the `response` audit event records it too. Apple's models report none,
+  and their receipts have no `usage`.
+
+Changed:
+
+- `docs/model-controls.md`, the draft proposal for reasoning and speed controls, says which part `ollama.think`,
+  `mlx.think`, and the thinking display already build, and what is still proposed.
+- The README's overview picture names every runtime the model runs on: on device, Ollama, MLX, or Core AI.
+
+Fixed:
+
+- Core AI lists a models directory that is a link, and a bundle linked into it, as MLX does.
+
 ## 0.20.0
 
 Breaking:

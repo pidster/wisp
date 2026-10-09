@@ -6,8 +6,8 @@ import WispCore
 
 @testable import WispMLX
 
-/// A Hugging Face that serves one repository from memory at one revision, and can fail a file once, to
-/// interrupt a pull.
+/// A Hugging Face that serves one repository from memory at one revision, and can fail a file once halfway, to
+/// interrupt a pull; it honours range requests unless told not to.
 final class FakeHub: ModelPull.Transport {
     static let revision = "0123456789abcdef0123456789abcdef01234567"
 
@@ -16,11 +16,15 @@ final class FakeHub: ModelPull.Transport {
     let requested = Mutex<[String]>([])
     let listingStatus: Int
     let withOids: Bool
+    let honoursRanges: Bool
+    /// The offset of each download asked for, in order.
+    let offsets = Mutex<[Int]>([])
 
-    init(files: [String: Data], listingStatus: Int = 200, withOids: Bool = true) {
+    init(files: [String: Data], listingStatus: Int = 200, withOids: Bool = true, honoursRanges: Bool = true) {
         self.files = files
         self.listingStatus = listingStatus
         self.withOids = withOids
+        self.honoursRanges = honoursRanges
     }
 
     /// The git blob id of `data`, as the listing's `oid` gives it.
@@ -60,18 +64,20 @@ final class FakeHub: ModelPull.Transport {
         return (url.path.hasSuffix("/revision/main") ? information : listing, 200)
     }
 
-    func download(from url: URL) async throws -> (URL, Int) {
+    func download(from url: URL, resumingAt offset: Int, into file: URL) async throws -> Int {
         requested.withLock { $0.append(url.path) }
+        offsets.withLock { $0.append(offset) }
         let name = url.lastPathComponent
-        if failing.withLock({ $0.remove(name) }) != nil { throw URLError(.networkConnectionLost) }
-        guard let data = files[name] else { return (try temporary(Data()), 404) }
-        return (try temporary(data), 200)
-    }
-
-    private func temporary(_ data: Data) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appending(path: "wisp-hub-\(UUID().uuidString)")
-        try data.write(to: url)
-        return url
+        guard let data = files[name] else { return 404 }
+        let ranged = offset > 0 && honoursRanges
+        let body = ranged ? data.dropFirst(offset) : data[...]
+        var written = ranged ? ((try? Data(contentsOf: file)) ?? Data()).prefix(offset) : Data()
+        // An interrupted transfer leaves the first half of what it was sending.
+        let failing = failing.withLock { $0.remove(name) } != nil
+        written += failing ? body.prefix(body.count / 2) : body
+        try written.write(to: file)
+        if failing { throw URLError(.networkConnectionLost) }
+        return ranged ? 206 : 200
     }
 }
 
@@ -297,7 +303,8 @@ final class FakeHub: ModelPull.Transport {
         #expect(resumed.reused == ["config.json", "model.safetensors"])
         #expect(resumed.missing.map(\.path) == ["tokenizer.json", "tokenizer_config.json"])
         hub.requested.withLock { $0 = [] }
-        #expect(try await pull.fetch(resumed, available: 1 << 40) == resumed.remaining)
+        // The interrupted file is resumed after the byte it had, so this run downloads one byte less.
+        #expect(try await pull.fetch(resumed, available: 1 << 40) == resumed.remaining - 1)
         #expect(
             hub.requested.withLock { $0 } == [
                 "/mlx-community/q/resolve/\(FakeHub.revision)/tokenizer.json",
@@ -326,20 +333,125 @@ final class FakeHub: ModelPull.Transport {
         #expect(try Data(contentsOf: place.blob("tokenizer.json")) == Self.repository["tokenizer.json"])
     }
 
-    @Test func anIncompleteBlobIsStartedAgain() async throws {
-        let place = try Place()
-        defer { place.remove() }
+    /// Leaves `bytes` as the `.incomplete` of the weights' blob, as an interrupted fetch would.
+    private func halfFetched(_ place: Place, _ bytes: Data) throws -> (blob: URL, incomplete: URL) {
         let blob = place.blob("model.safetensors")
         let incomplete = blob.deletingLastPathComponent().appending(path: blob.lastPathComponent + ".incomplete")
         try FileManager.default.createDirectory(
             at: blob.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: 7, count: 1000).write(to: incomplete)
-        let pull = place.pull(FakeHub(files: Self.repository))
+        try bytes.write(to: incomplete)
+        return (blob, incomplete)
+    }
+
+    @Test func anIncompleteBlobIsResumedWithARangeRequestAndCheckedWhole() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let (blob, incomplete) = try halfFetched(place, Data(repeating: 7, count: 1000))
+        let hub = FakeHub(files: Self.repository)
+        let pull = place.pull(hub)
         let plan = try await pull.plan("mlx-community/q", into: place.models)
         #expect(plan.missing.map(\.path).contains("model.safetensors"))
-        _ = try await pull.fetch(plan, available: 1 << 40)
+        var notices: [String] = []
+        let fetched = try await pull.fetch(plan, available: 1 << 40) { _, _ in
+        } notice: {
+            notices.append($0)
+        }
         #expect(try Data(contentsOf: blob) == Self.repository["model.safetensors"])
         #expect(!HubCache.occupied(incomplete))
+        #expect(hub.offsets.withLock { $0 }.filter { $0 > 0 } == [1000])
+        #expect(fetched == plan.remaining - 1000)
+        #expect(notices.contains { $0.hasPrefix("resuming model.safetensors after") }, "\(notices)")
+    }
+
+    @Test func aServerThatIgnoresTheRangeSendsTheWholeFileAndIsSaidTo() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let (blob, _) = try halfFetched(place, Data(repeating: 7, count: 1000))
+        let pull = place.pull(FakeHub(files: Self.repository, honoursRanges: false))
+        let plan = try await pull.plan("mlx-community/q", into: place.models)
+        var notices: [String] = []
+        let fetched = try await pull.fetch(plan, available: 1 << 40) { _, _ in
+        } notice: {
+            notices.append($0)
+        }
+        #expect(try Data(contentsOf: blob) == Self.repository["model.safetensors"])
+        #expect(fetched == plan.remaining)
+        #expect(notices.contains { $0.contains("ignored the range") }, "\(notices)")
+    }
+
+    @Test func aPartThatDoesNotContinueIntoTheListedDigestIsRefusedAndStartedAgainNextTime() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        // The right length, the wrong bytes: the resumed whole fails its SHA-256 and is removed.
+        let (blob, incomplete) = try halfFetched(place, Data(repeating: 9, count: 1000))
+        let hub = FakeHub(files: Self.repository)
+        let pull = place.pull(hub)
+        let plan = try await pull.plan("mlx-community/q", into: place.models)
+        await #expect(throws: ModelPull.Failure.self) { _ = try await pull.fetch(plan, available: 1 << 40) }
+        #expect(!HubCache.occupied(incomplete) && !HubCache.occupied(blob))
+        hub.offsets.withLock { $0 = [] }
+        _ = try await pull.fetch(plan, available: 1 << 40)
+        #expect(try Data(contentsOf: blob) == Self.repository["model.safetensors"])
+        #expect(hub.offsets.withLock { $0 }.allSatisfy { $0 == 0 })
+    }
+
+    @Test func anInterruptedFetchLeavesItsPartAndTheNextRunResumesIt() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let hub = FakeHub(files: Self.repository)
+        hub.failing.withLock { $0 = ["model.safetensors"] }
+        let pull = place.pull(hub)
+        let plan = try await pull.plan("mlx-community/q", into: place.models)
+        await #expect(throws: ModelPull.Failure.self) { _ = try await pull.fetch(plan, available: 1 << 40) }
+        let blob = place.blob("model.safetensors")
+        #expect(ModelPull.size(of: ModelPull.incomplete(of: blob)) == 2048)
+        hub.offsets.withLock { $0 = [] }
+        let again = try await pull.plan("mlx-community/q", into: place.models)
+        _ = try await pull.fetch(again, available: 1 << 40)
+        #expect(try Data(contentsOf: blob) == Self.repository["model.safetensors"])
+        #expect(hub.offsets.withLock { $0 }.contains(2048))
+    }
+
+    @Test func aRealDirectorysIntactFilesSeedTheCacheInsteadOfBeingFetched() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let fileManager = FileManager.default
+        let destination = place.models.appending(path: "q")
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        // An earlier copy: the weights and config intact, a tokenizer that differs, one file missing.
+        for path in ["config.json", "model.safetensors"] {
+            try Self.repository[path]?.write(to: destination.appending(path: path))
+        }
+        try Data("{ }".utf8).write(to: destination.appending(path: "tokenizer.json"))
+        let hub = FakeHub(files: Self.repository)
+        let pull = place.pull(hub)
+        var checked: [String] = []
+        let plan = try await pull.plan("mlx-community/q", into: place.models) { checked.append($0.path) }
+        #expect(plan.link == .directory && plan.reused.isEmpty)
+        #expect(plan.seeded == ["config.json", "model.safetensors"] && checked == ["model.safetensors"])
+        #expect(plan.missing.map(\.path) == ["tokenizer.json", "tokenizer_config.json"])
+        #expect(
+            plan.remaining == Self.repository["tokenizer.json"]!.count + Self.repository["tokenizer_config.json"]!.count
+        )
+        hub.requested.withLock { $0 = [] }
+        var notices: [String] = []
+        _ = try await pull.fetch(plan, available: 1 << 40) { _, _ in
+        } notice: {
+            notices.append($0)
+        }
+        #expect(hub.requested.withLock { $0 }.map { ($0 as NSString).lastPathComponent } == plan.missing.map(\.path))
+        #expect(notices.filter { $0.hasPrefix("copying ") }.count == 2)
+        for path in Self.wantedFiles {
+            #expect(try Data(contentsOf: place.blob(path)) == Self.repository[path], "\(path)")
+        }
+        // The directory is untouched, and replacing it with the link loses nothing.
+        #expect(try Data(contentsOf: destination.appending(path: "tokenizer.json")) == Data("{ }".utf8))
+        #expect(
+            try pull.link(plan, replacingDirectory: true) { try fileManager.removeItem(at: $0) } == .replacedDirectory)
+        #expect(MLXBackend.weightBytes(in: destination) == 4096)
+        // With the cache filled, a plan reuses it and seeds nothing.
+        let replanned = try await pull.plan("mlx-community/q", into: place.models)
+        #expect(replanned.seeded.isEmpty && replanned.missing.isEmpty)
     }
 
     @Test func aBlobAnotherProgramIsFetchingIsRefused() async throws {

@@ -177,6 +177,9 @@ extension Doctor {
             return model == .system || model == .privateCloud
                 ? "\(tokens), reported by the framework" : "\(tokens), declared by the model backend"
         }
+        if note.hasPrefix(ContextSizing.perModelPrefix) {
+            return "\(tokens), configured for this model (\(note.dropFirst(ContextSizing.perModelPrefix.count)))"
+        }
         if note.hasPrefix("configured as ") {
             return "\(tokens), configured (\(note.dropFirst("configured as ".count)))"
         }

@@ -129,6 +129,8 @@ import WispTestSupport
         mutating func event(_ event: AuditEvent) -> String {
             var details = event.details
             details["seconds"] = nil
+            // Token usage is the runtime's report, not the context; the MCP wire tests check it.
+            details["usage"] = nil
             let call = event.call.map { name($0) } ?? "-"
             return "\(event.kind.rawValue) session=\(text(event.session)) turn=\(event.turn.map(String.init) ?? "-") "
                 + "call=\(call) \(json(details))"
@@ -440,7 +442,9 @@ import WispTestSupport
             .enumerated()
         {
             await reply(&fingerprint) { try await agent.respond(to: prompt) }
-            let receipt = canon.json(thread.receipts.take(turn: index + 1).json)
+            var taken = thread.receipts.take(turn: index + 1)
+            taken.usage = nil  // the runtime's report, not the context; the MCP wire tests check it
+            let receipt = canon.json(taken.json)
             fingerprint.replies.append(receipt.replacing(#/"seconds":[-0-9.eE+]+/#, with: #""seconds":0"#))
         }
         fingerprint.output.append(canon.json(agent.transcript))

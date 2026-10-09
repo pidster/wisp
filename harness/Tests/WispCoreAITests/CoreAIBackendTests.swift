@@ -99,6 +99,30 @@ import WispCore
                 config: Config().resolved, home: Home(root: URL(filePath: "/nonexistent"))
             ).isEmpty)
     }
+
+    @Test func aLinkedModelsDirectoryAndALinkedBundleAreListed() async throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let fileManager = FileManager.default
+        // A bundle kept elsewhere, linked into the models directory by name.
+        let elsewhere = home.root.appending(path: "elsewhere/q_bundle")
+        try fileManager.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try Data(#"{"kind":"llm","language":{"max_context_length":4096}}"#.utf8)
+            .write(to: elsewhere.appending(path: "metadata.json"))
+        try Data(repeating: 0, count: 1024).write(to: elsewhere.appending(path: "weights.aimodel"))
+        try fileManager.createSymbolicLink(
+            atPath: models.appending(path: "q").path, withDestinationPath: elsewhere.path)
+        #expect(CoreAIBackend.bundles(in: models).map(\.lastPathComponent) == ["q"])
+        let installed = try await CoreAIBackend().installed(config: Config().resolved, home: home)
+        #expect(installed.map(\.selection) == [.local(backend: "coreai", name: "q")])
+        #expect(installed.first?.detail.hasSuffix("4,096-token window") == true)
+        // A models directory that is itself a link, as `coreai.modelsDirectory` may name.
+        let linked = home.root.appending(path: "linked-coreai")
+        try fileManager.createSymbolicLink(atPath: linked.path, withDestinationPath: models.path)
+        #expect(CoreAIBackend.bundles(in: linked).map(\.lastPathComponent) == ["q"])
+        let viaLink = Config(coreai: .init(modelsDirectory: linked.path)).resolved
+        #expect(try await CoreAIBackend().installed(config: viaLink, home: home).map(\.selection).count == 1)
+    }
 }
 
 /// Runs a real exported bundle. Needs `WISP_COREAI_TESTS=1` and `WISP_COREAI_MODEL` set to a bundle

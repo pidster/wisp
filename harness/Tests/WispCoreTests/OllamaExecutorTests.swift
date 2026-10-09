@@ -321,6 +321,14 @@ final class FakeOllama: URLProtocol {
         configured.contextLength = 4096
         let fixed = try OllamaModel(name: "g", settings: configured).checked(memory: memory)
         #expect(fixed.window == 4096 && fixed.windowReason == "configured as ollama.contextLength")
+        // A model's own window comes before the one for every model, with or without its `:latest` tag.
+        configured.modelContextLengths = ["g": 12288]
+        let own = try OllamaModel(name: "g:latest", settings: configured).checked(memory: memory)
+        #expect(own.window == 12288 && own.windowReason == "configured for this model as ollama.models.g.contextLength")
+        var unsized = Self.settings
+        unsized.modelContextLengths = ["other": 4096]
+        let other = try OllamaModel(name: "g", settings: unsized).checked(memory: memory)
+        #expect(!other.windowReason.hasPrefix("configured"), "\(other.windowReason)")
         FakeOllama.serve("/api/show", body: #"{"capabilities":["completion","tools"]}"#)
         let shapeless = try OllamaModel(name: "g", settings: Self.settings).checked(memory: memory)
         #expect(shapeless.window == 8192 && shapeless.windowReason.contains("no model shape"))

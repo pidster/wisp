@@ -188,7 +188,8 @@ delegated work without reading the log ([ADR 0021](decisions/0021-receipts.md)):
   "approvals": [{ "command": "git status", "level": "moderate", "decision": "approved", "scope": "session" }],
   "errors": [],
   "condensed": false,
-  "seconds": 2.1
+  "seconds": 2.1,
+  "usage": { "input": 4310, "output": 212, "cached": 0, "reasoning": 0 }
 }
 ```
 
@@ -202,9 +203,10 @@ delegated work without reading the log ([ADR 0021](decisions/0021-receipts.md)):
 | `approvals` | Every gate decision: `decision` (`approved`, `denied`, `timed-out`, `cached…`), the `level` it was asked at, the `scope` given. |
 | `errors` | Errors not tied to a tool call, such as a failed turn. |
 | `condensed`, `seconds` | As for the turn; `seconds` is null when the turn did not complete. |
+| `usage` | The tokens the turn's requests used, as the runtime reported them, summed over the turn's requests (a tool-calling turn makes several, each counting the prompt again): `input`, `output`, and of those `cached` (input the runtime reused rather than processed again) and `reasoning` (output spent thinking). Present only for a runtime that reports usage: an Ollama or MLX model under wisp's executor. Ollama reports no cache figure, so its `cached` is 0; MLX's is the reused prefix. Absent for Apple's models and the MLX bridge, which report none, and when the turn did not complete. The thread's own condensing calls (facts, the summary, the assessment) are not counted. |
 
-Lists hold at most 64 entries each. Token usage is not reported yet: the framework does not expose it
-for Apple's models, and wisp does not record what local runtimes report (`docs/backlog.md`).
+Lists hold at most 64 entries each. The `response` audit event records the same `usage`
+([logging.md](logging.md)).
 
 `calls` lists each tool call of the turn with what it produced, so a caller can check the reply against
 the real output rather than the model's account of it (decision D9 of the

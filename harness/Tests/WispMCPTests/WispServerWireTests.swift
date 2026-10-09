@@ -25,7 +25,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         ],
         approver: any Approver = DenyingApprover(reason: "not in tests"), elicitation: Bool = false,
         triageSteps: [ScriptedModel.Step] = [], config: String? = nil, unopenable: ModelSelection? = nil,
-        fileAudit: Bool = false
+        fileAudit: Bool = false, reportsUsage: Bool = true, cachedTokens: Int = 0
     ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
         let sink = MemoryAuditSink()
         // With `fileAudit`, events also go to the audit file, which the resources that read the log serve.
@@ -41,9 +41,11 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let server = WispServer(session: session) { session, _, id, instructions, tools, model in
             let thread = try session.thread(
                 id: id, host: session.host(approver: approver), instructions: instructions, tools: tools, model: model)
+            let scripted = ScriptedModel(steps: steps, reportsUsage: reportsUsage)
+            scripted.script.cached.withLock { $0 = cachedTokens }
             let agent = Agent(
                 instructions: thread.prompting.rendered, tools: thread.tools,
-                model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit
+                model: ResolvedModel(selection: .system, custom: scripted), audit: thread.audit
             )
             return OpenThread(
                 thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
@@ -168,6 +170,34 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let server = pair.sink.events.filter { $0.kind == .mcpRequest || $0.kind == .mcpResult }
         #expect(server.count == 2)
         #expect(server.first?.details["arguments"]?.stringValue?.contains("\"prompt\"") == true)
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func theReceiptCarriesTheTurnsTokenUsageWhenTheRuntimeReportsIt() async throws {
+        // A thinking model that reuses a cached prefix: 40 tokens in, 12 of them cached; 3 thought and 1 said.
+        let pair = try await connected(steps: [.think("one two three"), .say("done")], cachedTokens: 12)
+        let result = try await call(pair.client, "respond", ["prompt": .string("go"), "thread_id": .string("u1")])
+        let receipt = result.structuredContent?.objectValue?["receipt"]?.objectValue
+        #expect(receipt?["usage"] == .object(["input": 40, "output": 4, "cached": 12, "reasoning": 3]))
+        // A second turn reports its own tokens, not the thread's running total.
+        let again = try await call(pair.client, "respond", ["prompt": .string("again"), "thread_id": .string("u1")])
+        let second = again.structuredContent?.objectValue?["receipt"]?.objectValue?["usage"]?.objectValue
+        #expect(second?["input"] == 40 && second?["output"] == 1 && second?["reasoning"] == 0)
+        // The `response` audit event carries the same figures.
+        let response = pair.sink.events.first { $0.session == "u1" && $0.kind == .response }
+        #expect(response?.details["usage"] == .object(["input": 40, "output": 4, "cached": 12, "reasoning": 3]))
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func theReceiptHasNoUsageWhenTheRuntimeReportsNone() async throws {
+        let pair = try await connected(steps: [.say("done")], reportsUsage: false)
+        let result = try await call(pair.client, "respond", ["prompt": .string("go"), "thread_id": .string("u2")])
+        let receipt = result.structuredContent?.objectValue?["receipt"]?.objectValue
+        #expect(receipt?["turn"] == .int(1) && receipt?["usage"] == nil)
+        let response = pair.sink.events.first { $0.session == "u2" && $0.kind == .response }
+        #expect(response != nil && response?.details["usage"] == nil)
         await pair.client.disconnect()
         await pair.server.stop()
     }

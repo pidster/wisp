@@ -87,7 +87,7 @@ public enum ConfigSettings {
         Setting(
             path: "ollama.contextLength",
             summary: "the context window asked of every Ollama model; unset sizes each from memory",
-            kind: .integer(1024...1_048_576)),
+            kind: .integer(windowRange)),
         Setting(
             path: "ollama.think",
             summary:
@@ -96,7 +96,7 @@ public enum ConfigSettings {
         Setting(
             path: "mlx.contextLength",
             summary: "the context window of every MLX model; unset sizes each from memory",
-            kind: .integer(1024...1_048_576)),
+            kind: .integer(windowRange)),
         Setting(
             path: "mlx.executor", summary: "what runs MLX models: wisp's executor, or the bridge (no prefix reuse)",
             kind: .choice(MLXExecutorChoice.allCases.map(\.rawValue))),
@@ -132,9 +132,54 @@ public enum ConfigSettings {
             kind: .number(Config.WatchConfig.settleRange)),
     ]
 
-    /// The setting at `path`, or nil.
+    /// The setting at `path`, or nil: one of `all`, or a model's own window,
+    /// `<runtime>.models.<name>.contextLength`, whose name may hold dots.
     public static func setting(_ path: String) -> Setting? {
-        all.first { $0.path == path }
+        if let fixed = all.first(where: { $0.path == path }) { return fixed }
+        guard let named = perModelWindow(path) else { return nil }
+        return Setting(
+            path: path,
+            summary: "this model's context window, ahead of \(named.runtime).contextLength and sizing from memory",
+            kind: .integer(windowRange))
+    }
+
+    /// The windows a context length may be set to.
+    static let windowRange = 1024...1_048_576
+
+    /// The runtimes whose models each take their own window.
+    static let perModelRuntimes = ["ollama", "mlx"]
+
+    /// The runtime and model a model's own window setting names, such as `ollama` and `qwen3.8:27b` for
+    /// `ollama.models.qwen3.8:27b.contextLength`; nil for any other path.
+    static func perModelWindow(_ path: String) -> (runtime: String, model: String)? {
+        for runtime in perModelRuntimes {
+            let prefix = "\(runtime).models.", suffix = ".contextLength"
+            guard path.hasPrefix(prefix), path.hasSuffix(suffix), path.count > prefix.count + suffix.count else {
+                continue
+            }
+            return (runtime, String(path.dropFirst(prefix.count).dropLast(suffix.count)))
+        }
+        return nil
+    }
+
+    /// The keys `path` names in `config.json`: its dotted parts, except a model's name, which is one key.
+    public static func keys(_ path: String) -> [String] {
+        if let named = perModelWindow(path) { return [named.runtime, "models", named.model, "contextLength"] }
+        return path.split(separator: ".").map(String.init)
+    }
+
+    /// The settings a list shows: every one of `all`, then each model's own window the file sets.
+    ///
+    /// - Parameter data: The file's contents, nil for none.
+    /// - Returns: The settings.
+    public static func listed(in data: Data?) -> [Setting] {
+        let root = (try? ConfigEdit.object(data)) ?? [:]
+        let own = perModelRuntimes.flatMap { runtime in
+            (root[runtime]?.objectValue?["models"]?.objectValue ?? [:]).compactMap { name, entry in
+                entry.objectValue?["contextLength"] == nil ? nil : setting("\(runtime).models.\(name).contextLength")
+            }.sorted { $0.path < $1.path }
+        }
+        return all + own
     }
 
     /// What a setting is when `config.json` does not set it, from `Config().resolved`; nil where the
@@ -174,7 +219,10 @@ public enum ConfigSettings {
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
         case "context.memory": return .bool(d.contextMemory)
         case "watch.settle": return .double(d.watchSettle)
-        default: return nil
+        default:
+            // A model's own window falls back to the runtime's, then to sizing.
+            guard let named = perModelWindow(path) else { return nil }
+            return defaultValue("\(named.runtime).contextLength")
         }
     }
 }
@@ -330,7 +378,7 @@ public enum ConfigEdit {
     /// - Throws: `Failure.unreadableFile`.
     public static func current(_ path: String, in data: Data?) throws -> JSONValue? {
         let root = try object(data)
-        return value(at: path.split(separator: ".").map(String.init), in: .object(root))
+        return value(at: ConfigSettings.keys(path), in: .object(root))
     }
 
     /// The file's top-level object.
@@ -371,7 +419,7 @@ public enum ConfigEdit {
 
     /// The change of the setting at the dotted `path`.
     private static func change(_ path: String, to new: JSONValue?, in data: Data?) throws -> Outcome {
-        try change(path.split(separator: ".").map(String.init), to: new, in: data)
+        try change(ConfigSettings.keys(path), to: new, in: data)
     }
 
     /// `data` with `keys` set to `new` (removed when nil), checked to load as start-up loads it.
