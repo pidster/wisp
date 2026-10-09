@@ -572,7 +572,7 @@ Error: system is the default model, so it cannot be disabled; make another model
 
 #### `wisp models check <name>…`
 
-Checks what MLX models can do, on the models themselves, and records it in `config.json`
+Checks what MLX and llama.cpp models can do, on the models themselves, and records it in `config.json`
 ([ADR 0056](decisions/0056-models-enabled-and-disabled.md), refined 2026-10-04). It loads the model and asks three
 short questions, each once, greedily, within a time limit:
 

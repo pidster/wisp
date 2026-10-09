@@ -209,9 +209,19 @@ thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat
 
 ## 7. Current work and backlog (2026-10-09)
 
-### Committed, not yet released (0.20.0)
+### Committed, not yet released (0.21.0)
 
-`CHANGELOG.md`, "Unreleased": context checkpoint 2 run and decided
+`CHANGELOG.md`, "Unreleased": llama.cpp and LM Studio as backends through one shared executor for
+OpenAI-compatible servers, the window read from the server and the key from the environment or `config.json`
+([ADR 0058](decisions/0058-a-shared-http-executor.md)), tested against a fake server per dialect and live against
+Ollama's OpenAI-compatible endpoint, not yet against a real `llama-server` or LM Studio; a context window for one
+model (`ollama.models.<name>.contextLength`, `mlx.models.<name>.contextLength`); `wisp models pull` resuming a
+file cut off part-way and seeding the Hugging Face cache from a real directory, and Core AI's listing following
+links ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09); token usage in `respond`'s
+receipt and the `response` audit event; shell completions (`wisp completions`). Measured, not shipped as code:
+`qwen3.8:27b` re-measured, with no slowdown in tool work ([measurements.md](measurements.md)).
+
+0.20.0 (2026-10-09) carried context checkpoint 2 run and decided
 ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)): the model's `memory` tool off by default and
 turned on by `context.memory`, `context.target` 0.6, and `assessment.taskChanges` `restated`; windows sized for
 gemma4, reported per layer, and for hybrid models by their attention layers
@@ -221,7 +231,7 @@ array, ChatML's end of turn, and `null` arguments rendered ([ADR 0052](decisions
 and [ADR 0053](decisions/0053-the-models-thinking-shown.md), refined); Mistral's text tool calls read from Ollama
 replies; `edit_file`'s line edits forgiving a lost indentation and a stale number, and an empty `find` beside `line`
 ([ADR 0024](decisions/0024-edit-file.md), refined); `mlx:` models in `scripts/check eval compare`, and `scripts/check
-eval checkpoint`. Measured, not shipped as code: the local-model and Falcon comparisons, which kept
+eval checkpoint`. It also measured the local-model and Falcon comparisons, which kept
 `granite4.1:8b` as the delegation default ([measurements.md](measurements.md#comparing-models)).
 
 0.19.0 (2026-10-04) carried MLX on wisp's own executor, on a par with Ollama, and `wisp models pull` into the
@@ -242,9 +252,9 @@ and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts over MCP
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.23.0; next, 0.21.0: a shared HTTP executor for llama.cpp and LM
-Studio. [ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget from the model's
-window, is proposed for 0.22.0. Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
+The [roadmap](roadmap.md) has each release to 0.23.0; next, 0.22.0: [ADR
+0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget from the model's window, with shell
+loops judged by what they run and approvals for folders that are gone. Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
 0.20.0 must measure" beyond the Qwen3-1.7B comparison.
 
 ### Open from the layered context

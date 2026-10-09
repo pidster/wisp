@@ -77,10 +77,10 @@
 | [decisions/0017-three-layer-instructions.md](decisions/0017-three-layer-instructions.md) | wisp's system prompt (a resource file), the operator's extension, and the caller's instructions, rendered in order |
 | [decisions/0016-local-runtimes-through-an-executor.md](decisions/0016-local-runtimes-through-an-executor.md) | Locally installed models plug in through a wisp-supplied executor; what the spike measured; `ollama:<name>` built |
 | [release.md](release.md) | How a release is cut: tag, tarball, GitHub release, Homebrew tap formula |
-| [roadmap.md](roadmap.md) | The releases planned from 0.20.0 to 0.23.0, each with its larger and smaller items, and what is not yet scheduled |
+| [roadmap.md](roadmap.md) | The releases planned from 0.21.0 to 0.23.0, each with its larger and smaller items, and what is not yet scheduled |
 | [backlog.md](backlog.md) | Agreed work not yet scheduled, and what has shipped, done and dated; the release plan is in roadmap.md |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate (with the lockfiles' MLX pins it guards), and CI |
-| [backends.md](backends.md) | Model backends: Apple's, Ollama, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
+| [backends.md](backends.md) | Model backends: Apple's, Ollama, llama.cpp, LM Studio, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
 | [decisions/](decisions/) | Architecture Decision Records, one per significant decision |
 | [proposals/2026-09-22-tui-spike.md](proposals/2026-09-22-tui-spike.md) | Spike: a ratatui front end over a headless `wisp chat --json`; what was built, what was answered, what needs a real terminal |
 | [proposals/2026-09-29-layered-context.md](proposals/2026-09-29-layered-context.md) | Done, recorded in ADR 0045; the detailed record of decisions D1 to D12 and every evaluation, phases 1 to 6: stored, active, and shown views of a conversation; a context composed for each request from literal turns, a summary, facts, and recall; display decoupled from context by output handling |

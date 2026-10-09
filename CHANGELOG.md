@@ -27,7 +27,7 @@ Added:
   A real directory at `~/.wisp/models/mlx/<name>` seeds the Hugging Face cache: its files that match the listing are
   copied (cloned on APFS) instead of fetched again.
 - `respond`'s receipt carries the turn's token usage, `usage` with `input`, `output`, `cached`, and `reasoning`, for
-  a runtime that reports it (Ollama, MLX); the `response` audit event records it too. Apple's models report none,
+  a runtime that reports it (Ollama, MLX, llama.cpp, LM Studio); the `response` audit event records it too. Apple's models report none,
   and their receipts have no `usage`.
 - Shell completions for zsh, bash, and fish. Homebrew installs them with wisp; otherwise `wisp completions install`
   writes the script for your shell (from `$SHELL`, or named) to its per-user directory, replacing only a file wisp

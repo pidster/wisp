@@ -158,7 +158,8 @@ Three things wait on a Developer ID or App Store signature rather than on code.
   from the model and memory, exact token counts, usage, and each thread's processed prefix reused; Core AI reports
   its bundle's window; `wisp models pull` fetches `mlx-community` models into the Hugging Face cache, reusing what
   Hugging Face's tools already fetched, after asking ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
-  Measuring it against Ollama is 0.20.0's ([roadmap.md](roadmap.md)).
+  Measured against Ollama for `Qwen3-1.7B-4bit` in 0.20.0; the rest of ADR 0052's list is not yet scheduled
+  ([roadmap.md](roadmap.md), "Not scheduled").
 - Done 2026-10-04: a reasoning model's thinking shown, counted, audited, and never sent back to the model, and
   `ollama.think` ([ADR 0053](decisions/0053-the-models-thinking-shown.md)).
 - Done 2026-10-04: models enabled and disabled, `wisp models` as a table, an MLX model's capabilities checked on
@@ -171,6 +172,12 @@ Three things wait on a Developer ID or App Store signature rather than on code.
   [ADR 0053](decisions/0053-the-models-thinking-shown.md), refined); MLX tool calls as a JSON array and ChatML's end
   of turn read; Mistral's text tool calls read from Ollama replies; and the local-model and Falcon comparisons, which
   kept `granite4.1:8b` as the delegation default ([measurements.md](measurements.md#comparing-models)).
+- Done 2026-10-09: llama.cpp and LM Studio as backends through a shared executor for OpenAI-compatible servers
+  ([ADR 0058](decisions/0058-a-shared-http-executor.md); see "Model backends, deferred"); a context window for one
+  model (`ollama.models.<name>.contextLength`, `mlx.models.<name>.contextLength`); `wisp models pull` resuming a
+  file cut off part-way and seeding the Hugging Face cache from a real directory, and Core AI's listing following
+  links ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09); and `qwen3.8:27b`
+  re-measured, with no slowdown in tool work ([measurements.md](measurements.md)).
 - Done 2026-09-20: agent tests without the model. `ScriptedModel` drives `Agent`, the tool loop,
   `WispServer` over a real client and in its unit tests (the fake thread is gone), and the whole
   `wisp chat` loop, which moved into `WispCore` as `ChatLoop` with injected input and output.

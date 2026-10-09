@@ -55,6 +55,15 @@ gives `!` to the model as text.
 Nothing, with the default model. The on-device model runs on your Apple silicon; prompts, files, and
 command output stay local.
 
+An MLX or Core AI model runs in wisp's own process, on the Mac. An Ollama, llama.cpp, or LM Studio model
+runs in that runtime's server, and wisp sends it every request over HTTP: the conversation, the tools'
+descriptions, and their output. By default each server is on this Mac (`http://127.0.0.1:11434`,
+`:8080`, and `:1234`), so nothing leaves it. `ollama.baseURL`, `llamacpp.baseURL`, and `lmstudio.baseURL`
+take any address, and wisp does not check that one is local: pointed at another machine, prompts, files the
+model reads, and command output go to that machine. A llama.cpp or LM Studio key (`WISP_LLAMACPP_API_KEY`,
+`WISP_LMSTUDIO_API_KEY`, or `apiKey` in `config.json`) is sent to that server alone, as `Authorization`, and
+never logged or shown ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
+
 If you choose `--model private-cloud`, prompts and tool output go to Apple's Private Cloud Compute under
 Apple's privacy guarantees. wisp prints a note on stderr when that model is selected and records it in
 every session's audit event. The risk classifier always runs on the Mac (the on-device model or a Core
@@ -101,7 +110,9 @@ wisp downloads a model only when you run `wisp models pull mlx-community/<name>`
 after it has said which files, how many bytes, and where. It fetches from `mlx-community` alone, only the files
 a model directory needs, and checks each against Hugging Face's listing; wisp's own model is refused the
 command by the default policy. The files go into the Hugging Face cache, shared with Hugging Face's own tools,
-and the models directory links to them; a directory already there is moved to the Trash only if you answer yes
+and the models directory links to them; a file cut off part-way resumes from where it stopped and is checked
+whole, and the intact files of a real directory already at `~/.wisp/models/mlx/<name>` are copied into the cache
+instead of fetched again; a directory already there is moved to the Trash only if you answer yes
 to a second question ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)).
 
 Turning a model off (`wisp models disable`, `/models` in chat, `wisp-tui`'s picker) changes only
@@ -110,7 +121,8 @@ downloads nothing. Enabling an MLX model whose capabilities `config.json` does n
 loads the model into wisp's own process and asks it three short questions, each within a time limit, with no tool
 of wisp's: the only tool it is offered is the check's own `record_word`, which records a word and touches nothing.
 What passes is written to `config.json` (`mlx.models.<name>`) and audited as `model.verified`
-([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). A llama.cpp model is checked the same way, through its
+server, and what passes is written under `llamacpp.models.<name>`.
 
 ## Switches that remove protection
 
@@ -139,8 +151,9 @@ remembered as ([logging](logging.md)).
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
-  writable set, except the models you pulled into the Hugging Face cache, which Hugging Face's own tools share;
-  delete `<cache>/models--mlx-community--<name>` to remove one.
+  writable set, except the models you pulled into the Hugging Face cache, which Hugging Face's own tools share
+  (delete `<cache>/models--mlx-community--<name>` to remove one), and the completion script `wisp completions
+  install` wrote for your shell (delete the file it named).
 - Uninstall: `brew uninstall wisp`.
 
 ## Files wisp writes
@@ -150,6 +163,7 @@ remembered as ([logging](logging.md)).
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |
+| `~/.zsh/completions/_wisp`, bash-completion's or fish's per-user completions directory | the shell completion script, only when you run `wisp completions install`; it replaces only a file wisp wrote ([wisp.md](wisp.md), "`wisp completions`") | your default (umask) |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, and your answers, until taken | user-only (directory 0700, files 0600) |

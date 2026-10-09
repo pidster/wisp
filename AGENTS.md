@@ -24,7 +24,7 @@ only what applies everywhere and to every agent.
 
 | Path | Contents |
 | --- | --- |
-| `harness/` | Swift package. Targets: `WispCore` (all logic), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait, which the release is built with, ADR 0047), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers backends), tests, and `WispTestSupport` (`ScriptedModel` and friends, also a library product). |
+| `harness/` | Swift package. Targets: `WispCore` (all logic, with the HTTP backends: Ollama, llama.cpp, LM Studio), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait, which the release is built with, ADR 0047), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers the Core AI and MLX backends), tests, and `WispTestSupport` (`ScriptedModel` and friends, also a library product). |
 | `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`, needing a model). The gate and coverage never build it; `scripts/check eval` does. |
 | `tools/` | Cargo workspace. `wisp-tui`, the terminal front end over `wisp chat --json` (ADR 0029); future tool binaries go here too. The gate runs fmt, pedantic clippy, and tests on it. |
 | `docs/` | Documentation and ADRs. Part of every change (see Definition of done). |
@@ -67,7 +67,7 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 ## Architecture in one paragraph
 
 `Agent` wraps one `LanguageModelSession` created by a `ResolvedModel` (`ModelSelection`: `system` or
-`private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `coreai`, and `mlx`, ADR 0019, through wisp's own executor too since ADR 0052; adapters are obsoleted on macOS 27, ADR 0013; a model in `DisabledModels` is refused wherever one is chosen, and enabling an MLX model checks its capabilities on the model, `ModelVerification`, ADR 0056); the framework runs the tool loop. `ToolRegistry` is the single
+`private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `llamacpp` and `lmstudio` through one shared executor for OpenAI-compatible servers, ADR 0058, `coreai`, and `mlx`, ADR 0019, through wisp's own executor too since ADR 0052; adapters are obsoleted on macOS 27, ADR 0013; a model in `DisabledModels` is refused wherever one is chosen, and enabling an MLX model checks its capabilities on the model, `ModelVerification`, ADR 0056); the framework runs the tool loop. `ToolRegistry` is the single
 list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`), each wrapped by `AuditedTool`; every tool by default is all but `memory`, which `context.memory` or a list naming it adds (ADR 0057).
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
