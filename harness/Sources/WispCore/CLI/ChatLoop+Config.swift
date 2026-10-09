@@ -167,7 +167,7 @@ extension ChatLoop {
             return
         }
         do {
-            let outcome = try edit(try? Data(contentsOf: url))
+            let outcome = try edit(try ConfigEdit.existing(at: url))
             try ConfigEdit.write(outcome, to: url)
             agent.audit?.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: "chat"))
             let old = outcome.old.map(Self.shown) ?? "(default)"
@@ -176,6 +176,42 @@ extension ChatLoop {
             if let warning = outcome.warning { io.note(style.amber("note: \(warning)")) }
         } catch {
             io.note(style.ember("error: \(error)"))
+        }
+    }
+}
+
+extension ConfigEdit {
+    /// Why the config file could not be read for an edit.
+    public struct Unreadable: Error, CustomStringConvertible, Equatable {
+        /// The file.
+        public let path: String
+        /// What reading it said.
+        public let reason: String
+
+        /// Human-readable explanation.
+        public var description: String {
+            "cannot read \(path) (\(reason)); nothing was changed, so the settings in it are kept. "
+                + "Fix its permissions, or move it aside to start afresh"
+        }
+    }
+
+    /// The config file's bytes for an edit, or nil when there is no file yet. Only a missing file is absent: a
+    /// file that exists but cannot be read (its permissions, a directory in its place) refuses the edit,
+    /// because writing as if it were absent would drop every other setting in it.
+    ///
+    /// - Parameter url: The config file.
+    /// - Returns: Its bytes, or nil when it does not exist.
+    /// - Throws: `Unreadable`.
+    public static func existing(at url: URL) throws(Unreadable) -> Data? {
+        do {
+            return try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return nil
+        } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            return nil
+        } catch {
+            let reason = (error as NSError).localizedFailureReason ?? error.localizedDescription
+            throw Unreadable(path: url.path, reason: reason)
         }
     }
 }

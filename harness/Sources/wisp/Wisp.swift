@@ -808,15 +808,20 @@ struct ConfigCommand: ParsableCommand {
 
     /// Edits the file, audits the change, and says what changed.
     ///
-    /// - Throws: A usage error when the edit is refused.
+    /// - Throws: A usage error when the edit is refused; `ExitCode.failure` when the file exists but cannot be
+    ///   read, and nothing is written.
     static func apply(_ path: String, _ edit: (Data?) throws -> ConfigEdit.Outcome) throws {
         let url = Wisp.home.configFile
         let outcome: ConfigEdit.Outcome
         do {
-            outcome = try edit(try? Data(contentsOf: url))
+            outcome = try edit(try ConfigEdit.existing(at: url))
             try ConfigEdit.write(outcome, to: url)
         } catch let failure as ConfigEdit.Failure {
             throw ValidationError("\(failure)")
+        } catch let failure as ConfigEdit.Unreadable {
+            // Not a usage mistake: the file is there and cannot be read, so nothing is written.
+            Wisp.note("Error: \(failure)")
+            throw ExitCode.failure
         }
         let session = try Wisp.begin(.init(entryPoint: .config))
         session.audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: "cli"))
@@ -1620,7 +1625,8 @@ struct Approvals: AsyncParsableCommand {
     /// Writes the person's answer to request `id` and reports whether the waiting server took it. Only from a
     /// terminal: an agent's shell, which has none, cannot answer for the person.
     ///
-    /// - Throws: A validation error when not at a terminal or when the request cannot be answered.
+    /// - Throws: A validation error when not at a terminal or for a decision that is not one; `ExitCode.failure`
+    ///   when the request cannot be answered or the answer came too late (`PendingAnswer`).
     static func answer(_ id: String, decision: String) throws {
         guard isatty(STDIN_FILENO) != 0 else {
             throw ValidationError(
@@ -1640,7 +1646,8 @@ struct Approvals: AsyncParsableCommand {
                 details: AuditEvent.Details.approvalAnswered(
                     request: id, try? channel.request(id: id), decision: decision, via: "cli", delivery: "refused",
                     reason: "\(failure)"))
-            throw ValidationError("\(failure)")
+            try end(PendingAnswer.ending(for: failure))
+            return
         }
         // The server looks every 200 ms; give it a few seconds to take the answer.
         var delivery = channel.delivery(of: id)
@@ -1658,13 +1665,20 @@ struct Approvals: AsyncParsableCommand {
             .approvalAnswered,
             details: AuditEvent.Details.approvalAnswered(
                 request: id, request, decision: decision, via: "cli", delivery: text))
-        let verb = decision == "no" ? "denied" : "approved (\(decision))"
-        let from = request.thread.map { " for thread \($0)" } ?? ""
-        switch delivery {
-        case .taken: print("\(verb): \(request.command)\(from)")
-        case .waiting: print("\(verb): \(request.command)\(from); wisp has not read the answer yet")
-        case .tooLate:
-            throw ValidationError("\(request.command) was answered another way first; your answer was not used")
+        try end(PendingAnswer.ending(of: request, decision: decision, delivery: delivery))
+    }
+
+    /// Ends an answering command as `PendingAnswer` decided: the line on stdout, a usage error (exit 64), or
+    /// the message on stderr and exit 1 for an answer the request's state kept from being used.
+    ///
+    /// - Throws: `ValidationError` or `ExitCode.failure`.
+    static func end(_ ending: PendingAnswer.Ending) throws {
+        switch ending {
+        case .printed(let line): print(line)
+        case .usage(let message): throw ValidationError(message)
+        case .failed(let message):
+            Wisp.note("Error: \(message)")
+            throw ExitCode.failure
         }
     }
 }

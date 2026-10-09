@@ -131,9 +131,18 @@ public enum ShellCompletions {
             case .unwritable(let path, let reason): "cannot write \(path): \(reason)"
             }
         }
+
+        /// Whether the command line was at fault (a usage error, exit 64): only an unnamed shell wisp cannot tell.
+        /// A file in the way or a path that cannot be written is a runtime failure (exit 1).
+        public var isUsage: Bool {
+            if case .unknownShell = self { return true }
+            return false
+        }
     }
 
     /// Writes `shell`'s script to `url`, creating its directory, unless something other than a wisp script is there.
+    /// A symbolic link at `url` (a dotfiles manager's) is kept: the script is written through it, to the file it
+    /// points to, when that file is wisp's; a link to anything else, or to nothing, is refused as foreign.
     ///
     /// - Parameters:
     ///   - shell: The shell.
@@ -143,20 +152,25 @@ public enum ShellCompletions {
     public static func install(_ shell: Shell, at url: URL) throws -> Outcome {
         let content = script(shell) + "\n"
         let manager = FileManager.default
+        // The file checked is the file written: a link's target, so the atomic write replaces it and not the link.
+        let isLink = (try? manager.destinationOfSymbolicLink(atPath: url.path)) != nil
+        let target = isLink ? url.resolvingSymlinksInPath() : url
         var isDirectory: ObjCBool = false
         var outcome = Outcome.written
-        if manager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
-            guard !isDirectory.boolValue, let data = try? Data(contentsOf: url),
+        if manager.fileExists(atPath: target.path, isDirectory: &isDirectory) {
+            guard !isDirectory.boolValue, let data = try? Data(contentsOf: target),
                 let existing = String(data: data, encoding: .utf8), isOwn(existing)
             else { throw Failure.foreign(path: url.path) }
             if existing == content { return .unchanged }
             outcome = .replaced
+        } else if isLink {
+            throw Failure.foreign(path: url.path)  // a link to nothing: where it points is not wisp's to create
         }
         do {
-            try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(content.utf8).write(to: url, options: .atomic)
+            try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(content.utf8).write(to: target, options: .atomic)
         } catch {
-            throw Failure.unwritable(path: url.path, reason: error.localizedDescription)
+            throw Failure.unwritable(path: target.path, reason: error.localizedDescription)
         }
         return outcome
     }

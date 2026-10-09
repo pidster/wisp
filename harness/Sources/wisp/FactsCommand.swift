@@ -79,30 +79,11 @@ struct FactsCommand: AsyncParsableCommand {
         session.end()
     }
 
-    /// What `keep` or `drop` prints once the server has looked, or the error it fails with.
-    ///
-    /// - Parameters:
-    ///   - request: The request answered.
-    ///   - decision: `keep` or `drop`.
-    ///   - delivery: What became of the answer.
-    /// - Returns: The line to print, or the message of the error to raise.
-    static func outcome(
-        of request: PendingApprovals.Request, decision: String, delivery: PendingApprovals.Delivery
-    ) -> Result<String, ValidationError> {
-        let verb = decision == "keep" ? "kept as a permanent fact" : "dropped, left in its thread"
-        let from = request.thread.map { " (thread \($0))" } ?? ""
-        switch delivery {
-        case .taken: return .success("\(verb): \(request.subject)\(from)")
-        case .waiting: return .success("\(verb): \(request.subject)\(from); wisp has not read the answer yet")
-        case .tooLate:
-            return .failure(ValidationError("\(request.subject) stopped waiting first; your answer was not used"))
-        }
-    }
-
     /// Writes the person's answer to fact request `id` and reports whether the waiting server took it. Only
     /// from a terminal: an agent's shell, which has none, cannot answer for the person (ADR 0046's rule).
     ///
-    /// - Throws: A validation error when not at a terminal or when the request cannot be answered.
+    /// - Throws: A validation error when not at a terminal or for a decision that is not one; `ExitCode.failure`
+    ///   when the request cannot be answered or the answer came too late (`PendingAnswer`).
     static func answer(_ id: String, decision: String) throws {
         guard isatty(STDIN_FILENO) != 0 else {
             throw ValidationError(
@@ -122,7 +103,8 @@ struct FactsCommand: AsyncParsableCommand {
                 details: AuditEvent.Details.approvalAnswered(
                     request: id, try? channel.request(id: id), decision: decision, via: "cli", delivery: "refused",
                     reason: "\(failure)"))
-            throw ValidationError("\(failure)")
+            try Approvals.end(PendingAnswer.ending(for: failure))
+            return
         }
         // The server looks every 200 ms; give it a few seconds to take the answer.
         var delivery = channel.delivery(of: id)
@@ -140,9 +122,6 @@ struct FactsCommand: AsyncParsableCommand {
             .approvalAnswered,
             details: AuditEvent.Details.approvalAnswered(
                 request: id, request, decision: decision, via: "cli", delivery: text))
-        switch outcome(of: request, decision: decision, delivery: delivery) {
-        case .success(let line): print(line)
-        case .failure(let error): throw error
-        }
+        try Approvals.end(PendingAnswer.ending(of: request, decision: decision, delivery: delivery))
     }
 }

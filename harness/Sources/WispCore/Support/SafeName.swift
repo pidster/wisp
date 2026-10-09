@@ -6,9 +6,14 @@ public enum SafeName {
     /// The rule in words, for error messages.
     public static let rule = "1-64 characters from [A-Za-z0-9._-]"
 
-    /// Whether `name` follows the rule.
+    /// Whether `name` follows the rule: ASCII letters and digits only, as the rule says. `CharacterSet.alphanumerics`
+    /// would admit every script's letters and digits (`é`, `٣`, fullwidth forms), which look like others in a path
+    /// or a URI.
     public static func isValid(_ name: String) -> Bool {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        return !name.isEmpty && name.count <= 64 && name.unicodeScalars.allSatisfy(allowed.contains)
+        let scalars = name.unicodeScalars
+        return !scalars.isEmpty && scalars.count <= 64 && scalars.allSatisfy(allowed.contains)
     }
+
+    /// The characters the rule allows.
+    private static let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-".unicodeScalars)
 }

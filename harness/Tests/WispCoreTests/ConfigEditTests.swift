@@ -163,4 +163,21 @@ import WispTestSupport
         #expect(ChatInput(line: "/approvals revoke ab12") == .approvals(.revoke("ab12")))
         #expect(ChatInput(line: "/approvals") == .approvals(.list) && ChatInput(line: "/audit") == .inspect("audit"))
     }
+
+    @Test func onlyAMissingConfigFileIsAbsentForAnEdit() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-config-read-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "config.json")
+        #expect(try ConfigEdit.existing(at: file) == nil)
+        try Data(#"{"model":"system"}"#.utf8).write(to: file)
+        #expect(try ConfigEdit.existing(at: file) == Data(#"{"model":"system"}"#.utf8))
+        // A file that is there but cannot be read refuses the edit rather than being taken as empty.
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        #expect(throws: ConfigEdit.Unreadable.self) { try ConfigEdit.existing(at: file) }
+        let folder = dir.appending(path: "folder.json")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(throws: ConfigEdit.Unreadable.self) { try ConfigEdit.existing(at: folder) }
+    }
 }

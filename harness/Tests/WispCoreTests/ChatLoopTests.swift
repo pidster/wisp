@@ -464,4 +464,26 @@ import WispTestSupport
             agent: condensing, store: unwritable, saveName: "x", context: Self.context, io: Capture(lines: []).io)
         await #expect(throws: (any Error).self) { try await exiting.run() }
     }
+
+    @Test func anUnreadableConfigFileRefusesAChangeAndKeepsItsSettings() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "config.json")
+        let original = Data(#"{"approval": {"timeoutSeconds": 30}, "model": "system"}"#.utf8)
+        try original.write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()),
+            audit: AuditLog(session: "chat", sink: MemoryAuditSink()))
+        var context = Self.context
+        context.configFile = file
+        let capture = Capture(lines: ["/config set approval.classifier rules"])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        #expect(capture.noted.contains { $0.contains("error: cannot read \(file.path)") }, "\(capture.noted)")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        #expect(try Data(contentsOf: file) == original)
+    }
 }

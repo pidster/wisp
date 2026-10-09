@@ -60,7 +60,10 @@ struct CompletionsCommand: ParsableCommand {
             do {
                 outcome = try ShellCompletions.install(shell, at: url)
             } catch let failure as ShellCompletions.Failure {
-                throw ValidationError("\(failure)")
+                guard !failure.isUsage else { throw ValidationError("\(failure)") }
+                // A file in the way or an unwritable path is not a usage mistake: say why, without the usage text.
+                FileHandle.standardError.write(Data("Error: \(failure)\n".utf8))
+                throw ExitCode.failure
             }
             switch outcome {
             case .written: print("wrote the \(shell) completions to \(url.path)")

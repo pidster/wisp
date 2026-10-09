@@ -120,6 +120,59 @@ import Testing
         }
     }
 
+    /// A symlink to wisp's own script (a dotfiles manager's) stays a link: the script is written through it. A link
+    /// to someone else's file, or to nothing, is refused and left as it was.
+    @Test func writesThroughALinkToItsOwnFileAndKeepsTheLink() throws {
+        let home = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = FileManager.default
+        let url = ShellCompletions.installURL(.fish, environment: [:], home: home)
+        try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let dotfiles = home.appending(path: "dotfiles")
+        try manager.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        let target = dotfiles.appending(path: "wisp.fish")
+        try Data("\(ShellCompletions.markerPrefix) an older wisp\ncomplete -c wisp\n".utf8).write(to: target)
+        try manager.createSymbolicLink(at: url, withDestinationURL: target)
+        #expect(try ShellCompletions.install(.fish, at: url) == .replaced)
+        #expect(try manager.destinationOfSymbolicLink(atPath: url.path) == target.path)
+        #expect(try String(contentsOf: target, encoding: .utf8) == ShellCompletions.script(.fish) + "\n")
+        #expect(try ShellCompletions.install(.fish, at: url) == .unchanged)
+
+        let mine = "# my own\n"
+        try Data(mine.utf8).write(to: target)
+        #expect(throws: ShellCompletions.Failure.foreign(path: url.path)) {
+            try ShellCompletions.install(.fish, at: url)
+        }
+        #expect(try String(contentsOf: target, encoding: .utf8) == mine)
+
+        try manager.removeItem(at: target)
+        #expect(throws: ShellCompletions.Failure.foreign(path: url.path)) {
+            try ShellCompletions.install(.fish, at: url)
+        }
+        #expect(!manager.fileExists(atPath: target.path))
+    }
+
+    /// Only an unknown shell is a usage error; a file in the way or a path that cannot be written is a runtime
+    /// failure, which the command exits 1 for.
+    @Test func onlyAnUnknownShellIsAUsageError() throws {
+        #expect(ShellCompletions.Failure.unknownShell(nil).isUsage)
+        #expect(!ShellCompletions.Failure.foreign(path: "/x").isUsage)
+        #expect(!ShellCompletions.Failure.unwritable(path: "/x", reason: "r").isUsage)
+        let home = try Self.scratch()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: home.path)
+            try? FileManager.default.removeItem(at: home)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: home.path)
+        let url = ShellCompletions.installURL(.zsh, environment: [:], home: home)
+        #expect {
+            try ShellCompletions.install(.zsh, at: url)
+        } throws: { error in
+            guard let failure = error as? ShellCompletions.Failure, case .unwritable = failure else { return false }
+            return !failure.isUsage
+        }
+    }
+
     /// What to do next: zsh's fpath lines unless FPATH shows the directory, bash-completion or a source line, and
     /// nothing to do for fish.
     @Test func activationAdvice() {
