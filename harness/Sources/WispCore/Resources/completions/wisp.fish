@@ -229,7 +229,7 @@ complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wis
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'list' -d 'List the models usable with --model and config.json.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'enable' -d 'Enable models: offered by /model again; a cached MLX model is linked, with no download.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'disable' -d 'Disable models: hidden from /model and refused everywhere; not the default model.'
-complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'check' -d 'Check what MLX models can do, on the models themselves, and record it in config.json.'
+complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'check' -d 'Check what MLX and llama.cpp models can do, on the models themselves, and record it in config.json.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp models" -eq 1' -fa 'pull' -d 'Fetch an mlx-community model into the Hugging Face cache and link it, after asking.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp models list" all' -l 'all' -d 'Also list the models that cannot be used, with the reason.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp models list" no-tools' -l 'no-tools' -d 'List the models usable for a conversation with no tools.'

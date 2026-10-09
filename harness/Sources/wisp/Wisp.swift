@@ -900,7 +900,8 @@ struct Models: AsyncParsableCommand {
     /// note, a capability declared by hand whose check fails (ADR 0056, refined 2026-10-04).
     struct Check: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Check what MLX models can do, on the models themselves, and record it in config.json.",
+            abstract:
+                "Check what MLX and llama.cpp models can do, on the models themselves, and record it in config.json.",
             discussion:
                 "Loads each model and asks three short questions, each once, greedily, within a time limit (3 min "
                 + "for the first, which loads the weights; 1 min for the others): a plain reply (if it fails, "

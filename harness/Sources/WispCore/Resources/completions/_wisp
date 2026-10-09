@@ -155,7 +155,7 @@ _wisp_models() {
             'list:List the models usable with --model and config.json.'
             'enable:Enable models: offered by /model again; a cached MLX model is linked, with no download.'
             'disable:Disable models: hidden from /model and refused everywhere; not the default model.'
-            'check:Check what MLX models can do, on the models themselves, and record it in config.json.'
+            'check:Check what MLX and llama.cpp models can do, on the models themselves, and record it in config.json.'
             'pull:Fetch an mlx-community model into the Hugging Face cache and link it, after asking.'
         )
         _describe -V subcommand subcommands && ret=0

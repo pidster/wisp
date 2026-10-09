@@ -12,8 +12,8 @@ public enum ToolCatalog {
         name: "respond",
         description:
             "Run a task on this Mac's on-device Apple Foundation Model (or Apple's Private Cloud Compute with "
-            + "model: private-cloud, or a model a local runtime serves with model: ollama:<name>, llamacpp:<name>, or "
-            + "lmstudio:<name>). The on-device model is small with a context window "
+            + "model: private-cloud, or a model a local runtime serves with model: ollama:<name>, mlx:<name>, coreai:<name>, "
+            + "llamacpp:<name>, or lmstudio:<name>). The on-device model is small with a context window "
             + "of about 8k tokens, so keep prompts short and delegate only self-contained tasks such as "
             + "summarising a passage, classifying text, or driving a build or test through its own run_command tool. "
             + "Omit thread_id to start a new conversation; the result's structuredContent.thread_id continues it. "
@@ -49,8 +49,9 @@ public enum ToolCatalog {
                     "type": .string("string"),
                     "description": .string(
                         "Model for a new thread: system (on device, default), private-cloud (Apple Private Cloud "
-                            + "Compute; data leaves the Mac), or a local runtime's model: ollama:<name>, llamacpp:<name> "
-                            + "(llama.cpp's llama-server), or lmstudio:<name> (LM Studio). Only when a thread starts."),
+                            + "Compute; data leaves the Mac), or a local runtime's model: ollama:<name>, mlx:<name>, coreai:<name>, "
+                            + "llamacpp:<name> (llama.cpp's llama-server), or lmstudio:<name> (LM Studio). Only when a thread starts."
+                    ),
                 ]),
                 "task": .object([
                     "type": .string("string"),
