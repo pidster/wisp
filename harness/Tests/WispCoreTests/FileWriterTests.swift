@@ -271,4 +271,17 @@ import Testing
         // Writes and appends show nothing more.
         #expect(try writer.apply(.append("z"), to: many).rendered == "appended to \(many); now 14 bytes")
     }
+
+    /// A write whose rename into place fails throws, leaves the original as it was, and removes the temporary.
+    @Test func anAtomicWriteThatCannotRenameThrowsAndLeavesNoTemporary() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // The target is a directory, so the rename of a file over it is refused.
+        let target = dir.appending(path: "target")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) {
+            try FileWriter.writeAtomically(Data("x".utf8), to: target, replacing: false)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["target"])
+    }
 }

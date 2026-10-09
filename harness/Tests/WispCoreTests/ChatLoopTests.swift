@@ -486,4 +486,63 @@ import WispTestSupport
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         #expect(try Data(contentsOf: file) == original)
     }
+
+    /// A bare `/config get` and `/config set` ask which setting, a flag offers true and false, and every
+    /// question can be left unanswered with nothing changed.
+    @Test func configGetAndSetAskWhichSettingAndAFlagOffersTrueAndFalse() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "config.json")
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()),
+            audit: AuditLog(session: "chat", sink: MemoryAuditSink()))
+        var context = Self.context
+        context.configFile = file
+        let flag = String((ConfigSettings.all.firstIndex { $0.path == "notifications.enabled" } ?? 0) + 1)
+        let capture = Capture(lines: [
+            "/config get", flag,  // a setting picked to show
+            "/config get", "",  // left as it was
+            "/config set", "",  // no setting chosen
+            "/config set notifications.enabled", "2",  // the flag's second answer, false
+            "/config set approval.threshold", "",  // a question left unanswered
+        ])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        #expect(capture.output.contains("notifications.enabled: true  (the default)"), "\(capture.output)")
+        #expect(capture.output.contains("  1  true") && capture.output.contains("  2  false"))
+        #expect(capture.noted.filter { $0 == "left as it was" }.count == 3, "\(capture.noted)")
+        #expect(try Config.load(from: file).notifications?.enabled == false)
+    }
+
+    /// Without a way to inspect wisp's own state the views say so, and a revoke that cannot be written reports
+    /// the error rather than claiming the approval is gone.
+    @Test func viewsWithoutInspectAndARevokeThatCannotBeSavedSaySo() async throws {
+        let dir = try scratch()
+        let locked = dir.appending(path: "locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let store = ApprovalStore(url: locked.appending(path: "approvals.json"))
+        let entry = try await store.grant(
+            pattern: "git push *", directory: "/repo", scope: .project, level: .moderate, source: "test")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
+        var context = Self.context
+        context.inspect = nil
+        context.approvalStore = store
+        let capture = Capture(lines: ["/approvals", "/approvals revoke \(entry.id)"])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        #expect(capture.noted.contains("wisp's own state is not shown here"), "\(capture.noted)")
+        // Where the directory stays writable anyway (running as root) the revoke succeeds, which is also honest.
+        if !FileManager.default.isWritableFile(atPath: locked.path) {
+            #expect(capture.noted.contains { $0.hasPrefix("error:") }, "\(capture.noted)")
+            #expect(await store.all.map(\.id) == [entry.id])
+        }
+    }
 }

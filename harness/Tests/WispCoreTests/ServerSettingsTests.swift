@@ -41,4 +41,13 @@ import Testing
                     + #""llamacpp":{"baseURL":"https://box.local:8080","timeoutSeconds":1}}"#) == nil)
         #expect(try refusal("{}") == nil)
     }
+
+    /// The facts settings' shares are refused when outside 0 to 0.5, the summary's as well as the facts'.
+    @Test func aFactsShareOrSummaryShareOutOfRangeIsRefused() throws {
+        #expect(
+            try refusal(#"{"facts":{"summaryShare":0.9}}"#)?.contains("summaryShare must be between 0 and 0.5") == true)
+        #expect(try refusal(#"{"facts":{"summaryShare":-0.1}}"#)?.contains("summaryShare") == true)
+        #expect(try refusal(#"{"facts":{"share":0.7}}"#)?.contains("share must be between 0 and 0.5") == true)
+        #expect(try refusal(#"{"facts":{"share":0.2,"summaryShare":0.5}}"#) == nil)
+    }
 }

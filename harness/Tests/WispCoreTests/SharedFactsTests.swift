@@ -127,4 +127,23 @@ import Testing
         #expect(session.notes.contains { $0.contains("could not be read") && $0.contains(".unreadable-") })
         #expect(session.permanentFacts.current.isEmpty)
     }
+
+    /// An unreadable store that cannot be moved aside (its directory is not writable) is never overwritten: the
+    /// change is refused and the bytes stay as they were.
+    @Test func anUnreadableStoreThatCannotBeMovedAsideIsNeverOverwritten() throws {
+        let dir = try directory()
+        let url = dir.appending(path: "facts.json")
+        try Data("{nope".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        // Skip where the directory stays writable anyway (running as root).
+        guard !FileManager.default.isWritableFile(atPath: dir.path) else { return }
+        let book = SharedFacts(scope: .permanent, url: url)
+        #expect(book.setAside == nil)
+        #expect(throws: (any Error).self) { try book.record(stated("codename", "BLUE HERON")) }
+        #expect(try String(contentsOf: url, encoding: .utf8) == "{nope")
+    }
 }

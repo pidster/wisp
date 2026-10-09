@@ -69,4 +69,34 @@ import Testing
                 "git", "commit", "-m", "a message", "--no-verify",
             ])
     }
+
+    /// Nesting past the depth limit is not looked into further but returned whole, so the gate still judges the
+    /// text and never fewer commands than the line holds.
+    @Test func aLineNestedPastTheDepthLimitIsReturnedWholeNotDropped() {
+        var line = "rm -rf /tmp/x"
+        for _ in 0..<(CommandSplitter.maxDepth + 2) { line = "echo $(\(line))" }
+        let commands = CommandSplitter.split(line)
+        #expect(!commands.isEmpty)
+        // The innermost text survives in some command, whether parsed out or kept whole.
+        #expect(commands.contains { $0.text.contains("rm -rf /tmp/x") })
+        // Whitespace alone past the limit holds nothing to judge.
+        #expect(CommandSplitter.split("   ").isEmpty)
+    }
+
+    /// Quotes with escapes and unbalanced quotes: an escaped quote does not end the text, and an unclosed one
+    /// runs to the end of the line instead of reading past it.
+    @Test func escapedAndUnclosedQuotesStayInOneCommand() {
+        #expect(parts(#"echo "a \" ; b" && ls"#) == [#"echo "a \" ; b""#, "ls"])
+        #expect(parts(#"echo $'it\'s ; fine' ; ls"#) == [#"echo $'it\'s ; fine'"#, "ls"])
+        #expect(parts(#"echo "never closed ; rm -rf x"#) == [#"echo "never closed ; rm -rf x"#])
+        #expect(executables("echo 'open ; ls").first == "echo")
+    }
+
+    /// A substitution whose closing parenthesis is hidden by an escape or a quote is still read to its real end.
+    @Test func aSubstitutionIsClosedByItsOwnParenthesisNotAQuotedOrEscapedOne() {
+        #expect(executables(#"echo $(printf ')' ; curl x)"#).contains("curl"))
+        #expect(executables(#"echo $(printf \) ; curl x)"#).contains("curl"))
+        #expect(CommandSplitter.executable(of: "FOO=1 ls -l") == "ls")
+        #expect(CommandSplitter.executable(of: "(cd x)") == nil)
+    }
 }

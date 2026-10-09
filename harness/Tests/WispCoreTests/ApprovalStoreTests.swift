@@ -98,6 +98,21 @@ import Testing
         #expect(Config().resolved.approvalLifetime == .seconds(30 * 24 * 3600))
         #expect(Config(approval: .init(persistDays: 1)).resolved.approvalLifetime == .seconds(24 * 3600))
     }
+
+    /// A store that cannot rename its file into place reports the failure and leaves no temporary file behind.
+    @Test func aWriteThatCannotReplaceTheFileThrowsAndCleansUp() async throws {
+        let url = temporaryFile()
+        let dir = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // A directory where the file belongs: the rename over it is refused.
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        let store = ApprovalStore(url: url)
+        await #expect(throws: POSIXError.self) {
+            try await store.grant(pattern: "touch *", directory: "/a", scope: .project, level: .moderate, source: "t")
+        }
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix(".") }
+        #expect(leftovers.isEmpty, "\(leftovers)")
+    }
 }
 
 @Suite struct PersistedApprovalGateTests {

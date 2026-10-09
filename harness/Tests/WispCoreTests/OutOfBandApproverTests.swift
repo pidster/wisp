@@ -206,4 +206,44 @@ final class CancelFlag: Sendable {
         #expect(!FileManager.default.fileExists(atPath: home.pending.path), "nothing was filed")
         #expect(Config().resolved.approvalOutOfBand)
     }
+
+    /// A request that vanishes while the approver waits (swept or withdrawn by another process) can no longer be
+    /// answered, so the wait ends in a denial that says why, and the audit records the failure.
+    @Test func aRequestRemovedWhileWaitingIsDeniedAndAudited() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let sink = MemoryAuditSink()
+        let approver = approver(channel)
+        let decision = Task { await approver.decide(approvalRequest(), audit: AuditLog(session: "git", sink: sink)) }
+        let request = try #require(try await filed(channel).first)
+        channel.withdraw(request)
+        guard case .denied(let reason) = await decision.value else {
+            Issue.record("a vanished request was not denied")
+            return
+        }
+        #expect(reason == "approval request failed: the pending request was removed")
+        let settled = try #require(sink.events.last)
+        #expect(settled.kind == .approvalSettled && settled.details["outcome"] == "failed")
+    }
+
+    /// An answer file that does not decode is refused and audited as such, never taken as an approval; the
+    /// request stays filed, and a genuine answer afterwards still decides it.
+    @Test func aGarbledAnswerFileIsRefusedAndTheRequestStaysOpen() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let sink = MemoryAuditSink()
+        let approver = approver(channel)
+        let decision = Task { await approver.decide(approvalRequest(), audit: AuditLog(session: "git", sink: sink)) }
+        let request = try #require(try await filed(channel).first)
+        try Data("not json".utf8).write(to: channel.directory.appending(path: "\(request.id).answer.json"))
+        // The refusal is audited while the request is still waiting.
+        for _ in 0..<250 where !sink.events.contains(where: { $0.kind == .approvalAnswered }) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let refused = try #require(sink.events.first { $0.kind == .approvalAnswered })
+        #expect(refused.details["delivery"] == "refused")
+        #expect(channel.isFiled(request))
+        try channel.answer(request.id, decision: "once", via: "cli")
+        #expect(await decision.value == .approved(.once))
+    }
 }
