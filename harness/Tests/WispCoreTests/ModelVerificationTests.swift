@@ -104,7 +104,9 @@ private struct VerifyingBackend: ModelBackend {
 @Suite(.serialized) struct ModelVerificationTests {
     private static let answers = Answers()
     private let model = ModelSelection.local(backend: "verifying", name: "m")
-    private let quick = ModelVerification.Limits(first: .seconds(10), each: .seconds(10))
+    /// Limits for checks that pass at once: generous, because a 10 s limit expired under the gate's full parallel
+    /// load (2026-10-09, twice) while the scripted model's answer waited for a thread; the hanging check sets its own.
+    private let quick = ModelVerification.Limits(first: .seconds(60), each: .seconds(60))
     /// 2026-10-04 at noon, in the Mac's zone.
     private let day: Date = {
         var components = DateComponents(year: 2026, month: 10, day: 4, hour: 12)
@@ -159,7 +161,7 @@ private struct VerifyingBackend: ModelBackend {
         #expect(
             progress.first
                 == "checking verifying:m: loads the model (1 MB) and asks three short questions (a reply, a tool "
-                + "call, a structured reply), allowing 10 s for the first, which loads it, and 10 s for each of the "
+                + "call, a structured reply), allowing 60 s for the first, which loads it, and 60 s for each of the "
                 + "others")
         #expect(
             progress.dropFirst().map { $0.components(separatedBy: " in ").first ?? "" } == [
