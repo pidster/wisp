@@ -205,8 +205,8 @@ ended, its source is the `command.typed` event, and its `turn` is the turn whose
 next. `Agent.runTyped` runs it, audits it, stores it (`ThreadRecord.record(command:…)`), and extracts facts from
 its output as from `run_command`'s, with source `person` (`FactExtraction.assertions(…, source:)`). The composer
 always sends it as a notice (`OutputReference.personCommand`): that the person ran it, not the model, where, the
-exit status and line count, then the output whole when it is short, or its first and last lines and the `memory`
-call that recalls it; never as the bare output, whatever the switches (`literal` composes whenever the store
+exit status and line count, then the output whole when it is short, or its first and last lines and, where the
+conversation has `memory`, the call that recalls it (without it, that its output is not repeated); never as the bare output, whatever the switches (`literal` composes whenever the store
 `carriesCommands`). It is never a turn's own entry, so the context of the turn it was typed after does not show
 it; `turnGroups` leaves it out of the headroom, since it is not the model's work; `ContextView` labels it "the
 person's command"; the snapshot saves its `PersonCommand`, and a record of kind `command` restores only with one;

@@ -27,8 +27,8 @@ wisp classifier train --from-audit --use       # a risk classifier trained on th
 
 **wisp** is a small AI agent that runs on your Mac and stays there. It drives Apple's on-device
 Foundation Model, the one behind Apple Intelligence, and gives it tools: it can run a command, read
-and edit a file, report on the machine, send you a notification, and recall what its context no longer
-holds. You use it from the terminal, as
+and edit a file, report on the machine, send you a notification, and, when you turn it on, recall what
+its context no longer holds. You use it from the terminal, as
 a command or a chat, and your coding agent uses it as an MCP server, handing it the local chores that
 would otherwise fill the agent's context: run the tests and return the failures, condense a log,
 summarise a diff, scan a commit for secrets. Every command the model runs passes a policy, a sandbox,
@@ -186,7 +186,8 @@ and delete.
 | | A context window sized from the Mac's free memory for each local model | [wisp.md](docs/wisp.md#context-window), [ADR 0043](docs/decisions/0043-context-window-from-memory.md) |
 | | `wisp models`: every model this Mac can run as one table; enable or disable a model, and have its capabilities checked when you enable it | [wisp.md](docs/wisp.md#wisp-models), [ADR 0056](docs/decisions/0056-models-enabled-and-disabled.md) |
 | | `wisp models pull`: an MLX model fetched into, or reused from, the Hugging Face cache, after asking | [backends.md](docs/backends.md#mlx-swift), [ADR 0052](docs/decisions/0052-mlx-on-a-par-with-ollama.md) |
-| | A reasoning model's thinking shown while it thinks, kept for you and never sent back to the model; `ollama.think` | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md) |
+| | A reasoning model's thinking shown while it thinks, on Ollama and MLX, kept for you and never sent back to the model; `ollama.think` and `mlx.think` | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md), [backends.md](docs/backends.md) |
+| | Which local model suits which work, as measured: the local-model and Falcon comparisons | [measurements.md](docs/measurements.md#comparing-models) |
 | Safety | The policy's deny and allow lists, the Seatbelt sandbox, and what a refused write is reported as | [tools/run_command.md](docs/tools/run_command.md), [ADR 0054](docs/decisions/0054-the-sandboxs-refusals-checked.md) |
 | | Risk classifiers: rules, the shipped Core ML classifier, or the on-device model | [approval.md](docs/approval.md#classifiers) |
 | | **Custom classifiers**: train one on your own audit log or labelled commands, measure it, and switch to it | [wisp.md](docs/wisp.md#wisp-classifier), [approval.md](docs/approval.md#training-and-measuring-a-classifier) |

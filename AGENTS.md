@@ -40,7 +40,7 @@ scripts/check install-hooks        # once per clone
 scripts/check                      # hygiene + strict lint + warnings-as-errors build + tests (the gate)
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
-scripts/check eval [context|compare] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it, or (compare) the delegation suites on each model in WISP_EVAL_MODELS; record rewrites measurements.json
+scripts/check eval [context|compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama: or mlx:), or (checkpoint) context checkpoint 2; record rewrites measurements.json
 scripts/check mlx-live <model dir> # MLX live test on real weights, built with --traits MLX; not in the gate
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code
 

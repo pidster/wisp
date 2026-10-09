@@ -6,6 +6,56 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Breaking:
+
+- New context defaults, from context checkpoint 2 (ADR 0057), which measured them over a 29-turn conversation on the
+  on-device model, `granite4.1:8b`, and `gemma4:12b`, three runs each. The first takes a tool away from every
+  conversation that was given all of them:
+  - The model's `memory` tool is off by default. With it the model scored fewer answers on all three models (4.3
+    against 5.3 of 10 on the on-device model, 7.3 against 8.0 on granite, 8.0 against 9.3 on gemma4). A conversation
+    given every tool (`wisp "…"`, chat, MCP `respond` without `tools`) no longer has it, its instructions no longer
+    mention it, and references to earlier output no longer say `memory "recall entry 7"`: for a tool that only reads
+    (`read_file`, `inspect`, `system_info`, `current_date`) they say `call it again to see it`, and for any other
+    tool (a command, an edit) that its output is not repeated and not to run it again to see it, so a command is
+    never rerun to see what it printed; facts, the summary, and the references are otherwise unchanged, and `/show`
+    still shows any output. `wisp config set context.memory true` (or `/config set context.memory on`) turns it on
+    for every conversation; `--tool memory` or an MCP caller's `tools` naming it gives it to one.
+  - `context.target` is 0.6 instead of 0.5: condensing keeps more of the conversation and runs a little later. It
+    scored 5.3 against 4.0 of 10 on the on-device model and 7.7 against 7.0 on granite.
+  - `assessment.taskChanges` is `restated` instead of `any`, which matters only with `assessment.enabled` (still off):
+    an inferred task changes only when a request states one. It kept the task on every run where `any` lost it on
+    five of six.
+
+  To restore the earlier defaults: `wisp config set context.memory true`, `wisp config set context.target 0.5`, and
+  `wisp config set assessment.taskChanges any`.
+
+Added:
+
+- `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built
+  with the MLX trait for them (the Metal toolchain is needed then), and runs naming none build as before.
+- An MLX reasoning model's thinking is shown as an Ollama model's is (ADR 0053): `mlx:Qwen3-1.7B-4bit` and other
+  models whose chat template marks a thinking block (`<think>…</think>`) say `thinking` while it lasts, show
+  `∴ thought for 2.0 s, 181 tokens` with the thinking folded under it, count its tokens, and audit it as
+  `model.reasoning`. It used to arrive in the reply, tags and all, when the model thought. The model never gets
+  its thinking back.
+- `mlx.think` (`true` or `false`) asks MLX models whose chat template takes `enable_thinking`, such as Qwen3, to
+  think or not; unset, a model declared `reasoning` thinks and any other is left to its template's default (below).
+- `assessment.taskChanges` (`any` or `restated`): with the assessment on (`assessment.enabled`, still off by
+  default), `restated` lets a request change the task the model inferred only when it states a task, such as
+  `Today's task: …` or `Let's switch to …`, instead of on any request; other requests keep the task without a
+  model call for it. `restated` is the default (Breaking, above); `any` behaves as before.
+- `scripts/check eval checkpoint` runs context checkpoint 2: the condensing target and headroom on a longer
+  conversation, the half-window variants, `memory` on and off, the assessment's task changes, and a model switch
+  mid-conversation, ending with a table (docs/measurements.md).
+
+Changed:
+
+- `edit_file`'s line edits forgive two slips small models make, without guessing. A rewritten line sent without
+  its indentation (`return 10` for `    return 10`) keeps the old line's, unless only whitespace changes, so a
+  deliberate indent, dedent, or tab-to-space edit is written exactly. A stale line number with `find` edits the one
+  line that holds `find`; none or several still change nothing. The result says when either applied and shows the
+  edited line as it now reads, for example `line 2 now: "    return 10"`.
+
 Fixed:
 
 - `edit_file` with `line` and an empty `find` refused the edit (no line contains an empty string); an empty
@@ -41,50 +91,6 @@ Fixed:
   reply is held to the schema, as Ollama does; it was held to JSON from the first token.
 - An MLX conversation no longer breaks after a tool call whose arguments hold a `null`: every later request failed
   with "Cannot convert value of type NSNull to Jinja Value".
-
-Changed:
-
-- New context defaults, from context checkpoint 2 (ADR 0057), which measured them over a 29-turn conversation on the
-  on-device model, `granite4.1:8b`, and `gemma4:12b`, three runs each:
-  - The model's `memory` tool is off by default. With it the model scored fewer answers on all three models (4.3
-    against 5.3 of 10 on the on-device model, 7.3 against 8.0 on granite, 8.0 against 9.3 on gemma4). A conversation
-    given every tool (`wisp "…"`, chat, MCP `respond` without `tools`) no longer has it, its instructions no longer
-    mention it, and references to earlier output say `call it again to see it` instead of `memory "recall entry 7"`;
-    facts, the summary, and the references are unchanged, and `/show` still shows any output. `wisp config set
-    context.memory true` (or `/config set context.memory on`) turns it on for every conversation; `--tool memory` or
-    an MCP caller's `tools` naming it gives it to one.
-  - `context.target` is 0.6 instead of 0.5: condensing keeps more of the conversation and runs a little later. It
-    scored 5.3 against 4.0 of 10 on the on-device model and 7.7 against 7.0 on granite.
-  - `assessment.taskChanges` is `restated` instead of `any`, which matters only with `assessment.enabled` (still off):
-    an inferred task changes only when a request states one. It kept the task on every run where `any` lost it on
-    five of six.
-
-  To restore the old behaviour: `wisp config set context.memory true`, `wisp config set context.target 0.5`, and
-  `wisp config set assessment.taskChanges any`.
-- `edit_file`'s line edits forgive two slips small models make, without guessing. A rewritten line sent without
-  its indentation (`return 10` for `    return 10`) keeps the old line's, unless only whitespace changes, so a
-  deliberate indent, dedent, or tab-to-space edit is written exactly. A stale line number with `find` edits the one
-  line that holds `find`; none or several still change nothing. The result says when either applied and shows the
-  edited line as it now reads, for example `line 2 now: "    return 10"`.
-
-Added:
-
-- `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built
-  with the MLX trait for them (the Metal toolchain is needed then), and runs naming none build as before.
-- An MLX reasoning model's thinking is shown as an Ollama model's is (ADR 0053): `mlx:Qwen3-1.7B-4bit` and other
-  models whose chat template marks a thinking block (`<think>…</think>`) say `thinking` while it lasts, show
-  `∴ thought for 2.0 s, 181 tokens` with the thinking folded under it, count its tokens, and audit it as
-  `model.reasoning`. It used to arrive in the reply, tags and all, when the model thought. The model never gets
-  its thinking back.
-- `mlx.think` (`true` or `false`) asks MLX models whose chat template takes `enable_thinking`, such as Qwen3, to
-  think or not; unset, a model declared `reasoning` thinks and any other is left to its template's default (below).
-- `assessment.taskChanges` (`any` or `restated`): with the assessment on (`assessment.enabled`, still off by
-  default), `restated` lets a request change the task the model inferred only when it states a task, such as
-  `Today's task: …` or `Let's switch to …`, instead of on any request; other requests keep the task without a
-  model call for it. `restated` is the default (Changed, above); `any` behaves as before.
-- `scripts/check eval checkpoint` runs context checkpoint 2: the condensing target and headroom on a longer
-  conversation, the half-window variants, `memory` on and off, the assessment's task changes, and a model switch
-  mid-conversation, ending with a table (docs/measurements.md).
 
 ## 0.19.0
 

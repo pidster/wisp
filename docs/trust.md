@@ -9,7 +9,8 @@ here is enforced by code and covered by tests; the linked pages hold the detail.
 The model has eight tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`,
 `edit_file`, and `run_command`. Only the last two change anything on the Mac; `notify` shows a banner, at
 most a few a minute, through your terminal or `osascript`, and changes nothing ([notify](tools/notify.md));
-`memory` reads only the conversation's own record and the audit log, and writes only the model's own facts
+`memory`, which a conversation has only with `context.memory` on or a tool list that names it (off by default),
+reads only the conversation's own record and the audit log, and writes only the model's own facts
 about the conversation, which rank below yours and a tool's and never reach the shared store without you
 ([memory](tools/memory.md)); `system_info` runs fixed read-only commands wisp chooses,
 under the sandbox but without asking, since the model supplies no command ([system_info](tools/system_info.md)).

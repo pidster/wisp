@@ -14,9 +14,14 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
   [proposal](proposals/2026-09-29-layered-context.md) phases 1 to 6). Each request is composed from a store
   that refers to the audit log: tool output as a reference after its turn, retyped output cut, facts
   (2026-09-30), the running summary (2026-09-30), the `memory` tool (2026-09-30), and condensing to a token
-  target with headroom and its guard (2026-10-01). The per-request assessment is built and off. Open: the
-  guard re-measured at 50%, the target and headroom tuned, a specialised distiller, and D10's model switch
-  evaluated ([context-management.md](context-management.md), "Not done yet").
+  target with headroom and its guard (2026-10-01). The per-request assessment is built and off. Open: `memory` on a
+  second scenario ([context-management.md](context-management.md), "Not done yet"), and a specialised distiller
+  ([roadmap.md](roadmap.md), "Not scheduled").
+- Done 2026-10-09: context checkpoint 2 ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)). The
+  target and headroom tuned on a conversation that condenses at the default budget, the 50% variants re-measured
+  under the guard, D10's model switch evaluated, and `memory` measured on and off. `memory` is off by default
+  (`context.memory` turns it on), `context.target` is 0.6, and the assessment, still off, changes an inferred task
+  only when a request restates one (`assessment.taskChanges: restated`).
 - Done 2026-10-03: permanent facts over MCP ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A
   `wisp mcp` caller asks with `set_fact_scope` `permanent`, and the person keeps or drops the fact with
   `wisp facts keep|drop` or in `wisp-tui`.
@@ -77,6 +82,9 @@ for after them:
 - Done 2026-09-24: custom tools, command templates declared in `~/.wisp/config.json`, and
   `tools.disabled` for built-ins ([ADR 0036](decisions/0036-custom-tools.md)). Later, by decision:
   tools from other MCP servers.
+- Done 2026-10-09: `edit_file`'s line edits forgive a line sent without its indentation and a stale line number
+  beside `find`, without guessing, and an empty `find` beside `line` checks nothing
+  ([ADR 0024](decisions/0024-edit-file.md), refined 2026-10-06).
 
 ## Terminal front end
 
@@ -156,6 +164,13 @@ Three things wait on a Developer ID or App Store signature rather than on code.
 - Done 2026-10-04: models enabled and disabled, `wisp models` as a table, an MLX model's capabilities checked on
   the model when it is enabled, and chat falling back to `system` when its model is unavailable
   ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+- Done 2026-10-09: windows sized for models Ollama reports per layer (gemma4) and for hybrid attention and
+  recurrent models (`qwen3.8`, Falcon-H1), refining [ADR 0043](decisions/0043-context-window-from-memory.md); MLX
+  measured against Ollama on the same weights and the gap closed by leaving thinking to the chat template, with
+  MLX's thinking shown and `mlx.think` ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md),
+  [ADR 0053](decisions/0053-the-models-thinking-shown.md), refined); MLX tool calls as a JSON array and ChatML's end
+  of turn read; Mistral's text tool calls read from Ollama replies; and the local-model and Falcon comparisons, which
+  kept `granite4.1:8b` as the delegation default ([measurements.md](measurements.md#comparing-models)).
 - Done 2026-09-20: agent tests without the model. `ScriptedModel` drives `Agent`, the tool loop,
   `WispServer` over a real client and in its unit tests (the fake thread is gone), and the whole
   `wisp chat` loop, which moved into `WispCore` as `ChatLoop` with injected input and output.
