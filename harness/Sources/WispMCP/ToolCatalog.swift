@@ -391,7 +391,8 @@ public enum ToolCatalog {
                 sourceProperties(example: "swift test --filter ParserTests").filter { $0.key != "path" }.merging([
                     "paths": .object([
                         "type": .string("array"), "items": .object(["type": .string("string")]),
-                        "description": .string("Absolute paths of two or more saved runs' output."),
+                        "minItems": .int(2), "maxItems": .int(FlakyTestsRequest.maxRuns),
+                        "description": .string("Absolute paths of 2 to 10 saved runs' output."),
                     ]),
                     "runs": .object([
                         "type": .string("integer"),
@@ -1049,7 +1050,7 @@ public struct FlakyTestsRequest: Equatable, Sendable {
         case command(Triage.Source, count: Int)
     }
 
-    /// Runs allowed from one command.
+    /// Runs allowed: from one command, or saved files in `paths`.
     static let maxRuns = 10
     /// The runs to compare.
     public var runs: Runs
@@ -1057,14 +1058,14 @@ public struct FlakyTestsRequest: Equatable, Sendable {
     /// Decodes and validates MCP call arguments.
     ///
     /// - Parameter arguments: The raw `tools/call` arguments.
-    /// - Throws: `MCPError.invalidParams` unless exactly one of `paths` (two or more) and `command` is given,
+    /// - Throws: `MCPError.invalidParams` unless exactly one of `paths` (2 to 10) and `command` is given,
     ///   with `runs` from 2 to 10.
     public init(arguments: [String: Value]?) throws {
         switch (arguments?["paths"], arguments?["command"]) {
         case (let paths?, nil):
-            guard let list = paths.arrayValue?.compactMap(\.stringValue), list.count >= 2,
+            guard let list = paths.arrayValue?.compactMap(\.stringValue), (2...Self.maxRuns).contains(list.count),
                 list.count == paths.arrayValue?.count
-            else { throw MCPError.invalidParams("'paths' must list two or more file paths") }
+            else { throw MCPError.invalidParams("'paths' must list from 2 to \(Self.maxRuns) file paths") }
             runs = .paths(list)
         case (nil, .some):
             let count = try CondensingRequest.count(arguments, "runs", fallback: 3)

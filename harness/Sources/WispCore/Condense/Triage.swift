@@ -307,7 +307,7 @@ public struct Triage: Sendable {
     ///   - runner: Runs commands; its output cap is raised to `options.maxOutputBytes` for this run.
     ///   - gate: Clears file reads, as `read_file` does; nil skips the check.
     /// - Returns: The capture.
-    /// - Throws: `CommandRunner.Failure`, `ApprovalGate.Failure`, or a file error.
+    /// - Throws: `CommandRunner.Failure`, `ApprovalGate.Failure`, or `FileFailure`.
     public func capture(_ source: Source, runner: CommandRunner, gate: ApprovalGate?) async throws -> Captured {
         try await Self.capture(source, runner: runner, gate: gate, maxOutputBytes: options.maxOutputBytes)
     }
@@ -320,7 +320,7 @@ public struct Triage: Sendable {
     ///   - gate: Clears file reads; nil skips the check.
     ///   - maxOutputBytes: Bytes kept; only the tail beyond.
     /// - Returns: The capture.
-    /// - Throws: `CommandRunner.Failure`, `ApprovalGate.Failure`, or a file error.
+    /// - Throws: `CommandRunner.Failure`, `ApprovalGate.Failure`, or `FileFailure`.
     public static func capture(
         _ source: Source, runner: CommandRunner, gate: ApprovalGate?, maxOutputBytes: Int
     ) async throws -> Captured {
@@ -331,10 +331,74 @@ public struct Triage: Sendable {
             return Captured(try await runner.run(line, in: directory))
         case .path(let path):
             try await gate?.clear(readingFile: path, workingDirectory: FileManager.default.currentDirectoryPath)
-            let data = try Data(contentsOf: URL(fileURLWithPath: path))
-            let truncated = data.count > maxOutputBytes
-            let kept = truncated ? data.suffix(maxOutputBytes) : data[...]
-            return Captured(text: String(decoding: kept, as: UTF8.self), truncated: truncated)
+            let read = try readTail(of: path, maxBytes: maxOutputBytes)
+            return Captured(text: String(decoding: read.data, as: UTF8.self), truncated: read.truncated)
+        }
+    }
+
+    /// Why a `path` source could not be read.
+    public enum FileFailure: Error, CustomStringConvertible, Equatable {
+        /// The path, symlinks resolved, is not a regular file: a device (`/dev/zero` never ends), a FIFO (it
+        /// waits for a writer), a socket, or a directory.
+        case notARegularFile(path: String, kind: String)
+        /// The file could not be opened or read.
+        case unreadable(path: String, reason: String)
+
+        /// Human-readable explanation.
+        public var description: String {
+            switch self {
+            case .notARegularFile(let path, let kind):
+                "\(path) is \(kind), not a regular file; only saved output files can be read"
+            case .unreadable(let path, let reason): "cannot read \(path): \(reason)"
+            }
+        }
+    }
+
+    /// Reads the last `maxBytes` of the regular file at `path`, never more: symlinks are resolved, and anything
+    /// that is not a regular file is refused before a byte is read, since a device or a FIFO never ends or
+    /// never starts, and `/dev/stdin` under `wisp mcp` is the protocol channel. The file is opened without
+    /// blocking and checked through its descriptor, so what is checked is what is read.
+    ///
+    /// - Parameters:
+    ///   - path: The file.
+    ///   - maxBytes: The most bytes read; a longer file is read from `size - maxBytes`.
+    /// - Returns: The bytes, and whether the file was longer.
+    /// - Throws: `FileFailure`.
+    static func readTail(of path: String, maxBytes: Int) throws(FileFailure) -> (data: Data, truncated: Bool) {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        var info = stat()
+        guard lstat(resolved, &info) == 0 else {
+            throw .unreadable(path: path, reason: String(cString: strerror(errno)))
+        }
+        guard info.st_mode & S_IFMT == S_IFREG else { throw .notARegularFile(path: path, kind: kind(info.st_mode)) }
+        let descriptor = open(resolved, O_RDONLY | O_NONBLOCK | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw .unreadable(path: path, reason: String(cString: strerror(errno))) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+            throw .notARegularFile(path: path, kind: kind(info.st_mode))
+        }
+        let size = UInt64(max(info.st_size, 0))
+        let limit = UInt64(max(maxBytes, 0))
+        let truncated = size > limit
+        do {
+            if truncated { try handle.seek(toOffset: size - limit) }
+            let data = try handle.read(upToCount: Int(limit)) ?? Data()
+            return (data, truncated)
+        } catch {
+            throw .unreadable(path: path, reason: "\(error.localizedDescription)")
+        }
+    }
+
+    /// What a file mode names, for the refusal.
+    private static func kind(_ mode: mode_t) -> String {
+        switch mode & S_IFMT {
+        case S_IFDIR: "a directory"
+        case S_IFCHR: "a character device"
+        case S_IFBLK: "a block device"
+        case S_IFIFO: "a FIFO"
+        case S_IFSOCK: "a socket"
+        case S_IFLNK: "a symbolic link"
+        default: "not a regular file"
         }
     }
 }

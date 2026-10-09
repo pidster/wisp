@@ -31,10 +31,14 @@ actor CompatibilityTransport: Transport {
     /// Disconnects the base transport.
     func disconnect() async { await base.disconnect() }
 
-    /// Sends unchanged, letting the tracker see it first.
+    /// Sends unchanged, letting the tracker see it first; an approval dialog withdrawn before it went out is
+    /// cancelled straight after it.
     func send(_ data: Data) async throws {
-        tracker?.observe(data)
+        let withdrawn = tracker?.observe(data)
         try await base.send(data)
+        if let withdrawn, let cancel = ElicitationTracker.cancellation(withdrawn, reason: "answered another way") {
+            try await base.send(cancel)
+        }
     }
 
     /// Receives from the base transport, normalising each message.

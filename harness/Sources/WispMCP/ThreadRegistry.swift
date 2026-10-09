@@ -19,6 +19,8 @@ public struct OpenThread: Sendable {
     public let model: String?
     /// The tools its model may call.
     public let tools: [String]
+    /// Serialises its turns, so concurrent calls on one `thread_id` take turns and each gets its own receipt.
+    public let turns = TurnQueue()
 
     /// Creates the record.
     public init(

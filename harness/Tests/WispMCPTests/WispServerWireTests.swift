@@ -771,4 +771,94 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let decoded = try JSONDecoder().decode(CallTool.Result.self, from: Data(json.utf8))
         #expect(decoded.structuredContent == result.structuredContent)
     }
+
+    @Test func concurrentCallsOnOneThreadTakeTurnsAndEachGetsItsOwnReceipt() async throws {
+        // The first call's turn waits on an approval; a second call on the same thread arrives meanwhile. It
+        // must wait for the first turn to end rather than enter the agent mid-turn, and each result must
+        // carry its own turn's refusal and receipt.
+        let approver = HeldApprover()
+        let pair = try await connected(
+            steps: [
+                .call(name: "run_command", arguments: #"{"command":"touch one.txt"}"#), .say("first: {tool}"),
+                .call(name: "run_command", arguments: #"{"command":"touch two.txt"}"#), .say("second: {tool}"),
+            ], approver: approver)
+        let client = pair.client
+        let first = Task {
+            try await call(client, "respond", ["prompt": .string("one"), "thread_id": .string("q")])
+        }
+        for _ in 0..<500 where approver.asked == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(approver.asked == 1)
+        let second = Task {
+            try await call(client, "respond", ["prompt": .string("two"), "thread_id": .string("q")])
+        }
+        // Long enough for the second call to reach the thread; it must not reach the approver yet.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(approver.asked == 1)
+        approver.release()
+        let one = try await first.value.structuredContent?.objectValue
+        let two = try await second.value.structuredContent?.objectValue
+        #expect(one?["receipt"]?.objectValue?["turn"] == .int(1))
+        #expect(two?["receipt"]?.objectValue?["turn"] == .int(2))
+        #expect(one?["refusals"]?.arrayValue?.compactMap { $0.objectValue?["command"] } == [.string("touch one.txt")])
+        #expect(two?["refusals"]?.arrayValue?.compactMap { $0.objectValue?["command"] } == [.string("touch two.txt")])
+        #expect(one?["text"]?.stringValue?.hasPrefix("first:") == true, "\(String(describing: one?["text"]))")
+        #expect(two?["text"]?.stringValue?.hasPrefix("second:") == true, "\(String(describing: two?["text"]))")
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func closingAThreadWaitsForItsTurnSoSessionEndComesLast() async throws {
+        let approver = HeldApprover()
+        let pair = try await connected(
+            steps: [.call(name: "run_command", arguments: #"{"command":"touch one.txt"}"#), .say("done: {tool}")],
+            approver: approver)
+        let client = pair.client
+        let turn = Task { try await call(client, "respond", ["prompt": .string("one"), "thread_id": .string("c")]) }
+        for _ in 0..<500 where approver.asked == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        let close = Task { try await call(client, "close_thread", ["thread_id": .string("c")]) }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!pair.sink.events.contains { $0.session == "c" && $0.kind == .sessionEnd })
+        approver.release()
+        #expect(try await turn.value.isError == false)
+        #expect(try await close.value.isError == false)
+        let events = pair.sink.events.filter { $0.session == "c" }
+        #expect(events.last?.kind == .sessionEnd, "\(events.map(\.kind))")
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+}
+
+/// An approver that holds every request until `release()`, then denies it, and denies at once afterwards: for
+/// keeping a turn under way while a test does something else.
+private final class HeldApprover: Approver {
+    /// The requests asked so far, and the waiters not yet answered.
+    private let state = Mutex<(asked: Int, released: Bool, waiting: [CheckedContinuation<Void, Never>])>(
+        (0, false, []))
+
+    /// How many requests it has been asked.
+    var asked: Int { state.withLock { $0.asked } }
+
+    /// Answers every held request, and every later one at once.
+    func release() {
+        let waiting = state.withLock { state in
+            state.released = true
+            defer { state.waiting = [] }
+            return state.waiting
+        }
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// Holds the request until released, then denies it.
+    func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
+        await withCheckedContinuation { continuation in
+            let now = state.withLock { state in
+                state.asked += 1
+                if state.released { return true }
+                state.waiting.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+        return .denied("held")
+    }
 }

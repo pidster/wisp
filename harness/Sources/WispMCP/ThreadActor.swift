@@ -90,8 +90,9 @@ extension RespondingThread {
 
 /// One thread with the on-device model, addressable by id across MCP calls.
 ///
-/// An actor so that calls on the same thread serialise (a session cannot answer
-/// two prompts at once) while different threads run concurrently.
+/// An actor so that the agent, which is not `Sendable`, is reached from one isolation domain while
+/// different threads run concurrently. An actor is reentrant, so the actor alone does not keep two turns
+/// apart: the server runs each `respond` inside the thread's `TurnQueue` (`OpenThread.turns`).
 public actor ThreadActor: RespondingThread {
     /// The identifier clients pass as `thread_id`.
     public nonisolated let id: String

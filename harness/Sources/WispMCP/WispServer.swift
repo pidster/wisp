@@ -346,7 +346,13 @@ public struct WispServer: Sendable {
         if let evicted = opened.evicted {
             factKeeper.withdraw(thread: evicted.id)
             directory.ended(id: evicted.id, as: .evicted)
-            evicted.thread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "evicted"))
+            // A turn under way on the evicted thread finishes first, so session.end stays its last event; the
+            // wait is its own task so the call that made room is not held up by it.
+            let evictedThread = evicted.thread
+            Task {
+                await evictedThread.turns.close()
+                evictedThread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "evicted"))
+            }
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
         if !opened.created, request.instructions != nil || request.tools != .all || request.model != nil {
@@ -358,6 +364,20 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
+        do {
+            return try await opened.thread.turns.run {
+                await turn(request, schema: schema, on: opened, id: id)
+            }
+        } catch {
+            return failure("\(id): \(error)")
+        }
+    }
+
+    /// One turn of `respond` on an open thread, run while it holds the thread's `TurnQueue`: sets the task,
+    /// runs the prompt, and folds the turn's refusals and receipt into the result.
+    private func turn(
+        _ request: RespondRequest, schema: OutputSchema?, on opened: ThreadRegistry<OpenThread>.Opened, id: String
+    ) async -> CallTool.Result {
         if let task = request.task {
             do {
                 try await opened.thread.thread.setTask(task)
@@ -734,12 +754,15 @@ public struct WispServer: Sendable {
         }
     }
 
-    /// Frees a thread, withdrawing its requests to keep facts; unknown ids are tool errors.
+    /// Frees a thread, withdrawing its requests to keep facts, once the turn under way on it ends; calls still
+    /// waiting for their turn are refused. Unknown ids are tool errors.
     private func closeThread(_ request: CloseThreadRequest) async -> CallTool.Result {
         do {
             let closed = try await threads.close(request.threadID)
             factKeeper.withdraw(thread: request.threadID)
             directory.ended(id: request.threadID, as: .closed)
+            // The turn under way finishes first and calls still queued are refused, so session.end comes last.
+            await closed.turns.close()
             closed.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
             return success("closed \(request.threadID)")
         } catch {

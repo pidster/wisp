@@ -318,7 +318,9 @@ routes, and races two legs: a 200 ms poll of the channel for an answer file, and
 the elicitation dialog. The first answer settles the race; the other leg is cancelled without being
 awaited (a dialog in flight ignores cancellation, as `Timeout` records), the request file removed or the
 dialog withdrawn with `notifications/cancelled`, whose JSON-RPC id the server's `CompatibilityTransport`
-learned from the dialog's `_meta` key (`ElicitationTracker`). A leg that fails leaves the other asking;
+learned from the dialog's `_meta` key (`ElicitationTracker`). A dialog whose own wait lapses is withdrawn the
+same way; one withdrawn before its request went out is remembered, and the transport cancels it straight after
+sending it; the tracker forgets a dialog's key when its wait ends, so it holds only those in flight. A leg that fails leaves the other asking;
 cancelling the call settles the race as abandoned. Answers come from other processes:
 `wisp approvals approve|deny` writes the answer file, and `wisp chat --json`'s `PendingRelay` shows a
 front end that declared `approve-mcp` each waiting request and writes its answer. The channel carries a
@@ -487,8 +489,11 @@ The request types decode and validate arguments as pure, testable values; see
 [ADR 0006](decisions/0006-mcp-server-over-stdio.md).
 
 `respond` runs on a conversation thread. `ThreadRegistry` is an actor keeping threads by id with LRU eviction;
-`ThreadActor` is an actor owning one `Agent`, so calls on a thread serialise while threads run
-concurrently. Results carry `structuredContent.thread_id`; see
+`ThreadActor` is an actor owning one `Agent`, and each thread's `TurnQueue` (`OpenThread.turns`) serialises its
+turns first come first served while threads run concurrently: an actor is reentrant, so the actor alone would let a
+second `respond` enter the agent while the first waits on the model or an approval, and the server's reads after a
+turn (the turn number, the gate's refusals, the receipt) would see the other turn's. `close_thread` and eviction
+close the queue: the turn under way ends before `session.end` is recorded, and calls still queued are refused. Results carry `structuredContent.thread_id`; see
 [ADR 0007](decisions/0007-conversation-threads.md). Each `WispThread` tees its audit log into a
 `ReceiptCollector`, a bounded in-memory sink; after a turn the server folds that turn's events into a
 `Receipt` for `structuredContent.receipt` ([ADR 0021](decisions/0021-receipts.md)), so the result and
@@ -629,7 +634,9 @@ session work into detached tasks.
 Actor or `Mutex` is chosen by one rule. A type is an actor when its operations suspend (awaiting a human,
 the model, or another actor) or when a change is a multi-step sequence that must not interleave, such as
 the approval store's load-mutate-save: `ApprovalGate`, `ApprovalStore`, `ThreadRegistry`,
-`ThreadActor`. A type is a `final class` holding a `Mutex` when every operation is a short
+`ThreadActor`, `TurnQueue`. An actor is reentrant: while one of its methods awaits, another call can run on it.
+When a sequence spans awaits and must not interleave with another caller's, as a thread's turn does, hold an
+explicit queue across it (`TurnQueue`, a first-come-first-served async lock) rather than rely on the actor. A type is a `final class` holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`.
 

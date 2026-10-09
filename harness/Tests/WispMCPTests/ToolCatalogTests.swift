@@ -223,6 +223,8 @@ import WispCore
             [:], ["paths": .array([.string("/a")])], ["paths": .array([.string("/a"), .int(1)])],
             ["command": .string("x"), "runs": .int(1)], ["command": .string("x"), "runs": .int(11)],
             ["command": .string("x"), "paths": .array([.string("/a"), .string("/b")])],
+            // Saved runs are capped as command runs are.
+            ["paths": .array((0...FlakyTestsRequest.maxRuns).map { .string("/run\($0)") })],
         ] {
             #expect(throws: MCPError.self) { try FlakyTestsRequest(arguments: bad) }
         }

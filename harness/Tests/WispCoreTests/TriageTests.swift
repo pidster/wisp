@@ -105,4 +105,41 @@ import WispTestSupport
             try await triage.capture(.path(dir.appending(path: "missing").path), runner: runner, gate: nil)
         }
     }
+
+    @Test func aPathSourceReadsOnlyARegularFileAndOnlyItsTail() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-triage-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // A file larger than the bound is read from its tail, never whole.
+        let file = dir.appending(path: "run.log")
+        try Data((String(repeating: "a", count: 1000) + "the end").utf8).write(to: file)
+        let tail = try Triage.readTail(of: file.path, maxBytes: 7)
+        #expect(String(decoding: tail.data, as: UTF8.self) == "the end" && tail.truncated)
+        let whole = try Triage.readTail(of: file.path, maxBytes: 4096)
+        #expect(whole.data.count == 1007 && !whole.truncated)
+        // A symlink to it is followed.
+        let link = dir.appending(path: "link.log")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        #expect(try Triage.readTail(of: link.path, maxBytes: 7).data == Data("the end".utf8))
+        // Devices, a FIFO, the protocol's own stdin, and a directory are refused before a byte is read; without
+        // the check /dev/zero never ends, a FIFO waits for a writer, and /dev/stdin reads the MCP channel.
+        let fifo = dir.appending(path: "fifo")
+        #expect(mkfifo(fifo.path, 0o600) == 0)
+        var input = stat()
+        let stdinIsAFile = fstat(STDIN_FILENO, &input) == 0 && input.st_mode & S_IFMT == S_IFREG  // `< file`
+        for path in ["/dev/zero", fifo.path, dir.path] + (stdinIsAFile ? [] : ["/dev/stdin"]) {
+            #expect(throws: Triage.FileFailure.self, "\(path)") {
+                _ = try Triage.readTail(of: path, maxBytes: 64)
+            }
+        }
+        #expect(throws: Triage.FileFailure.self) {
+            _ = try Triage.readTail(of: dir.appending(path: "none").path, maxBytes: 1)
+        }
+        // Through the capture every condensing tool shares, the refusal names what the path is.
+        let runner = CommandRunner(
+            options: .init(writableRoot: dir.path), audit: AuditLog(session: "t", sink: MemoryAuditSink()))
+        await #expect(throws: Triage.FileFailure.notARegularFile(path: "/dev/zero", kind: "a character device")) {
+            _ = try await Triage.capture(.path("/dev/zero"), runner: runner, gate: nil, maxOutputBytes: 64)
+        }
+    }
 }

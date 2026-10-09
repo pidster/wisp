@@ -277,7 +277,11 @@ fails with `the request does not fit the model's context window: …` and what t
 ([context-management.md](context-management.md), "Condensing"). Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
 `session.end` with reason `evicted`. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
-in order; different threads run concurrently.
+in order, one turn at a time: a second `respond` on a thread whose turn is under way (waiting on the model or an
+approval) waits for it to end, then runs, and each result carries its own turn's receipt and refusals; different
+threads run concurrently. `close_thread`, or eviction, waits for the turn under way to end before it records
+`session.end`, and refuses calls still waiting their turn with `the thread was closed while this call waited for
+the turn before it`.
 
 ### Facts a turn recorded, and their scope
 
@@ -391,7 +395,8 @@ Commands the model runs inside `respond`, or that a condensing tool captures, th
 
 When one answers, the other is withdrawn: the request file is removed, or the dialog is cancelled with
 `notifications/cancelled` (whether a client closes it then is the client's; the specification says it
-should). **The calling agent cannot approve:** nothing in MCP answers a request, wisp's own model is
+should). A dialog whose wait lapses (`approval.timeoutSeconds`) is cancelled the same way, and one withdrawn
+before its request had gone out is cancelled as soon as it does. **The calling agent cannot approve:** nothing in MCP answers a request, wisp's own model is
 refused `wisp approvals approve|deny`, and those commands run only from a terminal. Set
 `approval.outOfBand` to `false` for the client's dialog alone, as before 0.16.0.
 
@@ -448,6 +453,12 @@ sequenceDiagram
     model->>server: reply
     server->>client: reply text, with thread_id, refusals, receipt, and calls
 ```
+
+Every condensing tool that takes a `path` (and `flaky_tests`'s `paths`) reads only a regular file, with symbolic
+links resolved, and only as much as its bound, from the tail where the tool keeps the tail: a device, a FIFO, a
+socket, or a directory is refused before a byte is read (`/dev/zero` would never end, a FIFO waits for a writer,
+and `/dev/stdin` is the MCP channel itself), with `… is a character device, not a regular file; only saved output
+files can be read`.
 
 ### `triage`
 
@@ -748,7 +759,7 @@ after`), XCTest (`Test Case '…' passed|failed`), cargo test (`test … ok|FAIL
 
 | Argument | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `paths` | array of strings | one of | Absolute paths of two or more saved runs' output. |
+| `paths` | array of strings | one of | Absolute paths of 2 to 10 saved runs' output. |
 | `command` | string | one of | A test command to run several times, as for `triage`; one approval covers every run. |
 | `runs` | integer | no | With `command`: how many times, 2 to 10 (default 3). |
 | `working_directory` | string | no | Absolute directory for the command. Default: wisp's. |
@@ -778,7 +789,8 @@ they were the innermost frame) with their total time (samples in which they were
 
 ### `close_thread`
 
-Free a thread's model session. Its requests to keep facts that are still waiting are withdrawn.
+Free a thread's model session, once the turn under way on it, if any, has ended; calls still waiting their turn
+on it are refused. Its requests to keep facts that are still waiting are withdrawn.
 
 | Argument | Type | Required |
 | --- | --- | --- |
