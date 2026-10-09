@@ -10,8 +10,8 @@ import PackagePlugin
 /// personal-data classifier, likewise) as `PersonalDefaultText.text`, and `Resources/subject-kinds.json` (the default
 /// subject kinds of facts) as `SubjectKindsText.text`, and the shell completion scripts in `Resources/completions/`
 /// (`_wisp`, `wisp.bash`, `wisp.fish`) as `ZshCompletionText.text`, `BashCompletionText.text`, and
-/// `FishCompletionText.text`. The text goes into a raw multi-line literal, so it needs no escaping; the
-/// one sequence that would end the literal early is refused.
+/// `FishCompletionText.text`. The text goes into a raw multi-line literal, so it needs no escaping; its delimiter
+/// has more `#`s than any `"""#…` or `\#…` in the text, so nothing in it can end the literal early or interpolate.
 ///
 /// It also writes `BuildInfo` before every build (a prebuild command, since the commit changes without any
 /// input file changing): the commit `git` reports for the package's repository, whether the working tree
@@ -21,14 +21,17 @@ import PackagePlugin
 @main
 struct EmbedSystemPrompt: BuildToolPlugin {
     /// The shell that turns a text file into Swift; `$1` is the input, `$2` the output, `$3` the type.
+    /// The literal's delimiter is one `#` more than any run the text could end it with or interpolate with: a text
+    /// holding `"""#` or `\#` (`\#(` would be an interpolation, `\#n` an escape) gets `##`, and so on.
     static let script = """
         set -eu
-        if grep -q '\"\"\"#' "$1"; then echo "$1 must not contain \\"\\"\\"#" >&2; exit 1; fi
+        hashes='#'
+        while grep -qF "\\"\\"\\"$hashes" "$1" || grep -qF "\\\\$hashes" "$1"; do hashes="$hashes#"; done
         {
             printf '// Generated from %s by the EmbedSystemPrompt plugin. Do not edit.\\n' "$(basename "$1")"
-            printf 'enum %s {\\n    static let text = #\"\"\"\\n' "$3"
+            printf 'enum %s {\\n    static let text = %s\"\"\"\\n' "$3" "$hashes"
             cat "$1"
-            printf '\"\"\"#\\n}\\n'
+            printf '\"\"\"%s\\n}\\n' "$hashes"
         } > "$2"
         """
 
