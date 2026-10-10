@@ -51,14 +51,15 @@ regressions, not a measurement.
   planned here, moved to 0.21.1 at the operator's request, where it is built.)
 - **Thinking chosen per call**, asked for on 2026-10-10 after the granite comparison of 2026-10-09: `granite4.2:8b`
   matched `granite4.1:8b` on every tool suite but was 4 to 15 times slower, because it thinks before every answer, and
-  its classifier half alone took about six hours ([measurements.md](measurements.md)). Today `ollama.think`,
+  its classifier half alone took about six hours; not thinking, it matched 4.1's speed and got every draft right
+  ([measurements.md](measurements.md), "granite4.1 against granite4.2"). Today `ollama.think`,
   `mlx.think`, and llama.cpp's `think` apply to every request to every model of the runtime
   ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Proposed, as an amendment to ADR 0053 and a concrete part
   of [model-controls.md](model-controls.md): wisp sends `think: false` for its own calls that gain nothing from it
   (classifier verdicts, schema replies, the fact distiller, summaries, triage, the assessment), and keeps the model's
   default for open-ended turns; `respond` takes `think` when a thread starts, so a caller chooses (the git thread off, a
-  complex task on); and `<runtime>.models.<name>.think` sets one model's default, beside its `contextLength`. Measure
-  first whether a thinking model keeps its accuracy with thinking off (`granite4.2:8b`, started 2026-10-10).
+  complex task on); and `<runtime>.models.<name>.think` sets one model's default, beside its `contextLength`. Build the
+  per-model default first: on its own it lets `granite4.2:8b` be the default with thinking off.
 - **The eval's output shown as it runs.** Since 0.21.1's fix to the eval's exit status, `scripts/check eval` writes a
   run's results only when it ends: the granite comparison of 2026-10-09 showed nothing for `granite4.2:8b` for six
   hours. Stream the lines again while keeping `swift test`'s own status.

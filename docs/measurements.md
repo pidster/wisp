@@ -171,6 +171,36 @@ reads those calls from the reply's text ([backends.md](backends.md), "Ollama"); 
 verdict, makes them candidates for labelling training sets rather than for the gate. `qwen3.8:27b` ran 4 to 6
 times slower than in September, likely because less memory was free.
 
+### granite4.1 against granite4.2, with and without thinking, 2026-10-09 and 2026-10-10
+
+`granite4.2:8b` (IBM, September 2026; 8.8B, Q4_K_M, 5.35 GB, the same size as 4.1) against `granite4.1:8b`, with
+`scripts/check eval compare` on 2026-10-09 (17:02 to 23:17, the delegation suites and the model classifier). 4.2 can
+think and does by default; 4.1 cannot. On 2026-10-10 4.2 ran the delegation suites again, without the classifier, with
+`ollama.think` `false` in a scratch `WISP_HOME` (15:57 to 16:09). Cases passed, median time per case:
+
+| Suite | granite4.1:8b | granite4.2:8b, thinking | granite4.2:8b, not thinking |
+| --- | --- | --- | --- |
+| `edit_file` line replace | 30/30, 9.0 s | 30/30, 34.7 s | 30/30, 9.4 s |
+| `edit_file` whitespace | 12/12, 9.4 s | 12/12, 36.4 s | 12/12, 8.3 s |
+| `system_info` | 16/16, 3.3 s | 16/16, 16.2 s | 14/16, 5.0 s |
+| schema replies | 5/6, 0.3 s | 5/6, 5.3 s | 5/6, 0.7 s |
+| triage | 7/7 | 7/7 | 7/7 |
+| `summarise_diff` | 5/5, 3.1 s | 5/5, 13.3 s | 5/5, 1.9 s |
+| drafts, small | 8/10, 4.3 s | 9/10, 61.1 s | 10/10, 3.3 s |
+| drafts, medium | 1/2, 27.1 s | 2/2, 248.2 s | 2/2, 21.5 s |
+| drafts, large | 2/2, 61.8 s | 0/2, 304.9 s | 2/2, 43.8 s |
+| context scenario (8,192 window) | 6/6, 7.4 s | 6/6, 16.2 s | not run |
+| classifier with rules | 339/392, 3.0 s | 357/392, 14.4 s | not run |
+| classifier, model alone | 334/392, 3.4 s | 341/392, 16.7 s, 2 dangerous rated safe | not run |
+
+Thinking made 4.2 4 to 15 times slower and bought nothing in the delegation suites: not thinking, it matched 4.1 on the
+tools at the same speed (a median of 3.2 s a request, p90 9.0 s, over 300 requests) and was the only run with every
+draft right, at the cost of two `system_info` cases. Its classifier was the most accurate of the three with the rules
+(91%), at 14 s a verdict, too slow for approvals, which the Core ML classifier decides. `granite4.1:8b` stays the
+delegation default for now: `ollama.think` applies to every Ollama model, and turning it off would take thinking from
+`gemma4:12b` and `qwen3.8:27b` too. Choosing thinking per model or per call is planned for 0.22.0
+([roadmap.md](roadmap.md), "Thinking chosen per call").
+
 ### qwen3.8:27b re-measured, 2026-10-09
 
 `system_info` and `edit_file` on `ollama:qwen3.8:27b` with every other Ollama model unloaded (22.3 GB free)
