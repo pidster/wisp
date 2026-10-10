@@ -163,6 +163,12 @@ ignores SIGTERM. Before 0.21.1 the watchdog stopped when the shell was reaped, s
 left the group (`setsid`) is beyond this; output capture after exit is bounded by one second in case one holds the
 pipe.
 
+The timeout and the two-second grace are timers on a dispatch queue of wisp's own, not Swift tasks, so they fire on
+time whatever else the process is doing. Until 2026-10-10 they were `Task.sleep`s on Swift's cooperative pool, and
+when other work blocked every thread of it (2026-10-10, under the gate's parallel tests) a 200 ms timeout went
+unenforced for the whole of a 30 s command (`docs/design.md`, "Concurrency"). The wait for the shell to exit has a
+thread of its own too.
+
 Reads are not restricted; omit the tool (`--tool current_date`, or the MCP `respond` `tools` argument)
 where even that is too much. There is no direct MCP `run_command`; other harnesses reach it only through
 the model.

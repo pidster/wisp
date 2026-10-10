@@ -37,6 +37,8 @@ public enum Timeout {
             }
         }
         return try await withCheckedThrowingContinuation { continuation in
+            // The deadline is an `Alarm`, not a `Task.sleep`, so blocked cooperative threads cannot hold it off; the
+            // alarm is cancelled when the operation settles first, so a long bound leaves nothing waiting behind it.
             let work = Task {
                 do {
                     let value = try await operation()
@@ -45,12 +47,15 @@ public enum Timeout {
                     if claim() { continuation.resume(throwing: error) }
                 }
             }
-            Task {
-                try? await Task.sleep(for: duration)
+            let alarm = Alarm(after: duration) {
                 if claim() {
                     work.cancel()
                     continuation.resume(throwing: Failure.elapsed(duration))
                 }
+            }
+            Task {
+                await work.value
+                alarm.cancel()
             }
         }
     }

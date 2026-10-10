@@ -654,6 +654,34 @@ holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`.
 
+Swift's cooperative pool, where every task runs, has one thread per core and does not add one when a thread
+blocks. Two rules follow, both from a measurement. On 2026-10-10 a `sample` of the gate's parallel test run, taken
+by a probe when a task had waited over a second to start, showed all 16 pool threads of a 16-core Mac taken:
+eleven blocked in `Blocking.run` (seven Core ML compiles for the risk classifier, two for the personal-data
+classifier, an Ollama resolution, a Private Cloud Compute window), two in framework semaphores (`OSLogStore`, the
+system model's context size), one waiting on a static initialiser behind one of those, and the rest running
+tests. The bridged operations ran on the pool too, so they could not finish until a thread came free, and every
+`Task.sleep` deadline in the process waited with them: tasks waited up to 6.9 s to start, and under heavier load
+a 200 ms command watchdog never fired during a 30 s command.
+
+- **A synchronous bridge runs its operation off the pool.** `Blocking.run` (the one bridge, for
+  `ModelSelection.resolve` and the classifiers' model compiles, which are synchronous) runs the operation on a
+  task executor of its own, a serial dispatch queue with a thread of its own, so a blocked caller waits only for
+  the operation's own work. The caller still holds its pool thread while it waits, so a bridged operation stays
+  local and short (a tags request against a configured timeout, a model compile), never generation. Other
+  blocking waits in async code are bounded to seconds (`ChatStatus`'s git, the notifier's `osascript`), or are
+  the chat's read of the person's next line, one thread for the one chat a process runs.
+- **A bound that must hold is not a `Task.sleep`.** The command watchdog and its SIGKILL grace, the person's stop
+  grace, and the deadline in `Timeout.run` (an approval's wait, the model checks' probes) are `Alarm`s: one-shot
+  timers on a serial dispatch queue, which libdispatch gives a thread of its own however busy the pool is. The
+  alarm decides on time; what it resumes still needs a pool thread to carry on, but the command has been
+  signalled and the wait has been refused by then. `Spawn.wait`, which blocks in `waitpid` for as long as a
+  command runs, has a serial queue of its own for the same reason: on a global queue enough running commands
+  would reach libdispatch's limit on that queue's threads.
+
+`PoolStarvationTests` blocks every pool thread and checks each: the watchdog signals a command, `Timeout.run`
+gives up, and `Blocking.run` returns, all within seconds; before the change none did until the blockers let go.
+
 ## Visibility
 
 `WispCore` is an implementation library for the two executables, not a published API. A declaration is

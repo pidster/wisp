@@ -347,12 +347,13 @@ public struct CommandRunner: Sendable {
         let pid = try Spawn.spawn(argv, workingDirectory: workingDirectory, stdout: stdoutBuffer, stderr: stderrBuffer)
 
         let group = ProcessGroup(pid)
+        // The watchdog is a safety bound, so it runs on an `Alarm`, not a `Task.sleep`: blocked cooperative threads
+        // must not be able to hold it off (docs/design.md, "Concurrency"). Once the leader is reaped the group sends
+        // nothing, so a SIGKILL alarm left pending after the command ends is harmless.
         let watchdog = timeout.map { timeout in
-            Task {
-                guard (try? await Task.sleep(for: timeout)) != nil else { return }
+            Alarm(after: timeout) {
                 group.end(.timedOut)
-                guard (try? await Task.sleep(for: CommandStop.grace)) != nil else { return }
-                group.signal(SIGKILL)
+                _ = Alarm(after: CommandStop.grace) { group.signal(SIGKILL) }
             }
         }
         // The person's stop: SIGTERM, then SIGKILL after the grace; a second request kills at once.
@@ -360,10 +361,7 @@ public struct CommandRunner: Sendable {
             switch request {
             case .stop:
                 group.end(.stopped)
-                Task {
-                    try? await Task.sleep(for: CommandStop.grace)
-                    group.signal(SIGKILL)
-                }
+                _ = Alarm(after: CommandStop.grace) { group.signal(SIGKILL) }
             case .kill:
                 group.end(.stopped, signal: SIGKILL)
             }
@@ -628,9 +626,13 @@ enum Spawn {
     }
 
     /// Waits for `pid` off the cooperative pool and returns its status: the exit code, or the signal negated.
+    ///
+    /// The wait blocks a thread in `waitpid` for as long as the command runs, so it gets a serial queue of its own,
+    /// which libdispatch backs with a thread of its own: on a global queue, enough running commands would reach
+    /// libdispatch's limit on that queue's threads and hold up every other job sent to it.
     static func wait(for pid: pid_t) async -> Int32 {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
+            DispatchQueue(label: "wisp.waitpid", qos: .utility).async {
                 var status: Int32 = 0
                 while waitpid(pid, &status, 0) < 0, errno == EINTR {}
                 let signal = status & 0x7f
