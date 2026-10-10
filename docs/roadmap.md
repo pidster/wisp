@@ -12,7 +12,7 @@ regressions, not a measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; one set of model actions, for the person and the model; the rest of the 2026-10-09 review |
+| 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | Shell loops judged by what they run; approvals for folders that are gone; one set of model actions, for the person and the model; thinking chosen per call; the rest of the 2026-10-09 review |
 | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
 
 ## 0.22.0
@@ -49,6 +49,19 @@ regressions, not a measurement.
   tool for the model, off by default, which lists and shows freely and asks the person for every pull, enable,
   disable, or check, a pull never remembered and `trust` the person's alone. (MLX pulls from any publisher, first
   planned here, moved to 0.21.1 at the operator's request, where it is built.)
+- **Thinking chosen per call**, asked for on 2026-10-10 after the granite comparison of 2026-10-09: `granite4.2:8b`
+  matched `granite4.1:8b` on every tool suite but was 4 to 15 times slower, because it thinks before every answer, and
+  its classifier half alone took about six hours ([measurements.md](measurements.md)). Today `ollama.think`,
+  `mlx.think`, and llama.cpp's `think` apply to every request to every model of the runtime
+  ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Proposed, as an amendment to ADR 0053 and a concrete part
+  of [model-controls.md](model-controls.md): wisp sends `think: false` for its own calls that gain nothing from it
+  (classifier verdicts, schema replies, the fact distiller, summaries, triage, the assessment), and keeps the model's
+  default for open-ended turns; `respond` takes `think` when a thread starts, so a caller chooses (the git thread off, a
+  complex task on); and `<runtime>.models.<name>.think` sets one model's default, beside its `contextLength`. Measure
+  first whether a thinking model keeps its accuracy with thinking off (`granite4.2:8b`, started 2026-10-10).
+- **The eval's output shown as it runs.** Since 0.21.1's fix to the eval's exit status, `scripts/check eval` writes a
+  run's results only when it ends: the granite comparison of 2026-10-09 showed nothing for `granite4.2:8b` for six
+  hours. Stream the lines again while keeping `swift test`'s own status.
 - **Ctrl-C during a model turn.** In plain chat it still quits wisp at once, and a `run_command` the model started
   in that turn can outlive it (found on 2026-10-09 while giving typed commands Ctrl-C). The first Ctrl-C should
   stop the turn and its command, as it now stops a typed command, and the second quit.
