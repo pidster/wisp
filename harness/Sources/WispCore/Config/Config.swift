@@ -366,12 +366,19 @@ public struct Config: Codable, Equatable, Sendable {
         public var verified: CapabilityCheck?
         /// This model's context window, ahead of `mlx.contextLength` and sizing from memory; nil leaves it to them.
         public var contextLength: Int?
+        /// Whether this model is asked to think (its template's `enable_thinking`), ahead of `mlx.think` or
+        /// `llamacpp.think`; nil leaves it to them (ADR 0053, amended 2026-10-11). Declares no capability.
+        public var think: Bool?
 
         /// Creates a declaration.
-        public init(capabilities: [String]? = nil, verified: CapabilityCheck? = nil, contextLength: Int? = nil) {
+        public init(
+            capabilities: [String]? = nil, verified: CapabilityCheck? = nil, contextLength: Int? = nil,
+            think: Bool? = nil
+        ) {
             self.capabilities = capabilities
             self.verified = verified
             self.contextLength = contextLength
+            self.think = think
         }
     }
 
@@ -437,10 +444,14 @@ public struct Config: Codable, Equatable, Sendable {
     public struct OllamaModelConfig: Codable, Equatable, Sendable {
         /// This model's context window, ahead of `ollama.contextLength` and sizing from memory; nil leaves it to them.
         public var contextLength: Int?
+        /// Whether this model is asked to think: `true`, `false`, or a level, ahead of `ollama.think`; nil leaves it to
+        /// `ollama.think` (ADR 0053, amended 2026-10-11).
+        public var think: OllamaThink?
 
         /// Creates settings.
-        public init(contextLength: Int? = nil) {
+        public init(contextLength: Int? = nil, think: OllamaThink? = nil) {
             self.contextLength = contextLength
+            self.think = think
         }
     }
 
@@ -630,6 +641,14 @@ public struct Config: Codable, Equatable, Sendable {
                     ("models.\($0.key).contextLength", $0.value.contextLength)
                 })
         }
+        // LM Studio sets thinking per model in the app; a model's `think` there would be read past.
+        if let model = (lmstudio?.models ?? [:]).keys.sorted().first(where: { lmstudio?.models?[$0]?.think != nil }) {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription:
+                        "lmstudio: models.\(model).think is not taken: LM Studio sets thinking per model in the app"))
+        }
     }
 
     /// Writes this config as pretty-printed JSON.
@@ -670,20 +689,23 @@ public struct Config: Codable, Equatable, Sendable {
                 baseURL: ollama?.baseURL.flatMap(URL.init(string:)) ?? OllamaSettings.default.baseURL,
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
                 contextLength: ollama?.contextLength ?? OllamaSettings.default.contextLength, think: ollama?.think,
-                modelContextLengths: (ollama?.models ?? [:]).compactMapValues(\.contextLength)),
+                modelContextLengths: (ollama?.models ?? [:]).compactMapValues(\.contextLength),
+                modelThinks: (ollama?.models ?? [:]).compactMapValues(\.think)),
             llamacpp: OpenAICompatibleSettings.resolve(
                 llamacpp, dialect: .llamaCpp, environment: ProcessInfo.processInfo.environment),
             lmstudio: OpenAICompatibleSettings.resolve(
                 lmstudio, dialect: .lmStudio, environment: ProcessInfo.processInfo.environment),
             coreaiModelsDirectory: coreai?.modelsDirectory,
             mlxModelsDirectory: mlx?.modelsDirectory,
-            // An entry that sets only a window declares nothing: the model stays undeclared, text only.
-            mlxModels: (mlx?.models ?? [:]).filter { $0.value.capabilities != nil || $0.value.contextLength == nil }
+            // An entry that sets only a window or thinking declares nothing: the model stays undeclared, text only.
+            mlxModels: (mlx?.models ?? [:])
+                .filter { $0.value.capabilities != nil || ($0.value.contextLength == nil && $0.value.think == nil) }
                 .mapValues { $0.capabilities ?? [] },
             mlxVerified: (mlx?.models ?? [:]).compactMapValues(\.verified),
             mlxContextLength: mlx?.contextLength,
             mlxModelContextLengths: (mlx?.models ?? [:]).compactMapValues(\.contextLength),
             mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
+            mlxModelThinks: (mlx?.models ?? [:]).compactMapValues(\.think),
             mlxTrustedPublishers: TrustedPublishers.resolve(mlx?.trustedPublishers),
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
@@ -776,6 +798,8 @@ public struct Config: Codable, Equatable, Sendable {
         /// `mlx.think`: whether a model whose template takes `enable_thinking` is asked to think; nil asks one declared
         /// `reasoning` and leaves the others to the template's default.
         public var mlxThink: Bool?
+        /// The thinking of each MLX model that sets its own (`mlx.models.<name>.think`), ahead of `mlxThink`.
+        public var mlxModelThinks: [String: Bool] = [:]
         /// The publishers `wisp models pull` fetches from without asking: `mlx.trustedPublishers` and
         /// `mlx-community`, which is always trusted (ADR 0052, amended 2026-10-09).
         public var mlxTrustedPublishers: [String] = [TrustedPublishers.builtIn]

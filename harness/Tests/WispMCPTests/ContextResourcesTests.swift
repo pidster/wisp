@@ -76,7 +76,7 @@ import WispTestSupport
 
     @Test func aThreadWithoutAStoreSaysSo() async throws {
         let session = try scratchSession()
-        let server = WispServer(session: session) { session, host, id, _, _, _ in
+        let server = WispServer(session: session) { session, host, id, _, _, _, _ in
             let thread = try session.thread(id: id, host: host, tools: .none)
             return OpenThread(thread: Replying(), gate: thread.gate, audit: thread.audit)
         }

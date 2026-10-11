@@ -120,7 +120,7 @@ public struct MLXBackend: ModelBackend {
             weightsHeld: engine.isLoaded)
         return try Self.make(
             url: url, selection: selection, capabilities: capabilities, declared: declared, engine: engine,
-            sizing: sizing, executor: config.mlxExecutor, think: config.mlxThink)
+            sizing: sizing, executor: config.mlxExecutor, think: config.mlxModelThinks[name] ?? config.mlxThink)
     }
 
     /// What MLX does when even the floor window does not fit, for the reason of a floor decision.
@@ -211,7 +211,7 @@ public struct MLXBackend: ModelBackend {
     ///   - sizing: The window and why.
     ///   - asset: The model directory's path.
     ///   - thinkingFormat: How the chat template marks thinking, when it does (ADR 0053).
-    ///   - think: `mlx.think`, when set.
+    ///   - think: The model's own `mlx.models.<name>.think`, else `mlx.think`, when set.
     /// - Returns: The resolved model.
     static func resolved(
         selection: ModelSelection, engine: any PromptEngine, capabilities: [LanguageModelCapabilities.Capability],
@@ -412,15 +412,18 @@ public struct MLXBackend: ModelBackend {
             "think": config.mlxThink.map { .bool($0) } ?? .string("unset"),
             "models": .object(
                 Dictionary(
-                    uniqueKeysWithValues: Set(config.mlxModels.keys).union(config.mlxModelContextLengths.keys).map {
-                        name in
-                        var entry: [String: WispCore.JSONValue] = [:]
-                        if let capabilities = config.mlxModels[name] {
-                            entry["capabilities"] = .array(capabilities.map { .string($0) })
-                        }
-                        if let window = config.mlxModelContextLengths[name] { entry["contextLength"] = .int(window) }
-                        return (name, WispCore.JSONValue.object(entry))
-                    })),
+                    uniqueKeysWithValues: Set(config.mlxModels.keys).union(config.mlxModelContextLengths.keys)
+                        .union(config.mlxModelThinks.keys).map { name in
+                            var entry: [String: WispCore.JSONValue] = [:]
+                            if let capabilities = config.mlxModels[name] {
+                                entry["capabilities"] = .array(capabilities.map { .string($0) })
+                            }
+                            if let window = config.mlxModelContextLengths[name] {
+                                entry["contextLength"] = .int(window)
+                            }
+                            if let think = config.mlxModelThinks[name] { entry["think"] = .bool(think) }
+                            return (name, WispCore.JSONValue.object(entry))
+                        })),
         ])
     }
 }

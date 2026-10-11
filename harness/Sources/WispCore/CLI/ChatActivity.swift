@@ -19,8 +19,11 @@ public final class ChatActivity: Sendable {
         /// Whether the model is thinking (ADR 0053): a face may draw it its own way, as `wisp-tui`'s thought bubble.
         public var thinking = false
         /// Whether the person can stop it with Ctrl-C: a command they typed, which has no timeout (ADR 0049,
-        /// amended 2026-10-09).
+        /// amended 2026-10-09), or a model's turn (amended 2026-10-11).
         public var stoppable = false
+        /// Whether it is a model's turn, whose audit events change what it shows; a command the person typed has no
+        /// turn, and its own events change nothing.
+        public var turn = false
         /// Whether the person has asked it to stop and it has not ended yet: a second Ctrl-C quits.
         public var stopping = false
     }
@@ -50,8 +53,16 @@ public final class ChatActivity: Sendable {
     /// A turn has begun: the message has gone to the model; or, with `doing`, something else is under way that
     /// the face should show as work, such as a command the person typed (`running git status`), `stoppable` when
     /// Ctrl-C stops it.
-    public func begin(doing: String = "waiting for the model", stoppable: Bool = false, at time: Date = Date()) {
-        set(State(doing: doing, since: time, turnStarted: time, asking: false, stoppable: stoppable))
+    ///
+    /// - Parameters:
+    ///   - doing: What it is doing.
+    ///   - stoppable: Whether Ctrl-C stops it.
+    ///   - turn: Whether it is a model's turn, which its audit events follow.
+    ///   - time: When it began.
+    public func begin(
+        doing: String = "waiting for the model", stoppable: Bool = false, turn: Bool = false, at time: Date = Date()
+    ) {
+        set(State(doing: doing, since: time, turnStarted: time, asking: false, stoppable: stoppable, turn: turn))
     }
 
     /// The person asked the stoppable activity under way to stop: it now says `doing`, such as `stopping git
@@ -76,8 +87,8 @@ public final class ChatActivity: Sendable {
 
     /// Follows one of the turn's audit events; events that change nothing are ignored.
     public func apply(_ event: AuditEvent, at time: Date = Date()) {
-        // A command the person typed has no turn: its own events change nothing it shows.
-        guard var next = current, !next.stoppable, !next.stopping else { return }
+        // A command the person typed has no turn: its own events change nothing it shows; nor do a stopped turn's.
+        guard var next = current, next.turn || !next.stoppable, !next.stopping else { return }
         next.thinking = false
         switch event.kind {
         case .modelReasoning:
@@ -113,7 +124,8 @@ public final class ChatActivity: Sendable {
         let turn = Int(now.timeIntervalSince(state.turnStarted).rounded(.down))
         let doing = Int(now.timeIntervalSince(state.since).rounded(.down))
         let part = state.since > state.turnStarted.addingTimeInterval(0.5) && doing != turn ? " (\(doing) s)" : ""
-        let hint = state.stopping ? " · " + stoppingHint : state.stoppable ? " · " + stopHint : ""
+        // A turn says how to stop it only once it is stopping; a typed command, which has no timeout, says so throughout.
+        let hint = state.stopping ? " · " + stoppingHint : state.stoppable && !state.turn ? " · " + stopHint : ""
         return "\(turn) s · \(state.doing)\(part)" + hint
     }
 

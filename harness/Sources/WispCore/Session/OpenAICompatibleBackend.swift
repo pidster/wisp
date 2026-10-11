@@ -53,7 +53,7 @@ public struct OpenAICompatibleBackend: ModelBackend {
         }
     }
 
-    /// Base URL, timeout, whether a key is set (never the key), and `think` for llama.cpp.
+    /// Base URL, timeout, whether a key is set (never the key), and `think` for llama.cpp, with each model's own.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
         let settings = config[server: dialect]
         var values: [String: JSONValue] = [
@@ -62,7 +62,11 @@ public struct OpenAICompatibleBackend: ModelBackend {
             "apiKey": .string(settings.apiKeyState),
             "contextLength": .string("reported by the server (ADR 0058)"),
         ]
-        if dialect.takesThink { values["think"] = settings.think.map { .bool($0) } ?? .string("unset") }
+        if dialect.takesThink {
+            values["think"] = settings.think.map { .bool($0) } ?? .string("unset")
+            let own = settings.declared.compactMapValues(\.think)
+            if !own.isEmpty { values["models"] = .object(own.mapValues { .object(["think": .bool($0)]) }) }
+        }
         return .object(values)
     }
 

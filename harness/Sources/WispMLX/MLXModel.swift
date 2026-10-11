@@ -44,9 +44,9 @@ struct MLXModel: LanguageModel, UsageReporting {
     let slot: Slot
     /// How the chat template marks thinking, when it does; the reply is split by it (ADR 0053).
     let thinkingFormat: ThinkingFormat?
-    /// The chat template's `enable_thinking`: `mlx.think` when set, else true when the operator declared
-    /// `reasoning`, else nil, which leaves the template's own default, as an unset `ollama.think` leaves the model's
-    /// (ADR 0052, refined 2026-10-06).
+    /// The chat template's `enable_thinking` when nothing else is asked: the model's own `mlx.models.<name>.think`,
+    /// else `mlx.think`, else true when the operator declared `reasoning`, else nil, which leaves the template's own
+    /// default, as an unset `ollama.think` leaves the model's (ADR 0052, refined 2026-10-06).
     let thinking: Bool?
     /// The last request's usage.
     let usage = UsageRecord()
@@ -58,7 +58,7 @@ struct MLXModel: LanguageModel, UsageReporting {
     ///   - window: The context window.
     ///   - capabilities: What the operator declared.
     ///   - thinkingFormat: How the chat template marks thinking, when it does.
-    ///   - think: `mlx.think`, when set.
+    ///   - think: The model's own `mlx.models.<name>.think`, else `mlx.think`, when set.
     init(
         engine: any PromptEngine, window: Int, capabilities: [LanguageModelCapabilities.Capability],
         thinkingFormat: ThinkingFormat? = nil, think: Bool? = nil
@@ -124,6 +124,36 @@ struct MLXModel: LanguageModel, UsageReporting {
             return String(decoding: data, as: UTF8.self)
         }
 
+        /// Runs the engine for one request, until it ends or the turn it belongs to is stopped (`TurnStop`, ADR 0049
+        /// amended 2026-10-11): the generation is cancelled then, which the runtime checks between tokens.
+        ///
+        /// - Parameters:
+        ///   - request: The engine's request.
+        ///   - model: The model, for its engine and slot.
+        ///   - emit: Where each event goes.
+        /// - Returns: The usage.
+        /// - Throws: `TurnStop.Failure.stopped` when the turn was stopped; the engine's failures.
+        static func generate(
+            _ request: EngineRequest, on model: MLXModel, emit: @escaping @Sendable (EngineEvent) async -> Void
+        ) async throws -> EngineUsage {
+            let stop = TurnStop.current
+            try stop?.check()
+            let engine = model.engine
+            let slot = model.slot.id
+            guard let stop else { return try await engine.respond(request, slot: slot, emit: emit) }
+            return try await withThrowingTaskGroup(of: EngineUsage?.self) { group in
+                group.addTask { try await engine.respond(request, slot: slot, emit: emit) }
+                group.addTask {
+                    await stop.stopped()
+                    return nil
+                }
+                let first = try await group.next() ?? nil
+                group.cancelAll()
+                guard let usage = first else { throw TurnStop.Failure.stopped }
+                return usage
+            }
+        }
+
         /// Generates through the engine, then reports usage: input as the rendered prompt with the reused
         /// prefix as cached tokens, output as the tokens generated, the thinking among them. Thinking goes to the
         /// framework as reasoning and to the turn's observer at its edges (ADR 0053), never into the reply.
@@ -136,15 +166,17 @@ struct MLXModel: LanguageModel, UsageReporting {
             let schemas = Dictionary(
                 request.enabledToolDefinitions.map { ($0.name, ChatMessage.json($0.parameters)) },
                 uniquingKeysWith: { first, _ in first })
+            // What the request's scope asks (a call of wisp's own asks for no thinking), for a template that takes it.
+            let thinking = model.thinkSent(RequestThinking.current)?.enabled
             let engineRequest = EngineRequest(
                 prompt: MLXPrompt(
-                    transcript: request.transcript, tools: request.enabledToolDefinitions, thinking: model.thinking),
+                    transcript: request.transcript, tools: request.enabledToolDefinitions, thinking: thinking),
                 schema: request.schema.map(Self.schemaText), window: model.window,
                 maxTokens: request.generationOptions.maximumResponseTokens,
                 temperature: request.generationOptions.temperature, thinking: model.thinkingFormat)
             let prefix = request.id.uuidString.lowercased()
             let thoughts = Thoughts()
-            let usage = try await model.engine.respond(engineRequest, slot: model.slot.id) { event in
+            let emit: @Sendable (EngineEvent) async -> Void = { event in
                 switch event {
                 case .reasoning(let text):
                     guard !text.isEmpty else { return }
@@ -165,6 +197,7 @@ struct MLXModel: LanguageModel, UsageReporting {
                                 action: .appendArguments(String(decoding: encoded, as: UTF8.self), tokenCount: 1))))
                 }
             }
+            let usage = try await Self.generate(engineRequest, on: model, emit: emit)
             thoughts.end()
             model.usage.inputTokens.withLock { $0 = usage.prompt }
             // The runtime counts every token it generated; the thinking is one a streamed chunk, within that total.
@@ -176,5 +209,17 @@ struct MLXModel: LanguageModel, UsageReporting {
                             totalTokenCount: max(usage.generated, thoughts.tokens),
                             reasoningTokenCount: thoughts.tokens))))
         }
+    }
+}
+
+extension MLXModel: ThinkingControl {
+    /// What is asked, for a template that marks thinking and takes `enable_thinking`, a level taken as on; else the
+    /// configured default (`thinking`). Nothing when neither is set, which leaves the template's own default.
+    ///
+    /// - Parameter requested: The thinking asked of the request; nil asks nothing.
+    /// - Returns: The value sent, or nil.
+    func thinkSent(_ requested: OllamaThink?) -> OllamaThink? {
+        if let requested, thinkingFormat?.toggle == true { return requested.enabled ? .on : .off }
+        return thinking.map { $0 ? .on : .off }
     }
 }

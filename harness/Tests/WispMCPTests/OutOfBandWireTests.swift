@@ -23,7 +23,7 @@ final class CancelledIDs: Sendable {
     ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink, channel: PendingApprovals) {
         let sink = MemoryAuditSink()
         let session = try scratchSession(dependencies: .testing(sink: sink))
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
             let thread = try session.thread(id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = Agent(
                 instructions: "x", tools: thread.tools,

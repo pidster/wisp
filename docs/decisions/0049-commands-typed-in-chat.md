@@ -2,7 +2,8 @@
 
 Date: 2026-10-04. Status: accepted. Amended by [ADR 0054](0054-the-sandboxs-refusals-checked.md): the note for a
 command the sandbox refuses comes from a check of the paths in its error, not a guess. Amended on 2026-10-09: a typed command
-has no timeout, and the person stops it with Ctrl-C (below).
+has no timeout, and the person stops it with Ctrl-C (below). Amended on 2026-10-11: Ctrl-C during a model's turn stops
+the turn and the command it started (below).
 
 ## Context
 
@@ -130,3 +131,43 @@ keeps its timeout unchanged.
 - **No setting.** A cap for typed commands is not added: the person who would set it is the one watching the
   command, and Ctrl-C is the cap. Streaming a typed command's output live is left for later; the runner captures
   output into buffers it reads at the end, so it needs a callback per chunk and a face that redraws the fold.
+
+**Amendment, 2026-10-11: Ctrl-C during a model's turn.** The amendment above left Ctrl-C during a model's turn as it
+was: in plain chat it quit wisp at once, and a `run_command` the model had started in that turn could outlive it,
+since a command runs in a process group of its own, which the terminal's SIGINT does not reach (found on 2026-10-09
+while giving typed commands Ctrl-C). In `wisp-tui` Ctrl-C quit during a turn too. The roadmap's 0.22.0 gave the turn
+what typed commands have.
+
+- **The first Ctrl-C stops the turn**, in both faces: the model's request under way is cancelled, and a `run_command`
+  it started is stopped as a typed command is (its process group sent SIGTERM, then SIGKILL after `CommandStop.grace`,
+  two seconds). Chat returns to the prompt with `stopped by you` and goes on. A second Ctrl-C while it is stopping
+  kills what the turn still has running at once and quits, as a second press does for a typed command. With nothing
+  under way, Ctrl-C quits as before.
+- **One stop per turn, `TurnStop`.** `ChatLoop` makes one for each turn and arms `ChatInterrupt` with it; `Agent`
+  binds it as a task local around the turn's requests, as it binds the turn's `ReasoningObserver`, and what the turn
+  has under way attaches to it while it runs: a local runtime's request (its connection is cancelled through the
+  task's delegate, so a request still waiting for its first byte is cancelled too; MLX's generation is cancelled, which
+  its runtime checks between tokens), and a model's `run_command`, which follows the turn's stop when it has no stop
+  of its own. Each executor checks the stop before it sends, and a streamed reply is checked at each snapshot, so a
+  runtime that cannot be cancelled mid-request (Apple's models) stops at its next words. A command the turn would
+  start after the stop ends as it starts.
+- **Over `wisp chat --json`** the `interrupt` line stops the turn as Ctrl-C does. The `activity` line of a turn in a
+  face that takes `interrupt` carries `stoppable` true, then `doing` `stopping the turn` with `stopping` true once one
+  has arrived. `wisp-tui` sends `interrupt` on the first Ctrl-C (or Ctrl-D) while a typed command runs or while the
+  turn's activity says it is stoppable, shows `stopping the turn · Ctrl-C again quits`, and quits on the second; when
+  its input closes, wisp kills what the turn has running, as it kills a typed command. The plain chat's working line
+  gives no hint while a turn runs (a typed command, which has no timeout, keeps its `Ctrl-C stops it`), and says
+  `stopping the turn · Ctrl-C again quits` once stopping.
+- **The record stays whole.** The framework keeps nothing of a request that threw, so the stopped turn is recorded
+  in the thread from its audit events: the person's prompt, and each tool call that returned with its output (a
+  stopped command's says it was stopped), so the next request knows what was asked and what ran. A call whose output
+  never came is left out, with any answers it had, so no request carries a call without its answer. There is no reply
+  entry, and none is made up. The next request composes as after any turn.
+- **Audited** as `turn.stopped` (`seconds`, and `killed` when a second press killed what was running), beside the
+  command's own `command.outcome` with `stopped` true; the turn records no error, and `/stats` counts it as failed with
+  the reason `stopped by you`.
+- Esc still stops nothing. Tests without a model: a scripted turn whose `run_command` ignores SIGTERM, stopped by a
+  press (its group gone by pid within bounded waits, chat going on, the activity, the audit, the record, and the next
+  request), a request still streaming (a scripted model that waits, and FakeOllama holding a connection open), the
+  `interrupt` line through the router, a second press killing at once and a command started after the stop, the MLX
+  engine's generation, and in `wisp-tui` the first press sending `interrupt` during a turn and the second quitting.

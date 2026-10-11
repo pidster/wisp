@@ -18,6 +18,9 @@ public struct OllamaSettings: Equatable, Sendable {
     /// The window of each model that sets its own (`ollama.models.<name>.contextLength`), ahead of
     /// `contextLength`.
     public var modelContextLengths: [String: Int] = [:]
+    /// The thinking of each model that sets its own (`ollama.models.<name>.think`), ahead of `think` (ADR 0053,
+    /// amended 2026-10-11).
+    public var modelThinks: [String: OllamaThink] = [:]
 
     /// The Ollama defaults: the local server on port 11434, two minutes per request, windows sized per model.
     public static let `default` = OllamaSettings(baseURL: defaultBaseURL, timeout: .seconds(120))
@@ -34,13 +37,32 @@ public struct OllamaSettings: Equatable, Sendable {
     /// Creates settings.
     public init(
         baseURL: URL, timeout: Duration, contextLength: Int? = nil, think: OllamaThink? = nil,
-        modelContextLengths: [String: Int] = [:]
+        modelContextLengths: [String: Int] = [:], modelThinks: [String: OllamaThink] = [:]
     ) {
         self.contextLength = contextLength
         self.think = think
         self.baseURL = baseURL
         self.timeout = timeout
         self.modelContextLengths = modelContextLengths
+        self.modelThinks = modelThinks
+    }
+
+    /// The keys a model's own setting may be under: the name as selected, without its `:latest` tag, and with it.
+    ///
+    /// - Parameter name: The model as it was selected.
+    /// - Returns: The keys, most specific first.
+    static func keys(for name: String) -> [String] {
+        let bare = name.hasSuffix(":latest") ? String(name.dropLast(":latest".count)) : name
+        return [name, bare, "\(bare):latest"]
+    }
+
+    /// The thinking configured for `name`: its own `ollama.models.<name>.think`, else `ollama.think`; nil leaves it to
+    /// Ollama and the model.
+    ///
+    /// - Parameter name: The model as it was selected, with or without its `:latest` tag.
+    /// - Returns: The setting, or nil.
+    public func configuredThink(for name: String) -> OllamaThink? {
+        Self.keys(for: name).lazy.compactMap { modelThinks[$0] }.first ?? think
     }
 
     /// The window configured for `name`: its own setting, else the one for every model; nil sizes it.
@@ -48,8 +70,7 @@ public struct OllamaSettings: Equatable, Sendable {
     /// - Parameter name: The model as it was selected, with or without its `:latest` tag.
     /// - Returns: The window and the setting that gave it.
     public func configuredWindow(for name: String) -> ContextSizing.Decision? {
-        let bare = name.hasSuffix(":latest") ? String(name.dropLast(":latest".count)) : name
-        for key in [name, bare, "\(bare):latest"] {
+        for key in Self.keys(for: name) {
             if let window = modelContextLengths[key] {
                 return .init(window: window, reason: ContextSizing.perModelReason("ollama", name: key))
             }
@@ -250,12 +271,10 @@ public struct OllamaModel: LanguageModel, Sendable {
         self.windowReason = windowReason ?? configured?.reason ?? "the default, not sized"
     }
 
-    /// The `think` value each request sends: the configured `ollama.think`, only for a model that reports `thinking`;
-    /// nil otherwise, which leaves it to Ollama.
-    var think: JSONValue? {
-        guard reported?.contains("thinking") == true else { return nil }
-        return settings.think?.json
-    }
+    /// The `think` value a request sends now: what the request's scope asks (`RequestThinking.current`), else the
+    /// model's own `ollama.models.<name>.think`, else `ollama.think`, only for a model that reports `thinking`; nil
+    /// otherwise, which leaves it to Ollama (ADR 0053, amended 2026-10-11).
+    var think: JSONValue? { thinkSent(RequestThinking.current)?.json }
 
     /// Input tokens of the last request, from `prompt_eval_count`; nil before the first.
     public var lastInputTokens: Int? { usage.value.withLock { $0 } }
@@ -565,6 +584,10 @@ public struct OllamaModel: LanguageModel, Sendable {
             to request: LanguageModelExecutorGenerationRequest, model: OllamaModel,
             streamingInto channel: LanguageModelExecutorGenerationChannel
         ) async throws {
+            // A turn the person stopped sends nothing more; one stopped while this streams cancels its connection.
+            try TurnStop.current?.check()
+            let watch = RequestStop()
+            defer { watch.end() }
             var http = URLRequest(url: configuration.baseURL.appending(path: "api/chat"))
             http.httpMethod = "POST"
             http.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -574,7 +597,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {
-                (bytes, response) = try await URLSession.shared.bytes(for: http)
+                (bytes, response) = try await URLSession.shared.bytes(for: http, delegate: watch)
             } catch {
                 if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw Self.failure(error, configuration: configuration, streaming: false)
@@ -677,6 +700,20 @@ public struct OllamaModel: LanguageModel, Sendable {
 
 extension OllamaModel: UsageReporting {}
 
+extension OllamaModel: ThinkingControl {
+    /// What is asked, else the configured default, for a model that reports `thinking`; nothing for any other.
+    ///
+    /// - Parameter requested: The thinking asked of the request; nil asks nothing.
+    /// - Returns: The `think` value sent, or nil.
+    public func thinkSent(_ requested: OllamaThink?) -> OllamaThink? {
+        guard reported?.contains("thinking") == true else { return nil }
+        return requested ?? settings.configuredThink(for: name)
+    }
+
+    /// Ollama's levels: `low`, `medium`, `high`, `max`.
+    public var thinkLevels: [String] { OllamaThink.levels }
+}
+
 /// The built-in backend: Ollama on this Mac.
 public struct OllamaBackend: ModelBackend {
     /// `ollama:`.
@@ -735,10 +772,12 @@ public struct OllamaBackend: ModelBackend {
             "timeoutSeconds": .int(Int(config.ollama.timeout.components.seconds)),
             "contextLength": config.ollama.contextLength.map { .int($0) } ?? .string("sized per model (ADR 0043)"),
         ]
-        if !config.ollama.modelContextLengths.isEmpty {
-            settings["models"] = .object(
-                config.ollama.modelContextLengths.mapValues { .object(["contextLength": .int($0)]) })
+        var models: [String: [String: JSONValue]] = [:]
+        for (name, window) in config.ollama.modelContextLengths {
+            models[name, default: [:]]["contextLength"] = .int(window)
         }
+        for (name, think) in config.ollama.modelThinks { models[name, default: [:]]["think"] = .string(think.text) }
+        if !models.isEmpty { settings["models"] = .object(models.mapValues { .object($0) }) }
         // Unset leaves it to the model (ADR 0053).
         settings["think"] = .string(config.ollama.think?.text ?? "unset")
         return .object(settings)

@@ -14,7 +14,7 @@ import WispTestSupport
         let session = try scratchSession(
             dependencies: .testing(sink: MemoryAuditSink()),
             config: #"{"commandPolicy":{"deny":["^echo forbidden"]}}"#)
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
             let thread = try session.thread(id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)))
             return OpenThread(

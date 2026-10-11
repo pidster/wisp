@@ -31,6 +31,8 @@ public final class ThreadDirectory: Sendable {
         public var tools: [String]
         /// Whether the caller gave it instructions (the conversation layer).
         public var instructions: Bool
+        /// The thinking its turns ask of the model, as `respond`'s `think` set it; nil for the model's default.
+        public var think: String?
         /// When it was created.
         public var created: Date
         /// When a `respond` last used it.
@@ -60,12 +62,15 @@ public final class ThreadDirectory: Sendable {
     ///   - model: Its model, when known.
     ///   - tools: Its tools.
     ///   - instructions: Whether the caller gave it instructions.
+    ///   - think: The thinking `respond`'s `think` set for it, as text; nil for the model's default.
     ///   - now: The time.
-    public func opened(id: String, model: String?, tools: [String], instructions: Bool, now: Date = Date()) {
+    public func opened(
+        id: String, model: String?, tools: [String], instructions: Bool, think: String? = nil, now: Date = Date()
+    ) {
         records.withLock { records in
             records[id] = Record(
-                id: id, model: model, tools: tools, instructions: instructions, created: now, lastActive: now,
-                turns: 0, state: .open)
+                id: id, model: model, tools: tools, instructions: instructions, think: think, created: now,
+                lastActive: now, turns: 0, state: .open)
             let closed = records.values.filter { $0.state != .open }.sorted { $0.lastActive < $1.lastActive }
             for record in closed.prefix(max(0, records.count - capacity)) { records[record.id] = nil }
         }

@@ -12,7 +12,7 @@ import WispTestSupport
 @Suite struct SummaryResourceTests {
     @Test func theSummaryResourceCarriesTheSummaryAndItsVersions() async throws {
         let session = try scratchSession()
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = try thread.openAgent(
@@ -46,7 +46,7 @@ import WispTestSupport
 
     @Test func aThreadWithoutASummaryYetReadsNull() async throws {
         let session = try scratchSession()
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = try thread.openAgent(

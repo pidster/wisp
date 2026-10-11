@@ -11,17 +11,17 @@ import WispTestSupport
 /// new thread says its id, then "again", then "done".
 func scriptedThreads(
     _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?, _ tools: ToolSelection,
-    _ model: ModelSelection?
+    _ model: ModelSelection?, _ think: OllamaThink?
 ) throws -> OpenThread {
     let thread = try session.thread(
-        id: id, host: host, instructions: instructions, tools: tools, model: model)
+        id: id, host: host, instructions: instructions, tools: tools, model: model, think: think)
     let agent = Agent(
         instructions: thread.prompting.rendered, tools: thread.tools,
         model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("\(id):"), .say("again")])),
         audit: thread.audit)
     return OpenThread(
         thread: ThreadActor(id: id, agent: agent), gate: thread.gate, audit: thread.audit,
-        receipts: thread.receipts)
+        receipts: thread.receipts, think: think?.text)
 }
 
 /// A session over a scratch home, with a memory audit sink and a denying approver.

@@ -357,7 +357,7 @@ public struct CommandRunner: Sendable {
             }
         }
         // The person's stop: SIGTERM, then SIGKILL after the grace; a second request kills at once.
-        stop?.attach { request in
+        let stopping: @Sendable (CommandStop.Request) -> Void = { request in
             switch request {
             case .stop:
                 group.end(.stopped)
@@ -366,9 +366,15 @@ public struct CommandRunner: Sendable {
                 group.end(.stopped, signal: SIGKILL)
             }
         }
+        stop?.attach(stopping)
+        // A model's command follows its turn's stop, so Ctrl-C during the turn ends it as it ends a typed command
+        // (ADR 0049, amended 2026-10-11); a stop asked before it started ends it at once.
+        let turn = stop == nil ? TurnStop.current : nil
+        let following = turn?.attach(stopping)
         let status = await Spawn.wait(for: pid)
         group.reaped()
         stop?.detach()
+        if let following { turn?.detach(following) }
         watchdog?.cancel()
         // The leader is gone, but a child may live on in its group: one that ignored SIGTERM, or a job the
         // command put in the background. Nothing a command starts outlives it, so the group is killed now.

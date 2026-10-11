@@ -88,3 +88,13 @@ loses nothing. Ctrl-C still refuses at once, since refusing is safe.
 Ctrl-C or Ctrl-D used to wait for wisp with its stdin still open, so `wisp-tui` hung and the transcript
 was not saved. It now sends `/quit`, closes wisp's stdin, waits up to five seconds before killing it,
 prints the rest of wisp's stderr after the band is gone, and exits with wisp's status when wisp failed.
+
+## Amendment, 2026-10-11: Ctrl-C during a model's turn
+
+Ctrl-C quit `wisp-tui` at once during a model's turn, and a command the model had started could outlive it. It now
+stops the turn, as it stops a command typed after `!` ([ADR 0049](0049-commands-typed-in-chat.md), amended
+2026-10-11): while the turn's `activity` line says it is `stoppable`, the first Ctrl-C (or Ctrl-D) sends `interrupt`
+and the busy box reads `stopping the turn · Ctrl-C again quits`; wisp cancels the model's request, stops the command
+the turn started, and returns to the prompt with `stopped by you`; a second press quits, and wisp, its input closed,
+kills what the turn still had running. A wisp that does not say a turn is stoppable is quit at once, as before. The
+front end keeps no policy of its own: it only sends the line.

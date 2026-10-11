@@ -271,6 +271,9 @@ pub struct Activity {
     pub since: Instant,
     /// Whether the model is thinking (ADR 0053), which the busy box draws as a thought bubble from `since`.
     pub thinking: bool,
+    /// Whether Ctrl-C stops what is under way, sent as `interrupt`: a command typed after `!`, or a model's
+    /// turn (ADR 0049, amended 2026-10-09 and 2026-10-11).
+    pub stoppable: bool,
 }
 
 /// The thought bubble the busy box draws while the model thinks (ADR 0053, the operator's design of
@@ -480,12 +483,15 @@ impl App {
                 self.busy = false;
                 self.running_command = None;
                 self.stopping = false;
+                // Nothing is under way at a prompt, so nothing is left for Ctrl-C to stop.
+                self.activity = None;
                 self.show_next();
             }
             Outbound::Activity {
                 doing,
                 turn_seconds,
                 thinking,
+                stoppable,
                 ..
             } => {
                 let now = Instant::now();
@@ -496,6 +502,7 @@ impl App {
                         .unwrap_or(now),
                     since: now,
                     thinking,
+                    stoppable,
                 });
             }
             Outbound::Turn(turn) => self.turned(&turn),
@@ -1157,9 +1164,9 @@ impl App {
         }
     }
 
-    /// Ctrl-C or Ctrl-D: cancel a dialog first; while a command typed after `!` runs, ask wisp to stop it
-    /// (`interrupt`), and quit on a second press while it is stopping, as Ctrl-C quits during a model's turn;
-    /// otherwise quit.
+    /// Ctrl-C or Ctrl-D: cancel a dialog first; while a command typed after `!` runs, or a model's turn that
+    /// wisp says can be stopped, ask wisp to stop it (`interrupt`), and quit on a second press while it is
+    /// stopping (ADR 0049, amended 2026-10-09 and 2026-10-11); otherwise quit.
     pub fn interrupt(&mut self) -> Action {
         if self.panel.take().is_some() {
             return Action::None;
@@ -1177,7 +1184,12 @@ impl App {
                 decision: decision.into(),
             });
         }
-        if self.busy && self.running_command.is_some() && !self.stopping {
+        let stoppable = self.running_command.is_some()
+            || self
+                .activity
+                .as_ref()
+                .is_some_and(|activity| activity.stoppable);
+        if self.busy && stoppable && !self.stopping {
             self.stopping = true;
             return Action::Send(Inbound::Interrupt);
         }
@@ -1509,6 +1521,16 @@ impl App {
             return self.command_label(command, now);
         }
         let doing = match (self.thinking_since(), self.activity.as_ref()) {
+            // Asked to stop: wisp's own words once it says them, and how to quit, until the turn ends.
+            _ if self.stopping => {
+                let doing = self
+                    .activity
+                    .as_ref()
+                    .map(|activity| activity.doing.clone())
+                    .filter(|doing| doing.starts_with("stopping"))
+                    .unwrap_or_else(|| "stopping the turn".to_string());
+                format!("{doing} · Ctrl-C again quits")
+            }
             (Some(since), _) => {
                 THINKING_FRAMES[thinking_frame(now.saturating_duration_since(since))].to_string()
             }
@@ -3156,6 +3178,7 @@ mod tests {
             turn_started: start,
             since: start + Duration::from_secs(after),
             thinking: false,
+            stoppable: false,
         };
         let at = |seconds: u64| start + Duration::from_secs(seconds);
         assert_eq!(
@@ -3736,6 +3759,45 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_stops_a_model_turn_and_a_second_press_quits() {
+        let mut app = App::default();
+        app.handle(Outbound::Status(Status::default()));
+        for c in "explain the build".chars() {
+            app.type_char(c);
+        }
+        assert!(matches!(
+            app.submit(),
+            Action::Send(Inbound::Message { .. })
+        ));
+        // wisp says the turn can be stopped, as it does for every turn of a face that takes `interrupt`.
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"running make","asking":false,"turnSeconds":0,"stoppable":true}"#,
+        ));
+        assert!(app.busy && app.running_command.is_none());
+        // The first Ctrl-C asks wisp to stop the turn and does not quit; the box says so at once.
+        assert_eq!(app.interrupt(), Action::Send(Inbound::Interrupt));
+        assert!(app.stopping && app.busy);
+        assert_eq!(
+            app.busy_label(Instant::now()),
+            "stopping the turn · Ctrl-C again quits"
+        );
+        // wisp's own word for it, once it says it.
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"stopping the turn","asking":false,"turnSeconds":1,"stopping":true}"#,
+        ));
+        assert_eq!(
+            app.busy_label(Instant::now()),
+            "stopping the turn · Ctrl-C again quits"
+        );
+        // A second, while it is stopping, quits.
+        assert_eq!(app.interrupt(), Action::Quit);
+        // When the turn ends the next prompt's status clears it, and Ctrl-C with nothing running quits.
+        app.handle(Outbound::Status(Status::default()));
+        assert!(!app.stopping && !app.busy);
+        assert_eq!(app.interrupt(), Action::Quit);
+    }
+
+    #[test]
     fn ctrl_c_stops_a_typed_command_and_a_second_press_quits() {
         let mut app = App::default();
         app.handle(Outbound::Status(Status::default()));
@@ -3778,7 +3840,7 @@ mod tests {
         app.handle(Outbound::Status(Status::default()));
         assert!(app.running_command.is_none() && !app.stopping && !app.busy);
         assert_eq!(app.interrupt(), Action::Quit);
-        // During a model's turn Ctrl-C quits at once, unchanged.
+        // During a model's turn wisp says cannot be stopped (an older wisp), Ctrl-C quits at once.
         for c in "hi".chars() {
             app.type_char(c);
         }

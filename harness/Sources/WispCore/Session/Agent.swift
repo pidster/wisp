@@ -155,6 +155,10 @@ public final class Agent {
     /// with `run_command`'s policy, sandbox, bounds, and audit, called with `.person` so its gate is not consulted.
     /// Set by `WispThread.openAgent`; nil, for an agent made directly, makes typed commands unavailable.
     public var commandRunner: CommandRunner?
+    /// The thinking the conversation's turns ask of the model, chosen by an MCP caller when it started the thread
+    /// (`respond`'s `think`, ADR 0053 amended 2026-10-11); nil, the default, leaves the model to its configured default
+    /// (`<runtime>.models.<name>.think`, then `<runtime>.think`). A schema reply asks for none unless this is set.
+    public var thinking: OllamaThink?
 
     /// Creates an agent on a model.
     ///
@@ -551,13 +555,24 @@ public final class Agent {
     ///   - prompt: The turn's `prompt` event.
     ///   - response: The turn's `response` event; nil when the turn failed.
     ///   - started: When the prompt was sent: the prompt entry's time.
-    private func remember(prompt: AuditReference?, response: AuditReference?, started: Date) {
+    ///   - stopped: The prompt of a turn the person stopped (ADR 0049, amended 2026-10-11), nil for any other. The
+    ///     framework keeps nothing of a request that threw, so the turn is recorded from its audit events: the prompt,
+    ///     and each tool call with the output it returned (a command stopped says so), so the next request knows what
+    ///     the person asked and what ran. A call whose output never came is left out, so no request carries a call
+    ///     without its answer.
+    private func remember(prompt: AuditReference?, response: AuditReference?, started: Date, stopped: String? = nil) {
         // A squeezed earlier block lasts for the turn that needed it; the next request is composed in full and
         // squeezed again only if its own condensation reaches the floor.
         composer.squeezesEarlier = false
-        let added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
+        var added = Array(session.transcript).filter { !store.contains($0) && !FactFrame.isFrame($0) }
         let turn = turns.current
         let events = toolEvents?.take(turn: turn) ?? []
+        if let stopped {
+            if !added.contains(where: { if case .prompt = $0 { true } else { false } }) {
+                added = Self.stoppedEntries(prompt: stopped, events: events)
+            }
+            added = Self.answered(added)
+        }
         turnTools = toolEvents == nil ? nil : TurnToolSummary(events: events, turn: turn)
         let sources = ThreadRecord.sources(
             for: added, prompt: prompt, response: response, toolEvents: events)
@@ -576,6 +591,53 @@ public final class Agent {
         for note in memory?.takeNotes() ?? [] { record(note) }
         noteCalls(in: added)
         refreshFacts()
+    }
+
+    /// The entries of a stopped turn the framework kept nothing of, from its audit events: the prompt, then each tool
+    /// call that returned, with its output.
+    ///
+    /// - Parameters:
+    ///   - prompt: The turn's prompt.
+    ///   - events: The turn's tool events.
+    /// - Returns: The entries, in order.
+    static func stoppedEntries(prompt: String, events: [AuditEvent]) -> [Transcript.Entry] {
+        var entries: [Transcript.Entry] = [.prompt(.init(segments: [.text(.init(content: prompt))]))]
+        var results: [String: AuditEvent] = [:]
+        for event in events where event.kind == .toolResult {
+            if let call = event.call { results[call] = event }
+        }
+        for event in events where event.kind == .toolCall {
+            guard let id = event.call, let result = results[id], let tool = event.details["tool"]?.stringValue,
+                let arguments = try? GeneratedContent(json: event.details["arguments"]?.stringValue ?? "{}")
+            else { continue }
+            let output = result.details["output"]?.stringValue ?? ""
+            entries.append(.toolCalls(.init([.init(id: id, toolName: tool, arguments: arguments)])))
+            entries.append(.toolOutput(.init(id: id, toolName: tool, segments: [.text(.init(content: output))])))
+        }
+        return entries
+    }
+
+    /// `entries` without a tool-call entry whose outputs did not all follow it, nor the outputs that did: a turn the
+    /// person stopped may end between a call and its answer, and a request must not carry a call without one.
+    ///
+    /// - Parameter entries: A turn's entries, in order.
+    /// - Returns: Those to keep.
+    static func answered(_ entries: [Transcript.Entry]) -> [Transcript.Entry] {
+        var kept: [Transcript.Entry] = []
+        var index = 0
+        while index < entries.count {
+            if case .toolCalls(let calls) = entries[index] {
+                var next = index + 1
+                while next < entries.count, case .toolOutput = entries[next] { next += 1 }
+                if next - index - 1 < calls.count {
+                    index = next
+                    continue
+                }
+            }
+            kept.append(entries[index])
+            index += 1
+        }
+        return kept
     }
 
     /// The context composed for the start of `turn` in this thread's record, entry by entry
@@ -656,7 +718,7 @@ public final class Agent {
 
     /// Sends one user turn and returns the reply.
     nonisolated(nonsending) public func respond(to prompt: String) async throws -> Reply {
-        try await turn(prompt) { try await session.respond(to: prompt).content }
+        try await turn(prompt, think: thinking) { try await session.respond(to: prompt).content }
     }
 
     /// Sends one user turn and returns the reply as JSON shaped by `schema`, through the framework's
@@ -668,8 +730,27 @@ public final class Agent {
     /// - Returns: The reply, whose `text` is the JSON.
     /// - Throws: `ModelSelection.Failure.unsupportedCapability`, or framework errors.
     nonisolated(nonsending) public func respond(to prompt: String, schema: OutputSchema) async throws -> Reply {
+        try await respond(to: prompt, schema: schema, keepsThinking: false)
+    }
+
+    /// Sends one user turn and returns the reply as JSON shaped by `schema`, as `respond(to:schema:)` does.
+    /// A schema reply asks a model that can think not to, unless the conversation chose its thinking (`thinking`) or
+    /// the caller keeps the model's default (`keepsThinking`): a shaped answer gains little from thinking first, which
+    /// made `granite4.2:8b`'s schema replies seven times slower for the same score (0.7 s against 5.3 s a case on
+    /// 2026-10-10, docs/measurements.md).
+    ///
+    /// - Parameters:
+    ///   - prompt: The task.
+    ///   - schema: The shape the reply must take.
+    ///   - keepsThinking: Whether the model keeps its configured thinking, as a change draft does.
+    /// - Returns: The reply, whose `text` is the JSON.
+    /// - Throws: `ModelSelection.Failure.unsupportedCapability`, or framework errors.
+    nonisolated(nonsending) public func respond(
+        to prompt: String, schema: OutputSchema, keepsThinking: Bool
+    ) async throws -> Reply {
         try model.checkGuidedGeneration()
-        return try await turn(prompt, schema: schema.source) {
+        let think = keepsThinking ? thinking : thinking ?? .off
+        return try await turn(prompt, schema: schema.source, think: think) {
             try await session.respond(
                 to: prompt, schema: schema.schema, options: .init(maximumResponseTokens: maximumSchemaTokens)
             ).content.jsonString
@@ -682,13 +763,28 @@ public final class Agent {
     /// Snapshots are cumulative. If a retry after mid-stream overflow starts a new answer that does
     /// not continue the text already shown, a newline separates the two so the caller's output stays
     /// readable rather than splicing an unrelated suffix onto it.
+    ///
+    /// With `stop`, the person can stop the turn (Ctrl-C in chat, ADR 0049 amended 2026-10-11): the request under way
+    /// is cancelled, a `run_command` it started is stopped as a typed command is, the turn is recorded as stopped
+    /// (`turn.stopped`) with what it had added, and the call throws `TurnStop.Failure.stopped`.
+    ///
+    /// - Parameters:
+    ///   - prompt: The prompt.
+    ///   - stop: What stops the turn when the person asks; nil cannot be stopped.
+    ///   - onDelta: Called with each new fragment of the reply.
+    /// - Returns: The reply.
+    /// - Throws: `TurnStop.Failure.stopped` when it was stopped; framework errors.
     @discardableResult
-    nonisolated(nonsending) public func stream(_ prompt: String, onDelta: (String) -> Void) async throws -> Reply {
+    nonisolated(nonsending) public func stream(
+        _ prompt: String, stop: TurnStop? = nil, onDelta: (String) -> Void
+    ) async throws -> Reply {
         // `emitted` lives outside the retried closure so a retry after mid-stream overflow continues
         // from what the caller has already seen instead of repeating it.
         var emitted = ""
-        return try await turn(prompt) {
+        return try await turn(prompt, think: thinking, stop: stop) {
             for try await snapshot in session.streamResponse(to: prompt) {
+                // A runtime that cannot be cancelled mid-request stops at its next words.
+                try stop?.check()
                 let full = snapshot.content
                 guard full != emitted else { continue }
                 if full.hasPrefix(emitted) {
@@ -712,14 +808,25 @@ public final class Agent {
     }
 
     /// Records the prompt, runs `operation` with overflow recovery, and records the response or error.
+    ///
+    /// - Parameters:
+    ///   - prompt: The prompt.
+    ///   - schema: The caller's JSON Schema, for the audit.
+    ///   - think: The thinking the turn's requests ask of the model (`RequestThinking`); nil leaves its default.
+    ///   - stop: What stops the turn when the person asks, bound for its requests and commands; nil for none.
+    ///   - operation: The request.
+    /// - Returns: The reply.
+    /// - Throws: What the request threw; `TurnStop.Failure.stopped` when the person stopped it.
     nonisolated(nonsending) private func turn(
-        _ prompt: String, schema: JSONValue? = nil, _ operation: () async throws -> String
+        _ prompt: String, schema: JSONValue? = nil, think: OllamaThink?, stop: TurnStop? = nil,
+        _ operation: () async throws -> String
     ) async throws -> Reply {
         turns.advance()
         turnFactIDs = []
         contextNote = nil
         composer.squeezesEarlier = false
-        let prompted = audit?.record(.prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema))
+        let prompted = audit?.record(
+            .prompt, details: AuditEvent.Details.prompt(text: prompt, schema: schema, think: model.thinkSent(think)))
         let started = Date()
         let before = condensations
         let tokensBefore = tokensUsed
@@ -728,9 +835,14 @@ public final class Agent {
         refreshFacts()
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
-            // The model's thinking is reported as it happens through the turn's observer (ADR 0053).
+            // The model's thinking is reported as it happens through the turn's observer (ADR 0053), and its requests
+            // ask for the turn's thinking (ADR 0053, amended 2026-10-11); a side call within the turn asks for none.
             let text = try await ReasoningObserver.$current.withValue(ReasoningObserver.recording(to: audit)) {
-                try await withToolRecovery { try await withOverflowRecovery(operation) }
+                try await RequestThinking.$current.withValue(think) {
+                    try await TurnStop.$current.withValue(stop) {
+                        try await withToolRecovery { try await withOverflowRecovery(operation) }
+                    }
+                }
             }
             // The conversation's request was the last the model served; no side call has run since.
             conversationInputTokens = model.reportedInputTokens()
@@ -751,6 +863,17 @@ public final class Agent {
             reply.cited = CitedEntries.line(missing.numbers, capped: missing.capped)
             return reply
         } catch {
+            // Whatever the request threw as it was cancelled, a turn the person stopped ended because they did.
+            if let stop, stop.requested {
+                recordStats(started: started, failure: TurnStop.Failure.stopped.description)
+                audit?.record(
+                    .turnStopped,
+                    details: AuditEvent.Details.turnStopped(
+                        seconds: Date().timeIntervalSince(started), killed: stop.requests > 1))
+                Diagnostics.agent.info("turn stopped by the person")
+                remember(prompt: prompted, response: nil, started: started, stopped: prompt)
+                throw TurnStop.Failure.stopped
+            }
             recordStats(started: started, failure: "\(error)")
             audit?.error(error, context: "turn")
             Diagnostics.agent.error("turn failed: \(error)")

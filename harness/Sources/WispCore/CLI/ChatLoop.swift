@@ -441,17 +441,26 @@ public struct ChatLoop {
                 let started = Date()
                 let before = agent.tokensUsed
                 io.turn(.start(turn: number))
-                context.activity?.begin()
+                // Ctrl-C stops the turn: its request, and a command the model started (ADR 0049, amended 2026-10-11).
+                let stop = TurnStop()
+                let activity = context.activity
+                activity?.begin(stoppable: context.interrupt != nil, turn: true)
+                context.interrupt?.armTurn(stop) { _ in activity?.stopping("stopping the turn") }
                 var failed = false
                 var reply: Agent.Reply?
                 do {
-                    reply = try await agent.stream(text) { io.write($0) }
+                    reply = try await agent.stream(text, stop: context.interrupt == nil ? nil : stop) { io.write($0) }
                     io.print("")
+                } catch TurnStop.Failure.stopped {
+                    failed = true
+                    io.print("")
+                    io.note(style.muted(TurnStop.Failure.stopped.description))
                 } catch {
                     failed = true
                     io.print("")
                     io.note(style.ember("error: \(error)"))
                 }
+                context.interrupt?.disarmTurn()
                 context.activity?.end()
                 io.turn(
                     .end(

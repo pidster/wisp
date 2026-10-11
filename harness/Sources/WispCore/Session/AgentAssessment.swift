@@ -53,8 +53,9 @@ extension Agent {
             do {
                 try model.checkGuidedGeneration()
                 let session = model.session(tools: [], instructions: Assessor.instructions)
-                // The assessment's thinking is not the turn's: no observer records it (ADR 0053).
-                let answer = try await ReasoningObserver.$current.withValue(nil) {
+                // The assessment's thinking is not the turn's, and gains it nothing: no observer records it, and a
+                // model that can think is asked not to (ADR 0053, amended 2026-10-11).
+                let answer = try await RequestThinking.sideCall {
                     try await session.respond(
                         to: text, generating: Assessor.Answer.self,
                         options: GenerationOptions(
@@ -86,7 +87,8 @@ extension Agent {
                 method: result.method.rawValue, tools: result.tools, ruleTools: result.ruleTools,
                 registered: composer.registered, intent: result.intent, task: recordedTask, facts: result.facts,
                 seconds: Date().timeIntervalSince(started), bytes: bytes,
-                model: bytes > 0 ? model.selection : nil, failure: result.failure))
+                model: bytes > 0 ? model.selection : nil, failure: result.failure,
+                think: bytes > 0 ? model.thinkSent(.off) : nil))
     }
 
     /// `result` with the model's answer applied: its tools added to the rules' (only allowed ones: an explicit list

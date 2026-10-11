@@ -204,6 +204,11 @@ public struct ResolvedModel: Sendable {
     private let makeFromTranscript: @Sendable ([any Tool], Transcript) -> LanguageModelSession
     private let countTokens: (@Sendable (Transcript) async throws -> Int)?
     private let reportedInput: (@Sendable () -> Int?)?
+    /// What a request sends as its thinking switch for what is asked of it (`ThinkingControl`); nil for a model whose
+    /// executor sends none, such as Apple's.
+    private var thinkSending: (@Sendable (OllamaThink?) -> OllamaThink?)?
+    /// The levels the model's runtime accepts beyond `true` and `false` (`ThinkingControl.thinkLevels`).
+    public private(set) var thinkLevels: [String] = []
 
     /// Wraps the on-device model.
     init(selection: ModelSelection, system model: SystemLanguageModel) {
@@ -291,6 +296,31 @@ public struct ResolvedModel: Sendable {
         } else {
             reportedInput = nil
         }
+        if let control = model as? any ThinkingControl {
+            thinkSending = { control.thinkSent($0) }
+            thinkLevels = control.thinkLevels
+        }
+    }
+
+    /// What a request on this model sends as its thinking switch when `requested` is asked of it: the request's own
+    /// choice for a model that can think, its configured default otherwise, and nil when nothing is sent (ADR 0053,
+    /// amended 2026-10-11). Always nil for Apple's models, which have no such switch.
+    ///
+    /// - Parameter requested: The thinking asked (`RequestThinking.current`); nil asks nothing.
+    /// - Returns: The value sent, or nil.
+    public func thinkSent(_ requested: OllamaThink?) -> OllamaThink? { thinkSending?(requested) ?? nil }
+
+    /// Refuses a thinking choice the model's runtime does not take: a level where its switch is only on or off.
+    /// `true` and `false` are taken by every model; one that cannot think is sent nothing.
+    ///
+    /// - Parameter requested: The caller's choice.
+    /// - Throws: `ModelSelection.Failure.unsupportedCapability` naming the values it takes.
+    public func checkThink(_ requested: OllamaThink) throws {
+        guard case .level(let level) = requested, !thinkLevels.contains(level) else { return }
+        let takes = (["true", "false"] + thinkLevels).joined(separator: ", ")
+        throw ModelSelection.Failure.unsupportedCapability(
+            model: selection.description, capability: "think '\(level)'", declaredBy: capabilitySource,
+            hint: "its runtime takes \(takes)")
     }
 
     /// A new session with instructions.
