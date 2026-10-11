@@ -121,6 +121,23 @@ in that chat at once ([ADR 0056](decisions/0056-models-enabled-and-disabled.md),
 the configured model is unavailable and was not named; `respond` and MCP open through `openAgent` and
 `Session.thread`, which never fall back ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
 
+`ModelActions` is the one layer every face takes these through ([ADR 0059](decisions/0059-one-set-of-model-actions.md)):
+`wisp models …` (face `cli`), chat's `/models` and `/model` and `wisp-tui`'s picker (`chat`), and the model's
+`ModelsTool` (`tool`). Each `Action` (`list`, `show`, `pull`, `trust`, `enable`, `disable`, `check`, `switch`) declares
+what it reads and changes, whether the model may ask for it, and the widest scope its approval is kept for; the
+actions call `Session.setModels`, `Session.checkModels`, `Session.trustPublisher`, `DisabledModels.check`, and
+`PublisherCheck`, recording in the asking conversation's log with the face as `source`. A pull is `WispCore`'s
+questions around a `ModelPuller` the executable registers (`ModelPullers`; `MLXPuller` over `ModelPull`): `prepare`
+lists the repository into a `PreparedPull` (a `PullSummary` and closures over the runtime's plan), and
+`ModelActions.pull` screens the publisher, puts the question through the face's `PullDialog` (the terminal's lines,
+chat's notes and `ChatChoice`), asks about the download, and runs the fetch in a child task that the dialog's
+`CommandStop` cancels, as Ctrl-C stops a typed command, keeping the part of the file for the next pull to resume;
+progress is `PullProgress`, which chat shows as its `ChatActivity`. The model's pull, `requestPull`, puts one approval
+request through the conversation's gate (`ApprovalGate.clear(modelAction:subject:reasons:workingDirectory:)`, of kind
+`ApprovalRequest.Kind.modelAction`), then starts the fetch in the session's `ModelPulls` and returns; its end is posted
+to `Session.notices` (`ConversationNotices`), which chat shows as it arrives and the agent stores as a
+`ThreadRecord.Kind.notice` entry when the conversation's next turn begins.
+
 ### `Agent`
 
 Keeps the conversation in a `ThreadRecord` and asks a `ContextComposer` for each request's
@@ -225,6 +242,13 @@ turn but keeps it with the turn after it (`Transcript.condensed(keepTurns:comman
 after the last turn; `ContextView` labels it "the
 person's command"; the snapshot saves its `PersonCommand`, and a record of kind `command` restores only with one;
 `Recall` reads its output from the `command.typed` event and labels it with the command.
+
+**wisp's notices** ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). A note wisp adds between turns (today,
+the end of a background pull the model asked for) is `ThreadRecord.Kind.notice`: a prompt holding the note, with no
+source, stored by `Agent` from `Session.notices` as the turn begins, its `turn` that turn's. It is sent as stored, and
+is otherwise treated as the person's command is (`Kind.isBetweenTurns`): no turn of its own in the count or the
+headroom, kept with the turn after it when condensing, written ahead of that turn's prompt for the distiller, and
+labelled "wisp's note" by `ContextView`.
 
 **Memory** (phase 4c; [tools/memory.md](tools/memory.md)) reads the store, and adds to the facts, from outside
 the agent: the framework calls `MemoryTool` on its own task, so the agent publishes a copy of its store, every
@@ -466,7 +490,9 @@ tool can change no more than a command could. Each edit is cleared by the gate a
 tools do not share one control path: `run_command` passes the policy patterns, the gate, and Seatbelt;
 `edit_file` the writable list and the gate; `read_file` the gate's rules only; `inspect` and
 `current_date` none; `memory` reads only the conversation's record and the audit log and writes only the
-model's own facts, below the person's and the tools', so none either.
+model's own facts, below the person's and the tools', so none either. `ModelsTool` reads the listing without the
+gate and asks the gate for every change, as a request of its own kind (`models pull <repo>` never covered by a held
+approval), through `ModelActions` ([ADR 0059](decisions/0059-one-set-of-model-actions.md)).
 `NotifyTool` posts through the session's host (above), bounded, rate-limited, and
 audited as `notification` with the route taken, without the gate
 ([ADR 0030](decisions/0030-notifications.md), [ADR 0044](decisions/0044-host-effects.md)).

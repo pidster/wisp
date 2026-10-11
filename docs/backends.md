@@ -394,7 +394,7 @@ The pull lists the repository at the commit `main` is at, checks each file again
 listed size, and its content: each weights file's SHA-256, which reads it, and each other file's git blob id, the
 name its blob takes), and says per file whether it is already in the
 Hugging Face cache or to fetch. It asks before it downloads anything; when every file is already in the cache it
-asks nothing and only links. It runs only from a terminal, and the default command policy refuses it to the
+asks nothing and only links. It runs only from a terminal or, as `/models pull`, in chat (ADR 0059), and the default command policy refuses it to the
 model. It fetches one repository, both parts of whose name are names Hugging Face accepts (no `/`, no leading
 dot, no `--` or `..`), and only the top-level files a model directory needs (`json`, `safetensors`, `jinja`,
 `txt`, `model`, `tiktoken`) with plain names (letters, digits, `.`, `_`, `-`, no leading dot), checks each fetched file's size and content (each

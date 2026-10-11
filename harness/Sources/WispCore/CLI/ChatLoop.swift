@@ -143,17 +143,10 @@ public struct ChatLoop {
         public var inspect: (@Sendable (String) async -> String)?
         /// A banner line for the start of the session.
         public var banner: String?
-        /// Lists the models `/models` shows, judged for a conversation with the given tools (`ModelListing`); nil
-        /// makes the command unavailable.
-        public var models: (@Sendable ([any Tool]) async -> ModelListing.Listing)?
-        /// Turns models on and off (`Session.setModels`): the models to enable, then those to disable; returns a
-        /// line per model for the person. Nil makes `/models enable|disable` unavailable and the picker a table.
-        public var setModels: (@Sendable ([String], [String]) throws -> [String])?
-        /// Checks what models can do and records it (`Session.checkModels`): the models, whether to check one
-        /// already declared, and where each line of progress goes; returns a line per model. Called after enabling
-        /// models, and by `/models check`; nil checks nothing and makes `/models check` unavailable.
-        public var checkModels:
-            (@Sendable ([String], Bool, @escaping @Sendable (String) -> Void) async throws -> [String])?
+        /// The model actions `/models` and `/model` take, as the chat's (`ModelActions`, face `chat`; ADR 0059): the
+        /// listing, turning models on and off, checking them, pulling, trusting, and the switch's check. Nil makes
+        /// `/models` unavailable; `/model` then switches without the check `openModel` makes anyway.
+        public var models: ModelActions?
         /// The terminal's width for a table, or nil when unknown, which aligns it without wrapping.
         public var width: @Sendable () -> Int?
         /// Notes shown once after the banner, such as the model chat fell back to (ADR 0056).
@@ -185,10 +178,7 @@ public struct ChatLoop {
             directory: String, approval: String,
             git: @escaping @Sendable (String) -> GitState.Summary = { _ in GitState.Summary() },
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
-            models: (@Sendable ([any Tool]) async -> ModelListing.Listing)? = nil,
-            setModels: (@Sendable ([String], [String]) throws -> [String])? = nil,
-            checkModels: (@Sendable ([String], Bool, @escaping @Sendable (String) -> Void) async throws -> [String])? =
-                nil,
+            models: ModelActions? = nil,
             width: @escaping @Sendable () -> Int? = { nil }, notices: [String] = [],
             openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)? = nil, stats: CallStats? = nil,
             configFile: URL? = nil,
@@ -208,8 +198,6 @@ public struct ChatLoop {
             self.inspect = inspect
             self.banner = banner
             self.models = models
-            self.setModels = setModels
-            self.checkModels = checkModels
             self.width = width
             self.notices = notices
             self.openModel = openModel
@@ -263,6 +251,11 @@ public struct ChatLoop {
             activity?.apply(event)
             if let line = ChatEvents.render(event, style: style) { note(line) }
             if let output = ChatEvents.shownOutput(event, lines: shown, style: style) { note(output) }
+        }
+        // A note for this conversation, such as a background pull's end (ADR 0059), is shown as it arrives; the model
+        // reads it with the next turn. `/model` keeps the conversation, and so the watch.
+        if let conversation = agent.audit?.session {
+            agent.notices?.watch(conversation) { note(style.muted($0)) }
         }
     }
 
@@ -395,7 +388,7 @@ public struct ChatLoop {
                     continue
                 }
                 do {
-                    let selection = try ModelSelection(parsing: name)
+                    let selection = try context.models?.switchTarget(name) ?? ModelSelection(parsing: name)
                     agent = try openModel(selection, agent.store)
                     io.note(style.muted("model: \(selection); the transcript continues"))
                 } catch {

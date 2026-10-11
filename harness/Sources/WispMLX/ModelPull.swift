@@ -512,6 +512,8 @@ public struct ModelPull: Sendable {
         }
         var fetched = 0
         for (index, file) in missing.enumerated() {
+            // A cancelled pull stops between files; the files fetched so far stay for the next one.
+            try Task.checkCancellation()
             progress(file, index + 1)
             fetched += try await Self.locked(cache.lock(file.blob, of: plan.repository)) {
                 try await fetchBlob(file, of: plan, notice: notice)

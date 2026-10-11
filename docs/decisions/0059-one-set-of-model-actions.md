@@ -1,6 +1,7 @@
 # ADR 0059: One set of model actions, for the person and the model
 
-Date: 2026-10-09. Status: proposed, for 0.22.0. Extends [ADR 0056](0056-models-enabled-and-disabled.md) (models
+Date: 2026-10-09. Status: accepted, 2026-10-11, built for 0.22.0; the open questions are settled below ("Settled when
+built"). Extends [ADR 0056](0056-models-enabled-and-disabled.md) (models
 enabled, disabled, and checked) and the 2026-10-09 amendment of [ADR 0052](0052-mlx-on-a-par-with-ollama.md) (pulls
 from any publisher, confirmed by the person); applies [ADR 0011](0011-risk-classifier-and-approval.md) and
 [ADR 0046](0046-approval-and-notifications-over-mcp.md) (approval) to a new kind of request.
@@ -71,13 +72,62 @@ that `/models` and `/model` already exist and should be adapted rather than dupl
 - A pull is the largest effect any tool has had (gigabytes of disk and network): it is always asked, never remembered,
   and visible while it runs.
 - More surface for the model to misuse: the tool is off by default, and every change it can make asks.
-- Open, to be settled when this is built: whether `switch` is ever offered to the model; whether `check` for a model
-  the operator never enabled should ask; how a pull started over MCP reports completion to a client that has moved on
-  (a resource under `wisp://models`, or a notification).
+- The questions left open when this was proposed are settled below.
 
-## Tests (planned)
+## Settled when built (2026-10-11)
 
-Without a model or network: each action through each face (CLI, `/models`, the tool) reaching `ModelActions`; the
-tool's read-only actions bounded; every changing action asking, and refused when declined, timed out, or unanswered;
-a pull never covered by a cached approval; `trust` refused to the model; the publisher dialog in chat and `wisp-tui`;
-a background pull's progress, cancellation, and completion note; the audit fields.
+- **`switch` is not offered to the model.** The tool refuses it (`switch is not offered to the model`), as it refuses
+  `trust`. A model choosing its own successor changes what reads the conversation from the next turn on, which no
+  approval dialog shows well; nothing in 0.22.0 needs it. Offering it would take a decision of its own.
+- **`check` asks, whatever the model's state.** Every `check` the model asks for is an approval request
+  (`models check <name>`), for a model the operator enabled or not: a check loads the model's weights (gigabytes of
+  memory, up to three minutes) and writes its declaration to `config.json`, so the person decides. A check of a model
+  whose runtime reports its own capabilities asks too, then says there is nothing to check; asking first keeps one
+  rule for the model's changes.
+- **A pull started over MCP reports its end in the thread.** No resource under `wisp://models` and no MCP
+  notification: the end is a note the thread's next `respond` carries to the model (a `ThreadRecord.Kind.notice`
+  entry), and a `model.pull` event in the thread's own audit log, so `wisp://threads/{thread_id}/audit` shows it with
+  the approval's id. A caller that has moved on finds both when it comes back; nothing is pushed to a client that
+  may not be listening. The person's notification of the approval request is unchanged (ADR 0046).
+- **The threshold and `--yes`.** A model's request about models is asked whatever `approval.threshold` says, `never`
+  included: the threshold rates commands, and these are changes to what wisp runs. `--yes` (`AutoApprover`) approves
+  `enable`, `disable`, and `check` as it approves a command, but does not answer a pull, which is refused: a flag given
+  ahead of time is not the person seeing a publisher, licence, and download size.
+- **What "approved per pull" means at the gate.** A pull's request (`ApprovalRequest.Kind.modelAction(pull: true)`)
+  takes only `once`, and that once covers only that pull, not the rest of the turn; a wider answer from any face is
+  narrowed and `approval.decided` records `downgradedFrom`. `enable`, `disable`, and `check` take `once` or `session`,
+  `project` and `always` narrowed to the session, so nothing the model asks reaches `approvals.json`. They are keyed
+  by pattern, as `edit_file`'s are (`models enable *`). Each request gets an id, recorded as `approvalID`, and every
+  event the change writes carries it as `approval`.
+- **The person's pull in chat runs in the foreground of the chat loop**, as a command typed after `!` does: the plan
+  and the questions first, then the download with its progress as the activity (`pulling … 1.2 GB of 4.5 GB, file 2
+  of 7`), which the terminal's working line and `wisp-tui`'s busy box show while notes keep arriving. Ctrl-C reaches it
+  through the same `ChatInterrupt` and `CommandStop` as a typed command (the `interrupt` line from `wisp-tui`), which
+  cancels the fetch; the part of the file stays as `.incomplete` and the next pull resumes it (ADR 0052's resume).
+  The questions are the face's choice dialog: refuse, pull once, or trust from now on, refuse current so Enter alone
+  refuses; yes or no for the download and a directory to replace, no current.
+- **The model's background pulls** are the session's (`Session.modelPulls`), one per repository; asking for one
+  already running is refused. `/models cancel [REPOSITORY]` stops one, and the session's end cancels them all, the
+  note and `model.pull` saying `cancelled`. A directory at the link's path is never replaced for the model: only the
+  person may agree to that.
+- **The setting** that turns the tool on for every conversation is `tools.models` (default false), beside
+  `tools.disabled`, as `context.memory` turns `memory` on.
+- **Audit.** No new event kind: `model.pull` gains `source` and `approval` and the outcome `cancelled`;
+  `model.publisher` gains `approval` (its `source` now `cli`, `chat`, or `tool`); `model.verified` gains `source` and
+  `approval`; `config.change` gains `approval` and the source `tool`. ADR 0056's "models.enabled" is
+  `config.change` of `models.disabled`; there is no such event. The model's changes are recorded in the asking
+  conversation's log, an MCP thread's included.
+- **Where the code is.** `ModelActions` in `WispCore` holds the actions and the pull's questions; `PublisherCheck`
+  moved there from `WispMLX` so the publisher question is asked the same way by every face; the fetch itself stays in
+  `WispMLX` (`ModelPull`), reached through a `ModelPuller` the executable registers (`MLXPuller`), as backends are.
+
+## Tests
+
+Without a model or network (`FakePuller` and the fake Hub, `ScriptedModel`, temporary homes and caches): each action
+through each face reaching `ModelActions` (the CLI's wiring is the executable's; chat's `/models` and the picker in
+`ChatLoopTests` and `ChatModelPullTests`, the tool in `ModelsToolTests`, MCP's `respond` in `ModelsToolWireTests`);
+the tool's read-only actions bounded and paged; every changing action asking, and refused when declined, timed out,
+or unanswered; a pull never covered by a cached approval, and refused under `--yes`; `trust` and `switch` refused to
+the model; the publisher dialog in chat (scripted choice) and `wisp-tui` (the picker's action row, Ctrl-C on a pull);
+a background pull's progress, cancellation, and completion note, and the note reaching the model's next turn; a
+cancelled fetch keeping its part and the next resuming it (`MLXPullerTests`); the audit fields.

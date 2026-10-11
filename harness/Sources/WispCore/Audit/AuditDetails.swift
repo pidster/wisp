@@ -498,12 +498,15 @@ extension AuditEvent {
             ]
         }
 
-        /// `config.change`: which setting, its value before and after (null when unset), and whether the
-        /// change came from chat or the command line.
-        public static func configChange(_ outcome: ConfigEdit.Outcome, source: String) -> [String: JSONValue] {
+        /// `config.change`: which setting, its value before and after (null when unset), which face changed it
+        /// (`chat`, `cli`, or `tool` for the model's `models` tool, ADR 0059), and, for a change the model asked for,
+        /// the id of the approval that allowed it (null otherwise).
+        public static func configChange(
+            _ outcome: ConfigEdit.Outcome, source: String, approval: String? = nil
+        ) -> [String: JSONValue] {
             [
                 "path": .string(outcome.path), "old": outcome.old ?? .null, "new": outcome.new ?? .null,
-                "source": .string(source),
+                "source": .string(source), "approval": approval.map { .string($0) } ?? .null,
             ]
         }
 
@@ -511,12 +514,13 @@ extension AuditEvent {
         /// cache and linked from the MLX models directory: the selection it becomes, where from, the link's path
         /// and the cache's snapshot, how many files and bytes the repository lists, how many files the cache
         /// already held, how many it copied from the model's own directory, how many files and bytes this run
-        /// fetched, what happened at the link's path, and how it
-        /// ended (`fetched`, `linked`, `declined`, `failed`), with why.
+        /// fetched, what happened at the link's path, how it ended (`fetched`, `linked`, `declined`, `failed`,
+        /// `cancelled`), with why, which face asked (`cli`, `chat`, `tool`; ADR 0059), and, for the model's request,
+        /// the id of the approval that allowed it.
         public static func modelPull(
             model: String, repository: String, directory: String, cache: String, files: Int, bytes: Int, reused: Int,
             seeded: Int = 0, fetchedFiles: Int, fetched: Int, link: String?, outcome: String, reason: String?,
-            seconds: Double
+            seconds: Double, source: String, approval: String? = nil
         ) -> [String: JSONValue] {
             [
                 "model": .string(model), "repository": .string(repository), "directory": .string(directory),
@@ -524,6 +528,7 @@ extension AuditEvent {
                 "seeded": .int(seeded),
                 "fetchedFiles": .int(fetchedFiles), "fetched": .int(fetched), "link": link.map { .string($0) } ?? .null,
                 "outcome": .string(outcome), "reason": reason.map { .string($0) } ?? .null, "seconds": .double(seconds),
+                "source": .string(source), "approval": approval.map { .string($0) } ?? .null,
             ]
         }
 
@@ -531,28 +536,31 @@ extension AuditEvent {
         /// (ADR 0052, amended 2026-10-09): the repository, its publisher, the decision (`trusted` when
         /// `mlx.trustedPublishers` holds it, `flag` for `--trust-publisher`, `once` and `trust` for the person's
         /// answers, `refused`), whether the person was asked, the licence the Hub gave and the bytes to download (null
-        /// when not asked), the reason for a refusal not asked (no terminal), and where it was decided (`cli`).
+        /// when not asked), the reason for a refusal not asked (no terminal), where it was decided (`cli`, `chat`, or
+        /// `tool`; ADR 0059), and, for the model's request, the id of the approval that allowed it.
         public static func modelPublisher(
             repository: String, publisher: String, decision: String, asked: Bool, licence: String?, bytes: Int?,
-            reason: String?, source: String
+            reason: String?, source: String, approval: String? = nil
         ) -> [String: JSONValue] {
             [
                 "repository": .string(repository), "publisher": .string(publisher), "decision": .string(decision),
                 "asked": .bool(asked), "licence": licence.map { .string($0) } ?? .null,
                 "bytes": bytes.map { .int($0) } ?? .null, "reason": reason.map { .string($0) } ?? .null,
-                "source": .string(source),
+                "source": .string(source), "approval": approval.map { .string($0) } ?? .null,
             ]
         }
 
         /// `model.verified`: wisp's check of what a model can do (ADR 0056, refined 2026-10-04): the model, what
         /// started it (`enable` or `check`), what it means (`refused`, `text only`, `usable`), each question's result, the capabilities recorded (null when the floor
         /// failed and nothing was), those the person declared by hand and kept though their check failed, those an
-        /// earlier check recorded and this one took out, the capabilities no question checks, and the seconds it took.
+        /// earlier check recorded and this one took out, the capabilities no question checks, the seconds it took,
+        /// which face asked (`cli`, `chat`, `tool`; ADR 0059), and, for the model's request, the approval's id.
         static func modelVerified(
             model: String, trigger: String, outcome: ModelVerification.Outcome, results: [ModelVerification.Result],
-            decision: ModelVerification.Decision?, seconds: Double
+            decision: ModelVerification.Decision?, seconds: Double, source: String, approval: String? = nil
         ) -> [String: JSONValue] {
             [
+                "source": .string(source), "approval": approval.map { .string($0) } ?? .null,
                 "model": .string(model), "trigger": .string(trigger), "outcome": .string(outcome.rawValue),
                 "checks": .array(results.map(\.json)),
                 "recorded": decision.map { .array($0.capabilities.map { .string($0) }) } ?? .null,
@@ -801,12 +809,15 @@ extension AuditEvent {
             [
                 "model", "repository", "directory", "cache", "files", "bytes", "reused", "seeded", "fetchedFiles",
                 "fetched",
-                "link", "outcome", "reason", "seconds",
+                "link", "outcome", "reason", "seconds", "source", "approval",
             ]
         case .modelPublisher:
-            ["repository", "publisher", "decision", "asked", "licence", "bytes", "reason", "source"]
+            ["repository", "publisher", "decision", "asked", "licence", "bytes", "reason", "source", "approval"]
         case .modelVerified:
-            ["model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds"]
+            [
+                "model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds",
+                "source", "approval",
+            ]
         case .watchRun:
             [
                 "command", "run", "trigger", "exitStatus", "timedOut", "state", "previous", "changed", "seconds",
@@ -851,7 +862,7 @@ extension AuditEvent {
         case .error: ["message", "context"]
         case .classifierVerdict: ["command", "pattern", "line", "level", "reasons", "sources", "seconds", "metadata"]
         case .classifierTrained: ["path", "examplesSource", "examples", "perLevel", "trainingAccuracy", "seconds"]
-        case .configChange: ["path", "old", "new", "source"]
+        case .configChange: ["path", "old", "new", "source", "approval"]
         case .approvalRequested: ["command", "pattern", "line", "level"]
         case .approvalPending:
             [

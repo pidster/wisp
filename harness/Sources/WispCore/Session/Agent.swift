@@ -155,6 +155,10 @@ public final class Agent {
     /// with `run_command`'s policy, sandbox, bounds, and audit, called with `.person` so its gate is not consulted.
     /// Set by `WispThread.openAgent`; nil, for an agent made directly, makes typed commands unavailable.
     public var commandRunner: CommandRunner?
+    /// Where notes for this conversation wait between turns, such as a background pull's end (ADR 0059): the agent
+    /// takes its own, by its audit session, as each turn begins and stores each as a notice the turn's request
+    /// carries (`ThreadRecord.Kind.notice`). Set by `WispThread.openAgent`; nil takes none.
+    public var notices: ConversationNotices?
 
     /// Creates an agent on a model.
     ///
@@ -702,6 +706,16 @@ public final class Agent {
         }
     }
 
+    /// Stores the notes waiting for this conversation (`notices`) as notices of the turn about to begin, so its first
+    /// request carries them ahead of the prompt.
+    private func takeNotices() {
+        guard let notices, let audit else { return }
+        let now = Date()
+        for note in notices.take(for: audit.session) {
+            store.record(notice: note, turn: turns.current + 1, time: now)
+        }
+    }
+
     /// Records one turn in `stats`, with the runtime's reported prompt tokens for the conversation's request when there
     /// are any.
     private func recordStats(started: Date, failure: String?) {
@@ -715,6 +729,7 @@ public final class Agent {
     nonisolated(nonsending) private func turn(
         _ prompt: String, schema: JSONValue? = nil, _ operation: () async throws -> String
     ) async throws -> Reply {
+        takeNotices()
         turns.advance()
         turnFactIDs = []
         contextNote = nil

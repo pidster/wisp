@@ -55,16 +55,20 @@ public struct Session: Sendable {
         public var makeSink: @Sendable (Home, Config.Resolved) throws -> any AuditSink
         /// Runs `osascript` for the notifier's app and `osascript` routes.
         public var notify: Notifier.Runner
+        /// What fetches models for `ModelActions` (ADR 0059); nil takes the one the executable registered
+        /// (`ModelPullers.current`). Tests pass a fake one.
+        public var puller: (any ModelPuller)?
 
         /// Creates dependencies.
         public init(
             makeClassifier: @escaping @Sendable (Config.Resolved, Home) -> any RiskClassifier,
             makeSink: @escaping @Sendable (Home, Config.Resolved) throws -> any AuditSink,
-            notify: @escaping Notifier.Runner = Notifier.osascript
+            notify: @escaping Notifier.Runner = Notifier.osascript, puller: (any ModelPuller)? = nil
         ) {
             self.makeClassifier = makeClassifier
             self.makeSink = makeSink
             self.notify = notify
+            self.puller = puller
         }
 
         /// The real thing: the classifier `approval.classifier` names beside the rules (the rules alone, the
@@ -173,6 +177,12 @@ public struct Session: Sendable {
     /// The capabilities this session's checks recorded (ADR 0056, refined 2026-10-04); every conversation of the
     /// session resolves its model with them, so a model a check made usable can be chosen at once.
     public let declaredModels = DeclaredModels()
+    /// The pulls the model asked for, running in the background once approved (ADR 0059); `end()` cancels them.
+    public let modelPulls = ModelPulls()
+    /// The notes waiting for each conversation of this session, such as a background pull's end (ADR 0059).
+    public let notices = ConversationNotices()
+    /// What fetches models, from the dependencies; nil takes the registered one.
+    var puller: (any ModelPuller)? = nil
 
     /// Which face this session is.
     public var entryPoint: EntryPoint { request.entryPoint }
@@ -298,7 +308,8 @@ public struct Session: Sendable {
                 enabled: config.notificationsEnabled, perMinute: config.notificationsPerMinute,
                 run: dependencies.notify),
             stats: stats, permanentFacts: permanentFacts,
-            disabledModels: DisabledModels(config.disabledModels, config: config, home: home))
+            disabledModels: DisabledModels(config.disabledModels, config: config, home: home),
+            puller: dependencies.puller)
     }
 
     /// Where `approval.coremlModel` points: `risk@<version>` in the classifier store, absolute or `~`
@@ -319,14 +330,15 @@ public struct Session: Sendable {
         return home.models.appending(path: "coreml").appending(path: configured)
     }
 
-    /// The whole registry for `.all` (without `memory` unless `context.memory` is on), or the names as given once
-    /// each is known.
+    /// The whole registry for `.all` (without `memory` unless `context.memory` is on, nor `models` unless `tools.models`
+    /// is), or the names as given once each is known.
     ///
     /// - Throws: `Failure.unknownTools`.
     private static func resolve(_ selection: ToolSelection, config: Config.Resolved) throws -> [String] {
         let registry = ToolRegistry(
             runner: config.runner, disabled: config.disabledTools, custom: config.customTools)
-        let names = selection.resolved(or: registry.defaultNames(memory: config.contextMemory))
+        let names = selection.resolved(
+            or: registry.defaultNames(memory: config.contextMemory, models: config.toolsModels))
         let unknown = registry.select(names).unknown
         guard unknown.isEmpty else { throw Failure.unknownTools(unknown) }
         return names
@@ -446,8 +458,10 @@ public struct Session: Sendable {
         return thread
     }
 
-    /// Records `session.end`.
+    /// Cancels the pulls still running in the background (each keeps the part it was fetching, and records its end)
+    /// and records `session.end`.
     public func end() {
+        modelPulls.cancel()
         audit.record(.sessionEnd)
     }
 }

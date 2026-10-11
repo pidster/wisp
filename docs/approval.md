@@ -183,6 +183,30 @@ choose another approach. The gate itself throws `ApprovalGate.Failure.refused`; 
 through `ToolOutput.error`. `CommandRunner` splits the line once, checks the policy over each part, and
 passes the parts to the gate, so a line is never split twice.
 
+### The model's requests about models
+
+The model's `models` tool ([tools/models.md](tools/models.md), [ADR 0059](decisions/0059-one-set-of-model-actions.md))
+asks through the same gate, with a request of its own kind (`ApprovalRequest.Kind.modelAction`). Each is judged as
+the command `models <verb> <subject>` by the configured classifier, as `edit_file`'s edits are judged as
+`edit_file <mode> <path>`; the rules rate a pull `moderate` ("downloads a model from Hugging Face") and the rest
+`moderate` too ("changes the models wisp can run"), and the request adds what the person needs beside those reasons:
+the download, the publisher and whether it is trusted, and the licence for a pull; what changes in `config.json` for
+the rest. It differs from a command's in four ways:
+
+| | `models pull <repo>` | `models enable\|disable\|check <name>` |
+| --- | --- | --- |
+| Asked at | every level, whatever `approval.threshold` says | every level, whatever `approval.threshold` says |
+| Covered by a held approval | never: every pull is asked | this turn's or this session's approval of its pattern (`models enable *`) |
+| Scopes an answer may give | `once`, for this pull alone (not even the rest of the turn); a wider answer is narrowed and `downgradedFrom` records it | `once` or `session`; `project` and `always` are narrowed to `session`, so nothing reaches `approvals.json` |
+| `--yes` | does not answer it: refused, `a pull is asked of the person every time, and --yes does not answer it` | approves it, as it does a command |
+
+The terminal's dialog offers only those keys (`[y]once  [n]o` for a pull, and `never remembered` where a command
+shows what it is remembered as); other faces' wider answers are narrowed by the gate. Each request gets an id,
+recorded as `approval.decided`'s `approvalID`, which the change records as `approval` on what it writes
+(`config.change`, `model.verified`, `model.publisher`, `model.pull`), so the audit ties the answer to its effect.
+Trusting a publisher from now on and switching the conversation's model are never asked of the model: the tool
+refuses them.
+
 "This turn" is defined by the conversation's `TurnClock`, which the agent advances once per prompt and
 the gate and the audit log both read, so a once-approval covers the rest of the tool loop whether or
 not an audit log is attached, and the refusals `respond` reports are those of the turn just run.

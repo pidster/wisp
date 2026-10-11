@@ -18,16 +18,24 @@ public struct ChatChoice: Equatable, Sendable {
         public var detail: String
         /// For a choice with toggles: the row's cells, one per column.
         public var cells: [String]
-        /// For a choice with toggles: whether the row is on; nil in a plain choice.
+        /// For a choice with toggles: whether the row is on; nil in a plain choice, and for an action row.
         public var on: Bool?
+        /// For a choice with toggles: a row that is no toggle but an action, such as `/models`' "pull a model…" (ADR
+        /// 0059). Choosing it answers the choice with its value alone, as a plain choice's option does, and leaves the
+        /// toggles unsaved.
+        public var action: Bool
 
         /// Creates an option.
-        public init(value: String, label: String? = nil, detail: String = "", cells: [String] = [], on: Bool? = nil) {
+        public init(
+            value: String, label: String? = nil, detail: String = "", cells: [String] = [], on: Bool? = nil,
+            action: Bool = false
+        ) {
             self.value = value
             self.label = label ?? value
             self.detail = detail
             self.cells = cells
             self.on = on
+            self.action = action
         }
     }
 

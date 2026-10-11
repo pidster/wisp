@@ -113,6 +113,9 @@ public enum ContextView {
             case .prompt where entry.kind == .command:
                 head += " · the person's command"
                 body = ThreadRecord.text(of: item.sent)
+            case .prompt where entry.kind == .notice:
+                head += " · wisp's note"
+                body = ThreadRecord.text(of: item.sent)
             case .instructions(let instructions):
                 head += " · instructions"
                 body = ContextArchive.text(instructions.segments)

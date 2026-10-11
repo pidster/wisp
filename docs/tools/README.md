@@ -14,11 +14,13 @@ result format) and the limits that protect the context window. `wisp tools` prin
 | [custom tools](custom.md) | Your own tools: command templates with typed arguments, declared in `~/.wisp/config.json`. |
 | [system_info](system_info.md) | Ports, free space, folder sizes, busy processes, memory, one process, battery, macOS, network; read-only. |
 | [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, or a fact's history that the context holds only as a reference, for one turn; `note` a fact, or propose the `task`, as the model. Off by default: `context.memory` turns it on. |
+| [models](models.md) | The models wisp can run: `list` and `show` at once; `pull` (in the background), `enable`, `disable`, and `check` only once the person approves; `trust` and `switch` are the person's. Off by default: `tools.models` turns it on. |
 
 Select tools per session with `--tool <name>` on the CLI or the `tools` argument of MCP `respond`. Every
 registered tool's schema is in the prompt on every turn, so enable only what a task needs. All the tools, the
-default, are every registered tool but `memory`, which joins them when `context.memory` is on; a named list has it
-only when it names it ([memory.md](memory.md)), and `tools.disabled` can leave it out everywhere.
+default, are every registered tool but `memory` and `models`, which join them when `context.memory` and
+`tools.models` are on; a named list has either only when it names it ([memory.md](memory.md),
+[models.md](models.md)), and `tools.disabled` can leave either out everywhere.
 
 MCP clients discover these tools through the `wisp://tools` resource, generated from the registry; the
 limits and example prompt for each come from the tool itself (`WispTool.limits`, rendered from its live

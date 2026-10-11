@@ -366,7 +366,9 @@ extension Session {
     /// - Parameters:
     ///   - names: The models, as `--model` spells them.
     ///   - force: Whether to check a model the file already declares, replacing what an earlier check recorded.
-    ///   - source: `chat` or `cli`, for the audit.
+    ///   - source: `chat`, `cli`, or `tool` (the model's `models` tool, ADR 0059), for the audit.
+    ///   - approval: The id of the approval that allowed the model's request, for the audit; nil for the person's.
+    ///   - log: Where the check is recorded: the asking conversation's log; nil for the session's.
     ///   - limits: How long each question may take.
     ///   - now: The time of the check, for its day.
     ///   - progress: Told each line as it happens: the announcement and each result.
@@ -374,9 +376,11 @@ extension Session {
     /// - Throws: `ModelSelection.Failure` for a name that does not parse, `ConfigEdit.Failure` when the file would
     ///   not load, or the file system's.
     public func checkModels(
-        _ names: [String], force: Bool, source: String, limits: ModelVerification.Limits = .standard,
-        now: Date = Date(), progress: @escaping @Sendable (String) -> Void
+        _ names: [String], force: Bool, source: String, approval: String? = nil, log: AuditLog? = nil,
+        limits: ModelVerification.Limits = .standard, now: Date = Date(),
+        progress: @escaping @Sendable (String) -> Void
     ) async throws -> [String] {
+        let audit = log ?? self.audit
         var lines: [String] = []
         for selection in try names.map({ try ModelSelection(parsing: $0) }) {
             guard case .local(let scheme, let name) = selection, let backend = ModelBackends.backend(for: scheme),
@@ -417,7 +421,8 @@ extension Session {
                 details: AuditEvent.Details.modelVerified(
                     model: selection.description, trigger: force ? "check" : "enable", outcome: outcome,
                     results: results, decision: decision,
-                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
+                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18,
+                    source: source, approval: approval))
             guard let decision else {
                 let reason = results.first.map { " (\($0.detail))" } ?? ""
                 guard !force else {
@@ -426,7 +431,7 @@ extension Session {
                 }
                 // Enable refuses: the model stays, or becomes, disabled; it was unusable either way.
                 do {
-                    try setDisabled(selection, true, source: source)
+                    try setDisabled(selection, true, source: source, approval: approval, log: log)
                     lines.append("\(selection) cannot hold a conversation\(reason); it stays disabled")
                 } catch ModelSelection.Failure.defaultDisabled {
                     lines.append(
@@ -441,9 +446,10 @@ extension Session {
             let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(declaration))
             let change = try ConfigEdit.set(keys: keys, to: value, in: data)
             try ConfigEdit.write(change, to: home.configFile)
-            audit.record(.configChange, details: AuditEvent.Details.configChange(change, source: source))
+            audit.record(
+                .configChange, details: AuditEvent.Details.configChange(change, source: source, approval: approval))
             declaredModels.set(declaration, for: selection)
-            if !force { try setDisabled(selection, false, source: source) }
+            if !force { try setDisabled(selection, false, source: source, approval: approval, log: log) }
             lines += Self.verdict(selection, decision: decision, enabling: !force)
         }
         return lines

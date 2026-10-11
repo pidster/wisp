@@ -127,20 +127,38 @@ import WispTestSupport
         #expect(sink.events.filter { $0.kind == .prompt }.count == 2)
     }
 
+    /// The chat's model actions over a session in a temporary home under `dir`, listing `listing` rather than asking
+    /// the backends, with `config` as its `config.json` and `puller` to pull with: what `/models` reaches in these
+    /// tests (ADR 0059).
+    static func actions(
+        _ dir: URL, listing: ModelListing.Listing, config: String? = nil, puller: (any ModelPuller)? = nil,
+        sink: MemoryAuditSink = MemoryAuditSink()
+    ) throws -> ModelActions {
+        let home = Home(root: dir.appending(path: "home", directoryHint: .isDirectory))
+        try home.ensure()
+        if let config { try Data(config.utf8).write(to: home.configFile) }
+        var dependencies = Session.Dependencies.testing(sink: sink)
+        dependencies.puller = puller
+        let session = try Session.begin(.init(entryPoint: .chat), home: home, dependencies: dependencies)
+        var actions = ModelActions(session: session, face: .chat)
+        actions.listing = { _ in listing }
+        return actions
+    }
+
     @Test func modelsListsAndModelSwitchesKeepingTheTranscript() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         let first = Agent(
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("from system")])))
+        let actions = try Self.actions(
+            dir,
+            listing: .init(entries: [
+                .init(selection: .system, capabilities: ["toolCalling"]),
+                .init(selection: .ollama("q"), parameters: "3B", capabilities: ["toolCalling"]),
+            ]))
         let context = ChatLoop.Context(
-            directory: "/r", approval: "--yes",
-            models: { _ in
-                .init(entries: [
-                    .init(selection: .system, capabilities: ["toolCalling"]),
-                    .init(selection: .ollama("q"), parameters: "3B", capabilities: ["toolCalling"]),
-                ])
-            },
+            directory: "/r", approval: "--yes", models: actions,
             openModel: { selection, store in
                 Agent(
                     store: store, tools: [],
@@ -166,7 +184,7 @@ import WispTestSupport
         #expect(loop.agent.model.selection == .ollama("q"))
         #expect(loop.agent.transcript.turnCount == 2)
         #expect(capture.shownStatus.last?.model == "ollama:q")
-        // Without the closures the commands say so.
+        // Without the actions the commands say so.
         let bare = Capture(lines: ["/models", "/model x", "/quit"])
         var plain = ChatLoop(
             agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: bare.io)
@@ -182,48 +200,41 @@ import WispTestSupport
         let agent = Agent(
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("hi")])))
-        let changes = Mutex<[[String]]>([])
-        let checks = Mutex<[String]>([])
         let listing = ModelListing.Listing(entries: [
             .init(selection: .system, capabilities: ["toolCalling"]),
             .init(selection: .ollama("a"), capabilities: ["toolCalling"]),
             .init(selection: .ollama("b"), capabilities: ["toolCalling"], enabled: false),
         ])
-        var context = ChatLoop.Context(
-            directory: "/r", approval: "--yes", models: { _ in listing },
-            setModels: { enable, disable in
-                changes.withLock { $0.append(enable + ["|"] + disable) }
-                if disable.contains("system") {
-                    throw ModelSelection.Failure.defaultDisabled(model: "system")
-                }
-                return enable.map { "enabled \($0)" } + disable.map { "disabled \($0)" }
-            },
-            checkModels: { names, force, progress in
-                checks.withLock { $0.append("\(force ? "check" : "enable") \(names.joined(separator: " "))") }
-                progress("checking \(names[0])")
-                return ["recorded \(names[0])"]
-            }, notices: ["ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running"])
-        // Typed: each names its models; the default refused with the reason.
+        let sink = MemoryAuditSink()
+        let actions = try Self.actions(
+            dir, listing: listing, config: #"{"models": {"disabled": ["ollama:b"]}}"#, sink: sink)
+        let configFile = actions.session.home.configFile
+        let context = ChatLoop.Context(
+            directory: "/r", approval: "--yes", models: actions,
+            notices: ["ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running"])
+        // Typed: each names its models; the default refused with the reason. They reach the session through the
+        // chat's model actions, which write config.json and record each change from chat.
         let typed = Capture(lines: [
-            "/models enable ollama:b", "/models disable ollama:a mlx:c", "/models disable system", "/models x",
-            "/models check mlx:c", "/quit",
+            "/models enable ollama:b", "/models disable ollama:a", "/models disable system", "/models x",
+            "/models check ollama:a", "/quit",
         ])
         var loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: typed.io)
         try await loop.run()
         #expect(typed.noted.contains("enabled ollama:b"))
-        #expect(typed.noted.contains("disabled ollama:a") && typed.noted.contains("disabled mlx:c"))
+        #expect(typed.noted.contains("disabled ollama:a: hidden from /model and refused until enabled"))
         #expect(typed.noted.contains { $0.hasPrefix("error: system is the default model, so it cannot be disabled") })
-        #expect(typed.noted.contains("unknown /models argument 'x'; /models, or /models enable|disable|check NAME…"))
-        // Enabling checks what the models enabled can do (the session checks only those undeclared); /models check
-        // checks again; each line of progress is a note as it happens, then what was recorded.
-        #expect(checks.withLock { $0 } == ["enable ollama:b", "check mlx:c"])
-        #expect(typed.noted.contains("checking mlx:c") && typed.noted.contains("recorded mlx:c"))
+        #expect(typed.noted.contains("unknown /models argument 'x'; \(ModelsRequest.usage)"))
+        #expect(typed.noted.contains("ollama:a: its runtime reports what it can do; there is nothing to check"))
+        #expect(try Config.load(from: configFile).models?.disabled == [.ollama("a")])
+        let changes = sink.events.filter { $0.kind == .configChange }
+        #expect(changes.count == 2 && changes.allSatisfy { $0.details["source"] == "chat" })
+        #expect(changes.allSatisfy { $0.details["approval"] == .null })
         // The fallback's notice comes after the banner, before the first prompt.
         #expect(
             typed.noted.first == "ollama:x is unavailable (down); using system. /model ollama:x once Ollama is running")
-        // In a face with choices, /models is a picker: what the person left on is saved as the difference.
-        changes.withLock { $0 = [] }
+        // In a face with choices, /models is a picker: what the person left on is saved as the difference. This
+        // build has no puller, so there is no "pull a model…" row.
         let asked = Mutex<[ChatChoice]>([])
         let picked = Capture(lines: ["/models", "/quit"])
         var pickingIO = picked.io
@@ -236,33 +247,20 @@ import WispTestSupport
         try await picker.run()
         #expect(asked.withLock { $0.first?.toggles } == true)
         #expect(asked.withLock { $0.first?.options.map(\.value) } == ["system", "ollama:a", "ollama:b"])
-        #expect(changes.withLock { $0 } == [["ollama:b", "|", "ollama:a"]])
-        #expect(checks.withLock { $0 }.last == "enable ollama:b")  // the picker's save checks what it enabled
-        #expect(picked.noted.contains("enabled ollama:b") && picked.noted.contains("disabled ollama:a"))
+        #expect(picked.noted.contains("ollama:b is enabled") && picked.noted.contains("ollama:a is disabled"))
+        #expect(try Config.load(from: configFile).models?.disabled == [.ollama("a")])
         // No answer, a single value from a front end that does not toggle, or nothing changed: nothing is saved.
         for answer in [nil, "system", ChatChoice.answer(values: ["system", "ollama:a"])] {
-            changes.withLock { $0 = [] }
+            let before = sink.events.count
             let again = Capture(lines: ["/models", "/quit"])
             var io = again.io
             io.choose = { _ in answer }
             var loop = ChatLoop(
                 agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
             try await loop.run()
-            #expect(changes.withLock { $0 }.isEmpty)
+            #expect(!sink.events.dropFirst(before).contains { $0.kind == .configChange })
             #expect(again.noted.contains("models unchanged"))
         }
-        // Without a way to change them, the face with choices shows the table, and the commands say so.
-        context.setModels = nil
-        context.checkModels = nil
-        let bare = Capture(lines: ["/models", "/models enable x", "/models check x", "/quit"])
-        var io = bare.io
-        io.choose = { _ in nil }
-        var table = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
-        try await table.run()
-        #expect(bare.output.contains("* system"))
-        #expect(bare.noted.contains("models cannot be enabled or disabled here"))
-        #expect(bare.noted.contains("models cannot be checked here"))
     }
 
     @Test func statsReportTheTurnsAndHistoryListsWhatWasTyped() async throws {

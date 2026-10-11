@@ -363,22 +363,12 @@ private struct VerifyingBackend: ModelBackend {
         let agent = Agent(
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("hi")])))
-        let limits = quick
         let day = day
-        let context = ChatLoop.Context(
-            directory: "/r", approval: "--yes",
-            models: { tools in
-                await ModelListing.entries(
-                    config: session.declaredModels.applied(to: session.config), home: home, tools: tools,
-                    disabled: session.disabledModels.all)
-            },
-            setModels: { enable, disable in
-                try session.setModels(enable: enable, disable: disable, source: "chat", checking: true)
-            },
-            checkModels: { names, force, progress in
-                try await session.checkModels(
-                    names, force: force, source: "chat", limits: limits, now: day, progress: progress)
-            })
+        // The chat's model actions, as the CLI wires them, with the quick limits and a fixed day.
+        var actions = ModelActions(session: session, face: .chat)
+        actions.limits = quick
+        actions.now = { day }
+        let context = ChatLoop.Context(directory: "/r", approval: "--yes", models: actions)
         var loop = ChatLoop(
             agent: agent, store: TranscriptStore(directory: home.root.appending(path: "saved")), saveName: nil,
             context: context, io: io)

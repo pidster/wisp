@@ -162,6 +162,9 @@ public struct RuleRiskClassifier: RiskClassifier {
             start + #"(rm|mv|cp|touch|mkdir|rmdir|ln|truncate|tee|sed\s+-i|perl\s+-i)\b"#, .moderate, "modifies files"),
         Rule(#"(^|[^>])>{1,2}\s*(?!/dev/null\b)[^&\s]"#, .moderate, "writes to a file"),
         Rule(start + #"edit_file\b"#, .moderate, "edits a file"),
+        // The model's requests through its `models` tool (ADR 0059), judged as these commands.
+        Rule(start + #"models\s+pull\b"#, .moderate, "downloads a model from Hugging Face"),
+        Rule(start + #"models\s+(enable|disable|check)\b"#, .moderate, "changes the models wisp can run"),
         // Building and testing the project are safe, as the labels have them (training/risk/labels.md); only
         // what writes outside the project or throws build output away is moderate.
         Rule(

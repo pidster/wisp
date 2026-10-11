@@ -173,23 +173,37 @@ public enum ModelTable {
         return .object(["models": .array(models), "unreachable": .array(listing.unreachable.map { .string($0) })])
     }
 
+    /// The value of the picker's "pull a model…" row (ADR 0059): choosing it asks for a repository and pulls it.
+    public static let pullRow = "pull…"
+
     /// `wisp-tui`'s `/models`: the listing as a choice with toggles, one row per model it shows, each on when
-    /// enabled, under the present columns but `ENABLED`, which the toggle itself shows.
+    /// enabled, under the present columns but `ENABLED`, which the toggle itself shows; with `pulls`, a last row,
+    /// "pull a model…", an action that asks for a repository to pull (ADR 0059).
     ///
     /// - Parameters:
     ///   - listing: The models.
     ///   - current: The model in use, which the picker marks.
+    ///   - pulls: Whether this build can pull, so the row is offered.
     /// - Returns: The choice.
-    public static func choice(_ listing: ModelListing.Listing, current: ModelSelection) -> ChatChoice {
+    public static func choice(
+        _ listing: ModelListing.Listing, current: ModelSelection, pulls: Bool = false
+    ) -> ChatChoice {
         let shown = listing.shown(all: false)
         let present = present(shown).filter { $0.key != "enabled" }
+        var options = shown.map { entry in
+            ChatChoice.Option(
+                value: entry.selection.description, detail: entry.linked ? entry.problem ?? "" : "",
+                cells: present.map { cell($0, entry) }, on: entry.enabled)
+        }
+        if pulls {
+            options.append(
+                ChatChoice.Option(
+                    value: pullRow, label: "pull a model…", detail: "an MLX model from Hugging Face, after asking",
+                    action: true))
+        }
         return ChatChoice(
             title: "Models: space turns one on or off, Enter saves",
-            options: shown.map { entry in
-                ChatChoice.Option(
-                    value: entry.selection.description, detail: entry.linked ? entry.problem ?? "" : "",
-                    cells: present.map { cell($0, entry) }, on: entry.enabled)
-            }, current: current.description,
+            options: options, current: current.description,
             columns: present.map { ChatChoice.Column(heading: $0.heading, drop: $0.drop) })
     }
 }

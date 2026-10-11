@@ -69,6 +69,17 @@ public final class ChatActivity: Sendable {
         set(next)
     }
 
+    /// What is under way has moved on: it now says `doing`, such as `pulling mlx-community/q: 1.2 GB of 4.5 GB, file 2
+    /// of 7` for a pull the person asked for (ADR 0059), keeping when it began. Nothing changes between turns, or once
+    /// it was asked to stop.
+    ///
+    /// - Parameter doing: What it says now.
+    public func progress(_ doing: String) {
+        guard var next = current, !next.stopping else { return }
+        next.doing = doing
+        set(next)
+    }
+
     /// The turn has ended.
     public func end() {
         set(nil)

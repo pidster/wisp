@@ -44,12 +44,19 @@ public struct ThreadRecord: Sendable {
         /// whole outcome; a composer sends it as a short notice with a reference (`OutputReference.personCommand`),
         /// so the model learns what the person did and saw without taking it for its own action.
         case command
+        /// A note wisp adds between turns, such as the end of a background pull the model asked for (ADR 0059), stored
+        /// as a prompt holding the note and sent as stored; like the person's command, it is no turn of its own and
+        /// belongs to the turn after it.
+        case notice
 
-        /// Whether a stored entry of this kind can hold `entry`: its own kind, or, for the person's command, a
-        /// prompt.
+        /// Whether a stored entry of this kind can hold `entry`: its own kind, or, for the person's command and a
+        /// notice, a prompt.
         func holds(_ entry: Transcript.Entry) -> Bool {
-            self == Kind(entry) || (self == .command && Kind(entry) == .prompt)
+            self == Kind(entry) || ((self == .command || self == .notice) && Kind(entry) == .prompt)
         }
+
+        /// Whether an entry of this kind is a prompt that starts no turn: the person's command, or a notice.
+        var isBetweenTurns: Bool { self == .command || self == .notice }
 
         /// The kind of `entry`.
         init(_ entry: Transcript.Entry) {
@@ -352,6 +359,20 @@ public struct ThreadRecord: Sendable {
             Entry(
                 id: entries.count + 1, kind: kind ?? Kind(entry), origin: origin, turn: turn, sources: sources,
                 state: .active, value: entry, time: time))
+    }
+
+    /// Appends a note wisp adds between turns (ADR 0059), active, as a prompt holding it.
+    ///
+    /// - Parameters:
+    ///   - notice: The note.
+    ///   - turn: The turn whose first request carries it: the one after the turn the clock is at.
+    ///   - time: When it was added.
+    /// - Returns: The entry's store id.
+    @discardableResult
+    mutating func record(notice: String, turn: Int, time: Date) -> Int {
+        let value = Transcript.Entry.prompt(Transcript.Prompt(segments: [.text(.init(content: notice))]))
+        record(value, kind: .notice, origin: .turn, turn: turn, sources: [], time: time)
+        return entries.count
     }
 
     /// Whether any active entry is a command the person ran, which a composer never sends as stored.

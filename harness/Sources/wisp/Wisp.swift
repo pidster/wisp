@@ -23,10 +23,11 @@ struct Wisp: AsyncParsableCommand {
         defaultSubcommand: Respond.self
     )
 
-    /// Registers the model backends this build carries, then parses and runs.
+    /// Registers the model backends this build carries, and what pulls models (ADR 0059), then parses and runs.
     static func main() async {
         ModelBackends.register(CoreAIBackend())
         ModelBackends.register(MLXBackend())
+        ModelPullers.register(MLXPuller())
         await main(nil)
     }
 }
@@ -391,8 +392,7 @@ struct Chat: AsyncParsableCommand {
                 git: GitState.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: banner,
-                models: Chat.models(session: session), setModels: Chat.setModels(session: session),
-                checkModels: Chat.checkModels(session: session),
+                models: ModelActions(session: session, face: .chat),
                 width: { TerminalTable.detectWidth() }, notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
@@ -583,8 +583,7 @@ struct Chat: AsyncParsableCommand {
                 git: GitState.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
-                models: Chat.models(session: session), setModels: Chat.setModels(session: session),
-                checkModels: Chat.checkModels(session: session),
+                models: ModelActions(session: session, face: .chat),
                 notices: fallback.map { [$0.message] } ?? [],
                 openModel: { selection, store in
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
@@ -642,36 +641,6 @@ struct Chat: AsyncParsableCommand {
             default:
                 return []
             }
-        }
-    }
-
-    /// What `/models` lists: every model judged for the conversation's tools, with the session's disabled models
-    /// as this chat has left them.
-    static func models(session: Session) -> @Sendable ([any Tool]) async -> ModelListing.Listing {
-        let config = session.config
-        let disabled = session.disabledModels
-        let declared = session.declaredModels
-        return { tools in
-            await ModelListing.entries(
-                config: declared.applied(to: config), home: Wisp.home, tools: tools, disabled: disabled.all)
-        }
-    }
-
-    /// How chat checks what models can do after enabling them, and for `/models check`: through the session,
-    /// audited as from chat, each line of progress a note as it happens (ADR 0056, refined 2026-10-04).
-    static func checkModels(
-        session: Session
-    ) -> @Sendable ([String], Bool, @escaping @Sendable (String) -> Void) async throws -> [String] {
-        { names, force, progress in
-            try await session.checkModels(names, force: force, source: "chat", progress: progress)
-        }
-    }
-
-    /// How `/models enable|disable` and `wisp-tui`'s picker turn models on and off: through the session, audited as
-    /// from chat.
-    static func setModels(session: Session) -> @Sendable ([String], [String]) throws -> [String] {
-        { enable, disable in
-            try session.setModels(enable: enable, disable: disable, source: "chat", checking: true)
         }
     }
 
@@ -984,33 +953,32 @@ struct Models: AsyncParsableCommand {
         let session = try Wisp.begin(.init(entryPoint: .models))
         defer { session.end() }
         do {
-            for line in try session.setModels(enable: enable, disable: disable, source: "cli", checking: true) {
-                print(line)
-            }
+            try await ModelActions(session: session, face: .cli).set(enable: enable, disable: disable, report: say)
         } catch let failure as ConfigEdit.Failure {
             throw ValidationError("\(failure)")
         } catch let failure as ModelSelection.Failure {
             throw ValidationError("\(failure)")
         }
-        if !enable.isEmpty { try await check(enable, force: false, session: session) }
     }
 
-    /// Checks what models can do through `session`, printing each line of progress as it happens and what was
-    /// recorded.
+    /// Checks what models can do through `session`'s model actions, printing each line of progress as it happens
+    /// and what was recorded.
     ///
     /// - Throws: `ValidationError` for a name that does not parse or a file that would not load.
     static func check(_ names: [String], force: Bool, session: Session) async throws {
         do {
-            let lines = try await session.checkModels(names, force: force, source: "cli") { line in
-                print(line)
-                fflush(stdout)
-            }
-            for line in lines { print(line) }
+            try await ModelActions(session: session, face: .cli).check(names, force: force, report: say)
         } catch let failure as ConfigEdit.Failure {
             throw ValidationError("\(failure)")
         } catch let failure as ModelSelection.Failure {
             throw ValidationError("\(failure)")
         }
+    }
+
+    /// Prints a line of what a model action did, at once.
+    @Sendable static func say(_ line: String) {
+        print(line)
+        fflush(stdout)
     }
 
     /// Fetches an MLX model from Hugging Face into the Hugging Face cache and links the MLX models directory to its
@@ -1046,89 +1014,43 @@ struct Models: AsyncParsableCommand {
         var trustPublisher = false
 
         func run() async throws {
-            let named: String
             do {
-                named = try ModelPull.repository(repository).repository
+                _ = try ModelPull.repository(repository)
             } catch let failure as ModelPull.Failure {
                 throw ValidationError("\(failure)")
             }
-            let interactive = isatty(STDIN_FILENO) != 0
             let session = try Wisp.begin(.init(entryPoint: .models))
             defer { session.end() }
-            let check = PublisherCheck(session: session, trustFlag: trustPublisher, source: "cli")
-            let screened: PublisherCheck.Decision?
-            do {
-                screened = try check.screen(named, interactive: interactive)
-            } catch let refusal as PublisherCheck.Refusal {
-                throw ValidationError("\(refusal)")
-            }
-            guard interactive else {
-                throw ValidationError(
-                    "wisp models pull asks the person before it fetches, so it runs only from a terminal")
-            }
-            let directory = MLXBackend.modelsDirectory(config: session.config, home: session.home)
-            let pull = ModelPull()
-            let plan: ModelPull.Plan
-            do {
-                plan = try await pull.plan(repository, into: directory) { file in
-                    Self.note("checking \(file.path) (\(Self.size(file.size))) against the listing's SHA-256")
-                }
-            } catch let failure as ModelPull.Failure {
-                throw ValidationError("\(failure)")
-            }
-            print(Self.summary(of: plan))
-            var started = ContinuousClock.now
-            let decision: PublisherCheck.Decision
-            do {
-                decision = try check.settle(plan, screened: screened) { lines in
+            // A file's progress line once, as it starts.
+            let announced = Guarded(0)
+            let dialog = PullDialog(
+                interactive: isatty(STDIN_FILENO) != 0, show: { print($0) }, notice: { Self.note($0) },
+                publisher: { summary in
+                    let lines = PublisherCheck.question(for: summary)
                     for line in lines.dropLast() { print(line) }
                     print(lines.last ?? "", terminator: "")
-                    started = ContinuousClock.now
-                    return readLine()
-                }
-            } catch let failure as ConfigEdit.Failure {
-                throw ValidationError("\(failure)")
-            }
-            guard decision.pulls else {
-                record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started, in: session)
-                print("Nothing fetched.")
-                return
-            }
-            if decision == .trust { print("\(plan.publisher) is trusted from now on (\(TrustedPublishers.setting)).") }
-            if !plan.missing.isEmpty, !decision.approvedDownload {
-                print("Fetch \(plan.missing.count) of them, \(Self.size(plan.remaining))? [y/N] ", terminator: "")
-                started = ContinuousClock.now
-                guard Self.answeredYes() else {
-                    record(plan, fetched: 0, outcome: "declined", link: nil, reason: nil, started: started, in: session)
-                    print("Nothing fetched.")
-                    return
-                }
-            }
-            let fetched: Int
-            let linked: ModelPull.LinkOutcome
+                    return PublisherCheck.Answer(typed: readLine())
+                },
+                confirm: { question in
+                    print("\(question) [y/N] ", terminator: "")
+                    return Self.answeredYes()
+                },
+                progress: { step in
+                    let first = announced.update { index in
+                        defer { index = step.index }
+                        return index != step.index
+                    }
+                    if first { Self.note("[\(step.index)/\(step.files)] \(step.file) (\(Self.size(step.size)))") }
+                })
             do {
-                fetched = try await pull.fetch(
-                    plan,
-                    progress: { file, index in
-                        Self.note("[\(index)/\(plan.missing.count)] \(file.path) (\(Self.size(file.size)))")
-                    }, notice: { Self.note($0) })
-                var replace = false
-                if plan.link == .directory {
-                    print(
-                        "\(plan.destination.path) is a directory of its own, not a link to the cache. Move it to the "
-                            + "Trash and link \(plan.snapshot.path) in its place? [y/N] ", terminator: "")
-                    replace = Self.answeredYes()
-                }
-                linked = try pull.link(plan, replacingDirectory: replace)
+                _ = try await ModelActions(session: session, face: .cli).pull(
+                    repository, trustFlag: trustPublisher, dialog: dialog)
+            } catch ModelActions.Failure.notInteractive {
+                throw ValidationError(
+                    "wisp models pull asks the person before it fetches, so it runs only from a terminal")
             } catch {
-                record(
-                    plan, fetched: 0, outcome: "failed", link: nil, reason: "\(error)", started: started, in: session)
                 throw ValidationError("\(error)")
             }
-            record(
-                plan, fetched: fetched, outcome: plan.missing.isEmpty ? "linked" : "fetched", link: linked,
-                reason: nil, started: started, in: session)
-            print(Self.closing(plan, linked))
         }
 
         /// Bytes for people.
@@ -1137,7 +1059,7 @@ struct Models: AsyncParsableCommand {
         }
 
         /// A progress line, on stderr.
-        static func note(_ text: String) {
+        @Sendable static func note(_ text: String) {
             FileHandle.standardError.write(Data("\(text)\n".utf8))
         }
 
@@ -1145,81 +1067,6 @@ struct Models: AsyncParsableCommand {
         static func answeredYes() -> Bool {
             let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
             return answer == "y" || answer == "yes"
-        }
-
-        /// What the pull would do, for the question: each file and whether the cache has it, where the snapshot
-        /// is, and what happens at the link's path.
-        static func summary(of plan: ModelPull.Plan) -> String {
-            func padded(_ text: String, _ width: Int) -> String {
-                text.padding(toLength: width, withPad: " ", startingAt: 0)
-            }
-            let width = plan.files.map(\.path.count).max() ?? 0
-            let sizeWidth = plan.files.map { size($0.size).count }.max() ?? 0
-            var lines = [
-                "\(plan.repository) at \(plan.revision.prefix(12)): \(plan.files.count) files, \(size(plan.bytes))"
-            ]
-            for file in plan.files {
-                let state =
-                    plan.reused.contains(file.path)
-                    ? "already in the Hugging Face cache"
-                    : plan.seeded.contains(file.path)
-                        ? "to copy from \(plan.destination.lastPathComponent)/" : "to fetch"
-                lines.append("  \(padded(file.path, width))  \(padded(size(file.size), sizeWidth))  \(state)")
-            }
-            lines.append("Snapshot: \(plan.snapshot.path)")
-            let destination = plan.destination.path
-            switch plan.link {
-            case .absent: lines.append("Link: \(destination) to the snapshot, as mlx:\(plan.name)")
-            case .current: lines.append("Link: \(destination) already points at the snapshot")
-            case .stale(let target):
-                lines.append("Link: \(destination) points at another snapshot (\(target)); it will point at this one")
-            case .directory:
-                lines.append(
-                    "Link: \(destination) is a directory of its own (an earlier copy); it stays unless you agree to "
-                        + "replace it")
-            }
-            if plan.missing.isEmpty {
-                lines.append(
-                    plan.seeded.isEmpty
-                        ? "Every file is already in the Hugging Face cache; nothing to fetch."
-                        : "Every file is in the Hugging Face cache or \(plan.destination.path); nothing to fetch.")
-            }
-            return lines.joined(separator: "\n")
-        }
-
-        /// What the person reads at the end.
-        static func closing(_ plan: ModelPull.Plan, _ linked: ModelPull.LinkOutcome) -> String {
-            let declare =
-                "declare what it can do in config.json (mlx.models.\(plan.name).capabilities), only what you have "
-                + "verified."
-            switch linked {
-            case .keptDirectory:
-                return "The model is in the Hugging Face cache at \(plan.snapshot.path). \(plan.destination.path) "
-                    + "stays as it was, so mlx:\(plan.name) still runs that copy; run the pull again and answer yes "
-                    + "to replace it with a link."
-            case .replacedDirectory:
-                return "The directory is in the Trash and \(plan.destination.path) links to the snapshot. Use it as "
-                    + "--model mlx:\(plan.name); \(declare)"
-            case .created, .replacedLink, .unchanged:
-                return "\(plan.destination.path) links to the snapshot. Use it as --model mlx:\(plan.name); \(declare)"
-            }
-        }
-
-        /// Records the pull in the session's audit log as `model.pull`.
-        func record(
-            _ plan: ModelPull.Plan, fetched: Int, outcome: String, link: ModelPull.LinkOutcome?, reason: String?,
-            started: ContinuousClock.Instant, in session: Session
-        ) {
-            let elapsed = ContinuousClock.now - started
-            session.audit.record(
-                .modelPull,
-                details: AuditEvent.Details.modelPull(
-                    model: "mlx:\(plan.name)", repository: plan.repository, directory: plan.destination.path,
-                    cache: plan.snapshot.path, files: plan.files.count, bytes: plan.bytes, reused: plan.reused.count,
-                    seeded: outcome == "declined" ? 0 : plan.seeded.count,
-                    fetchedFiles: outcome == "fetched" ? plan.missing.count : 0, fetched: fetched, link: link?.rawValue,
-                    outcome: outcome, reason: reason,
-                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
         }
     }
 }
