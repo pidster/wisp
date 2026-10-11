@@ -1,8 +1,8 @@
 # Roadmap
 
 The releases planned from 0.22.0 to 0.23.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0,
-0.18.x, 0.19.0, 0.20.0, and 0.21.0 have shipped; 0.21.1, a patch from the code review of 2026-10-09, is the
-release being made). Each release carries one or two
+0.18.x, 0.19.0, 0.20.0, 0.21.0, and 0.21.1 have shipped; 0.21.2, a patch keeping the command timeout on time
+under load, is the release being made). Each release carries one or two
 larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
 not commitments: an item may move when its work shows it should, and the page is edited when it does.
 When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet

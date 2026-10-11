@@ -209,9 +209,15 @@ thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat
 
 ## 7. Current work and backlog (2026-10-09)
 
-### Committed, not yet released (0.21.1)
+### Committed, not yet released (0.21.2)
 
-`CHANGELOG.md`, "Unreleased": a patch from a code and test review of the whole codebase on 2026-10-09, about
+`CHANGELOG.md`, "Unreleased": a patch for one fault found after 0.21.1. Under load, Swift's cooperative thread pool
+could be filled by synchronous bridges (`Blocking.run`, for Core ML compiles and model resolution) waiting on work
+that itself needed the pool, so the command watchdog and every `Timeout` deadline fired tens of seconds late: a
+200 ms timeout let a 30-second command finish. The bridges now run off the pool and the bounds are dispatch timers
+([design.md](design.md), "Concurrency").
+
+0.21.1 (2026-10-09): a patch from a code and test review of the whole codebase on 2026-10-09, about
 sixty fixes, each with a test. The approval gate judges every command a line runs (a `;` inside parentheses hid
 one), remembers approvals only at the level given and keywords and interpreters only by exact text, and sees
 through quotes, continuations, and `git -C`; commands and `edit_file` can no longer write `~/.wisp`; approvals and

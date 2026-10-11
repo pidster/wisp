@@ -4,6 +4,19 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+A patch for one fault found after 0.21.1.
+
+Fixed:
+
+- A command's timeout, the grace before a stopped command is killed, and every bounded wait (approvals, model
+  checks) fire on time when other work fills Swift's thread pool. Synchronous bridges for Core ML compiles and model
+  resolution could take every pool thread while waiting on work that needed one, and timers waited behind them: a
+  200 ms command timeout went unenforced for a whole 30-second command. The bridges now run their work off the pool,
+  and the timeouts are dispatch timers the pool cannot hold off. Under `wisp mcp`, enough concurrent model
+  resolution or classifier loading could have let a model's command outrun its timeout.
+
 ## 0.21.1
 
 A patch release from a code and test review of the whole codebase on 2026-10-09. The approval gate, the
