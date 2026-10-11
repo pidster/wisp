@@ -78,6 +78,11 @@ public enum ConfigSettings {
             kind: .integer(256...1_048_576)),
         Setting(path: "tools.disabled", summary: "built-in tools the model does not get", kind: .tools),
         Setting(
+            path: "tools.models",
+            summary:
+                "give a conversation with every tool the models tool, to list models and ask to pull or enable one",
+            kind: .flag),
+        Setting(
             path: "shownOutputLines", summary: "lines of each tool's output chat shows before folding; 0 for none",
             kind: .integer(0...10_000)),
         Setting(path: "notifications.enabled", summary: "whether wisp posts notifications", kind: .flag),
@@ -231,6 +236,7 @@ public enum ConfigSettings {
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
         case "commandMaxOutputBytes": return .int(d.runner.maxOutputBytes)
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
+        case "tools.models": return .bool(d.toolsModels)
         case "shownOutputLines": return .int(d.shownOutputLines)
         case "notifications.enabled": return .bool(d.notificationsEnabled)
         case "notifications.perMinute": return .int(d.notificationsPerMinute)

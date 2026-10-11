@@ -63,11 +63,16 @@ extension Session {
     /// - Parameters:
     ///   - publisher: The organisation.
     ///   - source: `chat` or `cli`, for the audit.
+    ///   - log: Where the change is recorded; nil for the session's log.
     /// - Returns: The change written, nil when there was none.
     /// - Throws: `ConfigEdit.Failure` for a name Hugging Face would not accept or a file that would not load, or the
     ///   file system's error.
     @discardableResult
-    public func trustPublisher(_ publisher: String, source: String) throws -> ConfigEdit.Outcome? {
+    public func trustPublisher(
+        _ publisher: String, source: String, log: AuditLog? = nil
+    ) throws
+        -> ConfigEdit.Outcome?
+    {
         let data = FileManager.default.contents(atPath: home.configFile.path)
         let listed =
             try ConfigEdit.current(TrustedPublishers.setting, in: data)?.arrayValue?.compactMap(\.stringValue)
@@ -76,7 +81,7 @@ extension Session {
         let outcome = try ConfigEdit.set(
             TrustedPublishers.setting, to: ChatChoice.answer(values: listed + [publisher]), in: data)
         try ConfigEdit.write(outcome, to: home.configFile)
-        audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
+        (log ?? audit).record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
         return outcome
     }
 }

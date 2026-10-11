@@ -217,6 +217,10 @@ pub struct ChoiceOption {
     /// In a choice with toggles, whether the row is on.
     #[serde(default)]
     pub on: Option<bool>,
+    /// In a choice with toggles, a row that is an action rather than a toggle, such as `/models`' "pull a
+    /// model…" (ADR 0059): Enter on it answers the choice with its value, Space leaves it.
+    #[serde(default)]
+    pub action: bool,
 }
 
 /// A column of a choice with toggles.

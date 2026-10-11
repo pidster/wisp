@@ -3,6 +3,24 @@ import Synchronization
 
 /// A simple command awaiting a human decision.
 public struct ApprovalRequest: Equatable, Sendable {
+    /// What is being approved.
+    public enum Kind: Equatable, Sendable {
+        /// A command, a file read, or an edit: every scope may be chosen.
+        case command
+        /// A change to the models wisp can run that the model asked for through its `models` tool
+        /// ([ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)): `models pull <repo>`, approved
+        /// once and never remembered; `models enable|disable|check <name>`, remembered for the session at most.
+        case modelAction(pull: Bool)
+
+        /// The scopes an answer may give; a wider one is narrowed to the widest of these.
+        public var scopes: [ApprovalScope] {
+            switch self {
+            case .command: ApprovalScope.allCases
+            case .modelAction(let pull): pull ? [.once] : [.once, .session]
+            }
+        }
+    }
+
     /// The simple command being approved.
     public var command: String
     /// The whole line it is part of, for context; equal to `command` when the line is simple.
@@ -15,11 +33,13 @@ public struct ApprovalRequest: Equatable, Sendable {
     public var assessment: RiskAssessment
     /// The conversation asking (its audit session: the MCP `thread_id`), when the gate knows it.
     public var thread: String?
+    /// What is being approved, which sets the scopes an answer may give.
+    public var kind: Kind
 
     /// Creates a request.
     public init(
         command: String, line: String? = nil, pattern: String, workingDirectory: String, assessment: RiskAssessment,
-        thread: String? = nil
+        thread: String? = nil, kind: Kind = .command
     ) {
         self.command = command
         self.line = line ?? command
@@ -27,6 +47,7 @@ public struct ApprovalRequest: Equatable, Sendable {
         self.workingDirectory = workingDirectory
         self.assessment = assessment
         self.thread = thread
+        self.kind = kind
     }
 
     /// `text` as it is safe to show a person: every C0 and C1 control character and DEL (ESC, CR,
@@ -124,8 +145,14 @@ public struct TerminalApprover: Approver {
         for reason in request.assessment.reasons.map(visible) {
             lines.append(style.muted("  - " + (reason.count > 110 ? String(reason.prefix(110)) + "…" : reason)))
         }
-        lines.append(style.muted("  remembered as: \(visible(request.pattern))"))
-        lines.append("  [y]once  [s]ession  [p]roject 30d  [a]lways 30d  [n]o " + style.prompt("›") + " ")
+        let scopes = request.kind.scopes
+        lines.append(
+            style.muted(scopes == [.once] ? "  never remembered" : "  remembered as: \(visible(request.pattern))"))
+        let keys: [(ApprovalScope, String)] = [
+            (.once, "[y]once"), (.session, "[s]ession"), (.project, "[p]roject 30d"), (.always, "[a]lways 30d"),
+        ]
+        let offered = keys.filter { scopes.contains($0.0) }.map(\.1) + ["[n]o"]
+        lines.append("  " + offered.joined(separator: "  ") + " " + style.prompt("›") + " ")
         return lines.joined(separator: "\n")
     }
 
@@ -509,6 +536,101 @@ public actor ApprovalGate {
             let reason = "no answer within \(waited); an unanswered approval counts as declined"
             decided("timed-out", reason: reason)
             turnState.refusals.append(Refusal(command: segment.text, reason: reason))
+            throw Failure.refused(reason)
+        }
+    }
+
+    /// Returns normally, with the request's id, if the model may change the models wisp can run
+    /// ([ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)): judged as the command
+    /// `models <verb> <subject>` by the full classifier, as `edit_file`'s edits are, and asked whatever the threshold,
+    /// with `reasons` (the publisher, the licence, the download) beside the classifier's. A pull is never covered by a
+    /// held approval and never remembered, so every pull is asked, and `--yes` (`AutoApprover`) refuses it rather
+    /// than answering; `enable`, `disable`, and `check` are covered by an
+    /// approval of their pattern for this turn or this session, and an answer wider than the session is narrowed to
+    /// it. The id is recorded as `approval.decided`'s `approvalID`, and the caller records it on what the change
+    /// writes, so the audit ties the two.
+    ///
+    /// - Parameters:
+    ///   - verb: `pull`, `enable`, `disable`, or `check`.
+    ///   - subject: The repository or the model.
+    ///   - reasons: What the person should know, shown after the classifier's reasons.
+    ///   - workingDirectory: Where the conversation runs, which keys a remembered approval.
+    /// - Returns: The request's id.
+    /// - Throws: `Failure.refused` with the reason when it was declined, timed out, or unanswered.
+    public func clear(
+        modelAction verb: String, subject: String, reasons: [String], workingDirectory: String
+    ) async throws -> String {
+        let line = "models \(verb) \(subject)"
+        let segment = SimpleCommand(text: line, executable: "models", subcommand: verb)
+        let kind = ApprovalRequest.Kind.modelAction(pull: verb == "pull")
+        let id = ShortID.make()
+        let started = Date()
+        var assessment = await classifier.classify(command: line, workingDirectory: workingDirectory)
+        assessment.reasons += reasons
+        let level = max(assessment.level, .moderate)
+        assessment.level = level
+        func decided(_ decision: String, scope: ApprovalScope? = nil, reason: String? = nil, from: ApprovalScope? = nil)
+        {
+            audit?.record(
+                .approvalDecided,
+                details: AuditEvent.Details.approvalDecided(
+                    command: line, pattern: segment.pattern, line: line, decision: decision, scope: scope,
+                    reason: reason, approvalID: id, expiresAt: nil, downgradedFrom: from, persistError: nil))
+        }
+        audit?.record(
+            .classifierVerdict,
+            details: AuditEvent.Details.classifierVerdict(
+                command: line, pattern: segment.pattern, line: line, assessment: assessment,
+                seconds: Date().timeIntervalSince(started)))
+        let key = Self.key(segment.pattern, workingDirectory)
+        _ = currentTurn()
+        if kind.scopes.contains(.session) {
+            if Self.covers(sessionApprovals.level(for:), segment, at: level, in: workingDirectory) {
+                decided("cached")
+                return id
+            }
+            let turnApproved = turnState.approved
+            if Self.covers({ turnApproved[$0] }, segment, at: level, in: workingDirectory) {
+                decided("cached-turn")
+                return id
+            }
+        }
+        audit?.record(
+            .approvalRequested,
+            details: AuditEvent.Details.approvalRequested(
+                command: line, pattern: segment.pattern, line: line, level: level))
+        // `--yes` approves what was asked ahead of time; a pull is the person's to approve, each time, as it comes.
+        if kind == .modelAction(pull: true), approver is AutoApprover {
+            let reason = "a pull is asked of the person every time, and --yes does not answer it"
+            decided("denied", reason: reason)
+            turnState.refusals.append(Refusal(command: line, reason: reason))
+            throw Failure.refused(reason)
+        }
+        let decision = await approver.decide(
+            ApprovalRequest(
+                command: line, line: line, pattern: segment.pattern, workingDirectory: workingDirectory,
+                assessment: assessment, thread: audit?.session, kind: kind),
+            audit: audit)
+        switch decision {
+        case .approved(let requested):
+            let scope = kind.scopes.contains(requested) ? requested : kind.scopes.last ?? .once
+            if kind.scopes.contains(.session) {
+                if scope == .once {
+                    turnState.approved[key] = max(turnState.approved[key] ?? level, level)
+                } else {
+                    sessionApprovals.insert(key, level: level)
+                }
+            }
+            decided("approved", scope: scope, from: scope != requested ? requested : nil)
+            return id
+        case .denied(let reason):
+            decided("denied", reason: reason)
+            turnState.refusals.append(Refusal(command: line, reason: reason))
+            throw Failure.refused(reason)
+        case .unanswered(let waited):
+            let reason = "no answer within \(waited); an unanswered approval counts as declined"
+            decided("timed-out", reason: reason)
+            turnState.refusals.append(Refusal(command: line, reason: reason))
             throw Failure.refused(reason)
         }
     }

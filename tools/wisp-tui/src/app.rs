@@ -366,6 +366,10 @@ pub struct App {
     pub running_command: Option<String>,
     /// Whether Ctrl-C has asked wisp to stop `running_command`; a second Ctrl-C then quits.
     pub stopping: bool,
+    /// Whether the line sent last is a chat command (`/…`), which starts no model turn, until the next status:
+    /// stoppable work it reports (a `/models pull`, ADR 0059) is shown and stopped as a running command, while
+    /// a message's stoppable activity is the model's turn (ADR 0049, amended 2026-10-11).
+    pub slash_sent: bool,
     /// Whether the input box is in command mode: `!` typed at the start of the line, so what is typed runs as a
     /// shell command (ADR 0049) and the box takes the command colour.
     pub command_mode: bool,
@@ -482,6 +486,7 @@ impl App {
                 self.status = Some(status);
                 self.busy = false;
                 self.running_command = None;
+                self.slash_sent = false;
                 self.stopping = false;
                 // Nothing is under way at a prompt, so nothing is left for Ctrl-C to stop.
                 self.activity = None;
@@ -494,6 +499,14 @@ impl App {
                 stoppable,
                 ..
             } => {
+                // Stoppable work a chat command started (a `/models pull`, ADR 0059) is held as the command
+                // running, so the busy box shows its progress and Ctrl-C stops it; a message's stoppable activity
+                // is the model's turn, which `interrupt()` stops without it.
+                if stoppable && self.slash_sent && self.running_command.is_none() {
+                    self.running_command.clone_from(&doing);
+                    self.stopping = false;
+                    self.busy = true;
+                }
                 let now = Instant::now();
                 self.activity = doing.map(|doing| Activity {
                     doing,
@@ -1066,6 +1079,10 @@ impl App {
     /// Enter: sends the input as a message, echoing it into history; with a choice open, answers it.
     pub fn submit(&mut self) -> Action {
         if let Some(picker) = &self.picker {
+            // An action row (`/models`' "pull a model…", ADR 0059) answers with its value alone.
+            if let Some(value) = picker.action() {
+                return self.choose(Some(value), None);
+            }
             if let Some(values) = picker.values() {
                 return self.choose(None, Some(values));
             }
@@ -1098,6 +1115,7 @@ impl App {
             self.push(&format!("› {typed}"), LineKind::User);
             typed
         };
+        self.slash_sent = command.is_none() && text.starts_with('/');
         if self.recall.last() != Some(&text) {
             self.recall.push(text.clone());
             if self.recall.len() > RECALL_LIMIT {
@@ -2273,6 +2291,7 @@ mod tests {
                     detail: String::new(),
                     cells: Vec::new(),
                     on: None,
+                    action: false,
                 })
                 .collect(),
             current: Some("system-model".into()),
@@ -2348,6 +2367,69 @@ mod tests {
                 values: None
             })
         );
+    }
+
+    #[test]
+    fn the_models_pickers_pull_row_answers_with_its_value_and_space_leaves_it() {
+        let mut app = App {
+            status: Some(Status::default()),
+            busy: true,
+            ..Default::default()
+        };
+        let mut models = choice(&["system", "pull…"], false);
+        models.toggles = true;
+        models.current = Some("system".into());
+        models.columns = vec![crate::protocol::ChoiceColumn {
+            heading: "MODEL".into(),
+            drop: 0,
+        }];
+        models.options[0].cells = vec!["system".into()];
+        models.options[0].on = Some(true);
+        models.options[1].label = "pull a model…".into();
+        models.options[1].detail = "an MLX model from Hugging Face, after asking".into();
+        models.options[1].action = true;
+        app.handle(Outbound::Choice(models));
+        app.recall_next();
+        let rows = drawn(&app, 100);
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("▸  +  pull a model…  an MLX model from Hugging Face")),
+            "{rows:?}"
+        );
+        // Space leaves the action row as it is; Enter on it answers with its value, not the toggles.
+        app.type_char(' ');
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Choose {
+                id: "c1".into(),
+                value: Some("pull…".into()),
+                values: None
+            })
+        );
+    }
+
+    #[test]
+    fn a_pull_wisp_says_ctrl_c_stops_is_stopped_by_ctrl_c() {
+        // `/models pull` runs as a command does: its activity is stoppable, so Ctrl-C asks wisp to stop it (ADR 0059).
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        for c in "/models pull mlx-community/q".chars() {
+            app.type_char(c);
+        }
+        assert!(matches!(app.submit(), Action::Send(_)));
+        app.handle(Outbound::parse(
+            r#"{"type":"activity","doing":"pulling mlx-community/q: 1 GB of 2 GB, file 1 of 2","asking":false,"turnSeconds":0,"stoppable":true}"#,
+        ));
+        assert!(app.busy);
+        assert!(app.busy_label(Instant::now()).starts_with(
+            "pulling mlx-community/q: 1 GB of 2 GB, file 1 of 2 · 0 s · Ctrl-C stops it"
+        ));
+        assert_eq!(app.interrupt(), Action::Send(Inbound::Interrupt));
+        assert!(app.stopping);
+        app.handle(Outbound::Status(Status::default()));
+        assert!(app.running_command.is_none() && !app.busy);
     }
 
     #[test]

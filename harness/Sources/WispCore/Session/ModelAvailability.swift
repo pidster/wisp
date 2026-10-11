@@ -198,14 +198,18 @@ extension Session {
     /// - Parameters:
     ///   - enable: The models to turn on, as `--model` spells them.
     ///   - disable: The models to turn off.
-    ///   - source: `chat` or `cli`, for the audit.
+    ///   - source: `chat`, `cli`, or `tool` (the model's `models` tool, ADR 0059), for the audit.
     ///   - checking: Whether the caller checks the enabled models next, so a model to be checked waits for it.
+    ///   - approval: The id of the approval that allowed the model's request, for the audit; nil for the person's.
+    ///   - log: Where the changes are recorded: the asking conversation's log (an MCP thread's); nil for the session's.
     /// - Returns: A line per model saying what happened, for the person.
     /// - Throws: `ModelSelection.Failure` for a name that does not parse or the default being disabled,
     ///   `ConfigEdit.Failure` when the file would not load, a backend's failure to link, or the file system's.
     public func setModels(
-        enable: [String], disable: [String], source: String, checking: Bool = false
+        enable: [String], disable: [String], source: String, checking: Bool = false, approval: String? = nil,
+        log: AuditLog? = nil
     ) throws -> [String] {
+        let audit = log ?? self.audit
         // Every comparison is by canonical form, so `ollama:x` enables a model disabled as `ollama:x:latest` (ADR 0056).
         func among(_ model: ModelSelection, _ models: [ModelSelection]) -> Bool {
             model.isAmong(models, config: config, home: home)
@@ -238,7 +242,8 @@ extension Session {
                     model: model.description, repository: link.repository, directory: link.destination,
                     cache: link.snapshot, files: link.files, bytes: link.bytes, reused: link.files, fetchedFiles: 0,
                     fetched: 0, link: link.outcome, outcome: "linked", reason: nil,
-                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18))
+                    seconds: Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18,
+                    source: source, approval: approval))
             lines.append(
                 "linked \(model): \(link.destination) → \(link.snapshot) in the Hugging Face cache; nothing was "
                     + "downloaded")
@@ -250,7 +255,8 @@ extension Session {
                 : try ConfigEdit.set(
                     "models.disabled", to: ChatChoice.answer(values: after.map(\.description)), in: data)
             try ConfigEdit.write(outcome, to: home.configFile)
-            audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
+            audit.record(
+                .configChange, details: AuditEvent.Details.configChange(outcome, source: source, approval: approval))
         }
         disabledModels.replace(with: after)
         for model in enabling where !among(model, waiting) {
@@ -284,10 +290,15 @@ extension Session {
     /// - Parameters:
     ///   - selection: The model.
     ///   - disabled: Whether it is to be disabled.
-    ///   - source: `chat` or `cli`, for the audit.
+    ///   - source: `chat`, `cli`, or `tool`, for the audit.
+    ///   - approval: The id of the approval that allowed the model's request; nil for the person's.
+    ///   - log: Where the change is recorded; nil for the session's log.
     /// - Throws: `ModelSelection.Failure.defaultDisabled` for the default, `ConfigEdit.Failure`, or the file
     ///   system's.
-    func setDisabled(_ selection: ModelSelection, _ disabled: Bool, source: String) throws {
+    func setDisabled(
+        _ selection: ModelSelection, _ disabled: Bool, source: String, approval: String? = nil, log: AuditLog? = nil
+    ) throws {
+        let audit = log ?? self.audit
         let data = FileManager.default.contents(atPath: home.configFile.path)
         let before =
             try ConfigEdit.current("models.disabled", in: data)?.arrayValue?.compactMap { value in
@@ -312,7 +323,8 @@ extension Session {
             ? try ConfigEdit.unset("models.disabled", in: data)
             : try ConfigEdit.set("models.disabled", to: ChatChoice.answer(values: after.map(\.description)), in: data)
         try ConfigEdit.write(outcome, to: home.configFile)
-        audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: source))
+        audit.record(
+            .configChange, details: AuditEvent.Details.configChange(outcome, source: source, approval: approval))
         disabledModels.replace(with: after)
     }
 }

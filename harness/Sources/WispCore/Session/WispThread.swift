@@ -44,6 +44,10 @@ public struct WispThread: Sendable {
     /// (`respond`'s `think`, ADR 0053 amended 2026-10-11); nil leaves the model's configured default.
     public internal(set) var thinking: OllamaThink?
 
+    /// The notes waiting for the session's conversations, which the agent takes for this one as each turn begins
+    /// (ADR 0059).
+    let notices: ConversationNotices
+
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
     ///
@@ -65,7 +69,12 @@ public struct WispThread: Sendable {
         let registry = ToolRegistry(
             runner: session.config.runner, audit: audit, approval: gate,
             introspection: session.introspection(for: audit, tools: toolNames, model: model),
-            host: host, memory: memory, disabled: session.config.disabledTools, custom: session.config.customTools)
+            host: host, memory: memory,
+            models: ModelsTool(
+                actions: ModelActions(session: session, face: .tool, audit: audit), gate: gate,
+                conversation: audit.session,
+                current: model),
+            disabled: session.config.disabledTools, custom: session.config.customTools)
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
         return WispThread(
@@ -82,7 +91,8 @@ public struct WispThread: Sendable {
                 : nil,
             memory: selection.tools.contains { $0.name == MemoryTool.toolName } ? memory : nil,
             infersTask: session.entryPoint == .chat,
-            runner: CommandRunner(options: session.config.runner, audit: audit, approval: gate))
+            runner: CommandRunner(options: session.config.runner, audit: audit, approval: gate),
+            notices: session.notices)
     }
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
@@ -151,6 +161,7 @@ public struct WispThread: Sendable {
         agent.summaryShare = config.summaryShare
         agent.facts = facts
         agent.memory = memory
+        agent.notices = notices
         if config.assessmentEnabled {
             agent.assessment = AssessmentSettings(
                 tools: config.assessmentTools, infersTask: infersTask, taskChanges: config.assessmentTaskChanges)

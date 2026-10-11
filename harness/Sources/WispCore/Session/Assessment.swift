@@ -115,6 +115,7 @@ enum ToolCatalogue {
         "notify": "show the person a macOS notification",
         "system_info": "this Mac's ports, disk, processes, memory (RAM), battery, network",
         "memory": "recall earlier material of this conversation, note a fact, or set the task",
+        "models": "the models wisp can run; ask to pull, enable, disable, or check one",
     ]
 
     /// The longest a custom tool's clause may be, in characters.
@@ -161,6 +162,7 @@ enum AssessmentRules {
         ),
         ("inspect", #"\b(wisp'?s?|config(uration)?|settings?|approvals?|audit)\b"#),
         ("notify", #"\b(notify|notification|alert me|remind me|ping me|let me know when)\b"#),
+        ("models", #"\b(models|llms?|hugging ?face|mlx|pull (a|the) model)\b"#),
         (
             "system_info",
             #"\b(ram|disk|storage|free space|battery|ports?|listening|process(es)?|cpu|network|wi-?fi|ip address|uptime|macos version|hardware|memory (use|usage|in use|pressure)|how much memory)\b"#

@@ -171,6 +171,9 @@ public struct RuleRiskClassifier: RiskClassifier {
         Rule(
             #"(^|[\s;&|(`/]|\$\()((python[0-9.]*|pypy3?)\s+(-\S+\s+)*-[A-Za-z]*c|(perl|ruby|lua)\s+(-\S+\s+)*-[A-Za-z]*[eE]|(node|bun)\s+(-\S+\s+)*(-[A-Za-z]*[ep]|--eval|--print)|php\s+(-\S+\s+)*-r|deno\s+eval)(\s|$|=)"#,
             .moderate, "runs a program written on the command line, which wisp does not read"),
+        // The model's requests through its `models` tool (ADR 0059), judged as these commands.
+        Rule(start + #"models\s+pull\b"#, .moderate, "downloads a model from Hugging Face"),
+        Rule(start + #"models\s+(enable|disable|check)\b"#, .moderate, "changes the models wisp can run"),
         // Building and testing the project are safe, as the labels have them (training/risk/labels.md); only
         // what writes outside the project or throws build output away is moderate.
         Rule(

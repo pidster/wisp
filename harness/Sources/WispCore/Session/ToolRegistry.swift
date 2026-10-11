@@ -9,6 +9,7 @@ public struct ToolRegistry: Sendable {
     /// custom tool may not take one.
     public static let builtInNames = [
         "current_date", "run_command", "read_file", "edit_file", "inspect", "notify", "system_info", "memory",
+        "models",
     ]
 
     /// Builds the registry with the given limits for command execution and file pages.
@@ -28,6 +29,8 @@ public struct ToolRegistry: Sendable {
     ///   - memory: The conversation's record, which `memory` reads and where its notes wait (`WispThread` passes
     ///     its own). Nil gives one with nothing published, whose `memory` says there is no record: enough for a
     ///     catalogue.
+    ///   - models: The conversation's `models` tool, over its actions, gate, and audit session (ADR 0059). Nil gives
+    ///     one that answers that models cannot be managed here: enough for a catalogue.
     ///   - disabled: Built-in tools to leave out (`tools.disabled`).
     ///   - custom: The user's own tools (`tools.custom`), appended after the built-ins; each runs through
     ///     `run_command`'s runner and gate.
@@ -35,7 +38,7 @@ public struct ToolRegistry: Sendable {
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
-        host: SessionHost? = nil, memory: MemorySource? = nil, disabled: Set<String> = [],
+        host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil, disabled: Set<String> = [],
         custom: [CustomTool.Definition] = []
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
@@ -53,6 +56,7 @@ public struct ToolRegistry: Sendable {
                     audit: audit), audit: audit),
             AuditedTool(SystemInfoTool(runner: commandRunner), audit: audit),
             AuditedTool(MemoryTool(source: memory ?? MemorySource(), audit: audit), audit: audit),
+            AuditedTool(models ?? ModelsTool(), audit: audit),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework
         // rejects its schema; such a tool is left out with a diagnostic rather than failing the session.
@@ -68,13 +72,17 @@ public struct ToolRegistry: Sendable {
     }
 
     /// The names a conversation given every tool gets: the whole registry, less `memory` unless `memory` is true
-    /// (`context.memory`, off by default since [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
-    /// `memory` stays registered, so a list that names it still selects it.
+    /// (`context.memory`, off by default since [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)),
+    /// and less `models` unless `models` is true (`tools.models`, off by default,
+    /// [ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)). Both stay registered, so a list that
+    /// names one still selects it.
     ///
-    /// - Parameter memory: Whether `memory` is in the default set.
+    /// - Parameters:
+    ///   - memory: Whether `memory` is in the default set.
+    ///   - models: Whether `models` is in the default set.
     /// - Returns: The names, in registration order.
-    func defaultNames(memory: Bool) -> [String] {
-        all.map(\.name).filter { memory || $0 != MemoryTool.toolName }
+    func defaultNames(memory: Bool, models: Bool = false) -> [String] {
+        all.map(\.name).filter { (memory || $0 != MemoryTool.toolName) && (models || $0 != ModelsTool.toolName) }
     }
 
     /// Tools whose names appear in `names`; unknown names are reported back.

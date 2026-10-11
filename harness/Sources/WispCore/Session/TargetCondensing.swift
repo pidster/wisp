@@ -280,7 +280,7 @@ extension ThreadRecord {
         for entry in entries {
             switch entry.kind {
             case .prompt: groups.append([entry])
-            case .instructions, .facts, .command: continue
+            case .instructions, .facts, .command, .notice: continue
             default: if !groups.isEmpty { groups[groups.count - 1].append(entry) }
             }
         }

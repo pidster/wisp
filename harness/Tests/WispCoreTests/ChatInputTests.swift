@@ -16,7 +16,17 @@ import WispTestSupport
         #expect(ChatInput(line: "/models check mlx:b") == .models(.check(["mlx:b"])))
         #expect(ChatInput(line: "/models check") == .models(.unknown("check")))
         #expect(ChatInput.helpText.contains("/models check NAME…"))
-        #expect(ChatCompletion.complete("/models ").candidates == ["check", "disable", "enable"])
+        #expect(
+            ChatCompletion.complete("/models ").candidates == ["cancel", "check", "disable", "enable", "pull", "trust"])
+        // A pull, a trust, and a cancel (ADR 0059).
+        #expect(ChatInput(line: "/models pull mlx-community/q") == .models(.pull("mlx-community/q")))
+        #expect(ChatInput(line: "/models pull") == .models(.unknown("pull")))
+        #expect(ChatInput(line: "/models pull a b") == .models(.unknown("pull")))
+        #expect(ChatInput(line: "/models trust ornith-ai") == .models(.trust("ornith-ai")))
+        #expect(ChatInput(line: "/models trust") == .models(.unknown("trust")))
+        #expect(ChatInput(line: "/models cancel") == .models(.cancel(nil)))
+        #expect(ChatInput(line: "/models cancel mlx-community/q") == .models(.cancel("mlx-community/q")))
+        #expect(ChatInput.helpText.contains("/models pull REPOSITORY") && ChatInput.helpText.contains("/models trust"))
         #expect(
             ChatCompletion.complete("/models check ", options: { _ in ["mlx:b"] }).candidates == ["mlx:b"])
         #expect(

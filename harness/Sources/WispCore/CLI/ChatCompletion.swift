@@ -60,7 +60,7 @@ public enum ChatCompletion {
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
         case ["/model"], ["/models", "disable"], ["/models", "check"]:
             pool = ConfigSettings.setting("model").map(options) ?? []
-        case ["/models"]: pool = ["enable", "disable", "check"]
+        case ["/models"]: pool = ["enable", "disable", "check", "pull", "trust", "cancel"]
         case ["/models", "enable"]: pool = disabledModels
         case ["/inspect"]: pool = views
         case ["/inspect", "context"]: pool = ["next", "turns"]

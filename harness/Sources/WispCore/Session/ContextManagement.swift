@@ -140,9 +140,9 @@ extension Transcript {
 }
 
 extension ThreadRecord {
-    /// The framework ids of the person's commands the store holds, active or dropped: the prompts that are no
-    /// turn of their own (`Transcript.condensed(keepTurns:commands:)`).
-    var commandIDs: Set<Transcript.Entry.ID> { Set(entries.filter { $0.kind == .command }.map(\.value.id)) }
+    /// The framework ids of the person's commands and wisp's notices (ADR 0059) the store holds, active or dropped:
+    /// the prompts that are no turn of their own (`Transcript.condensed(keepTurns:commands:)`).
+    var commandIDs: Set<Transcript.Entry.ID> { Set(entries.filter { $0.kind.isBetweenTurns }.map(\.value.id)) }
 
     /// The turns `view`, a composition of this store, holds: its prompts, less the person's commands.
     ///

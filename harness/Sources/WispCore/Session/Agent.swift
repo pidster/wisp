@@ -160,6 +160,11 @@ public final class Agent {
     /// (`<runtime>.models.<name>.think`, then `<runtime>.think`). A schema reply asks for none unless this is set.
     public var thinking: OllamaThink?
 
+    /// Where notes for this conversation wait between turns, such as a background pull's end (ADR 0059): the agent
+    /// takes its own, by its audit session, as each turn begins and stores each as a notice the turn's request
+    /// carries (`ThreadRecord.Kind.notice`). Set by `WispThread.openAgent`; nil takes none.
+    public var notices: ConversationNotices?
+
     /// Creates an agent on a model.
     ///
     /// - Parameters:
@@ -798,6 +803,16 @@ public final class Agent {
         }
     }
 
+    /// Stores the notes waiting for this conversation (`notices`) as notices of the turn about to begin, so its first
+    /// request carries them ahead of the prompt.
+    private func takeNotices() {
+        guard let notices, let audit else { return }
+        let now = Date()
+        for note in notices.take(for: audit.session) {
+            store.record(notice: note, turn: turns.current + 1, time: now)
+        }
+    }
+
     /// Records one turn in `stats`, with the runtime's reported prompt tokens for the conversation's request when there
     /// are any.
     private func recordStats(started: Date, failure: String?) {
@@ -821,6 +836,7 @@ public final class Agent {
         _ prompt: String, schema: JSONValue? = nil, think: OllamaThink?, stop: TurnStop? = nil,
         _ operation: () async throws -> String
     ) async throws -> Reply {
+        takeNotices()
         turns.advance()
         turnFactIDs = []
         contextNote = nil

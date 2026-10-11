@@ -216,6 +216,15 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/models check NAME…",
             about: "ask an MLX model three short questions and record in config.json what it can do"),
         HelpEntry(
+            usage: "/models pull REPOSITORY",
+            about: "fetch an MLX model from Hugging Face after asking, its progress in the status line; Ctrl-C stops "
+                + "it and keeps what arrived"),
+        HelpEntry(
+            usage: "/models trust PUBLISHER",
+            about: "trust a Hugging Face publisher from now on, so its pulls ask only about the download"),
+        HelpEntry(
+            usage: "/models cancel [REPOSITORY]", about: "stop a pull the model asked for, running in the background"),
+        HelpEntry(
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
             names: ["model"], command: { .model($0) }),
@@ -333,8 +342,19 @@ public enum ModelsRequest: Equatable, Sendable {
     case disable([String])
     /// Check what these models can do and record it (ADR 0056, refined 2026-10-04).
     case check([String])
-    /// Anything else, with the word that was not understood, or `enable`, `disable`, or `check` with no name.
+    /// Fetch an MLX model from Hugging Face, after asking (ADR 0059).
+    case pull(String)
+    /// Trust a publisher from now on (ADR 0059).
+    case trust(String)
+    /// Cancel the background pull of a repository, or every one (ADR 0059).
+    case cancel(String?)
+    /// Anything else, with the word that was not understood, or `enable`, `disable`, `check`, `pull`, or `trust`
+    /// with no name.
     case unknown(String)
+
+    /// How to use `/models`, as an unknown argument is answered.
+    public static let usage =
+        "/models, or /models enable|disable|check NAME…, pull REPOSITORY, trust PUBLISHER, cancel [REPOSITORY]"
 
     /// Parses what follows `/models`.
     public init(_ argument: String?) {
@@ -344,6 +364,9 @@ public enum ModelsRequest: Equatable, Sendable {
         case "enable" where parts.count > 1: self = .enable(Array(parts.dropFirst()))
         case "disable" where parts.count > 1: self = .disable(Array(parts.dropFirst()))
         case "check" where parts.count > 1: self = .check(Array(parts.dropFirst()))
+        case "pull" where parts.count == 2: self = .pull(parts[1])
+        case "trust" where parts.count == 2: self = .trust(parts[1])
+        case "cancel" where parts.count <= 2: self = .cancel(parts.count == 2 ? parts[1] : nil)
         case let word?: self = .unknown(word)
         }
     }

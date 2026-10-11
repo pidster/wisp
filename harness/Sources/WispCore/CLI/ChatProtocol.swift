@@ -208,7 +208,8 @@ public enum ChatProtocol {
 
     /// The `choice` line's fields: its id, title, options, the current value, and whether typed text
     /// is taken. A choice with toggles (ADR 0056) adds `toggles` (true), `columns` (each `heading` and `drop`, the
-    /// rank in which a narrow face drops it, 0 never), and on each option `cells` (one per column) and `on`.
+    /// rank in which a narrow face drops it, 0 never), and on each option `cells` (one per column) and `on`; an action
+    /// row (ADR 0059's "pull a model…") has `action` true and no `on`, and choosing it answers with its `value`.
     public static func choice(id: String, _ choice: ChatChoice) -> [String: JSONValue] {
         var fields: [String: JSONValue] = [
             "id": .string(id), "title": .string(choice.title), "current": choice.current.map { .string($0) } ?? .null,
@@ -223,6 +224,7 @@ public enum ChatProtocol {
                         fields["on"] = .bool(on)
                         fields["cells"] = .array(option.cells.map { .string($0) })
                     }
+                    if option.action { fields["action"] = true }
                     return .object(fields)
                 }),
         ]

@@ -114,10 +114,13 @@ shown, wisp's own model is refused `wisp facts keep|drop` by the default policy,
 terminal on standard input. Unanswered, nothing is kept. A caller cannot change or remove a permanent fact;
 only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
-wisp downloads a model only when you run `wisp models pull <organisation>/<name>` in a terminal and answer yes
-after it has said which files, how many bytes, and where. It fetches only the files a model directory needs, with
+wisp downloads a model only when you ask for it, with `wisp models pull <organisation>/<name>` in a terminal or
+`/models pull` in chat, and answer yes after it has said which files, how many bytes, and where; or when the model,
+given its `models` tool (off by default), asks and you approve that one pull, which names the publisher, the
+licence, and the download, and is asked every time, never covered by an earlier answer or by `--yes`
+([ADR 0059](decisions/0059-one-set-of-model-actions.md)). It fetches only the files a model directory needs, with
 plain names, and checks each against Hugging Face's listing; wisp's own model is refused the command by the
-default policy. The files go into the Hugging Face cache, shared with Hugging Face's own tools,
+default policy, and trusting a publisher from now on is never the model's to ask. The files go into the Hugging Face cache, shared with Hugging Face's own tools,
 and the models directory links to them; a file cut off part-way resumes from where it stopped and is checked
 whole, and the intact files of a real directory already at `~/.wisp/models/mlx/<name>` are copied into the cache
 instead of fetched again; a directory already there is moved to the Trash only if you answer yes

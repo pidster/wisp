@@ -91,6 +91,9 @@ enum FactDistiller {
             case .command:
                 guard let command = entry.command else { continue }
                 commands.append(Self.line(for: command))
+            case .notice:
+                // A note wisp added (ADR 0059) belongs, like a command, to the turn after it.
+                commands.append(OutputReference.shortened(ThreadRecord.text(of: entry.value), to: 300))
             case .prompt:
                 let prompt = ThreadRecord.text(of: entry.value)
                 turns.append(

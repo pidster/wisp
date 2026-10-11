@@ -283,11 +283,16 @@ public struct Config: Codable, Equatable, Sendable {
         public var disabled: [String]?
         /// The user's own command-template tools ([ADR 0036](../../../../docs/decisions/0036-custom-tools.md)).
         public var custom: [CustomTool.Definition]?
+        /// Whether `models` is among the tools a conversation given every tool gets; default false
+        /// ([ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)). A tool list that names it gets it
+        /// either way.
+        public var models: Bool?
 
         /// Creates settings.
-        public init(disabled: [String]? = nil, custom: [CustomTool.Definition]? = nil) {
+        public init(disabled: [String]? = nil, custom: [CustomTool.Definition]? = nil, models: Bool? = nil) {
             self.disabled = disabled
             self.custom = custom
+            self.models = models
         }
 
         /// Checks that every disabled name is a built-in tool and every custom tool is valid and unique.
@@ -711,6 +716,7 @@ public struct Config: Codable, Equatable, Sendable {
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
+            toolsModels: tools?.models ?? false,
             routingLadder: routing?.ladder ?? [],
             taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
             factsEnabled: facts?.enabled ?? true, factsDistil: facts?.distil ?? true,
@@ -813,6 +819,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var disabledTools: Set<String> = []
         /// The user's own tools, validated.
         public var customTools: [CustomTool.Definition] = []
+        /// Whether a conversation given every tool gets `models` (`tools.models`); off by default (ADR 0059).
+        public var toolsModels = false
         /// Models to route among by input size, least capable first; empty means no routing.
         public var routingLadder: [ModelSelection] = []
         /// The model for each task's model pass when the caller names none: wisp's measured defaults,
