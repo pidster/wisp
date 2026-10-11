@@ -63,10 +63,10 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, and the count of standing approvals. |
 | `wisp://approvals` | JSON: the standing approvals with pattern, directory, scope, level, expiry, source, and `gone` (a project approval whose directory no longer exists, which can never match again; checked when read). |
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
-| `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
-| `wisp://audit/{session}` | JSON Lines: every event of one session that is not a `respond` thread: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here with a pointer to its `…/audit` below. |
-| `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `model`, `think` (as `respond`'s `think` set it, `true`, `false`, or a level; null for the model's default), `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
-| `wisp://threads/{thread_id}` | JSON: one thread's `model`, `think` (as in `wisp://threads`), `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below, including `summary`, and the facts resources the thread is given (`sessionFacts`, `permanentFacts`, `proposedFacts`). |
+| `wisp://audit` | JSON: every session's audit events as the audit file holds them, oldest first, paged (`events`, 100 a page by default; `?page=N&limit=M`, `last` names the newest page). |
+| `wisp://audit/{session}` | JSON: every event of one session that is not a `respond` thread, paged the same way: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here, by its `thread_id` or its `auditSession`, with a pointer to its `…/audit` below. |
+| `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `auditSession` (the session its events carry, `<thread_id>-<suffix>`, one per opening), `model`, `think` (as `respond`'s `think` set it, `true`, `false`, or a level; null for the model's default), `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
+| `wisp://threads/{thread_id}` | JSON: one thread's `auditSession`, `model`, `think` (as in `wisp://threads`), `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below, including `summary`, and the facts resources the thread is given (`sessionFacts`, `permanentFacts`, `proposedFacts`). |
 | `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. |
 | `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
@@ -77,16 +77,19 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://facts/{fact_id}` | JSON: one permanent fact (`fact`) and every version the shared store holds of what it is about (`history`), oldest first. `fact_id` starts with `p`, so `wisp://facts/proposed` is never taken for one. |
 | `wisp://facts/proposed` | JSON: the permanent facts a tool or the model proposed in any conversation of this server, awaiting the person: not yet moved to another scope. Each has the fact's fields, `thread_id` (its conversation), `reference` (`thread_id/fact_id`, which chat's `/fact` takes), and `uri` (the thread's fact, or null for a conversation that is not a thread), and `request`, the latest request to keep it and its outcome, or null. Paged. Nothing asks about them on its own: chat lists them and moves them (`/fact git/c3 permanent`), `respond`'s `facts` and `factsProposed` report them, and `set_fact_scope` moves a thread's own or asks the person to keep it. |
 | `wisp://session/facts` | JSON: the session's ephemeral facts (ids `s…`): the machine now, such as a listening port, shared by every thread of this server and gone with it. Current only; `?all=true` adds superseded versions. Paged. |
-| `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes`, `id`, and `uri`. Paged. |
-| `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, verbatim as the tool returned it, by the `id` a `respond` result's `calls` give it (see `respond` below). |
+| `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes` (what the model was given), `id`, and `uri`; for a call whose output was larger than the tool-output budget and kept whole in the output store ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)), `stored` (the output's id, the audit call id), `storedBytes`, and `storedLines`. Paged. |
+| `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, by the `id` a `respond` result's `calls` give it (see `respond` below): the whole stored output when the model saw only part of it, else what the tool returned, verbatim. Paged at 16 KiB with `?page=N`; a page after the first begins with a line saying which page it is. |
 | `wisp://threads/{thread_id}/reasoning` | JSON: each stretch a reasoning model thought aloud in the thread, oldest first, from its `model.reasoning` events ([ADR 0053](decisions/0053-the-models-thinking-shown.md)): `turn`, `id`, `tokens`, `seconds`, `bytes`, and `uri`. Paged. The thinking is kept for the person and the caller to read; the thread's model never gets it back. |
 | `wisp://threads/{thread_id}/reasoning/{id}` | Plain text: one stretch of thinking, verbatim, by the `id` the list gives it. |
-| `wisp://threads/{thread_id}/audit` | JSON Lines: every event of the thread, for reconstructing what a delegated task did. |
+| `wisp://threads/{thread_id}/audit` | JSON: every event of the thread, oldest first, for reconstructing what a delegated task did; paged like `wisp://audit`. A thread's events are read under its `auditSession`, so a `thread_id` reused after `close_thread` shows only the thread it names now, never an earlier one's history. |
 
 Collections are paged at 50 rows: append `?page=N` (from 1); each page gives `page`, `pages`, `total`, and
-`next`, the next page's URI or null. A context longer than 16 KiB is paged the same way, and each page
-after the first begins with a line saying which page it is. A page past the last, a turn the thread has
-not had, and a malformed URI are protocol errors (`invalidParams`).
+`next`, the next page's URI or null. The audit collections (`wisp://audit`, `wisp://audit/{session}`,
+`wisp://threads/{thread_id}/audit`) hold events, 100 a page, oldest first; `&limit=M` sets the page (1 to 500),
+each page gives `events`, `limit`, and `last` (the newest page's URI) beside `page`, `pages`, `total`, and `next`,
+and each event is the object the audit file holds. A context or a stored output longer than 16 KiB is paged the
+same way, and each page after the first begins with a line saying which page it is. A page past the last, a turn
+the thread has not had, and a malformed URI are protocol errors (`invalidParams`).
 
 The context resources compose the view from the thread's store, in memory, at no cost to the model
 (decision D12 of the [layered-context proposal](proposals/2026-09-29-layered-context.md)). They are
@@ -231,7 +234,7 @@ only if it wants to spend its own context on it:
 | `command`, `exitStatus` | For `run_command`: the command line and, when it ran, its exit status. A command the policy or the gate turned away has no `exitStatus`; its output is the refusal. |
 | `bytes` | The output's size in UTF-8 bytes. |
 | `output` | The output verbatim, when `bytes` is at most `inlineOutputBytes`. |
-| `outputURI` | Otherwise, `wisp://threads/{thread_id}/output/{id}`: `resources/read` returns the output verbatim, from the audit log. Absent when `audit.enabled` is false, since there is no log to serve it from. |
+| `outputURI` | Otherwise, `wisp://threads/{thread_id}/output/{id}`: `resources/read` returns the output verbatim, from the audit log, or the whole stored output when the model was given only part of it (ADR 0050). Absent when `audit.enabled` is false, since there is no log to serve it from. |
 | `error` | The error, when the tool threw. |
 
 The output is what the tool returned to the model: `run_command`'s rendering of the exit status and the
@@ -838,7 +841,8 @@ lists what its turn posted in `notifications`, above.
 ## Audit
 
 Every request and result is recorded in `~/.wisp/logs/audit.jsonl` under the server's session, and each
-thread's turns under the `thread_id` as its own session. See [logging.md](logging.md).
+thread's turns under a session of its own, `<thread_id>-<suffix>` (its `auditSession`, one per opening, so a
+reused `thread_id` is not mixed with an earlier thread's history). See [logging.md](logging.md).
 
 ## Errors
 

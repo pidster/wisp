@@ -45,6 +45,9 @@ public struct Home: Sendable, Equatable {
     public var transcripts: URL { root.appending(path: "transcripts", directoryHint: .isDirectory) }
     /// Where the exact context a model saw is saved: by `/inspect context`, and before and after each condensation.
     public var contexts: URL { root.appending(path: "context", directoryHint: .isDirectory) }
+    /// Where tool output larger than the tool-output budget is kept whole, one directory per audit session
+    /// (`OutputStore`, ADR 0050).
+    public var outputs: URL { root.appending(path: "output", directoryHint: .isDirectory) }
 
     /// Creates the directory tree if it does not exist.
     ///

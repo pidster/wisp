@@ -74,7 +74,8 @@ public enum ConfigSettings {
             path: "commandTimeoutSeconds", summary: "seconds a command may run; 0 waits forever",
             kind: .integer(0...86_400)),
         Setting(
-            path: "commandMaxOutputBytes", summary: "bytes of output kept from each command",
+            path: "commandMaxOutputBytes",
+            summary: "bytes of a command's result the model is shown; unset takes the tool-output budget",
             kind: .integer(256...1_048_576)),
         Setting(path: "tools.disabled", summary: "built-in tools the model does not get", kind: .tools),
         Setting(
@@ -234,7 +235,7 @@ public enum ConfigSettings {
         case "routing.ladder": return .array(d.routingLadder.map { .string($0.description) })
         case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
-        case "commandMaxOutputBytes": return .int(d.runner.maxOutputBytes)
+        case "commandMaxOutputBytes": return d.runner.maxOutputBytes.map { .int($0) } ?? .null
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
         case "tools.models": return .bool(d.toolsModels)
         case "shownOutputLines": return .int(d.shownOutputLines)

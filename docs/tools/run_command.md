@@ -21,17 +21,50 @@ stderr:
 <tail of stderr>
 ```
 
-Extra lines appear when relevant: `timed out: the command was killed` and
-`output truncated: only the tail of each stream is shown`. Empty streams are omitted. A killed process
-reports its signal negated (for example `-15` for SIGTERM).
+Extra lines appear when relevant: `timed out: the command was killed`, `stopped: the person stopped the command`,
+a `sandbox:` line (below), and, when more was printed than fits, a `held back:` note. Empty streams are omitted. A
+killed process reports its signal negated (for example `-15` for SIGTERM).
+
+**Output past the bound is held back, not dropped** ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)).
+The result is bounded as a whole, its header and notes included, to the conversation's tool-output budget (an
+eighth of the model's window, 4 to 64 KiB; [context-management.md](../context-management.md)). When a command
+prints more, each stream shows its first and last lines, about half its share of the room each, cut at line ends,
+with a marker between them, and the result ends with a note naming the lines held back and where the whole is:
+
+```
+exit status: 1
+stdout:
+Compiling Sources/File1.swift
+…
+[… 2,270 lines (180 KiB) held back …]
+…
+error: fatalError: 1 of 3 targets failed
+held back: stdout lines 44–2,313 (180 KiB); the whole output is kept as output 3f9a2c1b (2,340 lines); memory "recall output 3f9a2c1b from line 44" pages it, "recall output 3f9a2c1b matching PATTERN" filters it, "summarise output 3f9a2c1b" gives the notable lines, "condense output 3f9a2c1b: QUESTION" answers from all of it; do not run the command again to see it
+```
+
+The whole output (the rendering with nothing held back: the header, `stdout:`, the stream, `stderr:`, the stream)
+is kept in the conversation's output store, `~/.wisp/output/<audit session>/<id>`, under the audit call id of the
+tool call, up to 16 MiB; past that it is cut and the note says the rest was not kept. The line numbers in the note
+are the stored output's, so a recall from that line lands on the first held-back line. The room is shared between
+stdout and stderr in proportion to their size, and a stream with something to show always gets at least a fifth
+of it, so a short error is not crowded out by a long log. In a conversation without `memory` the note says the
+output is kept and not to run the command again; without an output store (the audit off, an agent made directly)
+it says the held-back lines were not kept. A command is never run again to see what it printed.
+
+In memory the runner keeps a head and a tail of the bound per stream and counts the rest; the moment a byte would
+be dropped it spills the whole stream to the store as it arrives, so a command printing 1 GiB costs memory of a
+few times the bound. Before 0.22.0 every byte was held until the command ended and all but the tail of each
+stream was then discarded.
 
 ## Limits
 
 | Limit | Default | Configure |
 | --- | --- | --- |
 | Timeout | 60 s, then SIGTERM, then SIGKILL after 2 s | `commandTimeoutSeconds` in `config.json` |
-| Output per stream | 4 KiB, tail kept | `commandMaxOutputBytes` in `config.json` |
+| The result, as a whole | The tool-output budget: an eighth of the model's window, 4 KiB at least (the on-device model), 64 KiB at most; the first and last lines shown, the rest held back and kept whole | `commandMaxOutputBytes` in `config.json` replaces the budget for this tool |
+| Output kept whole | 16 MiB per command, in the output store; cut past that, and the cut is stated | not configurable |
 | stdin | `/dev/null` | not configurable |
+| Descriptors | 0, 1, and 2 only: every other descriptor wisp holds is closed in the child (`POSIX_SPAWN_CLOEXEC_DEFAULT`), so one command never inherits another's pipe or a file wisp has open | not configurable |
 
 ## Policy and sandbox
 

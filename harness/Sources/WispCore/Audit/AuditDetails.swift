@@ -802,7 +802,7 @@ extension AuditEvent {
         case .turnStopped: ["seconds", "killed"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
         case .toolCall: ["tool", "arguments"]
-        case .toolResult: ["tool", "output", "bytes", "seconds"]
+        case .toolResult: ["tool", "output", "bytes", "seconds", "repeat"]
         case .policyDecision:
             ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin"]
         case .commandOutcome:
@@ -847,6 +847,7 @@ extension AuditEvent {
         case .presentationCut:
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]
+        case .outputKept: ["tool", "bytes", "lines", "sha256", "cut", "totalBytes"]
         case .distillation: ["turns", "entries", "bytes", "facts", "seconds", "model", "failure", "think"]
         case .summary:
             [
@@ -856,7 +857,8 @@ extension AuditEvent {
         case .memory:
             [
                 "request", "action", "target", "found", "entries", "facts", "summaries", "events", "from", "offset",
-                "bytes", "noted", "subject", "name", "value", "class", "failure",
+                "bytes", "noted", "subject", "name", "value", "class", "failure", "output", "filter", "summary",
+                "chunks",
             ]
         case .assessment:
             [

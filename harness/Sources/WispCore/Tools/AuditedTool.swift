@@ -1,11 +1,16 @@
 import Foundation
 import FoundationModels
+import Synchronization
 
 /// Wraps a tool so every call and result is recorded in the audit log.
 ///
 /// The model sees the wrapped tool unchanged: name, description, and schema
 /// are forwarded. Arguments are logged as the JSON the model produced and the
-/// output verbatim; a thrown error is logged and rethrown.
+/// output verbatim; a thrown error is logged and rethrown. The base tool runs with the call's audit id as
+/// `ToolCallContext.call`, so what it keeps in the output store goes under that id. A call that repeats an earlier
+/// call of the turn exactly (the same tool, the same arguments) is answered with a line saying so above its
+/// result, so a model that asks the same question six times in a turn (session `ce87576a`, 2026-10-04) is told
+/// (ADR 0050).
 public struct AuditedTool<Base: WispTool>: WispTool {
     /// Arguments are the base tool's.
     public typealias Arguments = Base.Arguments
@@ -14,11 +19,18 @@ public struct AuditedTool<Base: WispTool>: WispTool {
 
     private let base: Base
     private let audit: AuditLog
+    private let ledger: CallLedger?
 
     /// Wraps `base` to record into `audit`.
-    public init(_ base: Base, audit: AuditLog) {
+    ///
+    /// - Parameters:
+    ///   - base: The tool.
+    ///   - audit: Where its calls and results go.
+    ///   - ledger: The conversation's record of the turn's calls, for the repeated-call line; nil never notes one.
+    public init(_ base: Base, audit: AuditLog, ledger: CallLedger? = nil) {
         self.base = base
         self.audit = audit
+        self.ledger = ledger
     }
 
     /// Forwarded from the base tool.
@@ -40,21 +52,68 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     public func call(arguments: Arguments) async throws -> String {
         let call = ShortID.make()
         let started = Date()
+        let argumentsJSON = arguments.generatedContent.jsonString
         audit.record(
-            .toolCall, call: call,
-            details: AuditEvent.Details.toolCall(tool: base.name, arguments: arguments.generatedContent.jsonString))
-        Diagnostics.tools.debug("call \(call) \(base.name) \(arguments.generatedContent.jsonString)")
+            .toolCall, call: call, details: AuditEvent.Details.toolCall(tool: base.name, arguments: argumentsJSON))
+        Diagnostics.tools.debug("call \(call) \(base.name) \(argumentsJSON)")
+        let repeats = ledger?.note(tool: base.name, arguments: argumentsJSON, turn: audit.currentTurn) ?? 1
         do {
-            let output = try await base.call(arguments: arguments)
-            audit.record(
-                .toolResult, call: call,
-                details: AuditEvent.Details.toolResult(
-                    tool: base.name, output: output, seconds: Date().timeIntervalSince(started)))
+            var output = try await ToolCallContext.$call.withValue(call) { try await base.call(arguments: arguments) }
+            if repeats > 1 { output = Self.repeatedLine(tool: base.name, repeats: repeats) + "\n" + output }
+            var details = AuditEvent.Details.toolResult(
+                tool: base.name, output: output, seconds: Date().timeIntervalSince(started))
+            if repeats > 1 { details["repeat"] = .int(repeats) }
+            audit.record(.toolResult, call: call, details: details)
             return output
         } catch {
             audit.error(error, call: call, context: "tool \(base.name)")
             Diagnostics.tools.error("call \(call) \(base.name) failed: \(error)")
             throw error
+        }
+    }
+
+    /// The line above a repeated call's result: a fact for the model, not a refusal, since a command run again
+    /// after a change is a new command (ADR 0050).
+    ///
+    /// - Parameters:
+    ///   - tool: The tool.
+    ///   - repeats: Which call of the same this is, from 2.
+    /// - Returns: The line.
+    static func repeatedLine(tool: String, repeats: Int) -> String {
+        let earlier = repeats - 1
+        return
+            "[repeated call: this is the same \(tool) call, with the same arguments, as \(earlier) earlier "
+            + "call\(earlier == 1 ? "" : "s") this turn; the earlier result is already in your context]"
+    }
+}
+
+/// The tool calls of the current turn, by tool and arguments, so `AuditedTool` can tell the model when it repeats
+/// one exactly. Forgets everything when the turn changes. A `final class` with a `Mutex`: one short critical
+/// section per call.
+public final class CallLedger: Sendable {
+    /// The turn the counts belong to, and the count of calls per `tool\0arguments`.
+    private let state = Mutex<(turn: Int, counts: [String: Int])>((0, [:]))
+
+    /// Creates an empty ledger.
+    public init() {}
+
+    /// Counts a call and returns which call of the same it is this turn: 1 for the first.
+    ///
+    /// - Parameters:
+    ///   - tool: The tool.
+    ///   - arguments: Its arguments, as JSON.
+    ///   - turn: The current turn.
+    /// - Returns: The ordinal, from 1.
+    public func note(tool: String, arguments: String, turn: Int) -> Int {
+        state.withLock { state in
+            if state.turn != turn {
+                state.turn = turn
+                state.counts = [:]
+            }
+            let key = tool + "\0" + arguments
+            let count = (state.counts[key] ?? 0) + 1
+            state.counts[key] = count
+            return count
         }
     }
 }

@@ -318,7 +318,7 @@ public struct Triage: Sendable {
     ///   - source: What to capture.
     ///   - runner: Runs commands.
     ///   - gate: Clears file reads; nil skips the check.
-    ///   - maxOutputBytes: Bytes kept; only the tail beyond.
+    ///   - maxOutputBytes: Bytes kept; a command's head and tail within it, a file's tail.
     /// - Returns: The capture.
     /// - Throws: `CommandRunner.Failure`, `ApprovalGate.Failure`, or `FileFailure`.
     public static func capture(

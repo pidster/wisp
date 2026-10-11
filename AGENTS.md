@@ -103,8 +103,11 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
   their own, `harness/Evals`, that the gate never builds; `scripts/check eval` runs them; `OllamaLiveTests` runs only under `WISP_OLLAMA_TESTS=1`. To drive the agent,
   the tool loop, or the MCP server end to end without a model, use `ScriptedModel` from
   `Tests/WispTestSupport` (ADR 0016); `WispServerWireTests` shows the pattern over a real client.
-- **Bound every tool result** (4 KiB or paged); the on-device model's window is 8,192 tokens on macOS 27. Keep tool
-  descriptions short. See `docs/context-management.md`.
+- **Bound every tool result to the tool-output budget** (`ToolBudget`, an eighth of the model's window: 4 KiB on
+  the on-device model's 8,192 tokens, 64 KiB at most), keep the rest whole in the conversation's output store, and
+  mark what is held back with how to reach it (`ToolOutput.fitted`, or page as `read_file` does); never drop it,
+  and never run a command again to see what it printed (ADR 0050). Keep tool descriptions short. See
+  `docs/context-management.md`.
 - **Audit new behaviour.** New event kinds go in `AuditEvent.Kind` and `docs/logging.md`.
 - **Commits** are small and single-purpose; subject says what, body says why. Do not pass an explicit
   `user.email` to git; the configured noreply identity is required for pushes.

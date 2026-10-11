@@ -16,11 +16,12 @@ public struct ToolRegistry: Sendable {
     ///
     /// Every tool is wrapped so its calls and results are recorded; without an audit log the wrapper
     /// records to a log that discards everything, so there is one list and one code path. With an
-    /// approval gate, `run_command`, `read_file`, and `edit_file` classify and ask before acting.
+    /// approval gate, `run_command`, `read_file`, and `edit_file` classify and ask before acting. Every tool
+    /// bounds its result to the one `budget` (ADR 0050), and what does not fit goes to `store`.
     ///
     /// - Parameters:
     ///   - runner: Limits and policy for `run_command`, whose writable set also confines `edit_file`.
-    ///   - reader: Page limits for `read_file`.
+    ///   - reader: Page limits for `read_file`; its page is the budget when one is given.
     ///   - audit: Where tool calls are recorded; nil records nothing.
     ///   - approval: The gate risky tools consult; nil never asks.
     ///   - introspection: What `inspect` shows; the default sees the default home and config.
@@ -31,6 +32,10 @@ public struct ToolRegistry: Sendable {
     ///     catalogue.
     ///   - models: The conversation's `models` tool, over its actions, gate, and audit session (ADR 0059). Nil gives
     ///     one that answers that models cannot be managed here: enough for a catalogue.
+    ///   - budget: The conversation's tool-output budget, shared with its agent, which sets the window on it.
+    ///   - store: The conversation's output store; nil keeps nothing past the budget, and results say so.
+    ///   - condenser: What answers `memory`'s `condense` question over a stored output; nil leaves the verb to
+    ///     the exact summary alone.
     ///   - disabled: Built-in tools to leave out (`tools.disabled`).
     ///   - custom: The user's own tools (`tools.custom`), appended after the built-ins; each runs through
     ///     `run_command`'s runner and gate.
@@ -38,31 +43,43 @@ public struct ToolRegistry: Sendable {
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
-        host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil, disabled: Set<String> = [],
+        host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil,
+        budget: ToolBudget = ToolBudget(), store: OutputStore? = nil, condenser: OutputCondenser? = nil,
+        disabled: Set<String> = [],
         custom: [CustomTool.Definition] = []
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
-        let commandRunner = CommandRunner(options: runner, audit: audit, approval: approval)
+        let ledger = CallLedger()
+        let commandRunner = CommandRunner(
+            options: runner, audit: audit, approval: approval, budget: budget, store: store)
+        var reader = reader
+        reader.budget = budget
         let builtIns: [any WispTool] = [
-            AuditedTool(CurrentDateTool(), audit: audit),
-            AuditedTool(RunCommandTool(runner: commandRunner), audit: audit),
-            AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit),
+            AuditedTool(CurrentDateTool(), audit: audit, ledger: ledger),
+            AuditedTool(RunCommandTool(runner: commandRunner), audit: audit, ledger: ledger),
+            AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit, ledger: ledger),
             AuditedTool(
-                EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit),
-            AuditedTool(InspectTool(introspection: introspection), audit: audit),
+                EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit,
+                ledger: ledger),
+            AuditedTool(
+                InspectTool(introspection: introspection, budget: budget, store: store), audit: audit, ledger: ledger),
             AuditedTool(
                 NotifyTool(
                     host: host ?? SessionHost(approver: DenyingApprover(reason: "no host"), notifier: Notifier()),
-                    audit: audit), audit: audit),
-            AuditedTool(SystemInfoTool(runner: commandRunner), audit: audit),
-            AuditedTool(MemoryTool(source: memory ?? MemorySource(), audit: audit), audit: audit),
-            AuditedTool(models ?? ModelsTool(), audit: audit),
+                    audit: audit), audit: audit, ledger: ledger),
+            AuditedTool(
+                SystemInfoTool(runner: commandRunner, budget: budget, store: store), audit: audit, ledger: ledger),
+            AuditedTool(
+                MemoryTool(
+                    source: memory ?? MemorySource(), audit: audit, budget: budget, store: store, condenser: condenser),
+                audit: audit, ledger: ledger),
+            AuditedTool(models ?? ModelsTool(), audit: audit, ledger: ledger),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework
         // rejects its schema; such a tool is left out with a diagnostic rather than failing the session.
         let customs: [any WispTool] = custom.compactMap { definition in
             do {
-                return AuditedTool(try CustomTool(definition, runner: commandRunner), audit: audit)
+                return AuditedTool(try CustomTool(definition, runner: commandRunner), audit: audit, ledger: ledger)
             } catch {
                 Diagnostics.tools.error("custom tool \(definition.name) left out: \(error)")
                 return nil

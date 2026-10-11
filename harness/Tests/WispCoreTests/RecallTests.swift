@@ -65,9 +65,40 @@ import WispTestSupport
         #expect(Recall.target("\"codename\"") == .fact("codename"))
         #expect(Recall.target("CI build") == .fact("ci build"))
         // A later page is named in the same argument, as the end of a page spells it.
-        #expect(Recall.request("entry 4 from line 60") == (.entry(4), 60, "entry 4"))
-        #expect(Recall.request("turn 2, starting at line 9") == (.turn(2), 9, "turn 2"))
-        #expect(Recall.request("summary") == (.summary, 1, "summary"))
+        #expect(Recall.request("entry 4 from line 60") == (.entry(4), 60, "entry 4", .none))
+        #expect(Recall.request("turn 2, starting at line 9") == (.turn(2), 9, "turn 2", .none))
+        #expect(Recall.request("summary") == (.summary, 1, "summary", .none))
+        // A stored output by the id a held-back note names, and the filters, with a later page after them.
+        #expect(Recall.target("output 3f9a2c1b") == .output("3f9a2c1b"))
+        #expect(Recall.target("output 7") == .entry(7))
+        #expect(
+            Recall.request("output 3f9a2c1b matching error: from line 3") == (
+                .output("3f9a2c1b"), 3, "output 3f9a2c1b", .matching("error:")
+            ))
+        #expect(Recall.request("entry 7 lines 100-200") == (.entry(7), 1, "entry 7", .lines(100, 200)))
+        #expect(Recall.request("entry 7 head 20") == (.entry(7), 1, "entry 7", .head(20)))
+        #expect(Recall.request("entry 7, last 5 lines") == (.entry(7), 1, "entry 7", .tail(5)))
+        #expect(Recall.Filter.matching("x").phrase == " matching x" && Recall.Filter.none.phrase.isEmpty)
+    }
+
+    @Test func filtersNumberTheLinesTheyKeepAndSayHowMany() {
+        let lines = (1...50).map { "line \($0)" + ($0 % 10 == 0 ? " error here" : "") }
+        let matched = Recall.Filter.matching("ERROR").apply(to: lines)
+        #expect(matched.lines == [10, 20, 30, 40, 50].map { "\($0): line \($0) error here" })
+        #expect(matched.note == "5 of 50 lines matching ERROR")
+        let literal = Recall.Filter.matching("line 1(").apply(to: lines)
+        #expect(literal.lines.isEmpty && literal.note == "0 of 50 lines containing line 1(")
+        let range = Recall.Filter.lines(48, 90).apply(to: lines)
+        #expect(
+            range.lines == ["48: line 48", "49: line 49", "50: line 50 error here"] && range.note == "lines 48-50 of 50"
+        )
+        #expect(Recall.Filter.lines(60, 70).apply(to: lines).note == "no lines 60-70: it has 50 lines")
+        #expect(Recall.Filter.head(2).apply(to: lines).lines == ["1: line 1", "2: line 2"])
+        #expect(Recall.Filter.tail(1).apply(to: lines).lines == ["50: line 50 error here"])
+        let material = Recall.Material(header: "h", lines: lines, found: true)
+        let filtered = Recall.filtered(material, by: .head(3))
+        #expect(filtered.header == "h; the first 3 of 50 lines" && filtered.lines.count == 3)
+        #expect(Recall.filtered(material, by: .none) == material)
     }
 
     @Test func anEntryComesFromTheAuditLogAndElseFromTheStore() {

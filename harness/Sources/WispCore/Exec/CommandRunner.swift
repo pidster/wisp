@@ -7,9 +7,10 @@ import Synchronization
 /// The policy's patterns are checked before launch and its sandbox, when
 /// enabled, wraps the shell in `sandbox-exec`. The command is spawned in its
 /// own process group so a timeout can stop the whole tree. Output is captured
-/// separately for stdout and stderr, then truncated to the last
-/// `maxOutputBytes` of each so that a chatty command cannot exhaust the
-/// model's small context window.
+/// separately for stdout and stderr into bounded buffers that keep each stream's head and tail in memory,
+/// and spill the whole stream to the conversation's output store (`OutputStore`) as it arrives when there is
+/// one; the result the model sees fits the tool-output budget as a whole, and what is held back is marked and
+/// kept, never dropped ([ADR 0050](../../../../docs/decisions/0050-tool-output-budget-and-overflow.md)).
 public struct CommandRunner: Sendable {
     /// Limits applied to every command this runner executes.
     public struct Options: Sendable, Equatable {
@@ -20,18 +21,21 @@ public struct CommandRunner: Sendable {
         /// Wall-clock limit after which the command's process group is sent SIGTERM, then SIGKILL. A command the person
         /// typed (`Origin.person`) has none.
         public var timeout: Duration
-        /// Maximum bytes kept from each of stdout and stderr; earlier output is discarded.
-        public var maxOutputBytes: Int
+        /// The most bytes of a command's result the model is shown, its notes included, set by the operator
+        /// (`commandMaxOutputBytes`); nil, the default, takes the conversation's tool-output budget (`ToolBudget`),
+        /// an eighth of the model's window. Whatever the bound, the whole output is kept in the output store when
+        /// the conversation has one.
+        public var maxOutputBytes: Int?
         /// What may run and how it is confined.
         public var policy: CommandPolicy
         /// Directories no command may write, even inside the writable set: wisp's own home, where its approvals,
         /// facts, configuration, and pending answers live. `edit_file` refuses them too.
         public var protectedPaths: [String]
 
-        /// Creates options. Defaults are a 60-second timeout, 4 KiB per stream, the default policy, the
-        /// current directory as the writable root, and wisp's home (`Home.resolve()`) protected.
+        /// Creates options. Defaults are a 60-second timeout, the tool-output budget as the bound, the default
+        /// policy, the current directory as the writable root, and wisp's home (`Home.resolve()`) protected.
         public init(
-            writableRoot: String? = nil, timeout: Duration = .seconds(60), maxOutputBytes: Int = 4096,
+            writableRoot: String? = nil, timeout: Duration = .seconds(60), maxOutputBytes: Int? = nil,
             policy: CommandPolicy = .default, protectedPaths: [String]? = nil
         ) {
             self.writableRoot = writableRoot ?? FileManager.default.currentDirectoryPath
@@ -44,15 +48,36 @@ public struct CommandRunner: Sendable {
 
     /// What a finished command produced.
     public struct Outcome: Sendable, Equatable {
+        /// A run of one stream's lines the model is not shown.
+        public struct Held: Sendable, Equatable {
+            /// `stdout` or `stderr`.
+            public var stream: String
+            /// The first line held back, numbered in the stored output (`stored`), from 1.
+            public var firstLine: Int
+            /// The last line held back.
+            public var lastLine: Int
+            /// Bytes held back.
+            public var bytes: Int
+
+            /// Creates a run.
+            public init(stream: String, firstLine: Int, lastLine: Int, bytes: Int) {
+                self.stream = stream
+                self.firstLine = firstLine
+                self.lastLine = lastLine
+                self.bytes = bytes
+            }
+        }
+
         /// The process exit status, or the terminating signal negated if it was killed.
         public var exitStatus: Int32
-        /// Captured standard output, possibly truncated to its tail.
+        /// Standard output as the model is shown it: whole within the bound, else its first and last lines with a
+        /// marker between them naming what is held back (`held`).
         public var stdout: String
-        /// Captured standard error, possibly truncated to its tail.
+        /// Standard error, likewise.
         public var stderr: String
         /// Whether the command hit the timeout and was killed.
         public var timedOut: Bool
-        /// Whether either stream lost leading bytes to the output limit.
+        /// Whether either stream has lines held back.
         public var truncated: Bool
         /// Whether the person stopped it (`CommandStop`, Ctrl-C in chat) and it was killed.
         public var stopped: Bool = false
@@ -61,15 +86,59 @@ public struct CommandRunner: Sendable {
         public var sandboxRefusal: SandboxRefusal? = nil
         /// What the model is told of `sandboxRefusal` (`SandboxRefusal.note(roots:)`); nil when there is none.
         public var sandboxNote: String? = nil
+        /// What each stream holds back, in stream order; empty when the whole output is shown.
+        public var held: [Held] = []
+        /// The whole output as kept in the conversation's output store (the rendering with nothing held back),
+        /// when anything was held back and the conversation has a store; nil otherwise.
+        public var stored: OutputStore.Kept? = nil
+        /// Whether the conversation has `memory`, so the note on held-back output names the calls that page it.
+        public var recallable: Bool = false
 
-        /// A compact, model-facing rendering of the outcome, with the sandbox's note after the output.
-        public var rendered: String {
+        /// Creates an outcome.
+        public init(
+            exitStatus: Int32, stdout: String, stderr: String, timedOut: Bool, truncated: Bool, stopped: Bool = false,
+            sandboxRefusal: SandboxRefusal? = nil, sandboxNote: String? = nil, held: [Held] = [],
+            stored: OutputStore.Kept? = nil, recallable: Bool = false
+        ) {
+            self.exitStatus = exitStatus
+            self.stdout = stdout
+            self.stderr = stderr
+            self.timedOut = timedOut
+            self.truncated = truncated
+            self.stopped = stopped
+            self.sandboxRefusal = sandboxRefusal
+            self.sandboxNote = sandboxNote
+            self.held = held
+            self.stored = stored
+            self.recallable = recallable
+        }
+
+        /// The lines before the streams: the exit status, and how the command was ended when it did not end on
+        /// its own. The same in the result and in the stored output, so the held-back line numbers agree.
+        var header: [String] {
             var lines = ["exit status: \(exitStatus)"]
             if timedOut { lines.append("timed out: the command was killed") }
             if stopped { lines.append("stopped: the person stopped the command") }
-            if truncated { lines.append("output truncated: only the tail of each stream is shown") }
+            return lines
+        }
+
+        /// A compact, model-facing rendering of the outcome: the header, each non-empty stream under its frame,
+        /// the note on what is held back and where the whole is kept, and the sandbox's note. Within the bound as
+        /// a whole, the notes included.
+        public var rendered: String {
+            var lines = header
             if !stdout.isEmpty { lines.append("stdout:\n\(stdout)") }
             if !stderr.isEmpty { lines.append("stderr:\n\(stderr)") }
+            if !held.isEmpty {
+                lines.append(
+                    ToolOutput.heldNote(
+                        held.map {
+                            (
+                                $0.stream,
+                                ToolOutput.HeldBack(firstLine: $0.firstLine, lastLine: $0.lastLine, bytes: $0.bytes)
+                            )
+                        }, kept: stored, memory: recallable, command: true))
+            }
             if let sandboxNote { lines.append(sandboxNote) }
             return lines.joined(separator: "\n")
         }
@@ -114,13 +183,35 @@ public struct CommandRunner: Sendable {
     public var audit: AuditLog?
     /// Classifies commands and asks for approval when they are risky; nil never asks.
     public var approval: ApprovalGate?
+    /// The conversation's tool-output budget, the bound on a result when `Options.maxOutputBytes` is nil; nil
+    /// gives the budget's floor.
+    public var budget: ToolBudget?
+    /// Where a command's whole output is kept when more than the bound is printed; nil keeps nothing, and the
+    /// result says so.
+    public var store: OutputStore?
 
     /// Creates a runner with the given limits.
-    public init(options: Options = Options(), audit: AuditLog? = nil, approval: ApprovalGate? = nil) {
+    ///
+    /// - Parameters:
+    ///   - options: The limits.
+    ///   - audit: Where decisions and outcomes are recorded.
+    ///   - approval: The gate.
+    ///   - budget: The conversation's tool-output budget.
+    ///   - store: The conversation's output store.
+    public init(
+        options: Options = Options(), audit: AuditLog? = nil, approval: ApprovalGate? = nil, budget: ToolBudget? = nil,
+        store: OutputStore? = nil
+    ) {
         self.options = options
         self.audit = audit
         self.approval = approval
+        self.budget = budget
+        self.store = store
     }
+
+    /// The most bytes a result carries to the model, its notes included: the operator's `maxOutputBytes`, else the
+    /// budget now, else the budget's floor.
+    public var bound: Int { options.maxOutputBytes ?? budget?.bytes ?? ToolBudget.floor }
 
     /// True when this process is already inside a Seatbelt sandbox whose profile differs from ours.
     ///
@@ -342,8 +433,12 @@ public struct CommandRunner: Sendable {
             }
             argv = ["/usr/bin/sandbox-exec", "-p", profile] + argv
         }
-        let stdoutBuffer = OutputBuffer()
-        let stderrBuffer = OutputBuffer()
+        // Each stream keeps a head and a tail of the bound in memory, enough to render any share of it, and spills
+        // the whole stream to the store the moment memory would drop a byte.
+        let bound = self.bound
+        let id = ToolCallContext.outputID
+        let stdoutBuffer = OutputBuffer(keep: bound, spill: Self.spill(into: store, name: id + ".out"))
+        let stderrBuffer = OutputBuffer(keep: bound, spill: Self.spill(into: store, name: id + ".err"))
         let pid = try Spawn.spawn(argv, workingDirectory: workingDirectory, stdout: stdoutBuffer, stderr: stderrBuffer)
 
         let group = ProcessGroup(pid)
@@ -384,16 +479,97 @@ public struct CommandRunner: Sendable {
         await stdoutBuffer.drain(deadline: .seconds(1))
         await stderrBuffer.drain(deadline: .seconds(1))
 
-        let out = Self.tail(stdoutBuffer.contents, maxBytes: options.maxOutputBytes)
-        let err = Self.tail(stderrBuffer.contents, maxBytes: options.maxOutputBytes)
-        return Outcome(
-            exitStatus: status,
-            stdout: out.text,
-            stderr: err.text,
-            timedOut: group.ending == .timedOut,
-            truncated: out.truncated || err.truncated,
-            stopped: group.ending == .stopped
-        )
+        return Self.outcome(
+            exitStatus: status, timedOut: group.ending == .timedOut, stopped: group.ending == .stopped,
+            stdout: stdoutBuffer.contents, stderr: stderrBuffer.contents, bound: bound, store: store, id: id,
+            recallable: budget?.memory ?? false)
+    }
+
+    /// Room the notes on a result take out of the bound: the header, the frames, and the held-back note.
+    static let notesAllowance = 640
+
+    /// What opens a stream's spill file in `store`, named `name`; nil without a store.
+    private static func spill(
+        into store: OutputStore?, name: String
+    ) -> (@Sendable () -> (handle: FileHandle, url: URL)?)? {
+        guard let store else { return nil }
+        return { store.spill(name) }
+    }
+
+    /// The outcome from two captured streams: each shown whole when both fit the bound with the notes, else as
+    /// its head and tail within its share of the room, the whole output composed into the store under `id` when
+    /// anything is held back.
+    ///
+    /// The share is proportional to the streams' sizes, and never less than a fifth of the room for a stream
+    /// that has something to show, so a long build log does not crowd out a short error. The stored output is the
+    /// rendering with nothing held back, so the line numbers the markers give are the stored file's.
+    ///
+    /// - Parameters:
+    ///   - exitStatus: The exit status.
+    ///   - timedOut: Whether the watchdog ended it.
+    ///   - stopped: Whether the person did.
+    ///   - stdout: Standard output as captured.
+    ///   - stderr: Standard error as captured.
+    ///   - bound: The most bytes the rendering may take.
+    ///   - store: Where the whole output is kept; nil keeps nothing.
+    ///   - id: The id to keep it under.
+    ///   - recallable: Whether the note names `memory`.
+    /// - Returns: The outcome.
+    static func outcome(
+        exitStatus: Int32, timedOut: Bool, stopped: Bool, stdout: OutputBuffer.Capture, stderr: OutputBuffer.Capture,
+        bound: Int, store: OutputStore?, id: String, recallable: Bool
+    ) -> Outcome {
+        var outcome = Outcome(
+            exitStatus: exitStatus, stdout: "", stderr: "", timedOut: timedOut, truncated: false, stopped: stopped,
+            recallable: recallable)
+        let header = outcome.header
+        let streams = [("stdout", stdout), ("stderr", stderr)].filter { $0.1.total > 0 }
+        let total = streams.reduce(0) { $0 + $1.1.total }
+        let whole = streams.allSatisfy { $0.1.whole != nil }
+        let plain = header.count + streams.count * 8 + total
+        if whole, plain <= bound {
+            outcome.stdout = stdout.whole.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            outcome.stderr = stderr.whole.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            return outcome
+        }
+        let room = max(256, bound - Self.notesAllowance)
+        let floor = room / 5
+        var line = header.count
+        var held: [Outcome.Held] = []
+        var parts: [OutputStore.Part] = [.text(header.joined(separator: "\n") + "\n")]
+        for (name, capture) in streams {
+            let share = max(floor, room * capture.total / max(1, total))
+            let fit: ToolOutput.Fit
+            if let data = capture.whole {
+                let text = String(decoding: data, as: UTF8.self)
+                fit = ToolOutput.fit(head: text, tail: text, within: share, lineOffset: line + 1)
+                parts.append(.text("\(name):\n" + text + (text.hasSuffix("\n") || text.isEmpty ? "" : "\n")))
+            } else {
+                fit = ToolOutput.fit(
+                    head: String(decoding: capture.head, as: UTF8.self),
+                    tail: String(decoding: capture.tail, as: UTF8.self),
+                    total: (capture.lines, capture.total), within: share, lineOffset: line + 1)
+                parts.append(.text("\(name):\n"))
+                if let spilled = capture.spilled { parts.append(.file(spilled, remove: true)) }
+                if capture.lastByte != 0x0A { parts.append(.text("\n")) }
+            }
+            if name == "stdout" { outcome.stdout = fit.shown } else { outcome.stderr = fit.shown }
+            if let run = fit.held {
+                held.append(
+                    Outcome.Held(stream: name, firstLine: run.firstLine, lastLine: run.lastLine, bytes: run.bytes))
+            }
+            line += 1 + capture.lines
+        }
+        outcome.held = held
+        outcome.truncated = !held.isEmpty
+        if !held.isEmpty {
+            outcome.stored = store?.compose(parts, id: id, tool: "run_command")
+        }
+        // A spilled stream that was shown whole after all leaves its file behind; remove it.
+        for capture in [stdout, stderr] {
+            if held.isEmpty, let spilled = capture.spilled { try? FileManager.default.removeItem(at: spilled) }
+        }
+        return outcome
     }
 
     /// Sends SIGKILL to process group `group` until it is empty (`kill` reports `ESRCH`), checking every
@@ -410,11 +586,6 @@ public struct CommandRunner: Sendable {
         }
     }
 
-    /// Keeps at most `maxBytes` from the end of `data`, decoded as UTF-8 with replacement.
-    static func tail(_ data: Data, maxBytes: Int) -> (text: String, truncated: Bool) {
-        guard data.count > maxBytes else { return (String(decoding: data, as: UTF8.self), false) }
-        return (String(decoding: data.suffix(maxBytes), as: UTF8.self), true)
-    }
 }
 
 /// A command's process group while its leader runs, signalled by the watchdog and the person's stop: once the
@@ -529,22 +700,101 @@ public final class CommandStop: Sendable {
     }
 }
 
-/// A thread-safe byte accumulator fed by a pipe's readability handler.
+/// A bounded byte buffer fed by a pipe's readability handler: it keeps the first `keep` bytes and the last `keep`
+/// bytes of a stream in memory, counts everything, and, the moment a byte would be dropped from memory, spills
+/// the whole stream (what it holds, then every later chunk) to a file through `spill`, so a command that prints
+/// far more than the bound costs memory of twice the bound and no more, and nothing is lost when there is a store
+/// ([ADR 0050](../../../../docs/decisions/0050-tool-output-budget-and-overflow.md)). Before 0.22.0 it held every
+/// byte until the command ended, then kept the tail (the 2026-10-09 review).
 final class OutputBuffer: Sendable {
-    private let storage = Mutex(Data())
-    private let finished = Mutex(false)
+    /// What was captured, as the runner reads it when the command has ended.
+    struct Capture: Sendable, Equatable {
+        /// The first bytes, up to `keep`.
+        var head = Data()
+        /// The last bytes, up to `keep`; overlaps `head` while the stream is short.
+        var tail = Data()
+        /// Bytes seen.
+        var total = 0
+        /// Newlines seen.
+        var newlines = 0
+        /// The last byte seen; nil while none.
+        var lastByte: UInt8?
+        /// The file the whole stream was spilled to; nil while nothing was dropped from memory, or without a spill.
+        var spilled: URL?
+        /// Bytes dropped from memory (and spilled when there is a spill).
+        var dropped = 0
+
+        /// Lines seen: the newlines, and one more for an unterminated last line.
+        var lines: Int { newlines + (lastByte == nil || lastByte == 0x0A ? 0 : 1) }
+
+        /// The whole stream, when nothing was dropped from memory; nil otherwise.
+        var whole: Data? {
+            guard dropped == 0 else { return nil }
+            guard total > head.count else { return head }
+            return head + tail.suffix(total - head.count)
+        }
+    }
+
+    /// The bytes kept at each end.
+    let keep: Int
+    /// Opens the spill file when the first byte would be dropped; nil never spills.
+    private let spill: (@Sendable () -> (handle: FileHandle, url: URL)?)?
+    /// The capture, the spill file once open, and whether the writer has closed the pipe.
+    private let state: Mutex<(capture: Capture, handle: FileHandle?, spillFailed: Bool, finished: Bool)>
     /// The pipe's read end; owned here so its readability handler stays installed.
     private let handle = Mutex<FileHandle?>(nil)
 
+    /// Creates a buffer.
+    ///
+    /// - Parameters:
+    ///   - keep: Bytes kept at each end; the bound.
+    ///   - spill: Opens the file the whole stream goes to once memory would drop a byte; nil drops and counts.
+    init(keep: Int, spill: (@Sendable () -> (handle: FileHandle, url: URL)?)? = nil) {
+        self.keep = max(1, keep)
+        self.spill = spill
+        state = Mutex((Capture(), nil, false, false))
+    }
+
     /// A snapshot of everything captured so far.
-    var contents: Data { storage.withLock { $0 } }
+    var contents: Capture { state.withLock { $0.capture } }
 
     /// Whether the writer has closed the pipe.
-    var isFinished: Bool { finished.withLock { $0 } }
+    var isFinished: Bool { state.withLock { $0.finished } }
 
     /// Appends bytes; safe to call from the pipe's handler queue and the caller concurrently.
     func append(_ data: Data) {
-        storage.withLock { $0.append(data) }
+        guard !data.isEmpty else { return }
+        state.withLock { state in
+            state.capture.total += data.count
+            state.capture.newlines += data.count(where: { $0 == 0x0A })
+            state.capture.lastByte = data.last
+            var rest = data[...]
+            if state.capture.head.count < keep {
+                let take = min(keep - state.capture.head.count, rest.count)
+                state.capture.head.append(rest.prefix(take))
+                rest = rest.dropFirst(take)
+            }
+            guard !rest.isEmpty else { return }
+            if state.handle == nil, !state.spillFailed, state.capture.tail.count + rest.count > keep, let spill {
+                // About to drop a byte from memory: from here the whole stream goes to the file, starting with what
+                // memory holds.
+                if let opened = spill() {
+                    state.handle = opened.handle
+                    state.capture.spilled = opened.url
+                    try? opened.handle.write(contentsOf: state.capture.head)
+                    try? opened.handle.write(contentsOf: state.capture.tail)
+                } else {
+                    state.spillFailed = true
+                }
+            }
+            try? state.handle?.write(contentsOf: rest)
+            state.capture.tail.append(rest)
+            if state.capture.tail.count > keep {
+                let excess = state.capture.tail.count - keep
+                state.capture.tail.removeFirst(excess)
+                state.capture.dropped += excess
+            }
+        }
     }
 
     /// Takes ownership of a pipe's read end and appends every chunk until end of file.
@@ -554,7 +804,11 @@ final class OutputBuffer: Sendable {
             let chunk = handle.availableData
             if chunk.isEmpty {
                 handle.readabilityHandler = nil
-                finished.withLock { $0 = true }
+                state.withLock { state in
+                    state.finished = true
+                    try? state.handle?.close()
+                    state.handle = nil
+                }
                 try? handle.close()
             } else {
                 append(chunk)
@@ -562,19 +816,28 @@ final class OutputBuffer: Sendable {
         }
     }
 
-    /// Waits for end of file, but no longer than `deadline`.
+    /// Waits for end of file, but no longer than `deadline`; closes the spill file either way.
     func drain(deadline: Duration) async {
         let stop = ContinuousClock.now + deadline
         while !isFinished, ContinuousClock.now < stop {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        state.withLock { state in
+            try? state.handle?.close()
+            state.handle = nil
+        }
     }
 }
 
 /// Minimal `posix_spawn` wrapper: new process group, working directory, stdin from `/dev/null`,
-/// stdout and stderr into `OutputBuffer`s.
+/// stdout and stderr into `OutputBuffer`s, and no other descriptor of wisp's in the child.
 enum Spawn {
     /// Spawns `argv[0]` with `argv`, returning the child's pid, which is also its process group id.
+    ///
+    /// The child gets exactly three descriptors. Every descriptor wisp holds is closed in the child by
+    /// `POSIX_SPAWN_CLOEXEC_DEFAULT`, so one command never inherits another's pipe, an audit file, or a file
+    /// `read_file` has open (the 2026-10-09 review); the pipes' ends are marked close-on-exec as well, so no
+    /// other `exec` in this process (a notifier's `osascript`, a probe) inherits them either.
     ///
     /// - Throws: `CommandRunner.Failure.launchFailed`.
     static func spawn(
@@ -587,22 +850,26 @@ enum Spawn {
         guard pipe(&outPipe) == 0, pipe(&errPipe) == 0 else {
             throw CommandRunner.Failure.launchFailed("pipe: \(String(cString: strerror(errno)))")
         }
+        for descriptor in [outPipe[0], outPipe[1], errPipe[0], errPipe[1]] {
+            _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+        }
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        // dup2 clears close-on-exec on the new descriptor, so 1 and 2 survive the exec; nothing else does.
         posix_spawn_file_actions_adddup2(&actions, outPipe[1], 1)
         posix_spawn_file_actions_adddup2(&actions, errPipe[1], 2)
-        for descriptor in [outPipe[0], outPipe[1], errPipe[0], errPipe[1]] {
-            posix_spawn_file_actions_addclose(&actions, descriptor)
-        }
         posix_spawn_file_actions_addchdir(&actions, workingDirectory)
 
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setflags(
-            &attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+            &attributes,
+            Int16(
+                truncatingIfNeeded: POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
+                    | POSIX_SPAWN_CLOEXEC_DEFAULT))
         posix_spawnattr_setpgroup(&attributes, 0)
         var noSignals = sigset_t()
         sigemptyset(&noSignals)

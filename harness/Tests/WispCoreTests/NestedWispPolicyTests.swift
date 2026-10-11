@@ -83,9 +83,9 @@ import WispTestSupport
 
     @Test func theConfigurationViewTurnsCompactRatherThanLoseItsLastKeys() {
         let small: JSONValue = ["a": 1, "version": "x"]
-        #expect(InspectTool.fitted(small) == Introspection.render(small))
+        #expect(InspectTool.fitted(small, within: ToolBudget.floor) == Introspection.render(small))
         let large: JSONValue = .object(["deny": .array((1...400).map { .string("pattern \($0)") }), "version": "x"])
-        let fitted = InspectTool.fitted(large)
+        let fitted = InspectTool.fitted(large, within: ToolBudget.floor)
         #expect(!fitted.contains("\n") && fitted.hasSuffix(#""version":"x"}"#))
     }
 }

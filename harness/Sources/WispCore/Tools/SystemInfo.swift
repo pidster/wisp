@@ -33,8 +33,6 @@ public struct SystemInfo: Sendable {
 
     /// Rows listed at most per table.
     static let maxRows = 15
-    /// Bytes returned at most.
-    public static let maxBytes = 4096
 
     /// Why a request cannot be answered.
     public enum Failure: Error, CustomStringConvertible, Equatable {
@@ -93,7 +91,7 @@ public struct SystemInfo: Sendable {
     ///   - topic: What to report.
     ///   - target: A port for `ports`, a process id or name for `process`; ignored otherwise.
     ///   - path: The folder for `folderSizes`; the home directory when nil.
-    /// - Returns: Text of at most `maxBytes`.
+    /// - Returns: The report; `SystemInfoTool` bounds it to the tool-output budget.
     /// - Throws: `Failure` for a bad target or path, or whatever the probe throws.
     public func report(_ topic: SystemTopic, target: String? = nil, path: String? = nil) async throws -> String {
         let text: String
@@ -117,7 +115,7 @@ public struct SystemInfo: Sendable {
                 uptime: try await run("/usr/bin/uptime"))
         case .network: text = Self.plain(try await run("/usr/sbin/scutil --nwi"), empty: "no network information")
         }
-        return Self.bounded(text)
+        return text
     }
 
     /// Standard output of one command; a timeout is noted rather than thrown, so partial output is kept.
@@ -388,14 +386,4 @@ public struct SystemInfo: Sendable {
         "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
-    /// `text` cut to `maxBytes` at a line end, with a note when cut.
-    static func bounded(_ text: String) -> String {
-        guard text.utf8.count > maxBytes else { return text }
-        var kept = ""
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            guard kept.utf8.count + line.utf8.count + 40 < maxBytes else { break }
-            kept += line + "\n"
-        }
-        return kept + "(cut to \(maxBytes) bytes)"
-    }
 }

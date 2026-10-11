@@ -257,7 +257,7 @@ fact it sees, the subject kinds, and the turn into a `MemorySource` (a `final cl
 as the model's facts (method `noted`) in `remember`, beside the turn's extracted facts. `Memory` is pure: it
 reads the verb (`recall`, `note`, `task`; none is a recall) and a note's or a task's form and rules. `Recall` is pure too: it reads
 what follows `recall` (`entry 7`, `turn 3`, `task`, `summary`, `fact …`, with `from line N`), gathers the
-material, and pages it at 4 KiB. An entry's content is read from the audit event its store entry refers to,
+material, and pages it at the tool-output budget. An entry's content is read from the audit event its store entry refers to,
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
 its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
 (D8). `memory` is a built-in tool, off by default (ADR 0057): a thread given every tool has it only with
@@ -479,9 +479,22 @@ Each tool is a `struct` conforming to `FoundationModels.Tool` under `harness/Sou
 `CurrentDateTool` is the reference implementation: the on-device model has no clock, so this is the smallest
 tool that changes an answer.
 
+Every tool's result is bounded to one **tool-output budget** per conversation (`ToolBudget`: an eighth of the
+model's window, 4 to 64 KiB; the agent writes its `contextSize` to it as the window becomes known), and what does
+not fit is kept whole in the conversation's **output store** (`OutputStore`, `~/.wisp/output/<audit session>/`,
+one file per output under the tool call's audit call id, which `AuditedTool` sets as the task-local
+`ToolCallContext.call`), audited as `output.kept` by size and hash, and shown as its head and tail with a marker
+and a note (`ToolOutput.fitted`, `ToolOutput.fit`) that names how to page, filter, summarise, or question it
+through `memory` ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md);
+[context-management.md](context-management.md), "The tool-output budget, and the output store"). `AuditedTool`
+also counts each turn's calls by tool and arguments (`CallLedger`) and puts a `[repeated call: …]` line above a
+result that repeats an earlier call exactly.
+
 `ReadFileTool` pages a text file: `FileReader` streams the file in chunks through a `LineScanner`, skips to
-the requested line, and stops when the page or its byte budget is full, so cost is bounded by the page, not
-the file. The rendering ends with an offset hint the model follows to continue.
+the requested line, and stops when the page (the budget) or its byte budget is full, so cost is bounded by the
+page, not the file; the scanner keeps at most a page of a line still open, so a file with no newlines costs a
+page too. Only regular files are read (a FIFO or a device is refused before it is opened, non-blocking and
+close-on-exec). The rendering ends with an offset hint the model follows to continue.
 
 `EditFileTool` is its counterpart: `FileWriter` writes, appends, or replaces one exact match, and refuses
 any path outside `CommandPolicy.writableRoots`, the list the Seatbelt profile is built from, so the
@@ -500,8 +513,12 @@ audited as `notification` with the route taken, without the gate
 `RunCommandTool` is the generic exec tool. It delegates to `CommandRunner`, which checks the
 `CommandPolicy` patterns, consults `ApprovalGate` (rules plus a classifier, the shipped Core ML one by default, ask at
 `moderate` and above through an `Approver` per entry point), then spawns `/bin/sh -c` in its own process
-group (`posix_spawn`) under `sandbox-exec` with a profile rooted at the launch directory, captures stdout
-and stderr separately, kills the whole group on timeout, and keeps only the tail of each stream. The
+group (`posix_spawn`, with `POSIX_SPAWN_CLOEXEC_DEFAULT` so the child holds descriptors 0, 1, and 2 alone) under
+`sandbox-exec` with a profile rooted at the launch directory, captures stdout and stderr separately into
+bounded buffers (`OutputBuffer`: the first and last `bound` bytes of each stream in memory, the whole stream
+spilled to the output store as it arrives once a byte would be dropped), kills the whole group on timeout, and
+renders the result within the budget as a whole: each stream's head and tail within its share of the room, a
+marker between them, and a `held back:` note naming the stored output's lines (`CommandRunner.outcome`). The
 rendering (`Outcome.rendered`) is what the model sees; policy denials and refusals are rendered too rather
 than thrown. See [ADR 0009](decisions/0009-command-policy-and-sandbox.md). A confined command that fails with
 `Operation not permitted` is checked by `SandboxRefusal`: the paths its error output names, resolved to real paths,
@@ -678,7 +695,8 @@ and must not interleave with another caller's, as a thread's turn does, hold an 
 (`TurnQueue`, a first-come-first-served async lock) rather than rely on the actor. A type is a `final class`
 holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
-`AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`.
+`AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`, `ToolBudget`, `OutputStore.Writer`,
+`CallLedger`, `OutputCondenser`, `ThreadDirectory`.
 
 Swift's cooperative pool, where every task runs, has one thread per core and does not add one when a thread
 blocks. Two rules follow, both from a measurement. On 2026-10-10 a `sample` of the gate's parallel test run, taken

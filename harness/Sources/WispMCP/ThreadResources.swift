@@ -4,13 +4,19 @@ import WispCore
 
 /// The resources about `respond` threads, all under `wisp://threads` (`docs/mcp.md`, "Resources"): the
 /// list of threads, one thread's summary, its tool calls and each call's output, and its audit events.
-/// Collections are JSON and paged with `?page=N`; each row names the URI that reads it.
+/// Collections are JSON and paged with `?page=N` (and `&limit=M` for the audit); each row names the URI that
+/// reads it. A thread's events are read under its audit session (`ThreadDirectory.Record.auditSession`), one
+/// per opening, so a reused `thread_id` shows only the thread it names now.
 extension WispServer {
     /// Rows a collection's page holds.
     static let rowsPerPage = 50
+    /// Events an audit page holds by default; `?limit=M` changes it, up to `auditEventsLimit`.
+    static let auditEventsPerPage = 100
+    /// The most events one audit page may hold.
+    static let auditEventsLimit = 500
 
-    /// A URI under a collection's root (`wisp://threads` by default, `wisp://facts`, `wisp://session/facts`)
-    /// split into its path after the root and its query.
+    /// A URI under a collection's root (`wisp://threads` by default, `wisp://facts`, `wisp://session/facts`,
+    /// `wisp://audit`) split into its path after the root and its query.
     struct ThreadURI: Equatable {
         /// The path's segments after the root, such as `["git", "output", "8a7b…"]` under `wisp://threads`.
         var path: [String]
@@ -18,6 +24,8 @@ extension WispServer {
         var page: Int
         /// Whether the query says `all=true`.
         var all = false
+        /// The `limit` query value, rows per page where a collection takes one; nil when absent.
+        var limit: Int?
 
         /// Parses `uri`, or nil when it is not under `root`.
         ///
@@ -33,6 +41,9 @@ extension WispServer {
                 rest = rest[..<query]
                 for item in items where item.hasPrefix("page=") {
                     page = Int(item.dropFirst(5)) ?? 0
+                }
+                for item in items where item.hasPrefix("limit=") {
+                    limit = min(WispServer.auditEventsLimit, max(1, Int(item.dropFirst(6)) ?? 0))
                 }
                 all = items.contains("all=true")
             }
@@ -58,16 +69,17 @@ extension WispServer {
         case ["output"]:
             return try json(outputList(id, page: parsed.page), uri: uri)
         case let parts where parts.count == 2 && parts[0] == "output":
-            return try output(thread: id, id: parts[1], uri: uri)
+            return try output(thread: id, id: parts[1], page: parsed.page, uri: uri)
         case ["reasoning"]:
             return try json(reasoningList(id, page: parsed.page), uri: uri)
         case let parts where parts.count == 2 && parts[0] == "reasoning":
             return try reasoning(thread: id, id: parts[1], uri: uri)
         case ["audit"]:
-            let events = try session.introspection.audit(AuditQuery(session: id))
-            let text = try events.map { String(decoding: try AuditEvent.encoder.encode($0), as: UTF8.self) }
-                .joined(separator: "\n")
-            return .init(contents: [.text(text, uri: uri, mimeType: "application/x-ndjson")])
+            let events = try session.introspection.audit(AuditQuery(session: directory.auditSession(of: id)))
+            return try json(
+                Self.pagedEvents(
+                    events, page: parsed.page, limit: parsed.limit ?? Self.auditEventsPerPage,
+                    base: ToolCatalog.threadURI(id) + "/audit"), uri: uri)
         case let parts where parts.first == "facts" && parts.count <= 2:
             return try json(
                 await readFacts(
@@ -82,15 +94,14 @@ extension WispServer {
         }
     }
 
-    /// `contents` as pretty JSON at `uri`.
-    private func json(_ contents: JSONValue, uri: String) throws -> ReadResource.Result {
-        .init(contents: [.text(Introspection.render(contents), uri: uri, mimeType: "application/json")])
-    }
-
     /// Page `page` of `rows`, with the page count and the next page's URI under `base`.
     ///
     /// - Throws: `MCPError.invalidParams` for a page past the last.
-    static func paged(_ rows: [JSONValue], page: Int, base: String, key: String) throws -> JSONValue {
+    static func paged(
+        _ rows: [JSONValue], page: Int, base: String, key: String, rowsPerPage: Int = rowsPerPage
+    )
+        throws -> JSONValue
+    {
         let pages = max(1, (rows.count + rowsPerPage - 1) / rowsPerPage)
         guard page <= pages else { throw MCPError.invalidParams("page \(page) of \(pages)") }
         let slice = rows.dropFirst((page - 1) * rowsPerPage).prefix(rowsPerPage)
@@ -100,13 +111,33 @@ extension WispServer {
         ])
     }
 
+    /// Page `page` of `events`, oldest first, `limit` to a page, as `events`, with `page`, `pages`, `total`,
+    /// `next`, and `last` (the newest page's URI), each event as the audit file holds it.
+    ///
+    /// - Throws: `MCPError.invalidParams` for a page past the last.
+    static func pagedEvents(_ events: [AuditEvent], page: Int, limit: Int, base: String) throws -> JSONValue {
+        let rows = try events.map { event -> JSONValue in
+            try JSONDecoder().decode(JSONValue.self, from: AuditEvent.encoder.encode(event))
+        }
+        let pages = max(1, (rows.count + limit - 1) / limit)
+        guard page <= pages else { throw MCPError.invalidParams("page \(page) of \(pages)") }
+        let slice = rows.dropFirst((page - 1) * limit).prefix(limit)
+        let query = limit == auditEventsPerPage ? "" : "&limit=\(limit)"
+        return .object([
+            "events": .array(Array(slice)), "page": .int(page), "pages": .int(pages), "total": .int(rows.count),
+            "limit": .int(limit), "next": page < pages ? .string("\(base)?page=\(page + 1)\(query)") : .null,
+            "last": .string("\(base)?page=\(pages)\(query)"),
+        ])
+    }
+
     /// `wisp://threads`: the server's threads, most recently active first, open or not.
     private func threadList(page: Int) throws -> JSONValue {
         let rows = directory.all.map { record -> JSONValue in
             .object([
-                "thread_id": .string(record.id), "model": record.model.map { .string($0) } ?? .null,
-                "think": record.think.map { .string($0) } ?? .null, "turns": .int(record.turns),
-                "created": .string(record.created.ISO8601Format()),
+                "thread_id": .string(record.id), "auditSession": .string(record.auditSession),
+                "model": record.model.map { .string($0) } ?? .null,
+                "think": record.think.map { .string($0) } ?? .null,
+                "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
                 "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
                 "uri": .string(ToolCatalog.threadURI(record.id)),
             ])
@@ -121,7 +152,8 @@ extension WispServer {
         }
         let base = ToolCatalog.threadURI(id)
         return .object([
-            "thread_id": .string(id), "model": record.model.map { .string($0) } ?? .null,
+            "thread_id": .string(id), "auditSession": .string(record.auditSession),
+            "model": record.model.map { .string($0) } ?? .null,
             "think": record.think.map { .string($0) } ?? .null,
             "tools": .array(record.tools.map { .string($0) }), "instructions": .bool(record.instructions),
             "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
@@ -139,10 +171,19 @@ extension WispServer {
         ])
     }
 
-    /// `wisp://threads/{thread_id}/output`: the thread's tool calls, oldest first, from the audit log.
+    /// The output store of thread `id`, where its tools kept outputs past the budget.
+    private func outputStore(of id: String) -> OutputStore {
+        OutputStore(
+            directory: session.home.outputs.appending(path: directory.auditSession(of: id), directoryHint: .isDirectory)
+        )
+    }
+
+    /// `wisp://threads/{thread_id}/output`: the thread's tool calls, oldest first, from the audit log; a call whose
+    /// output was kept whole in the output store says so (`stored`, its size in `storedBytes`).
     private func outputList(_ id: String, page: Int) throws -> JSONValue {
-        let events = try session.introspection.audit(AuditQuery(session: id))
+        let events = try session.introspection.audit(AuditQuery(session: directory.auditSession(of: id)))
         let turns = Set(events.compactMap(\.turn)).sorted()
+        let store = outputStore(of: id)
         var rows: [JSONValue] = []
         for turn in turns {
             for call in TurnCalls(events: events, turn: turn).calls {
@@ -154,33 +195,56 @@ extension WispServer {
                 if let command = call.command { row["command"] = .string(command) }
                 if let status = call.exitStatus { row["exitStatus"] = .int(status) }
                 if let error = call.error { row["error"] = .string(error) }
+                if let callID = call.call, let kept = store.kept(callID) {
+                    row["stored"] = .string(callID)
+                    row["storedBytes"] = .int(kept.bytes)
+                    row["storedLines"] = .int(kept.lines)
+                }
                 rows.append(.object(row))
             }
         }
         return try Self.paged(rows, page: page, base: ToolCatalog.threadURI(id) + "/output", key: "calls")
     }
 
-    /// `wisp://threads/{thread_id}/output/{id}`: one output verbatim, from the audit log.
-    private func output(thread: String, id: String, uri: String) throws -> ReadResource.Result {
+    /// `wisp://threads/{thread_id}/output/{id}`: one output verbatim: the whole output from the output store when
+    /// the model saw only part of it, paged at `Paging.pageBytes` with `?page=N`; else what the tool returned, from
+    /// the audit log.
+    private func output(thread: String, id: String, page: Int, uri: String) throws -> ReadResource.Result {
         guard Self.isEventID(Substring(id)) else {
             throw MCPError.invalidParams(
                 "expected wisp://threads/{thread_id}/output/{id} with an id from a respond result")
         }
+        let auditSession = directory.auditSession(of: thread)
         guard
-            let event = try session.introspection.audit(AuditQuery(session: thread, kinds: [.toolResult])).last(
+            let event = try session.introspection.audit(AuditQuery(session: auditSession, kinds: [.toolResult])).last(
                 where: { $0.id == id })
         else {
             throw MCPError.invalidParams(
                 "no tool output \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
         }
-        return .init(contents: [.text(event.details["output"]?.stringValue ?? "", uri: uri, mimeType: "text/plain")])
+        let text: String
+        if let call = event.call, let whole = outputStore(of: thread).text(call) {
+            text = whole
+        } else {
+            text = event.details["output"]?.stringValue ?? ""
+        }
+        guard let shown = Paging.page(text, number: page) else {
+            throw MCPError.invalidParams("page \(page) is past the last")
+        }
+        let base = ToolCatalog.outputURI(thread: thread, id: id)
+        let head =
+            shown.count > 1
+            ? "(page \(page) of \(shown.count)"
+                + (page < shown.count ? "; the next is \(base)?page=\(page + 1))\n" : ")\n")
+            : ""
+        return .init(contents: [.text(head + shown.text, uri: uri, mimeType: "text/plain")])
     }
 
     /// The `model.reasoning` events of `thread` that ended a stretch of thinking (ADR 0053), oldest first.
     private func thoughts(_ thread: String) throws -> [AuditEvent] {
-        try session.introspection.audit(AuditQuery(session: thread, kinds: [.modelReasoning])).filter {
-            $0.details["phase"]?.stringValue == "end"
-        }
+        try session.introspection.audit(
+            AuditQuery(session: directory.auditSession(of: thread), kinds: [.modelReasoning])
+        ).filter { $0.details["phase"]?.stringValue == "end" }
     }
 
     /// `wisp://threads/{thread_id}/reasoning`: each stretch of the model's thinking, oldest first, from the audit log.

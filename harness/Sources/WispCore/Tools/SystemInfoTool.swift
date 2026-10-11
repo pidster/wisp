@@ -35,21 +35,31 @@ public struct SystemInfoTool: WispTool {
     }
 
     private let info: SystemInfo
+    /// The bound on a report.
+    private let budget: ToolBudget
+    /// Where a report past the bound is kept whole; nil keeps nothing.
+    private let store: OutputStore?
 
     /// Bounds.
     public var limits: String {
-        "At most \(SystemInfo.maxRows) rows per table and \(SystemInfo.maxBytes) bytes; your processes only for ports."
+        "At most \(SystemInfo.maxRows) rows per table and the tool-output budget (\(budget.bytes) bytes now); your "
+            + "processes only for ports."
     }
     /// How to ask for it.
     public let examplePrompt = "Use system_info with topic ports and port 8080 to say what is using port 8080."
 
     /// Creates the tool over a runner.
     ///
-    /// - Parameter runner: Runs the fixed commands under the policy and sandbox; its approval gate, if
-    ///   any, is not consulted.
-    public init(runner: CommandRunner) {
+    /// - Parameters:
+    ///   - runner: Runs the fixed commands under the policy and sandbox; its approval gate, if any, is not
+    ///     consulted, and its probes are read whole (up to 1 MiB) in process, not through the output store.
+    ///   - budget: The conversation's tool-output budget, which bounds the report.
+    ///   - store: The conversation's output store, where a report past the budget is kept.
+    public init(runner: CommandRunner, budget: ToolBudget = ToolBudget(), store: OutputStore? = nil) {
         var configured = runner
         configured.approval = nil
+        configured.store = nil
+        configured.options.maxOutputBytes = 1 << 20
         // du over a large folder takes longer than a typical command; allow half a minute.
         configured.options.timeout = max(configured.options.timeout, .seconds(30))
         let runner = configured
@@ -57,12 +67,14 @@ public struct SystemInfoTool: WispTool {
             let outcome = try await runner.run(line)
             return (outcome.stdout, outcome.exitStatus, outcome.timedOut)
         }
-        info = SystemInfo(probe: probe)
+        self.init(info: SystemInfo(probe: probe), budget: budget, store: store)
     }
 
     /// Creates the tool over a reporter, for tests.
-    init(info: SystemInfo) {
+    init(info: SystemInfo, budget: ToolBudget = ToolBudget(), store: OutputStore? = nil) {
         self.info = info
+        self.budget = budget
+        self.store = store
     }
 
     /// Reports the topic.
@@ -73,7 +85,10 @@ public struct SystemInfoTool: WispTool {
         do {
             let named = arguments.process.trimmingCharacters(in: .whitespaces)
             let target = arguments.topic == .ports ? arguments.port.map(String.init) : named.isEmpty ? nil : named
-            return try await info.report(arguments.topic, target: target, path: arguments.path)
+            return ToolOutput.fitted(
+                try await info.report(arguments.topic, target: target, path: arguments.path), tool: name,
+                budget: budget,
+                store: store)
         } catch {
             return "error: \(error)"
         }

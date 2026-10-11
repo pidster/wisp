@@ -9,11 +9,11 @@ result format) and the limits that protect the context window. `wisp tools` prin
 | [run_command](run_command.md) | Run a shell command with a timeout and bounded output. |
 | [read_file](read_file.md) | Read a text file one page at a time. |
 | [edit_file](edit_file.md) | Write, append to, or replace text in a file, inside the sandbox's writable set. |
-| [inspect](inspect.md) | wisp's own config, status, approvals, and recent audit events; read-only. |
+| [inspect](inspect.md) | wisp's own config, status, approvals, recent audit events (by turn too), and a turn's tool calls one line each; read-only. |
 | [notify](notify.md) | Show the user a macOS notification; bounded, rate-limited, audited, no approval. |
 | [custom tools](custom.md) | Your own tools: command templates with typed arguments, declared in `~/.wisp/config.json`. |
 | [system_info](system_info.md) | Ports, free space, folder sizes, busy processes, memory, one process, battery, macOS, network; read-only. |
-| [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, or a fact's history that the context holds only as a reference, for one turn; `note` a fact, or propose the `task`, as the model. Off by default: `context.memory` turns it on. |
+| [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, a fact's history, or a stored output the model saw only in part (filtered by pattern, range, head, or tail), for one turn; `summarise` a stored output by exact readers; `condense` it with a question the model answers over all of it; `note` a fact, or propose the `task`, as the model. Off by default: `context.memory` turns it on. |
 | [models](models.md) | The models wisp can run: `list` and `show` at once; `pull` (in the background), `enable`, `disable`, and `check` only once the person approves; `trust` and `switch` are the person's. Off by default: `tools.models` turns it on. |
 
 Select tools per session with `--tool <name>` on the CLI or the `tools` argument of MCP `respond`. Every
@@ -35,6 +35,9 @@ To give the model a command you use often, declare a custom tool in your config;
    `@Generable` `Arguments` type, `@Guide` descriptions on each property, `limits` rendered from its
    options, and an `examplePrompt` that names the tool.
 2. Keep the work in a pure helper (like `CurrentDateTool.format` or `FileReader`) and test that.
-3. Bound the result: 4 KiB or page it. See [../context-management.md](../context-management.md).
+3. Bound the result to the tool-output budget: page it, or pass it through `ToolOutput.fitted` with the
+   registry's `ToolBudget` and `OutputStore`, so what does not fit is kept and marked rather than dropped
+   ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)). See
+   [../context-management.md](../context-management.md).
 4. Append it to `ToolRegistry.init`; it is wrapped by `AuditedTool` there.
 5. Add a page here and a row above. The description is prompt text; write it for the model.

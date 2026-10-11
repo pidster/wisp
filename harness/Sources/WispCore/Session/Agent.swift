@@ -134,8 +134,17 @@ public final class Agent {
         get { store.continuity.assessed }
         set { store.continuity.assessed = newValue }
     }
-    /// The window as the model stated it, or as the last overflow error reported it; nil until known.
-    public internal(set) var contextSize: Int?
+    /// The window as the model stated it, or as the last overflow error reported it; nil until known. The tools'
+    /// budget follows it (`toolBudget`, ADR 0050).
+    public internal(set) var contextSize: Int? {
+        didSet { toolBudget?.window = contextSize }
+    }
+    /// The conversation's tool-output budget, which every tool's result is bounded to: an eighth of `contextSize`,
+    /// kept current here as the window becomes known or changes. Set by `WispThread.openAgent`; nil for an agent
+    /// made directly, whose tools then use the budget's floor.
+    public var toolBudget: ToolBudget? {
+        didSet { toolBudget?.window = contextSize }
+    }
     /// Output tokens a schema-shaped reply may take. A small model can loop inside a string the schema
     /// cannot bound; the cap turns a runaway into a prompt error instead of a full window (probed
     /// 2026-09-21: one chunk ran 8193 tokens and six minutes before this).

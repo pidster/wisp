@@ -43,7 +43,7 @@ public struct Introspection: Sendable {
             "systemPromptExtension": config.systemPromptExtension.map { .string($0) } ?? .null,
             "runCommand": .object([
                 "timeoutSeconds": .int(Int(config.runner.timeout.components.seconds)),
-                "maxOutputBytes": .int(config.runner.maxOutputBytes),
+                "maxOutputBytes": config.runner.maxOutputBytes.map { .int($0) } ?? .null,
                 "writableRoot": .string(config.runner.writableRoot),
                 "policy": .object([
                     "deny": .array(policy.deny.map { .string($0) }), "allow": .array(policy.allow.map { .string($0) }),

@@ -90,6 +90,11 @@ enum Memory {
         case note(String)
         /// Propose the rest as the task, with its objective (`Memory.task`; phase 4d).
         case task(String)
+        /// The notable lines, or an overview, of what the rest names: a stored entry or output (ADR 0050).
+        case summarise(String)
+        /// Answer the question after the colon from the whole of the stored entry or output the rest names, in
+        /// a chunked pass by the model (ADR 0050).
+        case condense(String)
 
         /// The verb, as the audit records it (`context.memory`'s `action`).
         var action: String {
@@ -97,6 +102,8 @@ enum Memory {
             case .recall: "recall"
             case .note: "note"
             case .task: "task"
+            case .summarise: "summarise"
+            case .condense: "condense"
             }
         }
     }
@@ -118,21 +125,26 @@ enum Memory {
     /// The example every refusal of a note repeats, so the model's next call has the shape to copy.
     static let noteExample = "note entity release codename = BLUE HERON"
 
-    /// What `request` asks for: its first word as the verb (`recall`; `note` and its synonym `remember`; `task`), and
-    /// the rest as the object; anything else is a recall of the whole text. `task` alone, with nothing after it, is a
-    /// recall of the task, as it was before the verb existed. Quotes around the request are dropped.
+    /// What `request` asks for: its first word as the verb (`recall`; `note` and its synonym `remember`; `task`;
+    /// `summarise`, `summarize`; `condense`), and the rest as the object; anything else is a recall of the whole
+    /// text. `task` alone, with nothing after it, is a recall of the task, as it was before the verb existed, and
+    /// `summary` alone recalls the running summary. Quotes around the request are dropped.
     ///
     /// - Parameter request: The argument, as the model wrote it.
     /// - Returns: The command.
     static func command(_ request: String) -> Command {
         let text = request.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`")))
-        guard let match = text.firstMatch(of: #/^(?i)(recall|note|remember|task)\b[\s:=]*/#) else {
+        guard
+            let match = text.firstMatch(of: #/^(?i)(recall|note|remember|task|summarise|summarize|condense)\b[\s:=]*/#)
+        else {
             return .recall(text)
         }
         let rest = String(text[match.range.upperBound...])
         switch match.1.lowercased() {
         case "recall": return .recall(rest)
         case "task": return rest.trimmingCharacters(in: .whitespaces).isEmpty ? .recall("task") : .task(rest)
+        case "summarise", "summarize": return .summarise(rest)
+        case "condense": return .condense(rest)
         default: return .note(rest)
         }
     }
