@@ -19,6 +19,9 @@ public struct OpenThread: Sendable {
     public let model: String?
     /// The tools its model may call.
     public let tools: [String]
+    /// The thinking its turns ask of the model, as `respond`'s `think` set it (`true`, `false`, or a level); nil for the
+    /// model's configured default.
+    public let think: String?
     /// Serialises its turns, so concurrent calls on one `thread_id` take turns and each gets its own receipt.
     public let turns = TurnQueue()
 
@@ -26,10 +29,11 @@ public struct OpenThread: Sendable {
     public init(
         thread: any RespondingThread, gate: ApprovalGate, audit: AuditLog,
         receipts: ReceiptCollector = ReceiptCollector(), relay: EventRelay = EventRelay(), model: String? = nil,
-        tools: [String] = []
+        tools: [String] = [], think: String? = nil
     ) {
         self.model = model
         self.tools = tools
+        self.think = think
         self.thread = thread
         self.gate = gate
         self.audit = audit

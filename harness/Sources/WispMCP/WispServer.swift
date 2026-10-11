@@ -32,7 +32,7 @@ public struct WispServer: Sendable {
     public typealias ThreadFactory =
         @Sendable (
             _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?,
-            _ tools: ToolSelection, _ model: ModelSelection?
+            _ tools: ToolSelection, _ model: ModelSelection?, _ think: OllamaThink?
         ) throws -> OpenThread
     private let makeThread: ThreadFactory
     /// The MCP face's effects (ADR 0044): commands are asked through elicitation (`--yes` sessions approve
@@ -56,13 +56,13 @@ public struct WispServer: Sendable {
     ///     scripted model.
     public init(
         session: Session,
-        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model in
+        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model, think in
             let thread = try session.thread(
-                id: id, host: host, instructions: instructions, tools: tools, model: model)
+                id: id, host: host, instructions: instructions, tools: tools, model: model, think: think)
             return OpenThread(
                 thread: ThreadActor(id: id, agent: try thread.openAgent()), gate: thread.gate,
                 audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
-                model: thread.model.description, tools: thread.tools.map(\.name))
+                model: thread.model.description, tools: thread.tools.map(\.name), think: think?.text)
         },
         makeTriageAgent: @escaping @Sendable (WispThread, ModelSelection?) throws -> Agent = {
             try $0.openAgent(model: $1)
@@ -333,7 +333,7 @@ public struct WispServer: Sendable {
         do {
             opened = try await threads.findOrCreate(id: id) {
                 try makeThread(
-                    session, host, id, request.instructions, request.tools, request.model)
+                    session, host, id, request.instructions, request.tools, request.model, request.think)
             }
         } catch {
             return failure(String(describing: error))
@@ -341,7 +341,7 @@ public struct WispServer: Sendable {
         if opened.created {
             directory.opened(
                 id: id, model: opened.thread.model, tools: opened.thread.tools,
-                instructions: request.instructions != nil)
+                instructions: request.instructions != nil, think: opened.thread.think)
         }
         if let evicted = opened.evicted {
             factKeeper.withdraw(thread: evicted.id)
@@ -355,8 +355,11 @@ public struct WispServer: Sendable {
             }
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
-        if !opened.created, request.instructions != nil || request.tools != .all || request.model != nil {
-            return failure("instructions, tools, and model apply only when a thread is created; \(id) already exists")
+        if !opened.created,
+            request.instructions != nil || request.tools != .all || request.model != nil || request.think != nil
+        {
+            return failure(
+                "instructions, tools, model, and think apply only when a thread is created; \(id) already exists")
         }
         let schema: OutputSchema?
         do {
@@ -562,7 +565,9 @@ public struct WispServer: Sendable {
             let draft = try await ChangeDraft.draft(
                 request.kind, from: captured, source: request.source,
                 summarise: judge(on: thread, schema: DiffSummary.schemaJSON, model: routed?.model),
-                write: judge(on: thread, schema: ChangeDraft.schemaJSON, model: routed?.model))
+                // The draft keeps the model's configured thinking: on granite4.2:8b it bought nothing measurable there
+                // (2026-10-10), but a draft is the one writing task here, so the operator's per-model setting decides.
+                write: judge(on: thread, schema: ChangeDraft.schemaJSON, model: routed?.model, keepsThinking: true))
             var fields = draft.json.objectValue ?? [:]
             fields["model"] = .string((routed?.model ?? thread.model).description)
             fields["routing"] = routed.map { .string($0.reason) } ?? .null
@@ -720,11 +725,16 @@ public struct WispServer: Sendable {
     }
 
     /// A judge that answers each prompt in a fresh turn on `conversation`, shaped by `schema`, on `model`
-    /// when routing chose one and the conversation's own otherwise.
-    private func judge(on thread: WispThread, schema: JSONValue, model: ModelSelection? = nil) -> Triage.Judge {
+    /// when routing chose one and the conversation's own otherwise. Its requests ask a model that can think not to,
+    /// as every schema reply does, unless `keepsThinking` (ADR 0053, amended 2026-10-11).
+    private func judge(
+        on thread: WispThread, schema: JSONValue, model: ModelSelection? = nil, keepsThinking: Bool = false
+    ) -> Triage.Judge {
         let makeAgent = makeTriageAgent
         return { prompt in
-            try await makeAgent(thread, model).respond(to: prompt, schema: try OutputSchema(json: schema)).text
+            try await makeAgent(thread, model).respond(
+                to: prompt, schema: try OutputSchema(json: schema), keepsThinking: keepsThinking
+            ).text
         }
     }
 

@@ -286,7 +286,8 @@ extension Agent {
             .distillation,
             details: AuditEvent.Details.distillation(
                 turns: distilled.map(\.number), entries: prose.count, bytes: prompt.utf8.count, facts: recorded,
-                seconds: Date().timeIntervalSince(started), model: model.selection, failure: failure))
+                seconds: Date().timeIntervalSince(started), model: model.selection, failure: failure,
+                think: model.thinkSent(.off)))
         return failure == nil
     }
 

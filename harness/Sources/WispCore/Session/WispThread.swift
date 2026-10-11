@@ -40,6 +40,9 @@ public struct WispThread: Sendable {
     /// The runner `run_command` uses, with this thread's audit and gate; the agent runs the person's typed
     /// commands through it (ADR 0049).
     let runner: CommandRunner
+    /// The thinking the conversation's turns ask of its model, as an MCP caller chose it when the thread started
+    /// (`respond`'s `think`, ADR 0053 amended 2026-10-11); nil leaves the model's configured default.
+    public internal(set) var thinking: OllamaThink?
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
@@ -114,12 +117,14 @@ public struct WispThread: Sendable {
     ///   - links: The store links saved with `transcript`, if any.
     ///   - store: The store of an agent being replaced; takes precedence over `transcript`.
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
-    /// - Throws: `ModelSelection.Failure` if the model lacks a needed capability.
+    /// - Throws: `ModelSelection.Failure` if the model lacks a needed capability or its runtime does not take the
+    ///   thread's thinking.
     func openAgent(
         on resolved: ResolvedModel, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
         store: ThreadRecord? = nil
     ) throws -> Agent {
         try resolved.check(tools: tools)
+        if let thinking { try resolved.checkThink(thinking) }
         audit.record(
             .modelResolved,
             details: AuditEvent.Details.modelResolved(
@@ -139,6 +144,7 @@ public struct WispThread: Sendable {
         agent.stats = stats
         agent.toolEvents = toolEvents
         agent.commandRunner = runner
+        agent.thinking = thinking
         agent.contextPolicy = .target(config.contextTarget)
         agent.factsShare = config.factsShare
         agent.summarises = config.factsSummary

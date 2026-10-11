@@ -35,6 +35,10 @@ public enum ModelListing {
         public var capabilitySource: CapabilitySource?
         /// The day wisp last checked the capabilities the configuration declares (`YYYY-MM-DD`), when it has.
         public var verified: String?
+        /// What the model's requests send as its thinking switch when nothing else is asked (`true`, `false`, or a
+        /// level), from `<runtime>.models.<name>.think` or `<runtime>.think`; nil when nothing is sent, which leaves the
+        /// runtime's own default (ADR 0053, amended 2026-10-11).
+        public var think: String?
 
         /// Creates an entry.
         public init(
@@ -119,7 +123,8 @@ public enum ModelListing {
                 switch name {
                 case "toolCalling": "tools"
                 case "guidedGeneration": "structured replies"
-                case "reasoning": "thinking"
+                // The configured default beside it, when one is sent: `thinking (false)` for a model set not to think.
+                case "reasoning": think.map { "thinking (\($0))" } ?? "thinking"
                 default: name
                 }
             }
@@ -192,6 +197,7 @@ public enum ModelListing {
                 entry.capabilities = resolved.capabilityNames
                 entry.contextSize = resolved.contextSize
                 entry.contextNote = resolved.contextNote
+                entry.think = resolved.thinkSent(nil)?.text
                 do {
                     try resolved.check(tools: tools)
                 } catch {

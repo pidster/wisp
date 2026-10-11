@@ -105,7 +105,8 @@ extension WispServer {
         let rows = directory.all.map { record -> JSONValue in
             .object([
                 "thread_id": .string(record.id), "model": record.model.map { .string($0) } ?? .null,
-                "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
+                "think": record.think.map { .string($0) } ?? .null, "turns": .int(record.turns),
+                "created": .string(record.created.ISO8601Format()),
                 "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
                 "uri": .string(ToolCatalog.threadURI(record.id)),
             ])
@@ -121,6 +122,7 @@ extension WispServer {
         let base = ToolCatalog.threadURI(id)
         return .object([
             "thread_id": .string(id), "model": record.model.map { .string($0) } ?? .null,
+            "think": record.think.map { .string($0) } ?? .null,
             "tools": .array(record.tools.map { .string($0) }), "instructions": .bool(record.instructions),
             "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
             "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),

@@ -19,6 +19,9 @@ public struct ScriptedModel: LanguageModel {
         /// Think aloud, word by word as reasoning events through the turn's observer as an Ollama model's thinking
         /// is (ADR 0053), then perform the next step in the same request.
         case think(String)
+        /// Stream `text`, then wait, as a slow model does, until the turn is stopped (`TurnStop`) or the request
+        /// cancelled, and throw as a cancelled connection does.
+        case hang(String)
     }
 
     /// Mutable script state, behind a Mutex in a class as the concurrency rules require.
@@ -27,6 +30,9 @@ public struct ScriptedModel: LanguageModel {
         public let steps: Mutex<[Step]>
         /// Every request the executor received, in order.
         public let requests = Mutex<[LanguageModelExecutorGenerationRequest]>([])
+        /// The thinking each request was asked for (`RequestThinking.current` in the executor), in order: what a
+        /// runtime's executor would send as its thinking switch (ADR 0053, amended 2026-10-11).
+        public let thinking = Mutex<[OllamaThink?]>([])
         /// Whether the next request throws context overflow.
         public let overflowOnce: Mutex<Bool>
         /// How many requests, after `overflowOnce`'s, throw context overflow too: 1 makes a retry overflow again.
@@ -79,7 +85,11 @@ public struct ScriptedModel: LanguageModel {
             streamingInto channel: LanguageModelExecutorGenerationChannel
         ) async throws {
             let script = model.script
+            // As a runtime's executor does: a turn the person stopped sends nothing more, so nothing is received.
+            try TurnStop.current?.check()
             script.requests.withLock { $0.append(request) }
+            let asked = RequestThinking.current
+            script.thinking.withLock { $0.append(asked) }
             let overflowing =
                 script.overflowOnce.withLock {
                     let value = $0; $0 = false; return value
@@ -114,6 +124,14 @@ public struct ScriptedModel: LanguageModel {
             switch step {
             case .think:
                 break
+            case .hang(let text):
+                if !text.isEmpty { await channel.send(.response(action: .appendText(text, tokenCount: 1))) }
+                if let stop = TurnStop.current {
+                    await stop.stopped()
+                } else {
+                    try await Task.sleep(for: .seconds(3600))
+                }
+                throw CancellationError()
             case .call(let name, let arguments):
                 await channel.send(
                     .toolCalls(

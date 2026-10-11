@@ -53,6 +53,13 @@ public enum ToolCatalog {
                             + "llamacpp:<name> (llama.cpp's llama-server), or lmstudio:<name> (LM Studio). Only when a thread starts."
                     ),
                 ]),
+                "think": .object([
+                    "type": .array([.string("boolean"), .string("string")]),
+                    "description": .string(
+                        "Whether a model that can think does, for a new thread: true, false, or (Ollama) low, medium, "
+                            + "high, max. Omit for the model's configured default; false for quick fixed tasks such as "
+                            + "git. Only when a thread starts."),
+                ]),
                 "task": .object([
                     "type": .string("string"),
                     "description": .string(
@@ -765,6 +772,9 @@ public struct RespondRequest: Equatable, Sendable {
     public var schema: JSONValue?
     /// The thread's task, set or revised as the caller's assertion (D6); nil leaves it as it is.
     public var task: String?
+    /// The thinking a new thread's turns ask of its model (ADR 0053, amended 2026-10-11); nil leaves the model's
+    /// configured default.
+    public var think: OllamaThink?
 
     /// Decodes and validates MCP call arguments.
     ///
@@ -807,6 +817,16 @@ public struct RespondRequest: Equatable, Sendable {
                 throw MCPError.invalidParams("'task' must be a non-empty string")
             }
             task = text
+        }
+        if let raw = arguments?["think"] {
+            if let flag = raw.boolValue {
+                think = flag ? .on : .off
+            } else if let text = raw.stringValue, let value = OllamaThink(text) {
+                think = value
+            } else {
+                throw MCPError.invalidParams(
+                    "'think' must be true, false, or one of " + OllamaThink.levels.joined(separator: ", "))
+            }
         }
         if let raw = arguments?["schema"] {
             guard raw.objectValue != nil else { throw MCPError.invalidParams("'schema' must be a JSON Schema object") }

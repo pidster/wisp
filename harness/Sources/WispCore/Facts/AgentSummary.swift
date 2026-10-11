@@ -40,8 +40,9 @@ extension Agent {
     /// - Returns: Whether the facts of `leaving` were distilled: a call ran and succeeded.
     @discardableResult
     nonisolated(nonsending) func handOn(_ leaving: [ThreadRecord.Entry], staying: [ThreadRecord.Entry]) async -> Bool {
-        // The distiller's and the summary's thinking is not the turn's: no observer records it (ADR 0053).
-        await ReasoningObserver.$current.withValue(nil) {
+        // The distiller's and the summary's thinking is not the turn's, and gains them nothing: no observer records it,
+        // and a model that can think is asked not to (ADR 0053, amended 2026-10-11).
+        await RequestThinking.sideCall {
             guard let batch = summaryBatch(leaving: leaving) else {
                 return await distil(leaving, staying: staying)
             }
@@ -160,7 +161,7 @@ extension Agent {
             .distillation,
             details: AuditEvent.Details.distillation(
                 turns: turns.map(\.number), entries: prose.count, bytes: prompt.utf8.count, facts: recorded,
-                seconds: seconds, model: model.selection, failure: failure))
+                seconds: seconds, model: model.selection, failure: failure, think: model.thinkSent(.off)))
         auditSummary(
             turns: turns, entries: batch.count, bytes: prompt.utf8.count, started: started, combined: true,
             failure: failure ?? unsummarised)
@@ -210,6 +211,6 @@ extension Agent {
                 version: summary?.version, turns: turns.map(\.number), entries: entries, bytes: bytes,
                 covered: summary?.covered, summaryBytes: summary?.text.utf8.count,
                 seconds: Date().timeIntervalSince(started), model: model.selection, combined: combined,
-                failure: failure))
+                failure: failure, think: model.thinkSent(.off)))
     }
 }

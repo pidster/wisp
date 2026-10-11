@@ -59,10 +59,14 @@ extension AuditEvent {
             reason.map { ["reason": .string($0)] } ?? [:]
         }
 
-        /// `prompt`; `schema` is the caller's JSON Schema when the reply had to be shaped.
-        public static func prompt(text: String, schema: JSONValue? = nil) -> [String: JSONValue] {
+        /// `prompt`; `schema` is the caller's JSON Schema when the reply had to be shaped, and `think` what the turn's
+        /// requests send as the model's thinking switch, when they send one (ADR 0053, amended 2026-10-11).
+        public static func prompt(
+            text: String, schema: JSONValue? = nil, think: OllamaThink? = nil
+        ) -> [String: JSONValue] {
             var details: [String: JSONValue] = ["text": .string(text)]
             if let schema { details["schema"] = schema }
+            if let think { details["think"] = .string(think.text) }
             return details
         }
 
@@ -76,6 +80,12 @@ extension AuditEvent {
             ]
             if let usage { details["usage"] = usage.json }
             return details
+        }
+
+        /// `turn.stopped`: the person stopped the turn (Ctrl-C in chat, ADR 0049 amended 2026-10-11) after `seconds`;
+        /// `killed` when they asked twice, so what it had running was killed at once rather than given the grace.
+        public static func turnStopped(seconds: TimeInterval, killed: Bool) -> [String: JSONValue] {
+            ["seconds": .double((seconds * 1000).rounded() / 1000), "killed": .bool(killed)]
         }
 
         /// `model.reasoning` as the model begins thinking within one request (ADR 0053): `phase` `start`, nothing
@@ -227,7 +237,7 @@ extension AuditEvent {
         /// `context.distillation`: the turns leaving the active view, distilled into facts by the model.
         public static func distillation(
             turns: [Int], entries: Int, bytes: Int, facts: [String], seconds: Double, model: ModelSelection,
-            failure: String?
+            failure: String?, think: OllamaThink? = nil
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "turns": .array(turns.map { .int($0) }), "entries": .int(entries), "bytes": .int(bytes),
@@ -235,6 +245,7 @@ extension AuditEvent {
                 "model": .string(model.description),
             ]
             if let failure { details["failure"] = .string(failure) }
+            if let think { details["think"] = .string(think.text) }
             return details
         }
 
@@ -242,7 +253,7 @@ extension AuditEvent {
         /// was written.
         public static func summary(
             version: Int?, turns: [Int], entries: Int, bytes: Int, covered: Int?, summaryBytes: Int?, seconds: Double,
-            model: ModelSelection, combined: Bool, failure: String?
+            model: ModelSelection, combined: Bool, failure: String?, think: OllamaThink? = nil
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "turns": .array(turns.map { .int($0) }), "entries": .int(entries), "bytes": .int(bytes),
@@ -253,6 +264,7 @@ extension AuditEvent {
             if let covered { details["covered"] = .int(covered) }
             if let summaryBytes { details["summaryBytes"] = .int(summaryBytes) }
             if let failure { details["failure"] = .string(failure) }
+            if let think { details["think"] = .string(think.text) }
             return details
         }
 
@@ -337,10 +349,12 @@ extension AuditEvent {
         ///   - bytes: The model call's prompt, in bytes; 0 when no call was made.
         ///   - model: The model asked, when one was.
         ///   - failure: Why the call failed, or why the request was retried.
+        ///   - think: What the call sent as the model's thinking switch, when it sent one (ADR 0053, amended 2026-10-11).
         /// - Returns: The details.
         public static func assessment(
             method: String, tools: [String], ruleTools: [String], registered: [String]?, intent: String?,
-            task: String?, facts: [String], seconds: Double, bytes: Int, model: ModelSelection?, failure: String?
+            task: String?, facts: [String], seconds: Double, bytes: Int, model: ModelSelection?, failure: String?,
+            think: OllamaThink? = nil
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "method": .string(method), "tools": .array(tools.map { .string($0) }),
@@ -353,6 +367,7 @@ extension AuditEvent {
             if let task { details["task"] = .string(task) }
             if let model { details["model"] = .string(model.description) }
             if let failure { details["failure"] = .string(failure) }
+            if let think { details["think"] = .string(think.text) }
             return details
         }
 
@@ -774,8 +789,9 @@ extension AuditEvent {
         case .modelResolved:
             ["model", "backend", "asset", "capabilities", "capabilitySource", "tools", "contextSize", "contextNote"]
         case .modelFallback: ["model", "reason", "fallback"]
-        case .prompt: ["text", "schema"]
+        case .prompt: ["text", "schema", "think"]
         case .response: ["text", "condensed", "seconds", "usage"]
+        case .turnStopped: ["seconds", "killed"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
         case .toolCall: ["tool", "arguments"]
         case .toolResult: ["tool", "output", "bytes", "seconds"]
@@ -820,11 +836,11 @@ extension AuditEvent {
         case .presentationCut:
             ["entry", "output", "tool", "response", "result", "bytes", "tokens", "words", "coverage"]
         case .outputReferenced: ["entry", "tool", "result", "bytes", "referenceBytes", "tokens"]
-        case .distillation: ["turns", "entries", "bytes", "facts", "seconds", "model", "failure"]
+        case .distillation: ["turns", "entries", "bytes", "facts", "seconds", "model", "failure", "think"]
         case .summary:
             [
                 "version", "turns", "entries", "bytes", "covered", "summaryBytes", "seconds", "model", "combined",
-                "failure",
+                "failure", "think",
             ]
         case .memory:
             [
@@ -834,7 +850,7 @@ extension AuditEvent {
         case .assessment:
             [
                 "method", "tools", "ruleTools", "registered", "intent", "taskChanged", "task", "facts", "seconds",
-                "bytes", "model", "failure",
+                "bytes", "model", "failure", "think",
             ]
         case .factRecorded:
             [

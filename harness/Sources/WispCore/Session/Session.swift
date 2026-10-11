@@ -425,18 +425,20 @@ public struct Session: Sendable {
     ///   - instructions: The thread's own instructions (layer 3); nil takes the session's.
     ///   - tools: Tool selection; `.all` takes the session's.
     ///   - model: Model override; nil takes the session's.
+    ///   - think: The thinking its turns ask of the model (`respond`'s `think`); nil leaves the model's default.
     /// - Returns: The conversation, ready to open.
     /// - Throws: `Failure.unknownTools`.
     public func thread(
         id: String, host: SessionHost, instructions: String? = nil, tools: ToolSelection = .all,
-        model: ModelSelection? = nil
+        model: ModelSelection? = nil, think: OllamaThink? = nil
     ) throws -> WispThread {
         let audit = self.audit.log(forSession: id)
         var prompting = self.prompting
         if let instructions { prompting.instructions = instructions }
-        let thread = try WispThread.setUp(
+        var thread = try WispThread.setUp(
             session: self, audit: audit, host: host, prompting: prompting,
             toolNames: tools.resolved(or: toolNames), model: model ?? config.model)
+        thread.thinking = think
         audit.record(
             .sessionStart,
             details: AuditEvent.Details.sessionStart(

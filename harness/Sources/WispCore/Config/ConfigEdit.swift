@@ -145,51 +145,68 @@ public enum ConfigSettings {
             kind: .number(Config.WatchConfig.settleRange)),
     ]
 
-    /// The setting at `path`, or nil: one of `all`, or a model's own window,
-    /// `<runtime>.models.<name>.contextLength`, whose name may hold dots.
+    /// The setting at `path`, or nil: one of `all`, or a model's own setting, `<runtime>.models.<name>.contextLength`
+    /// or `<runtime>.models.<name>.think`, whose name may hold dots.
     public static func setting(_ path: String) -> Setting? {
         if let fixed = all.first(where: { $0.path == path }) { return fixed }
-        guard let named = perModelWindow(path) else { return nil }
-        return Setting(
-            path: path,
-            summary: "this model's context window, ahead of \(named.runtime).contextLength and sizing from memory",
-            kind: .integer(windowRange))
+        guard let named = perModel(path) else { return nil }
+        switch named.field {
+        case "think":
+            // As the runtime's own `think` takes it: Ollama's values, a flag for a template's `enable_thinking`.
+            return Setting(
+                path: path,
+                summary: "whether this model is asked to think, ahead of \(named.runtime).think (ADR 0053)",
+                kind: named.runtime == "ollama" ? .choice(OllamaThink.choices) : .flag)
+        default:
+            return Setting(
+                path: path,
+                summary: "this model's context window, ahead of \(named.runtime).contextLength and sizing from memory",
+                kind: .integer(windowRange))
+        }
     }
 
     /// The windows a context length may be set to.
     static let windowRange = 1024...1_048_576
 
-    /// The runtimes whose models each take their own window.
-    static let perModelRuntimes = ["ollama", "mlx"]
+    /// The settings each model may have of its own, and the runtimes whose models take each: a window for Ollama and
+    /// MLX, thinking for every runtime with a thinking switch (ADR 0053, amended 2026-10-11).
+    static let perModelFields: [(field: String, runtimes: [String])] = [
+        ("contextLength", ["ollama", "mlx"]), ("think", ["ollama", "mlx", "llamacpp"]),
+    ]
 
-    /// The runtime and model a model's own window setting names, such as `ollama` and `qwen3.8:27b` for
-    /// `ollama.models.qwen3.8:27b.contextLength`; nil for any other path.
-    static func perModelWindow(_ path: String) -> (runtime: String, model: String)? {
-        for runtime in perModelRuntimes {
-            let prefix = "\(runtime).models.", suffix = ".contextLength"
-            guard path.hasPrefix(prefix), path.hasSuffix(suffix), path.count > prefix.count + suffix.count else {
-                continue
+    /// The runtime, model, and field a model's own setting names, such as `ollama`, `qwen3.8:27b`, and
+    /// `contextLength` for `ollama.models.qwen3.8:27b.contextLength`; nil for any other path.
+    static func perModel(_ path: String) -> (runtime: String, model: String, field: String)? {
+        for (field, runtimes) in perModelFields {
+            for runtime in runtimes {
+                let prefix = "\(runtime).models.", suffix = ".\(field)"
+                guard path.hasPrefix(prefix), path.hasSuffix(suffix), path.count > prefix.count + suffix.count else {
+                    continue
+                }
+                return (runtime, String(path.dropFirst(prefix.count).dropLast(suffix.count)), field)
             }
-            return (runtime, String(path.dropFirst(prefix.count).dropLast(suffix.count)))
         }
         return nil
     }
 
     /// The keys `path` names in `config.json`: its dotted parts, except a model's name, which is one key.
     public static func keys(_ path: String) -> [String] {
-        if let named = perModelWindow(path) { return [named.runtime, "models", named.model, "contextLength"] }
+        if let named = perModel(path) { return [named.runtime, "models", named.model, named.field] }
         return path.split(separator: ".").map(String.init)
     }
 
-    /// The settings a list shows: every one of `all`, then each model's own window the file sets.
+    /// The settings a list shows: every one of `all`, then each model's own setting the file sets.
     ///
     /// - Parameter data: The file's contents, nil for none.
     /// - Returns: The settings.
     public static func listed(in data: Data?) -> [Setting] {
         let root = (try? ConfigEdit.object(data)) ?? [:]
-        let own = perModelRuntimes.flatMap { runtime in
-            (root[runtime]?.objectValue?["models"]?.objectValue ?? [:]).compactMap { name, entry in
-                entry.objectValue?["contextLength"] == nil ? nil : setting("\(runtime).models.\(name).contextLength")
+        // By runtime, Ollama's first, and within one by path.
+        let own = ["ollama", "mlx", "llamacpp"].flatMap { runtime in
+            perModelFields.filter { $0.runtimes.contains(runtime) }.flatMap { field, _ in
+                (root[runtime]?.objectValue?["models"]?.objectValue ?? [:]).compactMap { name, entry in
+                    entry.objectValue?[field] == nil ? nil : setting("\(runtime).models.\(name).\(field)")
+                }
             }.sorted { $0.path < $1.path }
         }
         return all + own
@@ -237,9 +254,9 @@ public enum ConfigSettings {
         case "context.memory": return .bool(d.contextMemory)
         case "watch.settle": return .double(d.watchSettle)
         default:
-            // A model's own window falls back to the runtime's, then to sizing.
-            guard let named = perModelWindow(path) else { return nil }
-            return defaultValue("\(named.runtime).contextLength")
+            // A model's own window falls back to the runtime's, then to sizing; its thinking to the runtime's.
+            guard let named = perModel(path) else { return nil }
+            return defaultValue("\(named.runtime).\(named.field)")
         }
     }
 }

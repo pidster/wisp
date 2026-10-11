@@ -441,10 +441,10 @@ struct Chat: AsyncParsableCommand {
         try await loop.run()
     }
 
-    /// Takes Ctrl-C for the terminal chat (ADR 0049, amended 2026-10-09): while a command the person typed runs,
-    /// the first stops it (`ChatInterrupt`) and says so, and the chat goes on; a second kills it and quits. With no
-    /// such command running, Ctrl-C quits as it always has: the default disposition is restored and the signal
-    /// raised again. Handled off the main queue, which the blocking prompt read holds. Cancel the returned source
+    /// Takes Ctrl-C for the terminal chat (ADR 0049, amended 2026-10-09 and 2026-10-11): while a command the person
+    /// typed runs, or a model's turn, the first stops it (`ChatInterrupt`) and says so, and the chat goes on; a second
+    /// kills what it has running and quits. With nothing running, Ctrl-C quits as it always has: the default
+    /// disposition is restored and the signal raised again. Handled off the main queue, which the blocking prompt read holds. Cancel the returned source
     /// to restore the default.
     ///
     /// - Parameters:
@@ -458,7 +458,10 @@ struct Chat: AsyncParsableCommand {
             switch interrupt.press() {
             case .stopping(let line):
                 note(style.muted(ChatInterrupt.stoppingNote(line)))
-            case .idle, .killing:
+            case .stoppingTurn:
+                note(style.muted(ChatInterrupt.stoppingTurnNote))
+            case .idle, .killing, .killingTurn:
+                // A second press has killed what the turn or the command had running; nothing outlives the quit.
                 signal(SIGINT, SIG_DFL)
                 raise(SIGINT)
             }
@@ -539,8 +542,9 @@ struct Chat: AsyncParsableCommand {
         }
         let audit = session.audit
         router.onHello { audit.record(.hostHello, details: AuditEvent.Details.hostHello($0)) }
-        // Ctrl-C in the front end, sent as `interrupt`, stops a command the person typed (ADR 0049, amended
-        // 2026-10-09); and when the front end goes away, a command still running is killed, so none outlives it.
+        // Ctrl-C in the front end, sent as `interrupt`, stops a command the person typed or the model's turn (ADR
+        // 0049, amended 2026-10-09 and 2026-10-11); and when the front end goes away, what still runs is killed, so
+        // nothing outlives it.
         let interrupt = ChatInterrupt()
         router.onInterrupt { _ = interrupt.press() }
         let reader = Thread {
@@ -1441,7 +1445,11 @@ struct Draft: AsyncParsableCommand {
                 summarise: {
                     try await thread.openAgent(model: chosen).respond(to: $0, schema: summarySchema).text
                 },
-                write: { try await thread.openAgent(model: chosen).respond(to: $0, schema: draftSchema).text })
+                // The draft keeps the model's configured thinking, as draft_change's does (ADR 0053, amended 2026-10-11).
+                write: {
+                    try await thread.openAgent(model: chosen).respond(to: $0, schema: draftSchema, keepsThinking: true)
+                        .text
+                })
             print(draft.text)
         } catch let failure as ChangeDraft.Failure {
             throw ValidationError("\(failure)")

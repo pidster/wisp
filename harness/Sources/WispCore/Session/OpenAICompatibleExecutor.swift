@@ -149,6 +149,10 @@ extension OpenAICompatibleModel {
             to request: LanguageModelExecutorGenerationRequest, model: OpenAICompatibleModel,
             streamingInto channel: LanguageModelExecutorGenerationChannel
         ) async throws {
+            // A turn the person stopped sends nothing more; one stopped while this streams cancels its connection.
+            try TurnStop.current?.check()
+            let watch = RequestStop()
+            defer { watch.end() }
             let settings = OpenAICompatibleSettings(
                 baseURL: configuration.baseURL, timeout: .seconds(configuration.timeoutSeconds),
                 apiKey: configuration.apiKey)
@@ -163,7 +167,7 @@ extension OpenAICompatibleModel {
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {
-                (bytes, response) = try await URLSession.shared.bytes(for: http)
+                (bytes, response) = try await URLSession.shared.bytes(for: http, delegate: watch)
             } catch {
                 if ConnectionFailure.isCancellation(error) { throw CancellationError() }
                 throw failure(error, streaming: false)

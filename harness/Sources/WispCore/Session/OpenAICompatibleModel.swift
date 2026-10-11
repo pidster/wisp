@@ -173,9 +173,9 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
             apiKey: settings.apiKey)
     }
 
-    /// The `chat_template_kwargs.enable_thinking` value each request sends: the configured `think`, for a dialect that
-    /// takes it; nil otherwise.
-    var think: Bool? { dialect.takesThink ? settings.think : nil }
+    /// The `chat_template_kwargs.enable_thinking` value a request sends now (`thinkSent(_:)` for what its scope asks);
+    /// nil sends none.
+    var think: Bool? { thinkSent(RequestThinking.current)?.enabled }
 
     // MARK: - Asking the server
 
@@ -479,4 +479,19 @@ enum Catalogs {
 
     /// The record type.
     typealias Served = OpenAICompatibleModel.Served
+}
+
+extension OpenAICompatibleModel: ThinkingControl {
+    /// For a dialect that takes `enable_thinking` (llama.cpp): what is asked, for a model that reports or is declared
+    /// `reasoning` or whose thinking is configured, a level taken as on; else the configured default, this model's own
+    /// `llamacpp.models.<name>.think` ahead of `llamacpp.think`. Nothing for LM Studio, which sets thinking in the app.
+    ///
+    /// - Parameter requested: The thinking asked of the request; nil asks nothing.
+    /// - Returns: The value sent, or nil.
+    public func thinkSent(_ requested: OllamaThink?) -> OllamaThink? {
+        guard dialect.takesThink else { return nil }
+        let configured = (settings.declared[name]?.think ?? settings.think).map { $0 ? OllamaThink.on : .off }
+        guard let requested, configured != nil || capabilities.contains(.reasoning) else { return configured }
+        return requested.enabled ? .on : .off
+    }
 }

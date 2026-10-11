@@ -39,11 +39,11 @@ pub enum Outbound {
         /// Whether the model is thinking (ADR 0053); absent, and so false, otherwise.
         #[serde(default)]
         thinking: bool,
-        /// Whether this is a command the person typed, which `interrupt` stops (ADR 0049, amended
-        /// 2026-10-09); absent, and so false, otherwise.
+        /// Whether `interrupt` stops what is under way: a command the person typed (ADR 0049, amended
+        /// 2026-10-09) or a model's turn (amended 2026-10-11); absent, and so false, otherwise.
         #[serde(default)]
         stoppable: bool,
-        /// Whether that command was asked to stop and has not ended yet; absent, and so false, otherwise.
+        /// Whether it was asked to stop and has not ended yet; absent, and so false, otherwise.
         #[serde(default)]
         stopping: bool,
     },
@@ -389,8 +389,9 @@ pub enum Inbound {
         /// `once`, `session`, `project`, `always`, or `no`.
         decision: String,
     },
-    /// Ctrl-C while a command the person typed runs: wisp stops it (SIGTERM to its process group, then
-    /// SIGKILL), or kills it at once when asked before (ADR 0049, amended 2026-10-09).
+    /// Ctrl-C while a command the person typed runs, or a model's turn: wisp stops it (SIGTERM to a
+    /// command's process group, then SIGKILL; a turn's request cancelled and its command stopped), or kills
+    /// what it has running at once when asked before (ADR 0049, amended 2026-10-09 and 2026-10-11).
     Interrupt,
 }
 

@@ -682,6 +682,15 @@ a 200 ms command watchdog never fired during a 30 s command.
 `PoolStarvationTests` blocks every pool thread and checks each: the watchdog signals a command, `Timeout.run`
 gives up, and `Blocking.run` returns, all within seconds; before the change none did until the blockers let go.
 
+What a turn's requests need to know reaches the executors as task locals the turn binds, since the framework runs
+each executor on the caller's task: `ReasoningObserver.current` (who records the thinking, ADR 0053),
+`RequestThinking.current` (what thinking the request asks for; wisp's own calls bind `false` through
+`RequestThinking.sideCall`, ADR 0053 amended 2026-10-11), and `TurnStop.current` (the person's Ctrl-C, ADR 0049
+amended 2026-10-11). The chat's turn runs on its own task, which a signal cannot cancel from outside without an escape
+hatch, so a stop is not a task cancellation: `TurnStop` is a `final class` with a `Mutex` that what the turn has under
+way attaches to (a request's connection through the task's delegate, `RequestStop`; a `run_command`'s process group;
+MLX's generation, in a task group beside the stop), and each executor checks it before it sends.
+
 ## Visibility
 
 `WispCore` is an implementation library for the two executables, not a published API. A declaration is

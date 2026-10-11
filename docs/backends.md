@@ -73,6 +73,33 @@ A text-only model can always run a conversation with no tools: `--no-tools` on t
 over MCP. Declared support is eligibility, not quality: a model that declares tool calling may still
 call tools badly, and only an evaluation says how well.
 
+## Thinking, per model and per call
+
+A model that can think is asked to, or not, per request ([ADR 0053](decisions/0053-the-models-thinking-shown.md),
+amended 2026-10-11). What each request sends is decided in this order:
+
+1. **The call.** wisp's own calls that gain nothing from thinking ask a model that can think not to: the model
+   classifier's verdict, a schema reply (`respond` with a `schema`, `triage`, `summarise_diff`, the thorough passes
+   of `scan_secrets` and `redact`), the fact distiller, the running summary, and the assessment. A change draft's
+   writing step keeps the model's default. On `granite4.2:8b` thinking made each of these 4 to 15 times slower and
+   bought nothing measurable ([measurements.md](measurements.md), "granite4.1 against granite4.2").
+2. **The conversation.** `respond`'s `think`, chosen when an MCP thread starts, asks every turn of the thread (and its
+   schema replies) for what it chose ([mcp.md](mcp.md)).
+3. **The model's own setting**, `<runtime>.models.<name>.think`: `ollama.models.granite4.2:8b.think false`.
+4. **The runtime's**, `ollama.think`, `mlx.think`, or `llamacpp.think`.
+5. **Nothing**: the runtime's and the model's own default.
+
+How each runtime takes it:
+
+| Runtime | Sent as | Values | Sent to |
+| --- | --- | --- | --- |
+| Ollama | `/api/chat`'s `think` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose `/api/show` capabilities include `thinking` |
+| llama.cpp | `chat_template_kwargs.enable_thinking` | `true` or `false` (a level is on) | every model when configured; a call's choice only to a model declared or reported `reasoning`, or whose thinking is configured |
+| MLX | the chat template's `enable_thinking` | `true` or `false` (a level is on) | a model whose template marks thinking and takes the flag; one that does not keeps its default |
+| LM Studio, Core AI, Apple's models | nothing | | LM Studio sets thinking per model in its app |
+
+A model that cannot think is sent nothing, whatever is asked. MLX's bridge executor decides for itself.
+
 ## Ollama
 
 Install and run [Ollama](https://ollama.com); `ollama pull <name>` fetches a model. `config.json`:
@@ -242,7 +269,9 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   check outranks the server's report, which describes the template rather than the model, so such a model is text
   only, as the check said (a capability the operator declared by hand is kept). Schema replies need nothing.
 - **Thinking.** `llamacpp.think` `true` or `false` is sent as the chat template's `enable_thinking`
-  (`chat_template_kwargs`) for every model; unset sends nothing. The server separates thinking from the reply with
+  (`chat_template_kwargs`) for every model, and `llamacpp.models.<name>.think` for one model ahead of it; unset sends
+  nothing. wisp's own calls send `false` to a model declared or reported `reasoning`, or whose thinking is configured
+  ("Thinking, per model and per call", above). The server separates thinking from the reply with
   `--reasoning-format` (`auto` by default); with `none`, thinking stays in the reply's text.
 
 ### LM Studio
@@ -483,12 +512,14 @@ reply is thinking from its first token; thinking that is never closed stays thin
 block has closed, the rest is the reply, so a tag the reply itself writes later is text, not thinking. A
 model whose template has no such tags has its text left as it is.
 
-Whether the model thinks is the template's `enable_thinking`: `mlx.think` (`true` or `false`) sets it for every
-MLX model whose template takes the flag (Qwen3's does; a template without it ignores it); unset, it is `true` when
+Whether the model thinks is the template's `enable_thinking`: `mlx.models.<name>.think` sets it for one model and
+`mlx.think` (`true` or `false`) for every MLX model whose template takes the flag (Qwen3's does; a template without it
+ignores it), and wisp's own calls ask for no thinking ("Thinking, per model and per call", above); unset, it is `true` when
 `reasoning` is declared and otherwise not set at all, so the template's own default holds, as an unset
 `ollama.think` leaves a model to Ollama. Qwen3's template thinks by default. Until 2026-10-06 an undeclared model
 was told not to think, which cost Qwen3 its multi-step tool calls and its drafts against the same model on
-Ollama (below, "Against Ollama"). A schema reply on a model that thinks thinks first, as Ollama lets a model think
+Ollama (below, "Against Ollama"). A schema reply on a model that thinks thinks first, where thinking is kept (a
+change draft, or a conversation that chose it; wisp's other schema replies ask for none since 2026-10-11), as Ollama lets a model think
 before it applies a `format`: it generates freely until the thinking block closes (half the reply's budget at
 most; a block cut off is closed with the template's tag), streamed as thinking, and the schema's constraint then
 starts from the prompt and what it thought, its limit what is left of the budget after the thinking and any closing

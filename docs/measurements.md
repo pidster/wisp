@@ -198,8 +198,9 @@ tools at the same speed (a median of 3.2 s a request, p90 9.0 s, over 300 reques
 draft right, at the cost of two `system_info` cases. Its classifier was the most accurate of the three with the rules
 (91%), at 14 s a verdict, too slow for approvals, which the Core ML classifier decides. `granite4.1:8b` stays the
 delegation default for now: `ollama.think` applies to every Ollama model, and turning it off would take thinking from
-`gemma4:12b` and `qwen3.8:27b` too. Choosing thinking per model or per call is planned for 0.22.0
-([roadmap.md](roadmap.md), "Thinking chosen per call").
+`gemma4:12b` and `qwen3.8:27b` too. Choosing thinking per model or per call was planned for 0.22.0
+([roadmap.md](roadmap.md), "Thinking chosen per call") and is built: `ollama.models.<name>.think`, `respond`'s `think`,
+and no thinking for wisp's own calls ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11).
 
 ### qwen3.8:27b re-measured, 2026-10-09
 

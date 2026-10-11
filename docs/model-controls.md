@@ -1,6 +1,6 @@
 # Draft: common model controls
 
-Date: 2026-09-20. Status: proposal, partly built since (brought up to date 2026-10-09; see "What is built").
+Date: 2026-09-20. Status: proposal, partly built since (brought up to date 2026-10-11; see "What is built").
 The rest of the page is the proposal as written; the section below says which parts wisp now has.
 
 Give callers a common way to request reasoning mode, reasoning effort and native speed mode.
@@ -10,19 +10,24 @@ a production model, introduce remote routing, or change runtime behaviour.
 
 ## What is built
 
-Two backend settings and the thinking display implement part of this proposal, per runtime rather than through the
-common vocabulary below ([ADR 0053](decisions/0053-the-models-thinking-shown.md), refined 2026-10-06;
+The backend settings, thinking chosen per model and per call, and the thinking display implement part of this
+proposal, per runtime rather than through the common vocabulary below
+([ADR 0053](decisions/0053-the-models-thinking-shown.md), refined 2026-10-06 and amended 2026-10-11;
 [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06):
 
 | Proposed here | What wisp has | Where |
 | --- | --- | --- |
-| `reasoning.mode` and `reasoning.effort`, for Ollama | `ollama.think`: `true`, `false`, or a level (`low`, `medium`, `high`, `max`, the values Ollama 0.35.1 accepts), sent as `/api/chat`'s `think` only to a model that reports `thinking`; unset sends nothing and leaves the model's default. One operator setting for every Ollama model, not per request or per model | [wisp.md](wisp.md), "`wisp config`"; ADR 0053 |
+| `reasoning.mode` and `reasoning.effort`, for Ollama | `ollama.think`: `true`, `false`, or a level (`low`, `medium`, `high`, `max`, the values Ollama 0.35.1 accepts), sent as `/api/chat`'s `think` only to a model that reports `thinking`; unset sends nothing and leaves the model's default. `ollama.models.<name>.think` sets one model's, ahead of it (amended 2026-10-11) | [wisp.md](wisp.md), "`wisp config`"; ADR 0053 |
 | `reasoning.mode`, for MLX | `mlx.think`: `true` or `false`, the chat template's `enable_thinking` for a model whose template takes it; unset asks a model declared `reasoning` to think and leaves any other to its template's default. No levels: the template's flag has none | [backends.md](backends.md), "Thinking"; ADR 0053 and ADR 0052, both refined 2026-10-06 |
 | `reasoning.output: separate`, and "Reasoning channels" | The thinking is separated at the executor: Ollama's `message.thinking` chunks, and for MLX the block between the template's own thinking tags, split as it streams (a tag split across chunks held until whole, a prompt that opens the block seen from the rendered prompt's end, unclosed thinking kept as thinking, a tool call ending it). It is shown to the person (`thinking` while it lasts, `∴ thought for …` folded after), counted in usage's reasoning tokens, audited as `model.reasoning`, kept in the store, and never sent back to the model. Over MCP it is the thread's `reasoning` resource, not part of `respond`'s text | ADR 0053; [mcp.md](mcp.md) |
+| Per-model defaults, the operator layer | `<runtime>.models.<name>.think` for Ollama, MLX, and llama.cpp, ahead of `<runtime>.think`, validated as it is; `lmstudio.models.<name>.think` refused, since LM Studio sets thinking in its app. `wisp models` shows a model's default beside `thinking` | [wisp.md](wisp.md); ADR 0053, amended 2026-10-11 |
+| Per-request controls, the precedence "per-request, conversation, operator, native" | A request-scoped choice (`RequestThinking`) each executor honours over the configured default: wisp's own calls that gain nothing from thinking ask a model that can think not to (the model classifier's verdict, a schema reply, the fact distiller, the running summary, the assessment); a change draft and open-ended turns keep the default. The conversation layer is `respond`'s `think`, chosen when a thread starts and refused on an existing one. A model that cannot think is sent nothing. Thinking only: no `speed.mode`, no common vocabulary | [mcp.md](mcp.md), "respond"; ADR 0053, amended 2026-10-11 |
+| Rejecting an unsupported value | `respond`'s `think` with a level is refused on a runtime whose switch is only on or off (llama.cpp, MLX), before any generation; `true` and `false` are taken everywhere, and a model without a switch is sent nothing rather than refused | ADR 0053, amended 2026-10-11 |
+| Recording the requested and the resolved control | Each turn's `prompt` records the `think` its requests send, and the distillation, summary, assessment, and model classifier's verdict record theirs | [logging.md](logging.md) |
 | Recording the turn's tokens | `respond`'s receipt carries `usage` (input, output, cached, reasoning) where the runtime reports it | [mcp.md](mcp.md) |
 
 Still proposed, as the rest of this page describes: the common vocabulary and its descriptors per model and adapter,
-per-request and per-conversation controls with the precedence below, strict rejection of an unsupported value
+per-request controls for a caller beyond thinking, strict rejection of an unsupported value
 (`ollama.think` passes a level to Ollama and leaves its meaning to Ollama, which this page would refuse to do
 silently), `speed.mode` and `performance.preference`, Foundation Models' `reasoningLevel`, Core AI's reasoning
 controls, the controls in introspection, and the audit of requested against resolved controls. No ADR accepts the
