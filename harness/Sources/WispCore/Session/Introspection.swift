@@ -133,17 +133,20 @@ public struct Introspection: Sendable {
         ]
     }
 
-    /// The standing approvals in force, newest first.
+    /// The standing approvals in force, newest first, each with `gone`: whether it is a project approval whose
+    /// directory no longer exists, so it can never match again (`wisp approvals clear --gone` removes those).
     public func approvals() async -> JSONValue {
         guard let store else { return .array([]) }
         return .array(
-            await store.all.map { entry in
-                .object([
+            await store.listing.map { listed in
+                let entry = listed.entry
+                return .object([
                     "id": .string(entry.id), "pattern": .string(entry.pattern),
                     "workingDirectory": entry.workingDirectory.map { .string($0) } ?? .null,
                     "scope": .string(entry.scope.rawValue), "level": .string(entry.level.rawValue),
                     "grantedAt": .string(entry.grantedAt.ISO8601Format()),
                     "expiresAt": .string(entry.expiresAt.ISO8601Format()), "source": .string(entry.source),
+                    "gone": .bool(listed.isGone),
                 ])
             })
     }

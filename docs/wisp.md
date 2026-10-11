@@ -285,7 +285,7 @@ What a session shows, and where it goes:
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
 | `/status` | wisp's own state, as the model's `inspect` tool shows it, in YAML: the model, tools, policy, and session. |
-| `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from. |
+| `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML, each with `gone: true` when it is a project approval whose folder no longer exists; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from, a gone one marked `(gone)`. `wisp approvals clear --gone` removes the gone ones. |
 | `/audit [sessions\|ID]` | The latest 20 audit events of every session, one line each, MCP calls and other terminals included. `sessions` lists the sessions in the log, each with its latest activity, how it began (`chat`, `mcp`, `scan`, …, or `-` for an MCP thread or a condensing call), and how many events it wrote. An id shows that session's latest events, such as `/audit git` for a `respond` thread named `git`; Tab completes ids. |
 | `/inspect [config\|status\|approvals\|audit]` | Kept as an alias: the same views as `/config`, `/status`, `/approvals`, and `/audit`; with no view, `/status`. `/inspect context` is its own command, above. |
 | `/inspect facts [all]` | The facts the model is given, as a table: id (`c…` the conversation's, `s…` the session's, `p…` the shared store's), subject, name, value, source (`the person`, `tool run_command, turn 3, entry 9`, `model, distilled: the person said, turns 1-12`, `model, noted, turn 4` for a fact the model noted with `memory`), class, and a note: which fact wins where sources disagree, and how to keep a proposed permanent fact. `all` adds superseded and deleted versions with what replaced them. Below it, "Proposed in other conversations" lists the permanent facts proposed in the process's other conversations (the one before a `/new`, say) and awaiting you, by the reference `/fact` takes (`CONVERSATION/ID`, such as `3f9a1c2e/c4`). The running summary is not here; it has its own view, `/inspect summary`. `wisp-tui` shows the facts in its panel; `wisp chat --json` sends them as a `view` of kind `facts`. See [context-management.md](context-management.md), "Facts". |
@@ -955,8 +955,21 @@ a1b2c3d4  project  31 Oct 2026  /Users/me/src/wisp  git push *
 e5f6a7b8  always   29 Oct 2026  any directory       head *
 ```
 
-`wisp approvals revoke <id>` removes one; `wisp approvals clear` removes all. See
-[approval.md](approval.md).
+A `project` approval whose folder no longer exists (an agent's worktree removed since, say) can never match
+again; it is marked gone: `(gone)` after its folder on a terminal, with a note under the table, and a sixth
+field, `gone`, at the end of its line when piped.
+
+```
+ID        SCOPE    EXPIRES      WHERE                           PATTERN
+b12873de  project  3 Nov 2026   /Users/me/src/wisp-wt-a (gone)  git commit *
+
+1 approval is for a folder that is gone and can never match again; 'wisp approvals clear --gone' removes them.
+```
+
+`wisp approvals revoke <id>` removes one; `wisp approvals clear` removes all. `wisp approvals clear --gone`
+removes only the gone ones: on a terminal it lists them and asks first unless `--yes` (`-y`); piped, it removes
+them at once. It prints each it removed, and decides again as it removes them, so a folder made again since the
+listing keeps its approvals. Gone approvals are never removed on their own. See [approval.md](approval.md).
 
 `wisp approvals pending` lists the commands waiting for approval in `wisp mcp` servers, oldest first, after
 removing stale ones (a server that stopped, a wait that expired). Piped, each is one tab-separated line:

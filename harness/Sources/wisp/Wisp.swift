@@ -1592,6 +1592,7 @@ struct Approvals: AsyncParsableCommand {
         abstract: "Show or revoke standing command approvals, and answer commands waiting for approval.",
         discussion:
             "Project and always approvals outlive the process. They are remembered by program and verb (git push *), expire, and never cover dangerous commands. "
+            + "A project approval whose folder no longer exists is marked gone; 'clear --gone' removes those. "
             + "A command the model runs under wisp mcp that needs approval waits in ~/.wisp/pending: 'pending' lists "
             + "them, and 'approve' or 'deny' answers one from a terminal.",
         subcommands: [List.self, Revoke.self, Clear.self, Pending.self, Approve.self, Deny.self],
@@ -1603,12 +1604,15 @@ struct Approvals: AsyncParsableCommand {
 
         func run() async throws {
             let store = ApprovalStore(url: Wisp.home.approvalsFile)
-            let entries = await store.all
-            if entries.isEmpty {
+            let listing = await store.listing
+            if listing.isEmpty {
                 print("no standing approvals")
                 return
             }
-            for line in ListingLayout.approvals(entries, width: TerminalTable.detectWidth()) { print(line) }
+            let gone = Set(listing.filter(\.isGone).map(\.entry.id))
+            for line in ListingLayout.approvals(listing.map(\.entry), gone: gone, width: TerminalTable.detectWidth()) {
+                print(line)
+            }
         }
     }
 
@@ -1626,13 +1630,50 @@ struct Approvals: AsyncParsableCommand {
         }
     }
 
-    /// Removes every approval.
+    /// Removes every approval, or with `--gone` those whose directory no longer exists.
     struct Clear: AsyncParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Revoke every standing approval.")
+        static let configuration = CommandConfiguration(
+            abstract: "Revoke every standing approval, or with --gone those for folders that are gone.",
+            discussion:
+                "A project approval belongs to the folder it was given in and can never match once that folder is "
+                + "gone. --gone removes only those, printing each; on a terminal it asks first unless --yes.")
+
+        @Flag(name: .long, help: "Remove only the project approvals whose folder no longer exists.")
+        var gone = false
+
+        @Flag(name: [.short, .long], help: "With --gone, remove them without asking.")
+        var yes = false
 
         func run() async throws {
-            try await ApprovalStore(url: Wisp.home.approvalsFile).clear()
-            print("cleared")
+            let store = ApprovalStore(url: Wisp.home.approvalsFile)
+            guard gone else {
+                try await store.clear()
+                print("cleared")
+                return
+            }
+            let listed = await store.listing.filter(\.isGone).map(\.entry)
+            guard !listed.isEmpty else {
+                print("no approvals for folders that are gone")
+                return
+            }
+            if !yes, isatty(STDIN_FILENO) != 0 {
+                for entry in listed { Wisp.note(Self.describe(entry)) }
+                Wisp.note("Remove \(listed.count == 1 ? "this approval" : "these \(listed.count) approvals")? [y/N]")
+                let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+                guard answer == "y" || answer == "yes" else {
+                    print("left as they were")
+                    return
+                }
+            }
+            // Decided again under the store's lock: a folder recreated since the listing keeps its approvals.
+            let removed = try await store.clearGone()
+            for entry in removed { print("removed \(Self.describe(entry))") }
+            if removed.isEmpty { print("no approvals for folders that are gone") }
+        }
+
+        /// One approval as the confirmation and the report show it: id, pattern, and its folder.
+        static func describe(_ entry: ApprovalStore.Entry) -> String {
+            "\(entry.id)  \(entry.pattern)  (\(entry.workingDirectory ?? "any directory"))"
         }
     }
 

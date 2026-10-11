@@ -27,11 +27,28 @@ not given to the second at all:
   clean`), and printing the whole environment (`env`, `printenv`, every secret in it). Building and testing the
   project are safe, as the training labels have them. Cheap, deterministic, tested against a labelled set. Rules
   cover the model's weak spot: ordinary modifications it tends to call safe. They run over the command as written
-  and over two normalised spellings of it, so quoting does not hide a rule (`sh -c 'rm -rf ~/x'`, `"sudo" ls`,
-  `eval "git reset --hard"`), nor does a continued line (`git push \⏎ --force`) or git's global options before
-  its verb (`git -C . push --force`, `-c k=v`, `--no-pager`, `--git-dir=…`, `--work-tree=…`). The credential
-  paths match in any case (`~/.SSH/ID_RSA` is the same file). Normalising can only raise a verdict: a quoted
-  `|sh` in a search pattern (`grep -E "a|sh"`) reads as a pipe into a shell and asks.
+  and over a normalised spelling of it, so quoting does not hide a rule (`sh -c 'rm -rf ~/x'`, `"sudo" ls`,
+  `eval "git reset --hard"`), nor does a quote or escape inside a word (`s''udo`, `w""isp`, `\wisp`), an unquoted
+  `$IFS` or `${IFS}` between words (`rm${IFS}-rf`), a continued line (`git push \⏎ --force`), or git's global
+  options before its verb (`git -C . push --force`, `-c k=v`, `--no-pager`, `--git-dir=…`, `--work-tree=…`). The
+  credential paths match in any case (`~/.SSH/ID_RSA` is the same file). The deny patterns run over the same
+  normalised spelling ([run_command](tools/run_command.md#policy-and-sandbox)). The normalised spelling leaves
+  data as written: the arguments of `echo` and `printf`, the pattern of `grep`, `egrep`, `fgrep`, `rg`, and `ag`
+  (the value of `-e`, or the first argument), the script of `sed`, and a `git … -m` message, so a search for
+  `"a|sh"` or `echo "rm -rf ~"` no longer reads as a pipe into a shell or a deletion, as it did in 0.21.1. Their
+  file arguments and redirections are still normalised, so `grep x "id_r""sa"` and `echo hi > "~/.s""sh/x"`
+  are still seen.
+
+  Three rules judge how a command runs rather than what it names. A program whose name is a variable or a
+  substitution (`$X args`, `"${TOOL}" x`, `$(which rm) -rf x`, `/bin/$X`) is at least `moderate`, with the
+  reason "the program is chosen at run time", and is remembered by its exact text; a variable naming only a
+  directory (`$HOME/bin/tool`) does not count. A program written on the command line (`python3 -c`, `perl -e`,
+  `ruby -e`, `node -e` or `--eval`, `php -r`, `deno eval`) is at least `moderate` and, as an interpreter's,
+  remembered by its exact text: wisp does not parse Python, Perl, or JavaScript, so what such a program does is
+  seen only where the shell rules recognise a word of it. And a pipe into an interpreter reading its program
+  from standard input (`| python3`, `| python3 -`, `| perl`, `| node`, `| osascript`, and the shells, `ksh` and
+  `fish` among them) is `dangerous`, judged over the whole line; `| python3 -m json.tool` and
+  `| python3 script.py` are not.
 
   The rules also keep a short list of read-only commands (`KnownSafeCommands`): `ls`, `cat`, `grep`,
   `find`, `git status`, `git log`, `git diff`, and other git reads, `--version` queries, and reads of the
@@ -88,11 +105,31 @@ A line is split into its simple commands (`ls && curl … | sh` is three), each 
 risky, approved on its own with the whole line shown for context; a denial for any part refuses the line
 ([ADR 0015](decisions/0015-per-command-approval.md)). The splitter looks inside `$(…)`, backticks, and `(…)`
 subshells (a `;` or newline inside parentheses does not split them), reads `'…'`, `"…"`, and `$'…'` quoting,
-and looks inside the script given to `sh -c`, `bash -lc`, and the like, and the words after `eval`, so the
-commands they run are judged too. It fails closed: a segment no command can be read from (an assignment, an
-unbalanced group) is judged as written, so the gate never judges fewer commands than the line holds. Some risks
-belong to the whole line rather than a part (`curl … | sh`, `env | grep TOKEN`): the rules judge the line once
-more, and when they rate it above every part, the line itself is asked about, remembered by its exact text. Approvals are remembered by the essential command,
+and looks inside the script given to `sh -c`, `bash -lc`, and the like, the words after `eval`, and the command
+`find` runs for each match (`-exec`, `-execdir`, `-ok`, `-okdir`, up to `;` or `+`, so `find . -exec sh -c 'rm
+{}' \;` is `find`, `sh`, and `rm`), so the commands they run are judged too; `xargs sh -c '…'` is unwrapped
+the same way. It fails closed: a segment no command can be read from (an assignment, an unbalanced group), or
+one whose program is what a substitution prints (`$(echo rm) -rf x`), is judged as written, so the gate never
+judges fewer commands than the line holds.
+
+Loops and conditionals are judged by what they run. `do X`, `then X`, `else X`, `elif X`, `if X`, `while X`,
+`until X`, `! X`, `{ X`, a function's body, and a `case` branch's `a) X` are judged and remembered as `X`, by
+its own pattern: `for f in *.txt; do git add "$f"; done` is `git add *`, so a new loop whose body runs an
+approved command does not ask again. A loop header (`for f in *.txt`), `do`, `then`, `done`, `fi`, `esac`, and
+`}` run nothing of their own and are not parts, so a keyword is never remembered on its own (the standing `do *`
+found on 2026-10-09 can no longer be made); a closing keyword with a redirection (`done > out.txt`) is judged as
+written. A command that uses a loop's variable carries what the variable ranges over, as a comment the rules
+read and the dialog shows (`rm "$f" # f in ~/*`), so a loop over the home folder is dangerous where the same
+body over `*.o` is moderate, and the two are never covered by one approval; a substitution in the header
+(`for f in $(find …)`) is judged as a command of its own. Case patterns containing `|` (`a|b)`) are split as a
+pipe, and the word before it is judged as a command: it asks more, never less.
+
+Some risks belong to the whole line rather than a part (`curl … | python3`, `env | grep TOKEN`): the rules judge
+the line once more, and when they rate it above every part, the line itself is asked about, once, remembered by
+its exact text. Its parts are not asked as well: the person approving the line saw every part of it, so they are
+covered for that line, each recorded as `covered-line` (before 0.22.0 the risky part was asked first and then the
+whole line). A part on its own later is judged afresh, and a line whose parts already carry its highest level
+asks its parts as before. Approvals are remembered by the essential command,
 the program that actually runs after unwrapping `sudo`, `env`, `time`, and the like, as a pattern such as
 `head *`, so arguments never matter to remembering. For programs whose first word is the verb (`git`,
 `cargo`, `swift`, `npm`, `brew`, `docker`, and the rest of
@@ -102,10 +139,10 @@ and `git push *` are remembered apart, so approving one does not approve the oth
 toolchain selectors (`cargo +nightly build`) are skipped; a program with no verb (`git --version`) is
 `git *`. An approvals file written before verbs existed still counts: a stored `git *` covers every
 git verb until it expires. A command whose program says nothing of what runs is remembered by its exact text,
-never by a pattern: a shell keyword (`do`, `then`, `if`, `for`, `{`, `!`, …), `.` and `source`, `eval`, an
-interpreter (`sh`, `bash`, `zsh`, `python3`, `node`, `ruby`, `perl`, `osascript`, …), anything run through
-`exec` or `xargs`, a function definition, and a segment that could not be read, since `do *` or `sh *` would
-cover any command at all. An approval has a scope
+never by a pattern: a keyword left after the reading above (`done > out.txt`, `[[`, `coproc`), `.` and
+`source`, `eval`, an interpreter (`sh`, `bash`, `zsh`, `python3`, `node`, `ruby`, `perl`, `osascript`, …),
+anything run through `exec` or `xargs`, a program named by a variable or a substitution (`$X args`), and a
+segment that could not be read, since `sh *` or `$X *` would cover any command at all. An approval has a scope
 ([ADR 0014](decisions/0014-persisted-approvals.md)):
 
 | Scope | Covers | Lives |
@@ -117,10 +154,12 @@ cover any command at all. An approval has a scope
 
 ### The order of checks
 
-For each simple command in a line, the gate does the following, in this order, stopping at the first
-step that decides:
+The gate first classifies every simple command in the line with the rules and, unless the rules know it to be
+read-only, the configured classifier. When the rules rate the whole line above every part and at or above the
+threshold, the line alone is cleared by steps 3 to 6 below, as one command, and its parts with it. Otherwise,
+for each simple command in turn, it does the following, stopping at the first step that decides:
 
-1. Classify it with the rules and, unless the rules know it to be read-only, the configured classifier.
+1. Take its verdict.
 2. If the verdict is below the threshold, run it. Nothing else is consulted.
 3. Check the session cache for an approval in this directory of this pattern at this level or above, or of
    this exact text; **a dangerous verdict is covered only by an approval of the exact text**.
@@ -129,18 +168,18 @@ step that decides:
    level or above, **but only if the verdict is not dangerous**.
 6. Ask the approver.
 
-The life of one command line through the policy and the gate, part by part, is this; every verdict and
-decision along the way is audited:
+The life of one command line through the policy and the gate is this; every verdict and decision along the way
+is audited:
 
 ```mermaid
 flowchart TD
     line["A command line from the model"] --> split["Split into simple commands"]
     split --> policy{"A deny pattern matches the line or a part, or no allow pattern does?"}
     policy -->|yes| denied["Refused by policy"]
-    policy -->|no| rules{"Next part: the rules know it read-only?"}
-    rules -->|"yes: safe, final"| threshold{"Below the threshold?"}
-    rules -->|no| classifier["The configured classifier runs too; the higher level wins"]
-    classifier --> threshold
+    policy -->|no| classify["Classify every part: the rules, and the configured classifier unless the rules know it read-only"]
+    classify --> whole{"The rules rate the whole line above every part, at the threshold or above?"}
+    whole -->|"yes: the line is the one command"| held
+    whole -->|"no: next part"| threshold{"Below the threshold?"}
     threshold -->|no| held{"A session or this-turn approval covers it?"}
     held -->|no| stored{"Not dangerous, and a project or always approval covers it?"}
     stored -->|no| ask["Ask the approver"]
@@ -149,8 +188,8 @@ flowchart TD
     held -->|yes| more
     stored -->|yes| more
     ask -->|"approved, with a scope"| more
-    more -->|yes| rules
-    more -->|no| run["Run the line under Seatbelt and audit its outcome"]
+    more -->|yes| threshold
+    more -->|"no, or the whole line was cleared"| run["Run the line under Seatbelt and audit its outcome"]
 ```
 
 Every cached approval remembers the level it was given at and covers only verdicts at that level or below, so a
@@ -167,7 +206,14 @@ A dangerous verdict is never persisted: `project` or `always` is downgraded to `
 says so. Remembered approvals only decide whether to ask; deny patterns, the sandbox, and the classifier
 run on every part every time, so `rm *` never covers `rm -rf build`, and each use is audited with the
 approval id.
-`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. Every process that uses the
+`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. A `project` approval belongs to
+the directory it was given in and outlives it: one given in an agent's worktree removed since can never match
+again. `wisp approvals`, chat's `/approvals`, and `wisp://approvals` mark such an approval gone (checked when
+listed: nothing is at the path, or it is not a directory; a directory that cannot be looked at is not gone), and
+`wisp approvals clear --gone` removes them, deciding again under the file's lock so a directory recreated since
+the listing keeps its approvals. Gone approvals are marked, not swept: a volume not mounted, or a worktree made
+again at the same path, looks gone for a while, and every approval expires after `approval.persistDays` anyway.
+Every process that uses the
 file (a running `wisp mcp`, `wisp approvals` in a terminal) reads it afresh for each check and changes it under an
 advisory `flock` on `approvals.json.lock` beside it, writing it whole by rename with mode 0600, so a revocation made
 while a server runs stays revoked (before 0.21.1 the server's next grant wrote back its own stale copy).
@@ -332,7 +378,8 @@ commands need a larger test set.
 ## Audit
 
 Every command produces `classifier.verdict` (level, reasons, sources, seconds) and, when asked,
-`approval.requested` and `approval.decided` (decision, reason; `cached` for session approvals). See
+`approval.requested` and `approval.decided` (decision, reason; `cached` for session approvals, `covered-line` for
+a part covered by approving its whole line). See
 [logging.md](logging.md).
 
 ## Testing policy without the model

@@ -124,9 +124,13 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         }
     }
 
-    /// Applies the deny and allow patterns to a command line.
+    /// Applies the deny and allow patterns to a command line. The deny patterns also run over the line's
+    /// normalised spelling (`RuleRiskClassifier.normalisedForms`), so a quote or escape inside a word
+    /// (`w''isp approvals approve`, `\sudo`) or `$IFS` between words hides nothing from them; the allow
+    /// patterns run over the line as written.
     public func check(_ command: String) -> Verdict {
-        for pattern in deny where Self.matches(pattern, command) {
+        let forms = [command] + RuleRiskClassifier.normalisedForms(of: command).filter { $0 != command }
+        for pattern in deny where forms.contains(where: { Self.matches(pattern, $0) }) {
             return .denied("command matches deny pattern \(pattern)")
         }
         if !allow.isEmpty, !allow.contains(where: { Self.matches($0, command) }) {

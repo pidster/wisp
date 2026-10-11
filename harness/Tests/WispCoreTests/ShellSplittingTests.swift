@@ -61,10 +61,12 @@ import Testing
 
     @Test func keywordsInterpretersAndFunctionsAreRememberedByTheirExactText() {
         func pattern(_ line: String) -> [String] { CommandSplitter.split(line).map(\.pattern) }
-        #expect(pattern("for f in *; do echo hi; done") == ["for f in *", "do echo hi", "done"])
-        #expect(pattern("if true; then rm x; fi") == ["if true", "then rm x", "fi"])
-        #expect(pattern("{ ls; }") == ["{ ls", "}"])
-        #expect(pattern("! grep x y") == ["! grep x y"])
+        // A compound command's keywords are read past (0.22.0): the commands inside keep their own patterns, and a
+        // keyword is never a part of its own.
+        #expect(pattern("for f in *; do echo hi; done") == ["echo *"])
+        #expect(pattern("if true; then rm x; fi") == ["true *", "rm *"])
+        #expect(pattern("{ ls; }") == ["ls *"])
+        #expect(pattern("! grep x y") == ["grep *"])
         #expect(pattern(". ./env.sh") == [". ./env.sh"])
         #expect(pattern("source ./env.sh") == ["source ./env.sh"])
         #expect(pattern("python3 tool.py") == ["python3 tool.py"])
@@ -73,10 +75,11 @@ import Testing
         #expect(pattern("osascript -e 'beep'") == ["osascript -e 'beep'"])
         #expect(pattern("ls | xargs rm") == ["ls *", "xargs rm"])
         #expect(pattern("exec ls") == ["exec ls"])
-        #expect(pattern("f() { ls; }") == ["f() { ls", "}"])
-        #expect(pattern("f () { ls; }") == ["f () { ls", "}"])
+        #expect(pattern("f() { ls; }") == ["ls *"])
+        #expect(pattern("f () { ls; }") == ["ls *"])
+        #expect(pattern("function f { ls; }") == ["ls *"])
         #expect(CommandSplitter.split("bash -c 'ls'").first?.pattern == "bash -c 'ls'")
-        #expect(CommandSplitter.split("do git commit").first?.legacyPattern == nil)
+        #expect(CommandSplitter.split("do git commit").first?.pattern == "git commit *")
         // Ordinary programs keep their patterns.
         #expect(pattern("git commit -m x") == ["git commit *"])
         #expect(pattern("ls -la") == ["ls *"])

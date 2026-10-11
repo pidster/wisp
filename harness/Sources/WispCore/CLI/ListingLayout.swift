@@ -22,18 +22,32 @@ public enum ListingLayout {
     ///
     /// - Parameters:
     ///   - entries: The standing approvals, in the order to print.
+    ///   - gone: The ids of those whose directory is gone (`ApprovalStore.Listing.isGone`).
     ///   - width: The terminal's width, or nil when piped.
-    /// - Returns: Tab-separated lines when piped; aligned columns under a header on a terminal.
-    public static func approvals(_ entries: [ApprovalStore.Entry], width: Int?) -> [String] {
+    /// - Returns: Tab-separated lines when piped, a gone approval's with a sixth field, `gone`; aligned columns
+    ///   under a header on a terminal, a gone approval's directory marked `(gone)`, and a note saying how to
+    ///   remove them when there are any.
+    public static func approvals(_ entries: [ApprovalStore.Entry], gone: Set<String> = [], width: Int?) -> [String] {
         let rows = entries.map { entry in
             let date = entry.expiresAt.formatted(date: .abbreviated, time: .omitted)
+            let isGone = gone.contains(entry.id)
+            let directory = entry.workingDirectory ?? "any directory"
             return [
                 entry.id, entry.scope.rawValue, width == nil ? "expires \(date)" : date,
-                entry.workingDirectory ?? "any directory", entry.pattern,
-            ]
+                width != nil && isGone ? "\(directory) (gone)" : directory, entry.pattern,
+            ] + (width == nil && isGone ? ["gone"] : [])
         }
         guard let width else { return rows.map { $0.joined(separator: "\t") } }
-        return TerminalTable.render(header: ["ID", "SCOPE", "EXPIRES", "WHERE", "PATTERN"], rows: rows, width: width)
+        let table = TerminalTable.render(
+            header: ["ID", "SCOPE", "EXPIRES", "WHERE", "PATTERN"], rows: rows, width: width)
+        let count = entries.filter { gone.contains($0.id) }.count
+        guard count > 0 else { return table }
+        let which =
+            count == 1 ? "1 approval is for a folder that is gone" : "\(count) approvals are for folders that are gone"
+        return table + [""]
+            + TerminalTable.note(
+                "\(which) and can never match again; 'wisp approvals clear --gone' removes them.", indent: 0,
+                width: width)
     }
 
     /// The `wisp approvals pending` lines for `requests`.

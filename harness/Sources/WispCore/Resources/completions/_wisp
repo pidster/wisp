@@ -385,7 +385,7 @@ _wisp_approvals() {
         local -ar subcommands=(
             'list:List standing approvals.'
             'revoke:Revoke one standing approval by id.'
-            'clear:Revoke every standing approval.'
+            'clear:Revoke every standing approval, or with --gone those for folders that are gone.'
             'pending:List commands waiting for approval in wisp mcp servers.'
             'approve:Approve a command waiting for approval, from a terminal.'
             'deny:Deny a command waiting for approval.'
@@ -430,6 +430,8 @@ _wisp_approvals_revoke() {
 _wisp_approvals_clear() {
     local -i ret=1
     local -ar arg_specs=(
+        '--gone[Remove only the project approvals whose folder no longer exists.]'
+        '(-y --yes)'{-y,--yes}'[With --gone, remove them without asking.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

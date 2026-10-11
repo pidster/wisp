@@ -72,14 +72,15 @@ extension ChatLoop {
             await view("approvals")
         case .revoke(let id):
             guard let store = context.approvalStore else { return io.note("approvals cannot be revoked here") }
-            let entries = await store.all
+            let entries = await store.listing
             guard !entries.isEmpty else { return io.note("no standing approvals") }
             var chosen = id
             if chosen == nil {
-                let options = entries.map { entry in
-                    ChatChoice.Option(
-                        value: entry.id, label: entry.pattern,
-                        detail: "\(entry.scope.rawValue), \(entry.workingDirectory ?? "any directory")")
+                let options = entries.map { listed in
+                    let entry = listed.entry
+                    let place = (entry.workingDirectory ?? "any directory") + (listed.isGone ? " (gone)" : "")
+                    return ChatChoice.Option(
+                        value: entry.id, label: entry.pattern, detail: "\(entry.scope.rawValue), \(place)")
                 }
                 chosen = await ask(ChatChoice(title: "Which approval goes?", options: options))
             }

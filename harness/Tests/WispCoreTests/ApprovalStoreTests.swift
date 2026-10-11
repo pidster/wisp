@@ -211,8 +211,8 @@ import Testing
         #expect(recorder.seen.events.map { $0.details["command"]?.stringValue } == ["touch a", "wc -l"])
         #expect(recorder.seen.events.first?.details["pattern"] == "touch *")
         #expect(recorder.seen.events.first?.details["line"] == "ls && touch a | wc -l")
-        await #expect(throws: ApprovalGate.Failure.refused("rm -r x: no")) {
-            try await gate.clear(command: "ls; rm -r x; echo after", workingDirectory: "/")
+        await #expect(throws: ApprovalGate.Failure.refused("rm x: no")) {
+            try await gate.clear(command: "ls; rm x; echo after", workingDirectory: "/")
         }
         await #expect(throws: ApprovalGate.Failure.refused("no")) {
             try await gate.clear(command: "rm -r x", workingDirectory: "/")

@@ -77,12 +77,19 @@ public enum CommandSplitter {
     public static func split(_ line: String) -> [SimpleCommand] { split(line, depth: 0) }
 
     /// `split` at a nesting `depth`; past `maxDepth` the text is returned whole as one command.
+    ///
+    /// Compound commands are read clause by clause (`clause(of:caseOpen:)`): `do X`, `then X`, `if X`, `! X`,
+    /// and a case branch's `a) X` are judged as `X`; a loop header (`for f in *.txt`) and a closing keyword
+    /// (`done`, `fi`) run nothing of their own; and a command that uses a loop's variable carries what the
+    /// variable ranges over (`rm "$f" # f in *.txt`), so the rules see what it can hold.
     private static func split(_ line: String, depth: Int) -> [SimpleCommand] {
         guard depth < maxDepth else {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? [] : [SimpleCommand(text: text, executable: text)]
         }
         var commands: [SimpleCommand] = []
+        var openCases = 0
+        var loops: [LoopVariable] = []
         for segment in segments(of: line) {
             let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
@@ -90,19 +97,147 @@ public enum CommandSplitter {
             for nested in substitutions(in: trimmed) {
                 commands += split(nested, depth: depth + 1)
             }
-            if let essential = essential(of: trimmed) {
+            let clause = clause(of: trimmed, caseOpen: openCases > 0)
+            openCases = max(0, openCases + clause.caseDelta)
+            if let loop = clause.loop { loops.append(loop) }
+            // A loop header, or `do`, `fi`, or `esac` alone, runs nothing of its own.
+            guard let body = clause.body else { continue }
+            if let essential = essential(of: body) {
                 commands.append(
-                    SimpleCommand(text: trimmed, executable: essential.executable, subcommand: essential.subcommand))
-                for script in innerScripts(of: trimmed) {
+                    SimpleCommand(
+                        text: annotated(body, loops: loops), executable: essential.executable,
+                        subcommand: essential.subcommand))
+                for script in innerScripts(of: body) {
                     commands += split(script, depth: depth + 1)
                 }
-            } else if commands.count == before {
-                // Nothing could be read from it (an assignment, an unbalanced group, a bare `()`): it is
-                // judged as written rather than not at all.
-                commands.append(SimpleCommand(text: trimmed, executable: trimmed))
+            } else if commands.count == before || runsASubstitution(body) {
+                // Nothing could be read from it (an assignment, an unbalanced group, a bare `()`), or the program
+                // is what a substitution prints (`$(echo rm) -rf x`): it is judged as written rather than not at all.
+                commands.append(SimpleCommand(text: body, executable: body))
             }
         }
         return commands
+    }
+
+    /// The variable a `for` or `select` header binds, and the words it ranges over as written.
+    struct LoopVariable: Equatable, Sendable {
+        /// The variable's name.
+        var name: String
+        /// What it ranges over, as written (`*.txt`, `$(ls)`); `"$@"` for a header without `in`.
+        var values: String
+    }
+
+    /// What one segment of a compound command runs.
+    struct Clause: Equatable, Sendable {
+        /// The command the segment runs, as written, or nil when it runs nothing of its own (a loop header,
+        /// `do`, `then`, `done`, `fi`, `esac`, or `}` alone).
+        var body: String?
+        /// The variable a `for` or `select` header binds.
+        var loop: LoopVariable?
+        /// `case` headers opened (+1) or `esac` closed (-1) by the segment.
+        var caseDelta = 0
+    }
+
+    /// Keywords that only introduce the command after them.
+    static let leadingKeywords: Set<String> = ["do", "then", "else", "elif", "if", "while", "until", "!", "{"]
+
+    /// Keywords that close a compound command and run nothing.
+    static let closingKeywords: Set<String> = ["done", "fi", "esac", "}"]
+
+    /// Reads one segment as a clause of a compound command. Keywords are recognised only as written bare (a
+    /// quoted `"do"` is a program's name), and a case branch's pattern (`a)`, `*)`) only while a `case` is
+    /// open. A closing keyword with more after it (`done > out.txt`) is judged as written, since what follows
+    /// applies to the whole compound command.
+    ///
+    /// - Parameters:
+    ///   - segment: One trimmed segment from `segments(of:)`.
+    ///   - caseOpen: Whether an earlier segment of the line opened a `case` not yet closed.
+    /// - Returns: The clause.
+    static func clause(of segment: String, caseOpen: Bool) -> Clause {
+        let chars = Array(segment)
+        let words = tokens(of: segment)
+        var clause = Clause()
+        var inCase = caseOpen
+        var index = 0
+        func rest(from position: Int) -> String? {
+            guard position < words.count else { return nil }
+            return String(chars[words[position].start...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        while index < words.count {
+            let raw = words[index].raw
+            let next = index + 1 < words.count ? words[index + 1].raw : nil
+            if leadingKeywords.contains(raw) {
+                index += 1
+            } else if closingKeywords.contains(raw), index == 0 {
+                if raw == "esac" { clause.caseDelta -= 1 }
+                clause.body = words.count > 1 ? segment : nil
+                return clause
+            } else if raw == "for" || raw == "select" {
+                // `for NAME [in WORDS]`; without `in` it ranges over the arguments. `for ((…))` binds nothing.
+                if let name = next, !name.hasPrefix("(") {
+                    let hasIn = index + 2 < words.count && words[index + 2].raw == "in"
+                    clause.loop = LoopVariable(name: name, values: hasIn ? rest(from: index + 3) ?? "" : #""$@""#)
+                }
+                return clause
+            } else if raw == "case" {
+                guard index + 2 < words.count, words[index + 2].raw == "in" else {
+                    clause.body = rest(from: index)
+                    return clause
+                }
+                clause.caseDelta += 1
+                inCase = true
+                index += 3
+            } else if raw == "function", next != nil {
+                index += 2
+                if index < words.count, words[index].raw == "()" { index += 1 }
+            } else if next == "()" {
+                index += 2  // `f () {`
+            } else if raw.count > 2, raw.hasSuffix("()") {
+                index += 1  // `f() {`
+            } else if inCase, raw.hasSuffix(")"), !raw.contains("(") {
+                index += 1  // a case branch's pattern
+            } else {
+                break
+            }
+        }
+        clause.body = rest(from: index)
+        return clause
+    }
+
+    /// `body` with ` # NAME in VALUES` added for each loop variable it uses, so the rules judge `rm "$f"` in
+    /// `for f in ~/*` by what `$f` ranges over. The key is unchanged: the program is the same.
+    static func annotated(_ body: String, loops: [LoopVariable]) -> String {
+        var text = body
+        for loop in loops where uses(body, variable: loop.name) {
+            text += " # \(loop.name) in \(loop.values)"
+        }
+        return text
+    }
+
+    /// Whether `text` expands the variable `name` (`$name`, `${name}`, `${name:-x}`).
+    static func uses(_ text: String, variable name: String) -> Bool {
+        guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return false }
+        let pattern = #"\$(\{"# + name + #"\b|"# + name + #"(?![A-Za-z0-9_]))"#
+        return (try? RegexCache.regex(pattern))?.matches(anywhereIn: text) == true
+    }
+
+    /// Whether the program a segment runs is what a substitution prints (`$(which tool) args`, `` `x` y``).
+    static func runsASubstitution(_ segment: String) -> Bool {
+        guard let word = unwrap(segment)?.first else { return false }
+        return word.raw.hasPrefix("$(") || word.raw.hasPrefix("`")
+    }
+
+    /// Whether the program a segment runs is chosen when it runs: its name, after keywords, wrappers, and
+    /// assignments, is a variable or a substitution (`$X args`, `"${TOOL}" x`, `$(which rm) -rf`, `/bin/$X`),
+    /// so its name says nothing of what runs. A variable naming only a directory (`$HOME/bin/tool`) does not
+    /// count: the program's own name is still written.
+    static func programIsChosenAtRunTime(_ segment: String) -> Bool {
+        guard let body = clause(of: segment, caseOpen: false).body, let word = unwrap(body)?.first else {
+            return false
+        }
+        if word.raw.hasPrefix("$(") || word.raw.hasPrefix("`") { return true }
+        let name = word.value.split(separator: "/").last.map(String.init) ?? word.value
+        return name.contains("$") || name.contains("`")
     }
 
     /// The command lines a segment hands to a shell: the argument of `sh -c`, `bash -lc`, and the like,
@@ -110,6 +245,7 @@ public enum CommandSplitter {
     static func innerScripts(of segment: String) -> [String] {
         guard let (name, rest, _) = program(of: segment) else { return [] }
         if name == "eval" { return rest.isEmpty ? [] : [rest.joined(separator: " ")] }
+        if name == "find" { return executed(byFind: rest) }
         guard shells.contains(name) else { return [] }
         var words = rest[...]
         while let word = words.first {
@@ -122,6 +258,30 @@ public enum CommandSplitter {
             if !word.hasPrefix("--"), word.contains("c") { return words.first.map { [$0] } ?? [] }
         }
         return []
+    }
+
+    /// The commands `find` runs for each match: the words after `-exec`, `-execdir`, `-ok`, or `-okdir` up to
+    /// the `;` or `+` that ends them, quoted again as one line, so `-exec sh -c 'rm {}' \;` is judged as
+    /// `sh -c 'rm {}'`, and the script inside it too.
+    static func executed(byFind words: [String]) -> [String] {
+        var commands: [String] = []
+        var remaining = words[...]
+        while let word = remaining.popFirst() {
+            guard ["-exec", "-execdir", "-ok", "-okdir"].contains(word) else { continue }
+            var command: [String] = []
+            while let next = remaining.popFirst(), next != ";", next != "+" {
+                command.append(next)
+            }
+            if !command.isEmpty { commands.append(command.map(shellWord).joined(separator: " ")) }
+        }
+        return commands
+    }
+
+    /// `word` as it must be written to stay one shell word: as it is when it holds nothing special, quoted
+    /// otherwise.
+    static func shellWord(_ word: String) -> String {
+        let plain = !word.isEmpty && word.allSatisfy { $0.isLetter || $0.isNumber || "_./{}=+:@,%-".contains($0) }
+        return plain ? word : quoted(word)
     }
 
     /// `text` as one shell word: in single quotes, each `'` written `'\''`.
@@ -308,63 +468,117 @@ public enum CommandSplitter {
         return (name, nil)
     }
 
-    /// The program name and the words after it, with wrappers and assignments unwrapped, and the
-    /// wrappers that were.
+    /// The program name and the words after it, with wrappers and assignments unwrapped, and the wrappers that
+    /// were; nil for a bare subshell, a substitution in the program's place, or assignments alone.
     private static func program(of segment: String) -> (String, [String], Set<String>)? {
-        var words = words(of: segment)
+        guard let (first, rest, unwrapped) = unwrap(segment) else { return nil }
+        if first.raw.hasPrefix("(") || first.raw.hasPrefix("$(") || first.raw.hasPrefix("`") { return nil }
+        let name = String(first.value.split(separator: "/").last ?? Substring(first.value))
+        return (name, rest.map(\.value), unwrapped)
+    }
+
+    /// `segment`'s words with wrappers (and their options) and assignments taken off the front: the word in
+    /// the program's place, the words after it, and the wrappers that were unwrapped; nil for assignments
+    /// alone.
+    private static func unwrap(_ segment: String) -> (first: Word, rest: [Word], unwrapped: Set<String>)? {
+        var words = tokens(of: segment)[...]
         var unwrapped: Set<String> = []
         while let first = words.first {
-            if first.hasPrefix("(") || first.hasPrefix("$(") || first.hasPrefix("`") { return nil }
+            let value = first.value
             let isAssignment =
-                first.contains("=") && !first.hasPrefix("=")
-                && first.split(separator: "=", maxSplits: 1)[0].allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+                !first.raw.hasPrefix("(") && !first.raw.hasPrefix("$(") && value.contains("=") && !value.hasPrefix("=")
+                && value.split(separator: "=", maxSplits: 1)[0].allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
             if isAssignment {
                 words.removeFirst()
                 continue
             }
-            let name = String(first.split(separator: "/").last ?? Substring(first))
+            let name = String(value.split(separator: "/").last ?? Substring(value))
             if wrappers.contains(name) {
                 unwrapped.insert(name)
                 words.removeFirst()
                 // Skip a wrapper's own options such as `sudo -u root`, `nice -n 10`, or `timeout 5`.
-                while let option = words.first, option.hasPrefix("-") || (name == "timeout" && Double(option) != nil) {
+                while let option = words.first?.value,
+                    option.hasPrefix("-") || (name == "timeout" && Double(option) != nil)
+                {
                     words.removeFirst()
                     if Self.valueOptions.contains(option), !words.isEmpty { words.removeFirst() }
                 }
                 continue
             }
             words.removeFirst()
-            return (name, words, unwrapped)
+            return (first, Array(words), unwrapped)
         }
         return nil
     }
 
+    /// One word of a segment.
+    struct Word: Equatable, Sendable {
+        /// The word as the shell reads it: quotes removed, escapes and `$'…'` read.
+        var value: String
+        /// The word as written, quotes and escapes included.
+        var raw: String
+        /// Where it starts in the segment, as a character offset.
+        var start: Int
+        /// Whether any of it was quoted or escaped, so that `value` and `raw` differ.
+        var isQuoted: Bool { value != raw }
+    }
+
     /// Whitespace-separated words, honouring quotes so an argument with spaces stays one word: `'…'`
     /// literally, `"…"` and `$'…'` with backslash escapes (kept as the escaped character, not
-    /// interpreted). A backslash before a newline continues the line and leaves nothing.
+    /// interpreted). A backslash before a newline continues the line and leaves nothing, and an unquoted
+    /// `$IFS` or `${IFS}` separates words as a space would (`rm${IFS}-rf` is `rm -rf`).
     static func words(of segment: String) -> [String] {
-        var result: [String] = []
+        tokens(of: segment).map(\.value).filter { !$0.isEmpty }
+    }
+
+    /// The words of `segment`, as `words(of:)` reads them, each with its spelling and where it starts. A word
+    /// written as an empty quote (`''`) is kept, with an empty value; a line continuation alone is not.
+    static func tokens(of segment: String) -> [Word] {
+        let chars = Array(segment)
+        var result: [Word] = []
         var current = ""
+        var start: Int?
         var inSingle = false
         var inDouble = false
         var inANSI = false
-        var previousWasEscape = false
-        var previous: Character?
-        for char in segment {
-            defer { previous = char }
+        var index = 0
+        func finish(at end: Int) {
+            if let begin = start {
+                let raw = String(chars[begin..<end])
+                if !current.isEmpty || raw.contains("'") || raw.contains("\"") {
+                    result.append(Word(value: current, raw: raw, start: begin))
+                }
+            }
+            current = ""
+            start = nil
+        }
+        while index < chars.count {
+            let char = chars[index]
+            let quoted = inSingle || inDouble || inANSI
+            if !quoted, char.isWhitespace {
+                finish(at: index)
+                index += 1
+                continue
+            }
+            if !quoted, char == "$", let length = ifsLength(chars, at: index) {
+                finish(at: index)
+                index += length
+                continue
+            }
+            if start == nil { start = index }
             if inSingle {
                 if char == "'" { inSingle = false } else { current.append(char) }
-            } else if previousWasEscape {
-                if char != "\n" { current.append(char) }
-                previousWasEscape = false
             } else if char == "\\" {
-                previousWasEscape = true
+                if index + 1 < chars.count {
+                    index += 1
+                    if chars[index] != "\n" { current.append(chars[index]) }
+                }
             } else if inANSI {
                 if char == "'" { inANSI = false } else { current.append(char) }
             } else if inDouble {
                 if char == "\"" { inDouble = false } else { current.append(char) }
             } else if char == "'" {
-                if previous == "$", current.last == "$" {
+                if index > 0, chars[index - 1] == "$", current.last == "$" {
                     current.removeLast()
                     inANSI = true
                 } else {
@@ -372,13 +586,21 @@ public enum CommandSplitter {
                 }
             } else if char == "\"" {
                 inDouble = true
-            } else if char.isWhitespace {
-                if !current.isEmpty { result.append(current); current = "" }
             } else {
                 current.append(char)
             }
+            index += 1
         }
-        if !current.isEmpty { result.append(current) }
+        finish(at: chars.count)
         return result
+    }
+
+    /// The length of an unquoted `$IFS` or `${IFS}` at `index`, or nil when there is none there.
+    private static func ifsLength(_ chars: [Character], at index: Int) -> Int? {
+        let ahead = String(chars[index..<min(chars.count, index + 6)])
+        if ahead == "${IFS}" { return 6 }
+        guard ahead.hasPrefix("$IFS") else { return nil }
+        let after = index + 4 < chars.count ? chars[index + 4] : nil
+        return after.map { $0.isLetter || $0.isNumber || $0 == "_" } == true ? nil : 4
     }
 }

@@ -220,11 +220,15 @@ import WispTestSupport
         // function called open is not the open command.
         for command in [
             "git merge-base --is-ancestor HEAD main", "git tag -l v0.5.0", "git tag --list",
-            "python3 -c \"print(open('a.txt').read())\"", "awk '{print \"seen at\", NR}' log",
+            "awk '{print \"seen at\", NR}' log",
         ] {
             let verdict = await RuleRiskClassifier.standard.classify(command: command, workingDirectory: "/tmp")
             #expect(verdict.level == .safe, "\(command): \(verdict.reasons)")
         }
+        // A program on the command line is moderate since 0.22.0, but for that alone: Python's open() is not open.
+        let inline = await RuleRiskClassifier.standard.classify(
+            command: "python3 -c \"print(open('a.txt').read())\"", workingDirectory: "/tmp")
+        #expect(inline.reasons == ["runs a program written on the command line, which wisp does not read"])
         for command in [
             "git merge feature", "git tag v1.0", "git tag -d v1.0", "git stash", "open -a Xcode .", "open .",
             "crontab -e", "at now + 1 minute",

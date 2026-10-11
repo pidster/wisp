@@ -83,7 +83,11 @@ public struct RuleRiskClassifier: RiskClassifier {
         Rule(start + #"sudo(\s|$)"#, .dangerous, "runs as root"),
         Rule(start + #"rm\s+(-[A-Za-z]*r[A-Za-z]*f|-[A-Za-z]*f[A-Za-z]*r|-r|-R)\b"#, .dangerous, "recursive deletion"),
         Rule(start + #"rm\s+.*(~|\$HOME|/Users/|/etc|/usr|/var|/System)"#, .dangerous, "deletes outside the project"),
-        Rule(#"\|\s*(ba|z|da)?sh(\s|$)"#, .dangerous, "pipes downloaded or generated content into a shell"),
+        Rule(#"\|\s*((ba|z|da|k)?sh|fish)(\s|$)"#, .dangerous, "pipes downloaded or generated content into a shell"),
+        // An interpreter reading its program from standard input: nothing after its name, or `-`.
+        Rule(
+            #"\|\s*(python[0-9.]*|pypy3?|perl|ruby|node|php|lua|osascript)(\s+-(\s|$)|\s*($|[;&|)]))"#, .dangerous,
+            "pipes downloaded or generated content into an interpreter as its program"),
         Rule(start + #"git\s+push\b.*(--force|-f\b|\+)"#, .dangerous, "force push rewrites remote history"),
         Rule(
             start
@@ -162,6 +166,11 @@ public struct RuleRiskClassifier: RiskClassifier {
             start + #"(rm|mv|cp|touch|mkdir|rmdir|ln|truncate|tee|sed\s+-i|perl\s+-i)\b"#, .moderate, "modifies files"),
         Rule(#"(^|[^>])>{1,2}\s*(?!/dev/null\b)[^&\s]"#, .moderate, "writes to a file"),
         Rule(start + #"edit_file\b"#, .moderate, "edits a file"),
+        // A program written on the command line (`python3 -c`, `perl -e`, `node -e`) can do anything; wisp does
+        // not parse the language, so it is at least moderate and, as an interpreter's, remembered by its text.
+        Rule(
+            #"(^|[\s;&|(`/]|\$\()((python[0-9.]*|pypy3?)\s+(-\S+\s+)*-[A-Za-z]*c|(perl|ruby|lua)\s+(-\S+\s+)*-[A-Za-z]*[eE]|(node|bun)\s+(-\S+\s+)*(-[A-Za-z]*[ep]|--eval|--print)|php\s+(-\S+\s+)*-r|deno\s+eval)(\s|$|=)"#,
+            .moderate, "runs a program written on the command line, which wisp does not read"),
         // Building and testing the project are safe, as the labels have them (training/risk/labels.md); only
         // what writes outside the project or throws build output away is moderate.
         Rule(
@@ -188,6 +197,10 @@ public struct RuleRiskClassifier: RiskClassifier {
     /// The reason given for a command on the read-only list (`KnownSafeCommands`).
     public static let knownSafe = "a known read-only command"
 
+    /// The reason given for a command whose program is a variable or a substitution (`$X args`): what runs is
+    /// decided only when it runs, so it is at least moderate and remembered by its exact text.
+    public static let chosenAtRunTime = "the program is chosen at run time"
+
     /// Applies every rule and returns the highest level with all matching reasons. A command no rule
     /// matches that is on the read-only list is marked `RiskAssessment.knownSafeKey`, so a composite asks
     /// no other classifier about it.
@@ -203,6 +216,10 @@ public struct RuleRiskClassifier: RiskClassifier {
             level = max(level, rule.level)
             if !reasons.contains(rule.reason) { reasons.append(rule.reason) }
         }
+        if CommandSplitter.segments(of: command).contains(where: CommandSplitter.programIsChosenAtRunTime) {
+            level = max(level, .moderate)
+            if !reasons.contains(Self.chosenAtRunTime) { reasons.append(Self.chosenAtRunTime) }
+        }
         if reasons.isEmpty, KnownSafeCommands.contains(command) {
             return RiskAssessment(
                 level: .safe, reasons: [Self.knownSafe], sources: ["rules"],
@@ -212,27 +229,4 @@ public struct RuleRiskClassifier: RiskClassifier {
         return RiskAssessment(level: level, reasons: reasons, sources: ["rules"])
     }
 
-    /// Git's options that come before the verb and take a separate value.
-    private static let gitValueOptions: Set<String> = [
-        "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env", "--super-prefix",
-    ]
-
-    /// Another spelling of `command` for the rules: its words (quotes removed, `$'…'` read, line
-    /// continuations joined) joined by single spaces, with git's global options (`-C <dir>`, `-c <k=v>`,
-    /// `--no-pager`, `--git-dir=…`) dropped so the verb follows `git` directly. Unquoting can make a harmless
-    /// word look like an operator (`grep -E "a|sh"`), which only ever raises a verdict.
-    static func normalisedForms(of command: String) -> [String] {
-        var words: [String] = []
-        var remaining = CommandSplitter.words(of: command)[...]
-        while let word = remaining.popFirst() {
-            words.append(word)
-            guard word == "git" || word.hasSuffix("/git") else { continue }
-            while let option = remaining.first, option.hasPrefix("-") {
-                remaining.removeFirst()
-                let name = String(option.prefix { $0 != "=" })
-                if gitValueOptions.contains(name), !option.contains("="), !remaining.isEmpty { remaining.removeFirst() }
-            }
-        }
-        return [words.joined(separator: " ")]
-    }
 }

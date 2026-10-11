@@ -61,7 +61,7 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | --- | --- |
 | `wisp://config` | JSON: every setting with defaults applied, the model, the `run_command` policy, and the paths under `~/.wisp`. |
 | `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, and the count of standing approvals. |
-| `wisp://approvals` | JSON: the standing approvals with pattern, directory, scope, level, expiry, and source. |
+| `wisp://approvals` | JSON: the standing approvals with pattern, directory, scope, level, expiry, source, and `gone` (a project approval whose directory no longer exists, which can never match again; checked when read). |
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON Lines: the last 100 audit events across every session, as written to the audit file. |
 | `wisp://audit/{session}` | JSON Lines: every event of one session that is not a `respond` thread: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here with a pointer to its `…/audit` below. |

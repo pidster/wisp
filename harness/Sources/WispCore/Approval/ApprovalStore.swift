@@ -79,6 +79,46 @@ public actor ApprovalStore {
         load().filter { $0.expiresAt > Date() }.sorted { $0.grantedAt > $1.grantedAt }
     }
 
+    /// A standing approval as listed: the entry, and whether the directory it was given in is gone.
+    public struct Listing: Equatable, Sendable {
+        /// The approval.
+        public var entry: Entry
+        /// Whether it is a `project` approval whose directory no longer exists (`ApprovalStore.isGone`), so it
+        /// can never match again; checked when listed.
+        public var isGone: Bool
+    }
+
+    /// Live entries, newest first, each marked when its directory is gone. Whether a directory exists is
+    /// checked now, for display only: `clearGone` checks again under the lock before removing anything.
+    public var listing: [Listing] {
+        all.map { Listing(entry: $0, isGone: Self.isGone($0)) }
+    }
+
+    /// Whether `entry` is a `project` approval whose directory no longer exists: nothing is at its path, or
+    /// what is there is not a directory. A directory that cannot be looked at (permission denied) is not gone,
+    /// and an `always` approval belongs to no directory.
+    public static func isGone(_ entry: Entry) -> Bool {
+        guard entry.scope == .project, let directory = entry.workingDirectory else { return false }
+        var status = stat()
+        guard stat(directory, &status) == 0 else { return errno == ENOENT || errno == ENOTDIR }
+        return status.st_mode & S_IFMT != S_IFDIR
+    }
+
+    /// Removes every `project` approval whose directory is gone, deciding under the lock, so a directory
+    /// recreated since it was listed keeps its approvals.
+    ///
+    /// - Returns: The entries removed, newest first.
+    /// - Throws: File-system errors from writing.
+    @discardableResult
+    public func clearGone() throws -> [Entry] {
+        var removed: [Entry] = []
+        try change { entries in
+            removed = entries.filter { $0.expiresAt > Date() && Self.isGone($0) }
+            entries.removeAll { Self.isGone($0) }
+        }
+        return removed.sorted { $0.grantedAt > $1.grantedAt }
+    }
+
     /// The entry covering `pattern` in `directory`, if any, granted at `level` or above when a level is given.
     ///
     /// - Parameters:

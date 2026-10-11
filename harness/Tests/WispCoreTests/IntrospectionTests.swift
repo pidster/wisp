@@ -123,6 +123,7 @@ import Testing
         #expect(first["workingDirectory"] == "/repo")
         #expect(first["scope"] == "project")
         #expect(first["source"] == "chat")
+        #expect(first["gone"] == .bool(true))  // `/repo` does not exist on this Mac
         #expect(try views.audit(AuditQuery()).map(\.kind) == [.prompt, .commandOutcome, .sessionEnd])
         #expect(try views.audit(AuditQuery(session: "s2")).count == 1)
         #expect(try views.audit(AuditQuery(kinds: [.commandOutcome], last: 1)).first?.details["command"] == "ls")

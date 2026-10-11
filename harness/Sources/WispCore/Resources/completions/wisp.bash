@@ -510,7 +510,7 @@ _wisp_approvals_revoke() {
 
 _wisp_approvals_clear() {
     repeating_flags=()
-    non_repeating_flags=(--version -h --help)
+    non_repeating_flags=(--gone -y --yes --version -h --help)
     repeating_options=()
     non_repeating_options=()
     __wisp_offer_flags_options 0

@@ -86,7 +86,7 @@ dialog, `wisp approvals` at a terminal, or your MCP client's dialog. The agent t
 nothing in the MCP conversation approves a command, and the answer is bound to the exact command,
 directory, and thread you were shown. wisp's own model cannot: the sandbox denies its commands any write to
 `~/.wisp` even when that lies inside the writable set, `edit_file` refuses it, and the default policy refuses
-`wisp approvals approve|deny`, quoted or behind a wrapper. `wisp approvals approve` and
+`wisp approvals approve|deny`, quoted or behind a wrapper, or spelt `w''isp` or with `${IFS}` between the words. `wisp approvals approve` and
 `deny` refuse to run without a terminal on standard input, which an agent's shell tool does not give; that
 is a hurdle, not a wall, so keep your agent's own approval for shell commands on
 ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)).
@@ -95,9 +95,14 @@ Your answer has a scope. "This turn" covers the rest of the current prompt. "Thi
 process. "This project" and "Always" are written to `~/.wisp/approvals.json` for 30 days, keyed by the
 program (`head *`), never by exact arguments and never for a dangerous verdict. An approval covers only
 commands judged at its level or below: approving a moderate `rm` never approves `rm -rf`, and a dangerous
-command is remembered for the turn or session by its exact text alone. A shell keyword or an interpreter
-(`do`, `sh`, `python3`, …) is always remembered by its exact text. `wisp approvals` lists them; `wisp approvals revoke <id>` and `clear` remove them. A dialog nobody answers within ten minutes
-counts as a refusal.
+command is remembered for the turn or session by its exact text alone. An interpreter (`sh`, `python3`, …), or a
+program named by a variable (`$X args`), is always remembered by its exact text. A loop or conditional is
+judged and remembered by the commands inside it (`for f in *; do git add "$f"; done` is `git add *`), never by
+its keyword, so an approval of one loop's body covers that command in the next loop and nothing else. When only
+the whole line shows the risk (`curl … | python3`) you are asked once, about the line, and your answer covers
+its parts for that line alone. `wisp approvals` lists them, marking a project approval whose folder is gone,
+which can never match again; `wisp approvals revoke <id>`, `clear`, and `clear --gone` remove them. A dialog
+nobody answers within ten minutes counts as a refusal.
 
 **Who keeps a permanent fact, and where.** Only you. A permanent fact (a codename, a settled decision, a
 preference) is written to `~/.wisp/facts.json` and given to every conversation, so wisp never writes one on

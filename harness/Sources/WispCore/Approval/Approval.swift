@@ -366,42 +366,72 @@ public actor ApprovalGate {
     private func clear(
         parts: [SimpleCommand], line: String, workingDirectory: String, classifier: any RiskClassifier
     ) async throws {
-        // Every simple command in the line is checked and approved on its own, so a dangerous part
-        // cannot hide behind a safe first command, and approvals are remembered per pattern.
+        // Every simple command in the line is judged and approved on its own, so a dangerous part cannot hide
+        // behind a safe first command, and approvals are remembered per pattern.
         let segments = parts.isEmpty ? [SimpleCommand(text: line, executable: line)] : parts
-        var highest = RiskLevel.safe
+        var judged: [(segment: SimpleCommand, assessment: RiskAssessment)] = []
         for segment in segments {
+            judged.append(
+                (segment, await judge(segment, line: line, workingDirectory: workingDirectory, classifier: classifier)))
+        }
+        // Some signals belong to the line, not to any one part: `curl … | python3`, `env | grep TOKEN`. The rules
+        // judge the whole line once more, and when they rate it above every part it is asked about as a whole,
+        // remembered by its exact text, and only it: the person approving it saw every part, so its parts are
+        // covered for this line rather than asked again.
+        let whole = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let highest = judged.map(\.assessment.level).max() ?? .safe
+        if segments.count > 1 || segments.first?.text != whole {
+            let lineVerdict = await RuleRiskClassifier.standard.classify(
+                command: line, workingDirectory: workingDirectory)
+            if lineVerdict.level > highest, threshold.requiresApproval(at: lineVerdict.level) {
+                let wholeLine = SimpleCommand(text: whole, executable: whole)
+                audit?.record(
+                    .classifierVerdict,
+                    details: AuditEvent.Details.classifierVerdict(
+                        command: whole, pattern: wholeLine.pattern, line: line, assessment: lineVerdict, seconds: 0))
+                try await decide(wholeLine, assessment: lineVerdict, line: line, workingDirectory: workingDirectory)
+                for (segment, assessment) in judged where threshold.requiresApproval(at: assessment.level) {
+                    audit?.record(
+                        .approvalDecided,
+                        details: AuditEvent.Details.approvalDecided(
+                            command: segment.text, pattern: segment.pattern, line: line, decision: "covered-line",
+                            scope: nil, reason: nil, approvalID: nil, expiresAt: nil, downgradedFrom: nil,
+                            persistError: nil))
+                }
+                return
+            }
+        }
+        for (segment, assessment) in judged {
             do {
-                let level = try await clearSegment(
-                    segment, line: line, workingDirectory: workingDirectory, classifier: classifier)
-                highest = max(highest, level)
+                try await decide(segment, assessment: assessment, line: line, workingDirectory: workingDirectory)
             } catch Failure.refused(let reason) where segments.count > 1 {
                 throw Failure.refused("\(segment.text): \(reason)")
             }
         }
-        // Some signals belong to the line, not to any one part: `curl … | sh`, `env | grep TOKEN`. The rules
-        // judge the whole line once more, and when they rate it above every part it is asked about as a whole,
-        // remembered by its exact text.
-        let whole = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard segments.count > 1 || segments.first?.text != whole else { return }
-        let lineVerdict = await RuleRiskClassifier.standard.classify(command: line, workingDirectory: workingDirectory)
-        guard lineVerdict.level > highest else { return }
-        try await clearSegment(
-            SimpleCommand(text: whole, executable: whole), line: line, workingDirectory: workingDirectory,
-            classifier: RuleRiskClassifier.standard)
     }
 
-    /// Classifies one simple command and, at the threshold or above, clears it by a held approval or by
-    /// asking.
+    /// Classifies one simple command and records the verdict.
     ///
-    /// - Returns: The level it was judged at.
-    /// - Throws: `Failure.refused` when it may not run.
-    @discardableResult
-    private func clearSegment(
+    /// - Returns: The assessment.
+    private func judge(
         _ segment: SimpleCommand, line: String, workingDirectory: String, classifier: any RiskClassifier
-    ) async throws -> RiskLevel {
+    ) async -> RiskAssessment {
         let started = Date()
         let assessment = await classifier.classify(command: segment.text, workingDirectory: workingDirectory)
+        audit?.record(
+            .classifierVerdict,
+            details: AuditEvent.Details.classifierVerdict(
+                command: segment.text, pattern: segment.pattern, line: line, assessment: assessment,
+                seconds: Date().timeIntervalSince(started)))
+        return assessment
+    }
+
+    /// At the threshold or above, clears one judged simple command by a held approval or by asking.
+    ///
+    /// - Throws: `Failure.refused` when it may not run.
+    private func decide(
+        _ segment: SimpleCommand, assessment: RiskAssessment, line: String, workingDirectory: String
+    ) async throws {
         func decided(
             _ decision: String, scope: ApprovalScope? = nil, reason: String? = nil, approvalID: String? = nil,
             expiresAt: Date? = nil, downgradedFrom: ApprovalScope? = nil, persistError: String? = nil
@@ -413,26 +443,21 @@ public actor ApprovalGate {
                     reason: reason, approvalID: approvalID, expiresAt: expiresAt, downgradedFrom: downgradedFrom,
                     persistError: persistError))
         }
-        audit?.record(
-            .classifierVerdict,
-            details: AuditEvent.Details.classifierVerdict(
-                command: segment.text, pattern: segment.pattern, line: line, assessment: assessment,
-                seconds: Date().timeIntervalSince(started)))
         let level = assessment.level
-        guard threshold.requiresApproval(at: level) else { return level }
+        guard threshold.requiresApproval(at: level) else { return }
         if Self.covers(sessionApprovals.level(for:), segment, at: level, in: workingDirectory) {
             decided("cached")
-            return level
+            return
         }
         _ = currentTurn()
         let turnApproved = turnState.approved
         if Self.covers({ turnApproved[$0] }, segment, at: level, in: workingDirectory) {
             decided("cached-turn")
-            return level
+            return
         }
         if level < .dangerous, let standing = await standingApproval(for: segment, in: workingDirectory, level: level) {
             decided("cached-\(standing.scope.rawValue)", approvalID: standing.id)
-            return level
+            return
         }
         // A dangerous command is remembered by its exact text, anything else by its pattern at its level.
         let remembered = level == .dangerous ? segment.text : segment.pattern
@@ -475,7 +500,7 @@ public actor ApprovalGate {
             decided(
                 "approved", scope: scope, approvalID: approvalID, expiresAt: expiresAt,
                 downgradedFrom: scope != requested ? requested : nil, persistError: persistError)
-            return level
+            return
         case .denied(let reason):
             decided("denied", reason: reason)
             turnState.refusals.append(Refusal(command: segment.text, reason: reason))
