@@ -118,9 +118,9 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         // empty here; the shape and the id check are what the wire test pins. A thread's events are under
         // the thread, not under wisp://audit/{session}.
         let thread = try await pair.client.readResource(uri: "wisp://threads/intro/audit")
-        #expect(thread.first?.mimeType == "application/x-ndjson")
+        #expect(thread.first?.mimeType == "application/json" && thread.first?.text?.contains("\"events\"") == true)
         let other = try await pair.client.readResource(uri: "wisp://audit/triage-1234")
-        #expect(other.first?.mimeType == "application/x-ndjson")
+        #expect(other.first?.mimeType == "application/json")
         await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://audit/intro") }
         await #expect(throws: MCPError.self) { _ = try await pair.client.readResource(uri: "wisp://audit/bad id") }
         await pair.client.disconnect()

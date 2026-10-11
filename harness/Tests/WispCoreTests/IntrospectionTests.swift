@@ -202,27 +202,30 @@ import Testing
             status: { ["session": "s", "turn": 3] })
         let tool = InspectTool(introspection: views)
         #expect(
-            await tool.call(arguments: .init(what: "Config", last: nil, kind: nil, session: nil)).contains(
+            await tool.call(arguments: .init(what: "Config", last: nil, kind: nil, session: nil, turn: nil)).contains(
                 "\"version\""))
         #expect(
-            await tool.call(arguments: .init(what: "status", last: nil, kind: nil, session: nil)).contains(
+            await tool.call(arguments: .init(what: "status", last: nil, kind: nil, session: nil, turn: nil)).contains(
                 "\"turn\" : 3"))
-        #expect(await tool.call(arguments: .init(what: "approvals", last: nil, kind: nil, session: nil)) == "[\n\n]")
-        let audit = await tool.call(arguments: .init(what: "audit", last: 30, kind: "prompt", session: "s"))
-        #expect(audit.contains("[truncated:"))
-        #expect(audit.utf8.count <= InspectTool.maxBytes + 64)
-        let two = await tool.call(arguments: .init(what: "audit", last: 2, kind: nil, session: nil))
+        #expect(
+            await tool.call(arguments: .init(what: "approvals", last: nil, kind: nil, session: nil, turn: nil))
+                == "[\n\n]")
+        let audit = await tool.call(arguments: .init(what: "audit", last: 30, kind: "prompt", session: "s", turn: nil))
+        #expect(audit.contains("held back …]") && audit.contains("not kept: this conversation has no output store"))
+        #expect(audit.utf8.count <= ToolBudget.floor + 64)
+        let two = await tool.call(arguments: .init(what: "audit", last: 2, kind: nil, session: nil, turn: nil))
         #expect(two.components(separatedBy: "\n").count == 2)
         #expect(two.contains("prompt 30"))
         #expect(
-            await tool.call(arguments: .init(what: "audit", last: 5, kind: "nope", session: nil)).hasPrefix(
+            await tool.call(arguments: .init(what: "audit", last: 5, kind: "nope", session: nil, turn: nil)).hasPrefix(
                 "error: unknown kind 'nope'"))
         #expect(
-            await tool.call(arguments: .init(what: "audit", last: 5, kind: nil, session: "none"))
+            await tool.call(arguments: .init(what: "audit", last: 5, kind: nil, session: "none", turn: nil))
                 == "no matching audit events")
         #expect(
-            await tool.call(arguments: .init(what: "everything", last: nil, kind: nil, session: nil)).hasPrefix(
-                "error: unknown view"))
+            await tool.call(arguments: .init(what: "everything", last: nil, kind: nil, session: nil, turn: nil))
+                .hasPrefix(
+                    "error: unknown view"))
         #expect(ToolOutput.bounded("short", maxBytes: 10) == "short")
         #expect(ToolOutput.bounded("héllo wörld", maxBytes: 3).hasPrefix("hé\n[truncated:"))
         #expect(ToolRegistry().all.map(\.name).contains("inspect"))

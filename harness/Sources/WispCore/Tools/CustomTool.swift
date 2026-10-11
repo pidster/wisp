@@ -242,8 +242,9 @@ public struct CustomTool: WispTool {
 
     /// Bounds, from the runner and the definition.
     public var limits: String {
-        "Runs `\(definition.command)` under run_command's policy, sandbox, and approval; output up to "
-            + "\(runner.options.maxOutputBytes) bytes per stream, \(Int(runner.options.timeout.components.seconds)) s at most."
+        "Runs `\(definition.command)` under run_command's policy, sandbox, and approval; the result within "
+            + "\(runner.bound) bytes, the rest kept in the output store, \(Int(runner.options.timeout.components.seconds)) "
+            + "s at most."
     }
     /// How to ask for it.
     public var examplePrompt: String {

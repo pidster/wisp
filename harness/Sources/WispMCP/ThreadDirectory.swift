@@ -4,9 +4,9 @@ import WispCore
 
 /// What the server remembers about each `respond` thread it has opened, open or not, for the
 /// `wisp://threads` resources: its model, tools, whether the caller gave it instructions, when it was
-/// created and last used, how many turns it has had, and whether it is still open. The thread itself, and
-/// its context, go when it is closed or evicted; this record stays, so a caller can still find its output
-/// and audit, which the audit log keeps.
+/// created and last used, how many turns it has had, whether it is still open, and the audit session its events
+/// carry. The thread itself, and its context, go when it is closed or evicted; this record stays, so a caller can
+/// still find its output and audit, which the audit log keeps.
 ///
 /// Bounded: at most `capacity` records; beyond it the record of the thread closed longest ago goes first.
 /// A `final class` with a `Mutex`, since every operation is a short synchronous critical section.
@@ -25,6 +25,10 @@ public final class ThreadDirectory: Sendable {
     public struct Record: Sendable, Equatable {
         /// The `thread_id`.
         public var id: String
+        /// The audit session its events carry: `<thread_id>-<suffix>`, one per opening, so a `thread_id` reused
+        /// after `close_thread` has resources of its own (the 2026-10-09 review); the `id` itself for a thread
+        /// opened without one.
+        public var auditSession: String
         /// The model it runs on, as `ModelSelection` spells it; nil when unknown.
         public var model: String?
         /// The tools its model may call.
@@ -53,19 +57,28 @@ public final class ThreadDirectory: Sendable {
         self.capacity = capacity
     }
 
+    /// The audit session for a thread opened now: the `thread_id` with a fresh eight-character suffix.
+    ///
+    /// - Parameter id: The `thread_id`.
+    /// - Returns: The audit session.
+    public static func auditSession(for id: String) -> String { "\(id)-\(ShortID.make())" }
+
     /// Records a thread just created, replacing any record of a thread with the same id that went before.
     ///
     /// - Parameters:
     ///   - id: The `thread_id`.
+    ///   - auditSession: The audit session its events carry; `id` when nil.
     ///   - model: Its model, when known.
     ///   - tools: Its tools.
     ///   - instructions: Whether the caller gave it instructions.
     ///   - now: The time.
-    public func opened(id: String, model: String?, tools: [String], instructions: Bool, now: Date = Date()) {
+    public func opened(
+        id: String, auditSession: String? = nil, model: String?, tools: [String], instructions: Bool, now: Date = Date()
+    ) {
         records.withLock { records in
             records[id] = Record(
-                id: id, model: model, tools: tools, instructions: instructions, created: now, lastActive: now,
-                turns: 0, state: .open)
+                id: id, auditSession: auditSession ?? id, model: model, tools: tools, instructions: instructions,
+                created: now, lastActive: now, turns: 0, state: .open)
             let closed = records.values.filter { $0.state != .open }.sorted { $0.lastActive < $1.lastActive }
             for record in closed.prefix(max(0, records.count - capacity)) { records[record.id] = nil }
         }
@@ -86,6 +99,15 @@ public final class ThreadDirectory: Sendable {
 
     /// The record of `id`, or nil.
     public func record(_ id: String) -> Record? { records.withLock { $0[id] } }
+
+    /// The audit session of thread `id`: its record's, or `id` itself for a thread the directory does not know.
+    public func auditSession(of id: String) -> String { record(id)?.auditSession ?? id }
+
+    /// Whether `session` is the audit session of a thread this directory knows, by id or by suffix.
+    public func isThreadSession(_ session: String) -> Bool {
+        records.withLock { records in records[session] != nil || records.values.contains { $0.auditSession == session }
+        }
+    }
 
     /// Every record, most recently active first.
     public var all: [Record] {

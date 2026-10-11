@@ -40,6 +40,14 @@ public struct WispThread: Sendable {
     /// The runner `run_command` uses, with this thread's audit and gate; the agent runs the person's typed
     /// commands through it (ADR 0049).
     let runner: CommandRunner
+    /// The thread's tool-output budget, shared by its tools and its agent, which sets the model's window on it
+    /// (ADR 0050).
+    public let budget: ToolBudget
+    /// Where the thread's tools keep output past the budget whole; nil when the audit is off, since the store is
+    /// read through the audit's call ids and lives beside the audit's other files.
+    public let outputs: OutputStore?
+    /// What answers `memory`'s `condense` question, attached to the agent's model when one opens.
+    let condenser: OutputCondenser
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
@@ -59,12 +67,18 @@ public struct WispThread: Sendable {
             threshold: session.config.approvalThreshold, audit: audit, store: session.store,
             source: session.entryPoint, sessionApprovals: session.sessionApprovals)
         let memory = MemorySource()
+        let budget = ToolBudget(memory: toolNames.contains(MemoryTool.toolName))
+        let outputs = session.config.auditEnabled ? OutputStore.forThread(home: session.home, audit: audit) : nil
+        let condenser = OutputCondenser()
         let registry = ToolRegistry(
             runner: session.config.runner, audit: audit, approval: gate,
             introspection: session.introspection(for: audit, tools: toolNames, model: model),
-            host: host, memory: memory, disabled: session.config.disabledTools, custom: session.config.customTools)
+            host: host, memory: memory, budget: budget, store: outputs, condenser: condenser,
+            disabled: session.config.disabledTools, custom: session.config.customTools)
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
+        let hasMemory = selection.tools.contains { $0.name == MemoryTool.toolName }
+        budget.memory = hasMemory
         return WispThread(
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
@@ -77,10 +91,17 @@ public struct WispThread: Sendable {
                     permanent: session.permanentFacts, distils: session.config.factsDistil,
                     proposals: session.factProposals)
                 : nil,
-            memory: selection.tools.contains { $0.name == MemoryTool.toolName } ? memory : nil,
+            memory: hasMemory ? memory : nil,
             infersTask: session.entryPoint == .chat,
-            runner: CommandRunner(options: session.config.runner, audit: audit, approval: gate))
+            runner: CommandRunner(
+                options: session.config.runner, audit: audit, approval: gate, budget: budget, store: outputs),
+            budget: budget, outputs: outputs, condenser: condenser)
     }
+
+    /// What the model answering a `condense` chunk is told: read the part, answer the question, quote the lines.
+    static let condenserInstructions =
+        "You read one part of a tool's output and answer a question about it from that part alone, briefly, quoting "
+        + "the lines you rely on. You have no tools."
 
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
     /// `model.resolved`, and creates the agent that runs this conversation.
@@ -139,6 +160,14 @@ public struct WispThread: Sendable {
         agent.stats = stats
         agent.toolEvents = toolEvents
         agent.commandRunner = runner
+        // The budget follows the window: known now for most backends, at the first overflow for the rest.
+        budget.window = resolved.contextSize
+        agent.toolBudget = budget
+        // `condense` asks the conversation's own model, one chunk per fresh tool-less session, as triage judges.
+        let model = resolved
+        condenser.attach { prompt in
+            try await Agent(instructions: Self.condenserInstructions, tools: [], model: model).respond(to: prompt).text
+        }
         agent.contextPolicy = .target(config.contextTarget)
         agent.factsShare = config.factsShare
         agent.summarises = config.factsSummary

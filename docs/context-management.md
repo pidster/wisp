@@ -421,8 +421,11 @@ model's `memory` tool, which also lets the model note a fact as it works (phase 
 commands do, and that the references already spell for a recall: `recall entry 7` (a stored entry: a tool
 output, a reply, a prompt), `recall turn 3` (every entry of a turn), `recall task` (the task's versions and the
 prompt the conversation began with), `recall summary` (the running summary's versions), or `recall fact
-<subject>` (a fact's versions, with their sources, times, and the entries they came from: D2's history), with
-`from line N` for a later page of 4 KiB. A request with no verb is a recall.
+<subject>` (a fact's versions, with their sources, times, and the entries they came from: D2's history), or
+`recall output 3f9a2c1b` (a stored output the model saw only in part, by the id its held-back note names, ADR
+0050), with a filter (`matching PATTERN`, `lines A-B`, `head N`, `tail N`) and `from line N` for a later page of
+the tool-output budget. A request with no verb is a recall. `summarise` and `condense` read a stored output
+whole (above, "The tool-output budget, and the output store").
 
 **Where the content comes from.** The audit log is the verbatim record (D8), so an entry's content is read
 from the audit event its store entry refers to (`AuditLog.event(_:)`, which finds the event by id in the audit
@@ -691,13 +694,75 @@ flowchart TD
     retry -->|yes| error["ContextFailure.doesNotFit"]
 ```
 
-Tools are the other half of the answer. `run_command` keeps only the tail of output and `read_file` pages a
-file, so a single tool result cannot fill the window.
+Tools are the other half of the answer: every tool result is bounded to the tool-output budget, below, so a
+single tool result cannot fill the window, and what does not fit is kept whole and reachable rather than dropped.
+
+### The tool-output budget, and the output store
+
+Since 0.22.0 ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)) one budget bounds every tool's
+result: an eighth of the current model's window, at four bytes a token, never below 4 KiB (what the on-device
+model's 8,192 tokens give, and the fixed bound every tool had before) and never above 64 KiB. `granite4.1:8b` at
+53,248 tokens gets 26 KiB; a model at 131,072 or more gets 64 KiB; a backend whose window is not known yet gets the
+floor until an overflow reports one. The budget is one object per conversation (`ToolBudget`), shared by its
+tools and its agent, which writes the window to it as it becomes known or changes; `/model` opens a new agent and
+a new budget. `commandMaxOutputBytes`, when set, replaces the budget for `run_command` alone.
+
+**Nothing past the budget is dropped.** A tool whose whole result is larger than the budget keeps it whole in
+the conversation's **output store**, `~/.wisp/output/<audit session>/`, one file per output under the audit call
+id of the tool call (the id its `tool.call` and `tool.result` carry), with a record beside it (size, lines,
+SHA-256) and an `output.kept` audit event that refers to it by those rather than carrying it. One file holds at
+most 16 MiB; past that the output is cut, and the cut is stated. The store exists while the audit is on, since
+`memory` reaches it through the audit's call ids. The model is shown the result's first and last lines, about
+half the budget each, cut at line ends, with a marker between them and a note at the end:
+
+```
+exit status: 1
+stdout:
+Compiling Sources/File1.swift
+…
+[… 2,270 lines (180 KiB) held back …]
+…
+error: fatalError: 1 of 3 targets failed
+held back: stdout lines 44–2,313 (180 KiB); the whole output is kept as output 3f9a2c1b (2,340 lines); memory "recall output 3f9a2c1b from line 44" pages it, "recall output 3f9a2c1b matching PATTERN" filters it, "summarise output 3f9a2c1b" gives the notable lines, "condense output 3f9a2c1b: QUESTION" answers from all of it; do not run the command again to see it
+```
+
+A result is never cut without the marker, and the marker never understates what is held back: the line numbers
+are the stored output's, so the model can page straight to them. `run_command`'s result is bounded as a whole,
+its notes included, the room shared between stdout and stderr in proportion to their size and never less than a
+fifth of it for a stream with something to show; the runner keeps a head and a tail of the bound per stream in
+memory and spills the rest to the store as it arrives, so a command that prints far more than the bound costs
+memory of a few times the bound, not of the output ([run_command](tools/run_command.md)). `inspect` and
+`system_info` go through the same store and marker; `read_file` and `memory` page by the budget, so they never
+exceed it. In a conversation without `memory` the note says the output is kept and, for a command, not to run it
+again to see it, and names no tool the model does not have.
+
+**Four ways to more than fits, each reading what is stored** ([memory](tools/memory.md)):
+
+| Way | Request | What it reads |
+| --- | --- | --- |
+| Page it | `memory "recall output 3f9a2c1b from line 44"`, or after the turn `memory "recall entry 7 from line 44"` | The stored output, a budget at a time, with the stored file's line numbers |
+| Filter it | `… matching PATTERN`, `… lines 100-200`, `… head 50`, `… tail 50` | The stored lines that match, numbered, with a count of the rest, paged |
+| Summarise it | `memory "summarise entry 7"` (the notable lines) or `summarise entry 7 overview` | Exact readers, no model: a failed build by its root causes (the first error of each file, the lines after it, the cascade counted under it, the warnings tallied), a log by its severities and rare messages, JSON by its shape; each point cites its line |
+| Condense it | `memory "condense entry 7: why did the link step fail"` | A chunked pass of the conversation's own model over all of it, each chunk within the budget, the answers combined into one that fits; the one way that costs model calls, and only when asked |
+
+**A command is never run again to see what it printed.** Every way above reads the stored output; the note on a
+held-back result says so, and the reference after the turn says so too ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)). A command run again is a new command, chosen, approved, and audited as one.
+
+**Repeated calls are noticed.** A tool call that repeats an earlier call of the same turn exactly (the same tool,
+the same arguments) gets a line above its result saying so and that the earlier result is already in the
+context; `tool.result` records `repeat`. It is a fact, not a refusal: a command run again after an edit is a new
+command. `inspect` gained `what: calls` (one line per tool call of a turn: the tool, its arguments, its outcome) and
+a `turn` filter, so a model asked to check its turn can read what it ran where its raw events did not fit
+([inspect](tools/inspect.md)).
+
+The person sees the whole output: `wisp://threads/{thread_id}/output/{id}` serves the stored output when there
+is one, paged ([mcp.md](mcp.md)); chat's `/show` prints what the tool returned, head, marker, and tail.
 
 ## Design rules
 
-1. Never let one tool result exceed a fixed byte budget (4 KiB by default). Paging beats truncation where the
-   model can ask for more.
+1. Never let one tool result exceed the tool-output budget (an eighth of the window, 4 to 64 KiB). Keep the rest
+   in the output store and mark what is held back; paging and the summaries beat truncation, and nothing is
+   dropped.
 2. Keep tool descriptions short: every registered tool's schema is in the prompt on every turn.
 3. Treat overflow as expected, not exceptional; recover, tell the caller, continue.
 4. The store is the faithful record, and the active view may differ from it only by rules that are

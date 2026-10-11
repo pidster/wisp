@@ -41,7 +41,7 @@ import Testing
     @Test func resolvedAppliesDefaults() {
         let resolved = Config().resolved
         #expect(resolved.systemPromptExtension == nil)
-        #expect(resolved.runner == CommandRunner.Options(timeout: .seconds(60), maxOutputBytes: 4096))
+        #expect(resolved.runner == CommandRunner.Options(timeout: .seconds(60), maxOutputBytes: nil))
         #expect(resolved.maxThreads == 32)
     }
 

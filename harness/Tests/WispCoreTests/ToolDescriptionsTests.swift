@@ -30,11 +30,12 @@ import Testing
 
     @Test func limitsComeFromTheLiveOptions() {
         let registry = ToolRegistry(
-            runner: .init(timeout: .seconds(5), maxOutputBytes: 999), reader: FileReader(maxBytes: 777))
+            runner: .init(timeout: .seconds(5), maxOutputBytes: 999), reader: FileReader(maxBytes: 777),
+            budget: ToolBudget(window: 65536))
         let limits = Dictionary(uniqueKeysWithValues: registry.descriptions.map { ($0.name, $0.limits) })
         #expect(limits["run_command"]?.contains("Timeout 5 s") == true)
         #expect(limits["run_command"]?.contains("999 bytes") == true)
-        #expect(limits["read_file"]?.contains("777 bytes") == true)
+        #expect(limits["read_file"]?.contains("32768 bytes") == true)
         var unsandboxed = CommandRunner.Options()
         unsandboxed.policy.sandbox.enabled = false
         #expect(

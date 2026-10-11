@@ -36,8 +36,9 @@ public struct ReadFileTool: WispTool {
 
     /// Page size and byte budget, from the live reader.
     public var limits: String {
-        "Pages of up to \(defaultLimit) lines and \(reader.maxBytes) bytes; follow the offset hint to continue. "
-            + "Binary files and directories are refused. Credential-like paths need the user's approval."
+        "Pages of up to \(defaultLimit) lines and \(reader.pageBytes) bytes (the tool-output budget); follow the offset "
+            + "hint to continue. Binary files, directories, FIFOs, and devices are refused. Credential-like paths need "
+            + "the user's approval."
     }
     /// How to ask for it.
     public let examplePrompt = "Use read_file to read /path/to/file.md, then summarise it in three bullet points."

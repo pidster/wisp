@@ -24,6 +24,9 @@ enum Recall {
         /// A fact's versions and sources, by its id or by words from its subject, name, or value; empty lists
         /// what is known.
         case fact(String)
+        /// A stored output, by the id a held-back marker names: the whole output in the conversation's output
+        /// store (ADR 0050), reachable before its turn ends and its entry exists.
+        case output(String)
 
         /// The name the audit records (`context.memory`'s `target`).
         var name: String {
@@ -33,6 +36,78 @@ enum Recall {
             case .task: "task"
             case .summary: "summary"
             case .fact: "fact"
+            case .output: "output"
+            }
+        }
+    }
+
+    /// A filter over the lines of what was recalled, applied before paging (ADR 0050): the lines that match a
+    /// pattern, a range of lines, the first lines, or the last. Each filtered line carries its number in the
+    /// whole, so the model can page to it.
+    enum Filter: Equatable, Sendable {
+        /// Every line.
+        case none
+        /// The lines matching a regular expression, or containing the text when it is not one.
+        case matching(String)
+        /// Lines `first` to `last`, inclusive, from 1.
+        case lines(Int, Int)
+        /// The first `count` lines.
+        case head(Int)
+        /// The last `count` lines.
+        case tail(Int)
+
+        /// The words that ask for it, for the next page's hint; empty for none.
+        var phrase: String {
+            switch self {
+            case .none: ""
+            case .matching(let pattern): " matching \(pattern)"
+            case .lines(let first, let last): " lines \(first)-\(last)"
+            case .head(let count): " head \(count)"
+            case .tail(let count): " tail \(count)"
+            }
+        }
+
+        /// The filter's name for the audit; nil for none.
+        var name: String? {
+            switch self {
+            case .none: nil
+            case .matching: "matching"
+            case .lines: "lines"
+            case .head: "head"
+            case .tail: "tail"
+            }
+        }
+
+        /// `lines` filtered, each prefixed with its number (`44: text`), and a line saying what was kept of how
+        /// many; `lines` unchanged for `.none`.
+        ///
+        /// - Parameter lines: The whole, in order.
+        /// - Returns: The lines to page, and the note for the header; nil note for `.none`.
+        func apply(to lines: [String]) -> (lines: [String], note: String?) {
+            let numbered = { (range: Range<Int>) in range.map { "\($0 + 1): \(lines[$0])" } }
+            switch self {
+            case .none:
+                return (lines, nil)
+            case .matching(let pattern):
+                let regex = try? Regex(pattern).ignoresCase()
+                let matched = lines.indices.filter { index in
+                    if let regex { return lines[index].contains(regex) }
+                    return lines[index].localizedCaseInsensitiveContains(pattern)
+                }
+                let kept = matched.map { "\($0 + 1): \(lines[$0])" }
+                let how = regex == nil ? "containing" : "matching"
+                return (kept, "\(matched.count) of \(lines.count) lines \(how) \(pattern)")
+            case .lines(let first, let last):
+                let low = max(1, first)
+                let high = min(lines.count, max(low, last))
+                guard low <= lines.count else { return ([], "no lines \(first)-\(last): it has \(lines.count) lines") }
+                return (numbered((low - 1)..<high), "lines \(low)-\(high) of \(lines.count)")
+            case .head(let count):
+                let kept = min(lines.count, max(0, count))
+                return (numbered(0..<kept), "the first \(kept) of \(lines.count) lines")
+            case .tail(let count):
+                let kept = min(lines.count, max(0, count))
+                return (numbered((lines.count - kept)..<lines.count), "the last \(kept) of \(lines.count) lines")
             }
         }
     }
@@ -84,35 +159,50 @@ enum Recall {
         "memory: nothing earlier is stored yet; this is the conversation's first turn, and all of it is in your "
         + "context as the person wrote it"
 
-    /// The most bytes of lines a page carries, besides its header and its last line: `read_file`'s page.
-    static let pageBytes = FileReader().maxBytes
+    /// The most bytes of lines a page carries without a budget, besides its header and its last line: the
+    /// tool-output budget's floor, `read_file`'s page before ADR 0050.
+    static let pageBytes = ToolBudget.floor
     /// At most this many subjects answer one fact query.
     static let factGroups = 4
 
-    /// What `what` names, the line to start from (`… from line 60`, as a page's end spells it; 1 without), and
-    /// `what` without that part, for the next page's hint.
+    /// What `what` names, the line to start from (`… from line 60`, as a page's end spells it; 1 without), `what`
+    /// without those parts, for the next page's hint, and the filter it asks for (`matching PATTERN`, `lines A-B`,
+    /// `head N`, `tail N`; ADR 0050).
     ///
     /// - Parameter what: The argument, as the model wrote it.
-    /// - Returns: The target, the first line, and what was named.
-    static func request(_ what: String) -> (target: Target, offset: Int, named: String) {
+    /// - Returns: The target, the first line, what was named, and the filter.
+    static func request(_ what: String) -> (target: Target, offset: Int, named: String, filter: Filter) {
         var named = what.trimmingCharacters(in: .whitespacesAndNewlines)
         var offset = 1
         if let match = named.firstMatch(of: #/(?i),?\s*(?:from|at|starting at)\s+(?:line|offset)\s+(\d+)\s*$/#) {
             offset = max(1, Int(match.1) ?? 1)
             named = String(named[..<match.range.lowerBound])
         }
-        return (target(named), offset, named)
+        var filter = Filter.none
+        if let match = named.firstMatch(of: #/(?i),?\s+(?:matching|grep|containing)\s+(.+?)\s*$/#) {
+            filter = .matching(String(match.1))
+            named = String(named[..<match.range.lowerBound])
+        } else if let match = named.firstMatch(of: #/(?i),?\s+lines?\s+(\d+)\s*(?:-|–|to)\s*(\d+)\s*$/#) {
+            filter = .lines(Int(match.1) ?? 1, Int(match.2) ?? 1)
+            named = String(named[..<match.range.lowerBound])
+        } else if let match = named.firstMatch(of: #/(?i),?\s+(head|tail|first|last)\s+(\d+)(?:\s+lines)?\s*$/#) {
+            let count = Int(match.2) ?? 0
+            filter = ["head", "first"].contains(match.1.lowercased()) ? .head(count) : .tail(count)
+            named = String(named[..<match.range.lowerBound])
+        }
+        return (target(named), offset, named, filter)
     }
 
-    /// What `what` names. Lenient, for a small model: a fact id (`c12`, `fact c12`) is a fact; anything with
-    /// `summary` is the summary; anything else starting with `fact` is a fact query; `task` without a number is the
-    /// task; `turn` with a number is a turn; any other text with a number is an entry (`entry 7`, `7`, `output 7`);
-    /// and the rest is a fact query (`codename`, `CI`).
+    /// What `what` names. Lenient, for a small model: `output` with an eight-character hex id is a stored output;
+    /// a fact id (`c12`, `fact c12`) is a fact; anything with `summary` is the summary; anything else starting with
+    /// `fact` is a fact query; `task` without a number is the task; `turn` with a number is a turn; any other text
+    /// with a number is an entry (`entry 7`, `7`, `output 7`); and the rest is a fact query (`codename`, `CI`).
     ///
     /// - Parameter what: The argument, as the model wrote it.
     /// - Returns: The target.
     static func target(_ what: String) -> Target {
         let text = what.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        if let match = text.firstMatch(of: #/output\s+([0-9a-f]{8})\b/#) { return .output(String(match.1)) }
         if let match = text.wholeMatch(of: #/(?:facts?\s+)?([cps]\d+)/#) { return .fact(String(match.1)) }
         if text.contains("summary") { return .summary }
         if let rest = text.firstMatch(of: #/^facts?\b\s*(.*)$/#) {
@@ -132,12 +222,16 @@ enum Recall {
     ///   - target: What to restore.
     ///   - material: The conversation's record and facts.
     ///   - read: Reads an audit event back by reference; nil when it is not there.
+    ///   - outputs: The conversation's output store, which holds whole outputs the model saw only in part; nil
+    ///     when it has none.
     ///   - timeZone: The zone times are written in.
     /// - Returns: What was found, or a note saying why nothing was.
     static func material(
         _ target: Target, in material: MemorySource.Material, read: (AuditReference) -> AuditEvent?,
-        timeZone: TimeZone = .current
+        outputs: OutputStore? = nil, timeZone: TimeZone = .current
     ) -> Material {
+        // A stored output exists from its call, before its turn ends and its entry is stored.
+        if case .output(let id) = target { return output(id, in: outputs) }
         guard
             material.store.entries.contains(where: { $0.origin != .carried }) || !material.facts.isEmpty
                 || !material.store.summaries.isEmpty
@@ -145,12 +239,47 @@ enum Recall {
             return Material(header: nothingEarlier, lines: [], found: false)
         }
         return switch target {
-        case .entry(let id): entry(id, in: material.store, read: read, timeZone: timeZone)
+        case .entry(let id): entry(id, in: material.store, read: read, outputs: outputs, timeZone: timeZone)
         case .turn(let number): turn(number, in: material.store, read: read)
         case .task: task(material, read: read, timeZone: timeZone)
         case .summary: summaries(material.store.summaries)
         case .fact(let query): facts(query, in: material.facts, timeZone: timeZone)
+        case .output(let id): output(id, in: outputs)
         }
+    }
+
+    /// `material` with `filter` applied to its lines and the filter's note added to its header; `material` as it
+    /// is for `.none`.
+    ///
+    /// - Parameters:
+    ///   - material: What was found.
+    ///   - filter: The filter.
+    /// - Returns: The filtered material.
+    static func filtered(_ material: Material, by filter: Filter) -> Material {
+        guard material.found, filter != .none else { return material }
+        var result = material
+        let applied = filter.apply(to: material.lines)
+        result.lines = applied.lines
+        if let note = applied.note { result.header += "; " + note }
+        return result
+    }
+
+    /// The whole of stored output `id`, from the output store.
+    private static func output(_ id: String, in outputs: OutputStore?) -> Material {
+        guard let outputs else {
+            return Material(
+                header: "memory: this conversation has no output store, so output \(id) was not kept", lines: [],
+                found: false)
+        }
+        guard let kept = outputs.kept(id), let lines = outputs.lines(id) else {
+            return Material(
+                header: "memory: no output \(id) in this conversation's store; the id is the one a held-back note "
+                    + "names (output 3f9a2c1b)", lines: [], found: false)
+        }
+        var header = "output \(id): \(kept.tool), \(kept.lines.formatted()) lines, \(ToolOutput.size(kept.bytes))"
+        header += ", from the output store"
+        if kept.cut { header += " (cut at \(ToolOutput.size(kept.bytes)); the rest was not kept)" }
+        return Material(header: header, lines: lines, found: true)
     }
 
     /// A page of `material`: its header, then its lines from 1-based `offset` within `pageBytes`, then either the
@@ -187,9 +316,12 @@ enum Recall {
 
     // MARK: - Entries
 
-    /// Entry `id`'s content, under a header naming what it is, its turn, when, and where the content came from.
+    /// Entry `id`'s content, under a header naming what it is, its turn, when, and where the content came from. A
+    /// tool output the model saw only in part is read whole from the output store when it is there (ADR 0050):
+    /// the `tool.result` event's call id is the output's id.
     private static func entry(
-        _ id: Int, in store: ThreadRecord, read: (AuditReference) -> AuditEvent?, timeZone: TimeZone
+        _ id: Int, in store: ThreadRecord, read: (AuditReference) -> AuditEvent?, outputs: OutputStore?,
+        timeZone: TimeZone
     ) -> Material {
         guard id >= 1, id <= store.entries.count else {
             let range = store.entries.isEmpty ? "none is stored yet" : "entries run from 1 to \(store.entries.count)"
@@ -199,16 +331,28 @@ enum Recall {
                 lines: [], found: false)
         }
         let entry = store.entries[id - 1]
-        let content = content(of: entry, store: store, read: read)
         var header = "entry \(id): \(label(entry))"
         if let turn = entry.turn { header += ", turn \(turn)" }
         if let time = entry.time { header += " at " + OutputReference.clock(time, in: timeZone) }
-        if let origin = content.origin { header += ", " + origin.words }
         var lines: [String] = []
+        var arguments: String?
         if case .toolOutput(let output) = entry.value, let call = store.calls[output.id] {
-            lines.append(
-                "arguments: " + OutputReference.shortened(call.arguments, to: OutputReference.argumentCharacters))
+            arguments =
+                "arguments: " + OutputReference.shortened(call.arguments, to: OutputReference.argumentCharacters)
         }
+        if entry.kind == .toolOutput, let outputs, let reference = entry.sources.first, let event = read(reference),
+            let call = event.call, let kept = outputs.kept(call), let whole = outputs.lines(call)
+        {
+            // The whole output's lines are numbered as the stored file's, which the held-back markers name, so the
+            // arguments go in the header rather than taking line 1.
+            header += ", the whole output from the output store (\(kept.lines.formatted()) lines"
+            header += kept.cut ? ", cut at \(ToolOutput.size(kept.bytes)))" : ")"
+            if let arguments { header += "; " + arguments }
+            return Material(header: header, lines: whole, found: true, entries: [id], events: [event.id ?? ""])
+        }
+        if let arguments { lines.append(arguments) }
+        let content = content(of: entry, store: store, read: read)
+        if let origin = content.origin { header += ", " + origin.words }
         lines += content.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var found = Material(header: header, lines: lines, found: true, entries: [id], events: content.events)
         if let origin = content.origin { found.origins = [origin] }

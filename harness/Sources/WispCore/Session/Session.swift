@@ -420,18 +420,22 @@ public struct Session: Sendable {
     /// `WispThread.openAgent` adds the agent. The MCP server calls this per `thread_id`.
     ///
     /// - Parameters:
-    ///   - id: The conversation's id; its audit events carry it as the session.
+    ///   - id: The conversation's id; its audit events carry it as the session unless `auditSession` says
+    ///     otherwise.
     ///   - host: The face's effects; its approver is replaced by `AutoApprover` when the request said `--yes`.
     ///   - instructions: The thread's own instructions (layer 3); nil takes the session's.
     ///   - tools: Tool selection; `.all` takes the session's.
     ///   - model: Model override; nil takes the session's.
+    ///   - auditSession: The audit session the conversation's events carry, when it is not `id`: the MCP server
+    ///     gives each thread it opens one of its own (`<thread_id>-<suffix>`), so a `thread_id` reused after
+    ///     `close_thread` does not mix the earlier thread's history into its resources (the 2026-10-09 review).
     /// - Returns: The conversation, ready to open.
     /// - Throws: `Failure.unknownTools`.
     public func thread(
         id: String, host: SessionHost, instructions: String? = nil, tools: ToolSelection = .all,
-        model: ModelSelection? = nil
+        model: ModelSelection? = nil, auditSession: String? = nil
     ) throws -> WispThread {
-        let audit = self.audit.log(forSession: id)
+        let audit = self.audit.log(forSession: auditSession ?? id)
         var prompting = self.prompting
         if let instructions { prompting.instructions = instructions }
         let thread = try WispThread.setUp(

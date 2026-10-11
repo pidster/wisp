@@ -35,10 +35,14 @@ public struct RunCommandTool: WispTool {
             runner.options.policy.sandbox.enabled
             ? "in a Seatbelt sandbox rooted at wisp's launch directory; writes elsewhere fail"
             : "with no sandbox (policy.sandbox.enabled is false)"
+        let bound =
+            runner.options.maxOutputBytes.map { "\($0) bytes (commandMaxOutputBytes)" }
+            ?? "the tool-output budget, \(runner.bound) bytes now (an eighth of the model's window, 4 to 64 KiB)"
         return
-            "POSIX shell via /bin/sh -c \(confinement). Timeout \(seconds) s; only the last "
-            + "\(runner.options.maxOutputBytes) bytes of stdout and stderr are returned. Commands pass a deny/allow "
-            + "policy and a risk classifier; moderate and dangerous ones need the user's approval."
+            "POSIX shell via /bin/sh -c \(confinement). Timeout \(seconds) s. The result is bounded as a whole to "
+            + "\(bound): past that the first and last lines are shown, the rest is held back and kept whole in the "
+            + "conversation's output store, and the result says how to page, filter, or summarise it. Commands pass "
+            + "a deny/allow policy and a risk classifier; moderate and dangerous ones need the user's approval."
     }
     /// How to ask for it.
     public let examplePrompt =

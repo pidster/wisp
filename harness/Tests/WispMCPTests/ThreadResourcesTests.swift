@@ -23,7 +23,8 @@ func threadServer(steps: [ScriptedModel.Step]) throws -> WispServer {
     let session = try scratchSession(dependencies: dependencies)
     return WispServer(session: session) { session, host, id, instructions, tools, model in
         let thread = try session.thread(
-            id: id, host: host, instructions: instructions, tools: tools, model: model)
+            id: id, host: host, instructions: instructions, tools: tools, model: model,
+            auditSession: ThreadDirectory.auditSession(for: id))
         let agent = Agent(
             instructions: thread.prompting.rendered, tools: thread.tools,
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)), audit: thread.audit)
@@ -92,11 +93,34 @@ func json(_ server: WispServer, _ uri: String) async throws -> [String: JSONValu
         let uri = try #require(call["uri"]?.stringValue)
         #expect(uri.hasPrefix("wisp://threads/one/output/"))
         #expect(try await text(server, uri).hasPrefix("1\tline 1 of a file"))
-        let audit = try await text(server, "wisp://threads/one/audit")
-        #expect(audit.contains("\"kind\":\"tool.result\"") && audit.contains("\"session\":\"one\""))
-        // A thread's audit is not served under wisp://audit/{session}; other sessions still are.
+        // The thread's events are under an audit session of its own, named by the thread with a suffix, and paged.
+        let auditSession = try #require(one["auditSession"]?.stringValue)
+        #expect(auditSession.hasPrefix("one-") && auditSession.count == 12, "\(auditSession)")
+        let audit = try await json(server, "wisp://threads/one/audit")
+        let events = try #require(audit["events"]?.arrayValue).compactMap(\.objectValue)
+        #expect(events.contains { $0["kind"] == .string("tool.result") })
+        #expect(events.allSatisfy { $0["session"] == .string(auditSession) })
+        #expect(audit["page"] == .int(1) && audit["limit"] == .int(100) && audit["next"] == .null)
+        #expect(audit["last"] == .string("wisp://threads/one/audit?page=1"))
+        let paged = try await json(server, "wisp://threads/one/audit?page=2&limit=3")
+        #expect(paged["events"]?.arrayValue?.count == 3 && paged["page"] == .int(2))
+        #expect(paged["next"] == .string("wisp://threads/one/audit?page=3&limit=3"))
+        await #expect(throws: MCPError.self) {
+            _ = try await server.read(.init(uri: "wisp://threads/one/audit?page=99"))
+        }
+        // A thread's audit is not served under wisp://audit/{session}, by its id or its audit session; other
+        // sessions still are, paged the same way; and wisp://audit pages every session's events.
         await #expect(throws: MCPError.self) { _ = try await server.read(.init(uri: "wisp://audit/one")) }
-        #expect(try await text(server, "wisp://audit/triage-0000").isEmpty)
+        await #expect(throws: MCPError.self) { _ = try await server.read(.init(uri: "wisp://audit/\(auditSession)")) }
+        #expect(try await json(server, "wisp://audit/triage-0000")["events"] == .array([]))
+        let all = try await json(server, "wisp://audit?limit=2")
+        #expect(all["events"]?.arrayValue?.count == 2 && (all["pages"]?.intValue ?? 0) > 2)
+        #expect(all["next"] == .string("wisp://audit?page=2&limit=2"))
+        // A second thread under the same id, after the first closed, has a session and resources of its own.
+        _ = try await server.call(.init(name: "respond", arguments: ["prompt": "again", "thread_id": "one"]))
+        let reopened = try await json(server, "wisp://threads/one")
+        #expect(reopened["auditSession"]?.stringValue != auditSession && reopened["turns"] == .int(1))
+        #expect(try await json(server, "wisp://threads/one/output")["total"] == .int(1))
         // Unknown threads, pages, and paths are protocol errors.
         for uri in [
             "wisp://threads/three", "wisp://threads?page=2", "wisp://threads?page=0", "wisp://threads/bad id",

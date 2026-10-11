@@ -247,6 +247,50 @@ public struct FileWriter: Sendable {
         }
     }
 
+    /// Appends `data` to the file at `url` atomically without loading it: the existing bytes are copied to a
+    /// temporary file beside it in 64 KiB chunks, `data` is written after them, and the temporary file is renamed
+    /// over the target with the original's mode.
+    ///
+    /// - Parameters:
+    ///   - data: The bytes to add.
+    ///   - url: The file.
+    ///   - exists: Whether it exists.
+    /// - Returns: The size after.
+    /// - Throws: A file-system error; the temporary file is removed on failure.
+    static func appendAtomically(_ data: Data, to url: URL, replacing exists: Bool) throws -> Int {
+        let directory = url.deletingLastPathComponent()
+        let temporary = directory.appending(path: ".\(url.lastPathComponent).wisp-\(ShortID.make())")
+        do {
+            guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+                throw POSIXError(.EACCES)
+            }
+            let writer = try FileHandle(forWritingTo: temporary)
+            defer { try? writer.close() }
+            var total = 0
+            if exists {
+                let reader = try FileHandle(forReadingFrom: url)
+                defer { try? reader.close() }
+                while let chunk = try reader.read(upToCount: 1 << 16), !chunk.isEmpty {
+                    try writer.write(contentsOf: chunk)
+                    total += chunk.count
+                }
+            }
+            try writer.write(contentsOf: data)
+            total += data.count
+            try writer.close()
+            if exists, let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] {
+                try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: temporary.path)
+            }
+            guard rename(temporary.path, url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return total
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     /// Applies `edit` to the file at `path`.
     ///
     /// - Parameters:
@@ -267,15 +311,27 @@ public struct FileWriter: Sendable {
         guard FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path, isDirectory: &isDirectory),
             isDirectory.boolValue
         else { throw Failure.noParent(path) }
-        let before = exists ? try Data(contentsOf: url) : Data()
-        var result = Result(
-            path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: 0, line: nil)
-        let after: Data
+        let size = exists ? Int((try FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0) : 0
+        var result = Result(path: path, mode: edit.mode, created: !exists, bytesBefore: size, bytesAfter: 0, line: nil)
+        // A write replaces the file and an append copies it in chunks: neither loads what is there (the 2026-10-09
+        // review); only a replacement reads the file, and only up to `maxBytes`.
         switch edit {
         case .write(let content):
-            after = Data(content.utf8)
+            let data = Data(content.utf8)
+            try Self.writeAtomically(data, to: url, replacing: exists)
+            result.bytesAfter = data.count
+            return result
         case .append(let content):
-            after = before + Data(content.utf8)
+            result.bytesAfter = try Self.appendAtomically(Data(content.utf8), to: url, replacing: exists)
+            return result
+        default:
+            break
+        }
+        let before = exists ? try Data(contentsOf: url) : Data()
+        let after: Data
+        switch edit {
+        case .write, .append:
+            after = before
         case .replace(let find, let replacement):
             let text = try editableText(before, path: path)
             let ranges = text.ranges(of: find)

@@ -47,7 +47,7 @@ first turn is all in view.
 
 | Name | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `request` | string | yes | A verb and its object: `recall entry 7`, `recall turn 3`, `recall task`, `recall summary`, `recall fact codename`, `note entity release codename = BLUE HERON`, or `task fix the CI build; objective: swift test passes`. A later page adds `from line N` to a recall. |
+| `request` | string | yes | A verb and its object: `recall entry 7`, `recall turn 3`, `recall task`, `recall summary`, `recall fact codename`, `recall output 3f9a2c1b`, `summarise entry 7`, `condense entry 7: why did it fail`, `note entity release codename = BLUE HERON`, or `task fix the CI build; objective: swift test passes`. A recall takes a filter (`matching PATTERN`, `lines A-B`, `head N`, `tail N`) and a later page adds `from line N`. |
 
 One text argument, because the references and markers the model reads already spell a recall (`to see it:
 memory "recall entry 7"`, `(showed the person the read_file output, entry 7)`, and the entries named in facts'
@@ -72,7 +72,9 @@ in every conversation with `memory`, and was dropped on 2026-10-03; the verb wor
 
 | After `recall` | Restores |
 | --- | --- |
-| `entry 7`, `7`, `output of entry 7` | Store entry 7: a tool output, a reply, a prompt, or tool calls. |
+| `entry 7`, `7`, `output of entry 7` | Store entry 7: a tool output, a reply, a prompt, or tool calls. A tool output the model was given only in part is restored whole from the output store, with the stored output's line numbers (the header says `the whole output from the output store`). |
+| `output 3f9a2c1b` | The whole stored output with that id, the one a held-back note names ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)): reachable in the turn that produced it, before its entry exists. |
+| `… matching PATTERN`, `… lines 100-200`, `… head 50`, `… tail 50` | The same, filtered first: the lines matching a regular expression (case-insensitive; a literal when it does not compile), a range, the first or the last lines; each line carries its number in the whole, the header says how many of how many were kept, and the pages continue the filter. |
 | `turn 3` | Every stored entry of turn 3, in order, each under a line naming it. |
 | `task`, `the task` | The task's versions, oldest first, then the prompt the conversation began with, in full. |
 | `summary` | The running summary's versions, newest first, with the turns each added. |
@@ -120,6 +122,50 @@ event records on its own; an entry whose event has rotated out of the files kept
 **After its turn.** What a recall returns is an ordinary tool output: whole in its own turn, and from the next
 turn on a reference like any other (`[output of entry 40 not repeated: memory at …; to see it: memory "recall
 entry 40"]`), so restored material ages out and is never carried in full again.
+
+## summarise
+
+```
+summarise entry 7
+summarise output 3f9a2c1b overview
+```
+
+The notable lines of a stored entry or output, or with `overview` an overview, by exact readers and no model
+([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)). The notable summary leads with what matters
+given how the output ended: for a build or test output in a format `triage` reads, the errors grouped by file or
+test, the first of each with its line and the lines after it and the later ones in the same place counted under
+it, the warnings tallied, and the test failures; for a log, its severities and the rare or severe messages; for
+JSON, its shape; else the lines that mention an error, else the first and last lines. Each point cites its line
+(`L154`), the stored output's numbering, so a recall from that line lands on it. The overview gives the size, how it
+ended (a command's exit status, else the last line), the kinds of line counted, the lines that look like headings
+with their numbers, and the first and last lines. Both say what no reader explained, so the model knows what
+`condense` could still answer, and both fit the budget.
+
+```
+notable lines (exact readers, no model): 2,340 lines, 187 KiB; exit status 1 (failed)
+2 errors in 1 place; the first of each, root causes first:
+L154 error at Sources/B.swift:42:9: cannot find 'frob' in scope (+1 more in Sources/B.swift)
+  L155:     frob(1)
+  L156:     ^~~~
+1 warning (Sources/A.swift ×1)
+1 failure-looking line no reader explained, such as: error: fatalError: 1 of 3 targets failed
+```
+
+## condense
+
+```
+condense entry 7: why did the link step fail
+```
+
+Answers the question after the colon from the whole of a stored entry or output, by a chunked pass of the
+conversation's own model: the output is cut into chunks within the budget (at most 48; the result says when the
+output had more), each chunk is asked the question in a fresh tool-less session of the same model and told to
+answer `nothing here` when it has nothing, the answers that say something are joined in order, and when they do
+not fit the budget the model is asked once more to combine them. The result names the question, the lines and
+chunks read, and that the model wrote it; a chunk that fails is counted. It is the one verb that costs model
+calls, in proportion to the output's size, and only when asked. Without a model attached (an agent made directly,
+tests) it says so and points at `summarise` and the filters. Paging alone is not enough for a long output: a model
+reading page after page can lose the earlier pages to condensing, so this asks about all of it at once.
 
 ## note
 
@@ -180,18 +226,21 @@ either way is the model's, method `noted` here and `inferred` there.
 ## Audit
 
 Each call is a `tool.call` and `tool.result` like any tool's, and a `context.memory` event with the `request`
-and its `action`. A recall names what was restored: the target, the entries, facts, and summary versions, the
-audit events read, and whether the content came from the audit log, the store, or both. A note names the
-subject, name, value, and class kept, or the `failure`; a task names the `value` kept or the `failure` (`pinned`
-when the person or a caller set it); each note or task kept is also a `fact.recorded` (method `noted`) when its
-turn ends ([logging.md](../logging.md)).
+and its `action`. A recall names what was restored: the target (`output` for a stored output, with its id as
+`output`), the entries, facts, and summary versions, the audit events read, the `filter` applied, and whether the
+content came from the audit log, the store, or both. A summary names its target and which `summary` (`notable`,
+`overview`); a condense names its target and the `chunks` the model read, and a `failure` when it had no model,
+no question, or chunks that failed. A note names the subject, name, value, and class kept, or the `failure`; a
+task names the `value` kept or the `failure` (`pinned` when the person or a caller set it); each note or task
+kept is also a `fact.recorded` (method `noted`) when its turn ends ([logging.md](../logging.md)).
 
 ## Limits
 
 | Limit | Default | Configure |
 | --- | --- | --- |
-| Bytes of lines per recall page | 4 KiB, as `read_file`'s page, plus the header and the last line | Fixed (`Recall.pageBytes`) |
+| Bytes of lines per recall page | The tool-output budget (an eighth of the model's window, 4 to 64 KiB), as `read_file`'s page, plus the header and the last line | Follows the model's window |
 | Line length | A line longer than a page is cut to it | same |
+| Chunks one `condense` reads | 48, each within the budget | Fixed (`MemoryTool.condenseChunks`) |
 | Subjects per fact query | 4 | Fixed (`Recall.factGroups`) |
 | Notes per turn | 12 | Fixed (`Memory.notesPerTurn`) |
 | A note's value | 200 characters | Fixed (`Memory.valueCharacters`) |

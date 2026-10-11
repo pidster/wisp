@@ -1,6 +1,7 @@
 # ADR 0050: A tool-output budget from the model's window, and nothing past it dropped
 
-Date: 2026-10-04. Status: proposed.
+Date: 2026-10-04. Status: accepted on 2026-10-11, as built for 0.22.0 (the operator started 0.22.0 on 2026-10-11);
+the choices the proposal left open are recorded under "Choices made in the build" below.
 
 ## Context
 
@@ -106,6 +107,96 @@ its root causes when it failed.
 - **The rule changes.** `AGENTS.md`'s "Bound every tool result (4 KiB or paged)" becomes "bound every tool
   result to the model's tool-output budget, keep the rest in the output store, and mark what is held back".
 
+## Choices made in the build (2026-10-11)
+
+The proposal left several things open or named them loosely; the build decided them as follows, and the pages
+named at the end describe the result.
+
+- **One budget object per conversation, kept current by the agent.** `ToolBudget` holds the window and is
+  shared by the conversation's tools and its agent (`WispThread.setUp` makes it, `ToolRegistry` hands it to every
+  tool, `Agent.contextSize` writes it as the window becomes known: at `openAgent` for a backend that states it, at
+  the first overflow for one that does not). `/model` opens a new thread, so a new budget. The arithmetic is
+  `min(64 KiB, max(4 KiB, window / 8 × 4 bytes))`: 4 KiB at 8,192, 26 KiB at 53,248, 64 KiB from 131,072 on, the
+  floor for a window nobody knows. `commandMaxOutputBytes`, when set, replaces the budget for `run_command` alone,
+  as the proposal said; unset (the new default) it is the budget.
+- **The output store is a directory of files, keyed by the audit call id.** `~/.wisp/output/<audit session>/`,
+  one file per kept output, user-only, with a `<id>.json` record beside it (size, lines, SHA-256, whether it was cut
+  at the 16 MiB ceiling). The id is the audit call id the tool call's `tool.call` and `tool.result` already carry
+  (`AuditedTool` sets it as a task-local, `ToolCallContext.call`, for the base tool's call), so the store, the
+  audit, and the result are joined without a new identifier. The proposal's "a file beside the thread record" was
+  not followed literally: the thread record is in memory and the audit session already names a conversation; the
+  store is created when the first output is kept, and only while the audit is on, since recall reaches it through
+  the audit's call ids. Each output kept is audited as `output.kept` (`tool`, `bytes`, `lines`, `sha256`, `cut`,
+  `totalBytes`), under the call id, never with the content; `tool.result` goes on holding what the model saw, as
+  everything that reads it expects.
+- **The marker names the output by its id, not by its entry.** The proposal's marker named `entry 7`, but a
+  store entry exists only when the turn ends, and the model needs the way to more of an output *in the turn that
+  produced it*. So the note on a held-back result names the stored output: `memory "recall output 3f9a2c1b from
+  line 44"`, with `matching PATTERN`, `summarise output …`, and `condense output …: QUESTION` beside it. After the
+  turn, the entry's reference stands for the output as before, and `recall entry N` of such an entry gives the
+  whole from the store (its header says so), with the stored file's own line numbers, so both routes reach the
+  same lines. In a conversation without `memory` the note says the output is kept and, for a command, that it is
+  not to be run again to see it, and names no tool the model does not have (ADR 0057's rule).
+- **Head and tail, each about half the room, cut at line ends, with a one-line marker between them.** The
+  marker inside the text (`[… 2,270 lines (180 KiB) held back …]`) says how much lies between; the note at the
+  end says which lines of the stored output they are and how to reach them. A `run_command` result is bounded
+  as a whole, its header, frames, and notes included: the room is shared between stdout and stderr in proportion
+  to their size, and never less than a fifth of it for a stream that has something to show, so a short error is
+  not crowded out by a long log. The stored output of a command is the rendering with nothing held back (the
+  exit-status header, `stdout:`, the stream, `stderr:`, the stream), so the line numbers the note gives are the
+  stored file's.
+- **The command runner holds twice the bound per stream in memory and spills the rest as it streams.**
+  `OutputBuffer` keeps a stream's first and last `bound` bytes and counts everything; the moment a byte would be
+  dropped it opens a spill file in the store (writing what memory holds first) and every later chunk goes there,
+  so a command printing 1 GiB costs about four times the bound in memory. When the command ends the runner
+  composes the kept output from the header and the spill files (streamed, bounded memory) and removes them.
+  Without a store the excess is dropped from memory and counted, and the note says the output was not kept. The
+  `output truncated: only the tail of each stream is shown` line is gone, and so is the head's loss.
+- **Exact readers for the summaries; a model only for the question.** `summarise` is `OutputSummary`, no model:
+  the failure formats `triage` reads (`KnownFailures`), grouped by file or test with the first error of each, the
+  lines after it, the later errors in the same place counted under it, and warnings tallied; a log's severities
+  and rare or severe templates (`LogDigest`); JSON's shape (`JSONShape`); else the lines that mention an error,
+  else the first and last lines. Every point cites its line (`L154`). It says what no reader explained. The
+  proposal's model fallback for a summary was not built: the model step is the `condense` verb, on request, with
+  the model's question, so no summary costs a model call. `read_file`'s `summary:` argument was not built either;
+  `memory "summarise entry N"` serves a file read whole into the store the same way, and a file is paged already.
+- **`condense` runs on the conversation's own model, off the agent's path.** `OutputCondenser` holds a function
+  the thread attaches when its agent opens: a fresh tool-less `Agent` on the same resolved model per chunk, as
+  `triage` judges a chunk. Chunks are the budget less room for the prompt, at most 48 (one question is bounded
+  in calls; the result says when the output had more), each asked the question and told to answer "nothing here"
+  when the chunk has nothing; the answers that say something are joined, and when they do not fit the budget the
+  model is asked once more to combine them. Tests attach a scripted function; `ScriptedModel` is not needed for
+  it, and no test needs a model. Without an attached model the verb says so and points at `summarise` and the
+  filters.
+- **Filters are a clause of a recall, applied before paging.** `matching PATTERN` (a regular expression,
+  case-insensitive, or a literal when it does not compile), `lines A-B`, `head N`, `tail N`, each line numbered in
+  the whole, and `from line N` after them for the next page; the page's hint repeats the filter.
+- **`inspect` gains `calls` and `turn`.** `what: calls` lists a turn's tool calls one line each (the tool, its
+  arguments, its outcome: an exit status, a verdict, an error, or the result's size), this turn by default;
+  `audit` with `turn` gives every event of that turn of this conversation rather than the last N.
+- **A repeated call is answered with a line, not refused.** `CallLedger` counts each turn's calls by tool and
+  arguments; the second and later identical calls get `[repeated call: this is the same inspect call, with the
+  same arguments, as 1 earlier call this turn; the earlier result is already in your context]` above the result,
+  and `tool.result` records `repeat`. A command run again after an edit is a new command and is not stopped.
+- **The system prompt is unchanged.** The note on every held-back command result carries "do not run the command
+  again to see it", and the reference wording of ADR 0057 already says it after the turn, so no sentence was added
+  to the prompt the on-device model pays for on every request.
+- **The person's views.** `wisp://threads/{thread_id}/output/{id}` serves the whole stored output when there is
+  one, paged at 16 KiB, and the output list marks such calls with `stored`, `storedBytes`, and `storedLines`;
+  chat's `/show` still prints what the tool returned (its head, marker, and tail), and showing the stored whole
+  there is left for the chat work of 0.22.0. `doctor`'s report of the store's size is not built; the store is
+  bounded per output by the ceiling and otherwise grows with the conversations kept, like the audit.
+- **The rest of the 2026-10-09 review, in the same code.** `wisp://threads/{thread_id}/audit`, `wisp://audit/
+  {session}`, and `wisp://audit` are paged (`?page=N&limit=M`, 100 events a page, up to 500; JSON with `events`,
+  `page`, `pages`, `total`, `next`, and `last`, in place of unbounded JSON Lines); each `respond` thread gets an
+  audit session of its own, `<thread_id>-<suffix>`, recorded in `ThreadDirectory` and shown as `auditSession`, so a
+  `thread_id` reused after `close_thread` has resources of its own and `wisp://audit/{session}` refuses a thread's
+  session by either name; a spawned command gets exactly three descriptors (`POSIX_SPAWN_CLOEXEC_DEFAULT`, and the
+  pipes' ends `FD_CLOEXEC`), and `read_file` and the store open their files `O_CLOEXEC`; `read_file` refuses a
+  FIFO, a device, or a socket before opening it and reads a file with no newlines a page at a time (`LineScanner`
+  keeps a page of an open line and counts the rest); `edit_file`'s `write` replaces without reading and `append`
+  copies the file in 64 KiB chunks to a temporary file and renames it, so neither loads the file.
+
 ## Consequences
 
 - A larger model sees more of each result at once, and every model can reach all of it, by page or by
@@ -124,11 +215,14 @@ its root causes when it failed.
   wisp makes itself, from the turn's audit events, is a separate decision, still open.
   2026-10-04: decided in [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md), a line of what the turn
   ran beside each reply.
-- Each tool's fixed constant goes; tests cover the budget for small, large, and unknown windows, a change
-  of model mid-conversation, the floor and ceiling, the marker's account for each tool, paging and
-  condensing over a stored output, both summaries of a succeeded and a failed build log, a log without an
-  outcome, JSON, and plain text, the root cause leading a cascade of errors, the 16 MiB cut, `run_command`
-  keeping its head, the audit's reference, and `/show` and the resource serving the whole output. None
-  needs a model: `ScriptedModel` answers the condensing chunks.
+- Each tool's fixed constant goes; tests cover the budget for small, large, and unknown windows, the agent
+  keeping it at the window as an overflow reports one, the floor and ceiling, a fit's head, tail, and marker, a
+  result kept in the store under its call id and audited, paging, filtering, summarising, and condensing a stored
+  output, both summaries of a failed build log with a cascade led by its root cause, a log, JSON, and plain text,
+  the 16 MiB cut, `run_command` keeping its head and spilling a 1 MiB output whole, a command seeing no
+  descriptor of wisp's, a FIFO refused, a file without newlines paged, `append` without loading, the repeated
+  call, `inspect`'s `calls`, the audit resources' pages, one audit session per opened thread, and the resource
+  serving the whole output (`ToolBudgetTests`, `HeldBackOutputTests`, `CommandRunnerTests`,
+  `ThreadResourcesTests`). None needs a model: a scripted function answers the condensing chunks.
 - Documented in `docs/context-management.md`, each tool's page, `docs/tools/memory.md`, `docs/wisp.md`,
   `docs/mcp.md`, and `docs/logging.md`.

@@ -42,9 +42,10 @@ to leave `read_file` out of a conversation that should not read at all.
 
 | Limit | Default | Configure |
 | --- | --- | --- |
-| Bytes of line content per page | 4 KiB; the page ends early and the marker points at the next line | Fixed (`FileReader(maxBytes:)` in code); not a `config.json` setting |
-| Line length | A single line longer than the budget is cut to the budget, on a character boundary | same |
+| Bytes of line content per page | The tool-output budget: an eighth of the model's window, 4 KiB at least, 64 KiB at most ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)); the page ends early and the marker points at the next line | Follows the model's window; not a `config.json` setting |
+| Line length | A single line longer than the budget is cut to the budget, on a character boundary; the rest of the line is skipped by bytes, never read into memory, so a file with no newlines costs one page | same |
 | Binary files | Rejected if the first chunk contains a NUL byte | not configurable |
+| FIFOs, devices, sockets | Refused before they are opened (`not a regular file: /dev/null is a character device`), since reading one can wait forever; only regular files are read, as the condensing tools since 0.21.1 | not configurable |
 | Directories, missing files, `offset`/`limit` below 1 | Errors | |
 | Wildcards (`*`, `?`, `[`) in a path that does not exist | `error: read_file takes one path, not a pattern: …; list matches with run_command, e.g. ls …`, so the model lists the files instead of retrying the path. A file really named with a wildcard character is read. | |
 
@@ -52,7 +53,7 @@ CRLF line endings are handled; the returned lines never include `\n` or `\r`.
 
 It reads forward only: there is no search, no tail, and no binary content. To find a line in a large
 file or see its end, have the model use `run_command` with `grep -n` or `tail`, then `read_file` at the
-offset it learns.
+offset it learns. The file is opened close-on-exec, so no command the model runs meanwhile inherits the handle.
 
 ## Implementation
 

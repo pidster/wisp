@@ -649,7 +649,7 @@ public struct Config: Codable, Equatable, Sendable {
             disabledModels: models?.disabled ?? [],
             runner: CommandRunner.Options(
                 timeout: .seconds(commandTimeoutSeconds ?? 60),
-                maxOutputBytes: commandMaxOutputBytes ?? 4096,
+                maxOutputBytes: commandMaxOutputBytes,
                 policy: commandPolicy ?? .default
             ),
             maxThreads: maxThreads ?? 32,

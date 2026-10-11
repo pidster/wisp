@@ -57,8 +57,11 @@ public struct WispServer: Sendable {
     public init(
         session: Session,
         makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model in
+            // One audit session per opening, so a reused thread_id does not mix an earlier thread's history into
+            // its resources (ADR 0050's review items); the directory records which is which.
             let thread = try session.thread(
-                id: id, host: host, instructions: instructions, tools: tools, model: model)
+                id: id, host: host, instructions: instructions, tools: tools, model: model,
+                auditSession: ThreadDirectory.auditSession(for: id))
             return OpenThread(
                 thread: ThreadActor(id: id, agent: try thread.openAgent()), gate: thread.gate,
                 audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
@@ -263,11 +266,6 @@ public struct WispServer: Sendable {
         func json(_ value: JSONValue) -> ReadResource.Result {
             .init(contents: [.text(Introspection.render(value), uri: params.uri, mimeType: "application/json")])
         }
-        func lines(_ events: [AuditEvent]) throws -> ReadResource.Result {
-            let text = try events.map { String(decoding: try AuditEvent.encoder.encode($0), as: UTF8.self) }
-                .joined(separator: "\n")
-            return .init(contents: [.text(text, uri: params.uri, mimeType: "application/x-ndjson")])
-        }
         switch params.uri {
         case ToolCatalog.toolsResourceURI:
             return .init(contents: [.text(registry.descriptionsJSON, uri: params.uri, mimeType: "application/json")])
@@ -288,21 +286,51 @@ public struct WispServer: Sendable {
             return json(.object(status))
         case ToolCatalog.approvalsResourceURI:
             return json(await views.approvals())
-        case ToolCatalog.auditResourceURI:
-            return try lines(try views.audit(AuditQuery(last: 100)))
-        case let uri where uri.hasPrefix(ToolCatalog.auditResourceURI + "/"):
-            let id = String(uri.dropFirst(ToolCatalog.auditResourceURI.count + 1))
-            guard SafeName.isValid(id) else { throw MCPError.invalidParams("session id must be \(SafeName.rule)") }
-            guard directory.record(id) == nil else {
-                throw MCPError.invalidParams(
-                    "\(id) is a respond thread; read \(ToolCatalog.threadURI(id))/audit for its events")
-            }
-            return try lines(try views.audit(AuditQuery(session: id)))
         default:
+            if let result = try readAudit(params.uri) { return result }
             if let result = try readFactStores(params.uri) { return result }
             if let result = try await readThread(params.uri) { return result }
             throw MCPError.invalidParams("Unknown resource: \(params.uri)")
         }
+    }
+
+    /// Serves `wisp://audit` (every session's events) and `wisp://audit/{session}` (one session's), paged like the
+    /// other collections (`?page=N&limit=M`), or nil for a URI that is not one.
+    ///
+    /// - Parameter uri: The URI read.
+    /// - Returns: The contents, or nil.
+    /// - Throws: `MCPError.invalidParams` for a malformed URI, a thread's session, or a page out of range.
+    private func readAudit(_ uri: String) throws -> ReadResource.Result? {
+        guard let parsed = ThreadURI(uri, root: ToolCatalog.auditResourceURI) else { return nil }
+        guard parsed.page >= 1 else { throw MCPError.invalidParams("page must be a whole number from 1") }
+        let limit = parsed.limit ?? Self.auditEventsPerPage
+        switch parsed.path {
+        case []:
+            // Every session, newest last, as the file holds them; the whole log is pages, not the last 100 alone.
+            let events = try session.introspection.audit(AuditQuery())
+            return try json(
+                Self.pagedEvents(events, page: parsed.page, limit: limit, base: ToolCatalog.auditResourceURI), uri: uri)
+        case let parts where parts.count == 1:
+            let id = parts[0]
+            guard SafeName.isValid(id) else { throw MCPError.invalidParams("session id must be \(SafeName.rule)") }
+            guard !directory.isThreadSession(id) else {
+                let thread = directory.record(id)?.id ?? directory.all.first { $0.auditSession == id }?.id ?? id
+                throw MCPError.invalidParams(
+                    "\(id) is a respond thread; read \(ToolCatalog.threadURI(thread))/audit for its events")
+            }
+            let events = try session.introspection.audit(AuditQuery(session: id))
+            return try json(
+                Self.pagedEvents(
+                    events, page: parsed.page, limit: limit, base: "\(ToolCatalog.auditResourceURI)/\(id)"),
+                uri: uri)
+        default:
+            throw MCPError.invalidParams("Unknown resource: \(uri)")
+        }
+    }
+
+    /// `contents` as pretty JSON at `uri`.
+    func json(_ contents: JSONValue, uri: String) throws -> ReadResource.Result {
+        .init(contents: [.text(Introspection.render(contents), uri: uri, mimeType: "application/json")])
     }
 
     /// Whether `text` has the form of an audit event id: 16 lowercase hex characters.
@@ -340,8 +368,8 @@ public struct WispServer: Sendable {
         }
         if opened.created {
             directory.opened(
-                id: id, model: opened.thread.model, tools: opened.thread.tools,
-                instructions: request.instructions != nil)
+                id: id, auditSession: opened.thread.audit.session, model: opened.thread.model,
+                tools: opened.thread.tools, instructions: request.instructions != nil)
         }
         if let evicted = opened.evicted {
             factKeeper.withdraw(thread: evicted.id)

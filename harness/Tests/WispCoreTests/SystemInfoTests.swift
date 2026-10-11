@@ -158,9 +158,9 @@ import Testing
         #expect(
             SystemInfo.expand("~", home: "/Users/me") == "/Users/me" && SystemInfo.expand("/tmp", home: "/x") == "/tmp")
         let long = (1...400).map { "line \($0) with some words" }.joined(separator: "\n")
-        let bounded = SystemInfo.bounded(long)
-        #expect(bounded.utf8.count <= SystemInfo.maxBytes && bounded.hasSuffix("(cut to 4096 bytes)"))
-        #expect(SystemInfo.bounded("short") == "short")
+        let bounded = ToolOutput.fitted(long, tool: "system_info", budget: ToolBudget(), store: nil)
+        #expect(bounded.utf8.count <= ToolBudget.floor && bounded.contains("held back …]"), "\(bounded.utf8.count)")
+        #expect(ToolOutput.fitted("short", tool: "system_info", budget: ToolBudget(), store: nil) == "short")
         let now = Date()
         #expect(SystemInfo.elapsed(since: now.addingTimeInterval(-40), now: now) == "40s")
         #expect(SystemInfo.elapsed(since: now.addingTimeInterval(-125), now: now) == "2m 5s")
@@ -180,7 +180,8 @@ import Testing
                 "error: target"))
         #expect(await tool.call(arguments: .init(topic: .ports, port: 0, process: "", path: nil)).hasPrefix("error:"))
         #expect(
-            tool.name == "system_info" && tool.limits.contains("4096") && tool.examplePrompt.contains("system_info"))
+            tool.name == "system_info" && tool.limits.contains("4096 bytes now")
+                && tool.examplePrompt.contains("system_info"))
         #expect(SystemInfo.Failure.badPath("/p").description == "path is not a folder on this Mac: /p")
     }
 }
