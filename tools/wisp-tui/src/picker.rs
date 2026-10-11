@@ -41,14 +41,27 @@ impl Picker {
         };
     }
 
-    /// Space in a choice with toggles: turns the highlighted row on or off. Nothing in a plain choice.
+    /// Space in a choice with toggles: turns the highlighted row on or off. Nothing in a plain choice, nor on
+    /// an action row.
     pub fn toggle(&mut self) {
         if !self.choice.toggles {
             return;
         }
-        if let Some(option) = self.choice.options.get_mut(self.selected) {
+        if let Some(option) = self.choice.options.get_mut(self.selected)
+            && !option.action
+        {
             option.on = Some(!option.on.unwrap_or(false));
         }
+    }
+
+    /// The answer Enter gives on an action row of a choice with toggles (`/models`' "pull a model…", ADR
+    /// 0059): its value alone, leaving the toggles unsaved; `None` when the highlighted row is no action.
+    pub fn action(&self) -> Option<String> {
+        self.choice
+            .options
+            .get(self.selected)
+            .filter(|option| option.action)
+            .map(|option| option.value.clone())
     }
 
     /// The answer Enter gives a choice with toggles: the values of the rows left on, in order; `None` for a
@@ -58,7 +71,7 @@ impl Picker {
             self.choice
                 .options
                 .iter()
-                .filter(|option| option.on == Some(true))
+                .filter(|option| option.on == Some(true) && !option.action)
                 .map(|option| option.value.clone())
                 .collect()
         })
@@ -218,6 +231,10 @@ impl Picker {
             .take(VISIBLE)
         {
             let chosen = index == self.selected;
+            if option.action {
+                lines.push(action_row(option, chosen, width));
+                continue;
+            }
             let on = option.on == Some(true);
             lines.push(Line::from(vec![
                 Span::styled(if chosen { "▸ " } else { "  " }, palette::prompt()),
@@ -234,13 +251,12 @@ impl Picker {
                 ),
             ]));
         }
-        lines.push(Line::from(Span::styled(
-            cut(
-                "↑↓ to move · Space to turn on or off · Enter to save · Esc to leave them",
-                width,
-            ),
-            palette::muted(),
-        )));
+        let keys = if self.action().is_some() {
+            "↑↓ to move · Enter to choose this · Esc to leave them"
+        } else {
+            "↑↓ to move · Space to turn on or off · Enter to save · Esc to leave them"
+        };
+        lines.push(Line::from(Span::styled(cut(keys, width), palette::muted())));
         lines
     }
 
@@ -248,6 +264,31 @@ impl Picker {
     pub fn rows(&self, width: usize) -> usize {
         self.lines(width).len() + usize::from(self.choice.accepts_text)
     }
+}
+
+/// An action row of a choice with toggles (`/models`' "pull a model…", ADR 0059), spanning the columns:
+/// `▸  +  pull a model…  an MLX model from Hugging Face`, cut to `width`.
+fn action_row(option: &crate::protocol::ChoiceOption, chosen: bool, width: usize) -> Line<'static> {
+    let detail = if option.detail.is_empty() {
+        String::new()
+    } else {
+        format!("  {}", option.detail)
+    };
+    Line::from(vec![
+        Span::styled(if chosen { "▸ " } else { "  " }, palette::prompt()),
+        Span::styled(" +  ", palette::wisp()),
+        Span::styled(
+            cut(
+                &format!("{}{detail}", option.label),
+                width.saturating_sub(TOGGLE_CELLS),
+            ),
+            if chosen {
+                palette::user()
+            } else {
+                palette::body()
+            },
+        ),
+    ])
 }
 
 /// Cells before a toggle row's first column: the highlight and the box, `▸ [x] `.
@@ -313,6 +354,7 @@ mod tests {
                     detail: String::new(),
                     cells: Vec::new(),
                     on: None,
+                    action: false,
                 })
                 .collect(),
             current: current.map(str::to_string),
@@ -378,6 +420,7 @@ mod tests {
             detail: String::new(),
             cells: cells.iter().map(|c| (*c).to_string()).collect(),
             on: Some(on),
+            action: false,
         };
         Choice {
             id: "m".into(),
@@ -459,6 +502,40 @@ mod tests {
         let mut plain = Picker::new(choice(&["a"], None, false));
         plain.toggle();
         assert_eq!(plain.values(), None);
+    }
+
+    #[test]
+    fn an_action_row_is_no_toggle_and_answers_with_its_value() {
+        let mut choice = models();
+        choice.options.push(ChoiceOption {
+            value: "pull…".into(),
+            label: "pull a model…".into(),
+            detail: "an MLX model from Hugging Face".into(),
+            cells: Vec::new(),
+            on: None,
+            action: true,
+        });
+        let mut picker = Picker::new(choice);
+        assert_eq!(picker.action(), None, "the model in use is no action");
+        picker.step(true);
+        picker.step(true);
+        assert_eq!(picker.action(), Some("pull…".into()));
+        picker.toggle();
+        assert_eq!(picker.choice.options[3].on, None, "Space leaves it");
+        assert_eq!(
+            picker.values(),
+            Some(vec!["system".to_string(), "ollama:a".to_string()]),
+            "the toggles leave it out"
+        );
+        let lines = picker.lines(80);
+        assert_eq!(
+            text(&lines[5]),
+            "▸  +  pull a model…  an MLX model from Hugging Face"
+        );
+        assert_eq!(
+            text(lines.last().unwrap_or(&Line::default())),
+            "↑↓ to move · Enter to choose this · Esc to leave them"
+        );
     }
 
     #[test]
