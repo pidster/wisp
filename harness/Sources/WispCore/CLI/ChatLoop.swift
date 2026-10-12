@@ -410,19 +410,9 @@ public struct ChatLoop {
                     io.print("\(String(repeating: " ", count: width - String(index + 1).count))\(index + 1)  \(line)")
                 }
             case .model(nil):
-                io.print("model: \(agent.model.selection) (\(agent.model.capabilityNames.joined(separator: ", ")))")
+                await showModel()
             case .model(let name?):
-                guard let openModel = context.openModel else {
-                    io.note("the model cannot be switched here")
-                    continue
-                }
-                do {
-                    let selection = try context.models?.switchTarget(name) ?? ModelSelection(parsing: name)
-                    agent = try openModel(selection, agent.store)
-                    io.note(style.muted("model: \(selection); the transcript continues"))
-                } catch {
-                    io.note(style.ember("error: \(error)"))
-                }
+                switchModel(to: name)
             case .tokens:
                 do {
                     let tokens = try await agent.contextTokens().map(String.init) ?? "unknown"
@@ -566,6 +556,24 @@ public struct ChatLoop {
             io.note(style.ember("commands cannot be run here: this conversation has no command runner"))
         case .ran, .refused:
             if let note = FactReport.newFacts(typed.facts) { io.note(style.muted(note)) }
+        }
+    }
+
+    /// `/model NAME`, here since only this file sets `agent`: the conversation moved to `name` through the chat's model actions, which refuse a disabled model,
+    /// its transcript carried over; refused with the reason, nothing changed, when it cannot be.
+    ///
+    /// - Parameter name: The model, as `--model` spells it.
+    mutating func switchModel(to name: String) {
+        guard let openModel = context.openModel else {
+            io.note("the model cannot be switched here")
+            return
+        }
+        do {
+            let selection = try context.models?.switchTarget(name) ?? ModelSelection(parsing: name)
+            agent = try openModel(selection, agent.store)
+            io.note(style.muted("model: \(selection); the transcript continues"))
+        } catch {
+            io.note(style.ember("error: \(error)"))
         }
     }
 

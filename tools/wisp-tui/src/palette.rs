@@ -148,6 +148,15 @@ pub fn command_sent_edge() -> Style {
 pub fn busy() -> Style {
     Style::default().fg(MIST).add_modifier(Modifier::DIM)
 }
+/// A status bar item with the focus: black, bold, on the item's own colour, so the highlight keeps what the item
+/// is (amber for approvals, wisp's blue for the model). It has no colour of its own, so the Swift palette has
+/// none to match.
+pub fn focused(item: Style) -> Style {
+    Style::default()
+        .fg(BLACK)
+        .bg(item.fg.unwrap_or(GLOW))
+        .add_modifier(Modifier::BOLD)
+}
 /// A risk level in its colour.
 pub fn level(level: &str) -> Style {
     match level {

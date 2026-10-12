@@ -98,3 +98,40 @@ and the busy box reads `stopping the turn · Ctrl-C again quits`; wisp cancels t
 the turn started, and returns to the prompt with `stopped by you`; a second press quits, and wisp, its input closed,
 kills what the turn still had running. A wisp that does not say a turn is stoppable is quit at once, as before. The
 front end keeps no policy of its own: it only sends the line.
+
+## Amendment, 2026-10-12: an interactive status bar
+
+The operator asked for `questions: 1` in the status row and for the row to be interactive: Down from the input's
+last row focuses the model, then the other items, and activating one opens what it names. The row is now a bar of
+items, each opening a view or a dialog that already exists; none is a new way to answer anything.
+
+- **Items.** The model (sends `/model`), the context gauge (the Ctrl-T panel), `questions: N` (the first waiting
+  question's picker), `approvals: N` (the first waiting approval's dialog), and the last turn (`/inspect context
+  turns`), in the order shown, each focusable only while it can do something: the counts only above zero, the
+  gauge only when wisp reports it, the turn once one has ended. The directory, branch, and approval mode stay
+  text, as no view of theirs exists. `approvals: N` replaces `⚠ N waiting`, which lumped approvals and questions
+  together: separate counts say which dialog opens, and the approvals keep the amber they had. Both counts include
+  the one on screen, since `questions` counts this chat's open question by the operator's wording.
+- **`/model` with no name** printed the model and its capabilities; there was no model picker to reuse. In a face
+  with a chooser of its own (`wisp-tui`) it now also offers the models it can switch to, enabled and able to serve
+  the conversation's tools, as a `choice`, and choosing one switches as `/model NAME` does. The plain chat, which
+  reads a line at a time, still only prints. The bar's model item sends `/model`, so typing it and activating the
+  item are the same path. `/models`, the table of models to turn on and off, was the other candidate; it does not
+  switch, which is what pressing on the model's name asks for.
+- **Keys.** Up and Down move the cursor a row in a message of several rows before they recall, so Down from an
+  upper row moves the cursor and only Down from the last row (or the only one) moves the focus, as the operator
+  asked. In the bar Left and Right move (Tab and Shift-Tab wrap), Enter or Space opens, Up or Esc returns to the
+  input as it was, and any other key returns to the input and does there what it always does, so a character typed
+  is never lost and Ctrl-C still quits.
+- **No answer from the focus.** Opening an approval from the bar starts the dialog's grace (amendment of
+  2026-10-09), so the key that opened it, or one straight after, is held for the box. A dialog or choice that
+  arrives while the bar has the focus takes the keys, and the focus returns to the input when it closes. A picker
+  opened over a typed line parks the line and gives it back when it closes, since a picker's typed answer uses the
+  same editor and closing it used to clear it.
+- **Narrow rows.** Parts go in turn rather than being cut mid-word: the directory shortens, then the mode and the
+  turn go, then the directory, then the gauge; the waiting counts and the item with the focus stay. The highlight
+  is black on the item's own colour, so it adds no colour to either palette.
+
+No protocol change: the counts are what `wisp-tui` already holds. Tested without a terminal: the key routing, the
+items and their order, the counts at zero, activation and the grace, the parked draft, and widths down to zero with
+wide characters (`tools/wisp-tui/src/main.rs`, `app.rs`, `editor.rs`); the `/model` picker in `ChatLoopTests`.

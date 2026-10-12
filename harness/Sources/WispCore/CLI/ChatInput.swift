@@ -279,7 +279,8 @@ public enum ChatInput: Equatable, Sendable {
           Ctrl-O                      the last tool output in full; again to close
           Ctrl-T                      the model's context in a panel
           Left, Right                 in that panel, the previous or next turn's context
-          Up, Down                    recall what you typed
+          Up, Down                    a row up or down in a long message; past its first row, recall what you typed
+          Down                        from the last row, the status bar: Left, Right, Enter opens an item, Up returns
           Esc                         close the panel
         """
 

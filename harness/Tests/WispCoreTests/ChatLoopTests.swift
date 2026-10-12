@@ -194,6 +194,64 @@ import WispTestSupport
                 && bare.noted.contains("the model cannot be switched here"))
     }
 
+    @Test func modelWithNoNameOffersTheModelsToSwitchToInAFaceWithChoices() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let first = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("from system")])))
+        let actions = try Self.actions(
+            dir,
+            listing: .init(entries: [
+                .init(selection: .system, capabilities: ["toolCalling"]),
+                .init(selection: .ollama("q"), detail: "3B", capabilities: ["toolCalling"]),
+                .init(selection: .ollama("off"), capabilities: ["toolCalling"], enabled: false),
+                .init(selection: .ollama("broken"), problem: "cannot call tools"),
+            ]))
+        let context = ChatLoop.Context(
+            directory: "/r", approval: "--yes", models: actions,
+            openModel: { selection, store in
+                Agent(
+                    store: store, tools: [],
+                    model: ResolvedModel(selection: selection, custom: ScriptedModel(steps: [.say("switched")])))
+            })
+        // Chosen: the conversation switches as `/model NAME` does; only the models it could switch to are offered.
+        let asked = Mutex<[ChatChoice]>([])
+        let picked = Capture(lines: ["/model", "/quit"])
+        var io = picked.io
+        io.choose = { choice in
+            asked.withLock { $0.append(choice) }
+            return "ollama:q"
+        }
+        var loop = ChatLoop(
+            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+        try await loop.run()
+        let choice = asked.withLock { $0.first }
+        #expect(choice?.options.map(\.value) == ["system", "ollama:q"])
+        #expect(choice?.current == "system" && choice?.toggles == false && choice?.acceptsText == false)
+        #expect(picked.output.contains("model: system (toolCalling, guidedGeneration)\n"))
+        #expect(picked.noted.contains("model: ollama:q; the transcript continues"))
+        #expect(loop.agent.model.selection == .ollama("q"))
+        // No answer, or the model in use: nothing changes.
+        for answer in [nil, "system"] {
+            let left = Capture(lines: ["/model", "/quit"])
+            var io = left.io
+            io.choose = { _ in answer }
+            var loop = ChatLoop(
+                agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+            try await loop.run()
+            #expect(left.noted.contains("model unchanged"))
+            #expect(loop.agent.model.selection == .system)
+        }
+        // A face without a chooser only prints the model, as before.
+        let plain = Capture(lines: ["/model", "/quit"])
+        var printed = ChatLoop(
+            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: plain.io)
+        try await printed.run()
+        #expect(plain.output.contains("model: system (toolCalling, guidedGeneration)\n"))
+        #expect(!plain.noted.contains("model unchanged"))
+    }
+
     @Test func modelsAreTurnedOnAndOffByCommandOrInThePicker() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -39,6 +39,26 @@ extension ChatLoop {
         }
     }
 
+    /// `/model` with no name: the model in use and its capabilities; then, in a face with a chooser of its own
+    /// (`wisp-tui`), the models `/model` can switch to (enabled, and able to serve the conversation's tools), the one
+    /// in use marked, as a picker. Choosing one switches as `/model NAME` does; no answer, or the one in use, leaves it
+    /// (`model unchanged`). The plain chat, which reads a line at a time, only prints the model.
+    mutating func showModel() async {
+        let current = agent.model.selection.description
+        io.print("model: \(current) (\(agent.model.capabilityNames.joined(separator: ", ")))")
+        guard let choose = io.choose, let actions = context.models, context.openModel != nil else { return }
+        let options = await actions.list(tools: agent.tools).entries.filter(\.offered).map {
+            ChatChoice.Option(value: $0.selection.description, detail: $0.detail)
+        }
+        guard !options.isEmpty else { return }
+        let answer = await choose(ChatChoice(title: "Switch to which model?", options: options, current: current))
+        guard let name = answer?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != current else {
+            io.note(style.muted("model unchanged"))
+            return
+        }
+        switchModel(to: name)
+    }
+
     /// The listing: a table, or in a face with choices the picker, whose save turns models on and off and whose
     /// "pull a model…" row asks for a repository and pulls it.
     ///

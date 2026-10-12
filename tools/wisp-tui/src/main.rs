@@ -290,41 +290,7 @@ fn run(
             Some(Incoming::Closed) => app.exited = true,
             Some(Incoming::Terminal(TermEvent::Paste(text))) => app.edit(&Edit::Paste(text)),
             Some(Incoming::Terminal(TermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
-                let action = match command_for(key.code, key.modifiers) {
-                    Key::Interrupt => app.interrupt(),
-                    Key::Cancel => app.cancel(),
-                    Key::Complete => app.complete(),
-                    Key::Submit => app.submit(),
-                    Key::Type(c) => app.type_char(c),
-                    Key::Edit(Edit::Left) if app.panel.is_some() => app.step_turn(false),
-                    Key::Edit(Edit::Right) if app.panel.is_some() => app.step_turn(true),
-                    Key::Edit(edit) => {
-                        app.edit(&edit);
-                        Action::None
-                    }
-                    Key::RecallPrevious => {
-                        app.recall_previous();
-                        Action::None
-                    }
-                    Key::RecallNext => {
-                        app.recall_next();
-                        Action::None
-                    }
-                    Key::ToggleOutput => {
-                        app.toggle_output();
-                        Action::None
-                    }
-                    Key::ShowContext => app.show_context(),
-                    Key::PageUp => {
-                        app.page_up();
-                        Action::None
-                    }
-                    Key::PageDown => {
-                        app.page_down();
-                        Action::None
-                    }
-                    Key::Nothing => Action::None,
-                };
+                let action = apply_key(&mut app, command_for(key.code, key.modifiers));
                 match action {
                     Action::None => {}
                     Action::Send(inbound) => {
@@ -383,6 +349,72 @@ fn changes_the_band(incoming: Option<&Incoming>) -> bool {
     }
 }
 
+/// What a key does: in the status bar while it has the focus (`bar_key`), otherwise to the input, a dialog, a
+/// choice, or the panel, whichever has the keys.
+fn apply_key(app: &mut App, key: Key) -> Action {
+    if app.focused().is_some() {
+        return bar_key(app, key);
+    }
+    match key {
+        Key::Interrupt => app.interrupt(),
+        Key::Cancel => app.cancel(),
+        Key::Complete => app.complete(),
+        Key::Submit => app.submit(),
+        Key::Type(c) => app.type_char(c),
+        Key::Edit(Edit::Left) if app.panel.is_some() => app.step_turn(false),
+        Key::Edit(Edit::Right) if app.panel.is_some() => app.step_turn(true),
+        Key::Edit(edit) => {
+            app.edit(&edit);
+            Action::None
+        }
+        Key::RecallPrevious => {
+            app.recall_previous();
+            Action::None
+        }
+        Key::RecallNext => {
+            app.recall_next();
+            Action::None
+        }
+        Key::ToggleOutput => {
+            app.toggle_output();
+            Action::None
+        }
+        Key::ShowContext => app.show_context(),
+        Key::PageUp => {
+            app.page_up();
+            Action::None
+        }
+        Key::PageDown => {
+            app.page_down();
+            Action::None
+        }
+        Key::Previous | Key::Nothing => Action::None,
+    }
+}
+
+/// A key while the status bar has the focus: Left and Right (and Alt- or Ctrl-) move between its items, Tab and
+/// Shift-Tab too, wrapping around, Home and End to the first and the last; Enter or Space opens the item; Up or Esc
+/// returns to the input as it was. Any other key returns to the input and does there what it always does, so a
+/// character typed goes in and Ctrl-C quits as it would. Nothing here answers a dialog: opening one starts its grace.
+fn bar_key(app: &mut App, key: Key) -> Action {
+    match key {
+        Key::Edit(Edit::Left | Edit::WordLeft) => app.step_bar(false, false),
+        Key::Edit(Edit::Right | Edit::WordRight) => app.step_bar(true, false),
+        Key::Complete => app.step_bar(true, true),
+        Key::Previous => app.step_bar(false, true),
+        Key::Edit(Edit::Home) => app.bar_edge(false),
+        Key::Edit(Edit::End) => app.bar_edge(true),
+        Key::Submit | Key::Type(' ') => return app.activate(),
+        Key::RecallPrevious | Key::Cancel => app.leave_bar(),
+        Key::RecallNext | Key::PageUp | Key::PageDown | Key::Nothing => {}
+        other => {
+            app.leave_bar();
+            return apply_key(app, other);
+        }
+    }
+    Action::None
+}
+
 /// The band's next height, when it should change: at once when the input needs more rows, but back
 /// down only once the input is empty, as it is when a message is sent. Shrinking remakes the terminal,
 /// so doing it on every Backspace across a wrap would remake it back and forth while the user types.
@@ -397,8 +429,10 @@ enum Key {
     Interrupt,
     /// Esc: leave an open choice unanswered.
     Cancel,
-    /// Tab: complete the slash command being typed.
+    /// Tab: complete the slash command being typed; in the status bar, the next item.
     Complete,
+    /// Shift-Tab: in the status bar, the previous item.
+    Previous,
     /// Send the input.
     Submit,
     /// A character: typed into the input, or an answer to a dialog.
@@ -455,6 +489,7 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::PageDown => Key::PageDown,
         KeyCode::Esc => Key::Cancel,
         KeyCode::Tab => Key::Complete,
+        KeyCode::BackTab => Key::Previous,
         KeyCode::Up => Key::RecallPrevious,
         KeyCode::Down => Key::RecallNext,
         _ => Key::Nothing,
@@ -600,6 +635,7 @@ fn wrapped_height(text: &str, width: u16) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use super::Action;
     use super::{
         App, Edit, Incoming, Key, KeyCode, KeyModifiers, Outbound, Sequence, TermEvent,
         changes_the_band, command_for, next_height, post_notices, version_display,
@@ -608,6 +644,7 @@ mod tests {
     use super::{CHILD_NAME, chat_command};
     use super::{Ending, exit_code, remaining_stderr, shut_down};
     use super::{HistoryLine, Line, LineKind, palette, styled};
+    use super::{app::BarItem, app::DIALOG_GRACE, apply_key, protocol::Inbound};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
     use std::os::unix::process::ExitStatusExt;
     use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
@@ -959,5 +996,356 @@ mod tests {
         assert_eq!(wrapped_height("exactly ten", 11), 1);
         assert_eq!(wrapped_height("twelve chars", 10), 2);
         assert_eq!(wrapped_height("a\nb", 10), 2);
+    }
+
+    /// A chat at its prompt: a status with a context gauge, so the bar has its model and gauge.
+    fn at_the_prompt() -> App {
+        let mut app = App::default();
+        app.handle(Outbound::parse(
+            r#"{"type":"status","model":"system","directory":"~/x","approval":"ask","contextUsed":0.2}"#,
+        ));
+        app
+    }
+
+    fn typed(app: &mut App, text: &str) {
+        for c in text.chars() {
+            apply_key(app, Key::Type(c));
+        }
+    }
+
+    fn mcp_approval(id: &str) -> Outbound {
+        Outbound::parse(&format!(
+            r#"{{"type":"approval","id":"{id}","command":"git push","line":"git push","pattern":"git push *","directory":"/r","level":"moderate","reasons":[],"source":"mcp"}}"#
+        ))
+    }
+
+    fn mcp_question(id: &str) -> Outbound {
+        Outbound::parse(&format!(
+            r#"{{"type":"choice","id":"{id}","title":"Which config?","options":[{{"value":"a","label":"a"}},{{"value":"b","label":"b"}}],"current":null,"acceptsText":false,"kind":"question","source":"mcp"}}"#
+        ))
+    }
+
+    #[test]
+    fn down_from_the_inputs_last_row_focuses_the_model_and_up_or_esc_returns() {
+        // An empty box, and a one-line one, are on their last row.
+        let mut app = at_the_prompt();
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        apply_key(&mut app, Key::RecallPrevious);
+        assert_eq!(app.focused(), None);
+        typed(&mut app, "hello");
+        apply_key(&mut app, Key::Edit(Edit::Left));
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        // Down again stays; Esc returns with the line and its cursor as they were.
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        apply_key(&mut app, Key::Cancel);
+        assert_eq!(app.focused(), None);
+        assert_eq!(
+            (app.editor.text(), app.editor.cursor()),
+            ("hello".into(), 4)
+        );
+        // Before wisp's first status there is no bar to go to.
+        let mut connecting = App::default();
+        apply_key(&mut connecting, Key::RecallNext);
+        assert_eq!(connecting.focused(), None);
+    }
+
+    #[test]
+    fn down_from_an_upper_row_moves_the_cursor_not_the_focus() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "first");
+        apply_key(&mut app, Key::Edit(Edit::Newline));
+        typed(&mut app, "second");
+        apply_key(&mut app, Key::Edit(Edit::Home));
+        assert_eq!(app.editor.cursor(), 0);
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), None, "the cursor went down a row");
+        assert_eq!(app.editor.cursor(), 6);
+        // Up from the second row goes back up, not to an earlier line.
+        apply_key(&mut app, Key::RecallPrevious);
+        assert_eq!(app.editor.cursor(), 0);
+        assert_eq!(app.editor.text(), "first\nsecond");
+        // From the last row, the bar.
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+    }
+
+    #[test]
+    fn left_right_tab_home_and_end_move_between_the_items_in_order() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "draft");
+        app.handle(mcp_question("mcp-q1"));
+        app.handle(mcp_approval("mcp-1"));
+        app.handle(Outbound::parse(
+            r#"{"type":"turn","phase":"end","turn":1,"seconds":1.5,"outcome":"ok"}"#,
+        ));
+        assert_eq!(
+            app.bar_items(),
+            vec![
+                BarItem::Model,
+                BarItem::Context,
+                BarItem::Questions,
+                BarItem::Approvals,
+                BarItem::Turn
+            ]
+        );
+        apply_key(&mut app, Key::RecallNext);
+        let mut seen = vec![app.focused()];
+        for _ in 0..5 {
+            apply_key(&mut app, Key::Edit(Edit::Right));
+            seen.push(app.focused());
+        }
+        // Right stops at the last.
+        assert_eq!(
+            seen,
+            [
+                BarItem::Model,
+                BarItem::Context,
+                BarItem::Questions,
+                BarItem::Approvals,
+                BarItem::Turn,
+                BarItem::Turn
+            ]
+            .map(Some)
+        );
+        apply_key(&mut app, Key::Edit(Edit::Left));
+        assert_eq!(app.focused(), Some(BarItem::Approvals));
+        apply_key(&mut app, Key::Edit(Edit::WordLeft));
+        assert_eq!(app.focused(), Some(BarItem::Questions));
+        // Tab and Shift-Tab wrap around; Home and End go to the ends.
+        apply_key(&mut app, Key::Edit(Edit::End));
+        apply_key(&mut app, Key::Complete);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        apply_key(&mut app, Key::Previous);
+        assert_eq!(app.focused(), Some(BarItem::Turn));
+        apply_key(&mut app, Key::Edit(Edit::Home));
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        // Left at the first stays; the draft never changed.
+        apply_key(&mut app, Key::Edit(Edit::Left));
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        assert_eq!(app.editor.text(), "draft");
+    }
+
+    #[test]
+    fn a_key_typed_in_the_bar_returns_to_the_input_and_goes_in() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "hell");
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(apply_key(&mut app, Key::Type('o')), Action::None);
+        assert_eq!(app.focused(), None);
+        assert_eq!(app.editor.text(), "hello");
+        // An edit does the same, and so does a paste.
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::Backspace));
+        assert_eq!((app.focused(), app.editor.text()), (None, "hell".into()));
+        apply_key(&mut app, Key::RecallNext);
+        app.edit(&Edit::Paste("o!".into()));
+        assert_eq!((app.focused(), app.editor.text()), (None, "hello!".into()));
+        // Ctrl-C with nothing open quits from the bar as from the input.
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(apply_key(&mut app, Key::Interrupt), Action::Quit);
+    }
+
+    #[test]
+    fn enter_or_space_on_the_model_sends_what_slash_model_sends() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "a draft");
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(
+            apply_key(&mut app, Key::Submit),
+            Action::Send(Inbound::Message {
+                text: "/model".into()
+            })
+        );
+        // The focus is back on the input, held while wisp answers, and nothing was echoed or recalled.
+        assert!(app.busy && app.focused().is_none());
+        assert!(app.take_pending().is_empty() && app.recall.is_empty());
+        // wisp's picker opens over the box with the draft parked, and the draft is back once it is answered.
+        app.handle(Outbound::parse(
+            r#"{"type":"choice","id":"c1","title":"Switch to which model?","options":[{"value":"system","label":"system"},{"value":"ollama:q","label":"ollama:q"}],"current":"system","acceptsText":false}"#,
+        ));
+        assert!(app.picker.is_some() && app.editor.is_empty());
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(
+            apply_key(&mut app, Key::Submit),
+            Action::Send(Inbound::Choose {
+                id: "c1".into(),
+                value: Some("ollama:q".into()),
+                values: None
+            })
+        );
+        assert_eq!(app.editor.text(), "a draft");
+        app.handle(Outbound::parse(
+            r#"{"type":"status","model":"ollama:q","directory":"~/x","approval":"ask"}"#,
+        ));
+        // Space opens it too.
+        apply_key(&mut app, Key::RecallNext);
+        assert!(matches!(
+            apply_key(&mut app, Key::Type(' ')),
+            Action::Send(Inbound::Message { .. })
+        ));
+        assert_eq!(app.editor.text(), "a draft", "the space is not typed");
+    }
+
+    #[test]
+    fn enter_on_questions_opens_the_first_waiting_questions_picker() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "draft");
+        app.handle(mcp_question("mcp-q1"));
+        app.handle(mcp_question("mcp-q2"));
+        assert!(app.picker.is_none() && app.questions_waiting() == 2);
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::Right));
+        apply_key(&mut app, Key::Edit(Edit::Right));
+        assert_eq!(app.focused(), Some(BarItem::Questions));
+        // Opening answers nothing.
+        assert_eq!(apply_key(&mut app, Key::Submit), Action::None);
+        assert_eq!(
+            app.picker.as_ref().map(|picker| picker.choice.id.as_str()),
+            Some("mcp-q1")
+        );
+        assert_eq!(
+            app.questions_waiting(),
+            2,
+            "the one shown and the one behind"
+        );
+        // Answered with the picker's own keys; the draft comes back, and the next one waits behind it again.
+        assert_eq!(
+            apply_key(&mut app, Key::Submit),
+            Action::Send(Inbound::Choose {
+                id: "mcp-q1".into(),
+                value: Some("a".into()),
+                values: None
+            })
+        );
+        assert_eq!(app.editor.text(), "draft");
+        assert!(app.picker.is_none() && app.questions_waiting() == 1);
+    }
+
+    #[test]
+    fn enter_on_approvals_opens_the_dialog_in_its_grace_so_focus_never_answers_it() {
+        let mut app = at_the_prompt();
+        typed(&mut app, "draft");
+        app.handle(mcp_approval("mcp-1"));
+        assert!(app.approval.is_none() && app.approvals_waiting() == 1);
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::End));
+        assert_eq!(app.focused(), Some(BarItem::Approvals));
+        assert_eq!(apply_key(&mut app, Key::Submit), Action::None);
+        assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-1"));
+        // A key at once, even an answer's letter, is held for the box, as for a dialog that arrives.
+        assert_eq!(apply_key(&mut app, Key::Type('y')), Action::None);
+        assert!(app.approval.is_some());
+        app.clock.advance(DIALOG_GRACE);
+        assert_eq!(
+            apply_key(&mut app, Key::Type('n')),
+            Action::Send(Inbound::Answer {
+                id: "mcp-1".into(),
+                decision: "no".into()
+            })
+        );
+        assert_eq!(app.editor.text(), "drafty");
+        assert_eq!(app.focused(), None);
+    }
+
+    #[test]
+    fn a_dialog_arriving_while_the_bar_has_the_focus_takes_it_and_waits_out_its_grace() {
+        let mut app = at_the_prompt();
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        // With the box empty a request from wisp mcp opens at once, over the bar's focus.
+        app.handle(mcp_approval("mcp-2"));
+        assert!(app.approval.is_some());
+        assert_eq!(app.focused(), None);
+        assert_eq!(apply_key(&mut app, Key::Submit), Action::None);
+        assert_eq!(apply_key(&mut app, Key::Type(' ')), Action::None);
+        assert_eq!(apply_key(&mut app, Key::Type('y')), Action::None);
+        assert!(app.approval.is_some(), "nothing answered it");
+        // Once it closes the focus is the input's.
+        assert_eq!(
+            apply_key(&mut app, Key::Interrupt),
+            Action::Send(Inbound::Answer {
+                id: "mcp-2".into(),
+                decision: "no".into()
+            })
+        );
+        assert_eq!(app.focused(), None);
+    }
+
+    #[test]
+    fn the_gauge_and_the_last_turn_open_the_context_and_the_turn_list() {
+        let mut app = at_the_prompt();
+        app.handle(Outbound::parse(
+            r#"{"type":"turn","phase":"end","turn":1,"seconds":1.5,"outcome":"ok"}"#,
+        ));
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::Right));
+        assert_eq!(app.focused(), Some(BarItem::Context));
+        assert_eq!(
+            apply_key(&mut app, Key::Submit),
+            Action::Send(Inbound::Message {
+                text: "/inspect context next".into()
+            })
+        );
+        app.handle(Outbound::parse(
+            r#"{"type":"view","kind":"context","turn":null,"turns":1,"text":"ctx"}"#,
+        ));
+        assert!(app.panel.is_some());
+        apply_key(&mut app, Key::Cancel);
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::End));
+        assert_eq!(app.focused(), Some(BarItem::Turn));
+        assert_eq!(
+            apply_key(&mut app, Key::Submit),
+            Action::Send(Inbound::Message {
+                text: "/inspect context turns".into()
+            })
+        );
+    }
+
+    #[test]
+    fn questions_and_approvals_are_items_only_while_something_waits() {
+        let mut app = at_the_prompt();
+        assert_eq!(app.bar_items(), vec![BarItem::Model, BarItem::Context]);
+        apply_key(&mut app, Key::RecallNext);
+        apply_key(&mut app, Key::Edit(Edit::End));
+        assert_eq!(app.focused(), Some(BarItem::Context));
+        // Without a gauge, the model alone.
+        let mut bare = App::default();
+        bare.handle(Outbound::parse(
+            r#"{"type":"status","model":"system","directory":"~/x","approval":"ask"}"#,
+        ));
+        assert_eq!(bare.bar_items(), vec![BarItem::Model]);
+        // A waiting question withdrawn while it has the focus: the focus falls back to the model.
+        let mut gone = at_the_prompt();
+        typed(&mut gone, "x");
+        gone.handle(mcp_question("mcp-q9"));
+        apply_key(&mut gone, Key::RecallNext);
+        apply_key(&mut gone, Key::Edit(Edit::End));
+        assert_eq!(gone.focused(), Some(BarItem::Questions));
+        gone.handle(Outbound::parse(r#"{"type":"withdrawn","id":"mcp-q9"}"#));
+        assert_eq!(gone.bar_items(), vec![BarItem::Model, BarItem::Context]);
+        assert_eq!(gone.focused(), Some(BarItem::Model));
+        assert_eq!(
+            apply_key(&mut gone, Key::Submit),
+            Action::Send(Inbound::Message {
+                text: "/model".into()
+            })
+        );
+    }
+
+    #[test]
+    fn shift_tab_is_the_bars_previous_item_and_nothing_in_the_input() {
+        assert_eq!(
+            command_for(KeyCode::BackTab, KeyModifiers::SHIFT),
+            Key::Previous
+        );
+        let mut app = at_the_prompt();
+        typed(&mut app, "x");
+        assert_eq!(apply_key(&mut app, Key::Previous), Action::None);
+        assert_eq!(app.editor.text(), "x");
     }
 }

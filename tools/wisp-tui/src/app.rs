@@ -3,6 +3,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding, Paragraph};
 use std::cell::Cell;
@@ -368,6 +369,36 @@ fn common_prefix(words: &[String]) -> String {
     prefix.into_iter().collect()
 }
 
+/// An item of the status bar that can take the focus (Down from the input's last row) and does something when
+/// activated with Enter or Space, in the order the bar shows them, left to right. Each opens a view or a dialog that
+/// already exists; none answers anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarItem {
+    /// The model: sends `/model`, which offers the models to switch to in a picker.
+    Model,
+    /// The context gauge (`15% used`): the model's context in the panel, as Ctrl-T opens it.
+    Context,
+    /// `questions: N`, the model's questions waiting for the person: the first one's picker.
+    Questions,
+    /// `approvals: N`, the approvals (commands, and facts to keep) waiting: the first one's dialog.
+    Approvals,
+    /// The last turn's time and tokens: the turn list (`/inspect context turns`) in the panel.
+    Turn,
+}
+
+impl BarItem {
+    /// What activating it does, for the hint above the input.
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Model => "switch the model",
+            Self::Context => "show the context",
+            Self::Questions => "answer the question",
+            Self::Approvals => "answer the approval",
+            Self::Turn => "list the turns",
+        }
+    }
+}
+
 /// What the status line says about turns.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TurnState {
@@ -535,6 +566,12 @@ pub struct App {
     pub notices: Vec<Notice>,
     /// The width the band was last sized for, so scrolling knows how the text wraps.
     band_width: Cell<u16>,
+    /// The status bar item with the focus, while the bar has it (`focused` says whether it still does); `None`
+    /// while the input has it.
+    pub bar: Option<BarItem>,
+    /// The line the input box held when a picker opened over it (from the status bar, with a draft typed), put back
+    /// when the picker closes, so a picker's typed answer never takes in, or clears, what was being written.
+    pub parked: Option<String>,
 }
 
 impl App {
@@ -591,8 +628,17 @@ impl App {
         });
     }
 
-    /// Applies one line from wisp.
+    /// Applies one line from wisp. A dialog, a choice, or the panel that it opens over the input takes the focus
+    /// from the status bar; the focus returns to the input, not the bar, when they close.
     pub fn handle(&mut self, outbound: Outbound) {
+        self.apply(outbound);
+        if !self.bar_open() {
+            self.bar = None;
+        }
+    }
+
+    /// Applies one line from wisp to the state, as `handle` does.
+    fn apply(&mut self, outbound: Outbound) {
         match outbound {
             Outbound::Output { text } => {
                 self.flush_partial();
@@ -677,8 +723,7 @@ impl App {
             Outbound::Choice(choice) if choice.is_question() => self.asked(choice),
             Outbound::Choice(choice) => {
                 self.flush_partial();
-                self.panel = None;
-                self.picker = Some(Picker::new(choice));
+                self.open_picker(choice);
             }
             Outbound::View(view) if view.kind == "output" => {
                 self.flush_partial();
@@ -699,6 +744,176 @@ impl App {
         }
     }
 
+    /// Opens a picker for `choice` in the input's place. A line in the box is parked, and put back when the
+    /// picker closes (`close_picker`), so a picker that takes typed text starts empty and the draft survives it.
+    fn open_picker(&mut self, choice: Choice) {
+        if self.picker.is_none() && !self.editor.is_empty() {
+            self.parked = Some(self.line());
+            self.editor.take();
+            self.command_mode = false;
+            self.suggestions = None;
+        }
+        self.panel = None;
+        self.bar = None;
+        self.picker = Some(Picker::new(choice));
+    }
+
+    /// Clears what was typed into a picker that has closed, and puts back the line parked when it opened.
+    fn close_picker(&mut self) {
+        self.editor.take();
+        if let Some(line) = self.parked.take() {
+            self.set_line(&line);
+        }
+    }
+
+    /// Whether the status bar can take the focus: wisp has sent a status, no turn runs, and nothing (a dialog, a
+    /// choice, the panel) is open over the input.
+    fn bar_open(&self) -> bool {
+        self.status.is_some()
+            && !self.busy
+            && self.approval.is_none()
+            && self.picker.is_none()
+            && self.panel.is_none()
+    }
+
+    /// The model's questions waiting for the person (ADR 0062): the one on screen, if any, and those queued, this
+    /// conversation's or from `wisp mcp`.
+    pub fn questions_waiting(&self) -> usize {
+        self.queued_questions.len()
+            + usize::from(
+                self.picker
+                    .as_ref()
+                    .is_some_and(|picker| picker.choice.is_question()),
+            )
+    }
+
+    /// The approvals waiting for the person: the dialog on screen, if any, and those queued (from `wisp mcp`, while
+    /// a line is typed), commands and facts to keep alike.
+    pub fn approvals_waiting(&self) -> usize {
+        self.queued.len() + usize::from(self.approval.is_some())
+    }
+
+    /// The status bar's items that can take the focus now, in the order shown: the model, the context gauge when
+    /// wisp reports it, the questions and the approvals waiting when there are any, and the last turn once one has
+    /// ended. None while the bar cannot take the focus.
+    pub fn bar_items(&self) -> Vec<BarItem> {
+        let Some(status) = &self.status else {
+            return Vec::new();
+        };
+        let mut items = vec![BarItem::Model];
+        if status.context_used.is_some() {
+            items.push(BarItem::Context);
+        }
+        if self.questions_waiting() > 0 {
+            items.push(BarItem::Questions);
+        }
+        if self.approvals_waiting() > 0 {
+            items.push(BarItem::Approvals);
+        }
+        if matches!(self.turn, Some(TurnState::Ended { .. })) {
+            items.push(BarItem::Turn);
+        }
+        items
+    }
+
+    /// The item with the focus, while the bar has it: the one chosen, or the model when that one has gone (its last
+    /// question answered elsewhere, say). `None` while the input has the focus or the bar cannot take it.
+    pub fn focused(&self) -> Option<BarItem> {
+        let item = self.bar.filter(|_| self.bar_open())?;
+        Some(if self.bar_items().contains(&item) {
+            item
+        } else {
+            BarItem::Model
+        })
+    }
+
+    /// Down from the input's last row: the focus moves to the bar's first item, the model, when the bar can take it.
+    fn focus_bar(&mut self) {
+        if self.bar_open() {
+            self.suggestions = None;
+            self.bar = Some(BarItem::Model);
+        }
+    }
+
+    /// Up or Esc in the bar: the focus returns to the input, its line and cursor as they were.
+    pub fn leave_bar(&mut self) {
+        self.bar = None;
+    }
+
+    /// Left or Right (Shift-Tab or Tab, which wrap around) in the bar: the previous or next item.
+    pub fn step_bar(&mut self, forward: bool, wrap: bool) {
+        let Some(item) = self.focused() else {
+            return;
+        };
+        let items = self.bar_items();
+        let at = items.iter().position(|each| *each == item).unwrap_or(0);
+        let last = items.len().saturating_sub(1);
+        let next = match (forward, wrap) {
+            (true, _) if at < last => at + 1,
+            (true, true) => 0,
+            (false, _) if at > 0 => at - 1,
+            (false, true) => last,
+            _ => at,
+        };
+        self.bar = items.get(next).copied();
+    }
+
+    /// Home or End in the bar: the first item or the last.
+    pub fn bar_edge(&mut self, last: bool) {
+        if self.focused().is_none() {
+            return;
+        }
+        let items = self.bar_items();
+        self.bar = if last { items.last() } else { items.first() }.copied();
+    }
+
+    /// Enter or Space on the focused item: opens what it names, and the focus returns to the input. It only opens:
+    /// the model sends `/model`, which offers the models in a picker; the questions show the first waiting
+    /// question's picker; the approvals the first waiting approval's dialog, which takes its keys only after its grace
+    /// (`DIALOG_GRACE`), as one that arrives does; the gauge and the turn ask for the context and the turn list.
+    /// Nothing here answers a dialog or a choice.
+    pub fn activate(&mut self) -> Action {
+        let Some(item) = self.focused() else {
+            return Action::None;
+        };
+        self.bar = None;
+        match item {
+            BarItem::Model => {
+                // What `submit` does for a slash command, without echoing it: the box is held until wisp's
+                // status, and the choice it sends opens as `/model` typed would.
+                self.busy = true;
+                self.slash_sent = true;
+                Action::Send(Inbound::Message {
+                    text: "/model".into(),
+                })
+            }
+            BarItem::Context => self.show_context(),
+            BarItem::Turn => {
+                if self.context_asked {
+                    return Action::None;
+                }
+                self.context_asked = true;
+                Action::Send(Inbound::Message {
+                    text: "/inspect context turns".into(),
+                })
+            }
+            BarItem::Questions => {
+                if let Some(question) = self.queued_questions.pop_front() {
+                    self.open_picker(question);
+                }
+                Action::None
+            }
+            BarItem::Approvals => {
+                if let Some(approval) = self.queued.pop_front() {
+                    self.approval = Some(approval);
+                    self.panel = None;
+                    self.dialog_quiet_from = Some(self.clock.now());
+                }
+                Action::None
+            }
+        }
+    }
+
     /// Shows an approval in place of any panel, or queues it behind the one shown. One from `wisp mcp` that
     /// arrives while the input box has text waits until the box is empty, with a note saying so.
     fn arrived(&mut self, approval: Approval) {
@@ -706,7 +921,7 @@ impl App {
         if self.approval.is_none() && approval.is_mcp() && !self.editor.is_empty() {
             self.push(
                 &format!(
-                    "⚠ waiting in wisp mcp: {} · its dialog opens when the input is empty",
+                    "⚠ waiting in wisp mcp: {} · its dialog opens when the input is empty, or from the status bar",
                     approval.command
                 ),
                 LineKind::Note,
@@ -723,7 +938,7 @@ impl App {
         if self.picker.is_none() && question.is_mcp() && !self.editor.is_empty() {
             self.push(
                 &format!(
-                    "? the model asks in wisp mcp: {} · its dialog opens when the input is empty",
+                    "? the model asks in wisp mcp: {} · its dialog opens when the input is empty, or from the status bar",
                     question.title
                 ),
                 LineKind::Note,
@@ -761,8 +976,7 @@ impl App {
                 .position(|question| !question.is_mcp() || empty)
             && let Some(question) = self.queued_questions.remove(index)
         {
-            self.panel = None;
-            self.picker = Some(Picker::new(question));
+            self.open_picker(question);
         }
     }
 
@@ -792,7 +1006,7 @@ impl App {
             .is_some_and(|picker| picker.choice.id == id)
         {
             if let Some(picker) = self.picker.take() {
-                self.editor.take();
+                self.close_picker();
                 self.push(
                     &format!("⚠ no longer waiting: {}", picker.choice.title),
                     LineKind::Note,
@@ -1126,8 +1340,10 @@ impl App {
     }
 
     /// A character typed. With an approval shown it is an answer, unless the dialog is in its grace, when it
-    /// is held for the input box instead.
+    /// is held for the input box instead. Typed while the status bar has the focus, it returns the focus to the
+    /// input and goes in, so nothing typed is lost.
     pub fn type_char(&mut self, c: char) -> Action {
+        self.bar = None;
         if self.approval.is_some() && self.in_grace() {
             self.held.push(Edit::Insert(c));
             return Action::None;
@@ -1245,8 +1461,10 @@ impl App {
     }
 
     /// An edit to the input: held while a turn is running or a dialog is in its grace, ignored while a dialog
-    /// wants its keys. An edit that leaves the box empty lets an approval waiting for that show.
+    /// wants its keys. An edit that leaves the box empty lets an approval waiting for that show. An edit (a paste,
+    /// say) while the status bar has the focus returns the focus to the input first.
     pub fn edit(&mut self, edit: &Edit) {
+        self.bar = None;
         if self.approval.is_some() && self.in_grace() {
             self.held.push(edit.clone());
             return;
@@ -1347,7 +1565,7 @@ impl App {
         let Some(picker) = self.picker.take() else {
             return Action::None;
         };
-        self.editor.take();
+        self.close_picker();
         if picker.choice.is_question() {
             let what = match &value {
                 Some(answer) => format!("answered: {answer}"),
@@ -1428,6 +1646,11 @@ impl App {
         Action::Send(Inbound::Message { text })
     }
 
+    /// Cells of text across the input's rows, as `input_lines` lays them out for the band's width.
+    fn input_width(&self) -> usize {
+        usize::from(self.panel_width().saturating_sub(MARGIN * 2)).saturating_sub(PROMPT_CELLS)
+    }
+
     /// Up: replaces the input with the previous submitted line, keeping what was typed as the draft.
     pub fn recall_previous(&mut self) {
         if self.panel.is_some() {
@@ -1438,7 +1661,14 @@ impl App {
             picker.step(false);
             return;
         }
-        if self.approval.is_some() || self.busy || self.recall.is_empty() {
+        if self.approval.is_some() || self.busy {
+            return;
+        }
+        // In a message of several rows, Up moves the cursor a row; from the first row it recalls.
+        if self.typing() && self.editor.step_row(self.input_width(), false) {
+            return;
+        }
+        if self.recall.is_empty() {
             return;
         }
         let index = match self.recall_at {
@@ -1453,7 +1683,8 @@ impl App {
         self.set_line(&line);
     }
 
-    /// Down: moves to the next submitted line, and past the newest back to the draft.
+    /// Down: moves to the next submitted line, and past the newest back to the draft; on a fresh line, to the
+    /// status bar.
     pub fn recall_next(&mut self) {
         if self.panel.is_some() {
             self.scroll_panel(1);
@@ -1466,7 +1697,13 @@ impl App {
         if self.approval.is_some() || self.busy {
             return;
         }
+        // In a message of several rows, Down moves the cursor a row; from the last row it recalls the next line
+        // while recalling, and otherwise moves the focus to the status bar.
+        if self.typing() && self.editor.step_row(self.input_width(), true) {
+            return;
+        }
         let Some(index) = self.recall_at else {
+            self.focus_bar();
             return;
         };
         if index + 1 < self.recall.len() {
@@ -1745,8 +1982,11 @@ impl App {
             frame.render_widget(Paragraph::new("").style(background), row(index, area));
             frame.render_widget(Paragraph::new(line).style(background), row(index, inset));
         }
-        // The terminal's own cursor marks where typing goes, while typing is taken.
-        if let Some((line, column)) = cursor {
+        // The terminal's own cursor marks where typing goes, while typing is taken; with the focus in the status
+        // bar there is none, and the row above the input names the bar's keys.
+        if let Some(item) = self.focused() {
+            plain(frame, 1, bar_hint(item, usize::from(inset.width)));
+        } else if let Some((line, column)) = cursor {
             let x = inset
                 .x
                 .saturating_add(u16::try_from(column).unwrap_or(u16::MAX));
@@ -1899,77 +2139,63 @@ impl App {
         }
     }
 
-    /// The status row for a band `width` cells wide: on the left the model and its context use, the
-    /// How many dialogs wait behind the input box: queued approvals, and the model's queued questions while no
-    /// choice is open (ADR 0062).
-    fn waiting_behind_the_input(&self) -> usize {
-        self.queued.len()
-            + if self.picker.is_none() {
-                self.queued_questions.len()
-            } else {
-                0
-            }
+    /// The context gauge after the model, `:15% used`, coloured by how full the window is; `None` when wisp does
+    /// not report it.
+    fn gauge_spans(&self, focus: Option<BarItem>) -> Option<Vec<Span<'static>>> {
+        let used = self.status.as_ref()?.context_used?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let percent = (used * 100.0).round() as u8;
+        // Quiet below half the window, bright from half, amber from 80%, where condensing is near.
+        let style = if used >= 0.8 {
+            palette::amber()
+        } else if used >= 0.5 {
+            palette::glow()
+        } else {
+            palette::muted()
+        };
+        Some(vec![
+            Span::styled(":", palette::muted()),
+            item_span(focus, BarItem::Context, format!("{percent}% used"), style),
+        ])
     }
 
-    /// directory with its branch and line changes; on the right the approval mode, the turn, and its
-    /// tokens, pushed to the right edge. When both do not fit, the directory shortens to its last
-    /// folder, and failing that the two sides simply follow each other.
-    fn status_line(&self, width: u16) -> Line<'static> {
-        let Some(status) = &self.status else {
-            return Line::from(Span::styled("connecting…", palette::muted()));
-        };
-        let sep = || Span::styled(" · ", palette::muted());
-        let left = |directory: String| {
-            let mut spans = vec![Span::styled(status.model.clone(), palette::wisp())];
-            if let Some(used) = status.context_used {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let percent = (used * 100.0).round() as u8;
-                // Quiet below half the window, bright from half, amber from 80%, where condensing is near.
-                let style = if used >= 0.8 {
-                    palette::amber()
-                } else if used >= 0.5 {
-                    palette::glow()
-                } else {
-                    palette::muted()
-                };
-                spans.push(Span::styled(":", palette::muted()));
-                spans.push(Span::styled(format!("{percent}% used"), style));
+    /// What waits for the person, so it never waits unseen (a question or an approval from `wisp mcp` waits behind
+    /// a line being typed, and opens from here): `questions: N · approvals: N`, each only when there are some.
+    fn waiting_spans(&self, focus: Option<BarItem>) -> Vec<Span<'static>> {
+        let mut spans = Vec::new();
+        let questions = self.questions_waiting();
+        if questions > 0 {
+            spans.push(item_span(
+                focus,
+                BarItem::Questions,
+                format!("questions: {questions}"),
+                palette::glow(),
+            ));
+        }
+        let approvals = self.approvals_waiting();
+        if approvals > 0 {
+            if !spans.is_empty() {
+                spans.push(separator());
             }
-            spans.push(sep());
-            spans.push(Span::styled(directory, palette::wisp()));
-            if let Some(branch) = &status.branch {
-                spans.push(Span::styled(":", palette::muted()));
-                spans.push(Span::styled(branch.clone(), palette::glow()));
-            }
-            match (status.added, status.removed) {
-                (Some(added), Some(removed)) if added + removed > 0 => {
-                    spans.push(Span::styled(format!("+{added}"), palette::added()));
-                    spans.push(Span::styled(format!("-{removed}"), palette::removed()));
-                }
-                _ if status.dirty == Some(true) => spans.push(Span::styled("*", palette::amber())),
-                _ => {}
-            }
-            spans
-        };
-        let mut right = Vec::new();
-        // An approval waiting behind the input box (from `wisp mcp`, while a line is typed) is named here, so
-        // it never waits unseen.
-        let waiting = self.waiting_behind_the_input();
-        if self.approval.is_none() && waiting > 0 {
-            right.push(Span::styled(
-                format!("⚠ {waiting} waiting"),
+            spans.push(item_span(
+                focus,
+                BarItem::Approvals,
+                format!("approvals: {approvals}"),
                 palette::amber(),
             ));
-            right.push(sep());
         }
-        right.push(Span::styled(status.approval.clone(), palette::muted()));
+        spans
+    }
+
+    /// The turn: the one running and what it is doing, or the last one's time and tokens.
+    fn turn_spans(&self, focus: Option<BarItem>) -> Vec<Span<'static>> {
+        let mut spans = Vec::new();
         match self.turn {
             Some(TurnState::Running(number)) => {
-                right.push(sep());
-                right.push(Span::styled(format!("turn {number}…"), palette::wisp()));
+                spans.push(Span::styled(format!("turn {number}…"), palette::wisp()));
                 if let Some(label) = self.working_label(Instant::now()) {
-                    right.push(sep());
-                    right.push(Span::styled(label, palette::muted()));
+                    spans.push(separator());
+                    spans.push(Span::styled(label, palette::muted()));
                 }
             }
             Some(TurnState::Ended {
@@ -1977,20 +2203,20 @@ impl App {
                 failed,
                 tokens,
             }) => {
-                right.push(sep());
-                right.push(if failed {
-                    Span::styled(format!("last:failed {seconds:.1}s"), palette::ember())
+                let (text, style) = if failed {
+                    (format!("last:failed {seconds:.1}s"), palette::ember())
                 } else {
-                    Span::styled(format!("last:{seconds:.1}s"), palette::muted())
-                });
+                    (format!("last:{seconds:.1}s"), palette::muted())
+                };
+                spans.push(item_span(focus, BarItem::Turn, text, style));
                 if let Some((input, output)) = tokens {
-                    right.push(sep());
-                    right.push(Span::styled(
+                    spans.push(separator());
+                    spans.push(Span::styled(
                         format!("↓{}", grouped(input)),
                         palette::tokens_in(),
                     ));
-                    right.push(Span::raw(" "));
-                    right.push(Span::styled(
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(
                         format!("↑{}", grouped(output)),
                         palette::tokens_out(),
                     ));
@@ -1998,26 +2224,129 @@ impl App {
             }
             None => {}
         }
-        let cells = |spans: &[Span<'static>]| spans.iter().map(Span::width).sum::<usize>();
-        let right_cells = cells(&right);
-        let mut spans = left(status.directory.clone());
-        if cells(&spans) + right_cells + 3 > usize::from(width) {
-            let last = status
+        spans
+    }
+
+    /// The status row for a band `width` cells wide: on the left the model and its context use, the directory
+    /// with its branch and line changes; on the right the questions and approvals waiting, the approval mode, the
+    /// turn, and its tokens, pushed to the right edge. The item with the focus is drawn in black on its own colour.
+    /// When it does not all fit, parts go in turn: the directory shortens to its last folder, then the approval
+    /// mode and the turn go (the turn stays while it has the focus), then the directory, then the context gauge
+    /// (unless it has the focus); what is left is cut at the edge, never wrapped.
+    fn status_line(&self, width: u16) -> Line<'static> {
+        let Some(status) = &self.status else {
+            return Line::from(Span::styled("connecting…", palette::muted()));
+        };
+        let focus = self.focused();
+        let model = item_span(focus, BarItem::Model, status.model.clone(), palette::wisp());
+        let gauge = self.gauge_spans(focus);
+        let waiting = self.waiting_spans(focus);
+        let turn = self.turn_spans(focus);
+        let mut rest = vec![Span::styled(status.approval.clone(), palette::muted())];
+        if !turn.is_empty() {
+            rest.push(separator());
+            rest.extend(turn.iter().cloned());
+        }
+        let short = format!(
+            "…/{}",
+            status
                 .directory
                 .rsplit('/')
                 .next()
-                .unwrap_or(&status.directory);
-            spans = left(format!("…/{last}"));
+                .unwrap_or(&status.directory)
+        );
+        let kept_turn = if focus == Some(BarItem::Turn) {
+            turn
+        } else {
+            Vec::new()
+        };
+        // Each layout in turn, from the whole line to the least: whether the gauge stays, the place, and the rest
+        // of the right after what waits.
+        let layouts = [
+            (
+                true,
+                place_spans(status, status.directory.clone()),
+                rest.clone(),
+            ),
+            (true, place_spans(status, short.clone()), rest),
+            (true, place_spans(status, short), kept_turn.clone()),
+            (true, Vec::new(), kept_turn.clone()),
+            (focus == Some(BarItem::Context), Vec::new(), kept_turn),
+        ];
+        let cells = |spans: &[Span<'static>]| spans.iter().map(Span::width).sum::<usize>();
+        let width = usize::from(width);
+        let mut chosen = (Vec::new(), Vec::new());
+        for (with_gauge, place, rest) in layouts {
+            let mut left = vec![model.clone()];
+            if with_gauge && let Some(gauge) = &gauge {
+                left.extend(gauge.iter().cloned());
+            }
+            left.extend(place);
+            let mut right = waiting.clone();
+            if !right.is_empty() && !rest.is_empty() {
+                right.push(separator());
+            }
+            right.extend(rest);
+            let needed = cells(&left) + cells(&right) + if right.is_empty() { 0 } else { 3 };
+            chosen = (left, right);
+            if needed <= width {
+                break;
+            }
         }
-        let gap = usize::from(width).saturating_sub(cells(&spans) + right_cells);
+        let (mut spans, right) = chosen;
+        if right.is_empty() {
+            return Line::from(spans);
+        }
+        let gap = width.saturating_sub(cells(&spans) + cells(&right));
         if gap >= 3 {
             spans.push(Span::raw(" ".repeat(gap)));
         } else {
-            spans.push(sep());
+            spans.push(separator());
         }
         spans.extend(right);
         Line::from(spans)
     }
+}
+
+/// The status line's separator.
+fn separator() -> Span<'static> {
+    Span::styled(" · ", palette::muted())
+}
+
+/// A status bar item's text in its `style`, or in the focus style (`palette::focused`) while it has the focus.
+fn item_span(focus: Option<BarItem>, which: BarItem, text: String, style: Style) -> Span<'static> {
+    let style = if focus == Some(which) {
+        palette::focused(style)
+    } else {
+        style
+    };
+    Span::styled(text, style)
+}
+
+/// Where the chat is, after the model: ` · ` and the directory as given, the branch, and the line changes or a
+/// star for a dirty tree.
+fn place_spans(status: &Status, directory: String) -> Vec<Span<'static>> {
+    let mut spans = vec![separator(), Span::styled(directory, palette::wisp())];
+    if let Some(branch) = &status.branch {
+        spans.push(Span::styled(":", palette::muted()));
+        spans.push(Span::styled(branch.clone(), palette::glow()));
+    }
+    match (status.added, status.removed) {
+        (Some(added), Some(removed)) if added + removed > 0 => {
+            spans.push(Span::styled(format!("+{added}"), palette::added()));
+            spans.push(Span::styled(format!("-{removed}"), palette::removed()));
+        }
+        _ if status.dirty == Some(true) => spans.push(Span::styled("*", palette::amber())),
+        _ => {}
+    }
+    spans
+}
+
+/// The row above the input while the status bar has the focus: what Enter does on the focused item, and the
+/// bar's keys, fitted to `width` cells.
+fn bar_hint(item: BarItem, width: usize) -> Line<'static> {
+    let text = format!("enter: {} · ←→ move · ↑ esc back to the input", item.hint());
+    Line::from(Span::styled(fit(&text, width), palette::muted()))
 }
 
 /// `n` with thousands separated by commas, as the terminal chat's footer writes it.
@@ -3272,16 +3601,17 @@ mod tests {
         assert!(app.approval.is_none());
         assert_eq!(
             app.take_pending()[0].text,
-            "⚠ waiting in wisp mcp: git push · its dialog opens when the input is empty"
+            "⚠ waiting in wisp mcp: git push · its dialog opens when the input is empty, or from the status bar"
         );
-        assert!(drawn(&app, 80).join("\n").contains("⚠ 1 waiting"));
+        assert!(drawn(&app, 80).join("\n").contains("approvals: 1"));
         // Typing goes on into the box, `y` included.
         app.type_char('y');
         assert_eq!(app.editor.text(), "drafty");
         // Emptying the box brings it up, in its grace.
         app.edit(&Edit::KillToStart);
         assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-1"));
-        assert!(!drawn(&app, 80).join("\n").contains("waiting ·"));
+        // The count still names it, the one on screen.
+        assert!(drawn(&app, 80).join("\n").contains("approvals: 1"));
         assert_eq!(app.type_char('y'), Action::None);
         settle(&app);
         assert_eq!(
@@ -3393,9 +3723,9 @@ mod tests {
         )));
         assert_eq!(app.queued_questions.len(), 1);
         assert_eq!(
-            app.waiting_behind_the_input(),
-            0,
-            "not counted while a choice is open"
+            app.questions_waiting(),
+            2,
+            "the one open and the one behind it"
         );
         app.submit();
         let Some(shown) = app.picker.clone() else {
@@ -3435,7 +3765,7 @@ mod tests {
             true,
         )));
         assert!(app.picker.is_none() && app.queued_questions.len() == 1);
-        assert_eq!(app.waiting_behind_the_input(), 1);
+        assert_eq!(app.questions_waiting(), 1);
         for _ in 0..6 {
             app.edit(&Edit::Backspace);
         }
@@ -4606,5 +4936,175 @@ mod tests {
         assert!(matches!(app.submit(), Action::Send(_)));
         assert_eq!(app.cancel(), Action::None);
         assert!(!app.stopping);
+    }
+
+    /// An app at its prompt with a line typed, a question and an approval from `wisp mcp` waiting behind it.
+    fn with_both_waiting(model: &str) -> App {
+        let mut app = App {
+            status: Some(Status {
+                model: model.into(),
+                directory: "~/src/github.com/pidster/wisp".into(),
+                branch: Some("main".into()),
+                approval: "ask".into(),
+                context_used: Some(0.2),
+                ..Status::default()
+            }),
+            ..Default::default()
+        };
+        for c in "draft".chars() {
+            app.type_char(c);
+        }
+        app.handle(Outbound::Choice(question("mcp-q1", &["a", "b"], true)));
+        app.handle(Outbound::Approval(mcp_approval("mcp-1", "git push")));
+        app.take_pending();
+        app
+    }
+
+    fn status_text(app: &App, width: u16) -> String {
+        app.status_line(width)
+            .spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_status_bar_counts_questions_and_approvals_waiting_and_hides_them_at_none() {
+        let mut app = with_both_waiting("system");
+        let text = status_text(&app, 100);
+        assert!(
+            text.ends_with("questions: 1 · approvals: 1 · ask"),
+            "{text}"
+        );
+        let line = app.status_line(100);
+        let style = |content: &str| {
+            line.spans
+                .iter()
+                .find(|span| span.content == content)
+                .map(|span| span.style)
+        };
+        assert_eq!(style("approvals: 1"), Some(palette::amber()));
+        assert_eq!(style("questions: 1"), Some(palette::glow()));
+        // Neither is named, or focusable, with nothing waiting.
+        app.queued.clear();
+        app.queued_questions.clear();
+        let text = status_text(&app, 100);
+        assert!(
+            !text.contains("questions") && !text.contains("approvals"),
+            "{text}"
+        );
+        assert_eq!(app.bar_items(), vec![BarItem::Model, BarItem::Context]);
+        // This conversation's own question, on screen, counts as one.
+        app.editor.take();
+        app.handle(Outbound::Choice(question("q1", &["a", "b"], false)));
+        assert_eq!(app.questions_waiting(), 1);
+        assert!(status_text(&app, 100).contains("questions: 1"));
+    }
+
+    #[test]
+    fn the_focused_item_is_black_on_its_own_colour_and_the_hint_names_the_keys() {
+        let mut app = with_both_waiting("system");
+        app.recall_next();
+        assert_eq!(app.focused(), Some(BarItem::Model));
+        let rows = drawn(&app, 100);
+        assert!(rows[1].contains("enter: switch the model"), "{rows:?}");
+        assert!(rows[1].contains("←→ move · ↑ esc back to the input"));
+        // The input keeps its line while the bar has the focus.
+        assert!(rows[usize::from(INPUT_ROW)].contains("› draft"));
+        let model = app
+            .status_line(100)
+            .spans
+            .into_iter()
+            .find(|span| span.content == "system");
+        assert_eq!(
+            model.map(|span| (span.style.fg, span.style.bg)),
+            Some((Some(palette::BLACK), Some(palette::WISP)))
+        );
+        // On the approvals, the highlight keeps their amber.
+        app.bar = Some(BarItem::Approvals);
+        let approvals = app
+            .status_line(100)
+            .spans
+            .into_iter()
+            .find(|span| span.content == "approvals: 1");
+        assert_eq!(
+            approvals.map(|span| (span.style.fg, span.style.bg)),
+            Some((Some(palette::BLACK), Some(palette::AMBER)))
+        );
+        assert!(drawn(&app, 100)[1].contains("enter: answer the approval"));
+        // Back in the input, the hint row is empty again.
+        app.leave_bar();
+        assert_eq!(drawn(&app, 100)[1], "");
+    }
+
+    #[test]
+    fn a_narrow_bar_drops_parts_in_turn_and_keeps_what_waits_and_the_focus() {
+        let mut app = with_both_waiting("system");
+        app.turn = Some(TurnState::Ended {
+            seconds: 2.0,
+            failed: false,
+            tokens: Some((1200, 30)),
+        });
+        // Wide: everything.
+        assert!(status_text(&app, 140).contains("~/src/github.com/pidster/wisp:main"));
+        // Narrower: the last folder, then the mode and the turn go, then the place, then the gauge.
+        let at_70 = status_text(&app, 70);
+        assert!(
+            at_70.contains("…/wisp:main") && !at_70.contains("last:"),
+            "{at_70}"
+        );
+        assert!(at_70.contains("questions: 1 · approvals: 1"), "{at_70}");
+        let at_45 = status_text(&app, 45);
+        assert!(
+            !at_45.contains("wisp:main") && at_45.contains("20% used"),
+            "{at_45}"
+        );
+        let at_32 = status_text(&app, 32);
+        assert!(at_32.starts_with("system · questions: 1"), "{at_32}");
+        // The turn with the focus stays, and so does the gauge.
+        app.recall_next();
+        app.bar = Some(BarItem::Turn);
+        assert!(status_text(&app, 60).contains("last:2.0s"));
+        app.bar = Some(BarItem::Context);
+        assert!(status_text(&app, 32).contains("20% used"));
+        // Never a panic, at any width, with wide characters in the model's name.
+        let mut wide = with_both_waiting("模型:日本語のモデル");
+        wide.recall_next();
+        for width in [0, 1, 2, 3, 5, 8, 13, 21, 34, 55] {
+            let rows = drawn(&wide, width);
+            assert!(rows.len() >= usize::from(BAND_HEIGHT));
+            let _ = status_text(&wide, width);
+            wide.bar = Some(BarItem::Approvals);
+        }
+    }
+
+    #[test]
+    fn a_question_opened_over_a_draft_parks_it_and_gives_it_back() {
+        let mut app = with_both_waiting("system");
+        app.recall_next();
+        app.bar = Some(BarItem::Questions);
+        assert_eq!(app.activate(), Action::None);
+        // The picker takes typed text on its own row; the draft is not in it.
+        assert!(app.picker.is_some() && app.editor.is_empty());
+        assert_eq!(app.parked.as_deref(), Some("draft"));
+        // Withdrawn elsewhere: the draft comes back all the same.
+        app.handle(Outbound::Withdrawn {
+            id: "mcp-q1".into(),
+        });
+        assert_eq!(app.editor.text(), "draft");
+        assert!(app.parked.is_none());
+        // A command line typed in command mode comes back in command mode.
+        let mut command = with_both_waiting("system");
+        command.editor.take();
+        command.type_char('!');
+        for c in "ls".chars() {
+            command.type_char(c);
+        }
+        command.recall_next();
+        command.bar = Some(BarItem::Questions);
+        command.activate();
+        assert!(!command.command_mode);
+        command.cancel();
+        assert!(command.command_mode && command.editor.text() == "ls");
     }
 }

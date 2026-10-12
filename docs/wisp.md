@@ -63,7 +63,9 @@ starts `wisp chat --json` under the name `wisp chat (tui)`, which `ps` shows; wi
 the kernel's path, never by that name ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)).
 In `wisp-tui`, Up and Down recall the lines submitted this session (the latest 100, a line repeating
 the one before it kept once): Up from a fresh line keeps what was typed as a draft, and Down past the
-newest line brings it back. The plain chat reads whole lines and has no recall; `/history` lists them
+newest line brings it back. In a message of several rows they first move the cursor a row, keeping its
+column; recall begins from the first row (Up) or the last (Down). Down from the last row of a fresh line
+moves the focus to the status bar ("The status bar", below). The plain chat reads whole lines and has no recall; `/history` lists them
 in both. While a command you typed after `!` runs, or a model's turn, the first Ctrl-C (or Ctrl-D) stops it instead
 and a second quits ("Commands you run yourself" and "Stopping a turn", below). Ctrl-C or Ctrl-D with nothing open leaves `wisp-tui`: it sends `/quit` (so the transcript is
 saved, as in the plain chat), closes wisp's input, and waits up to five seconds for wisp to exit before
@@ -93,6 +95,40 @@ it. Typing is held while it is open; an approval or a choice arriving closes it 
 | --- | --- |
 | Ctrl-O | The last tool output in full. In the scrollback each output shows its first `shownOutputLines` lines (20), in the quiet tone, then `… 84 more lines · ctrl-o shows all`; lines already in the scrollback cannot be changed, so expanding is this panel and folding is closing it. The panel opens on what the event carried and asks wisp for the whole (an `output` line, below): when the model was given only part of the output and the output store holds the rest, the whole replaces it under wisp's line saying so (`output 3f9a2c1b from run_command: the whole of it, 30,000 lines, 2.1 MiB, from the output store`), a page of 64 KiB at a time; scrolling to the end of the pages held asks for the next, scrolling to the top for the one before, and the panel holds at most four, so a 16 MiB output is never held whole. Its title says which pages it holds (`output · pages 2–5 of 33`). When the store has nothing, the line says why (nothing was held back, the audit was off, or the output was swept) above what the tool returned. |
 | Ctrl-T | The model's context, live: what the next request carries (`/inspect context next`), at no model cost. Left steps back a turn to the context composed at that turn's start (`/inspect context N`), Right forward and past the latest turn back to the next request. `/inspect context turns` typed shows the turn list in the same panel. Only between turns. |
+
+#### The status bar
+
+The status row under `wisp-tui`'s input is a bar whose items open things ([ADR 0029](decisions/0029-tui-front-end.md),
+amended 2026-10-12). Down from the input's last row (an empty box or a one-line one is on its last row) moves the
+focus to its first item, the model; the row above the input then names the keys and what Enter does, and the input
+keeps its line and cursor, without the terminal's cursor in it. The item with the focus is drawn in black on its own
+colour (amber for approvals).
+
+| Item | Shown | Enter or Space |
+| --- | --- | --- |
+| The model (`system`) | Always | Sends `/model`, which in `wisp-tui` offers the models it can switch to in a picker, the one in use marked; choosing one switches as `/model NAME` does, and Esc leaves it (`model unchanged`). |
+| The context gauge (`15% used`) | When wisp reports it | The model's context in the panel, as Ctrl-T opens it. |
+| `questions: N` | While the model's questions wait for you: the one on screen and those queued (one from `wisp mcp` waits while a line is typed) | The first waiting question's picker, titled "the model asks", answered (or declined with Esc) with the picker's own keys; the rest stay counted. |
+| `approvals: N`, in amber | While approvals (commands, and facts to keep) wait: the dialog on screen and those queued | The first waiting approval's dialog. It takes its keys only after its half second of grace, as one that arrives does, so neither the key that opened it nor one pressed straight after answers it. |
+| The last turn (`last:3.1s`) | Once a turn has ended | The turn list (`/inspect context turns`) in the panel. |
+
+The directory, the branch, and the approval mode are not items: there is no view of theirs to open.
+
+| Keys, while the bar has the focus | Effect |
+| --- | --- |
+| Left, Right (with Alt or Ctrl too) | The previous or next item, stopping at the ends. |
+| Tab, Shift-Tab | The next or previous item, wrapping around. |
+| Home, End | The first or last item. |
+| Enter, Space | Open the item; the focus returns to the input. |
+| Up, Esc | Back to the input, its line and cursor as they were. |
+| A character, an edit, or a paste | Back to the input, where it goes in, so nothing typed is lost. |
+| Ctrl-C, Ctrl-O, Ctrl-T | What they do from the input. |
+
+A picker that opens over a line being typed (from the bar, or the one `/model` sends) puts the line aside and gives
+it back when it closes, so a typed answer starts empty and the draft is never lost. A dialog, a choice, or the panel
+that opens while the bar has the focus takes the keys, and the focus returns to the input once it closes. The bar
+takes the focus only between turns, with nothing open over the input; an item that goes while it has the focus (its
+last question answered elsewhere) passes the focus to the model.
 
 A line you send goes into the scrollback styled like the input it came from, a shade darker: its tint
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
@@ -141,8 +177,9 @@ typing when it came up), so it is held for the box, as keys are while a turn run
 starts again. Typing on therefore never answers a dialog; pausing to read it, then pressing a key, does.
 Ctrl-C refuses at once. An approval from `wisp mcp` that arrives while the input box has text does not
 take the box over: a note says it waits (`⚠ waiting in wisp mcp: git push · its dialog opens when the
-input is empty`), the status line counts it (`⚠ 1 waiting`), and its dialog opens once the box is empty,
-when the line is sent or cleared. An approval or a choice that stops waiting (answered elsewhere, or its
+input is empty, or from the status bar`), the status bar counts it (`approvals: 1`, in amber), and its
+dialog opens once the box is empty, when the line is sent or cleared, or at once from the status bar's
+`approvals` item, the line you were typing kept. An approval or a choice that stops waiting (answered elsewhere, or its
 `approval.timeoutSeconds` passed) closes with `⚠ no longer waiting: …`.
 
 The plain chat (`--plain`, or `wisp-tui` not installed) has no dialog for these, since it reads a line at a time.
@@ -257,9 +294,12 @@ What a session shows, and where it goes:
   Each part is omitted when unknown. Before a repository's first commit there is nothing to count, so a
   change shows as `*`. `GitState` reads the branch from `.git/HEAD` and the counts from
   `git diff --numstat HEAD`, with a two-second cap. `wisp-tui` shows the same left half. Its right half
+  starts with what waits for you, `questions: 1` and `approvals: 2`, each only when there are some, then
   adds the last turn and its tokens, `approve at moderate · last:3.1s · ↓4,009 ↑79`, with tokens read
   (↓) in pale yellow and written (↑) in pale blue, or the working line while a turn runs. When the row is
-  too narrow, the directory shortens to its last folder.
+  too narrow, parts go in turn: the directory shortens to its last folder, then the approval mode and the
+  turn go, then the directory, then the context gauge; what waits stays. Its items take the focus ("The
+  status bar", above).
 - The model's tool activity as it happens, one dim line per call and result, from the same events the
   audit log records: `⚙ run_command git status`, then `↳ exit 0`; `⚙ read_file README.md`, then
   `↳ 2048 bytes in 0.0 s: 1\t# wisp`.
@@ -342,7 +382,7 @@ What a session shows, and where it goes:
 
 | Command | Effect |
 | --- | --- |
-| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, Ctrl-O, Ctrl-T, Left and Right in the context panel). |
+| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, Ctrl-O, Ctrl-T, Left and Right in the context panel, Up and Down in a long message, Down to the status bar). |
 | `!COMMAND` | Run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops it); the model is told on its next request. See "Commands you run yourself". |
 | `/tools` | List the tools the model can call. |
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
@@ -371,7 +411,7 @@ What a session shows, and where it goes:
 | `/models pull REPOSITORY` | Fetch an MLX model from Hugging Face and link it, as `wisp models pull` does (below), with the same plan, checks, resume, and audit (`source` `chat`). The plan and the publisher question's lines are notes; the answers are the face's choice dialog: for a publisher not in `mlx.trustedPublishers`, refuse (the default), pull it once, or trust it from now on; the download and replacing a real directory, no (the default) or yes. While it downloads, the status line (the working line in the terminal chat, the busy box in `wisp-tui`) says how far it has gone, `pulling mlx-community/q: 1.2 GB of 4.5 GB, file 2 of 7 · Ctrl-C stops it`, and notes still arrive; Ctrl-C stops it, as it stops a command you typed, keeping what arrived, and the same `/models pull` resumes it ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
 | `/models trust PUBLISHER` | Trust a Hugging Face organisation from now on: added to `mlx.trustedPublishers` in `config.json`, recorded as `config.change`, so its pulls ask only about the download. The person's alone: the model's `models` tool cannot. |
 | `/models cancel [REPOSITORY]` | Stop a pull the model asked for, running in the background (all of them without a name); what arrived is kept, and the conversation gets a note saying so. |
-| `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
+| `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities; in `wisp-tui` (and any front end that answers a `choice`) it then offers, as a picker titled "Switch to which model?", the models it can switch to, the enabled ones that can serve the conversation's tools, the one in use marked: choosing one switches, and no answer or the one in use says `model unchanged`. The status bar's model item sends it. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/stats` | Timings of this session's recent model turns and classifier calls: per kind and model, the count, failures, mean, P50, P95, and maximum seconds, and the mean prompt tokens where the runtime reports them (Ollama); then the latest eight calls by start time. Kept in memory only, the latest 256 calls; see below. |
 | `/history` | The lines typed this session, numbered, oldest first: the latest 100, blank lines and a line repeating the one before it left out. |
 | `/config`, `/config list` | The effective configuration as YAML (`wisp config` gives the same as JSON); `list` shows the settings that can be changed here, each with its value in `config.json` (or `(default)`) and what it does. |
@@ -441,7 +481,7 @@ sends no `hello` keeps the behaviour from before it existed: approvals over the 
 posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
 `approve`, `approve-mcp`, `keep-facts`, and `answer-questions`, and `notify` when its terminal has a notification sequence
 (Ghostty, iTerm2, WezTerm, kitty). It queues an approval that arrives while another is shown (and one from
-`wisp mcp` while its input box has text, with a note and a count in the status line), and marks one
+`wisp mcp` while its input box has text, with a note and `approvals: N` in the status bar, which opens it), and marks one
 from `wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its
 title. A fact to keep is a dialog of its own, titled "keep as a permanent fact? · wisp mcp", answered with
 `k` (keep) or `d` (drop); Ctrl-C drops it, as it refuses a command.

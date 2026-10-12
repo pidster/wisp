@@ -209,6 +209,63 @@ impl Editor {
         });
         Layout { rows, row, column }
     }
+
+    /// Where each cursor position, from 0 to the text's length, is drawn at `width` cells: its row and column,
+    /// laid out exactly as `rows` lays the text out, so a position past a full row is on the next.
+    fn positions(&self, width: usize) -> Vec<(usize, usize)> {
+        let width = width.max(1);
+        let mut out = Vec::with_capacity(self.chars.len() + 1);
+        let (mut row, mut column) = (0, 0);
+        for &c in &self.chars {
+            if c == '\n' {
+                out.push((row, column));
+                row += 1;
+                column = 0;
+                continue;
+            }
+            let cells = c.width().unwrap_or(0);
+            if column + cells > width {
+                row += 1;
+                column = 0;
+            }
+            out.push((row, column));
+            column += cells;
+        }
+        out.push(if column >= width {
+            (row + 1, 0)
+        } else {
+            (row, column)
+        });
+        out
+    }
+
+    /// Moves the cursor a row down (or up) in the text laid out at `width` cells, to the column nearest the one
+    /// it is in without passing it, as editors do; returns false, leaving it where it is, when it is on the last
+    /// row (or the first) already.
+    pub fn step_row(&mut self, width: usize, down: bool) -> bool {
+        let positions = self.positions(width);
+        let (row, column) = positions[self.cursor.min(positions.len() - 1)];
+        let last = positions.last().map_or(0, |position| position.0);
+        let target = match (down, row) {
+            (true, row) if row >= last => return false,
+            (true, row) => row + 1,
+            (false, 0) => return false,
+            (false, row) => row - 1,
+        };
+        let mut best = None;
+        for (index, &(at_row, at_column)) in positions.iter().enumerate() {
+            if at_row == target && (best.is_none() || at_column <= column) {
+                best = Some(index);
+            }
+        }
+        match best {
+            Some(index) => {
+                self.cursor = index;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// The input laid out for display.
@@ -361,5 +418,33 @@ mod tests {
         let middle = editor("1\n2\n3\n4\n5\n6\n7\n8", 8).rows(10);
         assert_eq!((middle.row, middle.first_shown(3)), (4, 2));
         assert_eq!(editor("short", 5).rows(10).first_shown(3), 0);
+    }
+
+    #[test]
+    fn up_and_down_move_the_cursor_a_row_keeping_its_column_and_stop_at_the_edges() {
+        let step = |text: &str, cursor: usize, width: usize, down: bool| {
+            let mut editor = editor(text, cursor);
+            let moved = editor.step_row(width, down);
+            (moved, editor.cursor)
+        };
+        // Lines of a message: the same column, or the end of a shorter line.
+        assert_eq!(step("abcd\nef\nghij", 3, 10, true), (true, 7));
+        assert_eq!(step("abcd\nef\nghij", 7, 10, true), (true, 10));
+        assert_eq!(step("abcd\nef\nghij", 10, 10, false), (true, 7));
+        assert_eq!(step("abcd\nef\nghij", 6, 10, false), (true, 1));
+        // The last row goes no further down, the first no further up.
+        assert_eq!(step("abcd\nef", 6, 10, true), (false, 6));
+        assert_eq!(step("abcd\nef", 2, 10, false), (false, 2));
+        assert_eq!(step("one line", 3, 10, true), (false, 3));
+        assert_eq!(step("", 0, 10, true), (false, 0));
+        // Rows a long line wraps to count as rows.
+        assert_eq!(step("abcdefgh", 1, 4, true), (true, 5));
+        assert_eq!(step("abcdefgh", 6, 4, false), (true, 2));
+        // A cursor past a full last row is on a row of its own, below it.
+        assert_eq!(step("abcd", 4, 4, false), (true, 0));
+        assert_eq!(step("abcd", 0, 4, true), (true, 4));
+        // Wide characters: the nearest column that does not pass the cursor's.
+        assert_eq!(step("日本語\nabcd", 7, 10, false), (true, 1));
+        assert_eq!(step("x", 1, 0, true), (false, 1));
     }
 }
