@@ -184,3 +184,41 @@ stops it answering for the person by accident or by design. It is still a speed 
 obtain a pseudo-terminal); the default policy's refusal of these commands to wisp's own model and the sandbox's
 refusal to write under `~/.wisp` stay beside it. The person has two other ways to answer, neither of them a shell:
 `wisp-tui`'s dialog and the MCP client's own elicitation dialog.
+
+## Amendment, 2026-10-12: the banner waits for the dialog
+
+"Consequences" left a choice open: with a working dialog every approval also posted a banner, even one the person
+answered in the dialog at once, and the way out was to turn `approval.outOfBand` off (losing the out-of-band
+answer when a dialog sticks) or to delay the banner. The delay is now built, for 0.24.0.
+
+- **When the client's dialog asks too, the banner waits.** It is posted only if the request is still waiting
+  `approval.bannerDelaySeconds` after it was filed; answered first, by the dialog or by `wisp approvals` or
+  `wisp-tui`, or withdrawn (the call cancelled, the request removed), no banner is ever posted. The request is
+  filed at once as before, so `wisp approvals pending` and `wisp-tui` show it from the start; only the banner
+  waits.
+- **Default 10 seconds.** A person at the terminal answers a dialog they are looking at within a few seconds, and
+  the answer reaches the server within a poll (200 ms), so a shorter delay would still post banners for answered
+  dialogs; a longer one leaves a stuck dialog unannounced for longer, when the banner is the only way the person
+  learns the request waits. Ten seconds is 1/60 of the default wait (`approval.timeoutSeconds`, 600). `0` posts at
+  once, as before. The setting takes 0 to 3600 and must be shorter than `timeoutSeconds` when that is not `0`,
+  since a delay as long as the wait would never post before the request timed out; a file that breaks either rule
+  is refused on load and by `wisp config set`.
+- **Without a dialog, at once.** A client without elicitation, or one whose dialog could not be sent (the
+  dialog's leg failed), has nothing else showing the request, so the banner is posted at once, as this ADR
+  decided for the mobile app's user ("Consequences", first bullet).
+- **The delay is an `Alarm`,** on the alarm queue, never a `Task.sleep` on the cooperative pool
+  (`docs/design.md`, "Concurrency"); nothing waits on it, and the approver cancels it when the request settles.
+  `DelayedNotice` is the reusable piece: "post after N s unless settled", each notice posted at most once whether
+  the alarm, an immediate post, or the settling comes first.
+- **Audited.** `approval.pending` carries `bannerDelaySeconds` when the banner waits; `approval.settled` carries
+  `banner`, `posted` or `skipped` (settled within the delay, so none was posted); the `notification` event is
+  recorded when, and only if, the banner is posted. `respond`'s `notifications` lists it when it was posted during
+  the turn.
+- **Facts to keep are unchanged.** A fact request (ADR 0048) has no client dialog, and the caller's call returns
+  at once, so its banner is the only announcement; it is posted at once, by the rule above.
+
+Tested without the model: `DelayedNotice` (settled within the delay, outlasting it, zero, an immediate post), the
+approver (a dialog answered within the delay, one unanswered past it, a withdrawn request, no dialog, a dialog
+that cannot be sent, a zero delay), the setting's validation on load and in `wisp config set`, and the MCP path
+over the wire (a dialog answered at once posts nothing, one left unanswered posts after the delay, a client
+without elicitation is told at once whatever the delay).

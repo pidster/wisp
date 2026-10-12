@@ -50,4 +50,26 @@ import Testing
         #expect(try refusal(#"{"facts":{"share":0.7}}"#)?.contains("share must be between 0 and 0.5") == true)
         #expect(try refusal(#"{"facts":{"share":0.2,"summaryShare":0.5}}"#) == nil)
     }
+
+    /// `approval.bannerDelaySeconds` is refused outside 0 to 3600, and when it is not shorter than a bounded wait,
+    /// since the request would time out before its banner; with the wait unbounded any delay in range loads.
+    @Test func aBannerDelayOutOfRangeOrPastTheTimeoutIsRefused() throws {
+        #expect(
+            try refusal(#"{"approval":{"bannerDelaySeconds":-1}}"#)?
+                .hasPrefix("approval: bannerDelaySeconds must be between 0 and 3600") == true)
+        #expect(try refusal(#"{"approval":{"bannerDelaySeconds":3601}}"#)?.contains("(it was 3601)") == true)
+        #expect(
+            try refusal(#"{"approval":{"bannerDelaySeconds":600}}"#)?
+                .contains("must be shorter than timeoutSeconds (600)") == true)
+        #expect(
+            try refusal(#"{"approval":{"bannerDelaySeconds":30,"timeoutSeconds":30}}"#)?.contains("(30)") == true)
+        #expect(try refusal(#"{"approval":{"bannerDelaySeconds":3600,"timeoutSeconds":0}}"#) == nil)
+        #expect(try refusal(#"{"approval":{"bannerDelaySeconds":0}}"#) == nil)
+        #expect(try refusal(#"{"approval":{"timeoutSeconds":5}}"#) == nil, "the default delay is not checked")
+        // The default is ten seconds; the file's value is taken as given.
+        #expect(Config().resolved.approvalBannerDelay == .seconds(10))
+        var set = Config()
+        set.approval = .init(bannerDelaySeconds: 3)
+        #expect(set.resolved.approvalBannerDelay == .seconds(3))
+    }
 }

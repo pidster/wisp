@@ -66,6 +66,10 @@ public enum ConfigSettings {
             path: "approval.outOfBand",
             summary: "under wisp mcp, also ask through wisp approvals and wisp-tui, with a notification", kind: .flag),
         Setting(
+            path: "approval.bannerDelaySeconds",
+            summary: "under wisp mcp, seconds the client's dialog may go unanswered before the notification; 0 at once",
+            kind: .integer(Config.ApprovalConfig.bannerDelayRange)),
+        Setting(
             path: "routing.ladder", summary: "models to route to by input size, least capable first", kind: .models),
         Setting(
             path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
@@ -240,6 +244,7 @@ public enum ConfigSettings {
         case "approval.timeoutSeconds": return .int(Int(d.approvalTimeout?.components.seconds ?? 0))
         case "approval.persistDays": return .int(Int(d.approvalLifetime.components.seconds / 86_400))
         case "approval.outOfBand": return .bool(d.approvalOutOfBand)
+        case "approval.bannerDelaySeconds": return .int(Int(d.approvalBannerDelay.components.seconds))
         case "routing.ladder": return .array(d.routingLadder.map { .string($0.description) })
         case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
@@ -498,6 +503,7 @@ public enum ConfigEdit {
             config = try JSONDecoder().decode(Config.self, from: output)
             try config.commandPolicy?.validate()
             try config.tools?.validate()
+            try config.approval?.validate()
         } catch {
             throw Failure.wouldNotLoad("\(error)")
         }

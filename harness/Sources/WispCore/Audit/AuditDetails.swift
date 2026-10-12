@@ -717,9 +717,12 @@ extension AuditEvent {
 
         /// `approval.pending`: a command waiting under `wisp mcp`, or a fact a caller asked to keep, was filed
         /// for another face to answer (`outcome` `filed`), or could not be (`failed`, with `reason`).
-        /// `alongside` is `elicitation` when the client's dialog asks at the same time.
+        /// `alongside` is `elicitation` when the client's dialog asks at the same time; `bannerDelaySeconds`,
+        /// when the notification waits that long for the dialog's answer before it is posted (ADR 0046, amended
+        /// 2026-10-12), and is absent when it is posted at once.
         public static func approvalPending(
-            _ request: PendingApprovals.Request, outcome: String, alongside: String?, reason: String? = nil
+            _ request: PendingApprovals.Request, outcome: String, alongside: String?, reason: String? = nil,
+            bannerDelay: Duration? = nil
         ) -> [String: JSONValue] {
             var details = pendingSubject(request)
             details["request"] = .string(request.id)
@@ -733,6 +736,10 @@ extension AuditEvent {
             if let expires = request.expiresAt { details["expiresAt"] = .string(expires.ISO8601Format()) }
             if let alongside { details["alongside"] = .string(alongside) }
             if let reason { details["reason"] = .string(reason) }
+            if let bannerDelay {
+                let (seconds, attoseconds) = bannerDelay.components
+                details["bannerDelaySeconds"] = .double(Double(seconds) + Double(attoseconds) / 1e18)
+            }
             return details
         }
 
@@ -767,10 +774,12 @@ extension AuditEvent {
         /// `failed` (no way left to ask, with `reason`), or `stale` (removed by a sweep after its server
         /// stopped or its wait expired). A fact request (ADR 0048) carries the fact's fields in place of the
         /// command, `decision` `keep` or `drop`, `kept` (the permanent fact's id) when kept, and may also end
-        /// `withdrawn` (its thread closed or the server stopped first).
+        /// `withdrawn` (its thread closed or the server stopped first). `banner`, on a command request, is
+        /// `posted` when its notification was posted and `skipped` when the request settled within
+        /// `approval.bannerDelaySeconds`, so no notification was ever posted (ADR 0046, amended 2026-10-12).
         public static func approvalSettled(
             _ request: PendingApprovals.Request, outcome: String, via: String? = nil, decision: String? = nil,
-            reason: String? = nil, seconds: TimeInterval? = nil, kept: String? = nil
+            reason: String? = nil, seconds: TimeInterval? = nil, kept: String? = nil, banner: String? = nil
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = ["request": .string(request.id), "outcome": .string(outcome)]
             if request.kind == .fact {
@@ -784,6 +793,7 @@ extension AuditEvent {
             if let decision { details["decision"] = .string(decision) }
             if let reason { details["reason"] = .string(reason) }
             if let seconds { details["seconds"] = .double(seconds) }
+            if let banner { details["banner"] = .string(banner) }
             return details
         }
 

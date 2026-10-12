@@ -367,7 +367,9 @@ public struct Session: Sendable {
 
     /// The approver for `wisp mcp` (ADR 0046): with `approval.outOfBand` on, a waiting command is filed in the
     /// home's `pending/` channel for `wisp approvals` and `wisp-tui`, announced by a notification through the
-    /// MCP face's routes, and asked through `elicitation` too when the client has it, the first answer winning;
+    /// MCP face's routes (after `approval.bannerDelaySeconds` unanswered when the client's dialog asks too, and
+    /// not at all if it is answered sooner), and asked through `elicitation` too when the client has it, the
+    /// first answer winning;
     /// with it off, `elicitation` alone, or `fallback` when the client has none.
     ///
     /// - Parameters:
@@ -384,7 +386,8 @@ public struct Session: Sendable {
         return OutOfBandApprover(
             channel: PendingApprovals(home: home), timeout: config.approvalTimeout, alongside: elicitation,
             client: client,
-            notify: { message, audit in host.notify(message, source: .approval, audit: audit) })
+            notify: { message, audit in host.notify(message, source: .approval, audit: audit) },
+            bannerDelay: config.approvalBannerDelay)
     }
 
     /// Opens the session's own conversation over a headless host with `approver`; for tests and callers

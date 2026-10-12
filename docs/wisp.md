@@ -777,6 +777,7 @@ wisp config unset approval.timeoutSeconds
 | `approval.timeoutSeconds` | Seconds, 0 to 86,400; 0 waits forever. |
 | `approval.persistDays` | Days, 1 to 365. |
 | `approval.outOfBand` | `true` or `false`: whether `wisp mcp` also files a waiting command for `wisp approvals` and `wisp-tui`, with a notification. |
+| `approval.bannerDelaySeconds` | Seconds, 0 to 3,600, and shorter than `approval.timeoutSeconds` when that is not 0: how long a command the client's dialog also asks may wait before its notification is posted; answered sooner, none is. 0 posts at once. |
 | `routing.ladder` | Models, least capable first. |
 | `routing.tasks.secrets` | A model for the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`; unset, `system`. |
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400. |
@@ -1130,7 +1131,9 @@ prompt; the gate fails when they no longer match the commands, and `scripts/chec
 Serves the Model Context Protocol over stdio until the client closes the pipe. See [mcp.md](mcp.md). A
 command that needs approval is asked through the client's dialog, when it has one, and, with
 `approval.outOfBand` (the default), filed for `wisp approvals approve|deny` and `wisp-tui` at the same
-time; the first answer wins ([`wisp approvals`](#wisp-approvals)).
+time; the first answer wins ([`wisp approvals`](#wisp-approvals)). The notification that a command waits is
+posted only once the client's dialog has gone unanswered for `approval.bannerDelaySeconds` (default 10), and not
+at all if it is answered sooner; a client with no dialog is told at once.
 
 | Flag | Meaning |
 | --- | --- |
@@ -1188,7 +1191,7 @@ recorded with `verified` by `wisp models enable` and `check`. `contextLength`, w
 | `verification` | `{ "mode": "readers" }` | The verification pass over each reply ([verification.md](verification.md), [ADR 0060](decisions/0060-a-verification-pass.md)): `readers` checks the results a reply reports against the turn's complete call list with exact readers and no model; `model` adds one side call to the conversation's model when the readers find nothing and the reply has result language, off by default since it flagged 6 of 14 honest replies on the on-device model when measured on 2026-10-12; `off` checks nothing. Settable with `wisp config set verification.mode model`. |
 | `commandPolicy` | see [tools/run_command.md](tools/run_command.md) | Deny/allow patterns and sandbox settings for `run_command`. Partial objects are fine: `{"commandPolicy":{"sandbox":{"allowNetwork":false}}}` keeps every other default. |
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
-| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30, "outOfBand": true }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), how long persisted approvals last, and whether `wisp mcp` also files each waiting command for `wisp approvals` and `wisp-tui`, with a notification (`outOfBand`; `false` asks through the client's dialog alone); see [approval.md](approval.md). |
+| `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30, "outOfBand": true, "bannerDelaySeconds": 10 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), how long persisted approvals last, and whether `wisp mcp` also files each waiting command for `wisp approvals` and `wisp-tui`, with a notification (`outOfBand`; `false` asks through the client's dialog alone), and how long the client's dialog may go unanswered before that notification is posted (`bannerDelaySeconds`, 0 to 3600 and shorter than a bounded `timeoutSeconds`; `0` at once; a client with no dialog is told at once whatever it says); see [approval.md](approval.md). |
 
 Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
 stderr. `wisp models pull` and `wisp models` find the Hugging Face cache through `huggingface_hub`'s variables

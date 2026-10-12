@@ -61,6 +61,7 @@ public struct Introspection: Sendable {
                 "timeoutSeconds": config.approvalTimeout.map { .int(Int($0.components.seconds)) } ?? .int(0),
                 "persistDays": .int(Int(config.approvalLifetime.components.seconds / 86400)),
                 "outOfBand": .bool(config.approvalOutOfBand),
+                "bannerDelaySeconds": .int(Int(config.approvalBannerDelay.components.seconds)),
             ]),
             "audit": .object([
                 "enabled": .bool(config.auditEnabled), "maxFileBytes": .int(config.auditLimits.maxFileBytes),

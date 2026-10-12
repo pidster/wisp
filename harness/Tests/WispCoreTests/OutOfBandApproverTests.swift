@@ -1,6 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
@@ -24,11 +25,12 @@ final class CancelFlag: Sendable {
     /// 2026-10-04); tests of the timeout pass a short one.
     private func approver(
         _ channel: PendingApprovals, timeout: Duration? = .seconds(60), posted: PostedNotifications = .init(),
-        alongside: OutOfBandApprover.Ask? = nil
+        bannerDelay: Duration = .zero, alongside: OutOfBandApprover.Ask? = nil
     ) -> OutOfBandApprover {
         OutOfBandApprover(
             channel: channel, timeout: timeout, alongside: { alongside }, client: { "claude-code" },
-            notify: { message, _ in posted.messages.withLock { $0.append(message) } }, poll: .milliseconds(20))
+            notify: { message, _ in posted.messages.withLock { $0.append(message) } }, poll: .milliseconds(20),
+            bannerDelay: bannerDelay)
     }
 
     /// Waits until the channel has a request, then returns it.
@@ -245,5 +247,118 @@ final class CancelFlag: Sendable {
         #expect(channel.isFiled(request))
         try channel.answer(request.id, decision: "once", via: "cli")
         #expect(await decision.value == .approved(.once))
+    }
+
+    // Banners only when the client's dialog goes unanswered (ADR 0046, amended 2026-10-12).
+
+    @Test func aDialogAnsweredWithinTheBannerDelayPostsNoBanner() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let sink = MemoryAuditSink()
+        // A delay far longer than a loaded machine takes to answer (a 500 ms one was outlasted under the gate on
+        // 2026-10-12); `skipped` means it never will be posted (DelayedNoticeTests shows the alarm then stays quiet).
+        let approver = approver(channel, posted: posted, bannerDelay: .seconds(30)) { _ in
+            .answered(.approved(.once))
+        }
+        let decision = await approver.decide(approvalRequest(), audit: AuditLog(session: "t", sink: sink))
+        #expect(decision == .approved(.once))
+        #expect(posted.messages.withLock { $0.isEmpty })
+        #expect(sink.events.first?.details["bannerDelaySeconds"] == .double(30))
+        let settled = try #require(sink.events.last)
+        #expect(settled.kind == .approvalSettled && settled.details["banner"] == "skipped")
+    }
+
+    @Test func aDialogUnansweredForTheBannerDelayPostsTheBanner() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let sink = MemoryAuditSink()
+        // A dialog nobody answers, as when Claude Code's sticks; the person answers from the command line.
+        let approver = approver(channel, posted: posted, bannerDelay: .milliseconds(100)) { _ in
+            try? await Task.sleep(for: .seconds(30))
+            return .answered(.denied("too late"))
+        }
+        let decision = Task { await approver.decide(approvalRequest(), audit: AuditLog(session: "t", sink: sink)) }
+        let request = try #require(try await filed(channel).first)
+        try await eventually("the banner posted") { posted.messages.withLock { $0.count == 1 } }
+        #expect(posted.messages.withLock { $0.first?.body.hasSuffix(request.id) } == true)
+        try channel.answer(request.id, decision: "once", via: "cli")
+        #expect(await decision.value == .approved(.once))
+        #expect(sink.events.last?.details["banner"] == "posted")
+        #expect(posted.messages.withLock { $0.count } == 1, "posted once")
+    }
+
+    @Test func aWithdrawnRequestPostsNoBanner() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let sink = MemoryAuditSink()
+        let approver = approver(channel, timeout: nil, posted: posted, bannerDelay: .seconds(30)) { _ in
+            try? await Task.sleep(for: .seconds(30))
+            return .answered(.denied("too late"))
+        }
+        let decision = Task { await approver.decide(approvalRequest(), audit: AuditLog(session: "t", sink: sink)) }
+        _ = try await filed(channel)
+        decision.cancel()
+        #expect(await decision.value == .denied("the call was cancelled while waiting for approval"))
+        #expect(posted.messages.withLock { $0.isEmpty })
+        let settled = try #require(sink.events.last)
+        #expect(settled.details["outcome"] == "abandoned" && settled.details["banner"] == "skipped")
+    }
+
+    @Test func withoutADialogTheBannerIsPostedAtOnceWhateverTheDelay() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let sink = MemoryAuditSink()
+        let approver = approver(channel, posted: posted, bannerDelay: .seconds(30))
+        let decision = Task { await approver.decide(approvalRequest(), audit: AuditLog(session: "t", sink: sink)) }
+        let request = try #require(try await filed(channel).first)
+        // Posted when the request was filed, long before thirty seconds.
+        try await eventually("the banner posted") { posted.messages.withLock { $0.count == 1 } }
+        try channel.answer(request.id, decision: "once", via: "cli")
+        #expect(await decision.value == .approved(.once))
+        #expect(sink.events.first?.details["bannerDelaySeconds"] == nil)
+        #expect(sink.events.last?.details["banner"] == "posted")
+    }
+
+    @Test func aDialogThatCannotBeSentPostsTheBannerAtOnce() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let approver = approver(channel, posted: posted, bannerDelay: .seconds(30)) { _ in
+            .failed("the client went away")
+        }
+        let decision = Task { await approver.decide(approvalRequest()) }
+        let request = try #require(try await filed(channel).first)
+        try await eventually("the banner posted") { posted.messages.withLock { $0.count == 1 } }
+        try channel.answer(request.id, decision: "once", via: "cli")
+        #expect(await decision.value == .approved(.once))
+        #expect(posted.messages.withLock { $0.count } == 1)
+    }
+
+    @Test func aZeroDelayPostsAtOnceBesideTheDialog() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let posted = PostedNotifications()
+        let sink = MemoryAuditSink()
+        let approver = approver(channel, posted: posted, bannerDelay: .zero) { _ in .answered(.approved(.once)) }
+        let decision = await approver.decide(approvalRequest(), audit: AuditLog(session: "t", sink: sink))
+        #expect(decision == .approved(.once))
+        #expect(posted.messages.withLock { $0.count } == 1)
+        #expect(sink.events.first?.details["bannerDelaySeconds"] == nil)
+        #expect(sink.events.last?.details["banner"] == "posted")
+    }
+
+    @Test func theSessionsApproverTakesTheConfiguredDelay() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "wisp-oob-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = Home(root: root)
+        try home.ensure()
+        try Data(#"{"approval":{"bannerDelaySeconds":7}}"#.utf8).write(to: home.configFile)
+        let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
+        let approver = session.mcpApprover(elicitation: { nil }, fallback: DenyingApprover(reason: "x"))
+        #expect((approver as? OutOfBandApprover)?.bannerDelay == .seconds(7))
     }
 }
