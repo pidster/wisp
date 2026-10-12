@@ -87,7 +87,7 @@ public struct WispServer: Sendable {
             face: .mcp)
         let notifyHost = self.host
         factKeeper = FactKeeper(
-            channel: PendingApprovals(home: session.home), timeout: session.config.approvalTimeout,
+            channel: PendingApprovals(home: session.home), store: session.permanentFacts, audit: session.audit,
             client: { client.name.withLock { $0 } },
             notify: { message, audit in notifyHost.notify(message, source: .approval, audit: audit) })
         threads = ThreadRegistry(capacity: session.config.maxThreads)
@@ -106,8 +106,9 @@ public struct WispServer: Sendable {
         try await serve(transport: StdioTransport(logger: DiagnosticsLogHandler.logger()))
         await server.waitUntilCompleted()
         Diagnostics.mcp.info("client disconnected")
-        factKeeper.withdraw(thread: nil)
-        // Requests this process filed and never settled (a call still waiting at disconnect) are stale now.
+        // Facts asked about stay filed for the person (ADR 0048, amended 2026-10-12); the sweep below leaves them.
+        factKeeper.stop()
+        // Commands this process filed and never settled (a call still waiting at disconnect) are stale now.
         let pid = getpid()
         PendingApprovals(home: session.home).sweep { $0 != pid && PendingApprovals.isAlive($0) }
     }
@@ -372,7 +373,7 @@ public struct WispServer: Sendable {
                 tools: opened.thread.tools, instructions: request.instructions != nil, think: opened.thread.think)
         }
         if let evicted = opened.evicted {
-            factKeeper.withdraw(thread: evicted.id)
+            factKeeper.release(thread: evicted.id)
             directory.ended(id: evicted.id, as: .evicted)
             // A turn under way on the evicted thread finishes first, so session.end stays its last event; the
             // wait is its own task so the call that made room is not held up by it.
@@ -792,12 +793,13 @@ public struct WispServer: Sendable {
         }
     }
 
-    /// Frees a thread, withdrawing its requests to keep facts, once the turn under way on it ends; calls still
-    /// waiting for their turn are refused. Unknown ids are tool errors.
+    /// Frees a thread once the turn under way on it ends; calls still waiting for their turn are refused. Its
+    /// requests to keep facts stay filed for the person, and a keep that comes later goes to the shared store
+    /// (ADR 0048, amended 2026-10-12). Unknown ids are tool errors.
     private func closeThread(_ request: CloseThreadRequest) async -> CallTool.Result {
         do {
             let closed = try await threads.close(request.threadID)
-            factKeeper.withdraw(thread: request.threadID)
+            factKeeper.release(thread: request.threadID)
             directory.ended(id: request.threadID, as: .closed)
             // The turn under way finishes first and calls still queued are refused, so session.end comes last.
             await closed.turns.close()

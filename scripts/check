@@ -594,6 +594,32 @@ mcp_build() {
     echo "==> built harness/.build/release/wisp; reconnect the server (/mcp in Claude Code)"
 }
 
+# launcher: scripts/wisp-mcp names the server at spawn (ADR 0061). It runs a copy of the launcher in a scratch tree
+# whose "release build" is /bin/sh reading a script named `mcp` that prints its own process's arguments, as `ps`
+# shows them: `wisp mcp mcp` with no client named, `wisp mcp (claude-code) mcp` with one, and a name stripped of
+# anything but letters, digits, dot, underscore, and hyphen. Cheap, so part of the gate.
+launcher() {
+    echo "==> launcher (scripts/wisp-mcp names the server)"
+    scratch="$(mktemp -d)"
+    mkdir -p "$scratch/scripts" "$scratch/harness/.build/release" "$scratch/run"
+    cp scripts/wisp-mcp "$scratch/scripts/wisp-mcp"
+    ln -s /bin/sh "$scratch/harness/.build/release/wisp"
+    # shellcheck disable=SC2016 # $$ is the script's own process, expanded when it runs
+    printf '%s\n' 'ps -o args= -p $$' >"$scratch/run/mcp"
+    status=0
+    for case in "|wisp mcp mcp" "claude-code|wisp mcp (claude-code) mcp" 'co;de$x (1)|wisp mcp (codex1) mcp'; do
+        client="${case%%|*}"
+        want="${case#*|}"
+        got="$(cd "$scratch/run" && WISP_MCP_CLIENT="$client" "$scratch/scripts/wisp-mcp" | sed 's/[[:space:]]*$//')"
+        if [ "$got" != "$want" ]; then
+            printf 'scripts/wisp-mcp with WISP_MCP_CLIENT=%s started %s, not %s\n' "$client" "$got" "$want"
+            status=1
+        fi
+    done
+    rm -rf "$scratch"
+    return $status
+}
+
 # evals_build: compiles the model evaluations (harness/Evals, its own package, which the gate's build never sees)
 # without running them, warnings as errors, so a change to an API they call fails here rather than at release time.
 evals_build() {
@@ -774,10 +800,11 @@ case "${1:-all}" in
     completions) completions_write ;;
     hygiene) hygiene ;;
     palette) palette ;;
+    launcher) launcher ;;
     evals-build) evals_build ;;
     mlx-build) mlx_build ;;
     mcp-build) mcp_build ;;
-    all) hygiene; palette; lint; build; evals_build; test_ ;;
+    all) hygiene; palette; launcher; lint; build; evals_build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|hygiene|palette|launcher|all|install-hooks]" >&2; exit 64 ;;
 esac

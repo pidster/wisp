@@ -52,7 +52,9 @@ Homebrew formula installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp ch
 `wisp doctor`'s `front end` finding says where it found it, or where it looked: the conversation scrolls in the terminal's own scrollback above a pinned band
 with the reply in progress, an approval dialog, the input, and the status
 ([ADR 0029](decisions/0029-tui-front-end.md)). `--plain` keeps the line-based chat below; a piped
-session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and can be run directly.
+session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and can be run directly. It
+starts `wisp chat --json` under the name `wisp chat (tui)`, which `ps` shows; wisp finds its own executable by
+the kernel's path, never by that name ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)).
 In `wisp-tui`, Up and Down recall the lines submitted this session (the latest 100, a line repeating
 the one before it kept once): Up from a fresh line keeps what was typed as a draft, and Down past the
 newest line brings it back. The plain chat reads whole lines and has no recall; `/history` lists them
@@ -363,7 +365,7 @@ Out, to the front end:
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result`, a `command.typed`, or a `model.reasoning` that ends a stretch of thinking `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show, and so does a `command.typed` whose command printed something (what it printed, stdout then stderr), and a `model.reasoning` with `phase` `end` (the thinking): `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, `facts`, `summary`, or `thinking`), `turn` (null for the next request's context, the turn list, and every turn's thinking), `turns` (how many turns the conversation has had), `text` (Markdown) | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`, `/inspect summary [all]`, or `/inspect thinking [N]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. |
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
-| `withdrawn` | `id` | An `approval` or `choice` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped; or the chat's own approval or choice went unanswered for `approval.timeoutSeconds`. Drop the dialog or picker; an answer sent after this is ignored. |
+| `withdrawn` | `id` | An `approval` or `choice` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped (a fact request waits on after both); or the chat's own approval or choice went unanswered for `approval.timeoutSeconds`. Drop the dialog or picker; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from `from` to the cursor, sorted. `from`, like the request's `cursor`, counts Unicode scalars (a Rust `char`), not bytes or grapheme clusters, so a combining mark or an emoji sequence before the word counts as the front end's editor counts it. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). An option with `action` true and no `on` is an action, not a toggle: `/models`' last row, "pull a model…", whose choosing is answered with `value`, its value, leaving the toggles unsaved; wisp then asks a choice that takes text, the repository ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
@@ -1018,7 +1020,7 @@ names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md);
 
 Answers a `wisp mcp` caller's request to keep one of its thread's facts as a permanent fact, which only you
 admit ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md); [mcp.md](mcp.md), "`set_fact_scope`"). The
-request waits in `~/.wisp/pending`, and a notification names it:
+request waits in `~/.wisp/pending` with no time limit, until you answer it, and a notification names it:
 
 ```
 wisp: keep as a permanent fact?
@@ -1037,7 +1039,9 @@ a1b2c3d4  12 s     claude-code/git  c3    model   release codename = BLUE HERON
 `wisp facts keep <id>` admits the fact to `~/.wisp/facts.json` as yours, as `/fact ID permanent` does in
 chat; `wisp facts drop <id>` leaves it in its thread (not deleted), and that thread does not ask about the
 same fact again. Both run only from a terminal, so an agent's shell cannot answer for you, and wait up to
-three seconds for the server to take the answer:
+three seconds for the server to take the answer. A request outlives the thread and the server that asked: once
+the thread has closed, the server keeps the fact for you; once the server has stopped, `wisp facts keep`
+keeps it itself (and says `its server had stopped`), and `drop` just ends the request.
 
 ```
 $ wisp facts keep a1b2c3d4
@@ -1046,8 +1050,8 @@ kept as a permanent fact: release codename = BLUE HERON (thread git)
 
 An id that is unknown, stale, already answered, or altered is refused with the reason and exits 1, as does an
 answer that came after the request stopped waiting; a command waiting for approval (answer that with
-`wisp approvals`) is a usage error (exit 64). A request nobody answers within `approval.timeoutSeconds`
-keeps nothing. A running `wisp-tui` shows the same requests as dialogs. The default policy refuses
+`wisp approvals`) is a usage error (exit 64). Until you answer, nothing is kept. A running `wisp-tui` shows
+the same requests as dialogs, and applies an answer the same way when the server has stopped. The default policy refuses
 `wisp facts keep|drop` when the model runs it.
 
 ### `wisp completions`

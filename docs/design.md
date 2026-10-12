@@ -326,10 +326,15 @@ the task applies it through a closure the server gave it: `ThreadActor.keepAsked
 `Agent.keepAsked` (`setFactScope` to `permanent`, `by: .person`, with the request) or `Agent.dropAsked`
 (a proposal retargeted to `thread` in place), each first checking that the fact still says what the person
 was shown. The keeper remembers drops per thread by subject, name, and value, refuses a second request for
-one, returns a waiting request rather than filing another, ends a request at `approval.timeoutSeconds`, and
-cancels a thread's tasks when it closes or is evicted, or all of them when the client disconnects. The
-facts resources read its records for each fact's `request`. Answers come from `wisp facts keep|drop` and
-from `PendingRelay` for a front end that declared `keep-facts`.
+one, and returns a waiting request rather than filing another. A request has no time limit (ADR 0048,
+amended 2026-10-12). When a thread closes or is evicted (`release`) its tasks go on, and an answer that comes
+later is applied without the thread: `FactKeeper.keep(_:in:audit:)` admits the fact the request names to
+`Session.permanentFacts`, audited on the server's log. When the client disconnects (`stop`) every task ends and
+the requests stay filed; `PendingApprovals` never counts a fact request stale for its server having gone, and
+the process the person answers in (`wisp facts keep|drop`, or `PendingRelay` for `wisp-tui`) takes its own
+answer and applies it (`FactKeeper.settleUnwatched`). The facts resources read the keeper's records for each
+fact's `request`. Answers come from `wisp facts keep|drop` and from `PendingRelay` for a front end that
+declared `keep-facts`.
 
 ### Risk classification and approval
 

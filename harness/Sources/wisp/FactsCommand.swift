@@ -12,10 +12,11 @@ struct FactsCommand: AsyncParsableCommand {
         abstract: "Answer requests to keep a fact as a permanent fact.",
         discussion:
             "A caller of wisp mcp may ask for one of its thread's facts to be kept across sessions, in "
-            + "~/.wisp/facts.json. Only you admit a permanent fact: the request waits in ~/.wisp/pending and a "
-            + "notification names it. 'pending' lists the requests; 'keep' admits the fact as yours, and 'drop' "
-            + "leaves it in its thread, where the thread does not ask about it again. Both answer only from a "
-            + "terminal; a running wisp-tui shows the same requests.",
+            + "~/.wisp/facts.json. Only you admit a permanent fact: the request waits in ~/.wisp/pending, with no "
+            + "time limit and after its thread or server has ended, and a notification names it. 'pending' lists "
+            + "the requests; 'keep' admits the fact as yours, and 'drop' leaves it in its thread, where the thread "
+            + "does not ask about it again. Both answer only from a terminal; a running wisp-tui shows the same "
+            + "requests.",
         subcommands: [Pending.self, Keep.self, Drop.self],
         defaultSubcommand: Pending.self)
 
@@ -106,12 +107,29 @@ struct FactsCommand: AsyncParsableCommand {
             try Approvals.end(PendingAnswer.ending(for: failure))
             return
         }
+        // A request whose server has stopped has nobody to take the answer: wisp applies it here (ADR 0048, amended
+        // 2026-10-12), now or once the server has gone while this waits.
+        let store = SharedFacts.permanent(home: Wisp.home)
+        func applyHere() throws -> Bool {
+            guard
+                let applied = FactKeeper.settleUnwatched(
+                    request, channel: channel, store: store, audit: session.audit)
+            else { return false }
+            session.audit.record(
+                .approvalAnswered,
+                details: AuditEvent.Details.approvalAnswered(
+                    request: id, request, decision: decision, via: "cli", delivery: "applied"))
+            try Approvals.end(PendingAnswer.ending(of: request, applied: applied))
+            return true
+        }
+        if try applyHere() { return }
         // The server looks every 200 ms; give it a few seconds to take the answer.
         var delivery = channel.delivery(of: id)
         for _ in 0..<15 where delivery == .waiting {
             usleep(200_000)
             delivery = channel.delivery(of: id)
         }
+        if delivery == .waiting, try applyHere() { return }
         let text: String =
             switch delivery {
             case .taken: "taken"

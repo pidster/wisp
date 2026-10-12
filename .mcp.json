@@ -10,7 +10,10 @@
     "wisp": {
       "type": "stdio",
       "command": "scripts/wisp-mcp",
-      "args": []
+      "args": [],
+      "env": {
+        "WISP_MCP_CLIENT": "claude-code"
+      }
     }
   }
 }

@@ -46,11 +46,11 @@ import WispTestSupport
         let result = try #require(asked.structuredContent?.objectValue)
         let id = try #require(result["request"]?.stringValue)
         #expect(result["state"] == "pending" && result["from"] == "c1" && result["thread_id"] == "git")
-        #expect(result["uri"] == "wisp://threads/git/facts/c1" && result["expiresAt"]?.stringValue != nil)
+        #expect(result["uri"] == "wisp://threads/git/facts/c1" && result["expiresAt"] == nil)
         #expect(result["fact"]?.objectValue?["value"] == "BLUE HERON")
-        #expect(text(asked).contains("request \(id)") && text(asked).contains("wisp facts keep or drop"))
+        #expect(text(asked).contains("wisp facts keep|drop \(id)") && text(asked).contains("no time limit"))
         let filed = try #require(channel.waiting(.fact).first)
-        #expect(filed.id == id && filed.thread == "git" && filed.client == "wire-test")
+        #expect(filed.id == id && filed.thread == "git" && filed.client == "wire-test" && filed.expiresAt == nil)
         #expect(
             filed.fact
                 == .init(id: "c1", subject: "entity", name: "release codename", value: "BLUE HERON", source: "model"))
@@ -130,20 +130,31 @@ import WispTestSupport
         #expect(missing.isError == true && text(missing).contains("no current fact c9"))
     }
 
-    @Test func closingTheThreadWithdrawsItsRequest() async throws {
+    /// The request outlives its thread (ADR 0048, amended 2026-10-12): closing the thread leaves it filed, and a
+    /// keep that comes later is admitted to the shared store, audited on the server's own log.
+    @Test func closingTheThreadLeavesItsRequestAndALateKeepIsApplied() async throws {
         let pair = try await FactScopeWireTests.connected()
         let channel = PendingApprovals(home: pair.server.session.home)
         defer { try? FileManager.default.removeItem(at: pair.server.session.home.root) }
         _ = try await call(pair.client, "respond", ["prompt": "propose team=Platform", "thread_id": "git"])
-        _ = try await call(pair.client, "set_fact_scope", ["thread_id": "git", "fact_id": "c1", "scope": "permanent"])
-        #expect(channel.waiting(.fact).count == 1)
+        let asked = try await call(
+            pair.client, "set_fact_scope", ["thread_id": "git", "fact_id": "c1", "scope": "permanent"])
+        let id = try #require(asked.structuredContent?.objectValue?["request"]?.stringValue)
         _ = try await call(pair.client, "close_thread", ["thread_id": "git"])
-        for _ in 0..<250 where !channel.waiting(.fact).isEmpty { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(channel.waiting(.fact).isEmpty)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(channel.waiting(.fact).map(\.id) == [id])
+        #expect(pair.server.factKeeper.records.first?.state == .pending)
+        #expect(pair.server.factKeeper.records.first?.released == true)
+        try channel.answer(id, decision: "keep", via: "cli")
         for _ in 0..<250 where pair.server.factKeeper.records.first?.state == .pending {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(pair.server.factKeeper.records.first?.state == .withdrawn)
-        #expect(pair.sink.events.contains { $0.kind == .approvalSettled && $0.details["outcome"] == "withdrawn" })
+        #expect(pair.server.factKeeper.records.first?.state == .kept)
+        #expect(pair.server.session.permanentFacts.current.map(\.value) == ["Platform"])
+        #expect(channel.delivery(of: id) == .taken)
+        #expect(
+            pair.sink.events.contains {
+                $0.kind == .approvalSettled && $0.details["outcome"] == "answered" && $0.details["kept"] == "p1"
+            })
     }
 }

@@ -76,7 +76,7 @@ public struct Doctor: Sendable {
             osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") },
             backends: { ModelBackends.all.compactMap { $0.doctorFinding() } },
             frontEnd: {
-                let executable = FrontEnd.runningExecutable
+                guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
                 return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
             })
 

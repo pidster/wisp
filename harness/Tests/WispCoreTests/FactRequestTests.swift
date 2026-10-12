@@ -87,7 +87,9 @@ func proposedFact(
         #expect(channel.isFiled(other))
     }
 
-    @Test func aStaleFactRequestIsSweptAndARequestWithoutAKindIsACommand() throws {
+    /// A fact request outlives its server (ADR 0048, amended 2026-10-12): one whose server has gone still waits
+    /// and can be answered, while a command's is stale; one filed with an expiry, as 0.22.0 filed them, expires.
+    @Test func aFactRequestOutlivesItsServerAndOnlyAnOldExpiryMakesItStale() throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }
         let expired = PendingApprovals.request(
@@ -95,14 +97,21 @@ func proposedFact(
             timeout: .seconds(60))
         let orphan = PendingApprovals.request(
             keeping: proposedFact("c4"), thread: "git", client: nil, pid: 999_999, timeout: nil)
+        let command = PendingApprovals.request(for: approvalRequest(), client: nil, pid: 999_999, timeout: nil)
         try channel.file(expired)
         try channel.file(orphan)
-        #expect(channel.waiting(.fact).isEmpty)
+        try channel.file(command)
+        #expect(channel.waiting(.fact).map(\.id) == [orphan.id] && channel.waiting(.command).isEmpty)
         #expect(throws: PendingApprovals.Failure.stale(expired.id)) {
             try channel.answer(expired.id, decision: "keep", via: "cli")
         }
-        #expect(Set(channel.sweep().map(\.id)) == [expired.id, orphan.id])
-        #expect(!channel.isFiled(expired) && !channel.isFiled(orphan))
+        #expect(Set(channel.sweep().map(\.id)) == [expired.id, command.id])
+        #expect(!channel.isFiled(expired) && channel.isFiled(orphan) && !channel.isFiled(command))
+        #expect(try channel.answer(orphan.id, decision: "keep", via: "cli") == orphan)
+        #expect(channel.sweep().isEmpty && channel.isFiled(orphan))
+    }
+
+    @Test func aRequestWithoutAKindIsACommand() throws {
         // A request as wisp 0.16.0 filed it, with no kind, reads as a command.
         let command = PendingApprovals.request(for: approvalRequest(), client: nil, timeout: nil)
         var object = try #require(
@@ -161,9 +170,12 @@ func proposedFact(
         let router = LineRouter()
         let sent = SentLines()
         let sink = MemoryAuditSink()
+        let home = FileManager.default.temporaryDirectory.appending(path: "wisp-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = SharedFacts.permanent(home: Home(root: home))
         let relay = PendingRelay(
             channel: channel, router: router, audit: AuditLog(session: "chat", sink: sink), kinds: [.fact],
-            send: sent.keep)
+            facts: store, send: sent.keep)
         let fact = PendingApprovals.request(keeping: proposedFact(), thread: "git", client: "claude-code", timeout: nil)
         let other = PendingApprovals.request(
             keeping: proposedFact("c4", value: "GREY HERON"), thread: "git", client: nil, timeout: nil)
@@ -188,9 +200,37 @@ func proposedFact(
             return answers.count == 2
         }
         #expect(answers == [fact.id: "keep", other.id: "drop"])
+        // Their server runs (this process), so the relay left the answers for it and kept nothing itself.
+        #expect(store.facts.isEmpty)
         let answered = sink.events.filter { $0.kind == .approvalAnswered }
         #expect(answered.allSatisfy { $0.details["kind"] == "fact" && $0.details["via"] == "tui" })
         for event in answered { #expect(Set(event.details.keys).isSubset(of: AuditEvent.fields(for: event.kind))) }
+    }
+
+    /// A fact request whose server has stopped is kept by the face the person answers in: here `wisp-tui`'s
+    /// relay, which takes its own answer and admits the fact to the shared store as the person's.
+    @Test func theRelayKeepsAFactWhoseServerHasStopped() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
+        let home = FileManager.default.temporaryDirectory.appending(path: "wisp-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = SharedFacts.permanent(home: Home(root: home))
+        let router = LineRouter()
+        let sink = MemoryAuditSink()
+        let relay = PendingRelay(
+            channel: channel, router: router, audit: AuditLog(session: "chat", sink: sink), kinds: [.fact],
+            facts: store, send: SentLines().keep)
+        let orphan = PendingApprovals.request(
+            keeping: proposedFact(), thread: "git", client: "claude-code", pid: 999_999, timeout: nil)
+        try channel.file(orphan)
+        router.receive(#"{"type":"answer","id":"mcp-\#(orphan.id)","decision":"keep"}"#)
+        await relay.awaitAnswer(orphan)
+        let kept = try #require(store.current.first)
+        #expect(kept.value == "BLUE HERON" && kept.identity.scope == .permanent && kept.approved != nil)
+        #expect(!channel.isFiled(orphan) && channel.delivery(of: orphan.id) == .taken)
+        #expect(sink.events.contains { $0.kind == .approvalAnswered && $0.details["delivery"] == "applied" })
+        #expect(sink.events.contains { $0.kind == .factScopeChanged && $0.details["by"] == "person" })
+        for event in sink.events { #expect(Set(event.details.keys).isSubset(of: AuditEvent.fields(for: event.kind))) }
     }
 }
 
@@ -218,10 +258,11 @@ final class AppliedAnswers: Sendable {
 @Suite(.timeLimit(.minutes(1))) struct FactKeeperTests {
     /// A keeper over `channel` that polls quickly and records what it posts.
     private func keeper(
-        _ channel: PendingApprovals, timeout: Duration? = .seconds(5), posted: PostedNotifications = .init()
+        _ channel: PendingApprovals, store: SharedFacts? = nil, audit: AuditLog? = nil,
+        posted: PostedNotifications = .init()
     ) -> FactKeeper {
         FactKeeper(
-            channel: channel, timeout: timeout, client: { "claude-code" },
+            channel: channel, store: store, audit: audit, client: { "claude-code" },
             notify: { message, _ in posted.messages.withLock { $0.append(message) } }, poll: .milliseconds(20))
     }
 
@@ -309,39 +350,89 @@ final class AppliedAnswers: Sendable {
             Issue.record("another thread was refused")
             return
         }
-        keeper.withdraw(thread: "git")
+        keeper.release(thread: "git")
         guard case .filed = try keeper.ask(fact, thread: "git", audit: nil, apply: applied.apply) else {
             Issue.record("the closed thread's memory stayed")
             return
         }
-        keeper.withdraw(thread: nil)
+        keeper.stop()
     }
 
-    @Test func silenceKeepsNothingAndIsNotRemembered() async throws {
+    /// No time limit (ADR 0048, amended 2026-10-12): the call returns at once, the request is filed with no
+    /// expiry, and it goes on waiting, keeping nothing, until the person answers.
+    @Test func aRequestReturnsAtOnceAndWaitsWithNoDeadline() async throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }
-        let keeper = keeper(channel, timeout: .milliseconds(100))
-        let sink = MemoryAuditSink()
+        let keeper = keeper(channel)
         let (_, fact) = try proposing()
         let applied = AppliedAnswers()
-        _ = try keeper.ask(fact, thread: "git", audit: AuditLog(session: "git", sink: sink), apply: applied.apply)
-        let record = try await settled(keeper)
-        #expect(record.state == .timedOut && record.kept == nil)
-        #expect(applied.calls.withLock { $0.isEmpty })
-        #expect(!channel.isFiled(record.request))
-        #expect(sink.events.last?.details["outcome"] == "timed-out")
-        guard case .filed = try keeper.ask(fact, thread: "git", audit: nil, apply: applied.apply) else {
-            Issue.record("silence was remembered as a drop")
+        let clock = ContinuousClock()
+        let started = clock.now
+        guard case .filed(let record) = try keeper.ask(fact, thread: "git", audit: nil, apply: applied.apply) else {
+            Issue.record("not filed")
             return
         }
-        keeper.withdraw(thread: nil)
+        #expect(clock.now - started < .seconds(1), "the call waited for the person")
+        #expect(record.request.expiresAt == nil && record.state == .pending)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(keeper.record(thread: "git", fact: "c1")?.state == .pending && channel.isFiled(record.request))
+        #expect(channel.waiting(.fact, now: Date().addingTimeInterval(86_400 * 365)).map(\.id) == [record.request.id])
+        #expect(applied.calls.withLock { $0.isEmpty })
+        try channel.answer(record.request.id, decision: "keep", via: "cli")
+        #expect(try await settled(keeper).state == .kept)
     }
 
-    @Test func aClosingThreadWithdrawsItsRequests() async throws {
+    /// A thread that closes leaves its request filed and watched; a keep that comes later is admitted to the
+    /// shared store straight from the request, audited on the keeper's own log, not through the closed thread.
+    @Test func aLateKeepAfterTheThreadClosedGoesToTheSharedStore() async throws {
         let channel = scratchChannel()
         defer { try? FileManager.default.removeItem(at: channel.directory) }
-        let keeper = keeper(channel, timeout: nil)
+        let home = FileManager.default.temporaryDirectory.appending(path: "wisp-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = SharedFacts.permanent(home: Home(root: home))
+        let threadSink = MemoryAuditSink()
+        let serverSink = MemoryAuditSink()
+        let keeper = keeper(channel, store: store, audit: AuditLog(session: "server", sink: serverSink))
+        let (_, fact) = try proposing()
+        let applied = AppliedAnswers()
+        guard
+            case .filed(let record) = try keeper.ask(
+                fact, thread: "git", audit: AuditLog(session: "git", sink: threadSink), apply: applied.apply)
+        else {
+            Issue.record("not filed")
+            return
+        }
+        keeper.release(thread: "other")
+        #expect(keeper.records.first?.released == false)
+        keeper.release(thread: "git")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(keeper.records.first?.state == .pending && keeper.records.first?.released == true)
+        #expect(channel.isFiled(record.request) && channel.waiting(.fact).count == 1)
+        // A new thread of the same id does not see the old thread's request as its own.
+        #expect(keeper.record(thread: "git", fact: "c1") == nil)
+        try channel.answer(record.request.id, decision: "keep", via: "cli")
+        for _ in 0..<250 where keeper.records.first?.state == .pending { try await Task.sleep(for: .milliseconds(20)) }
+        let done = try #require(keeper.records.first)
+        #expect(done.state == .kept && done.kept == "p1" && done.via == "cli")
+        #expect(applied.calls.withLock { $0.isEmpty }, "the closed thread was asked to apply it")
+        let kept = try #require(store.current.first)
+        #expect(kept.id == "p1" && kept.value == "BLUE HERON" && kept.approved != nil && kept.source == .model)
+        #expect(threadSink.events.map(\.kind) == [.approvalPending])
+        #expect(serverSink.events.map(\.kind) == [.factScopeChanged, .approvalSettled])
+        let change = try #require(serverSink.events.first)
+        #expect(change.details["by"] == "person" && change.details["request"] == .string(record.request.id))
+        for event in serverSink.events {
+            #expect(Set(event.details.keys).isSubset(of: AuditEvent.fields(for: event.kind)))
+        }
+    }
+
+    /// A server that stops leaves its requests filed, settled `handed-over`; the person answers later, and the
+    /// process they answer in applies it (`settleUnwatched`), since no server is left to.
+    @Test func aStoppedServerHandsItsRequestsToWhoeverAnswers() async throws {
+        let channel = scratchChannel()
+        defer { try? FileManager.default.removeItem(at: channel.directory) }
         let sink = MemoryAuditSink()
+        let keeper = keeper(channel)
         let (_, fact) = try proposing()
         let applied = AppliedAnswers()
         guard
@@ -351,13 +442,57 @@ final class AppliedAnswers: Sendable {
             Issue.record("not filed")
             return
         }
-        #expect(record.request.expiresAt == nil)
-        keeper.withdraw(thread: "other")
-        #expect(keeper.record(thread: "git", fact: "c1")?.state == .pending)
-        keeper.withdraw(thread: "git")
-        #expect(try await settled(keeper).state == .withdrawn)
-        #expect(!channel.isFiled(record.request))
-        #expect(sink.events.last?.details["outcome"] == "withdrawn")
+        keeper.stop()
+        #expect(try await settled(keeper).state == .handedOver)
+        #expect(channel.isFiled(record.request))
+        #expect(sink.events.last?.details["outcome"] == "handed-over")
+        // While its server runs (this process), the answering process leaves the answer to it.
+        let home = FileManager.default.temporaryDirectory.appending(path: "wisp-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let store = SharedFacts.permanent(home: Home(root: home))
+        try channel.answer(record.request.id, decision: "keep", via: "cli")
+        #expect(FactKeeper.settleUnwatched(record.request, channel: channel, store: store, audit: nil) == nil)
+        // Once it has gone, the answering process takes its own answer and keeps the fact.
+        let answering = MemoryAuditSink()
+        let result = FactKeeper.settleUnwatched(
+            record.request, channel: channel, store: store, audit: AuditLog(session: "facts", sink: answering),
+            alive: { _ in false })
+        #expect(result == .kept("p1") && store.current.map(\.value) == ["BLUE HERON"])
+        #expect(!channel.isFiled(record.request) && channel.delivery(of: record.request.id) == .taken)
+        let settledEvent = try #require(answering.events.last)
+        #expect(settledEvent.kind == .approvalSettled && settledEvent.details["outcome"] == "answered")
+        #expect(settledEvent.details["kept"] == "p1" && settledEvent.details["via"] == "cli")
+        #expect(
+            PendingAnswer.ending(of: record.request, applied: .kept("p1"))
+                == .printed(
+                    "kept as a permanent fact, p1: release codename = BLUE HERON (thread git); its server had stopped"))
+        // A drop of an orphaned request just ends it; a command is never applied this way.
+        let dropped = PendingApprovals.request(
+            keeping: proposedFact("c4"), thread: "git", client: nil, pid: 999_999, timeout: nil)
+        try channel.file(dropped)
+        try channel.answer(dropped.id, decision: "drop", via: "tui")
+        #expect(FactKeeper.settleUnwatched(dropped, channel: channel, store: store, audit: nil) == .dropped)
+        #expect(!channel.isFiled(dropped) && store.current.count == 1)
+        let command = PendingApprovals.request(for: approvalRequest(), client: nil, pid: 999_999, timeout: nil)
+        #expect(FactKeeper.settleUnwatched(command, channel: channel, store: store, audit: nil) == nil)
+    }
+
+    @Test func keepingFromTheRequestAloneNeedsAFactAndAWritableStore() throws {
+        let command = PendingApprovals.request(for: approvalRequest(), client: nil, timeout: nil)
+        let store = SharedFacts.session()
+        #expect(FactKeeper.keep(command, in: store, audit: nil) == .failed("the request names no fact"))
+        let session = PendingApprovals.request(keeping: proposedFact("s2"), thread: nil, client: nil, timeout: nil)
+        let sink = MemoryAuditSink()
+        guard case .kept = FactKeeper.keep(session, in: store, audit: AuditLog(session: "x", sink: sink)) else {
+            Issue.record("not kept")
+            return
+        }
+        #expect(sink.events.first?.details["from"] == "session")
+        let unwritable = SharedFacts(scope: .permanent, url: URL(fileURLWithPath: "/dev/null/facts.json"))
+        guard case .failed = FactKeeper.keep(session, in: unwritable, audit: nil) else {
+            Issue.record("kept in a store that cannot be written")
+            return
+        }
     }
 
     @Test func anAnswerThatCannotBeAppliedOrARemovedRequestFails() async throws {
@@ -385,8 +520,7 @@ final class AppliedAnswers: Sendable {
         #expect(keeper.record(thread: "git", fact: "c1")?.reason == "the pending request was removed")
         // A channel that cannot be used is a thrown error, audited as failed.
         let broken = FactKeeper(
-            channel: PendingApprovals(directory: URL(fileURLWithPath: "/dev/null/pending")), timeout: nil,
-            notify: { _, _ in })
+            channel: PendingApprovals(directory: URL(fileURLWithPath: "/dev/null/pending")), notify: { _, _ in })
         let sink = MemoryAuditSink()
         #expect(throws: PendingApprovals.Failure.self) {
             try broken.ask(fact, thread: "git", audit: AuditLog(session: "git", sink: sink), apply: refusing.apply)

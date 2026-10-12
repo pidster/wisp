@@ -2,6 +2,12 @@
 # Launcher used by .mcp.json. Runs the release build of wisp as an MCP
 # server, or explains how to produce one. Stdout is the protocol channel, so
 # every message here goes to stderr.
+#
+# The server is named at spawn (ADR 0061): its argv[0] is `wisp mcp`, or
+# `wisp mcp (CLIENT)` when WISP_MCP_CLIENT names the harness that starts it
+# (.mcp.json sets claude-code), so `ps` tells one session's server from
+# another's. wisp finds its own executable by the kernel's path, never by
+# argv[0]. A shell without `exec -a` starts it unnamed.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,4 +24,15 @@ MSG
     exit 1
 fi
 
+# The client's name, kept to letters, digits, dot, underscore, and hyphen, at most 32 of them.
+client="$(printf '%s' "${WISP_MCP_CLIENT:-}" | tr -cd 'A-Za-z0-9._-' | cut -c1-32)"
+name="wisp mcp"
+if [ -n "$client" ]; then name="wisp mcp ($client)"; fi
+
+# `exec -a` is not POSIX; the sh of macOS (bash) has it, and a shell without it takes the plain exec below.
+# shellcheck disable=SC3038
+if (exec -a probe true) 2>/dev/null; then
+    # shellcheck disable=SC3038
+    exec -a "$name" "$BIN" mcp "$@"
+fi
 exec "$BIN" mcp "$@"

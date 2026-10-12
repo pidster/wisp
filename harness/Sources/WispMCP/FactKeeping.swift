@@ -7,15 +7,16 @@ import WispCore
 /// itself, and cannot move or remove a permanent one.
 extension WispServer {
     /// `set_fact_scope` with `scope: permanent`: files a request for the person to keep the fact and returns at
-    /// once, with `state` `pending` and the request's id. A request already waiting for the fact is returned
-    /// again rather than asked twice; a fact the person dropped for this thread is refused, since the thread
-    /// is not to ask about it again.
+    /// once, with `state` `pending` and the request's id. The request has no time limit and does not hold the
+    /// caller up; the fact is not kept until the person answers (ADR 0048, amended 2026-10-12). A request already
+    /// waiting for the fact is returned again rather than asked twice; a fact the person dropped for this thread
+    /// is refused, since the thread is not to ask about it again.
     ///
     /// - Parameters:
     ///   - request: The decoded arguments.
     ///   - open: The thread.
-    /// - Returns: The result: `thread_id`, `from`, `state`, `request`, `expiresAt`, `fact`, and `uri`, where the
-    ///   outcome will show.
+    /// - Returns: The result: `thread_id`, `from`, `state`, `request`, `fact`, and `uri`, where the outcome will
+    ///   show.
     func askToKeep(_ request: SetFactScopeRequest, open: OpenThread) async -> CallTool.Result {
         let id = request.threadID
         guard let facts = await open.thread.facts() else { return failure(FactFailure.off.description) }
@@ -55,15 +56,14 @@ extension WispServer {
         return .init(
             content: [
                 .text(
-                    text: "asked the person to keep \(request.factID) (\(fact.identity.name) = \(fact.value)) as a "
-                        + "permanent fact\(again): request \(record.request.id), answered with wisp facts keep or "
-                        + "drop; the outcome shows on \(uri)", annotations: nil, _meta: nil)
+                    text: "proposed \(request.factID) (\(fact.identity.name) = \(fact.value)) as a permanent "
+                        + "fact\(again); waiting for the person, with no time limit: wisp facts keep|drop "
+                        + "\(record.request.id), or wisp-tui. It is not kept until they answer; the outcome shows on "
+                        + "\(uri)", annotations: nil, _meta: nil)
             ],
             structuredContent: .object([
                 "thread_id": .string(id), "from": .string(request.factID), "state": .string(record.state.rawValue),
-                "request": .string(record.request.id),
-                "expiresAt": record.request.expiresAt.map { .string($0.ISO8601Format()) } ?? .null,
-                "fact": Value(json: rows.first ?? .null), "uri": .string(uri),
+                "request": .string(record.request.id), "fact": Value(json: rows.first ?? .null), "uri": .string(uri),
             ]),
             isError: false)
     }
@@ -78,7 +78,7 @@ extension WispServer {
     }
 
     /// The latest request to keep fact `fact` of `thread`, as JSON (`id`, `state`, `kept`, `via`, `reason`,
-    /// `asked`, `expiresAt`, `settled`), or null when none was made.
+    /// `asked`, `settled`), or null when none was made.
     func keepRequest(thread: String, fact: String) -> JSONValue {
         guard let record = factKeeper.record(thread: thread, fact: fact) else { return .null }
         return .object([
@@ -86,7 +86,6 @@ extension WispServer {
             "kept": record.kept.map { .string($0) } ?? .null, "via": record.via.map { .string($0) } ?? .null,
             "reason": record.reason.map { .string($0) } ?? .null,
             "asked": .string(record.request.createdAt.ISO8601Format()),
-            "expiresAt": record.request.expiresAt.map { .string($0.ISO8601Format()) } ?? .null,
             "settled": record.settledAt.map { .string($0.ISO8601Format()) } ?? .null,
         ])
     }
