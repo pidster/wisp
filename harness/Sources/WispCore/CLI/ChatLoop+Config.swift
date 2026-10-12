@@ -94,8 +94,10 @@ extension ChatLoop {
             } catch {
                 io.note(style.ember("error: \(error)"))
             }
+        case .pending, .approve, .deny:
+            await waiting(request)
         case .unknown(let word):
-            io.note("unknown /approvals \(word); use /approvals or /approvals revoke [ID]")
+            io.note("unknown /approvals \(word); \(ApprovalsRequest.usage)")
         }
     }
 

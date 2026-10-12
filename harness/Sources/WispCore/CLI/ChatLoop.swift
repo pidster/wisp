@@ -185,6 +185,10 @@ public struct ChatLoop {
         /// The output stores' directory (`Home.outputs`), where `/show` and `/last` find the whole of an output the
         /// model was given only part of (ADR 0050); nil when the audit is off, so nothing is stored.
         public var outputs: URL?
+        /// The requests waiting in `wisp mcp` servers, noted before each prompt and answered with
+        /// `/approvals approve|deny` and `/facts keep|drop` (ADR 0046, note of 2026-10-12); nil shows none, as in
+        /// `wisp-tui`, which has its own dialog for them.
+        public var pending: ChatPending?
 
         /// Creates a context.
         public init(
@@ -198,9 +202,10 @@ public struct ChatLoop {
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
             shownOutputLines: Int = Config().resolved.shownOutputLines, interrupt: ChatInterrupt? = nil,
-            outputs: URL? = nil
+            outputs: URL? = nil, pending: ChatPending? = nil
         ) {
             self.outputs = outputs
+            self.pending = pending
             self.interrupt = interrupt
             self.shownOutputLines = shownOutputLines
             self.approvalStore = approvalStore
@@ -304,6 +309,7 @@ public struct ChatLoop {
         observeWorkplace()
         io.note(style.muted("/help for commands, /quit or Ctrl-D to exit."))
         loop: while true {
+            notePending()
             io.prompt(await status())
             guard let line = io.readLine() else { break loop }
             remember(line)
@@ -375,6 +381,8 @@ public struct ChatLoop {
                     kind: .summary, turn: nil, turns: agent.turns.current,
                     text: FactReport.summaryMarkdown(agent.store.summaries, all: all))
                 if let show = io.view { show(view) } else { io.print(view.text) }
+            case .pendingFacts(let request):
+                await pendingFacts(request)
             case .fact(let request):
                 fact(request)
             case .task(nil):

@@ -400,7 +400,12 @@ struct Chat: AsyncParsableCommand {
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
-                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil),
+                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil,
+                // Requests waiting in wisp mcp servers, noted between prompts; answered only from a terminal, as
+                // wisp approvals answers (ADR 0046).
+                pending: ChatPending(
+                    channel: PendingApprovals(home: Wisp.home), facts: session.permanentFacts,
+                    auditFile: Wisp.home.auditFile, canAnswer: isatty(FileHandle.standardInput.fileDescriptor) != 0)),
             style: style,
             io: .init(
                 readLine: { readLine() },
@@ -556,10 +561,15 @@ struct Chat: AsyncParsableCommand {
                     text.hasPrefix("/audit ") ? (try? session.introspection.sessions().map(\.id)) ?? [] : []
                 // The models were fetched once; those turned off since are left out now (ADR 0056).
                 let disabled = session.disabledModels.all.map(\.description)
+                // The channel is listed only when a waiting request's id is being completed.
+                let waiting =
+                    text.hasPrefix("/approvals ") || text.hasPrefix("/facts ")
+                    ? PendingApprovals(home: Wisp.home).waiting() : []
                 let result = ChatCompletion.complete(
                     text, cursor: cursor, options: { (known[$0.path] ?? []).filter { !disabled.contains($0) } },
                     approvalIDs: ids, sessionIDs: sessions, subjects: session.config.subjectKinds.kinds.map(\.name),
-                    disabledModels: disabled)
+                    disabledModels: disabled, pendingCommands: waiting.filter { $0.kind == .command }.map(\.id),
+                    pendingFacts: waiting.filter { $0.kind == .fact }.map(\.id))
                 send(ChatProtocol.encode("completions", ChatProtocol.completions(id: id, result)))
             }
         }
@@ -618,7 +628,12 @@ struct Chat: AsyncParsableCommand {
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
-                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil),
+                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil,
+                // The relay shows the front end what waits; its input answers it with the same commands as plain
+                // chat's, as the person's, as its dialog does.
+                pending: ChatPending(
+                    channel: PendingApprovals(home: Wisp.home), facts: session.permanentFacts, auditFile: nil,
+                    canAnswer: true, shows: false, via: "tui")),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },

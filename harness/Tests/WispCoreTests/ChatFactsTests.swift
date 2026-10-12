@@ -30,7 +30,7 @@ import WispTestSupport
         #expect(FactRequest("delete a = b") == .state(subject: "delete", name: "a", value: "b"))
         #expect(ChatInput.helpText.contains("/inspect facts [all]") && ChatInput.helpText.contains("/task [text]"))
         #expect(
-            ChatCompletion.complete("/fa").candidates == ["/fact"]
+            ChatCompletion.complete("/fa").candidates == ["/fact", "/facts"]
                 && ChatCompletion.complete("/ta").candidates == ["/task"])
         #expect(ChatCompletion.complete("/inspect f").candidates == ["facts"])
         #expect(ChatCompletion.complete("/inspect facts ").candidates == ["all"])

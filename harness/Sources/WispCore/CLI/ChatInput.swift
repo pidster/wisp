@@ -46,8 +46,10 @@ public enum ChatInput: Equatable, Sendable {
     case history
     /// Show or change `config.json`.
     case config(ConfigRequest)
-    /// List standing approvals, or revoke one.
+    /// List standing approvals, or revoke one; list, approve, or deny the commands waiting in `wisp mcp` servers.
     case approvals(ApprovalsRequest)
+    /// List, keep, or drop the facts `wisp mcp` callers asked to keep as permanent facts (ADR 0048).
+    case pendingFacts(PendingFactsRequest)
     /// A command the person runs themselves (ADR 0049): a line that starts with `!`, with what follows it,
     /// trimmed; empty for a bare `!`, which runs nothing.
     case command(String)
@@ -170,6 +172,17 @@ public enum ChatInput: Equatable, Sendable {
         HelpEntry(
             usage: "/approvals [revoke [ID]]", about: "list standing approvals, or remove one", names: ["approvals"],
             command: { .approvals(ApprovalsRequest($0)) }),
+        HelpEntry(
+            usage: "/approvals pending", about: "what waits in wisp mcp servers: commands to approve, facts to keep"),
+        HelpEntry(
+            usage: "/approvals approve [ID] [once|session|project|always]",
+            about: "approve a command waiting in a wisp mcp server (once by default); no ID offers them"),
+        HelpEntry(usage: "/approvals deny [ID]", about: "refuse a command waiting in a wisp mcp server"),
+        HelpEntry(
+            usage: "/facts [keep [ID]|drop [ID]]",
+            about: "facts wisp mcp callers asked to keep as permanent: keep admits one as yours, drop leaves it in "
+                + "its thread",
+            names: ["facts"], command: { .pendingFacts(PendingFactsRequest($0)) }),
         HelpEntry(
             usage: "/audit [sessions|ID]",
             about: "latest audit events of every session; sessions lists them, an ID shows one",
@@ -318,16 +331,67 @@ public enum ApprovalsRequest: Equatable, Sendable {
     case list
     /// Revoke one by id; a missing id is chosen interactively.
     case revoke(String?)
+    /// What waits in `wisp mcp` servers for an answer (ADR 0046).
+    case pending
+    /// Approve a command waiting in a `wisp mcp` server for `scope`; a missing id is chosen interactively.
+    case approve(String?, scope: ApprovalScope)
+    /// Refuse a command waiting in a `wisp mcp` server; a missing id is chosen interactively.
+    case deny(String?)
     /// Anything else, with the word that was not understood.
     case unknown(String)
+
+    /// How to use `/approvals`, as an unknown argument is answered.
+    public static let usage =
+        "use /approvals, /approvals revoke [ID], /approvals pending, "
+        + "/approvals approve [ID] [once|session|project|always], or /approvals deny [ID]"
 
     /// Parses what follows `/approvals`.
     public init(_ argument: String?) {
         let parts = (argument ?? "").split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let rest = Array(parts.dropFirst())
         switch parts.first {
         case nil, "list": self = .list
         case "revoke": self = .revoke(parts.count > 1 ? parts[1] : nil)
-        case let word?: self = .unknown(word)
+        case "pending" where rest.isEmpty: self = .pending
+        case "approve" where rest.count <= 2:
+            // A scope word anywhere after `approve`; the other word, if any, is the id.
+            let scopes = rest.compactMap { ApprovalScope(rawValue: $0.lowercased()) }
+            let ids = rest.filter { ApprovalScope(rawValue: $0.lowercased()) == nil }
+            guard scopes.count <= 1, ids.count <= 1 else {
+                self = .unknown(parts.joined(separator: " "))
+                return
+            }
+            self = .approve(ids.first, scope: scopes.first ?? .once)
+        case "deny" where rest.count <= 1: self = .deny(rest.first)
+        case .some: self = .unknown(parts.joined(separator: " "))
+        }
+    }
+}
+
+/// What `/facts` asks for: the facts `wisp mcp` callers asked to keep as permanent facts (ADR 0048).
+public enum PendingFactsRequest: Equatable, Sendable {
+    /// The facts waiting to be kept.
+    case pending
+    /// Keep one as the person's permanent fact; a missing id is chosen interactively.
+    case keep(String?)
+    /// Leave one in its thread; a missing id is chosen interactively.
+    case drop(String?)
+    /// Anything else, with what was not understood.
+    case unknown(String)
+
+    /// How to use `/facts`.
+    public static let usage = "use /facts, /facts keep [ID], or /facts drop [ID]"
+
+    /// Parses what follows `/facts`.
+    public init(_ argument: String?) {
+        let parts = (argument ?? "").split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let rest = Array(parts.dropFirst())
+        switch parts.first?.lowercased() {
+        case nil: self = .pending
+        case "pending" where rest.isEmpty: self = .pending
+        case "keep" where rest.count <= 1: self = .keep(rest.first)
+        case "drop" where rest.count <= 1: self = .drop(rest.first)
+        default: self = .unknown(parts.joined(separator: " "))
         }
     }
 }

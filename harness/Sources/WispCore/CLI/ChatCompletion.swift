@@ -32,12 +32,14 @@ public enum ChatCompletion {
     ///   - factIDs: The current facts' ids, for `/fact delete` and `/fact ID SCOPE`.
     ///   - disabledModels: The models turned off, for `/models enable`; `/model` and `/models disable` offer the
     ///     options of `model`, which leave them out (ADR 0056).
+    ///   - pendingCommands: The ids of commands waiting in `wisp mcp` servers, for `/approvals approve|deny`.
+    ///   - pendingFacts: The ids of facts waiting to be kept, for `/facts keep|drop`.
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
         approvalIDs: [String] = [], sessionIDs: [String] = [],
         subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = [],
-        disabledModels: [String] = []
+        disabledModels: [String] = [], pendingCommands: [String] = [], pendingFacts: [String] = []
     ) -> Result {
         // Indices are Unicode scalars, the protocol's unit (a Rust `char`), not grapheme clusters: a combining
         // mark or a ZWJ sequence before the word counts as the front end counts it.
@@ -54,8 +56,14 @@ public enum ChatCompletion {
         case []: pool = commands
         case ["/config"]: pool = ["show", "list", "get", "set", "unset"]
         case ["/config", "get"], ["/config", "set"], ["/config", "unset"]: pool = ConfigSettings.all.map(\.path)
-        case ["/approvals"]: pool = ["list", "revoke"]
+        case ["/approvals"]: pool = ["list", "revoke", "pending", "approve", "deny"]
         case ["/approvals", "revoke"]: pool = approvalIDs
+        case ["/approvals", "approve"]: pool = pendingCommands
+        case let words where words.count == 3 && words[0] == "/approvals" && words[1] == "approve":
+            pool = pendingCommands.contains(words[2]) ? ApprovalScope.allCases.map(\.rawValue) : []
+        case ["/approvals", "deny"]: pool = pendingCommands
+        case ["/facts"]: pool = ["pending", "keep", "drop"]
+        case ["/facts", "keep"], ["/facts", "drop"]: pool = pendingFacts
         case let words where words.count == 3 && words[0] == "/config" && words[1] == "set":
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
         case ["/model"], ["/models", "disable"], ["/models", "check"]:

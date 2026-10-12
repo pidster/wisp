@@ -292,11 +292,12 @@ public struct OutOfBandApprover: Approver {
         }
     }
 
-    /// The face's name for a reason: `wisp approvals` or `wisp-tui`.
+    /// The face's name for a reason: `wisp approvals`, `wisp-tui`, or `wisp chat`.
     static func face(_ via: String) -> String {
         switch via {
         case "cli": "wisp approvals"
         case "tui": "wisp-tui"
+        case "chat": "wisp chat"
         default: via
         }
     }
