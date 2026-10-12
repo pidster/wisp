@@ -356,21 +356,21 @@ public enum EvalFloor {
         public var value: Double { total > 0 ? Double(passed) / Double(total) : 0 }
     }
 
-    /// The configured model's rates over the six eval runs saved from 2026-10-04 to 2026-10-12 (the summaries under
-    /// `harness/Evals/.build/evals`, docs/measurements.md, "The floors").
+    /// The configured model's rates over the six eval runs saved from 2026-10-04 to 2026-10-12 and the full-set run of 2026-10-12 (the
+    /// summaries under `harness/Evals/.build/evals`, docs/measurements.md, "The floors").
     public enum Historical {
-        /// `edit_file.replace`: 16, 19, 25, 18, 16, and 21 of 30.
-        public static let editFileReplace = Rate(passed: 115, total: 180)
-        /// `edit_file.whitespace`: 11, 10, 12, 11, and 12 of 12 (five runs).
-        public static let editFileWhitespace = Rate(passed: 56, total: 60)
-        /// `system_info.topic`: 13, 15, 15, 15, 14, and 12 of 16.
-        public static let systemInfo = Rate(passed: 84, total: 96)
-        /// `draft_change.commit`, small diffs: 9, 10, 8, 6, 7, and 8 of 10.
-        public static let draftSmall = Rate(passed: 48, total: 60)
-        /// `draft_change.commit`, medium diffs: 1, 1, 2, 1, 1, and 1 of 2.
-        public static let draftMedium = Rate(passed: 7, total: 12)
-        /// `draft_change.commit`, large diffs: 1 of 2 in each run.
-        public static let draftLarge = Rate(passed: 6, total: 12)
+        /// `edit_file.replace`: 16, 19, 25, 18, 16, and 21 of 30, and 61 of 86 on the 2026-10-12 full set.
+        public static let editFileReplace = Rate(passed: 176, total: 266)
+        /// `edit_file.whitespace`: 11, 10, 12, 11, and 12 of 12 (five runs), and 20 of 24 on the 2026-10-12 full set.
+        public static let editFileWhitespace = Rate(passed: 76, total: 84)
+        /// `system_info.topic`: 13, 15, 15, 15, 14, and 12 of 16, and 43 of 54 on the 2026-10-12 full set.
+        public static let systemInfo = Rate(passed: 127, total: 150)
+        /// `draft_change.commit`, small diffs: 9, 10, 8, 6, 7, and 8 of 10, and 21 of 30 on the 2026-10-12 full set.
+        public static let draftSmall = Rate(passed: 69, total: 90)
+        /// `draft_change.commit`, medium diffs: 1, 1, 2, 1, 1, and 1 of 2, and 4 of 8 on the 2026-10-12 full set.
+        public static let draftMedium = Rate(passed: 11, total: 20)
+        /// `draft_change.commit`, large diffs: 1 of 2 in each run, and 3 of 6 on the 2026-10-12 full set.
+        public static let draftLarge = Rate(passed: 9, total: 18)
     }
 
     /// The default chance of a release stopping on chance alone.

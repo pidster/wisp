@@ -330,10 +330,10 @@ struct EvalSetsTests {
     /// The floors docs/measurements.md states, for the whole sets and the release's subsets, from the historical
     /// rates: the documentation and the code cannot drift apart.
     @Test(arguments: [
-        (EvalFloor.Historical.editFileReplace, 86, 44), (EvalFloor.Historical.editFileReplace, 36, 16),
-        (EvalFloor.Historical.editFileWhitespace, 24, 19), (EvalFloor.Historical.editFileWhitespace, 8, 5),
-        (EvalFloor.Historical.systemInfo, 54, 41), (EvalFloor.Historical.systemInfo, 24, 17),
-        (EvalFloor.Historical.draftSmall, 30, 19), (EvalFloor.Historical.draftSmall, 12, 6),
+        (EvalFloor.Historical.editFileReplace, 86, 47), (EvalFloor.Historical.editFileReplace, 36, 17),
+        (EvalFloor.Historical.editFileWhitespace, 24, 18), (EvalFloor.Historical.editFileWhitespace, 8, 5),
+        (EvalFloor.Historical.systemInfo, 54, 39), (EvalFloor.Historical.systemInfo, 24, 16),
+        (EvalFloor.Historical.draftSmall, 30, 17), (EvalFloor.Historical.draftSmall, 12, 6),
         (EvalFloor.Historical.draftMedium, 8, 1), (EvalFloor.Historical.draftMedium, 4, 0),
         (EvalFloor.Historical.draftLarge, 6, 0), (EvalFloor.Historical.draftLarge, 2, 0),
     ])

@@ -47,7 +47,7 @@ without a name (the message says how to call again).
 `SystemInfoEvalTests` (`scripts/check eval`): the 54 plain questions of `system_info.json`, none naming the tool,
 every topic in several phrasings and five ambiguous questions that accept each topic a careful operator would, each
 asked once, with `run_command` and `memory` also offered. The release asks a fixed subset of 24 spread over the
-topics, against a floor set from the configured model's history (41 of 54 for the whole set, 17 of 24 for the
+topics, against a floor set from the configured model's history (39 of 54 for the whole set, 16 of 24 for the
 subset); `WISP_EVAL_FULL=1` asks all of them ([measurements.md](../measurements.md), "The case sets" and "The
 floors"). Until 0.23.0 it was eight questions twice each: on 2026-09-24 on the system model, after the process name
 became required, 15, 16, and 16 of 16 on three runs. Before that change (2026-09-23) the question naming an app

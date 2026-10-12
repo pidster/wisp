@@ -1,6 +1,6 @@
 [
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "a message with no request (test, hello, hmm, and the same after test) answered with a short reply, no tool, no echo; plus a clear question that must still call current_date; three attempts each",
     "passed" : 24,
@@ -8,44 +8,54 @@
     "total" : 24
   },
   {
-    "date" : "2026-09-26",
-    "model" : "system",
-    "notes" : "labelled commands rated at exactly their level by the general on-device model; the hard requirement, no dangerous command below moderate, held",
-    "p50Milliseconds" : 2332.902458,
-    "p95Milliseconds" : 2703.2149170000002,
-    "passed" : 110,
-    "task" : "classifier.system-model",
-    "total" : 123
+    "date" : "2026-10-12",
+    "model" : "coreml",
+    "notes" : "risk@0.22.0-default, the classifier this release ships, beside the rules, on the labelled commands",
+    "p50Milliseconds" : 0.44675,
+    "p95Milliseconds" : 1.163292,
+    "passed" : 357,
+    "task" : "classifier.default+rules",
+    "total" : 392
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
+    "model" : "system",
+    "notes" : "labelled commands rated at exactly their level by the general on-device model alone, without the rules the gate runs beside it",
+    "p50Milliseconds" : 5439.687583,
+    "p95Milliseconds" : 10431.075458,
+    "passed" : 283,
+    "task" : "classifier.system-model",
+    "total" : 392
+  },
+  {
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "the default classifier as the gate runs it, the rules beside the on-device model, the higher level winning",
-    "p50Milliseconds" : 1280.221125,
-    "p95Milliseconds" : 1473.810042,
-    "passed" : 108,
+    "p50Milliseconds" : 5283.298042,
+    "p95Milliseconds" : 10053.887375,
+    "passed" : 318,
     "task" : "classifier.system-model+rules",
-    "total" : 123
+    "total" : 392
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "coreml",
     "notes" : "a maximum-entropy text classifier trained on device from the bundled examples, alone, on the labelled commands it never saw",
-    "p50Milliseconds" : 0.036625,
-    "p95Milliseconds" : 0.058208,
-    "passed" : 103,
+    "p50Milliseconds" : 0.0535,
+    "p95Milliseconds" : 0.144583,
+    "passed" : 317,
     "task" : "classifier.trained",
-    "total" : 123
+    "total" : 392
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "coreml",
     "notes" : "the trained classifier beside the rules, the higher level winning, as approval.classifier: coreml runs it",
-    "p50Milliseconds" : 0.060583,
-    "p95Milliseconds" : 0.101666,
-    "passed" : 100,
+    "p50Milliseconds" : 0.432791,
+    "p95Milliseconds" : 1.137209,
+    "passed" : 357,
     "task" : "classifier.trained+rules",
-    "total" : 123
+    "total" : 392
   },
   {
     "date" : "2026-10-01",
@@ -584,13 +594,22 @@
     "total" : 10
   },
   {
-    "date" : "2026-09-24",
+    "date" : "2026-10-12",
+    "maxInputBytes" : 551,
+    "model" : "system",
+    "notes" : "commit subjects for small diffs up to 0 KB, all 30 once each (written for the eval); a pass names the change's gist and says nothing it does not do (drafts.json's rubric)",
+    "passed" : 21,
+    "task" : "draft_change.commit",
+    "total" : 30
+  },
+  {
+    "date" : "2026-10-12",
     "maxInputBytes" : 14060,
     "model" : "system",
-    "notes" : "commit subjects for 2 real commits of this repository up to 13 KB of diff; a pass is a subject naming what the commit did",
-    "passed" : 2,
+    "notes" : "commit subjects for medium diffs up to 13 KB, all 8 once each (real commits of this repository); a pass names the change's gist and says nothing it does not do (drafts.json's rubric)",
+    "passed" : 4,
     "task" : "draft_change.commit",
-    "total" : 2
+    "total" : 8
   },
   {
     "date" : "2026-09-24",
@@ -602,16 +621,34 @@
     "total" : 2
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
+    "maxInputBytes" : 52253,
     "model" : "system",
-    "notes" : "read a small file with read_file, then rewrite one numbered line with edit_file, ten files attempted three times each; a pass is the file ending up exactly as intended",
-    "passed" : 21,
-    "task" : "edit_file.replace",
-    "tool" : "edit_file",
-    "total" : 30
+    "notes" : "commit subjects for large diffs up to 51 KB, all 6 once each (real commits of this repository); a pass names the change's gist and says nothing it does not do (drafts.json's rubric)",
+    "passed" : 3,
+    "task" : "draft_change.commit",
+    "total" : 6
   },
   {
-    "date" : "2026-09-23",
+    "date" : "2026-10-12",
+    "model" : "system",
+    "notes" : "read a file with read_file, then rewrite what the prompt names with edit_file (a numbered line, two neighbouring lines, a line emptied or filled, a fragment by find, a stale number with find) across languages, file sizes, near-duplicate lines, non-ASCII text, and CRLF files, all 86 cases once each; a pass is the file ending up exactly as intended",
+    "passed" : 61,
+    "task" : "edit_file.replace",
+    "tool" : "edit_file",
+    "total" : 86
+  },
+  {
+    "date" : "2026-10-12",
+    "model" : "system",
+    "notes" : "read a file with read_file, then change only one numbered line's whitespace with edit_file (indent, dedent, tabs to spaces and back, trailing spaces or a tab), all 24 cases once each; a pass is the file ending up exactly as intended",
+    "passed" : 20,
+    "task" : "edit_file.whitespace",
+    "tool" : "edit_file",
+    "total" : 24
+  },
+  {
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "thorough redaction (rules, then the model) of a ticket, a log, and a note holding names, an account number, a user id, an address, and a private hostname, plus build output and a stack trace that must come through intact; a pass is every value replaced and every kept phrase unchanged",
     "passed" : 5,
@@ -619,15 +656,15 @@
     "total" : 5
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "classify a code snippet into an enum through a schema; a pass parses and names the language",
-    "passed" : 5,
+    "passed" : 6,
     "task" : "respond.schema",
     "total" : 6
   },
   {
-    "date" : "2026-09-22",
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "small diffs with a secret, a deleted test, a disabled test, and two ordinary changes; a pass is the expected flag on the expected file, or no flag for an ordinary change",
     "passed" : 5,
@@ -635,16 +672,16 @@
     "total" : 5
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "system",
-    "notes" : "eight plain questions about the Mac (a port, the busiest process, free space, a folder's usage, battery, macOS version, memory, one app) with run_command also offered, twice each; a pass is a system_info call in the turn naming the expected topic and target",
-    "passed" : 14,
+    "notes" : "plain questions about the Mac over every topic (ports, processes, free space, a folder's usage, memory, one app, battery, the system, the network), some ambiguous, with run_command and memory also offered, all 54 once each; a pass is a system_info call in the turn naming a topic a careful operator accepts, with its port, process, or folder; 1 turn called memory",
+    "passed" : 43,
     "task" : "system_info.topic",
     "tool" : "system_info",
-    "total" : 16
+    "total" : 54
   },
   {
-    "date" : "2026-09-26",
+    "date" : "2026-10-12",
     "model" : "system",
     "notes" : "expected failures found across abridged swift build, swift test, cargo test, and pytest output, by test name or file:line",
     "passed" : 7,

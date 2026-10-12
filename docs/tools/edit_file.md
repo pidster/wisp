@@ -126,13 +126,13 @@ The eval (`ToolEvalTests`, `scripts/check eval`) runs the 86 `replace` cases of 
 35 languages and formats of 2 to 81 lines, one line named by its text, two neighbouring lines, a line emptied or a
 fragment cut, an empty line filled, near-duplicate lines, non-ASCII text, CRLF files edited by line number and by
 `find`, and stale line numbers reconciled by `find`. A pass is the file ending up exactly as intended. The release runs
-a fixed subset of 36 spread over those shapes, against a floor set from the configured model's history (44 of 86 for
-the whole set, 16 of 36 for the subset); `WISP_EVAL_FULL=1` runs all of them ([measurements.md](../measurements.md),
+a fixed subset of 36 spread over those shapes, against a floor set from the configured model's history (47 of 86 for
+the whole set, 17 of 36 for the subset); `WISP_EVAL_FULL=1` runs all of them ([measurements.md](../measurements.md),
 "The case sets" and "The floors"); the recorded result is also on `wisp tools --markdown`. Until 0.23.0 it was ten
 small files, three attempts each. The `line` argument exists because the first version, replace by `find` only,
 measured 3 of 5 on 2026-09-20: the model copied `find` correctly and then put the neighbouring line into `content`
 too. A write outside the writable set is refused with the directories named and no file created. A second
-measurement, `edit_file.whitespace` (24 cases, a subset of 8 in the release, floors 19 and 5), rewrites only a line's
+measurement, `edit_file.whitespace` (24 cases, a subset of 8 in the release, floors 18 and 5), rewrites only a line's
 whitespace: indent, dedent, tabs to spaces and back, trailing spaces or a tab stripped; it is kept apart so
 `edit_file.replace` stays comparable across runs.
 The line-edit rules above were measured before and after on 2026-10-06 ([measurements.md](../measurements.md),

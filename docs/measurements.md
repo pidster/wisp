@@ -129,33 +129,33 @@ what would misdescribe the change, such as "reduce" for a timeout that went up o
 A floor is set from statistics: with `n` cases each passed at the configured model's historical rate `p`, it is the
 largest `k` for which a run at that rate scores below `k` with a chance of at most 1% (the binomial distribution's
 lower tail, `EvalFloor.minimum`), so a release stops on chance alone at most one time in a hundred. `p` is the
-configured model's pooled score over the six eval runs saved from 2026-10-04 to 2026-10-12 (the summaries under
-`harness/Evals/.build/evals`):
+configured model's pooled score over the six eval runs saved from 2026-10-04 to 2026-10-12 and the full-set run of
+2026-10-12 (the summaries under `harness/Evals/.build/evals`; the full run is the last figure of each row):
 
 | Suite | Runs | `p` | Whole set: `n`, floor, chance of stopping | Release's subset: `n`, floor, chance of stopping |
 | --- | --- | --- | --- | --- |
-| `edit_file` (replace) | 16, 19, 25, 18, 16, 21 of 30: 115/180 | 0.639 | 86, 44, 0.58% | 36, 16, 0.54% |
-| `edit_file.whitespace` | 11, 10, 12, 11, 12 of 12: 56/60 | 0.933 | 24, 19, 0.41% | 8, 5, 0.11% |
-| `system_info` | 13, 15, 15, 15, 14, 12 of 16: 84/96 | 0.875 | 54, 41, 0.56% | 24, 17, 0.68% |
-| `draft` (small) | 9, 10, 8, 6, 7, 8 of 10: 48/60 | 0.800 | 30, 19, 0.95% | 12, 6, 0.39% |
-| `draft.medium` | 1, 1, 2, 1, 1, 1 of 2: 7/12 | 0.583 | 8, 1, 0.09% | 4, 0, none |
-| `draft.large` | 1 of 2 each time: 6/12 | 0.500 | 6, 0, none | 2, 0, none |
+| `edit_file` (replace) | 16, 19, 25, 18, 16, 21 of 30, then 61 of 86: 176/266 | 0.662 | 86, 47, 1.0% | 36, 17, 0.60% |
+| `edit_file.whitespace` | 11, 10, 12, 11, 12 of 12, then 20 of 24: 76/84 | 0.905 | 24, 18, 0.57% | 8, 5, 0.42% |
+| `system_info` | 13, 15, 15, 15, 14, 12 of 16, then 43 of 54: 127/150 | 0.847 | 54, 39, 0.57% | 24, 16, 0.68% |
+| `draft` (small) | 9, 10, 8, 6, 7, 8 of 10, then 21 of 30: 69/90 | 0.767 | 30, 17, 0.43% | 12, 6, 0.96% |
+| `draft.medium` | 1, 1, 2, 1, 1, 1 of 2, then 4 of 8: 11/20 | 0.550 | 8, 1, 0.17% | 4, 0, none |
+| `draft.large` | 1 of 2 each time, then 3 of 6: 9/18 | 0.500 | 6, 0, none | 2, 0, none |
 
-For example, `edit_file` on the whole set: at `p` = 0.639 a run of 86 scores 43 or fewer with a chance of 0.58% and
-44 or fewer with more than 1%, so the floor is 44. The old floor of half of 30 stopped a run at that rate with a chance
-of 4.0% (more in practice, since three attempts at one file are not independent). A floor of 0 asserts nothing: the
+For example, `edit_file` on the whole set: at `p` = 0.662 a run of 86 scores 46 or fewer with a chance of 0.998% and
+47 or fewer with more than 1%, so the floor is 47. The old floor of half of 30 stopped a run at that rate with a chance
+of 2.2% (more in practice, since three attempts at one file are not independent). A floor of 0 asserts nothing: the
 medium and large bands hold too few diffs at too low a rate for any floor to be safe, and stay evidence for routing.
-What a floor buys is shown by a fall of 20 points in the true rate: the whole sets would stop it with a chance of 89%
-(`edit_file`), 65% (whitespace), 88% (`system_info`), and 57% (small drafts); the release's subsets 46%, 14%, 54%, and
-16%. The rates and floors are in `EvalFloor.Historical`, and a gate test holds every figure in this table to the code.
-The new cases have not yet run on a model: the first whole run should be recorded
-(`WISP_EVAL_FULL=1 scripts/check eval record`), and if its rates differ from these, `EvalFloor.Historical` and this
-table move with them.
+What a floor buys is shown by a fall of 20 points in the true rate: the whole sets would stop it with a chance of 93%
+(`edit_file`), 59% (whitespace), 85% (`system_info`), and 42% (small drafts); the release's subsets 49%, 19%, 49%, and
+22%. The rates and floors are in `EvalFloor.Historical`, and a gate test holds every figure in this table to the code.
+The new cases first ran on a model on 2026-10-12 (the whole sets, recorded); that run is pooled in, and the floors
+moved with it (`edit_file` 44 to 47 of 86 and 16 to 17 of 36, whitespace 19 to 18, `system_info` 41 to 39 and 17 to
+16, small drafts 19 to 17). A later whole run pools in the same way: `EvalFloor.Historical` and this table move with it.
 
 ### Run time, and the release's subsets
 
 At the configured model's median times per case in the 2026-10-12 run (`edit_file` 32.4 s, whitespace 44.8 s,
-`system_info` 32.2 s, drafts 23.7 s small, 56.6 s medium, 156.7 s large), the three suites, one after another, take:
+`system_info` 32.2 s, drafts 23.7 s small, 56.6 s medium, 156.7 s large), the three suites, one after another, would take:
 
 | Suite | 0.22.0's cases | Minutes | Whole set | Minutes | Release's subset | Minutes |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -167,7 +167,7 @@ At the configured model's median times per case in the 2026-10-12 run (`edit_fil
 | `draft.large` | 2 | 5.2 | 6 | 15.7 | 2 | 5.2 |
 | Total | 72 | 44.9 | 208 | 128.4 | 86 | 52.0 |
 
-The whole sets would add about 84 minutes to the release's eval, so the release runs a subset: a fixed number of each
+The whole sets would add about 84 minutes to the release's eval if the suites ran one after another, so the release runs a subset: a fixed number of each
 set (`release` in each file), chosen by `EvalSample` with a fixed seed and spread over the edit shapes and the
 `system_info` topics, so every release runs the same cases, about 7 minutes more than 0.22.0's (distinct cases once
 each where it ran ten files three times). `WISP_EVAL_FULL=1` runs the whole sets, with each floor computed for the cases
@@ -180,6 +180,19 @@ WISP_EVAL_FULL=1 scripts/check eval record
 `scripts/check eval` without it, which the release preflight runs, and `scripts/check eval compare` run the subsets.
 Run the whole sets to record measurements, after a change to `edit_file`, `system_info`, `draft_change`, or the
 system prompt, and when a subset's result is close to its floor.
+
+The 128-minute figure assumed the suites ran one after another. They do not: the suites run in parallel, and the
+first full run, `WISP_EVAL_FULL=1 scripts/check eval record` on the on-device model on 2026-10-12 (11:02 to 11:43, at
+commit `7c93dcc`), took 41 minutes for everything, the classifier and chat suites included.
+
+### The full run of 2026-10-12
+
+On the on-device `system` model: `edit_file.replace` 61/86, `edit_file.whitespace` 20/24, `system_info.topic` 43/54,
+`draft_change.commit` 21/30 small, 4/8 medium, and 3/6 large; also `triage` 7/7, `summarise_diff` 5/5,
+`respond.schema` 6/6, `redact.thorough` 5/5, `chat.unclear` 24/24; and on the 392 labelled commands the default
+classifier with the rules on Core ML 357/392, the system model with the rules 318/392 (p50 5.3 s), and the system
+model alone 283/392 (2 dangerous commands rated safe). All are in `measurements.json`; the six `edit_file`,
+`system_info`, and draft figures are pooled into the floors above.
 
 ## Comparing models
 
