@@ -24,13 +24,16 @@ public struct OpenThread: Sendable {
     public let think: String?
     /// Serialises its turns, so concurrent calls on one `thread_id` take turns and each gets its own receipt.
     public let turns = TurnQueue()
+    /// The thread's questions to the person (ADR 0062): the one waiting, parked or not, and the records.
+    public let inquiries: InquiryBox
 
     /// Creates the record.
     public init(
         thread: any RespondingThread, gate: ApprovalGate, audit: AuditLog,
         receipts: ReceiptCollector = ReceiptCollector(), relay: EventRelay = EventRelay(), model: String? = nil,
-        tools: [String] = [], think: String? = nil
+        tools: [String] = [], think: String? = nil, inquiries: InquiryBox? = nil
     ) {
+        self.inquiries = inquiries ?? InquiryBox(conversation: audit.session)
         self.model = model
         self.tools = tools
         self.think = think

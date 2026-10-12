@@ -13,6 +13,7 @@ import Foundation
 /// | `read_file` | `file`, by path: the lines read, whether to the end, the bytes |
 /// | `edit_file` | `file`, by path: what the edit did |
 /// | `system_info` | `service` per listening port (`ports`); `machine` per other topic: its first line |
+/// | `ask` | `answer`, named by the question: the person's answer, as the person's (ADR 0062, D14) |
 enum FactExtraction {
     /// At most this many facts from one turn.
     static let perTurn = 12
@@ -64,6 +65,12 @@ enum FactExtraction {
     /// `FactView.provenance` names as the person's command (ADR 0049, refined 2026-10-09).
     static let personCommandDetail = "the person's command"
 
+    /// The most characters of a question kept as the name of its `answer` fact (ADR 0062).
+    static let questionNameLength = 80
+
+    /// The subject kind an answer the person gave is recorded under.
+    static let answerSubject = "answer"
+
     /// What the calls say, as assertions from the tool, at most `perTurn`.
     ///
     /// - Parameters:
@@ -79,6 +86,8 @@ enum FactExtraction {
     ) -> [FactBook.Assertion] {
         var found: [FactBook.Assertion] = []
         for call in calls {
+            // The person's answer to the model's question is the person's own fact (ADR 0062, D14).
+            let source = call.tool == AskTool.toolName ? FactSource.person : source
             let make = { (subject: String, name: String, value: String) -> FactBook.Assertion? in
                 guard let (identity, temporalClass) = kinds.identity(subject: subject, name: name) else { return nil }
                 return FactBook.Assertion(
@@ -125,9 +134,23 @@ enum FactExtraction {
                 return portRows(call.output).prefix(ports).map { ("service", "port \($0.port)", $0.value) }
             }
             return [("machine", topic, firstLine(call.output))]
+        case AskTool.toolName:
+            guard let question = call.string("question"), let answer = answer(in: call.output) else { return [] }
+            return [(answerSubject, String(question.prefix(questionNameLength)), answer)]
         default:
             return []
         }
+    }
+
+    /// The answer an `ask` result holds, for an answered or chosen question (`answer: …`, `chose: …`); nil for any
+    /// other outcome.
+    static func answer(in output: String) -> String? {
+        guard let first = output.split(separator: "\n", omittingEmptySubsequences: false).first else { return nil }
+        for prefix in ["answer: ", "chose: "] where first.hasPrefix(prefix) {
+            let value = first.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+        return nil
     }
 
     /// The exit status `run_command` reported on its first line, or nil.

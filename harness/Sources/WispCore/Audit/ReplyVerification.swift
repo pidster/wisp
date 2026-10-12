@@ -27,6 +27,8 @@ public enum ReplyVerification {
         case output
         /// A count no output holds.
         case count
+        /// The person said to have answered, chosen, or confirmed when no `ask` call was answered (ADR 0062).
+        case answer
     }
 
     /// One claim a reader could not support.
@@ -66,11 +68,13 @@ public enum ReplyVerification {
     ///   - calls: The turn's complete call list, from the audit log.
     ///   - tools: The names of the conversation's tools, so a call form is read only for them.
     ///   - earlier: Earlier turns' calls, a second support; empty for the first turn.
+    ///   - answered: Whether the person has answered one of the conversation's questions another way than a call
+    ///     this list holds (a note after a park, ADR 0062), which supports a claim about their answer.
     ///   - output: A call's whole output, from the output store when it was kept; nil falls back to the call's own.
     /// - Returns: The unsupported claims.
     public static func claims(
         in reply: String, calls: [TurnCalls.Call], tools: [String], earlier: [TurnCalls.Call] = [],
-        output: (TurnCalls.Call) -> String? = { _ in nil }
+        answered: Bool = false, output: (TurnCalls.Call) -> String? = { _ in nil }
     ) -> [Claim] {
         let support = Support(calls: calls, earlier: earlier, output: output)
         let raw = reply.components(separatedBy: "\n")
@@ -85,6 +89,7 @@ public enum ReplyVerification {
         found += removalClaims(lines: lines, support: support)
         found += outputClaims(lines: lines, raw: raw, form: form, support: support)
         found += countClaims(lines: lines, support: support)
+        if !answered { found += answerClaims(lines: lines, support: support) }
         var seen: Set<String> = []
         return Array(found.filter { seen.insert($0.claim).inserted }.prefix(claimLimit))
     }
@@ -427,6 +432,23 @@ public enum ReplyVerification {
             }
         }
         return claims
+    }
+
+    /// The person said to have answered, chosen, said, or confirmed something when no `ask` call of this turn or an
+    /// earlier one was answered (ADR 0062, D13): a model claiming the person agreed is the worst fabrication the
+    /// verb makes possible.
+    private static func answerClaims(lines: [String], support: Support) -> [Claim] {
+        let claimed = Pattern(
+            #"\b(?:you|the (?:person|user|operator))\s+(?:chose|picked|selected|said|told me|answered|confirmed|"#
+                + #"replied|opted)\b|\bas you (?:confirmed|said|chose|answered)\b|"#
+                + #"\bper your (?:answer|choice)\b|\byour (?:answer|choice) (?:was|is)\b"#)
+        let answeredCall = support.all.contains { call in
+            call.tool == AskTool.toolName && ["answer:", "chose:"].contains { (call.output ?? "").hasPrefix($0) }
+        }
+        guard !answeredCall else { return [] }
+        return lines.filter(claimed.has).map {
+            Claim(reader: .answer, claim: quote($0), reason: "no ask call was answered by the person")
+        }
     }
 
     /// The lines a command printed, from `run_command`'s rendering: the non-blank lines after the `stdout:` heading.

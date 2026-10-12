@@ -116,6 +116,7 @@ enum ToolCatalogue {
         "system_info": "this Mac's ports, disk, processes, memory (RAM), battery, network",
         "memory": "recall earlier material of this conversation, note a fact, or set the task",
         "models": "the models wisp can run; ask to pull, enable, disable, or check one",
+        "ask": "ask the person one question when you cannot go on without the answer",
     ]
 
     /// The longest a custom tool's clause may be, in characters.

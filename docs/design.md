@@ -434,18 +434,19 @@ conversation instructions; see [ADR 0017](decisions/0017-three-layer-instruction
 What differs between faces is what the face that owns the person's screen can do for a tool, so it is
 given when a conversation is opened, not when the session begins, as a `SessionHost`
 ([ADR 0044](decisions/0044-host-effects.md); Foundation already has a `Host`). A host carries the face's
-effects: the command `approver` (request and answer) and the notification routes (fire and forget),
-beside the session's `Notifier`. `Session.host(approver:face:)` builds one for each face; the gate asks
-`host.approver`, and `NotifyTool`, `wisp notify`, and `wisp watch` post through `host.notify`, so no tool
-calls a face directly. A `--yes` request replaces the approver with `AutoApprover` inside the core, so the
+effects: the command `approver` (request and answer), the notification routes (fire and forget), and since
+[ADR 0062](decisions/0062-the-inquiry-verb.md) the `asker` (request and answer: the model's question to the
+person, `Asker`), beside the session's `Notifier`. `Session.host(approver:face:asker:)` builds one for each face;
+the gate asks `host.approver`, `AskTool` asks `host.asker`, and `NotifyTool`, `wisp notify`, and `wisp watch`
+post through `host.notify`, so no tool calls a face directly. A `--yes` request replaces the approver with `AutoApprover` inside the core, so the
 flag means the same everywhere. The faces are overlays on this core:
 
 | Face | How it opens its conversation | Notification routes (`NotificationRoutes.Face`) |
 | --- | --- | --- |
-| `respond` | `session.openAgent(host:)` with a denying approver that explains `--yes` and `chat` | `.terminal` |
-| `chat` | `session.openAgent(host:transcript:)` with the terminal approver, resumable; `/model` reopens with `store:` so the new model continues the conversation's store | `.terminal` |
-| `chat --json` | The same, with `JSONApprover` | `.frontEnd`: the front end when its `hello` declared `notify` |
-| `mcp` | `session.thread(id:host:…)` per `thread_id` with `Session.mcpApprover` (the out-of-band channel and the client's dialog, ADR 0046), its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, and audit log together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together | `.mcp`: the process routes only |
+| `respond` | `session.openAgent(host:)` with a denying approver that explains `--yes` and `chat`; nobody answers a question (`NobodyAsker`) | `.terminal` |
+| `chat` | `session.openAgent(host:transcript:)` with the terminal approver and `TerminalAsker` (a line read that Ctrl-C and a deadline can end, `LineReader`), resumable; `/model` reopens with `store:` so the new model continues the conversation's store | `.terminal` |
+| `chat --json` | The same, with `JSONApprover` and `JSONAsker` (a `choice` line with `kind` `question`) | `.frontEnd`: the front end when its `hello` declared `notify` |
+| `mcp` | `session.thread(id:host:…)` per `thread_id` with `Session.mcpApprover` (the out-of-band channel and the client's dialog, ADR 0046) and `Session.mcpAsker` (the channel, the client's form behind `inquiry.elicitation`, a 60 s hold, then the park, ADR 0062), its own audit session (recording its own `session.start`), gate, tools, and optional instruction, tool, and model overrides; the server keeps the thread, gate, audit log, and `InquiryBox` together as one `OpenThread` in the `ThreadRegistry`, so they are created and dropped together | `.mcp`: the process routes only |
 
 `Notifier` applies the off switch, the bounds, and the per-minute limit across the process, then hands the
 bounded message to the face's `NotificationRoutes`, which try ADR 0044's routes in order and return the
@@ -481,11 +482,11 @@ transcripts, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` 
 
 ### `ToolRegistry`
 
-A static list, `all`, is the single source of truth for what the model can see: nine built-ins
+A static list, `all`, is the single source of truth for what the model can see: ten built-ins
 (`builtInNames`) and the custom tools. `select(_:)` resolves names from the CLI and reports unknown ones so the
-CLI can fail before touching the model. `defaultNames(memory:models:)` is "every tool": the whole registry less
-`memory` and `models` unless `context.memory` and `tools.models` turn them on (ADR 0057, ADR 0059); both stay
-registered, so a list that names one still selects it.
+CLI can fail before touching the model. `defaultNames(memory:models:ask:)` is "every tool": the whole registry less
+`memory`, `models`, and `ask` unless `context.memory`, `tools.models`, and `tools.ask` turn them on (ADR 0057,
+ADR 0059, ADR 0062); all three stay registered, so a list that names one still selects it.
 
 ### Tools
 
@@ -536,6 +537,16 @@ approval), through `ModelActions` ([ADR 0059](decisions/0059-one-set-of-model-ac
 `NotifyTool` posts through the session's host (above), bounded, rate-limited, and
 audited as `notification` with the route taken, without the gate
 ([ADR 0030](decisions/0030-notifications.md), [ADR 0044](decisions/0044-host-effects.md)).
+`AskTool` asks the person one question through the host's `Asker` ([ADR 0062](decisions/0062-the-inquiry-verb.md)):
+`Question.validate` applies the limits and the rule on secrets, the thread's `InquiryBox` admits one waiting
+question at a time and two a turn, the asker returns a `Question.Reply` (the outcome and where the person
+answered), and the answer is masked by `SecretScanner`'s `secret` rules before the model, the record, and the
+audit see it; `FactExtraction` turns an answered call into the thread's `answer` fact as the person's. Under
+`wisp mcp` the `OutOfBandAsker` files the question in `PendingApprovals` (kind `question`), races the channel
+against the client's form (`ElicitationAsker`, behind `inquiry.elicitation`) for the hold, and then hands the
+question to the box's `park`, whose watch delivers the answer as a `ConversationNotices` note to the thread's
+next turn and records the fact through the server's `ThreadActor.recordAnswer`. No gate: a question runs
+nothing.
 
 `RunCommandTool` is the generic exec tool. It delegates to `CommandRunner`, which checks the
 `CommandPolicy` patterns, consults `ApprovalGate` (rules plus a classifier, the shipped Core ML one by default, ask at

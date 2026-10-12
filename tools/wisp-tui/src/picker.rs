@@ -1,7 +1,7 @@
 //! A choice a chat command asks (`/config set` without a value, say), picked with the arrow keys or
 //! answered by typing when the choice takes text; or, for a choice with toggles (`/models`, ADR 0056), a table
-//! whose rows Space turns on and off and Enter saves together. Pure: the terminal and the protocol are the
-//! caller's.
+//! whose rows Space turns on and off and Enter saves together; or the model's question (`kind` `question`, ADR
+//! 0062), shown as the model's with where the answer goes. Pure: the terminal and the protocol are the caller's.
 
 use ratatui::text::{Line, Span};
 
@@ -90,6 +90,32 @@ impl Picker {
             .map(|option| option.value.clone())
     }
 
+    /// The lines under the model's question (ADR 0062): where it waits and where the answer goes; none for a chat
+    /// command's choice.
+    fn question_notes(&self) -> Vec<String> {
+        if !self.choice.is_question() {
+            return Vec::new();
+        }
+        let thread = self
+            .choice
+            .thread
+            .as_deref()
+            .map_or(String::new(), |thread| format!(", thread {thread}"));
+        if self.choice.is_mcp() {
+            let client = self.choice.client.as_deref().unwrap_or("an MCP client");
+            vec![
+                format!("waiting in wisp mcp for {client}{thread}"),
+                format!(
+                    "your answer goes to the model, and to {client}, which can read this thread"
+                ),
+            ]
+        } else {
+            vec![format!(
+                "the model asks{thread}; your answer goes to the model"
+            )]
+        }
+    }
+
     /// The first option shown when only `VISIBLE` fit.
     fn first_shown(&self) -> usize {
         let count = self.choice.options.len();
@@ -112,8 +138,15 @@ impl Picker {
         }
         let mut lines = vec![Line::from(Span::styled(
             self.choice.title.clone(),
-            palette::body(),
+            if self.choice.is_question() {
+                palette::user()
+            } else {
+                palette::body()
+            },
         ))];
+        for note in self.question_notes() {
+            lines.push(Line::from(Span::styled(note, palette::muted())));
+        }
         let first = self.first_shown();
         for (index, option) in self
             .choice
@@ -147,10 +180,18 @@ impl Picker {
             }
             lines.push(Line::from(spans));
         }
-        let keys = match (self.choice.options.is_empty(), self.choice.accepts_text) {
-            (true, _) => "type a value · Enter to set · Esc to leave it",
-            (false, true) => "↑↓ to move · or type a value · Enter to choose · Esc to leave it",
-            (false, false) => "↑↓ to move · Enter to choose · Esc to leave it",
+        let keys = match (
+            self.choice.is_question(),
+            self.choice.options.is_empty(),
+            self.choice.accepts_text,
+        ) {
+            (true, true, _) => "type your answer · Enter to send · Esc to decline",
+            (true, false, _) => "↑↓ to move · Enter to answer · Esc to decline",
+            (false, true, _) => "type a value · Enter to set · Esc to leave it",
+            (false, false, true) => {
+                "↑↓ to move · or type a value · Enter to choose · Esc to leave it"
+            }
+            (false, false, false) => "↑↓ to move · Enter to choose · Esc to leave it",
         };
         lines.push(Line::from(Span::styled(keys, palette::muted())));
         lines
@@ -361,6 +402,7 @@ mod tests {
             accepts_text,
             toggles: false,
             columns: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -453,6 +495,7 @@ mod tests {
                 drop: *drop,
             })
             .collect(),
+            ..Default::default()
         }
     }
 

@@ -1,7 +1,10 @@
 # ADR 0048: Permanent facts over MCP
 
 Date: 2026-10-03. Status: accepted; built 2026-10-03 (see "Built" at the end); amended 2026-10-12 (the three open
-details settled: no time limit, and a request outlives its thread and server). Amends
+details settled: no time limit, and a request outlives its thread and server). Amended by
+[ADR 0062](0062-the-inquiry-verb.md), built 2026-10-12: the pending channel carries a third kind of request, the
+model's question, which unlike a fact request is stale when its server has gone, since only its thread can take
+the answer. Amends
 [ADR 0045](0045-layered-context.md) (who admits a permanent fact, and where: only the person, now also from a
 terminal or `wisp-tui` when an MCP caller asks) and [ADR 0046](0046-approval-and-notifications-over-mcp.md)
 (the pending channel gains a second kind of request, a fact to keep). Settles the question

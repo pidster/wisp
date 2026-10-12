@@ -3,12 +3,15 @@
 /// the gate reach the person through these, never through a face directly. Every face builds one: plain
 /// chat and the one-shot commands, `wisp chat --json`, and `wisp mcp` (`Session.host`).
 ///
-/// Carried: command approval (`approver`, a request-and-answer effect, ADR 0011) and notification
-/// (`notify`, fire and forget, ADR 0030), whose routes depend on the face. A fact's scope is a state the
+/// Carried: command approval (`approver`, a request-and-answer effect, ADR 0011), notification
+/// (`notify`, fire and forget, ADR 0030), whose routes depend on the face, and the model's question (`asker`,
+/// request and answer, [ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). A fact's scope is a state the
 /// person sets by command, not a host effect (ADR 0044, amended 2026-09-30).
 public struct SessionHost: Sendable {
     /// Asks the person about a risky command.
     public var approver: any Approver
+    /// Asks the person the model's question (`ask`); nobody can answer by default.
+    public var asker: any Asker
     /// How this face posts a notification: which of the front end, the terminal, the terminal app, and
     /// `osascript` it can use.
     public var notifications: NotificationRoutes
@@ -21,8 +24,13 @@ public struct SessionHost: Sendable {
     ///   - approver: The command-approval effect.
     ///   - notifier: The session's notifier, shared by every conversation.
     ///   - notifications: The face's notification routes; by default only the process routes.
-    public init(approver: any Approver, notifier: Notifier, notifications: NotificationRoutes = .headless) {
+    ///   - asker: The question effect; by default nobody can answer.
+    public init(
+        approver: any Approver, notifier: Notifier, notifications: NotificationRoutes = .headless,
+        asker: any Asker = NobodyAsker(face: "this face")
+    ) {
         self.approver = approver
+        self.asker = asker
         self.notifier = notifier
         self.notifications = notifications
     }

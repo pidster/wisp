@@ -55,6 +55,23 @@ public struct Config: Codable, Equatable, Sendable {
     public var watch: WatchConfig?
     /// The verification pass over each reply: off, the exact readers, or the readers and a model step.
     public var verification: VerificationConfig?
+    /// The model's questions to the person (`ask`, ADR 0062): the deadline, and the client's dialog under MCP.
+    public var inquiry: InquiryConfig?
+
+    /// Settings for the model's questions ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)).
+    public struct InquiryConfig: Codable, Equatable, Sendable {
+        /// Seconds the person has to answer a question; 0 (the default) waits until they do.
+        public var timeoutSeconds: Int?
+        /// Under `wisp mcp`, whether a question is also asked through the client's elicitation form; off by default
+        /// until the form has been tried by hand in Claude Code (D8).
+        public var elicitation: Bool?
+
+        /// Creates settings; nil fields take defaults.
+        public init(timeoutSeconds: Int? = nil, elicitation: Bool? = nil) {
+            self.timeoutSeconds = timeoutSeconds
+            self.elicitation = elicitation
+        }
+    }
 
     /// The models the operator turned off ([ADR 0056](../../../../docs/decisions/0056-models-enabled-and-disabled.md)).
     public struct ModelsConfig: Codable, Equatable, Sendable {
@@ -312,12 +329,19 @@ public struct Config: Codable, Equatable, Sendable {
         /// ([ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)). A tool list that names it gets it
         /// either way.
         public var models: Bool?
+        /// Whether `ask` is among the tools a conversation given every tool gets; default false
+        /// ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). A tool list that names it gets it either
+        /// way.
+        public var ask: Bool?
 
         /// Creates settings.
-        public init(disabled: [String]? = nil, custom: [CustomTool.Definition]? = nil, models: Bool? = nil) {
+        public init(
+            disabled: [String]? = nil, custom: [CustomTool.Definition]? = nil, models: Bool? = nil, ask: Bool? = nil
+        ) {
             self.disabled = disabled
             self.custom = custom
             self.models = models
+            self.ask = ask
         }
 
         /// Checks that every disabled name is a built-in tool and every custom tool is valid and unique.
@@ -578,9 +602,11 @@ public struct Config: Codable, Equatable, Sendable {
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
         watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
-        lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil
+        lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil,
+        inquiry: InquiryConfig? = nil
     ) {
         self.verification = verification
+        self.inquiry = inquiry
         self.llamacpp = llamacpp
         self.lmstudio = lmstudio
         self.models = models
@@ -743,6 +769,7 @@ public struct Config: Codable, Equatable, Sendable {
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
             toolsModels: tools?.models ?? false,
+            toolsAsk: tools?.ask ?? false,
             routingLadder: routing?.ladder ?? [],
             taskModels: ModelRouting.taskDefaults.merging(routing?.tasks ?? [:]) { _, configured in configured },
             factsEnabled: facts?.enabled ?? true, factsDistil: facts?.distil ?? true,
@@ -757,7 +784,10 @@ public struct Config: Codable, Equatable, Sendable {
             contextMemory: context?.memory ?? false,
             contextOutputDays: context?.outputDays ?? ContextConfig.defaultOutputDays,
             watchSettle: watch?.settle ?? WatchConfig.defaultSettle,
-            verificationMode: verification?.mode ?? .readers
+            verificationMode: verification?.mode ?? .readers,
+            inquiryTimeout: (inquiry?.timeoutSeconds ?? 0) == 0
+                ? nil : .seconds(min(86_400, max(10, inquiry?.timeoutSeconds ?? 0))),
+            inquiryElicitation: inquiry?.elicitation ?? false
         )
     }
 
@@ -849,6 +879,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var customTools: [CustomTool.Definition] = []
         /// Whether a conversation given every tool gets `models` (`tools.models`); off by default (ADR 0059).
         public var toolsModels = false
+        /// Whether a conversation given every tool gets `ask` (`tools.ask`); off by default (ADR 0062).
+        public var toolsAsk = false
         /// Models to route among by input size, least capable first; empty means no routing.
         public var routingLadder: [ModelSelection] = []
         /// The model for each task's model pass when the caller names none: wisp's measured defaults,
@@ -883,6 +915,12 @@ public struct Config: Codable, Equatable, Sendable {
         /// How each reply's result claims are checked against the turn's calls (`verification.mode`, ADR 0060):
         /// the exact readers by default.
         public var verificationMode = VerificationMode.readers
+        /// How long the person has to answer the model's question (`inquiry.timeoutSeconds`, ADR 0062); nil, the
+        /// default, waits until they answer.
+        public var inquiryTimeout: Duration?
+        /// Under `wisp mcp`, whether the model's question is also asked through the client's elicitation form
+        /// (`inquiry.elicitation`); off by default (ADR 0062, D8).
+        public var inquiryElicitation = false
     }
 }
 

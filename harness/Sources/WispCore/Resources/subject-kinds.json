@@ -62,6 +62,13 @@
       "class": "dynamic",
       "normaliser": "single",
       "description": "The git branch the work is on."
+    },
+    {
+      "name": "answer",
+      "class": "dynamic",
+      "normaliser": "trim",
+      "description": "What the person answered when the model asked them a question, named by the question.",
+      "distil": false
     }
   ],
   "testCommands": [

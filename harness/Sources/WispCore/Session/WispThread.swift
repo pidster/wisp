@@ -55,6 +55,9 @@ public struct WispThread: Sendable {
     public let outputs: OutputStore?
     /// What answers `memory`'s `condense` question, attached to the agent's model when one opens.
     let condenser: OutputCondenser
+    /// The thread's questions to the person (ADR 0062): the one waiting, the records, and under `wisp mcp` the watch
+    /// for a parked question's answer.
+    public let inquiries: InquiryBox
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it.
@@ -77,6 +80,9 @@ public struct WispThread: Sendable {
         let budget = ToolBudget(memory: toolNames.contains(MemoryTool.toolName))
         let outputs = session.config.auditEnabled ? OutputStore.forThread(home: session.home, audit: audit) : nil
         let condenser = OutputCondenser()
+        let inquiries = InquiryBox(conversation: audit.session, notices: session.notices)
+        // `--yes` answers approvals ahead of time; it answers no question, so nobody is asked (ADR 0062).
+        let asker: any Asker = session.request.autoApprove ? NobodyAsker(face: "--yes") : host.asker
         let registry = ToolRegistry(
             runner: session.config.runner, audit: audit, approval: gate,
             introspection: session.introspection(for: audit, tools: toolNames, model: model),
@@ -85,6 +91,7 @@ public struct WispThread: Sendable {
                 actions: ModelActions(session: session, face: .tool, audit: audit), gate: gate,
                 conversation: audit.session,
                 current: model),
+            ask: AskTool(asker: asker, box: inquiries, audit: audit, timeout: session.config.inquiryTimeout),
             budget: budget, store: outputs, condenser: condenser,
             disabled: session.config.disabledTools, custom: session.config.customTools)
         let selection = registry.select(toolNames)
@@ -107,7 +114,7 @@ public struct WispThread: Sendable {
             infersTask: session.entryPoint == .chat,
             runner: CommandRunner(
                 options: session.config.runner, audit: audit, approval: gate, budget: budget, store: outputs),
-            notices: session.notices, budget: budget, outputs: outputs, condenser: condenser)
+            notices: session.notices, budget: budget, outputs: outputs, condenser: condenser, inquiries: inquiries)
     }
 
     /// What the model answering a `condense` chunk is told: read the part, answer the question, quote the lines.
@@ -156,7 +163,8 @@ public struct WispThread: Sendable {
 
     /// Creates the agent that runs this conversation on an already resolved model: refuses a request its
     /// declared capabilities cannot serve, records `model.resolved`, and sets the agent's stats and archive.
-    /// Tests pass a scripted model here to drive the same path the faces take.
+    /// Tests pass a scripted model here to drive the same path the faces take; public so the MCP tests can, over a
+    /// thread the server set up.
     ///
     /// - Parameters:
     ///   - resolved: The model.
@@ -166,7 +174,7 @@ public struct WispThread: Sendable {
     /// - Returns: The agent, recording to this conversation's audit log and advancing its turn clock.
     /// - Throws: `ModelSelection.Failure` if the model lacks a needed capability or its runtime does not take the
     ///   thread's thinking.
-    func openAgent(
+    public func openAgent(
         on resolved: ResolvedModel, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
         store: ThreadRecord? = nil
     ) throws -> Agent {

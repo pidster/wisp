@@ -28,7 +28,7 @@ a route that took the notification has done its part.
 | Off switch | `notifications.enabled: false` in `config.json`; every request is then refused |
 | Approval | None: a banner changes nothing on the Mac. Leave the tool out of a conversation with `--tool` or `tools` if it should not notify |
 | Terminal text | For the escape sequences, every control character (ESC, BEL, the C1 terminators) becomes a space and `;` becomes `,`, on top of the cleaning above, so the text can neither end a sequence nor be read as its parameters |
-| Audit | Every request, posted or refused, is a `notification` event with the title, body, source (`model`, `user`, `watch` for `wisp watch`, or `approval` for a command waiting under `wisp mcp`), outcome, the route taken, and why earlier routes were skipped ([logging.md](../logging.md)) |
+| Audit | Every request, posted or refused, is a `notification` event with the title, body, source (`model`, `user`, `watch` for `wisp watch`, `approval` for a command waiting under `wisp mcp`, or `inquiry` for the model's question waiting there), outcome, the route taken, and why earlier routes were skipped ([logging.md](../logging.md)) |
 
 ## How it is posted
 

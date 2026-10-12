@@ -270,7 +270,9 @@ public enum ChatProtocol {
     /// The `choice` line's fields: its id, title, options, the current value, and whether typed text
     /// is taken. A choice with toggles (ADR 0056) adds `toggles` (true), `columns` (each `heading` and `drop`, the
     /// rank in which a narrow face drops it, 0 never), and on each option `cells` (one per column) and `on`; an action
-    /// row (ADR 0059's "pull a model…") has `action` true and no `on`, and choosing it answers with its `value`.
+    /// row (ADR 0059's "pull a model…") has `action` true and no `on`, and choosing it answers with its `value`. The
+    /// model's question (ADR 0062) adds `kind` `question` and `thread`, and one relayed from a `wisp mcp` server
+    /// `source` `mcp`, `client`, and `request` as well.
     public static func choice(id: String, _ choice: ChatChoice) -> [String: JSONValue] {
         var fields: [String: JSONValue] = [
             "id": .string(id), "title": .string(choice.title), "current": choice.current.map { .string($0) } ?? .null,
@@ -293,6 +295,13 @@ public enum ChatProtocol {
             fields["toggles"] = true
             fields["columns"] = .array(
                 choice.columns.map { .object(["heading": .string($0.heading), "drop": .int($0.drop)]) })
+        }
+        if let kind = choice.kind { fields["kind"] = .string(kind) }
+        if let origin = choice.origin {
+            if let thread = origin.thread { fields["thread"] = .string(thread) }
+            if let source = origin.source { fields["source"] = .string(source) }
+            if let client = origin.client { fields["client"] = .string(client) }
+            if let request = origin.request { fields["request"] = .string(request) }
         }
         return fields
     }
@@ -576,6 +585,61 @@ public struct JSONApprover: Approver {
         } catch {
             ChatProtocol.withdraw(id, router: router, send: send)
             return .denied("approval request failed: \(error)")
+        }
+    }
+}
+
+/// Asks the model's question through the protocol ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)):
+/// a `choice` line with `kind` `question` (the options, then `none of these`; typed text for a free-text question),
+/// answered by `choose`. Waits as long as the person takes unless a deadline is set (`inquiry.timeoutSeconds`), and
+/// the turn's stop (`interrupt`, Ctrl-C in `wisp-tui`) withdraws it; a lapsed or withdrawn question is sent
+/// `withdrawn`, so the front end closes the picker.
+public struct JSONAsker: Asker {
+    private let router: LineRouter
+    private let send: @Sendable (String) -> Void
+
+    /// Creates an asker.
+    ///
+    /// - Parameters:
+    ///   - router: Where answers arrive.
+    ///   - send: Writes one protocol line to the front end.
+    public init(router: LineRouter, send: @escaping @Sendable (String) -> Void) {
+        self.router = router
+        self.send = send
+    }
+
+    /// The protocol.
+    public var ways: [String] { ["json"] }
+
+    /// Sends the choice and maps the answer: no value or an empty one declines, `none of these` is none, an option
+    /// is chosen, and for a free-text question anything else is the answer.
+    public func ask(_ question: Question, box: InquiryBox, audit: AuditLog?) async -> Question.Reply {
+        let id = ShortID.make()
+        send(ChatProtocol.encode("choice", ChatProtocol.choice(id: id, question.choice)))
+        let router = router
+        let send = send
+        let stop = TurnStop.current
+        // A stop asked for while the question waits drops its waiter, so the wait ends at once; the front end is then
+        // sent `withdrawn`, so it closes the picker.
+        let stopping = stop.map { stop in
+            Task {
+                await stop.stopped()
+                router.withdraw(id)
+            }
+        }
+        defer { stopping?.cancel() }
+        do {
+            let answer = try await Timeout.run(question.timeout) { await router.answerUnlessWithdrawn(for: id) }
+            if stop?.requested == true {
+                ChatProtocol.withdraw(id, router: router, send: send)
+                return Question.Reply(.stopped)
+            }
+            guard let answer, !answer.isEmpty else { return Question.Reply(.declined, via: "json") }
+            return Question.Reply(question.outcome(typed: answer) ?? .declined, via: "json")
+        } catch {
+            ChatProtocol.withdraw(id, router: router, send: send)
+            if stop?.requested == true { return Question.Reply(.stopped) }
+            return Question.Reply(.unanswered(question.timeout ?? .zero))
         }
     }
 }

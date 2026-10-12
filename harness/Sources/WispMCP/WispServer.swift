@@ -50,22 +50,28 @@ public struct WispServer: Sendable {
     ///
     /// - Parameters:
     ///   - session: The session from `Session.begin`.
+    ///   - inquiryHold: How long a `respond` call holds the dialog for the model's question before the turn parks
+    ///     (ADR 0062, D15): 60 s, shortened by tests.
     ///   - makeThread: How threads are built; tests inject a fake that needs no model.
     ///   - makeTriageAgent: How a condensing tool's agent is opened on its conversation, on a routed model
     ///     when one was chosen and the conversation's own otherwise; tests inject a
     ///     scripted model.
     public init(
-        session: Session,
+        session: Session, inquiryHold: Duration = OutOfBandAsker.hold,
         makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model, think in
             // One audit session per opening, so a reused thread_id does not mix an earlier thread's history into
             // its resources (ADR 0050's review items); the directory records which is which.
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model, think: think,
                 auditSession: ThreadDirectory.auditSession(for: id))
+            let actor = ThreadActor(id: id, agent: try thread.openAgent())
+            // An answer taken after the turn parked is the thread's fact when it is taken (ADR 0062, D14).
+            thread.inquiries.onAnswer { question, answer in await actor.recordAnswer(to: question, answer: answer) }
             return OpenThread(
-                thread: ThreadActor(id: id, agent: try thread.openAgent()), gate: thread.gate,
+                thread: actor, gate: thread.gate,
                 audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
-                model: thread.model.description, tools: thread.tools.map(\.name), think: think?.text)
+                model: thread.model.description, tools: thread.tools.map(\.name), think: think?.text,
+                inquiries: thread.inquiries)
         },
         makeTriageAgent: @escaping @Sendable (WispThread, ModelSelection?) throws -> Agent = {
             try $0.openAgent(model: $1)
@@ -79,12 +85,17 @@ public struct WispServer: Sendable {
         let elicitation = ElicitationApprover(
             server: server, client: client, timeout: session.config.approvalTimeout, tracker: tracker)
         let client = client
+        // ADR 0062: the model's question goes to the pending channel (wisp questions, wisp-tui) and, behind
+        // inquiry.elicitation, to the client's form; the call holds 60 s, then the turn parks.
+        let asking = ElicitationAsker(server: server, client: client, tracker: tracker)
         // ADR 0046: the client's dialog, and the pending channel that wisp approvals and wisp-tui answer, at
         // once; without either, the elicitation approver's denial says why.
         host = session.host(
             approver: session.mcpApprover(
                 elicitation: { elicitation.ask }, fallback: elicitation, client: { client.name.withLock { $0 } }),
-            face: .mcp)
+            face: .mcp,
+            asker: session.mcpAsker(
+                elicitation: { asking.ask }, client: { client.name.withLock { $0 } }, hold: inquiryHold))
         let notifyHost = self.host
         factKeeper = FactKeeper(
             channel: PendingApprovals(home: session.home), store: session.permanentFacts, audit: session.audit,
@@ -108,6 +119,10 @@ public struct WispServer: Sendable {
         Diagnostics.mcp.info("client disconnected")
         // Facts asked about stay filed for the person (ADR 0048, amended 2026-10-12); the sweep below leaves them.
         factKeeper.stop()
+        // A question waiting on any thread is withdrawn: only its thread could take the answer (ADR 0062).
+        for id in await threads.ids {
+            if let open = await threads.peek(id) { open.inquiries.withdraw(audit: open.audit) }
+        }
         // Commands this process filed and never settled (a call still waiting at disconnect) are stale now.
         let pid = getpid()
         PendingApprovals(home: session.home).sweep { $0 != pid && PendingApprovals.isAlive($0) }
@@ -374,6 +389,7 @@ public struct WispServer: Sendable {
         }
         if let evicted = opened.evicted {
             factKeeper.release(thread: evicted.id)
+            evicted.thread.inquiries.withdraw(audit: evicted.thread.audit)
             directory.ended(id: evicted.id, as: .evicted)
             // A turn under way on the evicted thread finishes first, so session.end stays its last event; the
             // wait is its own task so the call that made room is not held up by it.
@@ -417,12 +433,18 @@ public struct WispServer: Sendable {
                 return failure("could not set the task of \(id): \(error)")
             }
         }
+        // A question still waiting from an earlier turn is noted to the model, so it does not assume the answer (ADR
+        // 0062, section 6, step 4).
+        if let note = opened.thread.inquiries.stillWaitingNote {
+            session.notices.post(note, to: opened.thread.audit.session)
+        }
         do {
             let reply = try await relaying(opened.thread.relay) {
                 try await opened.thread.thread.respond(to: request.prompt, schema: schema)
             }
             let refusals = await opened.thread.gate.takeRefusals()
             let turn = opened.thread.audit.currentTurn
+            let questions = opened.thread.inquiries.records(turn: turn)
             directory.used(id: id, turns: turn)
             let events = opened.thread.receipts.takeEvents(turn: turn)
             let receipt = Receipt(events: events, turn: turn)
@@ -431,10 +453,13 @@ public struct WispServer: Sendable {
                 auditEnabled ? ToolCatalog.outputURI(thread: id, id: $0) : nil
             }
             return .init(
-                content: [.text(text: reply.text, annotations: nil, _meta: nil)],
+                content: [
+                    .text(text: reply.text + Self.waitingText(questions, thread: id), annotations: nil, _meta: nil)
+                ],
                 structuredContent: .object([
                     "thread_id": .string(id), "created": .bool(opened.created), "condensed": .bool(reply.condensed),
                     "text": .string(reply.text),
+                    "questions": .array(questions.map { Value(json: $0.json) }),
                     "refusals": .array(
                         refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
                     "receipt": Value(json: receipt.json), "calls": Value(json: calls),
@@ -455,6 +480,20 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
+    }
+
+    /// What follows the reply's text when a question of the turn still waits for the person (ADR 0062): what was
+    /// asked, how the person answers it, and that the caller never does.
+    ///
+    /// - Parameters:
+    ///   - questions: The turn's questions.
+    ///   - thread: The thread.
+    /// - Returns: The text to append, or empty.
+    static func waitingText(_ questions: [InquiryBox.Record], thread: String) -> String {
+        questions.filter { $0.state == .waiting }.map { record in
+            "\n\n[a question waits for the person: \"\(ApprovalRequest.visible(record.question.text))\" — wisp questions "
+                + "answer \(record.question.id); its answer reaches thread \(thread)'s next turn; do not answer it yourself]"
+        }.joined()
     }
 
     /// The notifications a turn posted, or tried to, from its `notification` events: MCP has no notification
@@ -801,6 +840,9 @@ public struct WispServer: Sendable {
         do {
             let closed = try await threads.close(request.threadID)
             factKeeper.release(thread: request.threadID)
+            // A question waiting is withdrawn at once: close waits for the turn under way, so a question held in the
+            // call must not hold it (ADR 0062).
+            closed.inquiries.withdraw(audit: closed.audit)
             directory.ended(id: request.threadID, as: .closed)
             // The turn under way finishes first and calls still queued are refused, so session.end comes last.
             await closed.turns.close()

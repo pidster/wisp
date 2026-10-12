@@ -103,4 +103,8 @@ enum DynamicCompletions {
     }
     /// `wisp facts keep|drop`.
     static let pendingFacts = CompletionKind.custom { _, _, _ in CompletionCandidates.pending(.fact, home: Wisp.home) }
+    /// `wisp questions answer|decline`.
+    static let pendingQuestions = CompletionKind.custom { _, _, _ in
+        CompletionCandidates.pending(.question, home: Wisp.home)
+    }
 }

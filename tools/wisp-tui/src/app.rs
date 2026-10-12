@@ -14,7 +14,9 @@ use crate::editor::{Edit, Editor};
 use crate::markdown;
 use crate::palette;
 use crate::picker::Picker;
-use crate::protocol::{Approval, Inbound, Notice, Outbound, Status, ToolOutput, Turn, View};
+use crate::protocol::{
+    Approval, Choice, Inbound, Notice, Outbound, Status, ToolOutput, Turn, View,
+};
 
 /// Rows the band occupies with a one-row input: reply in progress, dialog, a half-height strip, the
 /// input, a half-height strip, status. The strips are rows of half-block glyphs in the tint, which read
@@ -474,6 +476,9 @@ pub struct App {
     pub clock: Clock,
     /// A choice awaiting an answer.
     pub picker: Option<Picker>,
+    /// The model's questions that arrived while a choice was open, oldest first (ADR 0062): questions waiting in
+    /// `wisp mcp` servers can arrive at any time, and one of those also waits here while the input box has text.
+    pub queued_questions: VecDeque<Choice>,
     /// The id of the completion asked for and not yet answered.
     pub completing: Option<String>,
     /// Completion requests sent, for their ids.
@@ -669,6 +674,7 @@ impl App {
             }
             Outbound::Approval(approval) => self.arrived(approval),
             Outbound::Withdrawn { id } => self.withdrawn(&id),
+            Outbound::Choice(choice) if choice.is_question() => self.asked(choice),
             Outbound::Choice(choice) => {
                 self.flush_partial();
                 self.panel = None;
@@ -710,6 +716,23 @@ impl App {
         self.show_next();
     }
 
+    /// Shows the model's question in place of any panel, or queues it behind the choice open. One from `wisp mcp`
+    /// that arrives while the input box has text waits until the box is empty, with a note saying so (ADR 0062).
+    fn asked(&mut self, question: Choice) {
+        self.flush_partial();
+        if self.picker.is_none() && question.is_mcp() && !self.editor.is_empty() {
+            self.push(
+                &format!(
+                    "? the model asks in wisp mcp: {} · its dialog opens when the input is empty",
+                    question.title
+                ),
+                LineKind::Note,
+            );
+        }
+        self.queued_questions.push_back(question);
+        self.show_next();
+    }
+
     /// Brings up the next approval when none is shown, and gives the input box the keys held for it. This
     /// conversation's own approvals show at once; one from `wisp mcp` only while the box is empty. A dialog
     /// that appears starts its grace (`DIALOG_GRACE`). Held keys go into the box only with no turn running and
@@ -720,16 +743,27 @@ impl App {
             return;
         }
         let empty = self.editor.is_empty();
-        let Some(index) = self
+        if let Some(index) = self
             .queued
             .iter()
             .position(|approval| !approval.is_mcp() || empty)
-        else {
+        {
+            self.approval = self.queued.remove(index);
+            self.panel = None;
+            self.dialog_quiet_from = Some(self.clock.now());
             return;
-        };
-        self.approval = self.queued.remove(index);
-        self.panel = None;
-        self.dialog_quiet_from = Some(self.clock.now());
+        }
+        // The model's next question, once no choice is open; one from wisp mcp only while the box is empty.
+        if self.picker.is_none()
+            && let Some(index) = self
+                .queued_questions
+                .iter()
+                .position(|question| !question.is_mcp() || empty)
+            && let Some(question) = self.queued_questions.remove(index)
+        {
+            self.panel = None;
+            self.picker = Some(Picker::new(question));
+        }
     }
 
     /// Whether the approval shown is in its grace: it appeared, or a key was pressed, less than `DIALOG_GRACE`
@@ -779,6 +813,7 @@ impl App {
             self.show_next();
         } else {
             self.queued.retain(|approval| approval.id != id);
+            self.queued_questions.retain(|question| question.id != id);
         }
     }
 
@@ -1313,11 +1348,23 @@ impl App {
             return Action::None;
         };
         self.editor.take();
-        Action::Send(Inbound::Choose {
+        if picker.choice.is_question() {
+            let what = match &value {
+                Some(answer) => format!("answered: {answer}"),
+                None => String::from("declined"),
+            };
+            self.push(
+                &format!("? {what} · {}", picker.choice.title),
+                LineKind::Note,
+            );
+        }
+        let action = Action::Send(Inbound::Choose {
             id: picker.choice.id,
             value,
             values,
-        })
+        });
+        self.show_next();
+        action
     }
 
     /// Esc: leaves an open choice unanswered; otherwise nothing.
@@ -1520,10 +1567,18 @@ impl App {
         let height = u16::try_from(lines.len())
             .unwrap_or(u16::MAX)
             .saturating_add(DIALOG_FRAME);
+        // The model's question is visibly the model's (ADR 0062), never styled as an approval.
+        let title = if picker.choice.is_mcp() {
+            " the model asks · wisp mcp "
+        } else if picker.choice.is_question() {
+            " the model asks "
+        } else {
+            " choose "
+        };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(palette::wisp())
-            .title(Span::styled(" choose ", palette::wisp()))
+            .title(Span::styled(title, palette::wisp()))
             .padding(Padding::horizontal(1));
         let dialog = Rect {
             y: area.y + 1,
@@ -1845,6 +1900,17 @@ impl App {
     }
 
     /// The status row for a band `width` cells wide: on the left the model and its context use, the
+    /// How many dialogs wait behind the input box: queued approvals, and the model's queued questions while no
+    /// choice is open (ADR 0062).
+    fn waiting_behind_the_input(&self) -> usize {
+        self.queued.len()
+            + if self.picker.is_none() {
+                self.queued_questions.len()
+            } else {
+                0
+            }
+    }
+
     /// directory with its branch and line changes; on the right the approval mode, the turn, and its
     /// tokens, pushed to the right edge. When both do not fit, the directory shortens to its last
     /// folder, and failing that the two sides simply follow each other.
@@ -1888,9 +1954,10 @@ impl App {
         let mut right = Vec::new();
         // An approval waiting behind the input box (from `wisp mcp`, while a line is typed) is named here, so
         // it never waits unseen.
-        if self.approval.is_none() && !self.queued.is_empty() {
+        let waiting = self.waiting_behind_the_input();
+        if self.approval.is_none() && waiting > 0 {
             right.push(Span::styled(
-                format!("⚠ {} waiting", self.queued.len()),
+                format!("⚠ {waiting} waiting"),
                 palette::amber(),
             ));
             right.push(sep());
@@ -2751,6 +2818,7 @@ mod tests {
             accepts_text,
             toggles: false,
             columns: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -3230,6 +3298,152 @@ mod tests {
         assert!(app.approval.is_none());
         app.submit();
         assert_eq!(app.approval.as_ref().map(|a| a.id.as_str()), Some("mcp-2"));
+    }
+
+    fn question(id: &str, options: &[&str], mcp: bool) -> Choice {
+        let mut choice = choice(options, options.is_empty());
+        choice.id = id.into();
+        choice.title = "Which config did you mean?".into();
+        choice.current = None;
+        choice.kind = Some("question".into());
+        if mcp {
+            choice.source = Some("mcp".into());
+            choice.thread = Some("git".into());
+            choice.client = Some("claude-code".into());
+            choice.request = Some(id.trim_start_matches("mcp-").into());
+        }
+        choice
+    }
+
+    #[test]
+    fn the_models_question_is_a_picker_of_its_own_answered_declined_and_queued() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        // A choice: the options, answered with the highlighted one; Esc declines.
+        app.handle(Outbound::Choice(question(
+            "q1",
+            &["~/.wisp", "./wisp.json"],
+            false,
+        )));
+        let Some(picker) = app.picker.clone() else {
+            panic!("no picker");
+        };
+        assert!(picker.choice.is_question() && !picker.choice.is_mcp());
+        let text: Vec<String> = picker.lines(60).iter().map(ToString::to_string).collect();
+        assert_eq!(text[0], "Which config did you mean?");
+        assert_eq!(text[1], "the model asks; your answer goes to the model");
+        assert!(
+            text.last()
+                .is_some_and(|keys| keys.contains("Esc to decline"))
+        );
+        app.recall_next();
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Choose {
+                id: "q1".into(),
+                value: Some("./wisp.json".into()),
+                values: None
+            })
+        );
+        assert_eq!(
+            app.take_pending().last().map(|line| line.text.clone()),
+            Some("? answered: ./wisp.json · Which config did you mean?".into())
+        );
+        // Free text: typed, sent as the value; Ctrl-C declines, as it refuses an approval.
+        app.handle(Outbound::Choice(question("q2", &[], false)));
+        assert!(app.typing());
+        for c in "the one in the repo".chars() {
+            app.type_char(c);
+        }
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Choose {
+                id: "q2".into(),
+                value: Some("the one in the repo".into()),
+                values: None
+            })
+        );
+        app.handle(Outbound::Choice(question("q3", &[], false)));
+        assert_eq!(
+            app.interrupt(),
+            Action::Send(Inbound::Choose {
+                id: "q3".into(),
+                value: None,
+                values: None
+            })
+        );
+        assert!(app.picker.is_none());
+    }
+
+    #[test]
+    fn the_models_questions_from_wisp_mcp_queue_behind_a_choice_and_typing() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        // One from wisp mcp arriving while another question is open waits, counted in the status line, and shows
+        // once the first is answered; its notes name the client and the thread.
+        app.handle(Outbound::Choice(question("q4", &["a", "b"], false)));
+        app.handle(Outbound::Choice(question(
+            "mcp-a1b2c3d4",
+            &["a", "b"],
+            true,
+        )));
+        assert_eq!(app.queued_questions.len(), 1);
+        assert_eq!(
+            app.waiting_behind_the_input(),
+            0,
+            "not counted while a choice is open"
+        );
+        app.submit();
+        let Some(shown) = app.picker.clone() else {
+            panic!("the queued question does not show");
+        };
+        assert_eq!(shown.choice.id, "mcp-a1b2c3d4");
+        let notes: Vec<String> = shown.lines(80).iter().map(ToString::to_string).collect();
+        assert_eq!(notes[1], "waiting in wisp mcp for claude-code, thread git");
+        assert_eq!(
+            notes[2],
+            "your answer goes to the model, and to claude-code, which can read this thread"
+        );
+        // Withdrawn (answered in a terminal first): the picker closes with a note.
+        app.handle(Outbound::Withdrawn {
+            id: "mcp-a1b2c3d4".into(),
+        });
+        assert!(app.picker.is_none());
+        // A queued one withdrawn leaves quietly.
+        app.handle(Outbound::Choice(question("q5", &["a", "b"], false)));
+        app.handle(Outbound::Choice(question(
+            "mcp-ffff0000",
+            &["a", "b"],
+            true,
+        )));
+        app.handle(Outbound::Withdrawn {
+            id: "mcp-ffff0000".into(),
+        });
+        assert!(app.queued_questions.is_empty());
+        // One from wisp mcp waits while the input box has text, and shows when it empties.
+        app.cancel();
+        for c in "typing".chars() {
+            app.type_char(c);
+        }
+        app.handle(Outbound::Choice(question(
+            "mcp-00001111",
+            &["a", "b"],
+            true,
+        )));
+        assert!(app.picker.is_none() && app.queued_questions.len() == 1);
+        assert_eq!(app.waiting_behind_the_input(), 1);
+        for _ in 0..6 {
+            app.edit(&Edit::Backspace);
+        }
+        assert!(
+            app.picker
+                .as_ref()
+                .is_some_and(|p| p.choice.id == "mcp-00001111")
+        );
     }
 
     #[test]

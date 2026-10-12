@@ -15,12 +15,13 @@ result format) and the limits that protect the context window. `wisp tools` prin
 | [system_info](system_info.md) | Ports, free space, folder sizes, busy processes, memory, one process, battery, macOS, network; read-only. |
 | [memory](memory.md) | The conversation's memory (not RAM): `recall` an earlier entry, turn, the task, the summary, a fact's history, or a stored output the model saw only in part (filtered by pattern, range, head, or tail), for one turn; `summarise` a stored output by exact readers; `condense` it with a question the model answers over all of it; `note` a fact, or propose the `task`, as the model. Off by default: `context.memory` turns it on. |
 | [models](models.md) | The models wisp can run: `list` and `show` at once; `pull` (in the background), `enable`, `disable`, and `check` only once the person approves; `trust` and `switch` are the person's. Off by default: `tools.models` turns it on. |
+| [ask](ask.md) | One question to the person mid-turn: free text, or a choice of two to six options; never a permission, never a secret. Waits until answered in chat and `wisp-tui`; under `wisp mcp` the turn parks after 60 s and the answer reaches the next turn. Off by default: `tools.ask` turns it on. |
 
 Select tools per session with `--tool <name>` on the CLI or the `tools` argument of MCP `respond`. Every
 registered tool's schema is in the prompt on every turn, so enable only what a task needs. All the tools, the
-default, are every registered tool but `memory` and `models`, which join them when `context.memory` and
-`tools.models` are on; a named list has either only when it names it ([memory.md](memory.md),
-[models.md](models.md)), and `tools.disabled` can leave either out everywhere.
+default, are every registered tool but `memory`, `models`, and `ask`, which join them when `context.memory`,
+`tools.models`, and `tools.ask` are on; a named list has any of them only when it names it ([memory.md](memory.md),
+[models.md](models.md), [ask.md](ask.md)), and `tools.disabled` can leave any out everywhere.
 
 MCP clients discover these tools through the `wisp://tools` resource, generated from the registry; the
 limits and example prompt for each come from the tool itself (`WispTool.limits`, rendered from its live

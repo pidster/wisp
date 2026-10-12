@@ -27,6 +27,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case approvals
     /// `wisp facts pending`, `keep`, or `drop`: the person answering a caller's request to keep a permanent fact.
     case facts
+    /// `wisp questions pending`, `answer`, or `decline`: the person answering the model's question (ADR 0062).
+    case questions
     /// `wisp models pull`: the person fetching a model (ADR 0052).
     case models
 

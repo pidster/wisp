@@ -175,6 +175,13 @@ Use run_command with working directory <repo> to run exactly the command line be
 Report the exit status and output verbatim, nothing else.
 ```
 
+If a `respond` result ends with `[a question waits for the person: … — wisp questions answer ID …]`, or its
+`structuredContent.questions` has a `waiting` entry, the model asked the person a question through its `ask`
+tool (`docs/tools/ask.md`). **Never answer it yourself**: not with `wisp questions answer` (it refuses to run
+without a terminal, and the policy refuses it to wisp's model), and not by putting the answer in your next
+prompt as if it were the person's. Tell the user the id, and continue the thread once they have answered; the
+answer reaches the thread's next turn as a note. The git thread's `tools: ["run_command"]` never sees `ask`.
+
 Put commit messages in a file and commit with `set -o pipefail; git commit -q -F <path> 2>&1 | tail -3`
 so the hook's test output does not fill the reply; push with `set -o pipefail; git push origin main 2>&1 |
 tail -3`. Keep `set -o pipefail` whenever output is piped: without it the exit status is `tail`'s, so a

@@ -787,6 +787,68 @@ extension AuditEvent {
             return details
         }
 
+        /// `inquiry.requested` (ADR 0062): the model asked the person `question` through its `ask` tool; `ways` is how
+        /// the face asks (`terminal`, `json`, `elicitation`, `pending`; empty when nobody can be asked), `timeoutSeconds`
+        /// the deadline (absent when it waits until answered), `call` the `ask` call's id.
+        public static func inquiryRequested(_ question: Question, ways: [String], call: String?) -> [String: JSONValue]
+        {
+            var details: [String: JSONValue] = [
+                "inquiry": .string(question.id), "question": .string(question.text),
+                "options": .array(question.options.map { .string($0) }), "ways": .array(ways.map { .string($0) }),
+            ]
+            if let timeout = question.timeout { details["timeoutSeconds"] = .int(Int(timeout.components.seconds)) }
+            if let call { details["call"] = .string(call) }
+            if let thread = question.thread { details["thread"] = .string(thread) }
+            return details
+        }
+
+        /// `inquiry.parked` (ADR 0062): under `wisp mcp`, the dialog's hold lapsed and the turn ended with the question
+        /// still waiting; `waitedSeconds` is how long the call held the dialog.
+        public static func inquiryParked(_ question: Question, waitedSeconds: TimeInterval) -> [String: JSONValue] {
+            [
+                "inquiry": .string(question.id), "question": .string(question.text),
+                "waitedSeconds": .double(waitedSeconds),
+            ]
+        }
+
+        /// `inquiry.answered` (ADR 0062): the person answered a question in this process (`via` `cli` or `tui`);
+        /// `delivery` is `taken`, `too-late`, `waiting`, or `refused` with `reason`, as `approval.answered`'s.
+        public static func inquiryAnswered(
+            _ id: String, via: String, delivery: String, reason: String? = nil
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "inquiry": .string(id), "via": .string(via), "delivery": .string(delivery),
+            ]
+            if let reason { details["reason"] = .string(reason) }
+            return details
+        }
+
+        /// `inquiry.settled` (ADR 0062): how a question ended on the asking thread. `outcome` is `answered`, `none`,
+        /// `declined`, `unanswered`, `stopped`, `withdrawn`, `abandoned`, `refused`, or `failed`; `via` where the
+        /// person answered (`terminal`, `json`, `elicitation`, `cli`, `tui`); `delivered` `tool` inside the turn or
+        /// `notice` on the next turn after a park; `answer` the answer as the model got it; `redacted` the kinds of
+        /// credential-shaped values masked in it; `reason` why it was refused or failed; `seconds` waited.
+        public static func inquirySettled(
+            _ question: Question, outcome: Question.Outcome, via: String?, delivered: String?, redacted: [String],
+            reason: String? = nil, seconds: TimeInterval? = nil
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "inquiry": .string(question.id), "question": .string(question.text), "outcome": .string(outcome.name),
+            ]
+            if let thread = question.thread { details["thread"] = .string(thread) }
+            if let via { details["via"] = .string(via) }
+            if let delivered { details["delivered"] = .string(delivered) }
+            if let answer = outcome.answer { details["answer"] = .string(answer) }
+            if case .noneOfThese = outcome { details["answer"] = .string(Question.noneOfThese) }
+            if !redacted.isEmpty { details["redacted"] = .array(redacted.map { .string($0) }) }
+            var why = reason
+            if case .nobody(let face) = outcome { why = why ?? "no person can answer here (\(face))" }
+            if case .failed(let detail) = outcome { why = why ?? detail }
+            if let why { details["reason"] = .string(why) }
+            if let seconds { details["seconds"] = .double(seconds) }
+            return details
+        }
+
         /// `approval.decided`. `decision` is `approved`, `denied`, `timed-out`, `cached`, `cached-turn`,
         /// `cached-project`, or `cached-always`; the optionals apply as documented for each.
         public static func approvalDecided(
@@ -919,6 +981,11 @@ extension AuditEvent {
                 "request", "command", "thread", "outcome", "via", "decision", "reason", "seconds", "kind", "fact",
                 "subject", "name", "value", "source", "kept",
             ]
+        case .inquiryRequested: ["inquiry", "question", "options", "ways", "timeoutSeconds", "call", "thread"]
+        case .inquiryParked: ["inquiry", "question", "waitedSeconds"]
+        case .inquiryAnswered: ["inquiry", "via", "delivery", "reason"]
+        case .inquirySettled:
+            ["inquiry", "question", "thread", "outcome", "via", "delivered", "answer", "redacted", "reason", "seconds"]
         case .approvalDecided:
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",

@@ -320,6 +320,20 @@ extension Agent {
         return fact
     }
 
+    /// Records the person's answer to the model's question as the thread's fact, `answer` named by the question
+    /// (ADR 0062, D14): for an answer delivered as a note after a park, which no tool result carries; an answer
+    /// given inside the turn is extracted from the `ask` call's result. Nothing happens when the thread keeps no facts.
+    ///
+    /// - Parameters:
+    ///   - question: The question.
+    ///   - answer: The answer, as the model gets it.
+    public func recordAnswer(to question: Question, answer: String) {
+        _ = try? stateFact(
+            subject: FactExtraction.answerSubject,
+            name: String(question.text.prefix(FactExtraction.questionNameLength)),
+            value: answer, source: .person)
+    }
+
     /// Sets the conversation's task as `source` (D6).
     ///
     /// - Parameters:

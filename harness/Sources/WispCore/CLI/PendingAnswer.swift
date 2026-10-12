@@ -1,7 +1,7 @@
 import Foundation
 
-/// What `wisp approvals approve|deny` and `wisp facts keep|drop` say, and how they exit, once the person's
-/// answer was written to the pending channel (ADR 0046, ADR 0048). Here rather than in the CLI target so it is
+/// What `wisp approvals approve|deny`, `wisp facts keep|drop`, and `wisp questions answer|decline` say, and how they
+/// exit, once the person's answer was written to the pending channel (ADR 0046, ADR 0048, ADR 0062). Here rather than in the CLI target so it is
 /// tested: a usage error (exit 64, with the usage text) is for a mistake in the command line itself; an answer
 /// that could not be used because of the request's state (answered elsewhere, too late, gone) is a runtime
 /// failure (exit 1) with the same message and no usage text.
@@ -40,11 +40,15 @@ public enum PendingAnswer {
         of request: PendingApprovals.Request, decision: String, delivery: PendingApprovals.Delivery
     ) -> Ending {
         let fact = request.kind == .fact
+        let question = request.kind == .question
         let verb: String
         let from: String
         if fact {
             verb = decision == "keep" ? "kept as a permanent fact" : "dropped, left in its thread"
             from = request.thread.map { " (thread \($0))" } ?? ""
+        } else if question {
+            verb = decision == "decline" ? "declined" : "answered"
+            from = request.thread.map { "; thread \($0) reads it on its next turn" } ?? ""
         } else {
             verb = decision == "no" ? "denied" : "approved (\(decision))"
             from = request.thread.map { " for thread \($0)" } ?? ""
@@ -56,7 +60,9 @@ public enum PendingAnswer {
             return .failed(
                 fact
                     ? "\(request.subject) stopped waiting first; your answer was not used"
-                    : "\(request.subject) was answered another way first; your answer was not used")
+                    : question
+                        ? "\(request.thread.map { "thread \($0)" } ?? "the thread") closed first; your answer was not used"
+                        : "\(request.subject) was answered another way first; your answer was not used")
         }
     }
 

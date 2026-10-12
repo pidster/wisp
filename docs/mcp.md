@@ -134,7 +134,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 | `prompt` | string | yes | The task. Keep it short; the on-device model's window is about 8k tokens. |
 | `thread_id` | string | no | Omit to start a thread (an id is generated). Supply an unused id to name a new thread. Supply a known id to continue it. `[A-Za-z0-9._-]{1,64}`. |
 | `instructions` | string | no | Instructions for this thread, added under wisp's own system prompt and the server's configured extension; replaces the server's `--instructions` for the thread. Only when a thread starts; an error afterwards. |
-| `tools` | string[] | no | Names of wisp tools to enable. Only when a thread starts. Omitted: all but `memory`, which recalls earlier material the thread's context holds only as a reference and notes facts, and joins them when `context.memory` is on ([tools/memory.md](tools/memory.md), [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)), and `models`, which lists the models wisp can run and asks the person to pull, enable, disable, or check one, and joins them when `tools.models` is on ([tools/models.md](tools/models.md), [ADR 0059](decisions/0059-one-set-of-model-actions.md)); a list that names either gets it either way. The `models` tool is reachable only here, through the thread's model: there is no MCP tool of its own. A list is exactly that list: `["run_command"]` gives `run_command` alone, and its references say the output is not repeated and not to run the command again to see it (a tool that only reads, such as `read_file`, is told to call it again). `[]`: a text-only thread, which a model that declares no tool calling can still run; a thread that needs tools on such a model is refused with a hint before generation. |
+| `tools` | string[] | no | Names of wisp tools to enable. Only when a thread starts. Omitted: all but `memory`, which recalls earlier material the thread's context holds only as a reference and notes facts, and joins them when `context.memory` is on ([tools/memory.md](tools/memory.md), [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)), `models`, which lists the models wisp can run and asks the person to pull, enable, disable, or check one, and joins them when `tools.models` is on ([tools/models.md](tools/models.md), [ADR 0059](decisions/0059-one-set-of-model-actions.md)), and `ask`, with which the model asks the person one question mid-turn, and which joins them when `tools.ask` is on ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md), and "Questions" below); a list that names any of them gets it either way. The `models` tool is reachable only here, through the thread's model: there is no MCP tool of its own. A list is exactly that list: `["run_command"]` gives `run_command` alone, and its references say the output is not repeated and not to run the command again to see it (a tool that only reads, such as `read_file`, is told to call it again). `[]`: a text-only thread, which a model that declares no tool calling can still run; a thread that needs tools on such a model is refused with a hint before generation. |
 | `model` | string | no | `system` (default), `private-cloud` (alias `pcc`; data leaves the Mac), or `<backend>:<name>` such as `ollama:<name>`, `llamacpp:<name>`, or `lmstudio:<name>` (a model a local Ollama, llama.cpp, or LM Studio server serves), `mlx:<name>`, or `coreai:<name>` (a model wisp loads itself); `wisp models` lists them. Only when a thread starts. A model the operator disabled is refused (`model 'X' is disabled; enable it with wisp models enable X, …`), and one that is unavailable fails the call with the backend's reason; `respond` never falls back to another model, as chat does when it starts ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
 | `think` | boolean or string | no | Whether a model that can think does, for every turn of the thread: `true`, `false`, or, for an Ollama model, `low`, `medium`, `high`, or `max` ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11). Omitted: the model's configured default (`<runtime>.models.<name>.think`, else `<runtime>.think`, else the runtime's own). `false` suits a thread of fixed, quick tasks (`granite4.2:8b` matched `granite4.1:8b`'s speed on the tools with thinking off, and was 4 to 15 times slower with it on, [measurements.md](measurements.md)); `true` or a level, a complex task. Only when a thread starts; an error afterwards, as for `model`. A level is refused as the thread opens on a runtime whose switch is only on or off (llama.cpp, MLX); a model that cannot think is sent nothing. A `schema` reply on the thread asks for the thread's choice, and for no thinking when the thread made none. Shown as `think` in `wisp://threads` and `wisp://threads/{thread_id}`, and audited on each turn's `prompt`. |
 | `task` | string | no | The thread's task, in a sentence. Kept as a dynamic fact of the thread with source `caller` and shown to the model next to each request, labelled as a record ([context-management.md](context-management.md), "Facts"). Given when a thread starts or on any later call to revise it; the earlier wording stays as history in `wisp://threads/{thread_id}/facts`. A thread without it has no task, unless its model distils one from turns that leave its window or notes one with `memory "task …"`. With `assessment.enabled` on, the per-request assessment never infers a thread's task (that is chat's), never replaces the caller's, and never widens the thread's `tools`; it can register fewer of them for a request ([context-management.md](context-management.md), "The assessment per request"). An empty string is an error, as is a task for a thread that keeps no facts (`facts.enabled` false). |
@@ -143,7 +143,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
@@ -155,7 +155,7 @@ wisp posts through its own process (below, "Notifications") and tells the caller
    "reason": null, "time": "2026-10-02T09:14:03Z" }]
 ```
 
-`source` is `model` or `approval`; `outcome` is `posted` or `refused`, with `route` (`app` or `osascript`)
+`source` is `model`, `approval`, or `inquiry` (the model's question waiting for the person); `outcome` is `posted` or `refused`, with `route` (`app` or `osascript`)
 when posted and `reason` when refused (notifications off, over the per-minute limit). Empty when the turn
 posted none.
 
@@ -179,6 +179,14 @@ posted for a proposal, [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)):
 `count` is the server's, `thread` this thread's share of it, and `uri` where they are listed.
 
 `output` is the reply parsed as JSON when the call gave a `schema`, and null otherwise.
+
+`questions` lists the questions the model asked the person this turn through its `ask` tool, when the thread has
+it ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md)), each `{ "id", "question",
+"options", "turn", "state", "asked", "answer", "delivered", "parked" }`: `state` is `waiting` while it waits for
+the person, else the outcome (`answered`, `none`, `declined`, `unanswered`, `withdrawn`, …); `answer` the answer
+as the model got it; `delivered` `tool` (inside the turn) or `notice` (on a later turn, after a park); `parked`
+true when the turn ended with it waiting. Empty when the turn asked nothing. See "Questions" below: a waiting
+question is also named in the reply's text, and **the caller never answers it**.
 
 `refusals` lists every command the gate refused during the turn, as `{ "command", "reason" }`, so a
 harness can detect a refusal structurally instead of parsing the model's prose. The result is not
@@ -405,6 +413,78 @@ The audit `prompt` event carries the schema. Example:
   "schema": { "type": "object", "properties": { "language": { "type": "string", "enum": ["swift", "rust", "other"] },
               "confidence": { "type": "number" } }, "required": ["language", "confidence"] } }
 ```
+
+## Questions
+
+A thread whose `tools` name `ask`, or every tool with `tools.ask` on, lets the model ask the person one question
+mid-turn ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md)). It is not a permission
+and nothing in MCP answers it: the person does, from a terminal or `wisp-tui`, and the calling agent learns of it
+from the result.
+
+- **Asked out of band.** The question is filed in `~/.wisp/pending/<id>.question.json`, bound like an approval
+  (a SHA-256 over its id, question, options, thread, server process, creation, and expiry), and announced by one
+  notification, "wisp: the model asks" ("Which config did you mean? — wisp questions answer a1b2c3d4"), never
+  repeated. The person answers with `wisp questions answer ID` (which prompts for the text) or `wisp questions
+  decline ID` from a terminal, or in a running `wisp-tui`, which shows questions waiting in servers as pickers
+  ([wisp.md](wisp.md), "`wisp questions`"). With `approval.outOfBand` off there is no trusted way to ask, and
+  `ask` returns `no person can answer here`.
+- **The client's dialog, behind a switch.** With `inquiry.elicitation: true` and a client that advertised
+  elicitation, the question is also asked as a form: a `string` field `answer` (`maxLength` 2000) for free text,
+  an enum of the options and `none of these` for a choice; Accept with the field answers, Decline declines,
+  Cancel leaves the question waiting out of band. The first answer wins and the other way is withdrawn (the
+  dialog with `notifications/cancelled`, the file removed). **The switch is off by default** until the form has
+  been tried by hand in Claude Code (decision D8 of the ADR; the procedure is below): a text field had never been
+  sent to that dialog, and a form control once made it unresponsive ([ADR 0011](decisions/0011-risk-classifier-and-approval.md)).
+- **The call holds for 60 s, then the turn parks** (D15). An answer within the hold is the tool's result and
+  the turn goes on. Otherwise the dialog is withdrawn, the question stays filed, `ask` returns `waiting for the
+  person: "…" (question a1b2c3d4). Their answer reaches you as a note on a later turn. Do not guess it. …`, and
+  the model ends its turn. The result's text then ends with `[a question waits for the person: "…" — wisp
+  questions answer a1b2c3d4; its answer reaches thread git's next turn; do not answer it yourself]`, and
+  `structuredContent.questions` carries it with `state` `waiting` and `parked` true; the turn is audited
+  `inquiry.parked`.
+- **The answer reaches the next turn as a note.** The server watches the channel (every 200 ms); when the person
+  answers, the answer is held for the thread as a note, recorded as the thread's fact (`answer`, source
+  `person`), shown in `wisp://threads/{thread_id}` (`questions`, `state` `answered`, `delivered` `notice`), and
+  audited `inquiry.settled`; nothing is pushed to a client that may not be listening. The caller's next
+  `respond` on the thread, a bare "continue" included, carries the note ahead of its prompt: `[wisp: the person
+  answered your question "…": … (via wisp questions, 14:02)]`. A different prompt while the question still waits
+  runs as usual, with the notice `[wisp: your question "…" still waits for the person; do not assume its
+  answer]`, and a second `ask` is refused while one waits.
+- **Withdrawn** by `close_thread`, eviction, or the server stopping: the file is removed at once (close waits
+  for the turn under way, so a question held in the call must not hold it), the question is settled
+  `withdrawn`, and a later `wisp questions answer` is refused. A deadline (`inquiry.timeoutSeconds`) set and
+  passed ends it `unanswered`, inside the call or as the next turn's note.
+- **Who may answer.** The person only: nothing in the MCP conversation answers (no argument, resource, or
+  result), wisp's own model is refused `wisp questions answer|decline` by the default policy and cannot write
+  `~/.wisp` from the sandbox, and the command runs only from a terminal. The person's answer is not private from
+  the caller, which can read the thread's output, context, facts, and audit under `wisp://threads/{thread_id}`;
+  the dialogs say so.
+
+**The hand test of the elicitation form (D8).** To be run by the operator against Claude Code on this Mac before
+`inquiry.elicitation` is recommended; the out-of-band path works without it. In a terminal:
+
+```
+export WISP_HOME=/tmp/wisp-probe          # keep the probe out of ~/.wisp
+wisp config set tools.ask true
+wisp config set inquiry.elicitation true
+```
+
+Point a Claude Code project at that home (`"env": {"WISP_HOME": "/tmp/wisp-probe"}` on the `wisp` server in its
+`.mcp.json`, or export it before `claude`), reconnect wisp (`/mcp`), and ask Claude Code to call `respond` three
+times, each on a new `thread_id` with `tools: ["ask"]` and instructions that make the model ask:
+
+1. An enum: `instructions: "Use ask with question 'Which colour?' and options red, green, blue; then reply with the answer."`
+   Expect Claude Code's dialog with a picker of three and `none of these`; pick one, and the reply should carry
+   `chose: …`.
+2. A text field: `instructions: "Use ask with question 'What is the codename?' with no options; then reply with the answer."`
+   Expect a dialog with one text field; type a word, and the reply should carry `answer: …`.
+3. The withdrawal: as in 1, but leave the dialog alone for 60 s. Expect it to close by itself when the call
+   returns with `waiting for the person`, and `wisp questions pending` to list the question; answer it with
+   `wisp questions answer ID` and send "continue" on the thread, which should reply with the answer.
+
+If a dialog sticks (as the picker did in 2026-09, ADR 0011) answer it from the terminal instead: `wisp questions
+pending` names the id. Record the outcome in [ADR 0062](decisions/0062-the-inquiry-verb.md) under "Built", and
+leave the switch off in `~/.wisp/config.json` unless all three passed. `rm -rf /tmp/wisp-probe` afterwards.
 
 ## Approval
 

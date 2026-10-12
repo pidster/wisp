@@ -17,7 +17,8 @@ struct Wisp: AsyncParsableCommand {
         subcommands: [
             Respond.self, Chat.self, Tools.self, Models.self, Mcp.self, Logs.self, ConfigCommand.self,
             DoctorCommand.self,
-            Approvals.self, FactsCommand.self, Notify.self, Scan.self, Redact.self, Watch.self, Draft.self,
+            Approvals.self, FactsCommand.self, QuestionsCommand.self, Notify.self, Scan.self, Redact.self, Watch.self,
+            Draft.self,
             ClassifierCommand.self, CompletionsCommand.self,
         ],
         defaultSubcommand: Respond.self
@@ -371,7 +372,9 @@ struct Chat: AsyncParsableCommand {
         }
         let style = Style.detect(isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
         let tap = ChatEvents.Tap()
-        let host = session.host(approver: TerminalApprover(style: style), face: .terminal)
+        // The model's question (ADR 0062) is asked on the terminal too, with a read Ctrl-C and a deadline can end.
+        let host = session.host(
+            approver: TerminalApprover(style: style), face: .terminal, asker: TerminalAsker(style: style))
         // The configured model falls back to system when it is unavailable, so the person reaches /model (ADR 0056).
         let (agent, fallback) = try session.openChatAgent(
             host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
@@ -577,7 +580,8 @@ struct Chat: AsyncParsableCommand {
         }
         reader.start()
         // A front end that declares approve-mcp is shown the commands waiting in wisp mcp servers (ADR 0046),
-        // and one that declares keep-facts the facts their callers asked to keep (ADR 0048).
+        // one that declares keep-facts the facts their callers asked to keep (ADR 0048), and one that declares
+        // answer-questions the model's questions (ADR 0062).
         let relay = Task {
             while router.hello == nil, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(100)) }
             let kinds = PendingRelay.kinds(declared: router.declares)
@@ -597,7 +601,8 @@ struct Chat: AsyncParsableCommand {
             face: .frontEnd(
                 .init(
                     declared: { router.declares("notify") },
-                    send: { send(ChatProtocol.encode("notify", ChatProtocol.notify($0))) })))
+                    send: { send(ChatProtocol.encode("notify", ChatProtocol.notify($0))) })),
+            asker: JSONAsker(router: router, send: send))
         let (agent, fallback) = try session.openChatAgent(
             host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
         let views = session.introspection

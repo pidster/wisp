@@ -151,6 +151,8 @@ extension WispServer {
             throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
         }
         let base = ToolCatalog.threadURI(id)
+        // The model's questions to the person (ADR 0062), waiting and settled, while the thread is open.
+        let questions = await threads.peek(id)?.inquiries.records.map(\.json) ?? []
         return .object([
             "thread_id": .string(id), "auditSession": .string(record.auditSession),
             "model": record.model.map { .string($0) } ?? .null,
@@ -159,6 +161,7 @@ extension WispServer {
             "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
             "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
             "task": await threadTask(id),
+            "questions": .array(questions),
             "resources": .object([
                 "context": .string(base + "/context"), "contextNext": .string(base + "/context/next"),
                 "facts": .string(base + "/facts"), "summary": .string(base + "/summary"),
