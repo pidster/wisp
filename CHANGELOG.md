@@ -4,7 +4,7 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.24.0
 
 The model can ask you a question mid-turn; waiting MCP requests in plain chat; the approval banner only when the
 dialog goes unanswered; an interactive status bar in `wisp-tui`; and the risk test set grown from real use.
