@@ -4,7 +4,7 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.22.0
 
 The tool-output budget, models managed in chat by the person and the model, thinking chosen per call, Ctrl-C
 for a model's turn, and shell loops judged by what they run.
