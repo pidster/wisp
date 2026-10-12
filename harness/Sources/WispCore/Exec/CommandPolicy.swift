@@ -127,10 +127,17 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     /// Applies the deny and allow patterns to a command line. The deny patterns also run over the line's
     /// normalised spelling (`RuleRiskClassifier.normalisedForms`), so a quote or escape inside a word
     /// (`w''isp approvals approve`, `\sudo`) or `$IFS` between words hides nothing from them; the allow
-    /// patterns run over the line as written.
+    /// patterns run over the line as written. The built-in deny patterns (`defaultDeny`) are shapes of what runs, so
+    /// they read the line with the data of printing and searching programs written `''`
+    /// (`RuleRiskClassifier.Spellings`): a pattern (`grep -vE "grep|bash -c"`) or a message is not refused as a pipe
+    /// into a shell. A pattern the configuration adds reads the whole text, data included.
     public func check(_ command: String) -> Verdict {
-        let forms = [command] + RuleRiskClassifier.normalisedForms(of: command).filter { $0 != command }
-        for pattern in deny where forms.contains(where: { Self.matches(pattern, $0) }) {
+        let spellings = RuleRiskClassifier.spellings(of: command)
+        let text = [command] + [spellings.normalised].filter { $0 != command }
+        let commands = [spellings.maskedRaw] + [spellings.maskedNormalised].filter { $0 != spellings.maskedRaw }
+        let builtIn = Set(Self.defaultDeny)
+        for pattern in deny
+        where (builtIn.contains(pattern) ? commands : text).contains(where: { Self.matches(pattern, $0) }) {
             return .denied("command matches deny pattern \(pattern)")
         }
         if !allow.isEmpty, !allow.contains(where: { Self.matches($0, command) }) {

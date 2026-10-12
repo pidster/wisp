@@ -369,18 +369,30 @@ public enum CommandSplitter {
     }
 
     /// The bodies of `$(…)`, backtick, and top-level `(…)` groups in `segment`, outermost only. Quoted
-    /// text, `'…'` and `$'…'`, is skipped, and a parenthesis inside quotes does not close a group.
+    /// text, `'…'` and `$'…'`, is skipped, and a parenthesis inside quotes does not close a group. Inside `"…"`
+    /// only `$(…)` and backticks are substitutions: a `(` there is a character (`grep -E "a (b|c)"`), and so is
+    /// a `'` (`"it's $(x)"`, whose substitution is still found).
     static func substitutions(in segment: String) -> [String] {
         var bodies: [String] = []
         let chars = Array(segment)
         var index = 0
+        var inDouble = false
         while index < chars.count {
             let char = chars[index]
-            if char == "'" || (char == "$" && index + 1 < chars.count && chars[index + 1] == "'") {
+            if char == "\"" {
+                inDouble.toggle()
+                index += 1
+                continue
+            }
+            if !inDouble, char == "'" || (char == "$" && index + 1 < chars.count && chars[index + 1] == "'") {
                 index = quoteEnd(chars, from: char == "$" ? index + 1 : index)
                 continue
             }
             if char == "\\" { index += 2; continue }
+            if inDouble, char == "(" {
+                index += 1
+                continue
+            }
             if char == "`" {
                 if let close = chars[(index + 1)...].firstIndex(of: "`") {
                     bodies.append(String(chars[(index + 1)..<close]))

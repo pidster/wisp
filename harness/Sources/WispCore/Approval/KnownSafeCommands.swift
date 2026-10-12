@@ -34,7 +34,10 @@ enum KnownSafeCommands {
         #"(?:cat|head|tail|less|more|wc|file|stat|du|df|tree|ls|basename|dirname|realpath|readlink|shasum"#
             + #"|sha1sum|sha256sum|md5|md5sum|cksum|diff|cmp|strings|hexdump|od|nm|otool|size|dwarfdump|column"#
             + #"|cut|tr|comm|paste|fold|nl|rev|sort|jq|awk|grep|egrep|fgrep|rg|ag|find|mdfind|mdls|which"#
-            + #"|whereis|type|man|ps|lsof|netstat|system_profiler)"# + arguments,
+            + #"|whereis|type|man|ps|pgrep|lsof|netstat|system_profiler)"# + arguments,
+        // Formatting JSON from standard input or one file to standard output; a second file would be written.
+        #"python3?\s+-m\s+json\.tool(?:\s+--(?:sort-keys|compact|tab|no-ensure-ascii|json-lines|indent\s+\d+))*"#
+            + #"(?:\s+"# + argument + ")?",
         #"uniq(?:\s+-[A-Za-z]+)*"#,
         // Git that reads the repository.
         #"git(?:\s+--no-pager)?\s+(?:status|log|diff|show|blame|rev-parse|ls-files|ls-tree|describe|shortlog"#
@@ -98,12 +101,22 @@ enum KnownSafeCommands {
     }
 
     /// Whether `command`, one simple command, is known to be read-only.
-    static func contains(_ command: String) -> Bool {
-        var text = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.contains("$("), !text.contains("`"), !text.contains("<("), !text.contains(">(") else {
+    ///
+    /// - Parameters:
+    ///   - command: The command as written. What it names is checked against `sensitive` as written, and so is
+    ///     whether it runs a substitution.
+    ///   - masked: The command with the data arguments of printing and searching programs written `''`
+    ///     (`RuleRiskClassifier.Spellings.maskedRaw`), when the caller has it: its form, the redirections and
+    ///     pipes, and the `disqualifiers` are judged on it, so a `|` or `>` in a pattern (`grep -E "a|b"`) is not
+    ///     taken for one. Nil judges `command` as written throughout.
+    /// - Returns: Whether the command is known safe.
+    static func contains(_ command: String, masked: String? = nil) -> Bool {
+        let written = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !written.contains("$("), !written.contains("`"), !written.contains("<("), !written.contains(">(") else {
             return false
         }
-        guard !matches(sensitive, text) else { return false }
+        guard !matches(sensitive, written) else { return false }
+        var text = masked?.trimmingCharacters(in: .whitespacesAndNewlines) ?? written
         var changed = true
         while changed {
             changed = false
