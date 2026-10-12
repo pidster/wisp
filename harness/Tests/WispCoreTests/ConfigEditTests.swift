@@ -92,6 +92,17 @@ import WispTestSupport
         // A file that would not load, here an invalid policy pattern already in it, is refused.
         let broken = Data(#"{"commandPolicy": {"deny": ["("]}}"#.utf8)
         #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set("model", to: "system", in: broken) }
+        // A banner delay out of range, or not shorter than the approval's wait, is refused (ADR 0046, 2026-10-12).
+        #expect(throws: ConfigEdit.Failure.self) {
+            try ConfigEdit.set("approval.bannerDelaySeconds", to: "3601", in: nil)
+        }
+        #expect(throws: ConfigEdit.Failure.self) {
+            try ConfigEdit.set("approval.bannerDelaySeconds", to: "600", in: nil)
+        }
+        let delayed = try ConfigEdit.set("approval.bannerDelaySeconds", to: "30", in: nil)
+        #expect(delayed.new == 30 && ConfigSettings.defaultValue("approval.bannerDelaySeconds") == 10)
+        let thirty = Data(#"{"approval": {"bannerDelaySeconds": 30}}"#.utf8)
+        #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set("approval.timeoutSeconds", to: "20", in: thirty) }
         let described = "\(ConfigEdit.Failure.unknownSetting("x"))"
         #expect(described.hasPrefix("no setting 'x'; the settings are: model, models.disabled, approval.threshold"))
         #expect("\(ConfigEdit.Failure.invalidValue(path: "a", reason: "b"))" == "a: b")

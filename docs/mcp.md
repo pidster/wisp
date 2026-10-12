@@ -427,6 +427,17 @@ before its request had gone out is cancelled as soon as it does. **The calling a
 refused `wisp approvals approve|deny`, and those commands run only from a terminal. Set
 `approval.outOfBand` to `false` for the client's dialog alone, as before 0.16.0.
 
+**The notification waits for the dialog.** When the client's dialog asks too, the notification is posted only
+if the request is still waiting `approval.bannerDelaySeconds` after it was filed (default 10); answered in the
+dialog (or anywhere else) sooner, or withdrawn, it posts nothing, so a dialog the person answers at once raises no
+banner. A client without elicitation, or one whose dialog could not be sent, is told at once, since nothing else
+shows the request. `0` posts at once beside the dialog, as before 0.24.0. The delay is validated: 0 to 3600, and
+shorter than `approval.timeoutSeconds` when that is not `0`. `approval.pending` records `bannerDelaySeconds` when
+the notification waits, and `approval.settled` records `banner`, `posted` or `skipped`
+([logging.md](logging.md)). `respond`'s `notifications` lists the banner only when it was posted during the turn.
+A fact a caller asks to keep (`set_fact_scope` with `scope: permanent`) has no client dialog, so its notification
+is posted at once, as before.
+
 In the client's dialog, the command, directory, risk level, and
 reasons appear in the title, the message, and the field descriptions, because clients render different
 parts; the full command leads the description so it is never trimmed. **Accept runs the command with the

@@ -533,14 +533,24 @@ public struct Config: Codable, Equatable, Sendable {
         /// Under `wisp mcp`, whether a waiting command is also filed for `wisp approvals` and `wisp-tui`, with a
         /// notification (ADR 0046); default true.
         public var outOfBand: Bool?
+        /// Under `wisp mcp` with `outOfBand` on, the seconds a request the client's dialog also asks may wait before
+        /// its notification is posted; answered sooner, none is posted. 0 posts at once; default 10 (ADR 0046,
+        /// amended 2026-10-12).
+        public var bannerDelaySeconds: Int?
+
+        /// The seconds `bannerDelaySeconds` may be: up to an hour.
+        static let bannerDelayRange = 0...3600
+        /// What `bannerDelaySeconds` is when the file does not say.
+        static let defaultBannerDelaySeconds = 10
 
         /// Creates settings; nil fields take defaults.
         public init(
             threshold: ApprovalThreshold? = nil, classifier: RiskClassifierChoice? = nil, useModel: Bool? = nil,
             coremlModel: String? = nil, coremlMinimumConfidence: Double? = nil, timeoutSeconds: Int? = nil,
-            persistDays: Int? = nil, outOfBand: Bool? = nil
+            persistDays: Int? = nil, outOfBand: Bool? = nil, bannerDelaySeconds: Int? = nil
         ) {
             self.outOfBand = outOfBand
+            self.bannerDelaySeconds = bannerDelaySeconds
             self.threshold = threshold
             self.classifier = classifier
             self.useModel = useModel
@@ -548,6 +558,27 @@ public struct Config: Codable, Equatable, Sendable {
             self.coremlMinimumConfidence = coremlMinimumConfidence
             self.timeoutSeconds = timeoutSeconds
             self.persistDays = persistDays
+        }
+
+        /// Refuses a `bannerDelaySeconds` outside `bannerDelayRange`, or one that is not shorter than a bounded
+        /// wait (`timeoutSeconds`, default 600), since the banner would then never be posted before the request
+        /// timed out.
+        ///
+        /// - Throws: `DecodingError.dataCorrupted` naming the setting and what it takes.
+        func validate() throws {
+            guard let delay = bannerDelaySeconds else { return }
+            func fail(_ message: String) -> DecodingError {
+                .dataCorrupted(.init(codingPath: [], debugDescription: "approval: \(message)"))
+            }
+            guard Self.bannerDelayRange.contains(delay) else {
+                throw fail("bannerDelaySeconds must be between 0 and 3600 (it was \(delay))")
+            }
+            let timeout = timeoutSeconds ?? 600
+            if timeout > 0, delay >= timeout {
+                throw fail(
+                    "bannerDelaySeconds (\(delay)) must be shorter than timeoutSeconds (\(timeout)), or the request "
+                        + "times out before its notification is posted")
+            }
         }
     }
 
@@ -618,6 +649,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.facts?.validate()
         try config.context?.validate()
         try config.watch?.validate()
+        try config.approval?.validate()
         try config.validateServers()
         // The file lives in wisp's home, which places the default models directories.
         if let model = config.disabledDefault(home: Home(root: url.deletingLastPathComponent())) {
@@ -716,6 +748,7 @@ public struct Config: Codable, Equatable, Sendable {
             approvalTimeout: (approval?.timeoutSeconds ?? 600) == 0 ? nil : .seconds(approval?.timeoutSeconds ?? 600),
             approvalLifetime: .seconds((approval?.persistDays ?? 30) * 24 * 3600),
             approvalOutOfBand: approval?.outOfBand ?? true,
+            approvalBannerDelay: .seconds(approval?.bannerDelaySeconds ?? ApprovalConfig.defaultBannerDelaySeconds),
             ollama: OllamaSettings(
                 baseURL: ollama?.baseURL.flatMap(URL.init(string:)) ?? OllamaSettings.default.baseURL,
                 timeout: .seconds(ollama?.timeoutSeconds ?? 120),
@@ -799,6 +832,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var approvalLifetime: Duration
         /// Under `wisp mcp`, whether a waiting command is also filed for another face to answer.
         public var approvalOutOfBand: Bool = true
+        /// Under `wisp mcp` with `approvalOutOfBand`, how long a request the client's dialog also asks waits before
+        /// its notification is posted; zero posts at once.
+        public var approvalBannerDelay: Duration = .seconds(ApprovalConfig.defaultBannerDelaySeconds)
         /// Where Ollama is for `ollama:<name>` models.
         public var ollama: OllamaSettings
         /// Where llama.cpp's server is for `llamacpp:<name>` models, and what its models are declared to do.

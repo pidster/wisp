@@ -6,7 +6,10 @@ import Synchronization
 /// ([ADR 0046](../../../../docs/decisions/0046-approval-and-notifications-over-mcp.md)).
 ///
 /// The request is filed in `PendingApprovals`, where `wisp approvals approve|deny` and a running `wisp-tui`
-/// answer it, and the person is told by a notification naming the command and the command that answers it.
+/// answer it, and the person is told by a notification naming the command and the command that answers it. When
+/// the client's dialog asks too, the notification waits `bannerDelay` first and is not posted at all if the
+/// request is answered (or withdrawn) by then; a client with no dialog, or one whose dialog cannot be sent, is
+/// told at once, since nothing else shows the request (ADR 0046, amended 2026-10-12).
 /// The calling agent cannot answer: nothing in the MCP conversation approves. The wait is bounded by
 /// `approval.timeoutSeconds`; silence is a denial, and a cancelled call withdraws the request. Every step is
 /// audited on the asking conversation: `approval.pending`, the `notification`, and `approval.settled`.
@@ -34,6 +37,9 @@ public struct OutOfBandApprover: Approver {
     private let notify: @Sendable (Notifier.Message, AuditLog?) -> Void
     /// How often the channel is checked for an answer.
     private let poll: Duration
+    /// How long a request the client's dialog also asks may wait before the notification is posted; zero posts at
+    /// once.
+    public let bannerDelay: Duration
 
     /// Creates the approver.
     ///
@@ -44,11 +50,15 @@ public struct OutOfBandApprover: Approver {
     ///   - client: The MCP client's name.
     ///   - notify: Posts a notification (the host's routes, source `approval`).
     ///   - poll: How often to look for an answer.
+    ///   - bannerDelay: How long a request the client's dialog also asks may wait before the notification is
+    ///     posted (`approval.bannerDelaySeconds`); zero, the default, posts at once.
     public init(
         channel: PendingApprovals, timeout: Duration?, alongside: @escaping @Sendable () -> Ask? = { nil },
         client: @escaping @Sendable () -> String? = { nil },
-        notify: @escaping @Sendable (Notifier.Message, AuditLog?) -> Void, poll: Duration = .milliseconds(200)
+        notify: @escaping @Sendable (Notifier.Message, AuditLog?) -> Void, poll: Duration = .milliseconds(200),
+        bannerDelay: Duration = .zero
     ) {
+        self.bannerDelay = bannerDelay
         self.channel = channel
         self.timeout = timeout
         self.alongside = alongside
@@ -94,13 +104,20 @@ public struct OutOfBandApprover: Approver {
             case .failed(let reason): return .denied("approval request failed: \(reason)")
             }
         }
+        // With nothing else to show the request, the person is told at once; beside the client's dialog, only
+        // when the dialog has gone unanswered for the delay.
+        let delay = ask == nil ? Duration.zero : bannerDelay
         audit?.record(
             .approvalPending,
             details: AuditEvent.Details.approvalPending(
-                pending, outcome: "filed", alongside: ask == nil ? nil : "elicitation"))
-        notify(Self.message(for: pending), audit)
+                pending, outcome: "filed", alongside: ask == nil ? nil : "elicitation",
+                bannerDelay: delay > .zero ? delay : nil))
+        let message = Self.message(for: pending)
+        let notify = notify
+        let banner = DelayedNotice(after: delay) { notify(message, audit) }
         let started = Date()
-        let winner = await race(pending, request: request, ask: ask, audit: audit)
+        let winner = await race(pending, request: request, ask: ask, banner: banner, audit: audit)
+        let posted = banner.settle()
         channel.withdraw(pending)
         let seconds = Date().timeIntervalSince(started)
         let decision: ApprovalDecision
@@ -117,19 +134,20 @@ public struct OutOfBandApprover: Approver {
                 .approvalSettled,
                 details: AuditEvent.Details.approvalSettled(
                     pending, outcome: settled.0, via: settled.0 == "answered" ? via : nil, decision: settled.1,
-                    seconds: seconds))
+                    seconds: seconds, banner: posted.rawValue))
         case .abandoned:
             decision = .denied("the call was cancelled while waiting for approval")
             audit?.record(
                 .approvalSettled,
-                details: AuditEvent.Details.approvalSettled(pending, outcome: "abandoned", seconds: seconds))
+                details: AuditEvent.Details.approvalSettled(
+                    pending, outcome: "abandoned", seconds: seconds, banner: posted.rawValue))
         case .failed(let reasons):
             let reason = reasons.joined(separator: "; ")
             decision = .denied("approval request failed: \(reason)")
             audit?.record(
                 .approvalSettled,
                 details: AuditEvent.Details.approvalSettled(
-                    pending, outcome: "failed", reason: reason, seconds: seconds))
+                    pending, outcome: "failed", reason: reason, seconds: seconds, banner: posted.rawValue))
         }
         return decision
     }
@@ -210,8 +228,17 @@ public struct OutOfBandApprover: Approver {
     }
 
     /// Runs the channel's wait and, when there is one, the client's dialog, and returns the first answer.
+    ///
+    /// - Parameters:
+    ///   - pending: The filed request.
+    ///   - request: The request as the gate made it.
+    ///   - ask: The client's dialog, if any.
+    ///   - banner: The notification; posted at once if the dialog cannot be sent, since nothing else then shows it.
+    ///   - audit: The conversation's log.
+    /// - Returns: How the race ended.
     private func race(
-        _ pending: PendingApprovals.Request, request: ApprovalRequest, ask: Ask?, audit: AuditLog?
+        _ pending: PendingApprovals.Request, request: ApprovalRequest, ask: Ask?, banner: DelayedNotice,
+        audit: AuditLog?
     ) async -> Winner {
         let race = Race(legs: ask == nil ? 1 : 2)
         let channel = channel
@@ -221,7 +248,9 @@ public struct OutOfBandApprover: Approver {
             race.start {
                 switch await ask(request) {
                 case .answered(let decision): race.settle(.answered(via: "elicitation", decision))
-                case .failed(let reason): race.failed("the client's dialog: \(reason)")
+                case .failed(let reason):
+                    banner.postNow()
+                    race.failed("the client's dialog: \(reason)")
                 }
             }
         }

@@ -19,10 +19,10 @@ final class CancelledIDs: Sendable {
     /// A server whose threads use its own host, a client with or without a dialog, and a directory to work in.
     private func connected(
         steps: [ScriptedModel.Step], elicitation: (@Sendable () async throws -> CreateElicitation.Result)? = nil,
-        cancelled: CancelledIDs = .init()
+        cancelled: CancelledIDs = .init(), config: String? = nil
     ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink, channel: PendingApprovals) {
         let sink = MemoryAuditSink()
-        let session = try scratchSession(dependencies: .testing(sink: sink))
+        let session = try scratchSession(dependencies: .testing(sink: sink), config: config)
         let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
             let thread = try session.thread(id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = Agent(
@@ -159,6 +159,76 @@ final class CancelledIDs: Sendable {
         let settled = pair.sink.events.last { $0.kind == .approvalSettled }
         #expect(settled?.details["via"] == "elicitation")
         #expect(pair.channel.waiting().isEmpty)
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    /// A dialog answered at once, within `approval.bannerDelaySeconds` (here the default), posts no banner
+    /// (ADR 0046, amended 2026-10-12): nothing in `notifications`, no `notification` event, `banner` `skipped`.
+    @Test func aDialogAnsweredAtOncePostsNoBanner() async throws {
+        let (dir, steps) = try workspace()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pair = try await connected(
+            steps: steps,
+            elicitation: { CreateElicitation.Result(action: .accept, content: ["scope": .string("once")]) })
+        let result = try await call(pair.client, "respond", ["prompt": .string("go"), "thread_id": .string("quiet")])
+        let structured = try #require(result.structuredContent?.objectValue)
+        #expect(structured["notifications"] == .array([]))
+        let pending = pair.sink.events.first { $0.kind == .approvalPending }
+        #expect(pending?.details["bannerDelaySeconds"] == .double(10))
+        let settled = pair.sink.events.last { $0.kind == .approvalSettled }
+        #expect(settled?.details["via"] == "elicitation" && settled?.details["banner"] == "skipped")
+        #expect(!pair.sink.events.contains { $0.kind == .notification })
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    /// A dialog left unanswered past the delay posts the banner, and the person answers from the command line.
+    @Test func aDialogLeftUnansweredPostsTheBannerAfterTheDelay() async throws {
+        let (dir, steps) = try workspace()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pair = try await connected(
+            steps: steps,
+            elicitation: {
+                try await Task.sleep(for: .seconds(3))  // long past the delay and the command line's answer
+                return CreateElicitation.Result(action: .decline, content: nil)
+            }, config: #"{"approval": {"bannerDelaySeconds": 1}}"#)
+        let sink = pair.sink
+        let channel = pair.channel
+        let answering = Task {
+            try await eventually("the banner posted") { sink.events.contains { $0.kind == .notification } }
+            let request = try #require(channel.waiting().first)
+            try channel.answer(request.id, decision: "once", via: "cli")
+        }
+        let result = try await call(pair.client, "respond", ["prompt": .string("go"), "thread_id": .string("late")])
+        try await answering.value
+        guard case .text(let text, _, _)? = result.content.first else { Issue.record("no text"); return }
+        #expect(text.contains("exit status: 0"), "\(text)")
+        let notes = try #require(result.structuredContent?.objectValue?["notifications"]?.arrayValue)
+        #expect(notes.count == 1 && notes.first?.objectValue?["source"] == .string("approval"))
+        let thread = pair.sink.events.filter { $0.session == "late" }.map(\.kind)
+        #expect(
+            thread.filter { $0.rawValue.hasPrefix("approval") || $0 == .notification } == [
+                .approvalRequested, .approvalPending, .notification, .approvalSettled, .approvalDecided,
+            ])
+        let settled = pair.sink.events.last { $0.kind == .approvalSettled }
+        #expect(settled?.details["via"] == "cli" && settled?.details["banner"] == "posted")
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    /// A client without elicitation is told at once, whatever the delay: nothing else shows the request.
+    @Test func aClientWithoutElicitationGetsTheBannerAtOnceWhateverTheDelay() async throws {
+        let (dir, steps) = try workspace()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pair = try await connected(steps: steps, config: #"{"approval": {"bannerDelaySeconds": 300}}"#)
+        let answering = answerWhenFiled(pair.channel, "once")
+        let result = try await call(pair.client, "respond", ["prompt": .string("go"), "thread_id": .string("bare")])
+        _ = await answering.value
+        let notes = try #require(result.structuredContent?.objectValue?["notifications"]?.arrayValue)
+        #expect(notes.count == 1)
+        #expect(pair.sink.events.first { $0.kind == .approvalPending }?.details["bannerDelaySeconds"] == nil)
+        #expect(pair.sink.events.last { $0.kind == .approvalSettled }?.details["banner"] == "posted")
         await pair.client.disconnect()
         await pair.server.stop()
     }

@@ -356,7 +356,9 @@ asked.
 `Session.mcpApprover` composes `OutOfBandApprover` from the configuration: it files the request in the
 `PendingApprovals` channel (`~/.wisp/pending`, a directory of user-only files, each request bound to its
 command, directory, thread, and server process by a SHA-256), posts a notification through the MCP host's
-routes, and races two legs: a 200 ms poll of the channel for an answer file, and, when the client has it,
+routes (when the client's dialog asks too, a `DelayedNotice` posts it only once the request has waited
+`approval.bannerDelaySeconds`, and not at all if it settles first; at once when there is no dialog, or the
+dialog could not be sent; ADR 0046, amended 2026-10-12), and races two legs: a 200 ms poll of the channel for an answer file, and, when the client has it,
 the elicitation dialog. The first answer settles the race; the other leg is cancelled without being
 awaited (a dialog in flight ignores cancellation, as `Timeout` records), the request file removed or the
 dialog withdrawn with `notifications/cancelled`, whose JSON-RPC id the server's `CompatibilityTransport`
@@ -753,7 +755,8 @@ a 200 ms command watchdog never fired during a 30 s command.
   blocking waits in async code are bounded to seconds (`ChatStatus`'s git, the notifier's `osascript`), or are
   the chat's read of the person's next line, one thread for the one chat a process runs.
 - **A bound that must hold is not a `Task.sleep`.** The command watchdog and its SIGKILL grace, the person's stop
-  grace, and the deadline in `Timeout.run` (an approval's wait, the model checks' probes) are `Alarm`s: one-shot
+  grace, the deadline in `Timeout.run` (an approval's wait, the model checks' probes), and the delay before an
+  approval's banner (`DelayedNotice`, which nothing waits on) are `Alarm`s: one-shot
   timers on a serial dispatch queue, which libdispatch gives a thread of its own however busy the pool is. The
   alarm decides on time; what it resumes still needs a pool thread to carry on, but the command has been
   signalled and the wait has been refused by then. `Spawn.wait`, which blocks in `waitpid` for as long as a
