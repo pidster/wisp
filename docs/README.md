@@ -81,7 +81,7 @@
 | [decisions/0017-three-layer-instructions.md](decisions/0017-three-layer-instructions.md) | wisp's system prompt (a resource file), the operator's extension, and the caller's instructions, rendered in order |
 | [decisions/0016-local-runtimes-through-an-executor.md](decisions/0016-local-runtimes-through-an-executor.md) | Locally installed models plug in through a wisp-supplied executor; what the spike measured; `ollama:<name>` built |
 | [release.md](release.md) | How a release is cut: tag, tarball, GitHub release, Homebrew tap formula |
-| [roadmap.md](roadmap.md) | The release being made, 0.23.0, the last of the planned releases, with its items; and what is not yet scheduled |
+| [roadmap.md](roadmap.md) | The releases planned on 2026-10-01, all shipped by 0.23.0; and what is not yet scheduled, grouped by what it waits on, for choosing the next |
 | [backlog.md](backlog.md) | Agreed work not yet scheduled, and what has shipped, done and dated; the release plan is in roadmap.md |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate (with the lockfiles' MLX pins it guards), and CI |
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, llama.cpp, LM Studio, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
