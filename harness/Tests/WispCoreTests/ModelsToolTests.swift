@@ -65,7 +65,7 @@ import WispTestSupport
         let place = try ModelActionsTests.Place()
         defer { place.remove() }
         let deny = DenyingApprover(reason: "x")
-        #expect(ToolRegistry.builtInNames.last == ModelsTool.toolName)
+        #expect(ToolRegistry.builtInNames.contains(ModelsTool.toolName))
         #expect(Config().resolved.toolsModels == false && ConfigSettings.defaultValue("tools.models") == false)
         let session = try place.session(.mcp)
         #expect(!(try session.thread(id: "all", approver: deny)).tools.map(\.name).contains("models"))

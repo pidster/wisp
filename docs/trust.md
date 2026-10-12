@@ -124,6 +124,24 @@ or `wisp-tui` keeps the fact itself), until you keep or drop it; `wisp facts pen
 A caller cannot change or remove a permanent fact;
 only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
+**Who answers the model's question, and what is recorded.** Only you. With its `ask` tool (off by default;
+`tools.ask` or a tool list that names it, [tools/ask.md](tools/ask.md)) the model can ask you one question
+mid-turn: which of two files you meant, a value it cannot find. It is not a permission: no answer runs anything,
+and every command after it passes the same gate. A question that asks for a password, key, token, or code is
+refused by rule before you see it, and a credential-shaped value in an answer is replaced by a marker before the
+model, the thread, or the audit sees it, and you are told. In chat and `wisp-tui` the dialog is labelled the
+model's and waits for you as long as you take (`inquiry.timeoutSeconds` sets a deadline; `0`, the default, waits);
+Ctrl-C stops the turn. Under `wisp mcp` you are told by one notification ("wisp: the model asks") and answer with
+`wisp questions answer <id>` (which prompts for the text, so it is in neither your history nor `ps`) or `decline
+<id>` in a terminal, or in a running `wisp-tui`; the rules are the ones for approval above: nothing in the MCP
+conversation answers, the answer is bound to the exact question you were shown, wisp's own model is refused
+`wisp questions answer|decline` by the default policy, and the command runs only with a terminal on standard
+input. The turn parks after a minute and your answer reaches the thread's next turn. What is recorded: the
+question and your answer, verbatim (markers applied), in the thread's audit log (`inquiry.settled`, and the `ask`
+call's result), in the thread's record, and as a fact of the thread (`answer`, yours), never as a permanent fact
+on its own. Your answer is not private from the agent that called wisp, which can read the thread under
+`wisp://threads/{thread_id}`; the dialog says so ([ADR 0062](decisions/0062-the-inquiry-verb.md)).
+
 wisp downloads a model only when you ask for it, with `wisp models pull <organisation>/<name>` in a terminal or
 `/models pull` in chat, and answer yes after it has said which files, how many bytes, and where; or when the model,
 given its `models` tool (off by default), asks and you approve that one pull, which names the publisher, the
@@ -221,7 +239,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/.zsh/completions/_wisp`, bash-completion's or fish's per-user completions directory | the shell completion script, only when you run `wisp completions install`; it replaces only a file wisp wrote ([wisp.md](wisp.md), "`wisp completions`") | your default (umask) |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
-| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, and your answers, until taken | user-only (directory 0700, files 0600) |
+| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |

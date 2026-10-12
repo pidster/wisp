@@ -383,6 +383,8 @@ public struct ChatLoop {
                 if let show = io.view { show(view) } else { io.print(view.text) }
             case .pendingFacts(let request):
                 await pendingFacts(request)
+            case .questions(let request):
+                await questions(request)
             case .fact(let request):
                 fact(request)
             case .task(nil):

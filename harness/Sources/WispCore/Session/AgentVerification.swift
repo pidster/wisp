@@ -243,7 +243,12 @@ extension Agent {
         let names = tools.map(\.name)
         let earlier = store.continuity.earlierCalls
         let read = { [outputs] (call: TurnCalls.Call) -> String? in call.call.flatMap { outputs?.text($0) } }
-        let claims = ReplyVerification.claims(in: reply, calls: calls, tools: names, earlier: earlier, output: read)
+        // An answer delivered as a note after a park is a fact of the thread, not a call (ADR 0062).
+        let answered = allFacts.contains {
+            $0.identity.subject == FactExtraction.answerSubject && $0.source == .person && $0.state == .current
+        }
+        let claims = ReplyVerification.claims(
+            in: reply, calls: calls, tools: names, earlier: earlier, answered: answered, output: read)
         var result: Verification
         var bytes: Int?
         var model: ModelSelection?

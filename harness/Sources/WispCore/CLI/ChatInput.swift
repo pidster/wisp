@@ -50,6 +50,8 @@ public enum ChatInput: Equatable, Sendable {
     case approvals(ApprovalsRequest)
     /// List, keep, or drop the facts `wisp mcp` callers asked to keep as permanent facts (ADR 0048).
     case pendingFacts(PendingFactsRequest)
+    /// List, answer, or decline the questions the model asked under `wisp mcp` (ADR 0062).
+    case questions(QuestionsRequest)
     /// A command the person runs themselves (ADR 0049): a line that starts with `!`, with what follows it,
     /// trimmed; empty for a bare `!`, which runs nothing.
     case command(String)
@@ -173,7 +175,8 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/approvals [revoke [ID]]", about: "list standing approvals, or remove one", names: ["approvals"],
             command: { .approvals(ApprovalsRequest($0)) }),
         HelpEntry(
-            usage: "/approvals pending", about: "what waits in wisp mcp servers: commands to approve, facts to keep"),
+            usage: "/approvals pending",
+            about: "what waits in wisp mcp servers: commands to approve, facts to keep, questions to answer"),
         HelpEntry(
             usage: "/approvals approve [ID] [once|session|project|always]",
             about: "approve a command waiting in a wisp mcp server (once by default); no ID offers them"),
@@ -183,6 +186,10 @@ public enum ChatInput: Equatable, Sendable {
             about: "facts wisp mcp callers asked to keep as permanent: keep admits one as yours, drop leaves it in "
                 + "its thread",
             names: ["facts"], command: { .pendingFacts(PendingFactsRequest($0)) }),
+        HelpEntry(
+            usage: "/questions [answer [ID]|decline [ID]]",
+            about: "the model's questions waiting in wisp mcp servers: answer one, typed at a prompt, or decline it",
+            names: ["questions"], command: { .questions(QuestionsRequest($0)) }),
         HelpEntry(
             usage: "/audit [sessions|ID]",
             about: "latest audit events of every session; sessions lists them, an ID shows one",
@@ -391,6 +398,34 @@ public enum PendingFactsRequest: Equatable, Sendable {
         case "pending" where rest.isEmpty: self = .pending
         case "keep" where rest.count <= 1: self = .keep(rest.first)
         case "drop" where rest.count <= 1: self = .drop(rest.first)
+        default: self = .unknown(parts.joined(separator: " "))
+        }
+    }
+}
+
+/// What `/questions` asks for: the model's questions waiting under `wisp mcp` (ADR 0062).
+public enum QuestionsRequest: Equatable, Sendable {
+    /// The questions waiting.
+    case pending
+    /// Answer one, the answer typed at a prompt so it stays out of the history; a missing id is chosen interactively.
+    case answer(String?)
+    /// Decline one; a missing id is chosen interactively.
+    case decline(String?)
+    /// Anything else, with what was not understood.
+    case unknown(String)
+
+    /// How to use `/questions`.
+    public static let usage = "use /questions, /questions answer [ID], or /questions decline [ID]"
+
+    /// Parses what follows `/questions`.
+    public init(_ argument: String?) {
+        let parts = (argument ?? "").split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        let rest = Array(parts.dropFirst())
+        switch parts.first?.lowercased() {
+        case nil: self = .pending
+        case "pending" where rest.isEmpty: self = .pending
+        case "answer" where rest.count <= 1: self = .answer(rest.first)
+        case "decline" where rest.count <= 1: self = .decline(rest.first)
         default: self = .unknown(parts.joined(separator: " "))
         }
     }

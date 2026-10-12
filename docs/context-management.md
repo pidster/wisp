@@ -223,6 +223,14 @@ disagrees records a newer thread fact, which shows as a conflict. The model's ow
 announce nothing; `respond` counts them in `factsProposed` ([mcp.md](mcp.md), "Facts a turn recorded, and their
 scope").
 
+**The person's answers.** When the model asks the person a question through its `ask` tool
+([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md)) and they answer or choose, the
+answer is a fact of the thread, subject `answer`, named by the question (cut to 80 characters), source `person`,
+recorded through the same extraction that reads a tool's output, so condensing never loses it; declined or
+unanswered questions record nothing. Under `wisp mcp` an answer taken after the turn parked is recorded when it is
+taken, so it is in the facts of the thread's next turn beside the note that carries it. It is never a permanent
+fact on its own.
+
 **Versions and precedence.** A newer assertion about the same identity from the same source supersedes the
 older, which stays as history; one with the same value adds nothing. A value is held once: when another
 source's current fact already says it, an assertion from a source no stronger adds nothing (its own older

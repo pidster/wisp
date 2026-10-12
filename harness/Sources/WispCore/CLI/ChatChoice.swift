@@ -1,8 +1,10 @@
 import Foundation
 
 /// A question with a list of answers for a face to offer: a numbered list in the plain chat, a picker in
-/// `wisp-tui` ([ADR 0040](../../../../docs/decisions/0040-config-from-chat.md)). Only chat commands ask;
-/// the model never does.
+/// `wisp-tui` ([ADR 0040](../../../../docs/decisions/0040-config-from-chat.md)). Chat commands ask, and since
+/// [ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md) so does the model, through its `ask` tool: its
+/// choice carries `kind` `question` (`questionKind`), so a face shows it as the model's and never as a command's or
+/// an approval.
 ///
 /// A choice with toggles (`toggles`) is a table of rows each on or off, under column headings: the person moves
 /// through it, turns rows on and off, and saves the lot, and the answer is the values left on
@@ -55,6 +57,36 @@ public struct ChatChoice: Equatable, Sendable {
 
     /// For a choice with toggles, its columns; empty for a plain choice.
     public var columns: [Column] = []
+
+    /// The `kind` of a choice that is the model's question (ADR 0062).
+    public static let questionKind = "question"
+
+    /// What kind of choice it is: nil for a chat command's, `questionKind` for the model's question.
+    public var kind: String?
+
+    /// Where a question came from, when it is not this conversation's own: a `wisp mcp` server's thread, relayed to
+    /// a front end that declared `answer-questions` (ADR 0062).
+    public struct Origin: Equatable, Sendable {
+        /// The asking conversation: its audit session, or the MCP `thread_id`.
+        public var thread: String?
+        /// `mcp` for a question waiting in a `wisp mcp` server; nil for this conversation's own.
+        public var source: String?
+        /// The MCP client's name, when it gave one.
+        public var client: String?
+        /// The pending request's id, for a question waiting in a server.
+        public var request: String?
+
+        /// Creates an origin.
+        public init(thread: String? = nil, source: String? = nil, client: String? = nil, request: String? = nil) {
+            self.thread = thread
+            self.source = source
+            self.client = client
+            self.request = request
+        }
+    }
+
+    /// The question's origin; nil for a chat command's choice.
+    public var origin: Origin?
 
     /// Whether the rows are toggled on and off and saved together, rather than one picked.
     public var toggles: Bool { options.contains { $0.on != nil } }

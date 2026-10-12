@@ -94,6 +94,10 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case approvalPending
         case approvalAnswered
         case approvalSettled
+        case inquiryRequested
+        case inquiryParked
+        case inquiryAnswered
+        case inquirySettled
         case condensation
         case presentationCut
         case outputReferenced
@@ -148,6 +152,10 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .approvalPending,
             .approvalAnswered,
             .approvalSettled,
+            .inquiryRequested,
+            .inquiryParked,
+            .inquiryAnswered,
+            .inquirySettled,
             .condensation,
             .presentationCut,
             .outputReferenced,
@@ -202,6 +210,10 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .approvalPending: "approval.pending"
             case .approvalAnswered: "approval.answered"
             case .approvalSettled: "approval.settled"
+            case .inquiryRequested: "inquiry.requested"
+            case .inquiryParked: "inquiry.parked"
+            case .inquiryAnswered: "inquiry.answered"
+            case .inquirySettled: "inquiry.settled"
             case .condensation: "context.condensation"
             case .presentationCut: "context.cut"
             case .outputReferenced: "context.reference"

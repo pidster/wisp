@@ -260,6 +260,142 @@ import WispTestSupport
         #expect(capture.noted.filter { $0 == ChatLoop.notWatched }.count == 3)
     }
 
+    @Test func aQuestionIsNotedAndAnsweredWithTheAnswerTypedAtAPrompt() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let channel = PendingApprovals(directory: dir.appending(path: "pending"))
+        let choice = PendingApprovals.request(
+            asking: Question(text: "Which config?", options: ["~/.wisp", "./wisp.json"], thread: "git"),
+            client: "claude-code")
+        try channel.file(choice)
+        let server = serve(channel, choice)
+        let sink = MemoryAuditSink()
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()),
+            audit: AuditLog(session: "chat", sink: sink))
+        var context = ChatLoopTests.context
+        context.pending = watcher(channel)
+        // A word that is no option is asked again; then the second option by number.
+        let capture = ChatLoopTests.Capture(lines: [
+            "/approvals pending", "/questions answer \(choice.id)", "neither", "2", "quit",
+        ])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        let answer = await server.value
+        #expect(answer?.decision == "chose" && answer?.text == "./wisp.json" && answer?.via == "chat")
+        let notes = capture.noted
+        #expect(
+            notes.contains(
+                "? \(choice.id) waiting in wisp mcp (claude-code, thread git): the model asks: Which config? "
+                    + "(~/.wisp | ./wisp.json)"), "\(notes)")
+        #expect(
+            notes.contains(
+                "  answer with /questions answer ID, which prompts for the answer, or /questions decline ID"))
+        #expect(notes.contains("answered: Which config?; thread git reads it on its next turn"), "\(notes)")
+        let out = capture.output
+        #expect(out.contains("? the model asks") && out.contains("type a number from 1 to 3"), "\(out)")
+        #expect(out.contains(choice.id), "/approvals pending lists the question: \(out)")
+        let event = try #require(sink.events.last { $0.kind == .inquiryAnswered })
+        #expect(event.details["inquiry"] == .string(choice.id))
+        #expect(event.details["via"] == "chat" && event.details["delivery"] == "taken")
+        #expect(!sink.events.contains { $0.kind == .approvalAnswered }, "a question is not an approval")
+    }
+
+    @Test func aFreeTextQuestionIsAnsweredAndAnotherDeclined() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let channel = PendingApprovals(directory: dir.appending(path: "pending"))
+        let codename = PendingApprovals.request(asking: Question(text: "Codename?", thread: "docs"), client: nil)
+        let mascot = PendingApprovals.request(asking: Question(text: "Mascot?", thread: "docs"), client: nil)
+        try channel.file(codename)
+        try channel.file(mascot)
+        let first = serve(channel, codename)
+        let second = serve(channel, mascot)
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
+        var context = ChatLoopTests.context
+        context.pending = watcher(channel)
+        // An empty line writes nothing; the free-text answer is the line typed; decline with no id chooses.
+        let capture = ChatLoopTests.Capture(lines: [
+            "/questions answer \(codename.id)", "", "/questions answer \(codename.id)", "BLUE HERON",
+            "/questions decline", "1", "/questions", "/questions frob", "quit",
+        ])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        let answered = await first.value
+        #expect(answered?.decision == "answer" && answered?.text == "BLUE HERON")
+        #expect(await second.value?.decision == "decline")
+        let notes = capture.noted
+        #expect(notes.contains("no answer written; /questions decline \(codename.id) declines it"), "\(notes)")
+        #expect(notes.contains("declined: Mascot?; thread docs reads it on its next turn"), "\(notes)")
+        #expect(notes.contains("no questions waiting"), "\(notes)")
+        #expect(notes.contains("unknown /questions frob; \(QuestionsRequest.usage)"), "\(notes)")
+        #expect(capture.output.contains("Which question is declined?"))
+    }
+
+    @Test func aQuestionSettledElsewhereIsReportedOnceAndOnlyAPersonsChatAnswers() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let channel = PendingApprovals(directory: dir.appending(path: "pending"))
+        let auditFile = dir.appending(path: "audit.jsonl")
+        let server = AuditLog(session: "mcp", sink: try FileAuditSink(url: auditFile))
+        let pending = watcher(channel, auditFile: auditFile)
+        let question = Question(text: "Codename?", thread: "git")
+        let request = PendingApprovals.request(asking: question, client: nil)
+        try channel.file(request)
+        #expect(pending.notes().count == 2)
+        // A chat whose input is not a terminal neither prompts nor answers, and says where to answer.
+        let piped = watcher(channel, canAnswer: false)
+        #expect(piped.notes().contains("  answer in wisp-tui, or with wisp questions answer ID from a terminal"))
+        let refused = await piped.answer(request.id, decision: "decline", audit: nil)
+        guard case .failed(let message) = refused, message.contains("not a terminal") else {
+            Issue.record("answered: \(refused)")
+            return
+        }
+        #expect(channel.delivery(of: request.id) == .waiting && channel.isFiled(request))
+        // Answered with wisp questions, the server records how it ended.
+        try channel.answer(request.id, decision: "answer", text: "BLUE HERON", via: "cli")
+        guard case .answer? = channel.take(request) else {
+            Issue.record("no answer")
+            return
+        }
+        server.record(
+            .inquirySettled,
+            details: AuditEvent.Details.inquirySettled(
+                question, outcome: .answered("BLUE HERON"), via: "cli", delivered: "notice", redacted: []))
+        #expect(pending.notes() == ["· \(request.id) no longer waiting: answered in wisp questions (Codename?)"])
+        #expect(pending.notes().isEmpty, "reported once")
+        #expect(ChatPending.questionEnding(["outcome": "declined", "via": "tui"]) == "declined in wisp-tui")
+        #expect(ChatPending.questionEnding(["outcome": "withdrawn"]) == "withdrawn")
+    }
+
+    @Test func wispTuisInputPointsToItsPickerToAnswerAQuestion() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let channel = PendingApprovals(directory: dir.appending(path: "pending"))
+        let request = PendingApprovals.request(asking: Question(text: "Codename?", thread: "git"), client: nil)
+        try channel.file(request)
+        let server = serve(channel, request)
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
+        var context = ChatLoopTests.context
+        context.pending = ChatPending(
+            channel: channel, facts: nil, auditFile: nil, canAnswer: true, shows: false, via: "tui",
+            patience: .seconds(2))
+        let capture = ChatLoopTests.Capture(lines: [
+            "/questions answer \(request.id)", "/questions decline \(request.id)", "quit",
+        ])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        let answer = await server.value
+        #expect(answer?.decision == "decline" && answer?.via == "tui")
+        #expect(capture.noted.contains { $0.contains("open in wisp-tui's picker") }, "\(capture.noted)")
+        #expect(!capture.output.contains("? the model asks"), "the picker asks, not the input")
+    }
+
     @Test func theCommandsParseAndComplete() {
         #expect(ChatInput(line: "/approvals pending") == .approvals(.pending))
         #expect(ChatInput(line: "/approvals approve ab12") == .approvals(.approve("ab12", scope: .once)))
@@ -283,6 +419,15 @@ import WispTestSupport
         #expect(complete("/facts ") == ["drop", "keep", "pending"])
         #expect(complete("/facts keep ") == ["ef56"])
         #expect(complete("/fa") == ["/fact", "/facts"])
+        #expect(ChatInput(line: "/questions") == .questions(.pending))
+        #expect(ChatInput(line: "/questions answer ab12") == .questions(.answer("ab12")))
+        #expect(ChatInput(line: "/questions decline") == .questions(.decline(nil)))
+        #expect(ChatInput(line: "/questions answer a b") == .questions(.unknown("answer a b")))
+        let questions = { (text: String) in ChatCompletion.complete(text, pendingQuestions: ["gh78"]).candidates }
+        #expect(questions("/questions ") == ["answer", "decline", "pending"])
+        #expect(questions("/questions answer ") == ["gh78"])
+        #expect(questions("/questions decline g") == ["gh78"])
+        #expect(complete("/qu") == ["/questions", "/quit"])
         #expect(ChatInput.helpText.contains("/approvals approve [ID] [once|session|project|always]"))
     }
 }

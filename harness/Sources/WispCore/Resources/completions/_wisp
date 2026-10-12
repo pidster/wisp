@@ -61,6 +61,7 @@ _wisp() {
             'doctor:Check that wisp can run on this Mac.'
             'approvals:Show or revoke standing command approvals, and answer commands waiting for approval.'
             'facts:Answer requests to keep a fact as a permanent fact.'
+            'questions:Answer the model'\''s questions waiting under wisp mcp.'
             'notify:Show a macOS notification.'
             'scan:Scan text for credentials and personal data.'
             'redact:Redact credentials and personal data from text.'
@@ -74,7 +75,7 @@ _wisp() {
         ;;
     arg)
         case "${words[1]}" in
-        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|notify|scan|redact|watch|draft|classifier|completions|help)
+        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|notify|scan|redact|watch|draft|classifier|completions|help)
             "_wisp_${words[1]}" && ret=0
             ;;
         esac
@@ -534,6 +535,71 @@ _wisp_facts_drop() {
     local -i ret=1
     local -ar arg_specs=(
         ':id:{__wisp_custom_complete ---completion facts drop -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_questions() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+        '(-): :->command'
+        '(-)*:: :->arg'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+    case "${state}" in
+    command)
+        local -ar subcommands=(
+            'pending:List the model'\''s questions waiting in wisp mcp servers.'
+            'answer:Answer one of the model'\''s questions, from a terminal; the answer is typed at a prompt.'
+            'decline:Decline to answer one of the model'\''s questions.'
+        )
+        _describe -V subcommand subcommands && ret=0
+        ;;
+    arg)
+        case "${words[1]}" in
+        pending|answer|decline)
+            "_wisp_questions_${words[1]}" && ret=0
+            ;;
+        esac
+        ;;
+    esac
+
+    return "${ret}"
+}
+
+_wisp_questions_pending() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_questions_answer() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion questions answer -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_questions_decline() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion questions decline -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

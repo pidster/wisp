@@ -5,8 +5,10 @@ import Foundation
 /// The channel through which a question asked under `wisp mcp` is answered from another of wisp's faces
 /// ([ADR 0046](../../../../docs/decisions/0046-approval-and-notifications-over-mcp.md)). It carries two kinds of
 /// request: a command waiting for approval, answered by `wisp approvals approve|deny` or a running `wisp-tui`;
-/// and a fact a caller asked to keep as a permanent fact, answered by `wisp facts keep|drop` or `wisp-tui`
-/// ([ADR 0048](../../../../docs/decisions/0048-permanent-facts-over-mcp.md)). One directory and one way of
+/// a fact a caller asked to keep as a permanent fact, answered by `wisp facts keep|drop` or `wisp-tui`
+/// ([ADR 0048](../../../../docs/decisions/0048-permanent-facts-over-mcp.md)); and a question the model asked the
+/// person through its `ask` tool, answered by `wisp questions answer|decline` or `wisp-tui`
+/// ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). One directory and one way of
 /// filing, binding, answering, and sweeping; the kind sets the file name, the fields bound, and the answers
 /// allowed.
 ///
@@ -31,25 +33,31 @@ import Foundation
 /// once: the id is fresh for every request, and taking the answer deletes both files.
 public struct PendingApprovals: Sendable {
     /// What a request asks.
-    public enum Kind: String, Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Equatable, Sendable, CaseIterable {
         /// A command waiting for approval: answered `once`, `session`, `project`, `always`, or `no`.
         case command
         /// A fact a caller asked to keep as a permanent fact: answered `keep` or `drop`.
         case fact
+        /// A question the model asked the person (ADR 0062): answered `answer` or `chose` with the answer's `text`,
+        /// `none` (none of the options), or `decline`.
+        case question
 
         /// The answers a request of this kind takes.
         public var decisions: [String] {
             switch self {
             case .command: ["once", "session", "project", "always", "no"]
             case .fact: ["keep", "drop"]
+            case .question: ["answer", "chose", "none", "decline"]
             }
         }
 
-        /// The suffix of its request file.
+        /// The suffix of its request file. Each kind's is its own, so a `wisp` from before the kind, which lists
+        /// the suffixes it knows, never sees one.
         var suffix: String {
             switch self {
             case .command: ".request.json"
             case .fact: ".fact.json"
+            case .question: ".question.json"
             }
         }
     }
@@ -88,6 +96,10 @@ public struct PendingApprovals: Sendable {
         public var kind: Kind = .command
         /// The fact to keep, for a fact request; nil for a command.
         public var fact: ProposedFact?
+        /// The question, for a question request (ADR 0062); nil otherwise.
+        public var question: String?
+        /// The question's options, for a question request; empty for free text, nil otherwise.
+        public var options: [String]?
         /// The simple command being approved; empty for a fact.
         public var command: String
         /// The whole line it is part of; empty for a fact.
@@ -122,6 +134,11 @@ public struct PendingApprovals: Sendable {
             if kind == .fact {
                 return PendingApprovals.binding(fact: fact, id: id, thread: thread, pid: pid, createdAt: createdAt)
             }
+            if kind == .question {
+                return PendingApprovals.binding(
+                    question: question ?? "", options: options ?? [], id: id, thread: thread, pid: pid,
+                    createdAt: createdAt, expiresAt: expiresAt)
+            }
             let base = PendingApprovals.binding(
                 id: id, command: command, line: line, pattern: pattern, directory: directory, level: level,
                 thread: thread, pid: pid, createdAt: createdAt)
@@ -129,8 +146,16 @@ public struct PendingApprovals: Sendable {
             return PendingApprovals.binding(base: base, reasons: reasons, expiresAt: expiresAt)
         }
 
-        /// What it asks about, for a person: the command, or the fact as one line.
-        public var subject: String { fact?.text ?? command }
+        /// What it asks about, for a person: the command, the fact as one line, or the question.
+        public var subject: String { fact?.text ?? question ?? command }
+
+        /// The question a question request asks, as `Question`, or nil for another kind.
+        public var asked: Question? {
+            guard kind == .question else { return nil }
+            return Question(
+                id: id, text: question ?? "", options: options ?? [], thread: thread,
+                timeout: expiresAt.map { .seconds(max(0, Int($0.timeIntervalSince(createdAt)))) })
+        }
     }
 
     /// An answer to a request, written by the process the person answered in.
@@ -139,8 +164,11 @@ public struct PendingApprovals: Sendable {
         public var id: String
         /// The binding the answering process computed from what it showed.
         public var binding: String
-        /// `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact.
+        /// `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact; `answer`,
+        /// `chose`, `none`, or `decline` for a question.
         public var decision: String
+        /// For a question answered `answer` or `chose`: the text, or the option (ADR 0062). Nil otherwise.
+        public var text: String?
         /// Where the person answered: `cli` or `tui`.
         public var via: String
         /// The answering process.
@@ -176,11 +204,14 @@ public struct PendingApprovals: Sendable {
             case .answered(let id): "pending request \(id) already has an answer"
             case .stale(let id): "pending request \(id) is no longer waiting: its wait expired or its server stopped"
             case .invalidDecision(let text):
-                "'\(text)' is not once, session, project, always, or no (a command), or keep or drop (a fact)"
+                "'\(text)' is not once, session, project, always, or no (a command), keep or drop (a fact), or "
+                    + "answer, chose, none, or decline (a question)"
             case .otherKind(let id, .fact):
                 "pending request \(id) is a fact to keep, not a command; answer it with wisp facts keep or drop"
             case .otherKind(let id, .command):
                 "pending request \(id) is a command waiting for approval; answer it with wisp approvals approve or deny"
+            case .otherKind(let id, .question):
+                "pending request \(id) is a question the model asked; answer it with wisp questions answer or decline"
             case .unsafeDirectory(let detail): "the pending directory is not safe to use: \(detail)"
             case .io(let detail): detail
             }
@@ -258,6 +289,19 @@ public struct PendingApprovals: Sendable {
         ])
     }
 
+    /// The binding of a question request (ADR 0062), led by the kind: its id, question, options, thread, server
+    /// process, creation, and expiry, so an answer applies only to the question the person was shown.
+    static func binding(
+        question: String, options: [String], id: String, thread: String?, pid: Int32, createdAt: Date,
+        expiresAt: Date?
+    ) -> String {
+        hash([
+            .string(Kind.question.rawValue), .string(id), .string(question), .array(options.map(JSONValue.string)),
+            .string(thread ?? ""), .int(Int(pid)), .int(Int(createdAt.timeIntervalSince1970)),
+            expiresAt.map { .int(Int($0.timeIntervalSince1970)) } ?? .null,
+        ])
+    }
+
     /// A request for `approval`, bound and ready to file.
     ///
     /// - Parameters:
@@ -306,6 +350,29 @@ public struct PendingApprovals: Sendable {
             binding: binding(fact: fact, id: id, thread: thread, pid: pid, createdAt: created))
     }
 
+    /// A question request: the person is asked `question` (ADR 0062).
+    ///
+    /// - Parameters:
+    ///   - question: The question, whose `timeout` sets the expiry (none by default).
+    ///   - client: The MCP client's name.
+    ///   - pid: The waiting process.
+    ///   - now: The time, truncated to the second so the binding survives the file's date format.
+    /// - Returns: The request, under the question's own id.
+    public static func request(
+        asking question: Question, client: String?, pid: Int32 = getpid(), now: Date = Date()
+    ) -> Request {
+        let created = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
+        let expires = question.timeout.map { created.addingTimeInterval(TimeInterval($0.components.seconds)) }
+        var request = Request(
+            id: question.id, kind: .question, fact: nil, command: "", line: "", pattern: "", directory: "",
+            level: .safe, reasons: [], thread: question.thread, client: client, pid: pid, createdAt: created,
+            expiresAt: expires, binding: "")
+        request.question = question.text
+        request.options = question.options
+        request.binding = request.expectedBinding
+        return request
+    }
+
     /// The file a request of `kind` with `id` is filed in.
     private func requestFile(_ id: String, _ kind: Kind) -> URL { directory.appending(path: "\(id)\(kind.suffix)") }
     /// The file `request` is filed in.
@@ -313,14 +380,14 @@ public struct PendingApprovals: Sendable {
     /// The answer file for `id`, whatever its kind.
     private func answerFile(_ id: String) -> URL { directory.appending(path: "\(id).answer.json") }
 
-    /// Whether a request of either kind is filed under `id`.
+    /// Whether a request of any kind is filed under `id`.
     private func hasRequestFile(_ id: String) -> Bool {
-        [Kind.command, .fact].contains { FileManager.default.fileExists(atPath: requestFile(id, $0).path) }
+        Kind.allCases.contains { FileManager.default.fileExists(atPath: requestFile(id, $0).path) }
     }
 
-    /// Whether `name` is a request file of either kind.
+    /// Whether `name` is a request file of any kind.
     private static func isRequestFile(_ name: String) -> Bool {
-        name.hasSuffix(Kind.command.suffix) || name.hasSuffix(Kind.fact.suffix)
+        Kind.allCases.contains { name.hasSuffix($0.suffix) }
     }
 
     /// Whether `id` could name a request file: lowercase hex, so it never reaches outside the directory.
@@ -435,8 +502,25 @@ public struct PendingApprovals: Sendable {
         guard request.kind.decisions.contains(answer.decision) else {
             return .rejected("the answer's decision '\(answer.decision)' is not one wisp knows")
         }
+        if let problem = Self.problem(with: answer, to: request) { return .rejected(problem) }
         unlink(requestFile(request).path)
         return .answer(answer)
+    }
+
+    /// What is wrong with `answer` for a question `request` (ADR 0062), or nil: `answer` needs text, `chose` one of
+    /// the options, and `none` and `decline` nothing; a free-text question takes no `chose`.
+    static func problem(with answer: Answer, to request: Request) -> String? {
+        guard request.kind == .question else { return nil }
+        let text = answer.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch answer.decision {
+        case "answer":
+            if !(request.options ?? []).isEmpty { return "a choice is answered with chose, none, or decline" }
+            return text.isEmpty ? "an answer needs text" : nil
+        case "chose":
+            return (request.options ?? []).contains(text) ? nil : "'\(text)' is not one of the options"
+        default:
+            return nil
+        }
     }
 
     /// Removes `request`: it was answered another way, timed out, or was abandoned. An answer written after
@@ -447,12 +531,12 @@ public struct PendingApprovals: Sendable {
 
     // MARK: Listing and answering
 
-    /// The request with `id` as filed, of either kind, whatever its state.
+    /// The request with `id` as filed, of any kind, whatever its state.
     ///
     /// - Throws: `Failure.unknown` when there is none or the id is malformed.
     public func request(id: String) throws -> Request {
         guard Self.isValidID(id) else { throw Failure.unknown(id) }
-        for kind in [Kind.command, .fact] {
+        for kind in Kind.allCases {
             if let data = FileManager.default.contents(atPath: requestFile(id, kind).path),
                 let request = try? Self.decoder.decode(Request.self, from: data), request.kind == kind
             {
@@ -462,7 +546,7 @@ public struct PendingApprovals: Sendable {
         throw Failure.unknown(id)
     }
 
-    /// Every request file that decodes, of either kind, oldest first.
+    /// Every request file that decodes, of any kind, oldest first.
     private func all() -> [Request] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         return names.filter(Self.isRequestFile)
@@ -471,13 +555,14 @@ public struct PendingApprovals: Sendable {
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
     }
 
-    /// Whether `request` is stale at `now`: its wait has expired, or, for a command, its server has gone. A fact
-    /// request is filed with no expiry and outlives its server (ADR 0048, amended 2026-10-12): keeping a fact
-    /// needs no live thread, so the face the person answers in applies the answer (`FactKeeper.settleUnwatched`).
-    /// One filed with an expiry, as wisp 0.22.0 and earlier filed them, still expires.
+    /// Whether `request` is stale at `now`: its wait has expired, or, for a command or a question, its server has
+    /// gone (only that thread can take a question's answer, ADR 0062). A fact request is filed with no expiry and
+    /// outlives its server (ADR 0048, amended 2026-10-12): keeping a fact needs no live thread, so the face the
+    /// person answers in applies the answer (`FactKeeper.settleUnwatched`). One filed with an expiry, as wisp
+    /// 0.22.0 and earlier filed them, still expires.
     static func isStale(_ request: Request, now: Date, alive: (Int32) -> Bool) -> Bool {
         if let expires = request.expiresAt, expires < now { return true }
-        return request.kind == .command && !alive(request.pid)
+        return request.kind != .fact && !alive(request.pid)
     }
 
     /// The requests still waiting, oldest first; stale ones are left for `sweep`.
@@ -493,7 +578,7 @@ public struct PendingApprovals: Sendable {
         all().filter { (kind == nil || $0.kind == kind) && !Self.isStale($0, now: now, alive: alive) }
     }
 
-    /// Removes stale requests of both kinds, answers left without a request for more than a minute, temporary
+    /// Removes stale requests of every kind, answers left without a request for more than a minute, temporary
     /// files left by a crash, and files that do not decode.
     ///
     /// - Parameters:
@@ -535,19 +620,21 @@ public struct PendingApprovals: Sendable {
     ///
     /// - Parameters:
     ///   - id: The request.
-    ///   - decision: `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact.
+    ///   - decision: `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact;
+    ///     `answer`, `chose`, `none`, or `decline` for a question.
+    ///   - text: For a question answered `answer` or `chose`, the text or the option.
     ///   - via: Where the person answered: `cli` or `tui`.
     ///   - now: The time.
     ///   - alive: Whether a process is running.
     /// - Returns: The request answered, as it was shown.
-    /// - Throws: `Failure`: unknown, stale, altered, already answered, an invalid decision, a decision for the
-    ///   other kind, or a write error.
+    /// - Throws: `Failure`: unknown, stale, altered, already answered, an invalid decision, a decision for
+    ///   another kind, an answer that does not fit the question, or a write error.
     @discardableResult
     public func answer(
-        _ id: String, decision: String, via: String, now: Date = Date(),
+        _ id: String, decision: String, text: String? = nil, via: String, now: Date = Date(),
         alive: (Int32) -> Bool = PendingApprovals.isAlive
     ) throws -> Request {
-        guard Kind.command.decisions.contains(decision) || Kind.fact.decisions.contains(decision) else {
+        guard Kind.allCases.contains(where: { $0.decisions.contains(decision) }) else {
             throw Failure.invalidDecision(decision)
         }
         let request = try request(id: id)
@@ -557,8 +644,11 @@ public struct PendingApprovals: Sendable {
         guard binding == request.binding else { throw Failure.altered(id) }
         try ensureDirectory()
         let answer = Answer(
-            id: id, binding: binding, decision: decision, via: via, pid: getpid(),
+            id: id, binding: binding, decision: decision, text: text, via: via, pid: getpid(),
             answeredAt: Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down)))
+        if let problem = Self.problem(with: answer, to: request) {
+            throw Failure.invalidDecision("\(decision)\(text.map { " \($0)" } ?? ""): \(problem)")
+        }
         let data: Data
         do { data = try Self.encoder.encode(answer) } catch { throw Failure.io("\(error)") }
         guard try write(data, to: answerFile(id), exclusive: true) else { throw Failure.answered(id) }
@@ -603,6 +693,8 @@ extension PendingApprovals.Request {
         id = try container.decode(String.self, forKey: .id)
         kind = try container.decodeIfPresent(PendingApprovals.Kind.self, forKey: .kind) ?? .command
         fact = try container.decodeIfPresent(PendingApprovals.ProposedFact.self, forKey: .fact)
+        question = try container.decodeIfPresent(String.self, forKey: .question)
+        options = try container.decodeIfPresent([String].self, forKey: .options)
         command = try container.decode(String.self, forKey: .command)
         line = try container.decode(String.self, forKey: .line)
         pattern = try container.decode(String.self, forKey: .pattern)

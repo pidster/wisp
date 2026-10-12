@@ -334,14 +334,14 @@ public struct Session: Sendable {
     }
 
     /// The whole registry for `.all` (without `memory` unless `context.memory` is on, nor `models` unless `tools.models`
-    /// is), or the names as given once each is known.
+    /// is, nor `ask` unless `tools.ask` is), or the names as given once each is known.
     ///
     /// - Throws: `Failure.unknownTools`.
     private static func resolve(_ selection: ToolSelection, config: Config.Resolved) throws -> [String] {
         let registry = ToolRegistry(
             runner: config.runner, disabled: config.disabledTools, custom: config.customTools)
         let names = selection.resolved(
-            or: registry.defaultNames(memory: config.contextMemory, models: config.toolsModels))
+            or: registry.defaultNames(memory: config.contextMemory, models: config.toolsModels, ask: config.toolsAsk))
         let unknown = registry.select(names).unknown
         guard unknown.isEmpty else { throw Failure.unknownTools(unknown) }
         return names
@@ -355,14 +355,40 @@ public struct Session: Sendable {
     ///   - approver: How the face asks a human.
     ///   - face: Which face, for the notification routes; `.headless` has only the process routes.
     ///   - only: A single notification route, for `wisp notify --route`.
+    ///   - asker: How the face asks the model's question (ADR 0062); nil means nobody can answer here.
     /// - Returns: The host.
     public func host(
-        approver: any Approver, face: NotificationRoutes.Face = .headless, only: NotificationRoute? = nil
+        approver: any Approver, face: NotificationRoutes.Face = .headless, only: NotificationRoute? = nil,
+        asker: (any Asker)? = nil
     ) -> SessionHost {
         SessionHost(
             approver: approver, notifier: notifier,
             notifications: NotificationRoutes(
-                face: face, viaTerminalApp: config.notificationsViaTerminalApp, only: only))
+                face: face, viaTerminalApp: config.notificationsViaTerminalApp, only: only),
+            asker: asker ?? NobodyAsker(face: "wisp \(entryPoint.rawValue)"))
+    }
+
+    /// The asker for `wisp mcp` (ADR 0062): with `approval.outOfBand` on, the model's question is filed in the home's
+    /// `pending/` channel for `wisp questions` and `wisp-tui`, announced by one notification through the MCP face's
+    /// routes, and, with `inquiry.elicitation` on and the client able, asked through `elicitation` too, the first
+    /// answer winning; the call holds for 60 s and then the turn parks. With `approval.outOfBand` off nobody can be
+    /// asked: the elicitation form is not trusted alone until the hand test of D8.
+    ///
+    /// - Parameters:
+    ///   - elicitation: The client's dialog now, or nil when it has none; consulted only with `inquiry.elicitation`.
+    ///   - client: The client's name.
+    ///   - hold: How long a call holds the dialog before the turn parks; 60 s unless a test shortens it.
+    /// - Returns: The asker.
+    public func mcpAsker(
+        elicitation: @escaping @Sendable () -> OutOfBandAsker.Ask?, client: @escaping @Sendable () -> String? = { nil },
+        hold: Duration = OutOfBandAsker.hold
+    ) -> any Asker {
+        guard config.approvalOutOfBand else { return NobodyAsker(face: "wisp mcp with approval.outOfBand off") }
+        let host = host(approver: DenyingApprover(reason: "not asked here"), face: .mcp)
+        let switched = config.inquiryElicitation
+        return OutOfBandAsker(
+            channel: PendingApprovals(home: home), alongside: { switched ? elicitation() : nil }, client: client,
+            notify: { message, audit in host.notify(message, source: .inquiry, audit: audit) }, hold: hold)
     }
 
     /// The approver for `wisp mcp` (ADR 0046): with `approval.outOfBand` on, a waiting command is filed in the

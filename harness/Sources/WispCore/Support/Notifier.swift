@@ -42,6 +42,8 @@ public final class Notifier: Sendable {
         case watch
         /// `wisp mcp`, when a command waits for the person's approval (ADR 0046).
         case approval
+        /// `wisp mcp`, when the model's question waits for the person (ADR 0062).
+        case inquiry
     }
 
     /// What happened to one request.

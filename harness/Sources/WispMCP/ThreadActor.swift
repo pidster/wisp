@@ -56,6 +56,14 @@ public protocol RespondingThread: Sendable {
     /// - Returns: The fact as it now stands.
     /// - Throws: `FactFailure`.
     func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact
+
+    /// Records the person's answer to the model's question, delivered after the turn parked, as the thread's fact
+    /// (`Agent.recordAnswer`, ADR 0062).
+    ///
+    /// - Parameters:
+    ///   - question: The question.
+    ///   - answer: The answer.
+    func recordAnswer(to question: Question, answer: String) async
 }
 
 extension RespondingThread {
@@ -86,6 +94,9 @@ extension RespondingThread {
     public func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
         throw FactFailure.off
     }
+
+    /// Nothing: a thread without a thread record keeps no facts.
+    public func recordAnswer(to question: Question, answer: String) async {}
 }
 
 /// One thread with the on-device model, addressable by id across MCP calls.
@@ -135,6 +146,11 @@ public actor ThreadActor: RespondingThread {
     /// Leaves the fact in its thread on the person's answer.
     public func dropAsked(_ shown: PendingApprovals.ProposedFact, request: String) async throws -> Fact {
         try agent.dropAsked(shown, request: request)
+    }
+
+    /// Records the answer as the person's fact.
+    public func recordAnswer(to question: Question, answer: String) async {
+        agent.recordAnswer(to: question, answer: answer)
     }
 
     /// The agent's running summary's versions, or nil when it keeps no facts.

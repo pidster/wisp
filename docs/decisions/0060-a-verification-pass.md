@@ -1,7 +1,9 @@
 # ADR 0060: A verification pass
 
 Date: 2026-10-12. Status: accepted. The model step was measured the same day and stays off by default
-("Measured, 2026-10-12", below). Settles the option [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md) left open ("a pass that
+("Measured, 2026-10-12", below). Amended by [ADR 0062](0062-the-inquiry-verb.md), built 2026-10-12: a reader
+`answer` for claims about the person's answer ("you chose", "as you confirmed") that no answered `ask` call
+supports. Settles the option [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md) left open ("a pass that
 checks the reply against the calls"), the third check beside a reply after `ran:` (ADR 0051) and `cited`
 ([ADR 0055](0055-cited-entries-checked.md)).
 

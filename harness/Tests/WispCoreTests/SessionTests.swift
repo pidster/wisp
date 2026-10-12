@@ -57,7 +57,9 @@ import Testing
         // Every tool but memory and models, which are off by default (ADR 0057, 0059) and still registered.
         #expect(
             session.toolNames
-                == ToolRegistry().all.map(\.name).filter { $0 != MemoryTool.toolName && $0 != ModelsTool.toolName })
+                == ToolRegistry().all.map(\.name).filter {
+                    $0 != MemoryTool.toolName && $0 != ModelsTool.toolName && $0 != AskTool.toolName
+                })
         #expect(ToolRegistry().all.map(\.name) == ToolRegistry.builtInNames)
         #expect(session.notes.isEmpty)
     }

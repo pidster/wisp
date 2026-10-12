@@ -5,7 +5,9 @@ Date: 2026-10-02. Status: accepted; built 2026-10-02 (see "Built" at the end). A
 [ADR 0011](0011-risk-classifier-and-approval.md) (approval for a client without elicitation, by design
 impossible there). Settles the question paused on 2026-09-17 and the MCP part of the
 [escalations proposal](../proposals/2026-09-20-escalations.md); the proposal's other parts (an inquiry verb,
-the `result` channel) are not taken up. Amended by [ADR 0048](0048-permanent-facts-over-mcp.md): the pending
+the `result` channel) are not taken up. Amended by [ADR 0062](0062-the-inquiry-verb.md), built 2026-10-12: the pending channel carries a third kind of
+request, the model's question (`<id>.question.json`, `wisp questions`), and the race of the channel against the
+client's dialog is reused for it with a fixed 60 s hold. Amended by [ADR 0048](0048-permanent-facts-over-mcp.md): the pending
 channel carries a second kind of request, a fact a caller asked to keep as permanent, answered with
 `wisp facts keep|drop` or in `wisp-tui` under the `keep-facts` effect.
 
@@ -227,9 +229,11 @@ without elicitation is told at once whatever the delay).
 
 "Consequences" said plain terminal chat does not show waiting MCP requests, having no place for a dialog. It now
 shows them without one (planned for 0.24.0, `docs/roadmap.md`): before each prompt, `wisp chat --plain` notes once
-each request newly waiting in `~/.wisp/pending`, a command to approve or a fact to keep
-([ADR 0048](0048-permanent-facts-over-mcp.md)), with its id, and the person answers with a typed slash command,
-`/approvals approve ID [once|session|project|always]`, `/approvals deny ID`, `/facts keep ID`, or `/facts drop ID`;
+each request newly waiting in `~/.wisp/pending`, a command to approve, a fact to keep
+([ADR 0048](0048-permanent-facts-over-mcp.md)), or the model's question ([ADR 0062](0062-the-inquiry-verb.md)),
+with its id, and the person answers with a typed slash command, `/approvals approve ID
+[once|session|project|always]`, `/approvals deny ID`, `/facts keep ID`, `/facts drop ID`, `/questions answer ID`
+(which reads the answer at a prompt of its own, as `wisp questions answer` does), or `/questions decline ID`;
 `/approvals pending` lists what waits. Nothing is drawn over a half-typed line: a request that arrives while the
 person is at the prompt is noted at the next prompt, and its notification announces it meanwhile. A request seen and
 gone is noted once with how it ended, read from the servers' `approval.settled` events in the audit log ("answered

@@ -98,6 +98,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?approvals["']?\s+["']?(approve|deny)\b"#,
         // Nor does it keep or drop a permanent fact a caller asked for (ADR 0048): admitting one is the person's.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?facts["']?\s+["']?(keep|drop)\b"#,
+        // Nor does it answer its own question (ADR 0062): the person answers, from a terminal or wisp-tui.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?questions["']?\s+["']?(answer|decline)\b"#,
         // Nor does it start a wisp of its own (ADR 0054): `wisp respond`, `wisp chat`, `wisp mcp`, or the bare
         // `wisp "prompt"`, which is `respond`, is a nested agent with its own model, tools, and approvals, and under
         // the sandbox it fails anyway, unable to write wisp's home. Matched where wisp is the program a simple

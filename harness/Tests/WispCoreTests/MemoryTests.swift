@@ -140,13 +140,15 @@ import WispTestSupport
         let session = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
         let off = try session.thread(id: "off", approver: deny)
         #expect(!off.tools.map(\.name).contains("memory") && off.memory == nil)
-        #expect(off.tools.map(\.name) == ToolRegistry.builtInNames.filter { $0 != "memory" && $0 != "models" })
+        #expect(
+            off.tools.map(\.name)
+                == ToolRegistry.builtInNames.filter { $0 != "memory" && $0 != "models" && $0 != "ask" })
         // With context.memory on, every tool includes it, and the prompt carries its rule.
         try Data(#"{"context": {"memory": true}}"#.utf8).write(to: home.configFile)
         let on = try Session.begin(.init(entryPoint: .mcp), home: home, dependencies: .testing())
         let all = try on.thread(id: "all", approver: deny)
         #expect(all.tools.map(\.name).contains("memory") && all.memory != nil)
-        #expect(all.tools.map(\.name) == ToolRegistry.builtInNames.filter { $0 != "models" })
+        #expect(all.tools.map(\.name) == ToolRegistry.builtInNames.filter { $0 != "models" && $0 != "ask" })
         #expect(all.prompting.rendered(toolsAvailable: true, memory: true).contains(Prompting.memoryRule))
         // An explicit list is exactly that list whatever the setting: MCP's git thread keeps run_command alone,
         // and a list that names memory gets it with the setting off.

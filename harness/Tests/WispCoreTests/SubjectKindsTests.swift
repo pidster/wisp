@@ -12,13 +12,13 @@ import Testing
             kinds.kinds.map(\.name)
                 == [
                     "task", "decision", "preference", "entity", "tests", "file", "service", "machine", "workdir",
-                    "branch",
+                    "branch", "answer",
                 ])
         #expect(kinds.kind("Entity")?.temporalClass == .permanent)
         #expect(kinds.kind("tests")?.temporalClass == .dynamic && kinds.kind("service")?.temporalClass == .ephemeral)
         #expect(kinds.kinds.allSatisfy { FactNormalisers.named($0.normaliser) != nil && !$0.description.isEmpty })
         #expect(kinds.testCommands.contains("swift test") && kinds.testCommands.contains("scripts/check"))
-        #expect(kinds.kinds.filter { !$0.distils }.map(\.name) == ["file", "service", "machine"])
+        #expect(kinds.kinds.filter { !$0.distils }.map(\.name) == ["file", "service", "machine", "answer"])
         #expect(kinds.applying(.init(kinds: [.init(name: "file", distil: true)])).kind("file")?.distils == true)
         #expect(kinds.kind("nope") == nil && kinds.identity(subject: "nope", name: "x") == nil)
         let (identity, temporalClass) = try #require(kinds.identity(subject: "entity", name: "  Blue   HERON "))

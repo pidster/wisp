@@ -3,26 +3,27 @@ import Synchronization
 
 /// The plain terminal chat's view of the requests waiting in `wisp mcp` servers, and its way of answering them
 /// ([ADR 0046](../../../../docs/decisions/0046-approval-and-notifications-over-mcp.md), note of 2026-10-12): a command
-/// waiting for approval, or a fact a caller asked to keep as a permanent fact
-/// ([ADR 0048](../../../../docs/decisions/0048-permanent-facts-over-mcp.md)). `wisp-tui` is fed the same requests by
+/// waiting for approval, a fact a caller asked to keep as a permanent fact
+/// ([ADR 0048](../../../../docs/decisions/0048-permanent-facts-over-mcp.md)), or a question the model asked
+/// ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). `wisp-tui` is fed the same requests by
 /// `PendingRelay`; plain chat reads a line at a time and has no place for a dialog, so it shows a note for each new
-/// request before its next prompt, once, and the person answers with `/approvals approve|deny` or
-/// `/facts keep|drop`.
+/// request before its next prompt, once, and the person answers with `/approvals approve|deny`, `/facts keep|drop`,
+/// or `/questions answer|decline` (the answer typed at a prompt, as `wisp questions answer` asks for it).
 ///
 /// A request seen before and gone now is reported once: how it ended, from the `approval.settled` event its server
 /// wrote to the audit log (answered in `wisp-tui`, in the client's dialog, with `wisp approvals`; timed out;
-/// withdrawn), or, when the log has no word of it, that it is no longer waiting. One answered in this chat is not
+/// withdrawn), or the `inquiry.settled` event for a question, or, when the log has no word of it, that it is no longer waiting. One answered in this chat is not
 /// reported again.
 ///
 /// Answers are written with `via: chat` (`tui` under `wisp-tui`, whose input reaches the same commands) and audited
-/// as `approval.answered` on the chat's own log, through the same channel checks as every other face: the request
+/// as `approval.answered` (`inquiry.answered` for a question) on the chat's own log, through the same channel checks as every other face: the request
 /// still waiting, the decision one its kind takes, the file matching its binding, the first answer winning. As
 /// `wisp approvals` does, the plain chat answers only when its standard input is a terminal (`canAnswer`), so an
 /// agent piping lines into `wisp chat --plain` cannot answer for the person.
 public final class ChatPending: Sendable {
     /// The kinds of request plain chat shows, in the order they are listed. A kind added to the channel is added
     /// here and to `describe`, whose switch names every kind.
-    static let kinds: [PendingApprovals.Kind] = [.command, .fact]
+    static let kinds: [PendingApprovals.Kind] = [.command, .fact, .question]
 
     /// What the watcher remembers between looks.
     struct State {
@@ -30,9 +31,9 @@ public final class ChatPending: Sendable {
         var shown: [String: PendingApprovals.Request] = [:]
         /// The ids answered in this chat, which are not reported again when they go.
         var answeredHere: Set<String> = []
-        /// How requests ended, by id, from the audit log's `approval.settled` events.
+        /// How requests ended, by id, from the audit log's `approval.settled` and `inquiry.settled` events.
         var settled: [String: String] = [:]
-        /// Follows the audit log for `approval.settled`; nil when there is no log to follow.
+        /// Follows the audit log for `approval.settled` and `inquiry.settled`; nil when there is no log to follow.
         var tail: AuditTail?
         /// The kinds whose answering commands have been named once already.
         var hinted: Set<PendingApprovals.Kind> = []
@@ -105,9 +106,17 @@ public final class ChatPending: Sendable {
         return state.withLock { state -> [String] in
             // Read after listing: a server removes its request before it records how it ended.
             if var tail = state.tail {
-                for event in (try? tail.read()) ?? [] where event.kind == .approvalSettled {
-                    guard let id = event.details["request"]?.stringValue else { continue }
-                    state.settled[id] = Self.ending(event.details)
+                for event in (try? tail.read()) ?? [] {
+                    switch event.kind {
+                    case .approvalSettled:
+                        guard let id = event.details["request"]?.stringValue else { continue }
+                        state.settled[id] = Self.ending(event.details)
+                    case .inquirySettled:
+                        guard let id = event.details["inquiry"]?.stringValue else { continue }
+                        state.settled[id] = Self.questionEnding(event.details)
+                    default:
+                        continue
+                    }
                 }
                 state.tail = tail
             }
@@ -148,6 +157,11 @@ public final class ChatPending: Sendable {
             let source = fact.map { ", from \($0.source)" } ?? ""
             return "⚠ \(request.id) waiting in \(asker): keep as a permanent fact "
                 + "\(fact.map { "\($0.subject) \($0.text)" } ?? request.subject)\(source)"
+        case .question:
+            let visible = ApprovalRequest.visible
+            let options = request.options ?? []
+            let offered = options.isEmpty ? "" : " (" + options.map(visible).joined(separator: " | ") + ")"
+            return "? \(request.id) waiting in \(asker): the model asks: \(visible(request.question ?? ""))\(offered)"
         }
     }
 
@@ -157,11 +171,15 @@ public final class ChatPending: Sendable {
     /// - Returns: The line.
     func hint(_ kind: PendingApprovals.Kind) -> String {
         guard canAnswer else {
-            return "answer in wisp-tui, the client's dialog, or with wisp approvals or wisp facts from a terminal"
+            return kind == .question
+                ? "answer in wisp-tui, or with wisp questions answer ID from a terminal"
+                : "answer in wisp-tui, the client's dialog, or with wisp approvals or wisp facts from a terminal"
         }
         switch kind {
         case .command: return "answer with /approvals approve ID [once|session|project|always] or /approvals deny ID"
         case .fact: return "answer with /facts keep ID or /facts drop ID"
+        case .question:
+            return "answer with /questions answer ID, which prompts for the answer, or /questions decline ID"
         }
     }
 
@@ -190,35 +208,67 @@ public final class ChatPending: Sendable {
         }
     }
 
+    /// How an `inquiry.settled` event says a question ended, as the chat reports it.
+    ///
+    /// - Parameter details: The event's details.
+    /// - Returns: The phrase.
+    static func questionEnding(_ details: [String: JSONValue]) -> String {
+        let face: String =
+            switch details["via"]?.stringValue {
+            case "elicitation": "the client's dialog"
+            case "cli": "wisp questions"
+            case "tui": "wisp-tui"
+            case "chat": "another wisp chat"
+            case let other?: other
+            case nil: "another face"
+            }
+        switch details["outcome"]?.stringValue {
+        case "answered", "none": return "answered in \(face)"
+        case "declined": return "declined in \(face)"
+        case "unanswered": return "its wait ran out unanswered"
+        case "abandoned": return "withdrawn: the caller cancelled the call"
+        default: return "withdrawn"
+        }
+    }
+
     /// Answers request `id` for the person and says how it went, as `wisp approvals` and `wisp facts` would: written
     /// to the channel, then, for a fact whose server has stopped, applied here; otherwise waiting up to `patience` for
     /// the server to take it. Audited as `approval.answered` with `via`.
     ///
     /// - Parameters:
     ///   - id: The request.
-    ///   - decision: `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact.
+    ///   - decision: `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact;
+    ///     `answer`, `chose`, `none`, or `decline` for a question.
+    ///   - text: For a question answered `answer` or `chose`, the text or the option.
     ///   - audit: The chat's log.
     ///   - alive: Whether a process is running.
     /// - Returns: How it ended: a line to show, or why the answer was not used.
     public func answer(
-        _ id: String, decision: String, audit: AuditLog?,
+        _ id: String, decision: String, text: String? = nil, audit: AuditLog?,
         alive: @Sendable (Int32) -> Bool = PendingApprovals.isAlive
     ) async -> PendingAnswer.Ending {
         guard canAnswer else {
             return .failed(
                 "this chat's input is not a terminal, so it does not answer for the person; answer in wisp-tui, "
-                    + "or with wisp approvals or wisp facts from a terminal")
+                    + "or with wisp approvals, wisp facts, or wisp questions from a terminal")
         }
         let request: PendingApprovals.Request
         do {
-            request = try channel.answer(id, decision: decision, via: via, alive: alive)
+            request = try channel.answer(id, decision: decision, text: text, via: via, alive: alive)
         } catch {
             let failure = error as? PendingApprovals.Failure ?? .io("\(error)")
-            audit?.record(
-                .approvalAnswered,
-                details: AuditEvent.Details.approvalAnswered(
-                    request: id, try? channel.request(id: id), decision: decision, via: via, delivery: "refused",
-                    reason: "\(failure)"))
+            let filed = try? channel.request(id: id)
+            if filed?.kind == .question {
+                audit?.record(
+                    .inquiryAnswered,
+                    details: AuditEvent.Details.inquiryAnswered(
+                        id, via: via, delivery: "refused", reason: "\(failure)"))
+            } else {
+                audit?.record(
+                    .approvalAnswered,
+                    details: AuditEvent.Details.approvalAnswered(
+                        request: id, filed, decision: decision, via: via, delivery: "refused", reason: "\(failure)"))
+            }
             return PendingAnswer.ending(for: failure)
         }
         state.withLock { _ = $0.answeredHere.insert(id) }
@@ -244,16 +294,21 @@ public final class ChatPending: Sendable {
             delivery = channel.delivery(of: id)
         }
         if delivery == .waiting, let ending = applyHere() { return ending }
-        let text: String =
+        let delivered: String =
             switch delivery {
             case .taken: "taken"
             case .tooLate: "too-late"
             case .waiting: "waiting"
             }
-        audit?.record(
-            .approvalAnswered,
-            details: AuditEvent.Details.approvalAnswered(
-                request: id, request, decision: decision, via: via, delivery: text))
+        if request.kind == .question {
+            audit?.record(
+                .inquiryAnswered, details: AuditEvent.Details.inquiryAnswered(id, via: via, delivery: delivered))
+        } else {
+            audit?.record(
+                .approvalAnswered,
+                details: AuditEvent.Details.approvalAnswered(
+                    request: id, request, decision: decision, via: via, delivery: delivered))
+        }
         return PendingAnswer.ending(of: request, decision: decision, delivery: delivery)
     }
 }

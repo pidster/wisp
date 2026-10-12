@@ -74,9 +74,14 @@ public struct Introspection: Sendable {
                 "enabled": .bool(config.notificationsEnabled), "perMinute": .int(config.notificationsPerMinute),
                 "viaTerminalApp": .bool(config.notificationsViaTerminalApp),
             ]),
+            "inquiry": .object([
+                "timeoutSeconds": config.inquiryTimeout.map { .int(Int($0.components.seconds)) } ?? .int(0),
+                "elicitation": .bool(config.inquiryElicitation),
+            ]),
             "tools": .object([
                 "disabled": .array(config.disabledTools.sorted().map { .string($0) }),
                 "models": .bool(config.toolsModels),
+                "ask": .bool(config.toolsAsk),
                 "custom": .array(
                     config.customTools.map { tool in
                         .object([

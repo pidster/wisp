@@ -45,6 +45,13 @@ public enum ChatEvents {
         case .approvalSettled where d["outcome"]?.stringValue == "answered" && d["kind"] == nil:
             let via = OutOfBandApprover.face(d["via"]?.stringValue ?? "?")
             return style.muted("  · answered in \(via == "elicitation" ? "the client's dialog" : via)")
+        case .inquiryRequested:
+            return style.muted("  ? the model asks: " + shortened(d["question"]?.stringValue ?? ""))
+        case .inquiryParked:
+            return style.muted(
+                "  · the question waits for you: wisp questions answer \(d["inquiry"]?.stringValue ?? "")")
+        case .inquirySettled:
+            return inquiry(d, style: style)
         case .policyDecision where d["verdict"]?.stringValue != "allowed":
             let reason = d["reason"]?.stringValue.map { ": \($0)" } ?? ""
             return style.ember("  · blocked by policy\(reason)")
@@ -59,6 +66,30 @@ public enum ChatEvents {
         default:
             return nil
         }
+    }
+
+    /// The line for an `inquiry.settled` event (ADR 0062): how the model's question ended, and, when a
+    /// credential-shaped value in the answer was masked, that it was not passed on; nothing for an answer given
+    /// inside the turn, which the dialog showed.
+    static func inquiry(_ d: [String: JSONValue], style: Style) -> String? {
+        let outcome = d["outcome"]?.stringValue ?? "?"
+        var parts: [String] = []
+        if let redacted = d["redacted"]?.arrayValue?.compactMap(\.stringValue), !redacted.isEmpty {
+            parts.append(
+                "a credential-shaped value in your answer was masked (\(redacted.joined(separator: ", "))) and not passed on"
+            )
+        }
+        switch outcome {
+        case "answered" where d["delivered"]?.stringValue == "notice": parts.append("your answer reached the model")
+        case "unanswered": parts.append("your answer did not come in time; the model was told to stop")
+        case "refused": parts.append("the model's question was refused: \(d["reason"]?.stringValue ?? "")")
+        case "failed": parts.append("the model's question could not be asked: \(d["reason"]?.stringValue ?? "")")
+        case "withdrawn", "stopped", "abandoned": parts.append("the model's question was withdrawn")
+        default: break
+        }
+        guard !parts.isEmpty else { return nil }
+        return (outcome == "refused" || outcome == "failed" ? style.ember : style.muted)(
+            "  · " + parts.joined(separator: "; "))
     }
 
     /// The line for a `model.reasoning` event that ends a stretch of thinking (ADR 0053): `∴ thought for 4.2 s, 42
@@ -241,6 +272,9 @@ public enum ChatEvents {
             let command = shortened(event.details["command"]?.stringValue ?? "")
             let level = event.details["level"]?.stringValue.map { " [\($0)]" } ?? ""
             return "waiting for approval\(level): \(command)"
+        }
+        if event.kind == .inquiryRequested {
+            return "waiting for the person's answer: " + shortened(event.details["question"]?.stringValue ?? "")
         }
         return render(event, style: .plain)?.trimmingCharacters(in: .whitespaces)
     }

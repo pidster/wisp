@@ -35,6 +35,12 @@ wisp --no-tools --schema verdict.json "Which language is this: fn main() {}"
 Interactive session. Lines starting with `/` are commands; a line starting with `!` is a shell command you run
 yourself ("Commands you run yourself", below); anything else goes to the model. Replies stream.
 
+With the `ask` tool on (`tools.ask`, or `--tool ask`; [tools/ask.md](tools/ask.md)) the model can ask you one question
+mid-turn: the chat shows it under `? the model asks`, numbered options with `none of these` last, and waits for
+your line as long as you take (`inquiry.timeoutSeconds` sets a deadline); Enter alone declines, and Ctrl-C stops
+the turn as it does elsewhere ([ADR 0062](decisions/0062-the-inquiry-verb.md)). `wisp-tui` shows the same question
+as a picker titled "the model asks".
+
 When the configured model (`config.json`'s `model`) is unavailable as chat starts, Ollama not running, say, chat
 starts on `system` instead and says so before the first prompt, so you reach `/model`:
 
@@ -77,7 +83,7 @@ to be stopped).
 | Ctrl-U, Ctrl-K | Delete to the start or to the end. |
 | Alt-Enter | A newline, for a message of several lines. |
 | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
-| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words, the approval ids after `/approvals revoke`, and the waiting commands' ids after `/approvals approve` or `deny` (then a scope), `/facts`' words and the waiting facts' ids after `/facts keep` or `drop`, a model after `/model`, a view after `/inspect` (`next` or `turns` after `/inspect context`, `all` after `/inspect facts` or `/inspect summary`), a subject kind, a fact id, or `delete` after `/fact`, a fact id after `/fact delete`, and a scope after `/fact ID`, and a session id after `/audit`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
+| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words, the approval ids after `/approvals revoke`, and the waiting commands' ids after `/approvals approve` or `deny` (then a scope), `/facts`' words and the waiting facts' ids after `/facts keep` or `drop`, `/questions`' words and the waiting questions' ids after `/questions answer` or `decline`, a model after `/model`, a view after `/inspect` (`next` or `turns` after `/inspect context`, `all` after `/inspect facts` or `/inspect summary`), a subject kind, a fact id, or `delete` after `/fact`, a fact id after `/fact delete`, and a scope after `/fact ID`, and a session id after `/audit`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
 
 Two keys open a panel over the band, a rounded border around up to 16 rows, with its keys in the bottom
 border: Up and Down scroll a row, PageUp and PageDown a page, and Esc (or the key that opened it) closes
@@ -140,31 +146,40 @@ when the line is sent or cleared. An approval or a choice that stops waiting (an
 `approval.timeoutSeconds` passed) closes with `⚠ no longer waiting: …`.
 
 The plain chat (`--plain`, or `wisp-tui` not installed) has no dialog for these, since it reads a line at a time.
-Before each prompt it notes, once, each request newly waiting in a `wisp mcp` server, a command to approve or a
-fact to keep, with its id; the first of each kind also says how to answer:
+Before each prompt it notes, once, each request newly waiting in a `wisp mcp` server, a command to approve, a
+fact to keep, or a question the model asks ([tools/ask.md](tools/ask.md)), with its id; the first of each kind also
+says how to answer:
 
 ```
 ⚠ a1b2c3d4 waiting in wisp mcp (claude-code, thread git): run git push origin main in ~/src/wisp, moderate
   answer with /approvals approve ID [once|session|project|always] or /approvals deny ID
 ⚠ 5e6f7a8b waiting in wisp mcp (claude-code, thread docs): keep as a permanent fact entity release codename = BLUE HERON, from model
   answer with /facts keep ID or /facts drop ID
+? 9c0d1e2f waiting in wisp mcp (claude-code, thread git): the model asks: Which config? (~/.wisp | ./wisp.json)
+  answer with /questions answer ID, which prompts for the answer, or /questions decline ID
 ```
 
-`/approvals approve`, `/approvals deny`, `/facts keep`, and `/facts drop` answer one (without an id, they offer
-what waits to choose from), and `/approvals pending` lists everything waiting. A request is noted only between
+`/approvals approve`, `/approvals deny`, `/facts keep`, `/facts drop`, `/questions answer`, and `/questions
+decline` answer one (without an id, they offer what waits to choose from), and `/approvals pending` lists
+everything waiting. `/questions answer` shows the question as `wisp questions answer` does and reads your answer at
+its own prompt, a number or an option for a choice, a line of text otherwise, Enter alone writing nothing, so the
+answer is never part of a command line you typed. A request is noted only between
 prompts: one that arrives while you are at the prompt is noted once you press Enter (an empty line will do), and
 its notification announces it meanwhile. A request seen before and gone now is noted once with how it ended, read
 from the audit log: `· a1b2c3d4 no longer waiting: answered in wisp-tui (git push origin main)`, `answered in the
-client's dialog`, `its wait ran out unanswered`, `withdrawn: its server stopped`, or, when the log has no word of
-it, `answered elsewhere or withdrawn`. One you answered in the chat is not noted again. The answer goes through the
+client's dialog`, `its wait ran out unanswered`, `withdrawn: its server stopped`, for a question `answered in
+wisp questions` or `declined in wisp-tui` from its `inquiry.settled`, or, when the log has no word of it,
+`answered elsewhere or withdrawn`. One you answered in the chat is not noted again. The answer goes through the
 same checks as `wisp approvals` and `wisp-tui` (still waiting, the right kind, bound to what was shown, the first
-answer winning), is written with `via` `chat`, and is audited as `approval.answered` on the chat's own session; a
+answer winning), is written with `via` `chat`, and is audited as `approval.answered` (`inquiry.answered` for a
+question) on the chat's own session; a
 fact whose server has stopped is kept by the chat itself, as `wisp facts keep` does. As with `wisp approvals`, the
 chat answers only when its standard input is a terminal, so an agent piping lines into `wisp chat --plain` cannot
 answer for you; such a chat still notes what waits, and says where to answer. The commands are typed lines, never
 the model's: no tool reaches them ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), note of
 2026-10-12). In `wisp-tui` the same commands answer from its input, written with `via` `tui`; its dialog stays the
-usual way.
+usual way, and `/questions answer` there points to the question's picker, which already shows it (`/questions
+decline` declines from the input).
 
 A choice, such as `/config set approval.classifier` without a value, takes the input's place the same
 way: a border titled `choose` around the question, up to eight options with `▸` on the highlighted one
@@ -334,9 +349,10 @@ What a session shows, and where it goes:
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
 | `/status` | wisp's own state, as the model's `inspect` tool shows it, in YAML: the model, tools, policy, and session. |
 | `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML, each with `gone: true` when it is a project approval whose folder no longer exists; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from, a gone one marked `(gone)`. `wisp approvals clear --gone` removes the gone ones. |
-| `/approvals pending` | What waits in `wisp mcp` servers for your answer: the commands waiting for approval and the facts waiting to be kept, as `wisp approvals pending` and `wisp facts pending` list them. |
+| `/approvals pending` | What waits in `wisp mcp` servers for your answer: the commands waiting for approval, the facts waiting to be kept, and the model's questions, as `wisp approvals pending`, `wisp facts pending`, and `wisp questions pending` list them. |
 | `/approvals approve [ID] [once\|session\|project\|always]`, `/approvals deny [ID]` | Answer a command waiting in a `wisp mcp` server, as `wisp approvals approve\|deny` does: the scope is `once` unless given, and without an ID the waiting commands are offered to choose from. Says whether the server took the answer. Only when the chat's input is a terminal (see the plain chat's waiting requests, above). |
 | `/facts`, `/facts keep [ID]`, `/facts drop [ID]` | The facts `wisp mcp` callers asked to keep as permanent facts, or your answer to one, as `wisp facts` gives it: `keep` admits it as yours, `drop` leaves it in its thread; without an ID they are offered to choose from. |
+| `/questions`, `/questions answer [ID]`, `/questions decline [ID]` | The model's questions waiting in `wisp mcp` servers, or your answer to one, as `wisp questions` gives it: `answer` shows the question and prompts for the answer, `decline` sends none; without an ID they are offered to choose from. Only when the chat's input is a terminal. |
 | `/audit [sessions\|ID]` | The latest 20 audit events of every session, one line each, MCP calls and other terminals included. `sessions` lists the sessions in the log, each with its latest activity, how it began (`chat`, `mcp`, `scan`, …, or `-` for an MCP thread or a condensing call), and how many events it wrote. An id shows that session's latest events, such as `/audit git` for a `respond` thread named `git`; Tab completes ids. |
 | `/inspect [config\|status\|approvals\|audit]` | Kept as an alias: the same views as `/config`, `/status`, `/approvals`, and `/audit`; with no view, `/status`. `/inspect context` is its own command, above. |
 | `/inspect facts [all]` | The facts the model is given, as a table: id (`c…` the conversation's, `s…` the session's, `p…` the shared store's), subject, name, value, source (`the person`, `tool run_command, turn 3, entry 9`, `model, distilled: the person said, turns 1-12`, `model, noted, turn 4` for a fact the model noted with `memory`), class, and a note: which fact wins where sources disagree, and how to keep a proposed permanent fact. `all` adds superseded and deleted versions with what replaced them. Below it, "Proposed in other conversations" lists the permanent facts proposed in the process's other conversations (the one before a `/new`, say) and awaiting you, by the reference `/fact` takes (`CONVERSATION/ID`, such as `3f9a1c2e/c4`). The running summary is not here; it has its own view, `/inspect summary`. `wisp-tui` shows the facts in its panel; `wisp chat --json` sends them as a `view` of kind `facts`. See [context-management.md](context-management.md), "Facts". |
@@ -406,7 +422,7 @@ Out, to the front end:
 | `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 | `withdrawn` | `id` | An `approval` or `choice` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped (a fact request waits on after both); or the chat's own approval or choice went unanswered for `approval.timeoutSeconds`. Drop the dialog or picker; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from `from` to the cursor, sorted. `from`, like the request's `cursor`, counts Unicode scalars (a Rust `char`), not bytes or grapheme clusters, so a combining mark or an emoji sequence before the word counts as the front end's editor counts it. |
-| `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). An option with `action` true and no `on` is an action, not a toggle: `/models`' last row, "pull a model…", whose choosing is answered with `value`, its value, leaving the toggles unsaved; wisp then asks a choice that takes text, the repository ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
+| `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on`; for the model's question `kind` (`question`) and `thread`, and for one waiting in a `wisp mcp` server `source` (`mcp`), `client`, and `request` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. With `kind` `question` it is the model's question through its `ask` tool ([ADR 0062](decisions/0062-the-inquiry-verb.md)): the options are the model's, then `none of these`, and `acceptsText` is true for a free-text question; answer with `choose` (no value declines) within `inquiry.timeoutSeconds` when one is set, else whenever; `wisp-tui` shows it as a picker titled "the model asks", Esc or Ctrl-C declining. With `source` `mcp` it waits in another process, sent because the `hello` declared `answer-questions`: the id is `mcp-<request>` and the answer is written to the pending channel. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). An option with `action` true and no `on` is an action, not a toggle: `/models`' last row, "pull a model…", whose choosing is answered with `value`, its value, leaving the toggles unsaved; wisp then asks a choice that takes text, the repository ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
 | `notify` | `title`, `subtitle` (null when none), `body`, `sound` | A notification for the front end to post, sent only when its `hello` declared `notify`; already bounded and rate-limited by wisp, and not answered. `wisp-tui` writes its terminal's sequence between frames. |
 | `exit` | | The loop has ended. |
 
@@ -417,11 +433,13 @@ answers `approval` lines; a `hello` without it has every approval denied without
 `approve-mcp`: it also answers commands waiting for approval in `wisp mcp` servers, so wisp lists
 `~/.wisp/pending` every half second and sends each as an `approval` line with `source: "mcp"`, and a
 `withdrawn` line when it no longer waits. `keep-facts`: it also answers requests from `wisp mcp` callers to
-keep a fact as a permanent fact, sent the same way as `approval` lines with `kind: "fact"`.
+keep a fact as a permanent fact, sent the same way as `approval` lines with `kind: "fact"`. `answer-questions`:
+it also answers the model's questions waiting in `wisp mcp` servers, sent as `choice` lines with `kind`
+`question` and `source: "mcp"` ([ADR 0062](decisions/0062-the-inquiry-verb.md)).
 Unknown effects are ignored; `client` and `version` are for the audit (`host.hello`). A front end that
 sends no `hello` keeps the behaviour from before it existed: approvals over the protocol, notifications
 posted by wisp's own process (never through the terminal, which the front end owns). `wisp-tui` sends
-`approve`, `approve-mcp`, and `keep-facts`, and `notify` when its terminal has a notification sequence
+`approve`, `approve-mcp`, `keep-facts`, and `answer-questions`, and `notify` when its terminal has a notification sequence
 (Ghostty, iTerm2, WezTerm, kitty). It queues an approval that arrives while another is shown (and one from
 `wisp mcp` while its input box has text, with a note and a count in the status line), and marks one
 from `wisp mcp` in the dialog: "waiting in wisp mcp for claude-code, thread git", and "· wisp mcp" in its
@@ -1102,6 +1120,54 @@ the same requests as dialogs, and applies an answer the same way when the server
 between prompts and answers them with `/facts keep|drop`, applying the answer the same way. The default policy refuses
 `wisp facts keep|drop` when the model runs it.
 
+### `wisp questions`
+
+Answers a question the model asked you through its `ask` tool under `wisp mcp`
+([ADR 0062](decisions/0062-the-inquiry-verb.md); [tools/ask.md](tools/ask.md); [mcp.md](mcp.md), "Questions").
+The question waits in `~/.wisp/pending` until you answer it (or until `inquiry.timeoutSeconds`, when set), and
+one notification names it:
+
+```
+wisp: the model asks
+claude-code, thread git
+Which config did you mean? — wisp questions answer a1b2c3d4
+```
+
+`wisp questions pending` (the default) lists the questions waiting, oldest first, after removing stale ones (a
+server that stopped). Piped, each is one tab-separated line: id, seconds waited, client/thread, the options
+separated by ` | ` (empty for free text), the question.
+
+```
+ID        WAITING  FROM             OPTIONS                          QUESTION
+a1b2c3d4  12 s     claude-code/git  ~/.wisp/config.json | ./wisp.json  Which config did you mean?
+```
+
+`wisp questions answer <id>` shows the question and prompts for your answer: a number or an option's text for a
+choice (the last number is `none of these`), a line of text otherwise; an empty line writes nothing. The answer
+is typed at the prompt, never given as an argument, so it is in neither the shell's history nor `ps`.
+`wisp questions decline <id>` sends no answer; the model is told to say what it needed. Both run only from a
+terminal, so an agent's shell cannot answer for you, and wait up to three seconds for the server to take the
+answer; after the server has parked the turn, the answer reaches the thread on its next `respond`:
+
+```
+$ wisp questions answer a1b2c3d4
+
+? the model asks (claude-code, thread git)
+  Which config did you mean?
+  1  ~/.wisp/config.json
+  2  ./wisp.json
+  3  none of these
+  type a number, or press Enter to decline › 2
+answered: Which config did you mean?; thread git reads it on its next turn
+```
+
+An id that is unknown, stale, already answered, or altered is refused with the reason and exits 1, as is an
+answer that came after the thread closed; a command's or a fact's id is a usage error (exit 64) with a pointer to
+`wisp approvals` or `wisp facts`. A running `wisp-tui` shows the same questions as pickers, and a plain `wisp
+chat` notes them before its prompt and answers with `/questions answer|decline ID`. The default policy
+refuses `wisp questions answer|decline` when the model runs it. Your answer goes to the model, and the agent
+that called wisp can read the thread.
+
 ### `wisp completions`
 
 Shell completion for zsh, bash, and fish: subcommands, flags, and their values. Homebrew installs it with wisp;
@@ -1192,7 +1258,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, moved there with `/fact ID permanent`, or kept with `wisp facts keep` (or in `wisp-tui`) when an MCP caller asked. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one, by every `wisp` process in turn under a lock, each change made to the file as it then is, so two processes never lose each other's changes. One wisp cannot read is moved aside as `facts.json.unreadable-<time>`, never overwritten, and wisp says so when it starts. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
-| `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`) and facts a caller asked to keep (`<id>.fact.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
+| `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`), facts a caller asked to keep (`<id>.fact.json`), and the model's questions to you (`<id>.question.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, `wisp questions`, or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
 
@@ -1208,7 +1274,8 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `lmstudio` | `{ "baseURL": "http://127.0.0.1:1234", "timeoutSeconds": 120 }` | Where LM Studio's server serves `lmstudio:<name>` models. `apiKey`: an API token, as for `llamacpp`, with `WISP_LMSTUDIO_API_KEY` winning. LM Studio reports what its models can do and the window it loaded each at, so there is no `think` or `models` here; a model's `think` under `models` is refused at load. |
 | `coreai` | `{ "modelsDirectory": "<home>/models/coreai" }` | Where exported Core AI bundles live for `coreai:<name>` models. See [backends.md](backends.md). |
 | `routing` | `{ "ladder": [], "tasks": { "secrets": "system" } }` | Models from least to most capable, such as `["system", "ollama:qwen3.8:27b"]`. A task that routes by input size (today `draft_change` and `wisp draft`) uses the first rung whose measured result covers the input, at a pass rate of 80% or better, and the last rung beyond every measured size; an explicit `--model` or `model` always wins. Empty turns routing off. `tasks` names the model for a task's model pass when the caller names none; the one task today is `secrets` (the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`), whose default is `system`, the model measured best for it. See [ADR 0037](decisions/0037-routing-by-input-size.md). |
-| `tools` | `{ "disabled": [], "custom": [], "models": false }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, even one whose list names it; otherwise a conversation with all tools gets it when `context.memory` is on ([tools/memory.md](tools/memory.md)). `models`: whether a conversation with all tools gets the `models` tool ([tools/models.md](tools/models.md)); a list that names it gets it either way, and naming it in `disabled` keeps it off everywhere. A definition that breaks the rules makes the config malformed. |
+| `tools` | `{ "disabled": [], "custom": [], "models": false, "ask": false }` | Built-in tools to leave out, and your own command-template tools; see [tools/custom.md](tools/custom.md). Naming `memory` in `disabled` keeps it off every conversation, even one whose list names it; otherwise a conversation with all tools gets it when `context.memory` is on ([tools/memory.md](tools/memory.md)). `models`: whether a conversation with all tools gets the `models` tool ([tools/models.md](tools/models.md)); `ask`: whether it gets the `ask` tool, with which the model asks you one question mid-turn ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md)); a list that names either gets it either way, and naming one in `disabled` keeps it off everywhere. A definition that breaks the rules makes the config malformed. |
+| `inquiry` | `{ "timeoutSeconds": 0, "elicitation": false }` | The model's questions ([tools/ask.md](tools/ask.md)). `timeoutSeconds`: how long you have to answer one; `0` (the default) waits until you do, however long you are away; `10` to `86400` sets a deadline, past which the question ends unanswered and the model is told to stop. `elicitation`: under `wisp mcp`, whether a question is also asked through the client's elicitation form, beside the pending channel; off by default until the form has been tried by hand in Claude Code ([mcp.md](mcp.md), "Questions"). Settable with `wisp config set inquiry.timeoutSeconds 300` and `/config set`. |
 | `notifications` | `{ "enabled": true, "perMinute": 5, "viaTerminalApp": true }` | Whether the `notify` tool and `wisp notify` post at all, and at most how many in any minute across the process. `viaTerminalApp` is the third route, `display notification` sent to the terminal app by its bundle identifier; on by default since a probe on 2026-09-30 showed macOS attributing the banner to the app (Terminal.app, Ghostty); see [tools/notify.md](tools/notify.md). |
 | `mlx` | `{ "modelsDirectory": "<home>/models/mlx", "models": {}, "executor": "wisp" }` | Where MLX model directories, or links to them, live for `mlx:<name>` models (`wisp models pull` links a Hugging Face cache snapshot there), and per model its capabilities (`toolCalling`, `guidedGeneration`, `reasoning`, `vision`), declared by the operator or
 recorded with `verified` by `wisp models enable` and `check`. `contextLength`, when set, is the window of every MLX model, and a model's own `contextLength` beside its `capabilities` comes before it (an entry with only a `contextLength` declares nothing); unset, each is sized from its `config.json` and the Mac's memory as an Ollama model's is. `executor` is `wisp`, wisp's own executor (exact counts, usage, the processed prefix reused; no images), or `bridge`, mlx-swift-lm's, as before 0.19.0 (for a vision model) ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)). `think`, when set, is the chat template's `enable_thinking` for every model whose template takes it; unset asks a model declared `reasoning` to think and leaves any other to its template's default ([ADR 0053](decisions/0053-the-models-thinking-shown.md); [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-06). Needs a build with `--traits MLX`, which the release is. See [backends.md](backends.md). `trustedPublishers` lists the Hugging Face organisations `wisp models pull` fetches from without asking who published the repository; unset it is `["mlx-community"]`, and `mlx-community` is trusted whatever it holds ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), amended 2026-10-09). |
@@ -1245,8 +1312,8 @@ ignored.
 `description` (what the distiller is told such facts are), and `distil` (`false` leaves the kind to the
 tools: the model is not asked for such facts; wisp's `file`, `service`, and `machine` say so). An entry with a known kind's name changes only
 the fields it sets; any other name adds a kind, `dynamic` and `casefold` unless it says otherwise. wisp's
-kinds are `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`, `machine`, `workdir`, and
-`branch` ([context-management.md](context-management.md) lists them). An unknown normaliser, a kind without
+kinds are `task`, `decision`, `preference`, `entity`, `tests`, `file`, `service`, `machine`, `workdir`,
+`branch`, and `answer` ([context-management.md](context-management.md) lists them). An unknown normaliser, a kind without
 a name, or a `share` outside 0 to 0.5 makes the config malformed.
 
 ```json

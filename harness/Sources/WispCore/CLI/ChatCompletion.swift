@@ -34,12 +34,14 @@ public enum ChatCompletion {
     ///     options of `model`, which leave them out (ADR 0056).
     ///   - pendingCommands: The ids of commands waiting in `wisp mcp` servers, for `/approvals approve|deny`.
     ///   - pendingFacts: The ids of facts waiting to be kept, for `/facts keep|drop`.
+    ///   - pendingQuestions: The ids of the model's questions waiting, for `/questions answer|decline`.
     /// - Returns: Where the word starts and what may replace it; no candidates outside a slash command.
     public static func complete(
         _ text: String, cursor: Int? = nil, options: (ConfigSettings.Setting) -> [String] = { _ in [] },
         approvalIDs: [String] = [], sessionIDs: [String] = [],
         subjects: [String] = SubjectKinds.defaults.kinds.map(\.name), factIDs: [String] = [],
-        disabledModels: [String] = [], pendingCommands: [String] = [], pendingFacts: [String] = []
+        disabledModels: [String] = [], pendingCommands: [String] = [], pendingFacts: [String] = [],
+        pendingQuestions: [String] = []
     ) -> Result {
         // Indices are Unicode scalars, the protocol's unit (a Rust `char`), not grapheme clusters: a combining
         // mark or a ZWJ sequence before the word counts as the front end counts it.
@@ -64,6 +66,8 @@ public enum ChatCompletion {
         case ["/approvals", "deny"]: pool = pendingCommands
         case ["/facts"]: pool = ["pending", "keep", "drop"]
         case ["/facts", "keep"], ["/facts", "drop"]: pool = pendingFacts
+        case ["/questions"]: pool = ["pending", "answer", "decline"]
+        case ["/questions", "answer"], ["/questions", "decline"]: pool = pendingQuestions
         case let words where words.count == 3 && words[0] == "/config" && words[1] == "set":
             pool = ConfigSettings.setting(words[2]).map { values($0, options: options) } ?? []
         case ["/model"], ["/models", "disable"], ["/models", "check"]:

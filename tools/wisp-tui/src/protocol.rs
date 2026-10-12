@@ -257,8 +257,10 @@ pub struct ChoiceColumn {
     pub drop: u32,
 }
 
-/// A question with answers to pick from.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+/// A question with answers to pick from: a chat command's, or (with `kind` `question`) the model's, asked
+/// through its `ask` tool (ADR 0062), this conversation's own or (with `source` `mcp`) one waiting in a `wisp mcp`
+/// server, sent because `hello` declared `answer-questions`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct Choice {
     /// The id to answer with.
     pub id: String,
@@ -278,6 +280,33 @@ pub struct Choice {
     /// For a choice with toggles, its columns.
     #[serde(default)]
     pub columns: Vec<ChoiceColumn>,
+    /// `question` for the model's question (ADR 0062); absent for a chat command's choice.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// `mcp` for a question waiting in a `wisp mcp` server; absent for this conversation's own.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// The asking thread, when known.
+    #[serde(default)]
+    pub thread: Option<String>,
+    /// The MCP client's name, when it gave one.
+    #[serde(default)]
+    pub client: Option<String>,
+    /// The pending request's id, for a question waiting in a server.
+    #[serde(default)]
+    pub request: Option<String>,
+}
+
+impl Choice {
+    /// Whether this is the model's question rather than a chat command's choice.
+    pub fn is_question(&self) -> bool {
+        self.kind.as_deref() == Some("question")
+    }
+
+    /// Whether it waits in a `wisp mcp` server.
+    pub fn is_mcp(&self) -> bool {
+        self.source.as_deref() == Some("mcp")
+    }
 }
 
 /// An approval request: this conversation's, or (with `source` `mcp`) a command waiting in a `wisp mcp`
@@ -450,6 +479,7 @@ impl Inbound {
             String::from("approve"),
             String::from("approve-mcp"),
             String::from("keep-facts"),
+            String::from("answer-questions"),
         ];
         if notify {
             effects.push(String::from("notify"));
@@ -669,14 +699,31 @@ mod tests {
         assert_eq!(
             Inbound::hello(true).line(),
             format!(
-                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
+                "{{\"type\":\"hello\",\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\",\"answer-questions\",\"notify\"],\"client\":\"wisp-tui\",\"version\":\"{version}\"}}\n"
             )
         );
-        assert!(
-            Inbound::hello(false)
-                .line()
-                .contains("\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\"],")
-        );
+        assert!(Inbound::hello(false).line().contains(
+            "\"effects\":[\"approve\",\"approve-mcp\",\"keep-facts\",\"answer-questions\"],"
+        ));
+    }
+
+    #[test]
+    fn parses_the_models_question() {
+        let line = r#"{"type":"choice","id":"mcp-a1b2c3d4","title":"Which config?","options":[{"value":"~/.wisp","label":"~/.wisp","detail":""},{"value":"none of these","label":"none of these","detail":""}],"current":null,"acceptsText":false,"kind":"question","source":"mcp","thread":"git","client":"claude-code","request":"a1b2c3d4"}"#;
+        let Outbound::Choice(choice) = Outbound::parse(line) else {
+            panic!("not a choice");
+        };
+        assert!(choice.is_question() && choice.is_mcp());
+        assert_eq!(choice.thread.as_deref(), Some("git"));
+        assert_eq!(choice.client.as_deref(), Some("claude-code"));
+        assert_eq!(choice.request.as_deref(), Some("a1b2c3d4"));
+        // A chat command's choice is neither.
+        let Outbound::Choice(plain) = Outbound::parse(
+            r#"{"type":"choice","id":"c","title":"pick","options":[],"current":null,"acceptsText":true}"#,
+        ) else {
+            panic!("not a choice");
+        };
+        assert!(!plain.is_question() && !plain.is_mcp());
     }
 
     #[test]

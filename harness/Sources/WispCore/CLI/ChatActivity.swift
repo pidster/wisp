@@ -115,7 +115,10 @@ public final class ChatActivity: Sendable {
         case .approvalRequested:
             next.doing = "waiting for your approval"
             next.asking = true
-        case .toolResult, .commandOutcome, .approvalDecided, .error:
+        case .inquiryRequested:
+            next.doing = "waiting for your answer"
+            next.asking = true
+        case .toolResult, .commandOutcome, .approvalDecided, .inquirySettled, .inquiryParked, .error:
             next.doing = "waiting for the model"
             next.asking = false
         case .condensation:

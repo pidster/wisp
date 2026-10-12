@@ -1,6 +1,6 @@
 # ADR 0062: The inquiry verb: the model asks the person a question mid-turn
 
-Date: 2026-10-12. Status: accepted, 2026-10-12, for 0.24.0; not yet built. The operator accepted every
+Date: 2026-10-12. Status: accepted, 2026-10-12, for 0.24.0; built 2026-10-12 (see "Built" at the end). The operator accepted every
 recommendation of D1 to D15 except D10, which is revised below to their decision. Takes up the open half of the
 [escalations proposal](../proposals/2026-09-20-escalations.md), whose approval half
 [ADR 0046](0046-approval-and-notifications-over-mcp.md) settled. Amends [ADR 0044](0044-host-effects.md) (a third
@@ -428,3 +428,59 @@ the fact.
 **Deliberately left out:** reverse delegation through MCP sampling (asking the caller's model) stays unscheduled; a
 caller answering (D9 (c)); answering from off the Mac, as ADR 0046 leaves out; questions from tools other than the
 model's `ask` (the gate keeps approvals, the models tool its own questions); a remembered answer reused across threads.
+
+## Built
+
+Built 2026-10-12, as decided (D1 to D15 with D10 as revised), in four parts that each leave a working state.
+
+- **The tool and the chat faces.** `AskTool` (`Tools/AskTool.swift`), off by default: `tools.ask` adds it to the
+  default set, a list naming it has it, `tools.disabled` removes it; `ToolRegistry.builtInNames` gained `ask`, and
+  the assessment's catalogue a clause for it. `Question` (`Approval/Inquiry.swift`) holds the limits of D4
+  (`validate`), the rule on secrets of D5 (`asksForSecret`, the words as words), the answer scan
+  (`Outcome.masked`, `SecretScanner`'s `secret` rules and `Redactor`'s markers, 2,000 bytes), and the fixed texts
+  of section 3 (`AskTool.text`). The third host effect is `Asker` on `SessionHost`, returning a `Question.Reply`
+  (the outcome and where the person answered): `NobodyAsker` for `wisp respond`, `--yes`, and a server with
+  `approval.outOfBand` off; `TerminalAsker` for plain chat, whose read is `LineReader` (`CLI/LineReader.swift`), a
+  `poll(2)` loop on a dispatch queue of its own that a `TurnStop` and a deadline end, so nothing is left blocked on
+  standard input; `JSONAsker` for `wisp chat --json`, a `choice` line with `kind` `question` (`ChatChoice.kind` and
+  `.origin`), `withdrawn` on a lapse or a stop. `ChatLoop` was not touched: the asker lives in the host, as the
+  approver does, and `ChatActivity` learnt `inquiry.requested` so the working line yields to the dialog.
+  `wisp-tui` renders the question as a picker titled "the model asks" with where the answer goes, Esc and Ctrl-C
+  declining, and queues questions behind an open choice or typed text as it queues MCP approvals.
+- **The pending kind and `wisp questions`.** `PendingApprovals.Kind.question`, `<id>.question.json`, bound over
+  the id, question, options, thread, server process, creation, and expiry; an answer carries `decision`
+  (`answer`, `chose`, `none`, `decline`) and `text`, checked against the options; stale when its server has gone
+  or a deadline has passed; a 0.23 wisp never lists the suffix. `wisp questions pending|answer|decline`
+  (`QuestionsCommand`, entry point `questions`): `answer` shows the question and prompts for the text, so an
+  answer is in neither the shell's history nor `ps`; both run only from a terminal, and the default policy
+  refuses them to the model. `PendingRelay` and `wisp-tui`'s `answer-questions` effect show questions waiting in
+  servers as `choice` lines with `source` `mcp`.
+- **The MCP leg.** `OutOfBandAsker` files the question, posts the one notification ("wisp: the model asks",
+  source `inquiry`), and races the channel against the client's form for the hold (`OutOfBandAsker.hold`, 60 s,
+  fixed; shortened by a deadline shorter than it), then hands the question to the thread's `InquiryBox.park`,
+  whose watch (every 200 ms) delivers the answer as a `ConversationNotices` note to the thread's next turn,
+  records the fact through `ThreadActor.recordAnswer`, and audits `inquiry.settled` with `delivered` `notice`.
+  `respond` posts the still-waiting notice before a turn, appends the waiting line to the reply's text, and
+  returns `structuredContent.questions`; `wisp://threads/{thread_id}` lists `questions`; `close_thread`,
+  eviction, and the server stopping withdraw at once. **The elicitation form (`ElicitationAsker`, a `string`
+  field `answer` with `maxLength` 2000, or an enum of the options and `none of these`) is built behind
+  `inquiry.elicitation`, off by default, until the operator's hand test of D8**; the procedure is in
+  `docs/mcp.md` ("Questions"), and its outcome is to be recorded here.
+- **Audit, facts, verification.** The four kinds of D11 (`inquiry.requested`, `inquiry.parked`,
+  `inquiry.answered`, `inquiry.settled`), `docs/logging.md`. An answered or chosen question becomes the thread's
+  `answer` fact, named by the question cut to 80 characters, source `person`, through `FactExtraction` inside
+  the turn and `Agent.recordAnswer` after a park; `answer` is a subject kind the resource ships (`dynamic`,
+  `trim`, not distilled). The verification pass gained the `answer` reader of D13 ("you chose", "you said", "as
+  you confirmed", "the person answered", "per your answer"), supported by an answered `ask` call of this turn or
+  an earlier one, or by an `answer` fact the thread holds (a note after a park is no call).
+
+**What differed from the text above.** The audit records a refused question (a secret, a limit, nobody to ask) as
+`inquiry.settled` with `outcome` `refused`, with no `inquiry.requested` before it, since nothing was asked. The
+chat's `/stats` does not yet show the time a question waited apart from the model's; the turn's `seconds` include
+it. `wisp questions answer` takes no text argument at all (section 4 offered `[TEXT]`), by the operator's brief:
+the prompt keeps the answer out of history and `ps`. The settings are `inquiry.timeoutSeconds` (0, as revised) and
+`inquiry.elicitation` (false, D8); `tools.ask` (false, D2). The hand test of D8 has not been run: the switch
+stays off, and the ADR is to be updated with the probe's result.
+
+Tested without a model (`InquiryTests`, `InquiryWireTests`, the `wisp-tui` tests in Rust): the list in
+"Consequences", less the eval of D2, which stays outside the gate.

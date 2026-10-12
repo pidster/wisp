@@ -9,7 +9,7 @@ public struct ToolRegistry: Sendable {
     /// custom tool may not take one.
     public static let builtInNames = [
         "current_date", "run_command", "read_file", "edit_file", "inspect", "notify", "system_info", "memory",
-        "models",
+        "models", "ask",
     ]
 
     /// Builds the registry with the given limits for command execution and file pages.
@@ -32,6 +32,8 @@ public struct ToolRegistry: Sendable {
     ///     catalogue.
     ///   - models: The conversation's `models` tool, over its actions, gate, and audit session (ADR 0059). Nil gives
     ///     one that answers that models cannot be managed here: enough for a catalogue.
+    ///   - ask: The conversation's `ask` tool, over the face's asker and the thread's inquiry state (ADR 0062). Nil
+    ///     gives one nobody answers: enough for a catalogue.
     ///   - budget: The conversation's tool-output budget, shared with its agent, which sets the window on it.
     ///   - store: The conversation's output store; nil keeps nothing past the budget, and results say so.
     ///   - condenser: What answers `memory`'s `condense` question over a stored output; nil leaves the verb to
@@ -43,7 +45,7 @@ public struct ToolRegistry: Sendable {
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
-        host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil,
+        host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil, ask: AskTool? = nil,
         budget: ToolBudget = ToolBudget(), store: OutputStore? = nil, condenser: OutputCondenser? = nil,
         disabled: Set<String> = [],
         custom: [CustomTool.Definition] = []
@@ -74,6 +76,7 @@ public struct ToolRegistry: Sendable {
                     source: memory ?? MemorySource(), audit: audit, budget: budget, store: store, condenser: condenser),
                 audit: audit, ledger: ledger),
             AuditedTool(models ?? ModelsTool(), audit: audit, ledger: ledger),
+            AuditedTool(ask ?? AskTool(), audit: audit, ledger: ledger),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework
         // rejects its schema; such a tool is left out with a diagnostic rather than failing the session.
@@ -90,16 +93,21 @@ public struct ToolRegistry: Sendable {
 
     /// The names a conversation given every tool gets: the whole registry, less `memory` unless `memory` is true
     /// (`context.memory`, off by default since [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)),
-    /// and less `models` unless `models` is true (`tools.models`, off by default,
-    /// [ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)). Both stay registered, so a list that
-    /// names one still selects it.
+    /// less `models` unless `models` is true (`tools.models`, off by default,
+    /// [ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)), and less `ask` unless `ask` is true
+    /// (`tools.ask`, off by default, [ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). All three stay
+    /// registered, so a list that names one still selects it.
     ///
     /// - Parameters:
     ///   - memory: Whether `memory` is in the default set.
     ///   - models: Whether `models` is in the default set.
+    ///   - ask: Whether `ask` is in the default set.
     /// - Returns: The names, in registration order.
-    func defaultNames(memory: Bool, models: Bool = false) -> [String] {
-        all.map(\.name).filter { (memory || $0 != MemoryTool.toolName) && (models || $0 != ModelsTool.toolName) }
+    func defaultNames(memory: Bool, models: Bool = false, ask: Bool = false) -> [String] {
+        all.map(\.name).filter {
+            (memory || $0 != MemoryTool.toolName) && (models || $0 != ModelsTool.toolName)
+                && (ask || $0 != AskTool.toolName)
+        }
     }
 
     /// Tools whose names appear in `names`; unknown names are reported back.

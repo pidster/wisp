@@ -88,6 +88,18 @@ public enum ConfigSettings {
                 "give a conversation with every tool the models tool, to list models and ask to pull or enable one",
             kind: .flag),
         Setting(
+            path: "tools.ask",
+            summary: "give a conversation with every tool the ask tool, so the model can ask you a question mid-turn",
+            kind: .flag),
+        Setting(
+            path: "inquiry.timeoutSeconds",
+            summary: "seconds you have to answer the model's question; 0 waits until you do",
+            kind: .integer(0...86_400)),
+        Setting(
+            path: "inquiry.elicitation",
+            summary: "under wisp mcp, also ask the model's question through the client's dialog (untested; off)",
+            kind: .flag),
+        Setting(
             path: "shownOutputLines", summary: "lines of each tool's output chat shows before folding; 0 for none",
             kind: .integer(0...10_000)),
         Setting(path: "notifications.enabled", summary: "whether wisp posts notifications", kind: .flag),
@@ -251,6 +263,9 @@ public enum ConfigSettings {
         case "commandMaxOutputBytes": return d.runner.maxOutputBytes.map { .int($0) } ?? .null
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
         case "tools.models": return .bool(d.toolsModels)
+        case "tools.ask": return .bool(d.toolsAsk)
+        case "inquiry.timeoutSeconds": return .int(Int(d.inquiryTimeout?.components.seconds ?? 0))
+        case "inquiry.elicitation": return .bool(d.inquiryElicitation)
         case "shownOutputLines": return .int(d.shownOutputLines)
         case "notifications.enabled": return .bool(d.notificationsEnabled)
         case "notifications.perMinute": return .int(d.notificationsPerMinute)

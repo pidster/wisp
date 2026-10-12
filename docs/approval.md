@@ -328,7 +328,9 @@ the first set), so it approves only what was shown and only once. A request whos
 refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox, and
 the commands refuse to run without a terminal on standard input. The same directory holds the facts a caller asked
 the person to keep as permanent (`<id>.fact.json`), which are answered with `wisp facts keep|drop`, not
-`wisp approvals` ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
+`wisp approvals` ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)), and the model's questions to the person
+(`<id>.question.json`), answered with `wisp questions answer|decline`: a question is not an approval, and its dialog
+is never styled as one ([ADR 0062](decisions/0062-the-inquiry-verb.md); [tools/ask.md](tools/ask.md)).
 
 `never` still classifies and audits; it just does not ask.
 

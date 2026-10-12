@@ -3,14 +3,16 @@ import Synchronization
 
 /// Shows a front end the questions waiting in `wisp mcp` servers, and writes the person's answers back to the
 /// pending channel: commands waiting for approval (ADR 0046) when the front end's `hello` declares
-/// `approve-mcp`, and facts a caller asked to keep as permanent (ADR 0048) when it declares `keep-facts`.
-/// `wisp chat --json` runs one when either is declared; `wisp-tui` declares both.
+/// `approve-mcp`, facts a caller asked to keep as permanent (ADR 0048) when it declares `keep-facts`, and the
+/// model's questions (ADR 0062) when it declares `answer-questions`. `wisp chat --json` runs one when any is
+/// declared; `wisp-tui` declares all three.
 ///
 /// Each pass lists the channel: a request not yet shown is sent as an `approval` line with `source: "mcp"`
-/// (and, for a fact, `kind: "fact"` and the `fact`) under the protocol id `mcp-<id>`, and a task waits for
+/// (and, for a fact, `kind: "fact"` and the `fact`), or for a question as a `choice` line with `kind` `question`
+/// and `source: "mcp"`, under the protocol id `mcp-<id>`, and a task waits for
 /// the answer; a request shown before and gone now (answered elsewhere, withdrawn, expired) is sent as
 /// `withdrawn`, and its wait is dropped. An answer is written with `via: tui` and audited as
-/// `approval.answered` on the chat's own log.
+/// `approval.answered` (or `inquiry.answered`) on the chat's own log.
 public final class PendingRelay: Sendable {
     /// The channel.
     private let channel: PendingApprovals
@@ -58,6 +60,7 @@ public final class PendingRelay: Sendable {
         var kinds: Set<PendingApprovals.Kind> = []
         if declared("approve-mcp") { kinds.insert(.command) }
         if declared("keep-facts") { kinds.insert(.fact) }
+        if declared("answer-questions") { kinds.insert(.question) }
         return kinds
     }
 
@@ -83,9 +86,16 @@ public final class PendingRelay: Sendable {
             send(ChatProtocol.encode("withdrawn", ["id": .string(Self.protocolID(id))]))
         }
         for request in new {
-            send(
-                ChatProtocol.encode(
-                    "approval", ChatProtocol.approval(id: Self.protocolID(request.id), pending: request)))
+            if let question = request.asked {
+                var choice = question.choice
+                choice.origin = ChatChoice.Origin(
+                    thread: request.thread, source: "mcp", client: request.client, request: request.id)
+                send(ChatProtocol.encode("choice", ChatProtocol.choice(id: Self.protocolID(request.id), choice)))
+            } else {
+                send(
+                    ChatProtocol.encode(
+                        "approval", ChatProtocol.approval(id: Self.protocolID(request.id), pending: request)))
+            }
             Task { await self.awaitAnswer(request) }
         }
     }
@@ -100,6 +110,7 @@ public final class PendingRelay: Sendable {
         _ request: PendingApprovals.Request, alive: (Int32) -> Bool = PendingApprovals.isAlive
     ) async {
         guard let answer = await router.answerUnlessWithdrawn(for: Self.protocolID(request.id)) else { return }
+        if let question = request.asked { return await answerQuestion(question, request: request, typed: answer) }
         let refusal = request.kind == .fact ? "drop" : "no"
         let decision = request.kind.decisions.contains(answer) ? answer : refusal
         do {
@@ -121,6 +132,31 @@ public final class PendingRelay: Sendable {
                 details: AuditEvent.Details.approvalAnswered(
                     request: request.id, request, decision: decision, via: "tui", delivery: "refused",
                     reason: "\(error)"))
+            send(ChatProtocol.encode("note", ["text": .string("the answer was not used: \(error)")]))
+        }
+    }
+
+    /// Writes the front end's answer to a question (ADR 0062): what it chose or typed, mapped as the chat's own dialog
+    /// maps it, audited as `inquiry.answered`.
+    private func answerQuestion(_ question: Question, request: PendingApprovals.Request, typed: String) async {
+        let outcome = question.outcome(typed: typed) ?? .declined
+        let (decision, text): (String, String?) =
+            switch outcome {
+            case .answered(let text): ("answer", text)
+            case .chose(let text): ("chose", text)
+            case .noneOfThese: ("none", nil)
+            default: ("decline", nil)
+            }
+        do {
+            try channel.answer(request.id, decision: decision, text: text, via: "tui")
+            audit?.record(
+                .inquiryAnswered,
+                details: AuditEvent.Details.inquiryAnswered(request.id, via: "tui", delivery: "waiting"))
+        } catch {
+            audit?.record(
+                .inquiryAnswered,
+                details: AuditEvent.Details.inquiryAnswered(
+                    request.id, via: "tui", delivery: "refused", reason: "\(error)"))
             send(ChatProtocol.encode("note", ["text": .string("the answer was not used: \(error)")]))
         }
     }
