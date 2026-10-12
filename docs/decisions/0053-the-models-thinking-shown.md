@@ -107,8 +107,9 @@ tools and got every draft right. Turning `ollama.think` off would have taken thi
   as the turn's `ReasoningObserver` is, which each executor reads as it builds a request: Ollama's `think`,
   llama.cpp's `chat_template_kwargs.enable_thinking`, MLX's template flag. Nothing in the configuration changes. The
   calls that ask for none, through `RequestThinking.sideCall`, which also unbinds the observer as before: the model
-  classifier's verdict (`ModelRiskClassifier`), the fact distiller and the running summary (both from `handOn`), and
-  the assessment. A schema reply (`Agent.respond(to:schema:)`, and so `respond` with a `schema`, `triage`,
+  classifier's verdict (`ModelRiskClassifier`), the fact distiller and the running summary (both from `handOn`),
+  the assessment, and, since 2026-10-12, each chunk of `memory`'s `condense` (`WispThread.condenserAsk`, whose fresh
+  session is also told `thinking` off, since its own turn binds what its requests ask). A schema reply (`Agent.respond(to:schema:)`, and so `respond` with a `schema`, `triage`,
   `summarise_diff`, `scan_secrets` and `redact` with `thorough`, and every condenser's model pass) asks for none
   unless the conversation chose its thinking. Each answers a narrow question of a fixed shape; on `granite4.2:8b`
   thinking bought none of them anything measurable.

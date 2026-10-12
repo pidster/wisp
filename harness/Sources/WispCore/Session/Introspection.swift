@@ -109,6 +109,7 @@ public struct Introspection: Sendable {
                 "target": .double(config.contextTarget.share),
                 "headroomTurns": .int(config.contextTarget.headroomTurns),
                 "memory": .bool(config.contextMemory),
+                "outputDays": .int(config.contextOutputDays),
             ]),
             "watch": .object(["settle": .double(config.watchSettle)]),
             "backends": .object(

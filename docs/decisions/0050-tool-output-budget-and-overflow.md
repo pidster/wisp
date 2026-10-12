@@ -185,7 +185,8 @@ named at the end describe the result.
   one, paged at 16 KiB, and the output list marks such calls with `stored`, `storedBytes`, and `storedLines`;
   chat's `/show` still prints what the tool returned (its head, marker, and tail), and showing the stored whole
   there is left for the chat work of 0.22.0. `doctor`'s report of the store's size is not built; the store is
-  bounded per output by the ceiling and otherwise grows with the conversations kept, like the audit.
+  bounded per output by the ceiling and otherwise grows with the conversations kept, like the audit. (Both
+  superseded on 2026-10-12, below: the store is swept by age, and `doctor` reports it.)
 - **The rest of the 2026-10-09 review, in the same code.** `wisp://threads/{thread_id}/audit`, `wisp://audit/
   {session}`, and `wisp://audit` are paged (`?page=N&limit=M`, 100 events a page, up to 500; JSON with `events`,
   `page`, `pages`, `total`, `next`, and `last`, in place of unbounded JSON Lines); each `respond` thread gets an
@@ -197,12 +198,33 @@ named at the end describe the result.
   keeps a page of an open line and counts the rest); `edit_file`'s `write` replaces without reading and `append`
   copies the file in 64 KiB chunks to a temporary file and renames it, so neither loads the file.
 
+- **2026-10-12: the store is swept by age.** The operator decided that a store growing with every conversation
+  kept is not a store to leave unbounded. A session's stored outputs, `output/<audit session>/`, are removed
+  `context.outputDays` days after the session's last use (default 30, as approvals last; 0 to 3,650, 0 never
+  sweeps; validated at load and by `wisp config set`). **Last use** is the newest modification time among the
+  session's directory and its files: every output kept creates files there, which moves the directory's own
+  time, and a file still being written moves its own, so it costs one listing per session and no marker file to
+  keep in step; reading a stored output moves neither, so a conversation that only reads its old outputs for
+  that long is swept too. The sweep runs in `Session.begin`, before `session.start` is recorded, and is bounded so
+  start-up never waits on a large store: one listing of `output/`, then the sessions whose directory is older
+  than the cutoff, oldest first, at most 16 removed a start (`OutputSweep.removalLimit`) and none examined once
+  100 ms have passed (`OutputSweep.deadline`); the rest waits for the next start. Synchronous and bounded rather
+  than off the critical path, so the start's audit says what it removed. It never touches the current session,
+  nor anything that is not wisp's: only a directory with a safe name holding only regular files with safe names
+  is removed; a file, a link, a directory with a subdirectory or an unexpected name in it, are left alone. The
+  sweep is audited as `outputSweep` on `session.start` (`removed`, the sessions, `bytes`, and `deferred`, those
+  the bound left), present only when it removed or left something. `wisp doctor`'s `output store` finding says
+  how many sessions the store holds and their size, what the next sweep would remove, and what it leaves alone.
+  A conversation idle for longer than the setting inside a running `wisp mcp` server loses its stored outputs;
+  its references then say the output is not held.
+
 ## Consequences
 
 - A larger model sees more of each result at once, and every model can reach all of it, by page or by
   question, where today the excess is out of reach or gone.
 - The output store grows with each large result; it lives and is removed with the thread record, and the
-  16 MiB ceiling bounds one call. `doctor` reports the store's size beside the saved transcripts.
+  16 MiB ceiling bounds one call. `doctor` reports the store's size beside the saved transcripts. (As built, the
+  store outlives the thread record and is swept by age, `context.outputDays` after a session's last use; above.)
 - `condense` costs model calls in proportion to the output's size, and a summary where the exact readers
   fall short; both run only when the model asks. A build log that failed in a known format is summarised
   without a model at all.

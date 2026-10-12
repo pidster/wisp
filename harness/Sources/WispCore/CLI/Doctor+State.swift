@@ -109,8 +109,8 @@ extension Doctor {
     }
 
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,
-    /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target` and
-    /// `context.headroomTurns` within their ranges, which loading the config enforces; a `context.target` above the
+    /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target`,
+    /// `context.headroomTurns`, and `context.outputDays` within their ranges, which loading the config enforces; a `context.target` above the
     /// budget less `ContextComposer.targetMargin` is accepted and reported as used at that cap.
     func settingsInRange() -> Finding {
         let name = "settings"
@@ -139,6 +139,10 @@ extension Doctor {
         if let turns = config.context?.headroomTurns, !Config.ContextConfig.headroomRange.contains(turns) {
             problems.append(
                 "context.headroomTurns \(turns) must be between 0 and 64; wisp refuses to load this config")
+        }
+        if let days = config.context?.outputDays, !Config.ContextConfig.outputDaysRange.contains(days) {
+            problems.append(
+                "context.outputDays \(days) must be between 0 and 3650; wisp refuses to load this config")
         }
         guard problems.isEmpty else { return Finding(name: name, ok: false, detail: problems.joined(separator: "; ")) }
         let resolved = resolvedConfig
@@ -224,5 +228,46 @@ extension Doctor {
         return Finding(
             name: name, ok: true,
             detail: "\(path) is mode 700; \(waiting) waiting (wisp approvals pending)\(factNote)\(staleNote)")
+    }
+}
+
+extension Doctor {
+    /// `~/.wisp/output`, where tool outputs larger than the budget are kept whole (ADR 0050): how many sessions it
+    /// holds and their size, what the next start's sweep would remove (`context.outputDays` after a session's last
+    /// use), and any entries that are not wisp's, which the sweep leaves alone. Never not ok: a store is never wrong,
+    /// only large.
+    func outputStore() -> Finding {
+        let name = "output store"
+        let sweep = OutputSweep(home: home, days: resolvedConfig.contextOutputDays)
+        let path = sweep.root.path
+        guard FileManager.default.fileExists(atPath: path) else {
+            return Finding(
+                name: name, ok: true, detail: "no \(path) yet; made when a tool output first passes the budget")
+        }
+        let survey = sweep.survey()
+        let total = survey.sessions.reduce(0) { $0 + $1.bytes }
+        var detail =
+            "\(path) holds \(survey.sessions.count) session\(survey.sessions.count == 1 ? "" : "s"), "
+            + ToolOutput.size(total)
+        if sweep.days == 0 {
+            detail += "; never swept (context.outputDays 0)"
+        } else {
+            let due = sweep.due(in: survey)
+            let bytes = due.reduce(0) { $0 + $1.bytes }
+            detail += "; kept \(sweep.days) days after last use (context.outputDays): "
+            detail +=
+                due.isEmpty
+                ? "the next sweep removes nothing"
+                : "the next sweep removes \(due.count) (\(ToolOutput.size(bytes)))"
+                    + (due.count > OutputSweep.removalLimit
+                        ? ", \(OutputSweep.removalLimit) a start" : "")
+        }
+        if !survey.foreign.isEmpty {
+            let shown = survey.foreign.prefix(3).joined(separator: ", ")
+            detail +=
+                "; \(survey.foreign.count) not wisp's, left alone: \(shown)"
+                + (survey.foreign.count > 3 ? ", …" : "")
+        }
+        return Finding(name: name, ok: true, detail: detail)
     }
 }

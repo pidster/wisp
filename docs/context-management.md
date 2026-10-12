@@ -712,7 +712,11 @@ the conversation's **output store**, `~/.wisp/output/<audit session>/`, one file
 id of the tool call (the id its `tool.call` and `tool.result` carry), with a record beside it (size, lines,
 SHA-256) and an `output.kept` audit event that refers to it by those rather than carrying it. One file holds at
 most 16 MiB; past that the output is cut, and the cut is stated. The store exists while the audit is on, since
-`memory` reaches it through the audit's call ids. The model is shown the result's first and last lines, about
+`memory` reaches it through the audit's call ids. It is swept by age: a session's outputs are removed
+`context.outputDays` days (30 by default; 0 never) after the session's last use, the newest modification time of
+its directory and files, when a later session starts; the sweep is bounded (16 sessions and 100 ms a start), never
+touches the current session or anything under `output/` that wisp did not write, and is audited as `outputSweep` on
+`session.start`. `wisp doctor` reports the store's size and what the next sweep would remove. The model is shown the result's first and last lines, about
 half the budget each, cut at line ends, with a marker between them and a note at the end:
 
 ```

@@ -162,7 +162,10 @@ conversation's own model: the output is cut into chunks within the budget (at mo
 output had more), each chunk is asked the question in a fresh tool-less session of the same model and told to
 answer `nothing here` when it has nothing, the answers that say something are joined in order, and when they do
 not fit the budget the model is asked once more to combine them. The result names the question, the lines and
-chunks read, and that the model wrote it; a chunk that fails is counted. It is the one verb that costs model
+chunks read, and that the model wrote it; a chunk that fails is counted. Each chunk is one of wisp's own side calls
+([ADR 0053](../decisions/0053-the-models-thinking-shown.md), amended 2026-10-11): a model that can think is asked not
+to, whatever the conversation or the model's settings choose, and its thinking is not recorded as the turn's, as
+the fact distiller, the running summary, and `triage` are run. It is the one verb that costs model
 calls, in proportion to the output's size, and only when asked. Without a model attached (an agent made directly,
 tests) it says so and points at `summarise` and the filters. Paging alone is not enough for a long output: a model
 reading page after page can lose the earlier pages to condensing, so this asks about all of it at once.
@@ -241,6 +244,7 @@ kept is also a `fact.recorded` (method `noted`) when its turn ends ([logging.md]
 | Bytes of lines per recall page | The tool-output budget (an eighth of the model's window, 4 to 64 KiB), as `read_file`'s page, plus the header and the last line | Follows the model's window |
 | Line length | A line longer than a page is cut to it | same |
 | Chunks one `condense` reads | 48, each within the budget | Fixed (`MemoryTool.condenseChunks`) |
+| How long stored outputs stay readable | 30 days after the session's last use, then swept at a later session's start | `context.outputDays` (0 keeps them) |
 | Subjects per fact query | 4 | Fixed (`Recall.factGroups`) |
 | Notes per turn | 12 | Fixed (`Memory.notesPerTurn`) |
 | A note's value | 200 characters | Fixed (`Memory.valueCharacters`) |

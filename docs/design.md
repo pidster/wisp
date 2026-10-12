@@ -483,7 +483,8 @@ Every tool's result is bounded to one **tool-output budget** per conversation (`
 model's window, 4 to 64 KiB; the agent writes its `contextSize` to it as the window becomes known), and what does
 not fit is kept whole in the conversation's **output store** (`OutputStore`, `~/.wisp/output/<audit session>/`,
 one file per output under the tool call's audit call id, which `AuditedTool` sets as the task-local
-`ToolCallContext.call`), audited as `output.kept` by size and hash, and shown as its head and tail with a marker
+`ToolCallContext.call`; swept by age at a later session's start, `context.outputDays` after a session's last use,
+within a bound, by `OutputSweep` in `Session.begin`), audited as `output.kept` by size and hash, and shown as its head and tail with a marker
 and a note (`ToolOutput.fitted`, `ToolOutput.fit`) that names how to page, filter, summarise, or question it
 through `memory` ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md);
 [context-management.md](context-management.md), "The tool-output budget, and the output store"). `AuditedTool`

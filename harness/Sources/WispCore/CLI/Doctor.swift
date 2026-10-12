@@ -144,6 +144,7 @@ public struct Doctor: Sendable {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
             subjectKinds(), savedTranscripts(), notifyRoute(), frontEndFinding(), homeWritable(), pendingApprovals(),
+            outputStore(),
         ]
         // The window follows the model checks, so it can say "not checked" when they failed.
         let modelProblem = model == .system ? probes.systemModel() : nil

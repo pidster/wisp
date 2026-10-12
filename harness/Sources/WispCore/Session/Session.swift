@@ -245,7 +245,8 @@ public struct Session: Sendable {
     }
 
     /// Loads config, applies the request's overrides, opens the audit log and the approval store,
-    /// checks the tool selection, and records `session.start`.
+    /// checks the tool selection, sweeps the output store of sessions unused for `context.outputDays`
+    /// (`OutputSweep`, bounded), and records `session.start`.
     ///
     /// - Parameters:
     ///   - request: Flags and arguments from the entry point.
@@ -286,14 +287,16 @@ public struct Session: Sendable {
         let audit = AuditLog(session: sessionID, sink: sink)
         let stats = CallStats()
         let classifier = dependencies.makeClassifier(config, home)
-        audit.record(
-            .sessionStart,
-            details: AuditEvent.Details.sessionStart(
-                entryPoint: request.entryPoint,
-                prompting: Prompting(
-                    systemPromptExtension: config.systemPromptExtension, instructions: request.instructions),
-                tools: toolNames, model: config.model, unsafe: request.unsafe, autoApprove: request.autoApprove,
-                resume: request.resume, carriedFrom: request.carriedFrom))
+        // Stored outputs of sessions unused for `context.outputDays` go now, within a bound start-up does not feel.
+        let swept = OutputSweep(home: home, days: config.contextOutputDays).run(current: sessionID)
+        var details = AuditEvent.Details.sessionStart(
+            entryPoint: request.entryPoint,
+            prompting: Prompting(
+                systemPromptExtension: config.systemPromptExtension, instructions: request.instructions),
+            tools: toolNames, model: config.model, unsafe: request.unsafe, autoApprove: request.autoApprove,
+            resume: request.resume, carriedFrom: request.carriedFrom)
+        if !swept.isEmpty { details["outputSweep"] = swept.details }
+        audit.record(.sessionStart, details: details)
         return Session(
             request: request, home: home, config: config, audit: audit,
             store: ApprovalStore(url: home.approvalsFile, lifetime: config.approvalLifetime),

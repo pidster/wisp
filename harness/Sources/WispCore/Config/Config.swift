@@ -120,12 +120,16 @@ public struct Config: Codable, Equatable, Sendable {
         /// checkpoint 2 scored fewer answers with it on all three models it measured. A tool list that names
         /// `memory` (`--tool memory`, an MCP caller's `tools`) gets it either way.
         public var memory: Bool?
+        /// Days after a session's last use its stored tool outputs (`output/<session>/`) are removed, at the start of
+        /// a later session; default 30, as approvals last, from 0 (never removed) to 3,650 (ADR 0050, 2026-10-12).
+        public var outputDays: Int?
 
         /// Creates settings; nil fields take defaults.
-        public init(target: Double? = nil, headroomTurns: Int? = nil, memory: Bool? = nil) {
+        public init(target: Double? = nil, headroomTurns: Int? = nil, memory: Bool? = nil, outputDays: Int? = nil) {
             self.target = target
             self.headroomTurns = headroomTurns
             self.memory = memory
+            self.outputDays = outputDays
         }
 
         /// The range `target` must be in: above 0.8 a condensation would leave too little below the 0.85 budget
@@ -133,6 +137,10 @@ public struct Config: Codable, Equatable, Sendable {
         public static let targetRange = 0.1...0.8
         /// The range `headroomTurns` must be in.
         public static let headroomRange = 0...64
+        /// The range `outputDays` must be in: 0 never sweeps, and ten years is as long as keeping means anything.
+        public static let outputDaysRange = 0...3650
+        /// How long stored outputs are kept when `outputDays` is not set.
+        public static let defaultOutputDays = 30
 
         /// Checks both fields' ranges.
         ///
@@ -144,6 +152,9 @@ public struct Config: Codable, Equatable, Sendable {
             if let target, !Self.targetRange.contains(target) { throw fail("target must be between 0.1 and 0.8") }
             if let headroomTurns, !Self.headroomRange.contains(headroomTurns) {
                 throw fail("headroomTurns must be between 0 and 64")
+            }
+            if let outputDays, !Self.outputDaysRange.contains(outputDays) {
+                throw fail("outputDays must be between 0 and 3650")
             }
         }
     }
@@ -729,6 +740,7 @@ public struct Config: Codable, Equatable, Sendable {
                 share: context?.target ?? ContextTarget.default.share,
                 headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
             contextMemory: context?.memory ?? false,
+            contextOutputDays: context?.outputDays ?? ContextConfig.defaultOutputDays,
             watchSettle: watch?.settle ?? WatchConfig.defaultSettle
         )
     }
@@ -848,6 +860,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var contextTarget = ContextTarget.default
         /// Whether a conversation given every tool gets `memory` (`context.memory`); off by default (ADR 0057).
         public var contextMemory = false
+        /// Days after its last use a session's stored outputs are swept (`context.outputDays`); 0 never.
+        public var contextOutputDays = ContextConfig.defaultOutputDays
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
         public var watchSettle = WatchConfig.defaultSettle
     }

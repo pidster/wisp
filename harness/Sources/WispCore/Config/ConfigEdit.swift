@@ -146,6 +146,10 @@ public enum ConfigSettings {
             summary: "give a conversation with every tool the memory tool, to recall what condensing left out",
             kind: .flag),
         Setting(
+            path: "context.outputDays",
+            summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
+            kind: .integer(Config.ContextConfig.outputDaysRange)),
+        Setting(
             path: "watch.settle",
             summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
             kind: .number(Config.WatchConfig.settleRange)),
@@ -259,6 +263,7 @@ public enum ConfigSettings {
         case "context.target": return .double(d.contextTarget.share)
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
         case "context.memory": return .bool(d.contextMemory)
+        case "context.outputDays": return .int(d.contextOutputDays)
         case "watch.settle": return .double(d.watchSettle)
         default:
             // A model's own window falls back to the runtime's, then to sizing; its thinking to the runtime's.

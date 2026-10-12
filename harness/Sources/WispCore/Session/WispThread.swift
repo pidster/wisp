@@ -115,6 +115,23 @@ public struct WispThread: Sendable {
         "You read one part of a tool's output and answer a question about it from that part alone, briefly, quoting "
         + "the lines you rely on. You have no tools."
 
+    /// What answers a `condense` chunk on `model`: a fresh tool-less session per question, run as a side call, so a
+    /// model that can think is asked not to and no observer records its thinking as the turn's (ADR 0053, amended
+    /// 2026-10-11), as the distiller, the summary, and triage's model pass are. The session's own turn binds the
+    /// thinking it asks of its requests, so it is told not to think (`thinking` off) as well as being run aside.
+    ///
+    /// - Parameter model: The conversation's resolved model.
+    /// - Returns: The function `OutputCondenser` holds.
+    static func condenserAsk(on model: ResolvedModel) -> OutputCondenser.Ask {
+        { prompt in
+            try await RequestThinking.sideCall {
+                let agent = Agent(instructions: WispThread.condenserInstructions, tools: [], model: model)
+                agent.thinking = .off
+                return try await agent.respond(to: prompt).text
+            }
+        }
+    }
+
     /// Resolves the model, refuses a request its declared capabilities cannot serve, records
     /// `model.resolved`, and creates the agent that runs this conversation.
     ///
@@ -179,10 +196,7 @@ public struct WispThread: Sendable {
         budget.window = resolved.contextSize
         agent.toolBudget = budget
         // `condense` asks the conversation's own model, one chunk per fresh tool-less session, as triage judges.
-        let model = resolved
-        condenser.attach { prompt in
-            try await Agent(instructions: Self.condenserInstructions, tools: [], model: model).respond(to: prompt).text
-        }
+        condenser.attach(Self.condenserAsk(on: resolved))
         agent.contextPolicy = .target(config.contextTarget)
         agent.factsShare = config.factsShare
         agent.summarises = config.factsSummary

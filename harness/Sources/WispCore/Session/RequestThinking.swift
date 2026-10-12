@@ -6,9 +6,10 @@ import Foundation
 /// The configured defaults (`<runtime>.models.<name>.think`, then `<runtime>.think`) say what a model does when nobody
 /// asks otherwise. Two callers ask otherwise, per request rather than by changing the configuration: wisp's own calls
 /// that gain nothing from thinking (a classifier's verdict, a schema reply, the fact distiller, the running summary, the
-/// assessment), which ask for none, and an MCP caller that chose `think` when it started a thread, whose turns ask for
-/// what it chose. The choice is a task local, as the turn's `ReasoningObserver` is, because the framework runs each
-/// executor on the caller's task: a value bound around `respond` is visible inside the executor (probed 2026-10-04).
+/// assessment, `memory`'s `condense`), which ask for none, and an MCP caller that chose `think` when it started a
+/// thread, whose turns ask for what it chose. The choice is a task local, as the turn's `ReasoningObserver` is,
+/// because the framework runs each executor on the caller's task: a value bound around `respond` is visible inside
+/// the executor (probed 2026-10-04).
 public enum RequestThinking {
     /// The thinking asked of every request made in the current scope; nil leaves each model to its configured default.
     /// A model that cannot think is sent nothing whatever is asked (`ThinkingControl.thinkSent(_:)`).

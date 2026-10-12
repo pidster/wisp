@@ -175,7 +175,9 @@ remembered as ([logging](logging.md)).
 ## Undoing
 
 - Revoke a remembered approval: `wisp approvals revoke <id>` or `wisp approvals clear`.
-- Forget a conversation: delete `~/.wisp/transcripts/<name>.json` and `<name>.store`.
+- Forget a conversation: delete `~/.wisp/transcripts/<name>.json` and `<name>.store`. Its large tool outputs are
+  in `~/.wisp/output/<session>/` until swept, `context.outputDays` after their last use; delete the directory to
+  forget them sooner.
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
@@ -199,4 +201,5 @@ remembered as ([logging](logging.md)).
 | `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |
+| `~/.wisp/output/<session>/` | tool outputs too large for the model to see at once, kept whole so it can page or question them; removed 30 days after the session's last use (`context.outputDays`) | user-only |
 | `~/.wisp/classifiers/risk/` | risk classifier versions: the release's default and those `wisp classifier train` makes | models read-only |
