@@ -6,8 +6,9 @@ here is enforced by code and covered by tests; the linked pages hold the detail.
 
 ## What runs, and where
 
-The model has nine tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`, `models`,
-`edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `models` asks you
+The model has ten tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`, `models`, `ask`,
+`edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `ask` puts a question
+to you and changes nothing (off by default; who answers it is below); `models` asks you
 before it pulls, enables, disables, or checks a model (below); `notify` shows a banner, at
 most a few a minute, through your terminal or `osascript`, and changes nothing ([notify](tools/notify.md));
 `memory`, which a conversation has only with `context.memory` on or a tool list that names it (off by default),
@@ -84,17 +85,19 @@ on-device classifier, by default the Core ML classifier the release ships, or th
 read-only commands the rules know, such as `ls` or `git status`, is `safe` without asking a classifier
 ([approval](approval.md)). At `moderate` and above a person is asked: on the terminal in
 `chat`, in `wisp-tui`'s dialog, and never in plain `wisp "…"`, which refuses instead unless you pass
-`--yes`. Under `wisp mcp` you are asked through your MCP client's dialog when it has one and, at the same
-time, by a notification: answer with `wisp approvals approve <id>` or `deny <id>` in a terminal, or in a
-running `wisp-tui`, and the first answer wins.
+`--yes`. Under `wisp mcp` you are asked through your MCP client's dialog when it has one and by a
+notification, which waits `approval.bannerDelaySeconds` (10 by default) for the dialog and is not posted if you
+answer there first; a client with no dialog gets the notification at once. Answer with `wisp approvals approve
+<id>` or `deny <id>` in a terminal, in a running `wisp-tui`, or with `/approvals approve <id>` or `deny <id>` in a
+plain `wisp chat` at a terminal, and the first answer wins.
 
-**Who can approve, and where.** Only you, in one of wisp's own faces: the chat's prompt, `wisp-tui`'s
-dialog, `wisp approvals` at a terminal, or your MCP client's dialog. The agent that called wisp cannot:
+**Who can approve, and where.** Only you, in one of wisp's own faces: the chat's prompt or its `/approvals`,
+`wisp-tui`'s dialog, `wisp approvals` at a terminal, or your MCP client's dialog. The agent that called wisp cannot:
 nothing in the MCP conversation approves a command, and the answer is bound to the exact command,
 directory, and thread you were shown. wisp's own model cannot: the sandbox denies its commands any write to
 `~/.wisp` even when that lies inside the writable set, `edit_file` refuses it, and the default policy refuses
 `wisp approvals approve|deny`, quoted or behind a wrapper, or spelt `w''isp` or with `${IFS}` between the words. `wisp approvals approve` and
-`deny` refuse to run without a terminal on standard input, which an agent's shell tool does not give; that
+`deny`, and plain chat's `/approvals approve` and `deny`, refuse to run without a terminal on standard input, which an agent's shell tool does not give; that
 is a hurdle, not a wall, so keep your agent's own approval for shell commands on
 ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)).
 
@@ -115,7 +118,8 @@ nobody answers within ten minutes counts as a refusal.
 preference) is written to `~/.wisp/facts.json` and given to every conversation, so wisp never writes one on
 anyone else's word. In chat you state one or move one there (`/fact ID permanent`). An agent calling
 `wisp mcp` can only ask: you are told by a notification ("wisp: keep as a permanent fact?") and answer with
-`wisp facts keep <id>` or `drop <id>` in a terminal, or in a running `wisp-tui`. The rules are the ones for
+`wisp facts keep <id>` or `drop <id>` in a terminal, in a running `wisp-tui`, or with `/facts keep <id>` or
+`drop <id>` in a plain `wisp chat` at a terminal. The rules are the ones for
 approval above: nothing in the MCP conversation answers, the answer is bound to the exact fact you were
 shown, wisp's own model is refused `wisp facts keep|drop` by the default policy, and both run only with a
 terminal on standard input. A request has no time limit and nothing is kept until you answer: it waits in
@@ -133,7 +137,8 @@ model, the thread, or the audit sees it, and you are told. In chat and `wisp-tui
 model's and waits for you as long as you take (`inquiry.timeoutSeconds` sets a deadline; `0`, the default, waits);
 Ctrl-C stops the turn. Under `wisp mcp` you are told by one notification ("wisp: the model asks") and answer with
 `wisp questions answer <id>` (which prompts for the text, so it is in neither your history nor `ps`) or `decline
-<id>` in a terminal, or in a running `wisp-tui`; the rules are the ones for approval above: nothing in the MCP
+<id>` in a terminal, in a running `wisp-tui`, or with `/questions answer <id>` or `decline <id>` in a plain `wisp
+chat` at a terminal; the rules are the ones for approval above: nothing in the MCP
 conversation answers, the answer is bound to the exact question you were shown, wisp's own model is refused
 `wisp questions answer|decline` by the default policy, and the command runs only with a terminal on standard
 input. The turn parks after a minute and your answer reaches the thread's next turn. What is recorded: the

@@ -289,7 +289,7 @@ not an audit log is attached, and the refusals `respond` reports are those of th
 | --- | --- | --- |
 | `wisp respond` | denying, unless `--yes` | Non-interactive: risky commands are refused with a message naming the three ways forward. `--yes` approves everything. |
 | `wisp chat` | terminal | Prints the command, level, and reasons on stderr; reads `y` (this turn), `s` (session), `p` (project), `a` (always), or `n`. |
-| `wisp mcp` | out of band and MCP elicitation, unless `--yes` | For commands the model runs inside `respond` and the condensing tools: files the request in `~/.wisp/pending`, posts a notification (beside a client's dialog, only once it has gone unanswered for `approval.bannerDelaySeconds`, default 10), and, when the client advertised elicitation, asks through its dialog at the same time; the first answer wins and the other is withdrawn. The person answers with `wisp approvals approve ID [--scope …]` or `deny ID` from a terminal, or in a running `wisp-tui`; never through the MCP conversation. Silence for `approval.timeoutSeconds` refuses. With `approval.outOfBand` false: elicitation only, and a client without it is refused with a message telling the calling harness to run the command itself, start wisp with `--yes`, or lower the threshold ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
+| `wisp mcp` | out of band and MCP elicitation, unless `--yes` | For commands the model runs inside `respond` and the condensing tools: files the request in `~/.wisp/pending`, posts a notification (beside a client's dialog, only once it has gone unanswered for `approval.bannerDelaySeconds`, default 10), and, when the client advertised elicitation, asks through its dialog at the same time; the first answer wins and the other is withdrawn. The person answers with `wisp approvals approve ID [--scope …]` or `deny ID` from a terminal, in a running `wisp-tui`, or with `/approvals approve|deny ID` in a plain `wisp chat` at a terminal; never through the MCP conversation. Silence for `approval.timeoutSeconds` refuses. With `approval.outOfBand` false: elicitation only, and a client without it is refused with a message telling the calling harness to run the command itself, start wisp with `--yes`, or lower the threshold ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
 
 ## Configuration
 
@@ -320,7 +320,8 @@ moderate risk · claude-code, thread git
 git push origin main — wisp approvals approve a1b2c3d4
 ```
 
-The person answers from a terminal or `wisp-tui`; the answer is a second file, bound by a SHA-256 to the
+The person answers from a terminal, `wisp-tui`, or a plain `wisp chat` at a terminal (`/approvals approve|deny`);
+the answer is a second file, bound by a SHA-256 to the
 exact command, line, directory, thread, and server process shown, and since 0.21.1 to the reasons shown and the
 expiry too (a request records `bindingVersion: 2`; one filed by an older wisp, without it, is still answered by
 the first set), so it approves only what was shown and only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next

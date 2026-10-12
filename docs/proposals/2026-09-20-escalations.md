@@ -4,7 +4,8 @@ Date: 2026-09-20. Status: for review. Becomes the next ADR (amending ADR 0011 an
 Update 2026-10-02: approval for clients without elicitation was settled by
 [ADR 0046](../decisions/0046-approval-and-notifications-over-mcp.md), through another of wisp's faces; the
 `result` channel below was considered and rejected there, because the calling agent could redeem the id
-without asking anyone. The inquiry verb is still open.
+without asking anyone. Update 2026-10-12: the inquiry verb was settled by
+[ADR 0062](../decisions/0062-the-inquiry-verb.md), accepted and built for 0.24.0.
 
 ## Problem
 

@@ -4,6 +4,51 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+The model can ask you a question mid-turn; waiting MCP requests in plain chat; the approval banner only when the
+dialog goes unanswered; an interactive status bar in `wisp-tui`; and the risk test set grown from real use.
+
+Added:
+
+- `ask`, a tool with which the model asks you one question mid-turn, free text or a choice of two to six options;
+  off by default (`tools.ask`, or a tool list naming it). A question asking for a secret is refused, and a
+  credential-shaped answer is masked (ADR 0062). In chat and `wisp-tui` the question waits until you answer
+  (`inquiry.timeoutSeconds`, default 0; a deadline is optional), and Ctrl-C withdraws it. `wisp chat --json` sends it
+  as a `choice` line of kind `question`, and a front end whose `hello` declares `answer-questions` is sent the
+  questions waiting in `wisp mcp` servers too.
+- Under `wisp mcp` the question is filed in `~/.wisp/pending` and announced once; `wisp questions
+  pending|answer|decline` answers it from a terminal (`answer` prompts for the text), and so do `wisp-tui` and
+  plain chat's `/questions answer|decline`. `respond` holds the client's dialog 60 s, then parks the turn and
+  returns `structuredContent.questions`; the answer reaches the thread's next turn. The client's question form is
+  built behind `inquiry.elicitation`, off until it has been tried by hand. Audited as `inquiry.requested`,
+  `inquiry.parked`, `inquiry.answered`, and `inquiry.settled`; an answer becomes the thread's `answer` fact as the
+  person's, and the verification pass flags "you chose" or "as you confirmed" when no question was answered.
+- Plain `wisp chat` shows commands, facts, and questions waiting in `wisp mcp` servers: a note before the next
+  prompt, once per request, and another once it is answered elsewhere or withdrawn. It answers them with
+  `/approvals approve ID [once|session|project|always]`, `/approvals deny ID`, `/facts keep ID`, `/facts drop ID`,
+  and `/questions answer|decline ID`, only when its input is a terminal; `/approvals pending` lists what waits.
+  `wisp-tui`'s input takes the same commands, and Tab completes the waiting ids.
+- `wisp-tui`'s status bar is interactive: Down from the input's last row focuses the model, Left and Right move
+  between items, and Enter opens one: the model (`/model`), the context gauge (the context panel), `questions: N`
+  (the waiting question's picker), `approvals: N` (the waiting approval's dialog, after its usual grace), and the
+  last turn (the turn list). The line you were typing is kept. `/model` with no name, in `wisp-tui`, offers the
+  models it can switch to.
+
+Changed:
+
+- Under `wisp mcp`, the "approval needed" banner waits for the client's dialog: it is posted only if the request
+  is still unanswered after `approval.bannerDelaySeconds` (default 10, 0 to 3600), and not at all if the dialog,
+  `wisp approvals`, `wisp-tui`, or plain chat answers first. A client without elicitation, or whose dialog cannot
+  be sent, is still told at once; `0` restores the old behaviour. `approval.pending` records
+  `bannerDelaySeconds`, and `approval.settled` records `banner` (`posted` or `skipped`).
+- `wisp-tui`'s status bar shows `questions: N` and `approvals: N` in place of `⚠ N waiting`, and drops parts in
+  turn when the row is narrow instead of cutting them off. Up and Down move the cursor a row in a multi-line
+  message before they recall earlier lines.
+- The frozen risk test set grew from real use: 13 commands from the audit log, each confirmed by the operator,
+  take it to 29 dangerous commands (from 25), with five false positives the gate makes today recorded for the
+  classifier to learn (ADR 0038).
+
 ## 0.23.1
 
 Fixed:

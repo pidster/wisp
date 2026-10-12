@@ -298,11 +298,15 @@ the live test runs.
   `proposals/2026-09-20-escalations.md`. Its approval part, approval for clients that do not render
   elicitation (mobile), paused since [ADR 0014](decisions/0014-persisted-approvals.md), was resolved on
   2026-10-02 by [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md): through another face,
-  not through the conversation. The inquiry verb remains open.
-- **Approval banners when the client's dialog works.** With `approval.outOfBand` on, every approval under
-  `wisp mcp` posts a banner, even when the client's dialog is answered at once. If that proves noisy:
-  post the banner only once the dialog has gone unanswered for some seconds
-  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Consequences").
-- **Waiting MCP requests in plain chat.** `wisp-tui` shows commands, and facts to keep, waiting in `wisp mcp`
-  servers; plain `wisp chat --plain` does not, since it reads a line at a time. A note between prompts,
-  answered with a slash command, would fit it.
+  not through the conversation. The inquiry verb: done 2026-10-12 for 0.24.0
+  ([ADR 0062](decisions/0062-the-inquiry-verb.md), [tools/ask.md](tools/ask.md)): the `ask` tool, off by
+  default, answered in chat, `wisp-tui`, and through `wisp questions` under `wisp mcp`, where the turn parks.
+  Open: the operator's hand test of the client's question form (D8), after which `inquiry.elicitation` may default
+  on ([roadmap.md](roadmap.md), "Not scheduled").
+- **Approval banners when the client's dialog works.** Done 2026-10-12 for 0.24.0: the banner is posted only once
+  the client's dialog has gone unanswered for `approval.bannerDelaySeconds` (default 10), and not at all when it is
+  answered sooner ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), amendment of 2026-10-12).
+- **Waiting MCP requests in plain chat.** Done 2026-10-12 for 0.24.0: plain `wisp chat` notes commands, facts,
+  and questions waiting in `wisp mcp` servers before its prompt, and answers them with `/approvals
+  approve|deny`, `/facts keep|drop`, and `/questions answer|decline` when its input is a terminal
+  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), note of 2026-10-12).

@@ -1,8 +1,8 @@
 # wisp command reference
 
-`wisp` runs Apple's on-device Foundation Model with tools. It has seventeen subcommands (`respond`,
-`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`,
-`watch`, `draft`, `classifier`, `completions`), plus hidden maintainer ones under `classifier`; `respond` is the
+`wisp` runs Apple's on-device Foundation Model with tools. It has eighteen subcommands (`respond`,
+`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `notify`, `scan`,
+`redact`, `watch`, `draft`, `classifier`, `completions`), plus hidden maintainer ones under `classifier`; `respond` is the
 default, so `wisp "<prompt>"` works.
 
 ## Subcommands
@@ -15,7 +15,7 @@ terminal with no prompt, `wisp` prints its help instead of waiting for input.
 | Flag | Meaning |
 | --- | --- |
 | `-i, --instructions <text>` | Instructions for this conversation, added under wisp's own system prompt and `config.json`'s `systemPromptExtension`. See [ADR 0017](decisions/0017-three-layer-instructions.md). |
-| `--tool <name>` (repeatable) | Enable only these tools. Default: all registered tools but `memory` and `models`, which join them when `context.memory` and `tools.models` are on; `--tool memory` or `--tool models` names one either way ([tools/memory.md](tools/memory.md), [tools/models.md](tools/models.md)). |
+| `--tool <name>` (repeatable) | Enable only these tools. Default: all registered tools but `memory`, `models`, and `ask`, which join them when `context.memory`, `tools.models`, and `tools.ask` are on; `--tool memory`, `--tool models`, or `--tool ask` names one either way ([tools/memory.md](tools/memory.md), [tools/models.md](tools/models.md), [tools/ask.md](tools/ask.md)). |
 | `--no-tools` | Give the model no tools: a text-only conversation, which a model that declares no tool calling can still run. |
 | `--stream` / `--no-stream` | Stream the reply as it is generated (default on). |
 | `--unsafe` | Disable the `run_command` policy and sandbox (warns on stderr). |

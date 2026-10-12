@@ -9,7 +9,7 @@ one). If you are a different harness, read this file in full and take only your 
 
 An on-device, tool-using AI microharness for macOS, written in Swift on Apple's Foundation Models framework
 (the model behind Apple Intelligence and the `fm` CLI). One binary, `wisp`, with two faces: a CLI
-(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`) and an MCP server over stdio (`mcp`) that other
+(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`) and an MCP server over stdio (`mcp`) that other
 harnesses delegate local work to. Every command the model runs passes a policy, a Seatbelt sandbox, a risk classifier, and,
 when risky, human approval; everything is written to a verbatim audit log.
 
@@ -55,7 +55,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -68,12 +68,12 @@ subshell); the server exits on EOF. `docs/mcp.md` has a ready-made example.
 
 `Agent` wraps one `LanguageModelSession` created by a `ResolvedModel` (`ModelSelection`: `system` or
 `private-cloud`, or a registered backend's `<scheme>:<name>`: `ollama` through wisp's own executor, ADR 0016, `llamacpp` and `lmstudio` through one shared executor for OpenAI-compatible servers, ADR 0058, `coreai`, and `mlx`, ADR 0019, through wisp's own executor too since ADR 0052; adapters are obsoleted on macOS 27, ADR 0013; a model in `DisabledModels` is refused wherever one is chosen, and enabling an MLX model checks its capabilities on the model, `ModelVerification`, ADR 0056); the framework runs the tool loop. `ToolRegistry` is the single
-list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`, `models`), each wrapped by `AuditedTool`; every tool by default is all but `memory` and `models`, which `context.memory`, `tools.models`, or a list naming them adds (ADR 0057, ADR 0059); `ModelActions` is the one layer behind `wisp models`, `/models`, `/model`, and the `models` tool, whose changes are approval requests of their own kind (ADR 0059).
+list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_file`, `inspect`, `notify`, `system_info`, `memory`, `models`, `ask`), each wrapped by `AuditedTool`; every tool by default is all but `memory`, `models`, and `ask`, which `context.memory`, `tools.models`, `tools.ask`, or a list naming them adds (ADR 0057, ADR 0059, ADR 0062); `ModelActions` is the one layer behind `wisp models`, `/models`, `/model`, and the `models` tool, whose changes are approval requests of their own kind (ADR 0059).
 `CommandRunner` checks `CommandPolicy` (deny/allow regexes), consults `ApprovalGate` (rules plus an on-device
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
-through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044; under `wisp mcp`
+through the `Approver` of the face's `SessionHost`, which also routes notifications and carries the `Asker` the `ask` tool puts the model's question to, the person only, ADR 0044, ADR 0062; under `wisp mcp`
 an `OutOfBandApprover` asks through the client's elicitation and files the request in `~/.wisp/pending`
-(`PendingApprovals`) for `wisp approvals approve|deny` or `wisp-tui` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files. Every tool result is bounded by one
+(`PendingApprovals`) for `wisp approvals approve|deny`, `wisp-tui`, or plain chat's `/approvals` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048; so is the model's question, by `OutOfBandAsker`, for `wisp questions answer|decline`, the turn parking after 60 s and the answer reaching the thread's next turn, ADR 0062), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files. Every tool result is bounded by one
 `ToolBudget`, an eighth of the model's window, and what does not fit is kept whole by `OutputStore` under
 `~/.wisp/output/<session>/`, for `memory` to page, filter, summarise, or condense (ADR 0050).
 `Home`, `Config`, `TranscriptStore`, and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the

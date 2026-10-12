@@ -52,7 +52,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout, compiled in only under the `MLX` package trait (Metal toolchain), which the release is built with; otherwise registered but refusing with the reason. It sizes each model's window from `config.json` (ADR 0043's rule) and runs it through `MLXModel`, wisp's own executor, or, with `mlx.executor: "bridge"`, through `mlx-swift-lm`'s bridge. `MLXModel` hands each request to the model directory's `PrefixEngine`, an actor that owns the tokenizer, the weights, and a `PromptCachePool` of one processed prompt per thread, reusing the longest common prefix (`PrefixPlan`); the engine is generic over `PromptRuntime`, so everything but `MLXPromptRuntime` and `MLXPromptTokenizer` (the one file under `#if MLX`) is tested over a fake runtime. The engine splits a reply's text into thinking and reply by the chat template's tags (`ThinkingFormat`, `ThinkingSplitter`), and `MLXModel` sends the thinking through a `ThinkingStretch` as Ollama's executor does (ADR 0053). `ModelPull` fetches MLX models for `wisp models pull` into the Hugging Face cache (`HubCache`, `huggingface_hub`'s layout, reusing what is there) and links the models directory to the snapshot (ADR 0052); `PublisherCheck` decides whether the repository's publisher may be pulled: one in `mlx.trustedPublishers` (`TrustedPublishers` in `WispCore`; `mlx-community` always) at once, any other only after the person answers once or trust, or with `--trust-publisher` (ADR 0052, amended 2026-10-09). `MetalLibrary` repeats MLX's search for its Metal library for `wisp doctor`'s `MLX` finding (ADR 0047). |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
-| `wisp` | executable | Argument parsing and stdin/stdout only. Subcommands `respond` (default), `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`. Session set-up is `Session.begin` in `WispCore`. |
+| `wisp` | executable | Argument parsing and stdin/stdout only. Subcommands `respond` (default), `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`. Session set-up is `Session.begin` in `WispCore`. |
 | `EmbedSystemPrompt` | build-tool plugin | Embeds `Resources/system-prompt.md` (and the other text resources, among them the shell completion scripts in `Resources/completions/` that `ShellCompletions` serves to `wisp completions`) into `WispCore` as string constants at build time, and, before every build, writes `BuildInfo` (the `git` commit, whether the tree is modified, whether `WISP_RELEASE=1`) which `WispVersion.display` formats for `--version`. `wisp-tui`'s `build.rs` does the same for its own `--version`. |
 | `WispTestSupport` | library, tests only | `ScriptedModel`: a `LanguageModel` that answers from a script, so the agent, tool loop, and MCP server run in tests with no model; and `ContextEval`, the context eval's scenarios and fixtures, which `ModelEvalTests` in `harness/Evals` drives on a real model. |
 | `WispCoreTests`, `WispMCPTests` | tests | swift-testing suites for model-independent logic; `WispServerWireTests` drives the server through a real MCP client on an in-memory transport. |
@@ -267,7 +267,7 @@ material, and pages it at the tool-output budget. An entry's content is read fro
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
 its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
 (D8). `memory` is a built-in tool, off by default (ADR 0057): a thread given every tool has it only with
-`context.memory` on (`ToolRegistry.defaultNames(memory:models:)`, which `Session` resolves "every tool" through), and a
+`context.memory` on (`ToolRegistry.defaultNames(memory:models:ask:)`, which `Session` resolves "every tool" through), and a
 named list only when it names it;
 `WispThread.openAgent` wires it and renders the prompt with its rule
 (`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each
@@ -715,9 +715,10 @@ finds that executable by the path the kernel started it from, never by `argv[0]`
 [ADR 0061](decisions/0061-process-names-set-at-spawn.md)). The front end's optional first line, `hello`, declares
 the host effects it carries; `LineRouter` keeps it (`declares`), the host's notification routes ask it at
 each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. A
-`hello` that declares `approve-mcp` or `keep-facts` starts a `PendingRelay` for the kinds it declared
-(`PendingRelay.kinds`), which sends the commands, or the facts to keep, waiting in `wisp mcp` servers as
-`approval` lines (`source: "mcp"`, and `kind: "fact"` for a fact) and `withdrawn` when they stop waiting. `/config` shows the configuration as YAML through
+`hello` that declares `approve-mcp`, `keep-facts`, or `answer-questions` starts a `PendingRelay` for the kinds it
+declared (`PendingRelay.kinds`), which sends the commands, or the facts to keep, waiting in `wisp mcp` servers as
+`approval` lines (`source: "mcp"`, and `kind: "fact"` for a fact), the model's questions as `choice` lines of kind
+`question`, and `withdrawn` when they stop waiting. `/config` shows the configuration as YAML through
 `YAMLText`; `/config set` and `wisp config set` go through
 `ConfigSettings` (the settings that can change, and what each takes) and `ConfigEdit` (one path set or
 removed, the result validated as start-up would before it is written); a chat command that needs an

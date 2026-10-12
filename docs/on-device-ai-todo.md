@@ -212,9 +212,19 @@ the summary, the assessment, `memory`'s `condense`).
 
 ## 7. Current work and backlog (2026-10-12)
 
-### Committed, not yet released (0.23.1)
+### Committed, not yet released (0.24.0)
 
-`CHANGELOG.md`, "Unreleased": a patch for the secret scanner, which read prose such as "per token: every …" as a
+`CHANGELOG.md`, "Unreleased": the inquiry verb ([ADR 0062](decisions/0062-the-inquiry-verb.md)): the model asks the
+person one question mid-turn with its `ask` tool, off by default (`tools.ask`), answered in chat and `wisp-tui`, and
+under `wisp mcp` through `wisp questions`, plain chat's `/questions`, or `wisp-tui`, the turn parking after 60 s and
+the answer reaching the thread's next turn; the client's question form built behind `inquiry.elicitation`, off until
+the operator's hand test. Plain `wisp chat` showing and answering commands, facts, and questions waiting in `wisp
+mcp` servers. The approval banner posted only once the client's dialog has gone unanswered for
+`approval.bannerDelaySeconds` ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), amended).
+`wisp-tui`'s interactive status bar ([ADR 0029](decisions/0029-tui-front-end.md), amended). The frozen risk test set
+grown from real use to 29 dangerous commands ([ADR 0038](decisions/0038-fast-specialised-classifiers.md), amended).
+
+0.23.1 (2026-10-12): a patch for the secret scanner, which read prose such as "per token: every …" as a
 credential assigned to a name; a credential word inside a sentence now counts only with a value that mixes letters
 and digits and is not a number with a unit ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md), amended).
 
@@ -300,8 +310,9 @@ and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts over MCP
 
 ### Planned next
 
-The [roadmap](roadmap.md) ends with 0.23.0, the last release planned; what is left is under its "Not
-scheduled", among it the verification pass's model step, waiting on a more capable model.
+The [roadmap](roadmap.md) ends with 0.24.0, the release being made; what is left is under its "Not
+scheduled", among it the verification pass's model step, waiting on a more capable model, and the hand test of the
+client's question form (ADR 0062, D8).
 Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
 0.20.0 must measure" beyond the Qwen3-1.7B comparison.
 

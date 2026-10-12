@@ -28,11 +28,14 @@ wisp classifier train --from-audit --use       # a risk classifier trained on th
 **wisp** is a small AI agent that runs on your Mac and stays there. It drives Apple's on-device
 Foundation Model, the one behind Apple Intelligence, or a model you run locally, and gives it tools: it
 can run a command, read and edit a file, report on the machine, send you a notification, and, when you
-turn them on, recall what its context no longer holds and ask you to pull or enable a model. You use it from the terminal, as a command or a
+turn them on, recall what its context no longer holds, ask you to pull or enable a model, and ask you a
+question when it needs your answer to go on. You use it from the terminal, as a command or a
 chat, and your coding agent uses it as an MCP server, handing it the local chores that would otherwise
 fill the agent's context: run the tests and return the failures, condense a log, summarise a diff, scan
 a commit for secrets. Every command the model runs passes a policy, a sandbox, a risk classifier, and,
-when it matters, you, and every step is written to an audit log you can read back. Beside each reply wisp
+when it matters, you, and every step is written to an audit log you can read back. When the model working for
+your coding agent needs your approval or your answer, you give it in `wisp chat`, `wisp-tui`, or any terminal,
+never through the agent. Beside each reply wisp
 shows what the turn ran and flags any result the reply reports that no call produced.
 
 You and your coding agent reach the same session, and a command the model asks for passes the gate
@@ -40,7 +43,7 @@ before it touches your Mac:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.svg">
-  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and two more, memory and models, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
+  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and three more, memory, models, and ask, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
 The model never carries the whole conversation. The audit log keeps everything, and wisp composes each
@@ -131,10 +134,12 @@ minutes of the unified log, 14,333 lines, came back as its top thirty message te
 leaves the Mac and never enters the calling agent's context. When the model inside `respond` wants to
 run a risky command, you are asked through your client's dialog and, at the same time, by a notification
 naming `wisp approvals approve <id>`, which answers it from any terminal (a running `wisp-tui` shows it as
-its own dialog); the first answer wins. A client with no dialog, such as the Claude mobile app, is approved
+its own dialog, and plain `wisp chat` answers it with `/approvals approve <id>`); the first answer wins. A client with no dialog, such as the Claude mobile app, is approved
 that way; a request nobody answers is refused, never run silently. A fact the agent asks you to keep across
 sessions reaches you the same way, and you answer with `wisp facts keep <id>` or `drop <id>`; the agent can
-never keep one itself. [mcp.md](docs/mcp.md) has each tool's arguments and result.
+never keep one itself. When the model has the `ask` tool and asks you a question, the question waits for
+`wisp questions answer <id>`, `wisp-tui`, or chat's `/questions answer <id>`, and the turn picks up your
+answer. [mcp.md](docs/mcp.md) has each tool's arguments and result.
 
 ## Why it is different
 
@@ -174,7 +179,7 @@ reply reports that no call produced ([verification.md](docs/verification.md)), s
 delegated work without reading the log. [trust.md](docs/trust.md) states in one page
 what wisp can and cannot do to your Mac.
 
-**It is a microharness.** One binary, one session, a registry of nine tools, and the smallest correct
+**It is a microharness.** One binary, one session, a registry of ten tools, and the smallest correct
 agent loop; the framework runs the loop and wisp puts the care around it. Your own tools are command
 templates in `~/.wisp/config.json`, run through the same gate as everything else
 ([tools/custom.md](docs/tools/custom.md)). State is a directory, `~/.wisp`, that you can read, edit,
@@ -194,11 +199,12 @@ and delete.
 | Safety | The policy's deny and allow lists, the Seatbelt sandbox, and what a refused write is reported as | [tools/run_command.md](docs/tools/run_command.md), [ADR 0054](docs/decisions/0054-the-sandboxs-refusals-checked.md) |
 | | Risk classifiers: rules, the shipped Core ML classifier, or the on-device model | [approval.md](docs/approval.md#classifiers) |
 | | **Custom classifiers**: train one on your own audit log or labelled commands, measure it, and switch to it | [wisp.md](docs/wisp.md#wisp-classifier), [approval.md](docs/approval.md#training-and-measuring-a-classifier) |
-| | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
+| | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal or from chat | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
 | Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
 | | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
+| | The model asks you a question mid-turn with its `ask` tool (off by default), in chat, `wisp-tui`, or from an MCP session through `wisp questions`; never for a secret | [tools/ask.md](docs/tools/ask.md), [ADR 0062](docs/decisions/0062-the-inquiry-verb.md) |
 | | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |

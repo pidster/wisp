@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 40 960 400" width="960" height="400" role="img" aria-labelledby="title desc">
   <title id="title">How wisp is put together</title>
-  <desc id="desc">You at the terminal (wisp, wisp chat, wisp-tui), and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread), both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and two more, memory and models, that are off by default. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
+  <desc id="desc">You at the terminal (wisp, wisp chat, wisp-tui), and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread), both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and three more, memory, models, and ask, that are off by default. A command the model asks for passes the gate in order: the policy's deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#0969da"/>
@@ -59,7 +59,7 @@
   <text class="body" x="434" y="282">current_date</text>
   <line class="rule" x1="434" y1="294" x2="564" y2="294"/>
   <text class="label-muted" x="434" y="312">OFF BY DEFAULT</text>
-  <text class="body" x="434" y="330">memory, models</text>
+  <text class="body" x="434" y="330">memory, models, ask</text>
 
   <!-- The gate, in the order the code checks -->
   <rect class="gate" x="616" y="60" width="170" height="284" rx="10"/>
