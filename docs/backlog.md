@@ -25,6 +25,12 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
 - Done 2026-10-03: permanent facts over MCP ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A
   `wisp mcp` caller asks with `set_fact_scope` `permanent`, and the person keeps or drops the fact with
   `wisp facts keep|drop` or in `wisp-tui`.
+- Done 2026-10-12: the tool-output budget ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)). Every
+  tool result is bounded by an eighth of the model's window (4 to 64 KiB); what does not fit is kept whole in the
+  conversation's output store (`~/.wisp/output/<session>/`, swept by age, `context.outputDays`) and reached through
+  `memory` by page, filter, exact summary, or a condensing question; `inspect` lists a turn's calls and a repeated
+  call is noted. Open: chat's `/show` and `wisp-tui`'s expanded view still show the cut output, not the stored
+  whole ([roadmap.md](roadmap.md), 0.23.0).
 
 ## Policy
 
@@ -32,6 +38,13 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
   program ([ADR 0015](decisions/0015-per-command-approval.md)).
 - Done 2026-10-04: the sandbox's refusals checked against the writable roots, and a nested wisp agent denied to
   the model and to typed `!` commands ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)).
+- Done 2026-10-12: loops and conditionals judged and remembered by the commands inside them, inline programs
+  (`python3 -c`) at least moderate, `find -exec` judged, piping into an interpreter dangerous, and a line whose risk
+  only the whole line shows asked once ([ADR 0015](decisions/0015-per-command-approval.md), amended 2026-10-11); the
+  rules and deny patterns read a search pattern, an awk program, or printed text as data, not as a pipe, a
+  deletion, or a write.
+- Done 2026-10-12: project approvals whose folder is gone marked in `wisp approvals`, `/approvals`, and
+  `wisp://approvals`, and removed by `wisp approvals clear --gone`.
 
 ## Enabling other harnesses (see the objective)
 
@@ -106,6 +119,9 @@ Done 2026-10-04: `! <command>` in chat, with `wisp-tui`'s command mode
 ([ADR 0049](decisions/0049-commands-typed-in-chat.md)); the input box inactive and holding keys while a turn
 runs; and the running summary in a place of its own (`/inspect summary`, `wisp://threads/{id}/summary`).
 Tables and links in replies are shown as typed.
+Done 2026-10-12: Ctrl-C during a model's turn stops the turn and the command it started, in both front ends, and a
+second Ctrl-C quits ([ADR 0049](decisions/0049-commands-typed-in-chat.md) and
+[ADR 0029](decisions/0029-tui-front-end.md), amended 2026-10-11).
 
 ## When wisp can be signed
 
@@ -178,6 +194,13 @@ Three things wait on a Developer ID or App Store signature rather than on code.
   file cut off part-way and seeding the Hugging Face cache from a real directory, and Core AI's listing following
   links ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09); and `qwen3.8:27b`
   re-measured, with no slowdown in tool work ([measurements.md](measurements.md)).
+- Done 2026-10-12: one set of model actions for the person and the model
+  ([ADR 0059](decisions/0059-one-set-of-model-actions.md)): `ModelActions` behind `wisp models`, `/models`, and
+  `/model`; `/models pull`, `trust`, and `cancel` in chat and `wisp-tui`, with the picker's pull row; and a `models`
+  tool for the model, off by default (`tools.models`), whose every change asks the person.
+- Done 2026-10-12: thinking chosen per model (`<runtime>.models.<name>.think`) and per call: wisp's own side calls
+  send `think: false`, and MCP `respond` takes `think` when a thread starts
+  ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11).
 - Done 2026-09-20: agent tests without the model. `ScriptedModel` drives `Agent`, the tool loop,
   `WispServer` over a real client and in its unit tests (the fake thread is gone), and the whole
   `wisp chat` loop, which moved into `WispCore` as `ChatLoop` with injected input and output.

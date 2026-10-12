@@ -4,6 +4,90 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+The tool-output budget, models managed in chat by the person and the model, thinking chosen per call, Ctrl-C
+for a model's turn, and shell loops judged by what they run.
+
+Added:
+
+- One tool-output budget for every tool result, an eighth of the model's window (4 KiB on the on-device model, 64
+  KiB at most), in place of the fixed 4 KiB. Output past it is kept whole in the conversation's output store
+  (`~/.wisp/output/<session>/`, 16 MiB per output, audited as `output.kept` by size and hash), and the model is
+  shown the first and last lines with a marker and a note saying how to reach the rest, and for a command not to
+  run it again (ADR 0050).
+- `memory` pages a stored output by the id its note names (`recall output 3f9a2c1b from line 44`) or by its entry,
+  filters it (`matching PATTERN`, `lines A-B`, `head N`, `tail N`), `summarise`s it with exact readers (a failed
+  build by its root causes, a log by its severities, JSON by its shape), and `condense`s it with a question the
+  conversation's model answers over all of it, chunk by chunk.
+- `inspect` lists a turn's tool calls one line each (`what: calls`) and filters `audit` by `turn`; a tool call
+  repeated with the same arguments within a turn is answered with a line saying so.
+- `/models pull REPOSITORY` and `/models trust PUBLISHER` in chat and `wisp-tui`: the publisher question is a
+  choice (refuse by default, pull once, trust from now on), the download's progress shows in the status line, and
+  Ctrl-C stops a pull, keeping what arrived for the next pull to resume. `wisp-tui`'s `/models` picker has a "pull
+  a model…" row, and `/models cancel [REPOSITORY]` stops a pull the model asked for.
+- A `models` tool for the model, off by default (`tools.models`, or a tool list naming it): `list` and `show`
+  freely; `pull`, `enable`, `disable`, and `check` only with the person's approval. A pull is asked every time,
+  never remembered, and not answered by `--yes`; `trust` and `switch` are refused. An approved pull runs in the
+  background and its end arrives as a note in the conversation (ADR 0059).
+- Thinking per model: `ollama.models.<name>.think`, `mlx.models.<name>.think`, and `llamacpp.models.<name>.think`
+  set one model's thinking ahead of the runtime's `think`; `wisp models` shows it as `thinking (false)`.
+- `respond` takes `think` (true, false, or an Ollama level) when a thread starts; it is refused on an existing
+  thread and shown in `wisp://threads`, and the `prompt` audit event records the thinking each turn sent.
+- `wisp approvals`, `/approvals`, and `wisp://approvals` mark project approvals whose folder is gone; `wisp
+  approvals clear --gone` removes them.
+- `wisp://threads/{thread_id}/output/{id}` serves a whole stored output, paged; the output list marks stored
+  outputs.
+- The output store is swept by age: a session's stored tool outputs are removed `context.outputDays` days after
+  its last use (default 30; 0 keeps them), at a later session's start, at most 16 sessions and 100 ms a start,
+  audited as `outputSweep` on `session.start`. `wisp doctor` reports the store's size and what the next sweep
+  would remove.
+
+Changed:
+
+- wisp's own calls no longer make a thinking model think: classifier verdicts, schema replies (including triage,
+  `summarise_diff`, and thorough `scan_secrets` and `redact`), the fact distiller, the running summary, the
+  assessment, and `memory`'s `condense` send `think: false`; change drafts and conversation turns keep the
+  model's default. Measured on 2026-10-10: `granite4.2:8b` not thinking matched `granite4.1:8b` at its speed and
+  got every draft right.
+- Ctrl-C during a model's turn stops the turn instead of quitting: the request is cancelled, a command the model
+  started is stopped (SIGTERM, then SIGKILL after two seconds), and chat returns to the prompt with "stopped by
+  you"; a second Ctrl-C quits. The same works through `wisp-tui` and the `interrupt` line, and the stop is
+  audited as `turn.stopped`.
+- Loops and conditionals are judged and remembered by the commands inside them: `for f in *.txt; do git add
+  "$f"; done` is `git add *`, so a new loop does not ask again for an approved command, and a keyword such as
+  `do` is never remembered on its own. A body that uses a loop variable is judged by what it ranges over (`rm
+  "$f"` over `~/*` is dangerous).
+- `find -exec` commands are judged; `python3 -c`, `perl -e`, `node -e`, and similar inline programs are at least
+  moderate; piping into an interpreter as its program (`curl … | python3`) is dangerous. A program named by a
+  variable or substitution (`$X args`) is at least moderate and remembered by its exact text; a quote or escape
+  inside a word (`w''isp`) or `${IFS}` between words no longer hides a rule or a deny pattern.
+- A line whose risk only the whole line shows is asked once, as a whole, not part and then line.
+- `run_command` no longer discards all but the tail of each stream: its result is bounded as a whole, notes
+  included, and the whole output is kept. `commandMaxOutputBytes` is unset by default and, when set, replaces the
+  budget for `run_command` alone. `read_file` and `memory` page at the budget.
+- Each MCP `respond` thread gets an audit session of its own (`<thread_id>-<suffix>`, shown as `auditSession`),
+  so a reused `thread_id` no longer mixes an earlier thread's history into its resources; `wisp://audit`,
+  `wisp://audit/{session}`, and `wisp://threads/{thread_id}/audit` are paged (`?page=N&limit=M`).
+- `wisp models`, `/models`, `/model`, and the `models` tool share one set of model actions; `wisp models`' flags
+  and output are unchanged. `model.pull` gains `source`, `approval`, and the outcome `cancelled`;
+  `model.publisher`, `model.verified`, and `config.change` gain `approval`.
+
+Fixed:
+
+- A spawned command inherits no descriptor of wisp's or of another command's (`POSIX_SPAWN_CLOEXEC_DEFAULT`;
+  pipes, the output store, and `read_file`'s handles are close-on-exec).
+- `read_file` refuses FIFOs, devices, and sockets, and reads a file with no newlines a page at a time;
+  `edit_file`'s `write` and `append` no longer load the existing file.
+- The risk rules no longer read a search pattern, an awk program, a `pgrep` pattern, or printed text as a pipe, a
+  deletion, or a write (`grep -vE "grep|bash -c"`, `grep -E "a|python"`, `pgrep -f 'rm -rf x'`, `awk '… NF>6 …'`),
+  and the built-in deny patterns no longer refuse them; `ls ~/.ssh/*.pub` is safe and listing `~/.ssh/` is
+  moderate; text written into a shell start-up file is judged as the commands it will be; `python3 <(curl …)`,
+  `kubectl … delete`, `gh repo delete` or `edit --visibility`, and `wisp --yes` are dangerous.
+- A `(` inside double quotes is no longer read as a subshell, and a `$(…)` after a `'` inside double quotes is no
+  longer missed, so neither lets a command escape the risk check.
+- `scripts/check eval` shows each line as it runs again, instead of only when the run ends.
+
 ## 0.21.2
 
 A patch for one fault found after 0.21.1.

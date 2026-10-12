@@ -28,7 +28,7 @@ wisp classifier train --from-audit --use       # a risk classifier trained on th
 **wisp** is a small AI agent that runs on your Mac and stays there. It drives Apple's on-device
 Foundation Model, the one behind Apple Intelligence, or a model you run locally, and gives it tools: it
 can run a command, read and edit a file, report on the machine, send you a notification, and, when you
-turn it on, recall what its context no longer holds. You use it from the terminal, as a command or a
+turn them on, recall what its context no longer holds and ask you to pull or enable a model. You use it from the terminal, as a command or a
 chat, and your coding agent uses it as an MCP server, handing it the local chores that would otherwise
 fill the agent's context: run the tests and return the failures, condense a log, summarise a diff, scan
 a commit for secrets. Every command the model runs passes a policy, a sandbox, a risk classifier, and,
@@ -172,7 +172,7 @@ logs` reads it, and `respond` returns each turn's receipt folded from the same e
 agent can check delegated work without reading the log. [trust.md](docs/trust.md) states in one page
 what wisp can and cannot do to your Mac.
 
-**It is a microharness.** One binary, one session, a registry of eight tools, and the smallest correct
+**It is a microharness.** One binary, one session, a registry of nine tools, and the smallest correct
 agent loop; the framework runs the loop and wisp puts the care around it. Your own tools are command
 templates in `~/.wisp/config.json`, run through the same gate as everything else
 ([tools/custom.md](docs/tools/custom.md)). State is a directory, `~/.wisp`, that you can read, edit,
@@ -185,8 +185,9 @@ and delete.
 | Models | The on-device model by default; Ollama, MLX, Core AI, llama.cpp, and LM Studio models by name; Private Cloud Compute as an explicit opt-in | [backends.md](docs/backends.md), [ADR 0058](docs/decisions/0058-a-shared-http-executor.md) |
 | | A context window sized from the Mac's free memory for each Ollama and MLX model, or set for one model; a llama.cpp or LM Studio model's is the server's | [wisp.md](docs/wisp.md#context-window), [ADR 0043](docs/decisions/0043-context-window-from-memory.md) |
 | | `wisp models`: every model this Mac can run as one table; enable or disable a model, and have its capabilities checked when you enable it | [wisp.md](docs/wisp.md#wisp-models), [ADR 0056](docs/decisions/0056-models-enabled-and-disabled.md) |
+| | Models in chat: `/models pull`, `trust`, and `cancel` beside `enable`, `disable`, and `check`; the model's own `models` tool (off by default), whose every change asks you | [tools/models.md](docs/tools/models.md), [ADR 0059](docs/decisions/0059-one-set-of-model-actions.md) |
 | | `wisp models pull`: an MLX model fetched into, or reused from, the Hugging Face cache, after asking; an interrupted download resumes | [backends.md](docs/backends.md#mlx-swift), [ADR 0052](docs/decisions/0052-mlx-on-a-par-with-ollama.md) |
-| | A reasoning model's thinking shown while it thinks, on Ollama and MLX, kept for you and never sent back to the model; `ollama.think` and `mlx.think` | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md), [backends.md](docs/backends.md) |
+| | A reasoning model's thinking shown while it thinks, on Ollama and MLX, kept for you and never sent back to the model; `ollama.think` and `mlx.think`, or per model; wisp's own side calls do not think | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md), [backends.md](docs/backends.md) |
 | | Which local model suits which work, as measured: the local-model and Falcon comparisons | [measurements.md](docs/measurements.md#comparing-models) |
 | Safety | The policy's deny and allow lists, the Seatbelt sandbox, and what a refused write is reported as | [tools/run_command.md](docs/tools/run_command.md), [ADR 0054](docs/decisions/0054-the-sandboxs-refusals-checked.md) |
 | | Risk classifiers: rules, the shipped Core ML classifier, or the on-device model | [approval.md](docs/approval.md#classifiers) |
@@ -194,6 +195,8 @@ and delete.
 | | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
 | Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
+| | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
+| | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |
@@ -212,7 +215,7 @@ An Apple silicon Mac on macOS 27 or later with Apple Intelligence enabled, and H
 
 ```bash
 brew install pidster/tap/wisp   # installs wisp, wisp-tui, and MLX's Metal library
-wisp doctor                     # checks the model, MLX, sandbox, classifier, config, home, notifications, and pending requests
+wisp doctor                     # checks the model, MLX, sandbox, classifier, config, home, notifications, pending requests, and the output store
 wisp "What is the date in Tokyo?"
 ```
 

@@ -55,7 +55,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models [enable|disable|check], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals, /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -73,7 +73,9 @@ list of tools the model sees (`current_date`, `run_command`, `read_file`, `edit_
 classifier, the language model or a Core ML version from `ClassifierStore`; ask at `moderate` and above
 through the `Approver` of the face's `SessionHost`, which also routes notifications, ADR 0044; under `wisp mcp`
 an `OutOfBandApprover` asks through the client's elicitation and files the request in `~/.wisp/pending`
-(`PendingApprovals`) for `wisp approvals approve|deny` or `wisp-tui` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files.
+(`PendingApprovals`) for `wisp approvals approve|deny` or `wisp-tui` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout. `FileReader` pages files. Every tool result is bounded by one
+`ToolBudget`, an eighth of the model's window, and what does not fit is kept whole by `OutputStore` under
+`~/.wisp/output/<session>/`, for `memory` to page, filter, summarise, or condense (ADR 0050).
 `Home`, `Config`, `TranscriptStore`, and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
 file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension`, and the caller's instructions (ADR 0017). `AuditLog` writes JSON Lines; `Diagnostics` wraps

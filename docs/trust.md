@@ -6,13 +6,17 @@ here is enforced by code and covered by tests; the linked pages hold the detail.
 
 ## What runs, and where
 
-The model has eight tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`,
-`edit_file`, and `run_command`. Only the last two change anything on the Mac; `notify` shows a banner, at
+The model has nine tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`, `models`,
+`edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `models` asks you
+before it pulls, enables, disables, or checks a model (below); `notify` shows a banner, at
 most a few a minute, through your terminal or `osascript`, and changes nothing ([notify](tools/notify.md));
 `memory`, which a conversation has only with `context.memory` on or a tool list that names it (off by default),
 reads only the conversation's own record and the audit log, and writes only the model's own facts
 about the conversation, which rank below yours and a tool's and never reach the shared store without you
-([memory](tools/memory.md)); `system_info` runs fixed read-only commands wisp chooses,
+([memory](tools/memory.md)); `models`, which a conversation has only with `tools.models` on or a tool list that
+names it (off by default), lists the models and shows one freely, asks you for every pull and for each enable,
+disable, or check, and is refused trusting a publisher or switching the model ([models](tools/models.md));
+`system_info` runs fixed read-only commands wisp chooses,
 under the sandbox but without asking, since the model supplies no command ([system_info](tools/system_info.md)).
 Tools you declare yourself in `~/.wisp/config.json` run their command through `run_command`'s policy,
 classifier, approval, and sandbox, so they grant nothing `run_command` does not; a project cannot
@@ -170,7 +174,11 @@ Both flags print a warning on stderr. There is no switch that turns off the audi
 `~/.wisp/logs/audit.jsonl` records every prompt, reply, tool call and result, policy decision,
 classifier verdict, approval, and command outcome, verbatim, in the order they happened, user-only on
 disk. `wisp logs` reads it; `wisp logs --kind approval.decided` shows every approval and what it was
-remembered as ([logging](logging.md)).
+remembered as ([logging](logging.md)). A reasoning model's thinking is recorded there too (`model.reasoning`)
+and shown to you (`/show`, `/inspect thinking`), and is never sent back to the model; wisp's own side calls
+(classifier verdicts, schema replies, the summary and facts) ask a thinking model not to think
+([ADR 0053](decisions/0053-the-models-thinking-shown.md)). A tool output too large for the model is kept whole in
+`~/.wisp/output/<session>/` (audited as `output.kept` by size and hash, not content) until it is swept.
 
 ## Undoing
 

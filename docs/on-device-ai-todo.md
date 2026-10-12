@@ -196,7 +196,10 @@ controls, not implemented settings. *Partly*, since 0.19.0 ([ADR 0053](decisions
 Ollama's `think` is requested through `ollama.think` (`true`, `false`, or a level), and, since 0.20.0, an MLX
 model's through `mlx.think` (`true` or `false`) for a chat template that takes `enable_thinking`; a reasoning model's
 thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat, `wisp-tui`,
-`wisp://threads/{id}/reasoning`), audited as `model.reasoning`, and never sent back to the model.
+`wisp://threads/{id}/reasoning`), audited as `model.reasoning`, and never sent back to the model. Since 0.22.0
+(ADR 0053, amended 2026-10-11): one model's default through `<runtime>.models.<name>.think`, a `respond` thread's
+through `think`, and `think: false` on wisp's own side calls (classifier verdicts, schema replies, the distiller,
+the summary, the assessment, `memory`'s `condense`).
 
 - [ ] Describe supported controls and values per model/runtime/adapter combination, with provenance.
 - [ ] Translate common controls in each backend and reject unsupported explicit requests before use.
@@ -207,11 +210,26 @@ thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat
 - [ ] Validate combinations with tools, schema output and streaming, rather than independent flags alone.
 - [ ] Audit requested and resolved controls against the prompt/attempt, and evaluate their actual effects.
 
-## 7. Current work and backlog (2026-10-09)
+## 7. Current work and backlog (2026-10-12)
 
-### Committed, not yet released (0.21.2)
+### Committed, not yet released (0.22.0)
 
-`CHANGELOG.md`, "Unreleased": a patch for one fault found after 0.21.1. Under load, Swift's cooperative thread pool
+`CHANGELOG.md`, "Unreleased": one tool-output budget from the model's window, an eighth of it (4 KiB on the
+on-device model, 64 KiB at most), with what does not fit kept whole in the conversation's output store and reached
+through `memory` by page, filter, exact summary, or a condensing question; the store swept by age
+(`context.outputDays`) and reported by `wisp doctor`; `inspect` listing a turn's calls and a repeated call noted;
+the rest of the 2026-10-09 review (paged audit resources, one audit session per MCP thread, close-on-exec,
+`read_file` and `edit_file` bounds) ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)). One set of
+model actions for the person and the model: `/models pull`, `trust`, and `cancel` in chat and `wisp-tui`, and a
+`models` tool, off by default, whose every change asks the person
+([ADR 0059](decisions/0059-one-set-of-model-actions.md)). Thinking chosen per model and per call, wisp's own side
+calls sending `think: false` and `respond` taking `think` ([ADR 0053](decisions/0053-the-models-thinking-shown.md),
+amended 2026-10-11). Ctrl-C stopping a model's turn and its command. Shell loops judged by what they run, inline
+programs and pipes into an interpreter judged, a line asked once, approvals for folders that are gone marked and
+cleared, and the risk rules reading search patterns and printed text as data. Not built: chat's `/show` and
+`wisp-tui`'s expanded view still show a stored output as the model got it ([roadmap.md](roadmap.md), 0.23.0).
+
+0.21.2 (2026-10-11): a patch for one fault found after 0.21.1. Under load, Swift's cooperative thread pool
 could be filled by synchronous bridges (`Blocking.run`, for Core ML compiles and model resolution) waiting on work
 that itself needed the pool, so the command watchdog and every `Timeout` deadline fired tens of seconds late: a
 200 ms timeout let a 30-second command finish. The bridges now run off the pool and the bounds are dispatch timers
@@ -266,9 +284,9 @@ and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts over MCP
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.23.0; next, 0.22.0: [ADR
-0050](decisions/0050-tool-output-budget-and-overflow.md), a tool-output budget from the model's window, with shell
-loops judged by what they run and approvals for folders that are gone. Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
+The [roadmap](roadmap.md) has each release to 0.23.0; next, 0.23.0: a verification pass, a reply checked against
+the turn's calls ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)'s open option), with larger
+eval sets and a stored output shown whole in chat and `wisp-tui`. Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
 0.20.0 must measure" beyond the Qwen3-1.7B comparison.
 
 ### Open from the layered context

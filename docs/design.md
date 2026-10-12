@@ -261,7 +261,7 @@ material, and pages it at the tool-output budget. An entry's content is read fro
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
 its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
 (D8). `memory` is a built-in tool, off by default (ADR 0057): a thread given every tool has it only with
-`context.memory` on (`ToolRegistry.defaultNames(memory:)`, which `Session` resolves "every tool" through), and a
+`context.memory` on (`ToolRegistry.defaultNames(memory:models:)`, which `Session` resolves "every tool" through), and a
 named list only when it names it;
 `WispThread.openAgent` wires it and renders the prompt with its rule
 (`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each
@@ -370,6 +370,13 @@ uses in `TimedRiskClassifier` and `CachingRiskClassifier`. `RiskClassifierTraini
 model with Create ML from `RiskExample`s (the bundled `Resources/risk-examples.tsv`, a file, or
 `RiskExamples.fromAudit`), and `RiskMeasurement` measures any classifier's accuracy and latency; `wisp
 classifier` is their CLI ([ADR 0038](decisions/0038-fast-specialised-classifiers.md)).
+`CommandSplitter` reads a loop or conditional as the commands inside it (a header or closing keyword runs
+nothing of its own, and a body using a loop variable carries what it ranges over), so each is judged and remembered
+by what it runs ([ADR 0015](decisions/0015-per-command-approval.md), amended 2026-10-11). The rules and the deny
+patterns also read a second spelling of each command (`RuleRiskClassifier`'s normalisation in
+`RuleNormalisation.swift`): quoting, escapes, and `${IFS}` taken away, while the text and patterns of programs that
+only print or search (`DataArguments`: `echo`'s text, `grep`'s and `pgrep`'s pattern, `sed`'s and `awk`'s program)
+stay data, never read as a pipe, a deletion, or a write.
 `KnownSafeCommands` is the rules' short list of read-only commands: a verdict it gives is known safe
 (`RiskAssessment.isKnownSafe`), and `CompositeRiskClassifier` then does not ask the model. `ClassifierStore`
 keeps the versions under `~/.wisp/classifiers/risk`, one directory each with a read-only
@@ -455,7 +462,7 @@ uses. See [ADR 0018](decisions/0018-introspection.md).
 ### Home, config, transcripts
 
 `Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `approvals.json`, `facts.json`, `logs/`,
-`transcripts/`, `context/`, and `classifiers/`.
+`transcripts/`, `context/`, `pending/`, `models/`, `output/` (the output store, ADR 0050), and `classifiers/`.
 `Config` is optional JSON (system prompt extension, model, `run_command` limits, MCP thread capacity) with defaults applied by
 `resolved`. `TranscriptStore` saves and loads transcripts as `<name>.json`, with the store's links to the audit log in
 `<name>.store`, which resuming requires. Commands that write (audit log,
@@ -463,8 +470,11 @@ transcripts, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` 
 
 ### `ToolRegistry`
 
-A static list, `all`, is the single source of truth for what the model can see. `select(_:)` resolves names
-from the CLI and reports unknown ones so the CLI can fail before touching the model.
+A static list, `all`, is the single source of truth for what the model can see: nine built-ins
+(`builtInNames`) and the custom tools. `select(_:)` resolves names from the CLI and reports unknown ones so the
+CLI can fail before touching the model. `defaultNames(memory:models:)` is "every tool": the whole registry less
+`memory` and `models` unless `context.memory` and `tools.models` turn them on (ADR 0057, ADR 0059); both stay
+registered, so a list that names one still selects it.
 
 ### Tools
 

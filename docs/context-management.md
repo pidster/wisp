@@ -525,6 +525,7 @@ Tools (each request names its own; call any by name):
 - notify: show the person a macOS notification
 - system_info: this Mac's ports, disk, processes, memory (RAM), battery, network
 - memory: recall earlier material of this conversation, note a fact, or set the task
+- models: the models wisp can run; ask to pull, enable, disable, or check one
 ```
 
 A custom tool's clause is its description's first sentence, at most 80 characters. Measured with `tokenCount(for:)`
