@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import WispMLX
+import WispTestSupport
 
 @testable import WispCore
 
@@ -31,6 +32,59 @@ enum EvalModels {
             try? ModelSelection(parsing: $0.trimmingCharacters(in: .whitespaces))
         }
         return named?.isEmpty == false ? named : nil
+    }
+
+    /// The environment variable that runs the whole case sets of `edit_file`, `system_info`, and `draft_change`:
+    /// `1` runs every case; anything else, or nothing, runs the release's fixed seeded subset of each.
+    static let fullVariable = "WISP_EVAL_FULL"
+
+    /// Whether this run measures the whole case sets (`WISP_EVAL_FULL=1`) rather than the release's subsets.
+    static var full: Bool { ProcessInfo.processInfo.environment[fullVariable] == "1" }
+
+    /// The cases a run measures: the whole set with `WISP_EVAL_FULL=1`, otherwise the release's subset, `release`
+    /// cases chosen by `EvalSample` with its fixed seed and spread over the strata, so every release runs the same
+    /// ones (docs/measurements.md, "The case sets").
+    ///
+    /// - Parameters:
+    ///   - items: The whole set.
+    ///   - release: The size of the release's subset; the whole set when nil.
+    ///   - id: Each case's unique id.
+    ///   - stratum: Each case's group, such as an edit's shape.
+    /// - Returns: The cases, in the set's order.
+    static func chosen<T>(_ items: [T], release: Int?, id: (T) -> String, stratum: (T) -> String) -> [T] {
+        full ? items : EvalSample.subset(items, count: release ?? items.count, id: id, stratum: stratum)
+    }
+
+    /// How many of a set's cases ran, for a measurement's notes.
+    ///
+    /// - Parameters:
+    ///   - run: The cases run.
+    ///   - total: The cases in the set.
+    /// - Returns: Such as "all 86" or "36 of 86 (the release's fixed subset)".
+    static func scope(_ run: Int, of total: Int) -> String {
+        run >= total ? "all \(total)" : "\(run) of \(total) (the release's fixed subset)"
+    }
+
+    /// Asserts the release's floor for `total` cases at the configured model's historical `rate` (`EvalFloor`): the
+    /// least score a run at that rate falls below by chance at most one time in a hundred. On another model the floor
+    /// is printed and nothing is asserted; a floor of 0 asserts nothing.
+    ///
+    /// - Parameters:
+    ///   - suite: The suite's short name.
+    ///   - passed: Cases passed.
+    ///   - total: Cases run.
+    ///   - rate: The configured model's historical pass rate on the suite.
+    ///   - selection: The model measured.
+    static func expectFloor(
+        _ suite: String, passed: Int, total: Int, rate: EvalFloor.Rate, on selection: ModelSelection
+    ) {
+        let floor = EvalFloor.minimum(cases: total, rate: rate.value)
+        print(
+            "floor eval: \(suite) on \(selection): \(passed)/\(total) against a floor of \(floor) "
+                + "(\(rate.passed)/\(rate.total) historically\(floorsApply(to: selection) ? "" : ", not asserted"))")
+        if floorsApply(to: selection) {
+            #expect(passed >= floor, "\(suite) on \(selection) passed \(passed)/\(total), below its floor of \(floor)")
+        }
     }
 
     /// The models `WISP_EVAL_MODELS` names, or nil when it is unset.

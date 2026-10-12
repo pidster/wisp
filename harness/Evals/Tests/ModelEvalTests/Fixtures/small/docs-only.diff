@@ -1,0 +1,9 @@
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -12,1 +12,5 @@ ## Install
+ brew install tool
++
++## Configuration
++
++Settings live in `~/.tool/config.json`; `tool config` prints the effective values.

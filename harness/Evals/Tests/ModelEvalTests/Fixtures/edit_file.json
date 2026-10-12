@@ -1,0 +1,1803 @@
+{
+  "about": "edit_file's eval cases (ToolEvalTests); EvalSets.EditFile reads them, EvalSetsTests checks them. Each case is one file, the edit_file calls a right answer makes, and the file as it must end up.",
+  "declared": {
+    "replace": 86,
+    "whitespace": 24
+  },
+  "release": {
+    "replace": 36,
+    "whitespace": 8
+  },
+  "cases": [
+    {
+      "id": "a-swift",
+      "task": "replace",
+      "shape": "single",
+      "file": "a.swift",
+      "read": true,
+      "edits": [
+        {
+          "target": "let x = 1",
+          "content": "let x = 42",
+          "line": 1
+        }
+      ],
+      "before": "let x = 1\nlet y = 2\n",
+      "after": "let x = 42\nlet y = 2\n"
+    },
+    {
+      "id": "b-py",
+      "task": "replace",
+      "shape": "single",
+      "file": "b.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    return 1",
+          "content": "    return 10",
+          "line": 2
+        }
+      ],
+      "before": "def f():\n    return 1\n\ndef g():\n    return 2\n",
+      "after": "def f():\n    return 10\n\ndef g():\n    return 2\n"
+    },
+    {
+      "id": "c-md",
+      "task": "replace",
+      "shape": "single",
+      "file": "c.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "first paragraph",
+          "content": "opening paragraph",
+          "line": 3
+        }
+      ],
+      "before": "# Title\n\nfirst paragraph\n\nsecond paragraph\n",
+      "after": "# Title\n\nopening paragraph\n\nsecond paragraph\n"
+    },
+    {
+      "id": "d-toml",
+      "task": "replace",
+      "shape": "single",
+      "file": "d.toml",
+      "read": true,
+      "edits": [
+        {
+          "target": "version = \"0.1.0\"",
+          "content": "version = \"0.2.0\"",
+          "line": 3
+        }
+      ],
+      "before": "[package]\nname = \"tools\"\nversion = \"0.1.0\"\n",
+      "after": "[package]\nname = \"tools\"\nversion = \"0.2.0\"\n"
+    },
+    {
+      "id": "e-txt",
+      "task": "replace",
+      "shape": "single",
+      "file": "e.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "gamma",
+          "content": "GAMMA",
+          "line": 3
+        }
+      ],
+      "before": "alpha\nbeta\ngamma\ndelta\n",
+      "after": "alpha\nbeta\nGAMMA\ndelta\n"
+    },
+    {
+      "id": "f-json",
+      "task": "replace",
+      "shape": "single",
+      "file": "f.json",
+      "read": true,
+      "edits": [
+        {
+          "target": "  \"debug\": false",
+          "content": "  \"debug\": true",
+          "line": 3
+        }
+      ],
+      "before": "{\n  \"name\": \"wisp\",\n  \"debug\": false\n}\n",
+      "after": "{\n  \"name\": \"wisp\",\n  \"debug\": true\n}\n"
+    },
+    {
+      "id": "g-sh",
+      "task": "replace",
+      "shape": "single",
+      "file": "g.sh",
+      "read": true,
+      "edits": [
+        {
+          "target": "echo start",
+          "content": "echo starting",
+          "line": 3
+        }
+      ],
+      "before": "#!/bin/sh\nset -eu\necho start\necho done\n",
+      "after": "#!/bin/sh\nset -eu\necho starting\necho done\n"
+    },
+    {
+      "id": "h-yml",
+      "task": "replace",
+      "shape": "single",
+      "file": "h.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "    runs-on: macos-15",
+          "content": "    runs-on: macos-26",
+          "line": 5
+        }
+      ],
+      "before": "name: ci\non: push\njobs:\n  build:\n    runs-on: macos-15\n",
+      "after": "name: ci\non: push\njobs:\n  build:\n    runs-on: macos-26\n"
+    },
+    {
+      "id": "i-rs",
+      "task": "replace",
+      "shape": "single",
+      "file": "i.rs",
+      "read": true,
+      "edits": [
+        {
+          "target": "    let n = 3;",
+          "content": "    let n = 4;",
+          "line": 2
+        }
+      ],
+      "before": "fn main() {\n    let n = 3;\n    println!(\"{n}\");\n}\n",
+      "after": "fn main() {\n    let n = 4;\n    println!(\"{n}\");\n}\n"
+    },
+    {
+      "id": "j-css",
+      "task": "replace",
+      "shape": "single",
+      "file": "j.css",
+      "read": true,
+      "edits": [
+        {
+          "target": "  color: black;",
+          "content": "  color: navy;",
+          "line": 2
+        }
+      ],
+      "before": "body {\n  color: black;\n  margin: 0;\n}\n",
+      "after": "body {\n  color: navy;\n  margin: 0;\n}\n"
+    },
+    {
+      "id": "go-const",
+      "task": "replace",
+      "shape": "single",
+      "file": "server.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "const addr = \":8080\"",
+          "content": "const addr = \":9090\"",
+          "line": 5
+        }
+      ],
+      "before": "package main\n\nimport \"net/http\"\n\nconst addr = \":8080\"\n\nfunc main() {\n\thttp.ListenAndServe(addr, nil)\n}\n",
+      "after": "package main\n\nimport \"net/http\"\n\nconst addr = \":9090\"\n\nfunc main() {\n\thttp.ListenAndServe(addr, nil)\n}\n"
+    },
+    {
+      "id": "ts-export",
+      "task": "replace",
+      "shape": "single",
+      "file": "limits.ts",
+      "read": true,
+      "edits": [
+        {
+          "target": "export const PAGE_SIZE = 20;",
+          "content": "export const PAGE_SIZE = 25;",
+          "line": 2
+        }
+      ],
+      "before": "export const MAX_ITEMS = 50;\nexport const PAGE_SIZE = 20;\nexport const RETRY_DELAY_MS = 250;\n",
+      "after": "export const MAX_ITEMS = 50;\nexport const PAGE_SIZE = 25;\nexport const RETRY_DELAY_MS = 250;\n"
+    },
+    {
+      "id": "rb-method",
+      "task": "replace",
+      "shape": "single",
+      "file": "greeter.rb",
+      "read": true,
+      "edits": [
+        {
+          "target": "    \"Hello, #{name}\"",
+          "content": "    \"Hello, #{name}!\"",
+          "line": 3
+        }
+      ],
+      "before": "class Greeter\n  def greet(name)\n    \"Hello, #{name}\"\n  end\nend\n",
+      "after": "class Greeter\n  def greet(name)\n    \"Hello, #{name}!\"\n  end\nend\n"
+    },
+    {
+      "id": "java-field",
+      "task": "replace",
+      "shape": "single",
+      "file": "Config.java",
+      "read": true,
+      "edits": [
+        {
+          "target": "    private static final int TIMEOUT = 30;",
+          "content": "    private static final int TIMEOUT = 45;",
+          "line": 2
+        }
+      ],
+      "before": "public final class Config {\n    private static final int TIMEOUT = 30;\n    private static final String HOST = \"localhost\";\n}\n",
+      "after": "public final class Config {\n    private static final int TIMEOUT = 45;\n    private static final String HOST = \"localhost\";\n}\n"
+    },
+    {
+      "id": "c-define",
+      "task": "replace",
+      "shape": "single",
+      "file": "buffer.h",
+      "read": true,
+      "edits": [
+        {
+          "target": "#define BUFFER_SIZE 512",
+          "content": "#define BUFFER_SIZE 4096",
+          "line": 4
+        }
+      ],
+      "before": "#ifndef BUFFER_H\n#define BUFFER_H\n\n#define BUFFER_SIZE 512\n\nvoid buffer_init(void);\n\n#endif\n",
+      "after": "#ifndef BUFFER_H\n#define BUFFER_H\n\n#define BUFFER_SIZE 4096\n\nvoid buffer_init(void);\n\n#endif\n"
+    },
+    {
+      "id": "sql-where",
+      "task": "replace",
+      "shape": "single",
+      "file": "report.sql",
+      "read": true,
+      "edits": [
+        {
+          "target": "WHERE created_at > '2026-01-01'",
+          "content": "WHERE created_at > '2026-07-01'",
+          "line": 3
+        }
+      ],
+      "before": "SELECT id, name, created_at\nFROM accounts\nWHERE created_at > '2026-01-01'\nORDER BY created_at DESC;\n",
+      "after": "SELECT id, name, created_at\nFROM accounts\nWHERE created_at > '2026-07-01'\nORDER BY created_at DESC;\n"
+    },
+    {
+      "id": "dockerfile-from",
+      "task": "replace",
+      "shape": "single",
+      "file": "Dockerfile",
+      "read": true,
+      "edits": [
+        {
+          "target": "FROM python:3.12-slim",
+          "content": "FROM python:3.13-slim",
+          "line": 1
+        }
+      ],
+      "before": "FROM python:3.12-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nCMD [\"python\", \"main.py\"]\n",
+      "after": "FROM python:3.13-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nCMD [\"python\", \"main.py\"]\n"
+    },
+    {
+      "id": "makefile-var",
+      "task": "replace",
+      "shape": "single",
+      "file": "Makefile",
+      "read": true,
+      "edits": [
+        {
+          "target": "CFLAGS = -O2 -Wall",
+          "content": "CFLAGS = -O2 -Wall -Wextra",
+          "line": 2
+        }
+      ],
+      "before": "CC = clang\nCFLAGS = -O2 -Wall\n\nall: tool\n\ntool: main.o\n\t$(CC) -o tool main.o\n",
+      "after": "CC = clang\nCFLAGS = -O2 -Wall -Wextra\n\nall: tool\n\ntool: main.o\n\t$(CC) -o tool main.o\n"
+    },
+    {
+      "id": "ini-key",
+      "task": "replace",
+      "shape": "single",
+      "file": "settings.ini",
+      "read": true,
+      "edits": [
+        {
+          "target": "workers = 2",
+          "content": "workers = 4",
+          "line": 3
+        }
+      ],
+      "before": "[server]\nport = 8000\nworkers = 2\n\n[logging]\nlevel = info\n",
+      "after": "[server]\nport = 8000\nworkers = 4\n\n[logging]\nlevel = info\n"
+    },
+    {
+      "id": "lua-return",
+      "task": "replace",
+      "shape": "single",
+      "file": "util.lua",
+      "read": true,
+      "edits": [
+        {
+          "target": "function M.clamp(x, lo, hi)",
+          "content": "function M.clamp(value, lo, hi)",
+          "line": 3
+        }
+      ],
+      "before": "local M = {}\n\nfunction M.clamp(x, lo, hi)\n  return math.max(lo, math.min(hi, x))\nend\n\nreturn M\n",
+      "after": "local M = {}\n\nfunction M.clamp(value, lo, hi)\n  return math.max(lo, math.min(hi, x))\nend\n\nreturn M\n"
+    },
+    {
+      "id": "html-title",
+      "task": "replace",
+      "shape": "single",
+      "file": "index.html",
+      "read": true,
+      "edits": [
+        {
+          "target": "  <title>Draft</title>",
+          "content": "  <title>Release notes</title>",
+          "line": 4
+        }
+      ],
+      "before": "<!doctype html>\n<html>\n<head>\n  <title>Draft</title>\n</head>\n<body></body>\n</html>\n",
+      "after": "<!doctype html>\n<html>\n<head>\n  <title>Release notes</title>\n</head>\n<body></body>\n</html>\n"
+    },
+    {
+      "id": "kotlin-val",
+      "task": "replace",
+      "shape": "single",
+      "file": "Retry.kt",
+      "read": true,
+      "edits": [
+        {
+          "target": "    val backoffMillis = 200L",
+          "content": "    val backoffMillis = 500L",
+          "line": 3
+        }
+      ],
+      "before": "object Retry {\n    val attempts = 3\n    val backoffMillis = 200L\n}\n",
+      "after": "object Retry {\n    val attempts = 3\n    val backoffMillis = 500L\n}\n"
+    },
+    {
+      "id": "elixir-attr",
+      "task": "replace",
+      "shape": "single",
+      "file": "cache.ex",
+      "read": true,
+      "edits": [
+        {
+          "target": "  @ttl 60",
+          "content": "  @ttl 300",
+          "line": 2
+        }
+      ],
+      "before": "defmodule Cache do\n  @ttl 60\n\n  def ttl, do: @ttl\nend\n",
+      "after": "defmodule Cache do\n  @ttl 300\n\n  def ttl, do: @ttl\nend\n"
+    },
+    {
+      "id": "tf-instance",
+      "task": "replace",
+      "shape": "single",
+      "file": "main.tf",
+      "read": true,
+      "edits": [
+        {
+          "target": "  instance_type = \"t3.micro\"",
+          "content": "  instance_type = \"t3.small\"",
+          "line": 3
+        }
+      ],
+      "before": "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0abc1234\"\n  instance_type = \"t3.micro\"\n}\n",
+      "after": "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0abc1234\"\n  instance_type = \"t3.small\"\n}\n"
+    },
+    {
+      "id": "gitignore-line",
+      "task": "replace",
+      "shape": "single",
+      "file": ".gitignore",
+      "read": true,
+      "edits": [
+        {
+          "target": "*.log",
+          "content": "*.log.*",
+          "line": 2
+        }
+      ],
+      "before": ".build/\n*.log\nnode_modules/\n.DS_Store\n",
+      "after": ".build/\n*.log.*\nnode_modules/\n.DS_Store\n"
+    },
+    {
+      "id": "php-echo",
+      "task": "replace",
+      "shape": "single",
+      "file": "hello.php",
+      "read": true,
+      "edits": [
+        {
+          "target": "$name = 'world';",
+          "content": "$name = 'there';",
+          "line": 3
+        }
+      ],
+      "before": "<?php\n\n$name = 'world';\necho \"hello $name\\n\";\n",
+      "after": "<?php\n\n$name = 'there';\necho \"hello $name\\n\";\n"
+    },
+    {
+      "id": "haskell-sig",
+      "task": "replace",
+      "shape": "single",
+      "file": "Area.hs",
+      "read": true,
+      "edits": [
+        {
+          "target": "area r = pi * r * r",
+          "content": "area r = pi * r ^ 2",
+          "line": 4
+        }
+      ],
+      "before": "module Area where\n\narea :: Double -> Double\narea r = pi * r * r\n",
+      "after": "module Area where\n\narea :: Double -> Double\narea r = pi * r ^ 2\n"
+    },
+    {
+      "id": "csharp-prop",
+      "task": "replace",
+      "shape": "single",
+      "file": "User.cs",
+      "read": true,
+      "edits": [
+        {
+          "target": "    public int Age { get; set; }",
+          "content": "    public int? Age { get; set; }",
+          "line": 4
+        }
+      ],
+      "before": "public class User\n{\n    public string Name { get; set; }\n    public int Age { get; set; }\n}\n",
+      "after": "public class User\n{\n    public string Name { get; set; }\n    public int? Age { get; set; }\n}\n"
+    },
+    {
+      "id": "py-medium-default",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "settings.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "DEFAULT_TIMEOUT = 30",
+          "content": "DEFAULT_TIMEOUT = 60",
+          "line": 8
+        }
+      ],
+      "before": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 30\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"{path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a failed request.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n",
+      "after": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 60\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"{path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a failed request.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n"
+    },
+    {
+      "id": "py-medium-raise",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "settings_load.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "        raise SettingsError(f\"{path}: {error}\") from error",
+          "content": "        raise SettingsError(f\"cannot read {path}: {error}\") from error",
+          "line": 24
+        }
+      ],
+      "before": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 30\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"{path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a failed request.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n",
+      "after": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 30\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"cannot read {path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a failed request.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n"
+    },
+    {
+      "id": "py-medium-docstring",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "settings_doc.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    \"\"\"How many times to retry a failed request.\"\"\"",
+          "content": "    \"\"\"How many times to retry a request that failed.\"\"\"",
+          "line": 36
+        }
+      ],
+      "before": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 30\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"{path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a failed request.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n",
+      "after": "\"\"\"Small helpers for reading the service's settings.\"\"\"\n\nimport json\nimport os\nfrom pathlib import Path\n\nDEFAULT_PATH = Path(\"~/.config/service/settings.json\").expanduser()\nDEFAULT_TIMEOUT = 30\nDEFAULT_RETRIES = 3\n\n\nclass SettingsError(Exception):\n    \"\"\"Raised when the settings file cannot be read.\"\"\"\n\n\ndef load(path=DEFAULT_PATH):\n    \"\"\"Read the settings file, or return the defaults when it is missing.\"\"\"\n    if not path.exists():\n        return {\"timeout\": DEFAULT_TIMEOUT, \"retries\": DEFAULT_RETRIES}\n    try:\n        with path.open() as handle:\n            data = json.load(handle)\n    except json.JSONDecodeError as error:\n        raise SettingsError(f\"{path}: {error}\") from error\n    data.setdefault(\"timeout\", DEFAULT_TIMEOUT)\n    data.setdefault(\"retries\", DEFAULT_RETRIES)\n    return data\n\n\ndef timeout(settings):\n    \"\"\"The request timeout in seconds.\"\"\"\n    return int(settings.get(\"timeout\", DEFAULT_TIMEOUT))\n\n\ndef retries(settings):\n    \"\"\"How many times to retry a request that failed.\"\"\"\n    return int(settings.get(\"retries\", DEFAULT_RETRIES))\n\n\ndef from_environment():\n    \"\"\"Settings overridden by SERVICE_TIMEOUT and SERVICE_RETRIES.\"\"\"\n    settings = load()\n    if \"SERVICE_TIMEOUT\" in os.environ:\n        settings[\"timeout\"] = int(os.environ[\"SERVICE_TIMEOUT\"])\n    if \"SERVICE_RETRIES\" in os.environ:\n        settings[\"retries\"] = int(os.environ[\"SERVICE_RETRIES\"])\n    return settings\n"
+    },
+    {
+      "id": "go-medium-error",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "queue.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "var ErrFull = errors.New(\"queue: full\")",
+          "content": "var ErrFull = errors.New(\"queue: at capacity\")",
+          "line": 10
+        }
+      ],
+      "before": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: full\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are queued.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n",
+      "after": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: at capacity\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are queued.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n"
+    },
+    {
+      "id": "go-medium-compare",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "queue_push.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "\tif len(q.items) >= q.capacity {",
+          "content": "\tif q.capacity > 0 && len(q.items) >= q.capacity {",
+          "line": 29
+        }
+      ],
+      "before": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: full\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are queued.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n",
+      "after": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: full\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif q.capacity > 0 && len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are queued.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n"
+    },
+    {
+      "id": "go-medium-comment",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "queue_len.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "// Len reports how many items are queued.",
+          "content": "// Len reports how many items are waiting.",
+          "line": 48
+        }
+      ],
+      "before": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: full\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are queued.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n",
+      "after": "package queue\n\nimport (\n\t\"errors\"\n\t\"sync\"\n\t\"time\"\n)\n\n// ErrFull is returned when the queue is at capacity.\nvar ErrFull = errors.New(\"queue: full\")\n\n// Queue is a bounded first-in, first-out queue safe for concurrent use.\ntype Queue struct {\n\tmu       sync.Mutex\n\titems    []string\n\tcapacity int\n\tcreated  time.Time\n}\n\n// New returns an empty queue holding at most capacity items.\nfunc New(capacity int) *Queue {\n\treturn &Queue{capacity: capacity, created: time.Now()}\n}\n\n// Push adds an item, or returns ErrFull.\nfunc (q *Queue) Push(item string) error {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) >= q.capacity {\n\t\treturn ErrFull\n\t}\n\tq.items = append(q.items, item)\n\treturn nil\n}\n\n// Pop removes and returns the oldest item.\nfunc (q *Queue) Pop() (string, bool) {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\tif len(q.items) == 0 {\n\t\treturn \"\", false\n\t}\n\titem := q.items[0]\n\tq.items = q.items[1:]\n\treturn item, true\n}\n\n// Len reports how many items are waiting.\nfunc (q *Queue) Len() int {\n\tq.mu.Lock()\n\tdefer q.mu.Unlock()\n\treturn len(q.items)\n}\n"
+    },
+    {
+      "id": "yml-medium-matrix",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "build.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "        node: [18, 20]",
+          "content": "        node: [20, 22]",
+          "line": 18
+        }
+      ],
+      "before": "name: build\n\non:\n  push:\n    branches: [main]\n  pull_request:\n\nconcurrency:\n  group: build-${{ github.ref }}\n  cancel-in-progress: true\n\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n    strategy:\n      matrix:\n        node: [18, 20]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test -- --reporter=dot\n  lint:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n",
+      "after": "name: build\n\non:\n  push:\n    branches: [main]\n  pull_request:\n\nconcurrency:\n  group: build-${{ github.ref }}\n  cancel-in-progress: true\n\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n    strategy:\n      matrix:\n        node: [20, 22]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test -- --reporter=dot\n  lint:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n"
+    },
+    {
+      "id": "yml-medium-timeout",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "build_timeout.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "    timeout-minutes: 20",
+          "content": "    timeout-minutes: 30",
+          "line": 15
+        }
+      ],
+      "before": "name: build\n\non:\n  push:\n    branches: [main]\n  pull_request:\n\nconcurrency:\n  group: build-${{ github.ref }}\n  cancel-in-progress: true\n\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n    strategy:\n      matrix:\n        node: [18, 20]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test -- --reporter=dot\n  lint:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n",
+      "after": "name: build\n\non:\n  push:\n    branches: [main]\n  pull_request:\n\nconcurrency:\n  group: build-${{ github.ref }}\n  cancel-in-progress: true\n\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 30\n    strategy:\n      matrix:\n        node: [18, 20]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test -- --reporter=dot\n  lint:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n      - run: npm run lint\n"
+    },
+    {
+      "id": "md-medium-step",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "CONTRIBUTING.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "3. Run the test suite once before changing anything.",
+          "content": "3. Run the whole test suite once before changing anything.",
+          "line": 9
+        }
+      ],
+      "before": "# Contributing\n\nThanks for taking the time to help.\n\n## Getting started\n\n1. Fork the repository and clone your fork.\n2. Install the toolchain listed in the README.\n3. Run the test suite once before changing anything.\n\n## Making a change\n\n- Keep each pull request to one topic.\n- Write a test that fails before your change and passes after it.\n- Run the formatter before you commit.\n- Describe what changed and why in the pull request.\n\n## Reporting a bug\n\nOpen an issue with the version you ran, what you expected, and what happened instead.\nAttach the smallest input that shows the problem.\n\n## Style\n\nPrefer short functions and plain names. Comments explain why, not what.\n",
+      "after": "# Contributing\n\nThanks for taking the time to help.\n\n## Getting started\n\n1. Fork the repository and clone your fork.\n2. Install the toolchain listed in the README.\n3. Run the whole test suite once before changing anything.\n\n## Making a change\n\n- Keep each pull request to one topic.\n- Write a test that fails before your change and passes after it.\n- Run the formatter before you commit.\n- Describe what changed and why in the pull request.\n\n## Reporting a bug\n\nOpen an issue with the version you ran, what you expected, and what happened instead.\nAttach the smallest input that shows the problem.\n\n## Style\n\nPrefer short functions and plain names. Comments explain why, not what.\n"
+    },
+    {
+      "id": "md-medium-bullet",
+      "task": "replace",
+      "shape": "medium-file",
+      "file": "CONTRIBUTING-2.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "- Run the formatter before you commit.",
+          "content": "- Run the formatter and the linter before you commit.",
+          "line": 15
+        }
+      ],
+      "before": "# Contributing\n\nThanks for taking the time to help.\n\n## Getting started\n\n1. Fork the repository and clone your fork.\n2. Install the toolchain listed in the README.\n3. Run the test suite once before changing anything.\n\n## Making a change\n\n- Keep each pull request to one topic.\n- Write a test that fails before your change and passes after it.\n- Run the formatter before you commit.\n- Describe what changed and why in the pull request.\n\n## Reporting a bug\n\nOpen an issue with the version you ran, what you expected, and what happened instead.\nAttach the smallest input that shows the problem.\n\n## Style\n\nPrefer short functions and plain names. Comments explain why, not what.\n",
+      "after": "# Contributing\n\nThanks for taking the time to help.\n\n## Getting started\n\n1. Fork the repository and clone your fork.\n2. Install the toolchain listed in the README.\n3. Run the test suite once before changing anything.\n\n## Making a change\n\n- Keep each pull request to one topic.\n- Write a test that fails before your change and passes after it.\n- Run the formatter and the linter before you commit.\n- Describe what changed and why in the pull request.\n\n## Reporting a bug\n\nOpen an issue with the version you ran, what you expected, and what happened instead.\nAttach the smallest input that shows the problem.\n\n## Style\n\nPrefer short functions and plain names. Comments explain why, not what.\n"
+    },
+    {
+      "id": "csv-large",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "orders.csv",
+      "read": true,
+      "edits": [
+        {
+          "target": "south,2026-07,208,3",
+          "content": "south,2026-07,208,4",
+          "line": 59
+        }
+      ],
+      "before": "region,month,orders,returns\nnorth,2025-05,107,1\nsouth,2025-05,110,4\neast,2025-05,112,1\nwest,2025-05,108,2\nnorth,2025-06,114,2\nsouth,2025-06,117,0\neast,2025-06,119,2\nwest,2025-06,115,3\nnorth,2025-07,121,3\nsouth,2025-07,124,1\neast,2025-07,126,3\nwest,2025-07,122,4\nnorth,2025-08,128,4\nsouth,2025-08,131,2\neast,2025-08,133,4\nwest,2025-08,129,0\nnorth,2025-09,135,0\nsouth,2025-09,138,3\neast,2025-09,140,0\nwest,2025-09,136,1\nnorth,2025-10,142,1\nsouth,2025-10,145,4\neast,2025-10,147,1\nwest,2025-10,143,2\nnorth,2025-11,149,2\nsouth,2025-11,152,0\neast,2025-11,154,2\nwest,2025-11,150,3\nnorth,2025-12,156,3\nsouth,2025-12,159,1\neast,2025-12,161,3\nwest,2025-12,157,4\nnorth,2026-01,163,4\nsouth,2026-01,166,2\neast,2026-01,168,4\nwest,2026-01,164,0\nnorth,2026-02,170,0\nsouth,2026-02,173,3\neast,2026-02,175,0\nwest,2026-02,171,1\nnorth,2026-03,177,1\nsouth,2026-03,180,4\neast,2026-03,182,1\nwest,2026-03,178,2\nnorth,2026-04,184,2\nsouth,2026-04,187,0\neast,2026-04,189,2\nwest,2026-04,185,3\nnorth,2026-05,191,3\nsouth,2026-05,194,1\neast,2026-05,196,3\nwest,2026-05,192,4\nnorth,2026-06,198,4\nsouth,2026-06,201,2\neast,2026-06,203,4\nwest,2026-06,199,0\nnorth,2026-07,205,0\nsouth,2026-07,208,3\neast,2026-07,210,0\nwest,2026-07,206,1\nnorth,2026-08,212,1\nsouth,2026-08,215,4\neast,2026-08,217,1\nwest,2026-08,213,2\nnorth,2026-09,219,2\nsouth,2026-09,222,0\neast,2026-09,224,2\nwest,2026-09,220,3\nnorth,2026-10,226,3\nsouth,2026-10,229,1\neast,2026-10,231,3\nwest,2026-10,227,4\nnorth,2026-11,233,4\nsouth,2026-11,236,2\neast,2026-11,238,4\nwest,2026-11,234,0\nnorth,2026-12,240,0\nsouth,2026-12,243,3\neast,2026-12,245,0\nwest,2026-12,241,1\n",
+      "after": "region,month,orders,returns\nnorth,2025-05,107,1\nsouth,2025-05,110,4\neast,2025-05,112,1\nwest,2025-05,108,2\nnorth,2025-06,114,2\nsouth,2025-06,117,0\neast,2025-06,119,2\nwest,2025-06,115,3\nnorth,2025-07,121,3\nsouth,2025-07,124,1\neast,2025-07,126,3\nwest,2025-07,122,4\nnorth,2025-08,128,4\nsouth,2025-08,131,2\neast,2025-08,133,4\nwest,2025-08,129,0\nnorth,2025-09,135,0\nsouth,2025-09,138,3\neast,2025-09,140,0\nwest,2025-09,136,1\nnorth,2025-10,142,1\nsouth,2025-10,145,4\neast,2025-10,147,1\nwest,2025-10,143,2\nnorth,2025-11,149,2\nsouth,2025-11,152,0\neast,2025-11,154,2\nwest,2025-11,150,3\nnorth,2025-12,156,3\nsouth,2025-12,159,1\neast,2025-12,161,3\nwest,2025-12,157,4\nnorth,2026-01,163,4\nsouth,2026-01,166,2\neast,2026-01,168,4\nwest,2026-01,164,0\nnorth,2026-02,170,0\nsouth,2026-02,173,3\neast,2026-02,175,0\nwest,2026-02,171,1\nnorth,2026-03,177,1\nsouth,2026-03,180,4\neast,2026-03,182,1\nwest,2026-03,178,2\nnorth,2026-04,184,2\nsouth,2026-04,187,0\neast,2026-04,189,2\nwest,2026-04,185,3\nnorth,2026-05,191,3\nsouth,2026-05,194,1\neast,2026-05,196,3\nwest,2026-05,192,4\nnorth,2026-06,198,4\nsouth,2026-06,201,2\neast,2026-06,203,4\nwest,2026-06,199,0\nnorth,2026-07,205,0\nsouth,2026-07,208,4\neast,2026-07,210,0\nwest,2026-07,206,1\nnorth,2026-08,212,1\nsouth,2026-08,215,4\neast,2026-08,217,1\nwest,2026-08,213,2\nnorth,2026-09,219,2\nsouth,2026-09,222,0\neast,2026-09,224,2\nwest,2026-09,220,3\nnorth,2026-10,226,3\nsouth,2026-10,229,1\neast,2026-10,231,3\nwest,2026-10,227,4\nnorth,2026-11,233,4\nsouth,2026-11,236,2\neast,2026-11,238,4\nwest,2026-11,234,0\nnorth,2026-12,240,0\nsouth,2026-12,243,3\neast,2026-12,245,0\nwest,2026-12,241,1\n"
+    },
+    {
+      "id": "conf-large-deep",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "logging.conf",
+      "read": true,
+      "edits": [
+        {
+          "target": "logger.jobs.worker = warn",
+          "content": "logger.jobs.worker = debug",
+          "line": 16
+        }
+      ],
+      "before": "# Logging levels, one logger a line.\n\nlogger.root = warn\nlogger.http = info\nlogger.http.client = warn\nlogger.http.server = info\nlogger.db = warn\nlogger.db.pool = warn\nlogger.db.migrations = info\nlogger.cache = warn\nlogger.cache.redis = warn\nlogger.auth = info\nlogger.auth.session = warn\nlogger.jobs = info\nlogger.jobs.scheduler = info\nlogger.jobs.worker = warn\nlogger.mail = warn\nlogger.metrics = error\nlogger.search = warn\nlogger.search.indexer = info\nlogger.storage = warn\nlogger.storage.s3 = warn\nlogger.ui = error\nlogger.ui.render = error\nlogger.webhooks = info\nlogger.webhooks.retry = warn\nlogger.billing = info\nlogger.billing.invoices = info\nlogger.billing.tax = warn\nlogger.export = warn\nlogger.import = warn\nlogger.notify = info\nlogger.notify.push = warn\nlogger.notify.email = warn\nlogger.audit = info\nlogger.admin = info\nlogger.admin.users = info\nlogger.reports = warn\nlogger.reports.daily = info\nlogger.reports.weekly = info\nlogger.sync = warn\nlogger.sync.calendar = warn\nlogger.sync.contacts = warn\nlogger.plugins = warn\nlogger.plugins.loader = info\nlogger.plugins.sandbox = warn\nlogger.tracing = error\nlogger.tracing.sampler = error\nlogger.health = warn\nlogger.health.probe = warn\nlogger.rate = warn\nlogger.rate.limiter = info\nlogger.queue = warn\nlogger.queue.consumer = info\nlogger.queue.producer = info\nlogger.feature = warn\nlogger.feature.flags = info\nlogger.i18n = error\nlogger.i18n.loader = error\nlogger.assets = warn\nlogger.assets.cdn = warn\nlogger.geo = warn\nlogger.geo.lookup = info\nlogger.payments = info\nlogger.payments.refunds = info\nlogger.payments.webhooks = warn\nlogger.profile = warn\nlogger.profile.avatar = warn\nlogger.search.query = warn\nlogger.cli = info\nlogger.cli.completion = warn\nlogger.backup = info\nlogger.backup.verify = info\nlogger.cleanup = warn\nlogger.cleanup.tmp = warn\nlogger.scheduler.cron = info\nlogger.scheduler.lock = warn\nlogger.websocket = warn\nlogger.websocket.ping = error\nlogger.graphql = warn\nlogger.graphql.resolver = warn\n",
+      "after": "# Logging levels, one logger a line.\n\nlogger.root = warn\nlogger.http = info\nlogger.http.client = warn\nlogger.http.server = info\nlogger.db = warn\nlogger.db.pool = warn\nlogger.db.migrations = info\nlogger.cache = warn\nlogger.cache.redis = warn\nlogger.auth = info\nlogger.auth.session = warn\nlogger.jobs = info\nlogger.jobs.scheduler = info\nlogger.jobs.worker = debug\nlogger.mail = warn\nlogger.metrics = error\nlogger.search = warn\nlogger.search.indexer = info\nlogger.storage = warn\nlogger.storage.s3 = warn\nlogger.ui = error\nlogger.ui.render = error\nlogger.webhooks = info\nlogger.webhooks.retry = warn\nlogger.billing = info\nlogger.billing.invoices = info\nlogger.billing.tax = warn\nlogger.export = warn\nlogger.import = warn\nlogger.notify = info\nlogger.notify.push = warn\nlogger.notify.email = warn\nlogger.audit = info\nlogger.admin = info\nlogger.admin.users = info\nlogger.reports = warn\nlogger.reports.daily = info\nlogger.reports.weekly = info\nlogger.sync = warn\nlogger.sync.calendar = warn\nlogger.sync.contacts = warn\nlogger.plugins = warn\nlogger.plugins.loader = info\nlogger.plugins.sandbox = warn\nlogger.tracing = error\nlogger.tracing.sampler = error\nlogger.health = warn\nlogger.health.probe = warn\nlogger.rate = warn\nlogger.rate.limiter = info\nlogger.queue = warn\nlogger.queue.consumer = info\nlogger.queue.producer = info\nlogger.feature = warn\nlogger.feature.flags = info\nlogger.i18n = error\nlogger.i18n.loader = error\nlogger.assets = warn\nlogger.assets.cdn = warn\nlogger.geo = warn\nlogger.geo.lookup = info\nlogger.payments = info\nlogger.payments.refunds = info\nlogger.payments.webhooks = warn\nlogger.profile = warn\nlogger.profile.avatar = warn\nlogger.search.query = warn\nlogger.cli = info\nlogger.cli.completion = warn\nlogger.backup = info\nlogger.backup.verify = info\nlogger.cleanup = warn\nlogger.cleanup.tmp = warn\nlogger.scheduler.cron = info\nlogger.scheduler.lock = warn\nlogger.websocket = warn\nlogger.websocket.ping = error\nlogger.graphql = warn\nlogger.graphql.resolver = warn\n"
+    },
+    {
+      "id": "conf-large-late",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "logging-late.conf",
+      "read": true,
+      "edits": [
+        {
+          "target": "logger.graphql.resolver = warn",
+          "content": "logger.graphql.resolver = info",
+          "line": 81
+        }
+      ],
+      "before": "# Logging levels, one logger a line.\n\nlogger.root = warn\nlogger.http = info\nlogger.http.client = warn\nlogger.http.server = info\nlogger.db = warn\nlogger.db.pool = warn\nlogger.db.migrations = info\nlogger.cache = warn\nlogger.cache.redis = warn\nlogger.auth = info\nlogger.auth.session = warn\nlogger.jobs = info\nlogger.jobs.scheduler = info\nlogger.jobs.worker = warn\nlogger.mail = warn\nlogger.metrics = error\nlogger.search = warn\nlogger.search.indexer = info\nlogger.storage = warn\nlogger.storage.s3 = warn\nlogger.ui = error\nlogger.ui.render = error\nlogger.webhooks = info\nlogger.webhooks.retry = warn\nlogger.billing = info\nlogger.billing.invoices = info\nlogger.billing.tax = warn\nlogger.export = warn\nlogger.import = warn\nlogger.notify = info\nlogger.notify.push = warn\nlogger.notify.email = warn\nlogger.audit = info\nlogger.admin = info\nlogger.admin.users = info\nlogger.reports = warn\nlogger.reports.daily = info\nlogger.reports.weekly = info\nlogger.sync = warn\nlogger.sync.calendar = warn\nlogger.sync.contacts = warn\nlogger.plugins = warn\nlogger.plugins.loader = info\nlogger.plugins.sandbox = warn\nlogger.tracing = error\nlogger.tracing.sampler = error\nlogger.health = warn\nlogger.health.probe = warn\nlogger.rate = warn\nlogger.rate.limiter = info\nlogger.queue = warn\nlogger.queue.consumer = info\nlogger.queue.producer = info\nlogger.feature = warn\nlogger.feature.flags = info\nlogger.i18n = error\nlogger.i18n.loader = error\nlogger.assets = warn\nlogger.assets.cdn = warn\nlogger.geo = warn\nlogger.geo.lookup = info\nlogger.payments = info\nlogger.payments.refunds = info\nlogger.payments.webhooks = warn\nlogger.profile = warn\nlogger.profile.avatar = warn\nlogger.search.query = warn\nlogger.cli = info\nlogger.cli.completion = warn\nlogger.backup = info\nlogger.backup.verify = info\nlogger.cleanup = warn\nlogger.cleanup.tmp = warn\nlogger.scheduler.cron = info\nlogger.scheduler.lock = warn\nlogger.websocket = warn\nlogger.websocket.ping = error\nlogger.graphql = warn\nlogger.graphql.resolver = warn\n",
+      "after": "# Logging levels, one logger a line.\n\nlogger.root = warn\nlogger.http = info\nlogger.http.client = warn\nlogger.http.server = info\nlogger.db = warn\nlogger.db.pool = warn\nlogger.db.migrations = info\nlogger.cache = warn\nlogger.cache.redis = warn\nlogger.auth = info\nlogger.auth.session = warn\nlogger.jobs = info\nlogger.jobs.scheduler = info\nlogger.jobs.worker = warn\nlogger.mail = warn\nlogger.metrics = error\nlogger.search = warn\nlogger.search.indexer = info\nlogger.storage = warn\nlogger.storage.s3 = warn\nlogger.ui = error\nlogger.ui.render = error\nlogger.webhooks = info\nlogger.webhooks.retry = warn\nlogger.billing = info\nlogger.billing.invoices = info\nlogger.billing.tax = warn\nlogger.export = warn\nlogger.import = warn\nlogger.notify = info\nlogger.notify.push = warn\nlogger.notify.email = warn\nlogger.audit = info\nlogger.admin = info\nlogger.admin.users = info\nlogger.reports = warn\nlogger.reports.daily = info\nlogger.reports.weekly = info\nlogger.sync = warn\nlogger.sync.calendar = warn\nlogger.sync.contacts = warn\nlogger.plugins = warn\nlogger.plugins.loader = info\nlogger.plugins.sandbox = warn\nlogger.tracing = error\nlogger.tracing.sampler = error\nlogger.health = warn\nlogger.health.probe = warn\nlogger.rate = warn\nlogger.rate.limiter = info\nlogger.queue = warn\nlogger.queue.consumer = info\nlogger.queue.producer = info\nlogger.feature = warn\nlogger.feature.flags = info\nlogger.i18n = error\nlogger.i18n.loader = error\nlogger.assets = warn\nlogger.assets.cdn = warn\nlogger.geo = warn\nlogger.geo.lookup = info\nlogger.payments = info\nlogger.payments.refunds = info\nlogger.payments.webhooks = warn\nlogger.profile = warn\nlogger.profile.avatar = warn\nlogger.search.query = warn\nlogger.cli = info\nlogger.cli.completion = warn\nlogger.backup = info\nlogger.backup.verify = info\nlogger.cleanup = warn\nlogger.cleanup.tmp = warn\nlogger.scheduler.cron = info\nlogger.scheduler.lock = warn\nlogger.websocket = warn\nlogger.websocket.ping = error\nlogger.graphql = warn\nlogger.graphql.resolver = info\n"
+    },
+    {
+      "id": "swift-large-case",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "Status.swift",
+      "read": true,
+      "edits": [
+        {
+          "target": "    case tooManyRequests = 429",
+          "content": "    case tooManyRequests = 429 // rate limited",
+          "line": 21
+        }
+      ],
+      "before": "import Foundation\n\n/// HTTP status codes the client names.\nenum Status: Int {\n    case ok = 200\n    case created = 201\n    case accepted = 202\n    case noContent = 204\n    case movedPermanently = 301\n    case found = 302\n    case notModified = 304\n    case badRequest = 400\n    case unauthorized = 401\n    case forbidden = 403\n    case notFound = 404\n    case methodNotAllowed = 405\n    case conflict = 409\n    case gone = 410\n    case payloadTooLarge = 413\n    case unsupportedMediaType = 415\n    case tooManyRequests = 429\n    case internalServerError = 500\n    case notImplemented = 501\n    case badGateway = 502\n    case serviceUnavailable = 503\n    case gatewayTimeout = 504\n\n    /// Whether a request with this status may be retried.\n    var isRetryable: Bool {\n        switch self {\n        case .tooManyRequests, .badGateway, .serviceUnavailable, .gatewayTimeout:\n            return true\n        default:\n            return false\n        }\n    }\n\n    /// Whether the status is a success.\n    var isSuccess: Bool { (200..<300).contains(rawValue) }\n\n    /// Whether the status is a client error.\n    var isClientError: Bool { (400..<500).contains(rawValue) }\n\n    /// Whether the status is a server error.\n    var isServerError: Bool { (500..<600).contains(rawValue) }\n}\n\nlet ok = Status.ok\nlet notFound = Status.notFound\nlet badGateway = Status.badGateway\n",
+      "after": "import Foundation\n\n/// HTTP status codes the client names.\nenum Status: Int {\n    case ok = 200\n    case created = 201\n    case accepted = 202\n    case noContent = 204\n    case movedPermanently = 301\n    case found = 302\n    case notModified = 304\n    case badRequest = 400\n    case unauthorized = 401\n    case forbidden = 403\n    case notFound = 404\n    case methodNotAllowed = 405\n    case conflict = 409\n    case gone = 410\n    case payloadTooLarge = 413\n    case unsupportedMediaType = 415\n    case tooManyRequests = 429 // rate limited\n    case internalServerError = 500\n    case notImplemented = 501\n    case badGateway = 502\n    case serviceUnavailable = 503\n    case gatewayTimeout = 504\n\n    /// Whether a request with this status may be retried.\n    var isRetryable: Bool {\n        switch self {\n        case .tooManyRequests, .badGateway, .serviceUnavailable, .gatewayTimeout:\n            return true\n        default:\n            return false\n        }\n    }\n\n    /// Whether the status is a success.\n    var isSuccess: Bool { (200..<300).contains(rawValue) }\n\n    /// Whether the status is a client error.\n    var isClientError: Bool { (400..<500).contains(rawValue) }\n\n    /// Whether the status is a server error.\n    var isServerError: Bool { (500..<600).contains(rawValue) }\n}\n\nlet ok = Status.ok\nlet notFound = Status.notFound\nlet badGateway = Status.badGateway\n"
+    },
+    {
+      "id": "swift-large-switch",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "Status-retry.swift",
+      "read": true,
+      "edits": [
+        {
+          "target": "        case .tooManyRequests, .badGateway, .serviceUnavailable, .gatewayTimeout:",
+          "content": "        case .tooManyRequests, .serviceUnavailable, .gatewayTimeout:",
+          "line": 31
+        }
+      ],
+      "before": "import Foundation\n\n/// HTTP status codes the client names.\nenum Status: Int {\n    case ok = 200\n    case created = 201\n    case accepted = 202\n    case noContent = 204\n    case movedPermanently = 301\n    case found = 302\n    case notModified = 304\n    case badRequest = 400\n    case unauthorized = 401\n    case forbidden = 403\n    case notFound = 404\n    case methodNotAllowed = 405\n    case conflict = 409\n    case gone = 410\n    case payloadTooLarge = 413\n    case unsupportedMediaType = 415\n    case tooManyRequests = 429\n    case internalServerError = 500\n    case notImplemented = 501\n    case badGateway = 502\n    case serviceUnavailable = 503\n    case gatewayTimeout = 504\n\n    /// Whether a request with this status may be retried.\n    var isRetryable: Bool {\n        switch self {\n        case .tooManyRequests, .badGateway, .serviceUnavailable, .gatewayTimeout:\n            return true\n        default:\n            return false\n        }\n    }\n\n    /// Whether the status is a success.\n    var isSuccess: Bool { (200..<300).contains(rawValue) }\n\n    /// Whether the status is a client error.\n    var isClientError: Bool { (400..<500).contains(rawValue) }\n\n    /// Whether the status is a server error.\n    var isServerError: Bool { (500..<600).contains(rawValue) }\n}\n\nlet ok = Status.ok\nlet notFound = Status.notFound\nlet badGateway = Status.badGateway\n",
+      "after": "import Foundation\n\n/// HTTP status codes the client names.\nenum Status: Int {\n    case ok = 200\n    case created = 201\n    case accepted = 202\n    case noContent = 204\n    case movedPermanently = 301\n    case found = 302\n    case notModified = 304\n    case badRequest = 400\n    case unauthorized = 401\n    case forbidden = 403\n    case notFound = 404\n    case methodNotAllowed = 405\n    case conflict = 409\n    case gone = 410\n    case payloadTooLarge = 413\n    case unsupportedMediaType = 415\n    case tooManyRequests = 429\n    case internalServerError = 500\n    case notImplemented = 501\n    case badGateway = 502\n    case serviceUnavailable = 503\n    case gatewayTimeout = 504\n\n    /// Whether a request with this status may be retried.\n    var isRetryable: Bool {\n        switch self {\n        case .tooManyRequests, .serviceUnavailable, .gatewayTimeout:\n            return true\n        default:\n            return false\n        }\n    }\n\n    /// Whether the status is a success.\n    var isSuccess: Bool { (200..<300).contains(rawValue) }\n\n    /// Whether the status is a client error.\n    var isClientError: Bool { (400..<500).contains(rawValue) }\n\n    /// Whether the status is a server error.\n    var isServerError: Bool { (500..<600).contains(rawValue) }\n}\n\nlet ok = Status.ok\nlet notFound = Status.notFound\nlet badGateway = Status.badGateway\n"
+    },
+    {
+      "id": "rs-large-top",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "counts.rs",
+      "read": true,
+      "edits": [
+        {
+          "target": "        for (word, count) in self.top(10) {",
+          "content": "        for (word, count) in self.top(20) {",
+          "line": 52
+        }
+      ],
+      "before": "use std::collections::HashMap;\nuse std::fmt;\n\n/// A word count, most frequent first.\n#[derive(Debug, Default)]\npub struct Counts {\n    words: HashMap<String, usize>,\n    total: usize,\n}\n\nimpl Counts {\n    /// Counts the words of `text`, ignoring case and punctuation.\n    pub fn from_text(text: &str) -> Self {\n        let mut counts = Self::default();\n        for word in text.split_whitespace() {\n            let cleaned: String = word\n                .chars()\n                .filter(|c| c.is_alphanumeric())\n                .collect::<String>()\n                .to_lowercase();\n            if cleaned.is_empty() {\n                continue;\n            }\n            *counts.words.entry(cleaned).or_insert(0) += 1;\n            counts.total += 1;\n        }\n        counts\n    }\n\n    /// How many words were counted.\n    pub fn total(&self) -> usize {\n        self.total\n    }\n\n    /// How many distinct words there are.\n    pub fn distinct(&self) -> usize {\n        self.words.len()\n    }\n\n    /// The `n` most frequent words, ties broken alphabetically.\n    pub fn top(&self, n: usize) -> Vec<(&str, usize)> {\n        let mut pairs: Vec<(&str, usize)> =\n            self.words.iter().map(|(w, c)| (w.as_str(), *c)).collect();\n        pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));\n        pairs.truncate(n);\n        pairs\n    }\n}\n\nimpl fmt::Display for Counts {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        for (word, count) in self.top(10) {\n            writeln!(f, \"{count:>6} {word}\")?;\n        }\n        Ok(())\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn counts_words_ignoring_case() {\n        let counts = Counts::from_text(\"The cat and the hat.\");\n        assert_eq!(counts.total(), 5);\n        assert_eq!(counts.distinct(), 4);\n    }\n\n    #[test]\n    fn ranks_by_frequency_then_name() {\n        let counts = Counts::from_text(\"b a b c a b\");\n        assert_eq!(counts.top(2), vec![(\"b\", 3), (\"a\", 2)]);\n    }\n}\n",
+      "after": "use std::collections::HashMap;\nuse std::fmt;\n\n/// A word count, most frequent first.\n#[derive(Debug, Default)]\npub struct Counts {\n    words: HashMap<String, usize>,\n    total: usize,\n}\n\nimpl Counts {\n    /// Counts the words of `text`, ignoring case and punctuation.\n    pub fn from_text(text: &str) -> Self {\n        let mut counts = Self::default();\n        for word in text.split_whitespace() {\n            let cleaned: String = word\n                .chars()\n                .filter(|c| c.is_alphanumeric())\n                .collect::<String>()\n                .to_lowercase();\n            if cleaned.is_empty() {\n                continue;\n            }\n            *counts.words.entry(cleaned).or_insert(0) += 1;\n            counts.total += 1;\n        }\n        counts\n    }\n\n    /// How many words were counted.\n    pub fn total(&self) -> usize {\n        self.total\n    }\n\n    /// How many distinct words there are.\n    pub fn distinct(&self) -> usize {\n        self.words.len()\n    }\n\n    /// The `n` most frequent words, ties broken alphabetically.\n    pub fn top(&self, n: usize) -> Vec<(&str, usize)> {\n        let mut pairs: Vec<(&str, usize)> =\n            self.words.iter().map(|(w, c)| (w.as_str(), *c)).collect();\n        pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));\n        pairs.truncate(n);\n        pairs\n    }\n}\n\nimpl fmt::Display for Counts {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        for (word, count) in self.top(20) {\n            writeln!(f, \"{count:>6} {word}\")?;\n        }\n        Ok(())\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn counts_words_ignoring_case() {\n        let counts = Counts::from_text(\"The cat and the hat.\");\n        assert_eq!(counts.total(), 5);\n        assert_eq!(counts.distinct(), 4);\n    }\n\n    #[test]\n    fn ranks_by_frequency_then_name() {\n        let counts = Counts::from_text(\"b a b c a b\");\n        assert_eq!(counts.top(2), vec![(\"b\", 3), (\"a\", 2)]);\n    }\n}\n"
+    },
+    {
+      "id": "rs-large-assert",
+      "task": "replace",
+      "shape": "large-file",
+      "file": "counts_test.rs",
+      "read": true,
+      "edits": [
+        {
+          "target": "        assert_eq!(counts.distinct(), 4);",
+          "content": "        assert_eq!(counts.distinct(), 4, \"the and The are one word\");",
+          "line": 67
+        }
+      ],
+      "before": "use std::collections::HashMap;\nuse std::fmt;\n\n/// A word count, most frequent first.\n#[derive(Debug, Default)]\npub struct Counts {\n    words: HashMap<String, usize>,\n    total: usize,\n}\n\nimpl Counts {\n    /// Counts the words of `text`, ignoring case and punctuation.\n    pub fn from_text(text: &str) -> Self {\n        let mut counts = Self::default();\n        for word in text.split_whitespace() {\n            let cleaned: String = word\n                .chars()\n                .filter(|c| c.is_alphanumeric())\n                .collect::<String>()\n                .to_lowercase();\n            if cleaned.is_empty() {\n                continue;\n            }\n            *counts.words.entry(cleaned).or_insert(0) += 1;\n            counts.total += 1;\n        }\n        counts\n    }\n\n    /// How many words were counted.\n    pub fn total(&self) -> usize {\n        self.total\n    }\n\n    /// How many distinct words there are.\n    pub fn distinct(&self) -> usize {\n        self.words.len()\n    }\n\n    /// The `n` most frequent words, ties broken alphabetically.\n    pub fn top(&self, n: usize) -> Vec<(&str, usize)> {\n        let mut pairs: Vec<(&str, usize)> =\n            self.words.iter().map(|(w, c)| (w.as_str(), *c)).collect();\n        pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));\n        pairs.truncate(n);\n        pairs\n    }\n}\n\nimpl fmt::Display for Counts {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        for (word, count) in self.top(10) {\n            writeln!(f, \"{count:>6} {word}\")?;\n        }\n        Ok(())\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn counts_words_ignoring_case() {\n        let counts = Counts::from_text(\"The cat and the hat.\");\n        assert_eq!(counts.total(), 5);\n        assert_eq!(counts.distinct(), 4);\n    }\n\n    #[test]\n    fn ranks_by_frequency_then_name() {\n        let counts = Counts::from_text(\"b a b c a b\");\n        assert_eq!(counts.top(2), vec![(\"b\", 3), (\"a\", 2)]);\n    }\n}\n",
+      "after": "use std::collections::HashMap;\nuse std::fmt;\n\n/// A word count, most frequent first.\n#[derive(Debug, Default)]\npub struct Counts {\n    words: HashMap<String, usize>,\n    total: usize,\n}\n\nimpl Counts {\n    /// Counts the words of `text`, ignoring case and punctuation.\n    pub fn from_text(text: &str) -> Self {\n        let mut counts = Self::default();\n        for word in text.split_whitespace() {\n            let cleaned: String = word\n                .chars()\n                .filter(|c| c.is_alphanumeric())\n                .collect::<String>()\n                .to_lowercase();\n            if cleaned.is_empty() {\n                continue;\n            }\n            *counts.words.entry(cleaned).or_insert(0) += 1;\n            counts.total += 1;\n        }\n        counts\n    }\n\n    /// How many words were counted.\n    pub fn total(&self) -> usize {\n        self.total\n    }\n\n    /// How many distinct words there are.\n    pub fn distinct(&self) -> usize {\n        self.words.len()\n    }\n\n    /// The `n` most frequent words, ties broken alphabetically.\n    pub fn top(&self, n: usize) -> Vec<(&str, usize)> {\n        let mut pairs: Vec<(&str, usize)> =\n            self.words.iter().map(|(w, c)| (w.as_str(), *c)).collect();\n        pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));\n        pairs.truncate(n);\n        pairs\n    }\n}\n\nimpl fmt::Display for Counts {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        for (word, count) in self.top(10) {\n            writeln!(f, \"{count:>6} {word}\")?;\n        }\n        Ok(())\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn counts_words_ignoring_case() {\n        let counts = Counts::from_text(\"The cat and the hat.\");\n        assert_eq!(counts.total(), 5);\n        assert_eq!(counts.distinct(), 4, \"the and The are one word\");\n    }\n\n    #[test]\n    fn ranks_by_frequency_then_name() {\n        let counts = Counts::from_text(\"b a b c a b\");\n        assert_eq!(counts.top(2), vec![(\"b\", 3), (\"a\", 2)]);\n    }\n}\n"
+    },
+    {
+      "id": "near-dup-py-asserts",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "test_math.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    assert add(2, 3) == 5",
+          "content": "    assert add(2, 3) == 5, \"two plus three\"",
+          "line": 4
+        }
+      ],
+      "before": "def test_add():\n    assert add(1, 2) == 3\n    assert add(2, 2) == 4\n    assert add(2, 3) == 5\n    assert add(3, 3) == 6\n",
+      "after": "def test_add():\n    assert add(1, 2) == 3\n    assert add(2, 2) == 4\n    assert add(2, 3) == 5, \"two plus three\"\n    assert add(3, 3) == 6\n"
+    },
+    {
+      "id": "near-dup-env",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "app.env",
+      "read": true,
+      "edits": [
+        {
+          "target": "APP_PORT_ADMIN=8001",
+          "content": "APP_PORT_ADMIN=9001",
+          "line": 3
+        }
+      ],
+      "before": "APP_PORT=8000\nAPP_PORTS=8000-8010\nAPP_PORT_ADMIN=8001\nAPP_HOST=0.0.0.0\n",
+      "after": "APP_PORT=8000\nAPP_PORTS=8000-8010\nAPP_PORT_ADMIN=9001\nAPP_HOST=0.0.0.0\n"
+    },
+    {
+      "id": "near-dup-js-cases",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "reducer.js",
+      "read": true,
+      "edits": [
+        {
+          "target": "    return state + action.count;",
+          "content": "    return state + (action.count ?? 1);",
+          "line": 5
+        }
+      ],
+      "before": "switch (action.type) {\n  case 'add':\n    return state + 1;\n  case 'add-many':\n    return state + action.count;\n  case 'reset':\n    return 0;\n}\n",
+      "after": "switch (action.type) {\n  case 'add':\n    return state + 1;\n  case 'add-many':\n    return state + (action.count ?? 1);\n  case 'reset':\n    return 0;\n}\n"
+    },
+    {
+      "id": "near-dup-routes",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "routes.rb",
+      "read": true,
+      "edits": [
+        {
+          "target": "get '/users/:id', to: 'users#show'",
+          "content": "get '/users/:id', to: 'users#show', as: :user",
+          "line": 2
+        }
+      ],
+      "before": "get '/users', to: 'users#index'\nget '/users/:id', to: 'users#show'\nget '/users/:id/edit', to: 'users#edit'\npost '/users', to: 'users#create'\n",
+      "after": "get '/users', to: 'users#index'\nget '/users/:id', to: 'users#show', as: :user\nget '/users/:id/edit', to: 'users#edit'\npost '/users', to: 'users#create'\n"
+    },
+    {
+      "id": "near-dup-csv",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "scores.csv",
+      "read": true,
+      "edits": [
+        {
+          "target": "ada,3,74",
+          "content": "ada,3,77",
+          "line": 4
+        }
+      ],
+      "before": "name,round,score\nada,1,71\nada,2,74\nada,3,74\nalan,1,68\nalan,2,74\n",
+      "after": "name,round,score\nada,1,71\nada,2,74\nada,3,77\nalan,1,68\nalan,2,74\n"
+    },
+    {
+      "id": "near-dup-toml-deps",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "Cargo.toml",
+      "read": true,
+      "edits": [
+        {
+          "target": "serde_json = \"1.0\"",
+          "content": "serde_json = \"1.0.120\"",
+          "line": 3
+        }
+      ],
+      "before": "[dependencies]\nserde = \"1.0\"\nserde_json = \"1.0\"\nserde_yaml = \"0.9\"\n",
+      "after": "[dependencies]\nserde = \"1.0\"\nserde_json = \"1.0.120\"\nserde_yaml = \"0.9\"\n"
+    },
+    {
+      "id": "near-dup-swift-guards",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "Parse.swift",
+      "read": true,
+      "edits": [
+        {
+          "target": "guard let first = names.first else { return nil }",
+          "content": "guard let first = names.first else { return [] }",
+          "line": 3
+        }
+      ],
+      "before": "guard let first = parts.first else { return nil }\nguard let last = parts.last else { return nil }\nguard let first = names.first else { return nil }\n",
+      "after": "guard let first = parts.first else { return nil }\nguard let last = parts.last else { return nil }\nguard let first = names.first else { return [] }\n"
+    },
+    {
+      "id": "near-dup-md-list",
+      "task": "replace",
+      "shape": "near-duplicate",
+      "file": "todo.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "- [ ] write the docs",
+          "content": "- [x] write the docs",
+          "line": 2
+        }
+      ],
+      "before": "- [ ] write the tests\n- [ ] write the docs\n- [x] write the tests for the parser\n- [ ] write the release notes\n",
+      "after": "- [ ] write the tests\n- [x] write the docs\n- [x] write the tests for the parser\n- [ ] write the release notes\n"
+    },
+    {
+      "id": "range-py-bounds",
+      "task": "replace",
+      "shape": "range",
+      "file": "bounds.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "LOW = 0",
+          "content": "LOW = 5",
+          "line": 1
+        },
+        {
+          "target": "HIGH = 10",
+          "content": "HIGH = 50",
+          "line": 2
+        }
+      ],
+      "before": "LOW = 0\nHIGH = 10\nSTEP = 1\n",
+      "after": "LOW = 5\nHIGH = 50\nSTEP = 1\n"
+    },
+    {
+      "id": "range-yaml-image",
+      "task": "replace",
+      "shape": "range",
+      "file": "deploy.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "      image: web:1.4.2",
+          "content": "      image: web:1.5.0",
+          "line": 4
+        },
+        {
+          "target": "      imagePullPolicy: IfNotPresent",
+          "content": "      imagePullPolicy: Always",
+          "line": 5
+        }
+      ],
+      "before": "spec:\n  containers:\n    - name: web\n      image: web:1.4.2\n      imagePullPolicy: IfNotPresent\n",
+      "after": "spec:\n  containers:\n    - name: web\n      image: web:1.5.0\n      imagePullPolicy: Always\n"
+    },
+    {
+      "id": "range-js-imports",
+      "task": "replace",
+      "shape": "range",
+      "file": "app.js",
+      "read": true,
+      "edits": [
+        {
+          "target": "import express from 'express';",
+          "content": "import express from \"express\";",
+          "line": 1
+        },
+        {
+          "target": "import morgan from 'morgan';",
+          "content": "import morgan from \"morgan\";",
+          "line": 2
+        }
+      ],
+      "before": "import express from 'express';\nimport morgan from 'morgan';\n\nconst app = express();\n",
+      "after": "import express from \"express\";\nimport morgan from \"morgan\";\n\nconst app = express();\n"
+    },
+    {
+      "id": "range-c-loop",
+      "task": "replace",
+      "shape": "range",
+      "file": "sum.c",
+      "read": true,
+      "edits": [
+        {
+          "target": "    for (int i = 0; i <= n; i++)",
+          "content": "    for (int i = 0; i < n; i++)",
+          "line": 3
+        },
+        {
+          "target": "        total += xs[i];",
+          "content": "        total += xs[i]; /* bounded by n */",
+          "line": 4
+        }
+      ],
+      "before": "int sum(const int *xs, int n) {\n    int total = 0;\n    for (int i = 0; i <= n; i++)\n        total += xs[i];\n    return total;\n}\n",
+      "after": "int sum(const int *xs, int n) {\n    int total = 0;\n    for (int i = 0; i < n; i++)\n        total += xs[i]; /* bounded by n */\n    return total;\n}\n"
+    },
+    {
+      "id": "range-css-pair",
+      "task": "replace",
+      "shape": "range",
+      "file": "button.css",
+      "read": true,
+      "edits": [
+        {
+          "target": "  padding: 4px 8px;",
+          "content": "  padding: 6px 12px;",
+          "line": 2
+        },
+        {
+          "target": "  border-radius: 2px;",
+          "content": "  border-radius: 6px;",
+          "line": 3
+        }
+      ],
+      "before": ".button {\n  padding: 4px 8px;\n  border-radius: 2px;\n  font-weight: 600;\n}\n",
+      "after": ".button {\n  padding: 6px 12px;\n  border-radius: 6px;\n  font-weight: 600;\n}\n"
+    },
+    {
+      "id": "range-sh-flags",
+      "task": "replace",
+      "shape": "range",
+      "file": "deploy.sh",
+      "read": true,
+      "edits": [
+        {
+          "target": "REGION=eu-west-1",
+          "content": "REGION=eu-central-1",
+          "line": 3
+        },
+        {
+          "target": "STAGE=staging",
+          "content": "STAGE=production",
+          "line": 4
+        }
+      ],
+      "before": "#!/bin/sh\nset -eu\nREGION=eu-west-1\nSTAGE=staging\n./deploy --region \"$REGION\" --stage \"$STAGE\"\n",
+      "after": "#!/bin/sh\nset -eu\nREGION=eu-central-1\nSTAGE=production\n./deploy --region \"$REGION\" --stage \"$STAGE\"\n"
+    },
+    {
+      "id": "delete-debug-print",
+      "task": "replace",
+      "shape": "delete",
+      "file": "handler.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    print(event)",
+          "content": "",
+          "line": 2
+        }
+      ],
+      "before": "def handle(event):\n    print(event)\n    return process(event)\n",
+      "after": "def handle(event):\n\n    return process(event)\n"
+    },
+    {
+      "id": "delete-console-log",
+      "task": "replace",
+      "shape": "delete",
+      "file": "click.js",
+      "read": true,
+      "edits": [
+        {
+          "target": "  console.log('clicked');",
+          "content": "",
+          "line": 2
+        }
+      ],
+      "before": "button.addEventListener('click', () => {\n  console.log('clicked');\n  submit();\n});\n",
+      "after": "button.addEventListener('click', () => {\n\n  submit();\n});\n"
+    },
+    {
+      "id": "delete-todo",
+      "task": "replace",
+      "shape": "delete",
+      "file": "main.swift",
+      "read": true,
+      "edits": [
+        {
+          "target": "// TODO: remove before release",
+          "content": "",
+          "line": 1
+        }
+      ],
+      "before": "// TODO: remove before release\nlet server = Server()\nserver.run()\n",
+      "after": "\nlet server = Server()\nserver.run()\n"
+    },
+    {
+      "id": "delete-flag-fragment",
+      "task": "replace",
+      "shape": "delete",
+      "file": "run.sh",
+      "read": true,
+      "edits": [
+        {
+          "find": "8080 --verbose",
+          "content": "8080"
+        }
+      ],
+      "before": "#!/bin/sh\nexec ./server --port 8080 --verbose --workers 2\n",
+      "after": "#!/bin/sh\nexec ./server --port 8080 --workers 2\n"
+    },
+    {
+      "id": "delete-arg-fragment",
+      "task": "replace",
+      "shape": "delete",
+      "file": "plot.py",
+      "read": true,
+      "edits": [
+        {
+          "find": ", color='red'",
+          "content": ""
+        }
+      ],
+      "before": "import matplotlib.pyplot as plt\n\nplt.plot(xs, ys, linewidth=2, color='red')\nplt.show()\n",
+      "after": "import matplotlib.pyplot as plt\n\nplt.plot(xs, ys, linewidth=2)\nplt.show()\n"
+    },
+    {
+      "id": "delete-yaml-key",
+      "task": "replace",
+      "shape": "delete",
+      "file": "service.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "  debug: true",
+          "content": "",
+          "line": 3
+        }
+      ],
+      "before": "service:\n  name: api\n  debug: true\n  replicas: 2\n",
+      "after": "service:\n  name: api\n\n  replicas: 2\n"
+    },
+    {
+      "id": "insert-import",
+      "task": "replace",
+      "shape": "insert",
+      "file": "fetch.py",
+      "read": true,
+      "edits": [
+        {
+          "locate": "the empty line right after `import json`",
+          "line": 2,
+          "content": "import os"
+        }
+      ],
+      "before": "import json\n\nimport requests\n",
+      "after": "import json\nimport os\nimport requests\n"
+    },
+    {
+      "id": "insert-md-line",
+      "task": "replace",
+      "shape": "insert",
+      "file": "notes.md",
+      "read": true,
+      "edits": [
+        {
+          "locate": "the empty line right after `# Notes`",
+          "line": 2,
+          "content": "Meeting moved to Thursday."
+        }
+      ],
+      "before": "# Notes\n\n\n## Later\n",
+      "after": "# Notes\nMeeting moved to Thursday.\n\n## Later\n"
+    },
+    {
+      "id": "insert-go-field",
+      "task": "replace",
+      "shape": "insert",
+      "file": "user.go",
+      "read": true,
+      "edits": [
+        {
+          "locate": "the empty line right after `\tName string`",
+          "line": 3,
+          "content": "\tEmail string"
+        }
+      ],
+      "before": "type User struct {\n\tName string\n\n}\n",
+      "after": "type User struct {\n\tName string\n\tEmail string\n}\n"
+    },
+    {
+      "id": "insert-swift-doc",
+      "task": "replace",
+      "shape": "insert",
+      "file": "Cache.swift",
+      "read": true,
+      "edits": [
+        {
+          "locate": "the empty line right after `final class Cache {`",
+          "line": 2,
+          "content": "    /// The most entries kept."
+        }
+      ],
+      "before": "final class Cache {\n\n    var limit = 100\n}\n",
+      "after": "final class Cache {\n    /// The most entries kept.\n    var limit = 100\n}\n"
+    },
+    {
+      "id": "unicode-fr",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "messages.fr.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "au_revoir = À bientôt",
+          "content": "au_revoir = À très bientôt",
+          "line": 3
+        }
+      ],
+      "before": "bonjour = Bonjour\nmerci = Merci beaucoup\nau_revoir = À bientôt\n",
+      "after": "bonjour = Bonjour\nmerci = Merci beaucoup\nau_revoir = À très bientôt\n"
+    },
+    {
+      "id": "unicode-de",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "strings.de.properties",
+      "read": true,
+      "edits": [
+        {
+          "target": "farewell=Tschüss",
+          "content": "farewell=Auf Wiedersehen",
+          "line": 2
+        }
+      ],
+      "before": "greeting=Grüße\nfarewell=Tschüss\nstreet=Straße\n",
+      "after": "greeting=Grüße\nfarewell=Auf Wiedersehen\nstreet=Straße\n"
+    },
+    {
+      "id": "unicode-ja",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "labels.ja.json",
+      "read": true,
+      "edits": [
+        {
+          "target": "  \"cancel\": \"キャンセル\",",
+          "content": "  \"cancel\": \"取り消し\",",
+          "line": 3
+        }
+      ],
+      "before": "{\n  \"save\": \"保存\",\n  \"cancel\": \"キャンセル\",\n  \"delete\": \"削除\"\n}\n",
+      "after": "{\n  \"save\": \"保存\",\n  \"cancel\": \"取り消し\",\n  \"delete\": \"削除\"\n}\n"
+    },
+    {
+      "id": "unicode-arrow-md",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "flow.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "request → queue → worker",
+          "content": "request → queue → worker → cache",
+          "line": 3
+        }
+      ],
+      "before": "# Flow\n\nrequest → queue → worker\nworker → result\n",
+      "after": "# Flow\n\nrequest → queue → worker → cache\nworker → result\n"
+    },
+    {
+      "id": "unicode-emoji",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "status.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "tests: ❌ failing",
+          "content": "tests: ✅ passing",
+          "line": 2
+        }
+      ],
+      "before": "build: ✅ passing\ntests: ❌ failing\ndocs: ✅ passing\n",
+      "after": "build: ✅ passing\ntests: ✅ passing\ndocs: ✅ passing\n"
+    },
+    {
+      "id": "unicode-ru",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "menu.ru.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "  view: Вид",
+          "content": "  view: Просмотр",
+          "line": 4
+        }
+      ],
+      "before": "menu:\n  file: Файл\n  edit: Правка\n  view: Вид\n",
+      "after": "menu:\n  file: Файл\n  edit: Правка\n  view: Просмотр\n"
+    },
+    {
+      "id": "unicode-quotes",
+      "task": "replace",
+      "shape": "unicode",
+      "file": "quote.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "Then we fixed it.",
+          "content": "Then we fixed it—twice.",
+          "line": 2
+        }
+      ],
+      "before": "He said “ship it” — and we did.\nThen we fixed it.\n",
+      "after": "He said “ship it” — and we did.\nThen we fixed it—twice.\n"
+    },
+    {
+      "id": "crlf-ini",
+      "task": "replace",
+      "shape": "crlf",
+      "file": "app.ini",
+      "read": true,
+      "edits": [
+        {
+          "find": "1.2.0",
+          "content": "1.3.0"
+        }
+      ],
+      "before": "[app]\r\nversion=1.2.0\r\nchannel=stable\r\n",
+      "after": "[app]\r\nversion=1.3.0\r\nchannel=stable\r\n"
+    },
+    {
+      "id": "crlf-bat",
+      "task": "replace",
+      "shape": "crlf",
+      "file": "build.bat",
+      "read": true,
+      "edits": [
+        {
+          "find": "CONFIG=Debug",
+          "content": "CONFIG=Release"
+        }
+      ],
+      "before": "@echo off\r\nset CONFIG=Debug\r\nmsbuild /p:Configuration=%CONFIG%\r\n",
+      "after": "@echo off\r\nset CONFIG=Release\r\nmsbuild /p:Configuration=%CONFIG%\r\n"
+    },
+    {
+      "id": "crlf-csv",
+      "task": "replace",
+      "shape": "crlf",
+      "file": "people.csv",
+      "read": true,
+      "edits": [
+        {
+          "find": "2,York",
+          "content": "2,Bath"
+        }
+      ],
+      "before": "id,city\r\n1,Leeds\r\n2,York\r\n3,Hull\r\n",
+      "after": "id,city\r\n1,Leeds\r\n2,Bath\r\n3,Hull\r\n"
+    },
+    {
+      "id": "crlf-cs",
+      "task": "replace",
+      "shape": "crlf",
+      "file": "Program.cs",
+      "read": true,
+      "edits": [
+        {
+          "find": "Retries = 2",
+          "content": "Retries = 5"
+        }
+      ],
+      "before": "class Program\r\n{\r\n    static int Retries = 2;\r\n}\r\n",
+      "after": "class Program\r\n{\r\n    static int Retries = 5;\r\n}\r\n"
+    },
+    {
+      "id": "stale-py",
+      "task": "replace",
+      "shape": "stale",
+      "file": "jobs.py",
+      "read": false,
+      "note": "An earlier read showed `INTERVAL = 30` on line 3, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 3,
+          "find": "INTERVAL = 30",
+          "content": "INTERVAL = 60"
+        }
+      ],
+      "before": "import time\nimport logging\n\nlog = logging.getLogger(__name__)\nINTERVAL = 30\n",
+      "after": "import time\nimport logging\n\nlog = logging.getLogger(__name__)\nINTERVAL = 60\n"
+    },
+    {
+      "id": "stale-toml",
+      "task": "replace",
+      "shape": "stale",
+      "file": "pyproject.toml",
+      "read": false,
+      "note": "An earlier read showed `version = \"2.0.1\"` on line 2, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 2,
+          "find": "version = \"2.0.1\"",
+          "content": "version = \"2.1.0\""
+        }
+      ],
+      "before": "[project]\nname = \"reader\"\ndescription = \"Reads feeds\"\nreadme = \"README.md\"\nversion = \"2.0.1\"\n",
+      "after": "[project]\nname = \"reader\"\ndescription = \"Reads feeds\"\nreadme = \"README.md\"\nversion = \"2.1.0\"\n"
+    },
+    {
+      "id": "stale-js",
+      "task": "replace",
+      "shape": "stale",
+      "file": "config.js",
+      "read": false,
+      "note": "An earlier read showed `retries: 1` on line 2, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 2,
+          "find": "retries: 1",
+          "content": "module.exports = { retries: 3 };"
+        }
+      ],
+      "before": "// generated settings\n// do not edit by hand\n'use strict';\n\nmodule.exports = { retries: 1 };\n",
+      "after": "// generated settings\n// do not edit by hand\n'use strict';\n\nmodule.exports = { retries: 3 };\n"
+    },
+    {
+      "id": "stale-go",
+      "task": "replace",
+      "shape": "stale",
+      "file": "version.go",
+      "read": false,
+      "note": "An earlier read showed `version = \"0.4.0\"` on line 4, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 4,
+          "find": "version = \"0.4.0\"",
+          "content": "var version = \"0.5.0\""
+        }
+      ],
+      "before": "package main\n\n// Version is set at build time.\n\nvar commit = \"dev\"\nvar version = \"0.4.0\"\n",
+      "after": "package main\n\n// Version is set at build time.\n\nvar commit = \"dev\"\nvar version = \"0.5.0\"\n"
+    },
+    {
+      "id": "stale-md",
+      "task": "replace",
+      "shape": "stale",
+      "file": "CHANGES.md",
+      "read": false,
+      "note": "An earlier read showed `- First release.` on line 5, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 5,
+          "find": "- First release.",
+          "content": "- First public release."
+        }
+      ],
+      "before": "# Changes\n\n## 1.1.0\n\n- Faster start-up.\n\n## 1.0.0\n\n- First release.\n",
+      "after": "# Changes\n\n## 1.1.0\n\n- Faster start-up.\n\n## 1.0.0\n\n- First public release.\n"
+    },
+    {
+      "id": "stale-indented",
+      "task": "replace",
+      "shape": "stale",
+      "file": "worker.py",
+      "read": false,
+      "note": "An earlier read showed `self.limit = 4` on line 4, but lines have been added above it since.",
+      "edits": [
+        {
+          "line": 4,
+          "find": "self.limit = 4",
+          "content": "        self.limit = 8"
+        }
+      ],
+      "before": "class Worker:\n    \"\"\"Runs jobs.\"\"\"\n\n    def run(self):\n        self.prepare()\n        self.limit = 4\n",
+      "after": "class Worker:\n    \"\"\"Runs jobs.\"\"\"\n\n    def run(self):\n        self.prepare()\n        self.limit = 8\n"
+    },
+    {
+      "id": "k-py",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "k.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "return 1",
+          "content": "    return 1",
+          "line": 2
+        }
+      ],
+      "before": "def f():\nreturn 1\n",
+      "after": "def f():\n    return 1\n"
+    },
+    {
+      "id": "l-py",
+      "task": "whitespace",
+      "shape": "dedent",
+      "file": "l.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    y = 2",
+          "content": "y = 2",
+          "line": 2
+        }
+      ],
+      "before": "x = 1\n    y = 2\n",
+      "after": "x = 1\ny = 2\n"
+    },
+    {
+      "id": "m-go",
+      "task": "whitespace",
+      "shape": "tabs-to-spaces",
+      "file": "m.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "\treturn 1",
+          "content": "    return 1",
+          "line": 2
+        }
+      ],
+      "before": "func f() int {\n\treturn 1\n}\n",
+      "after": "func f() int {\n    return 1\n}\n"
+    },
+    {
+      "id": "n-txt",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "n.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "first line   ",
+          "content": "first line",
+          "line": 1
+        }
+      ],
+      "before": "first line   \nsecond line\n",
+      "after": "first line\nsecond line\n"
+    },
+    {
+      "id": "ws-indent-yaml",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "compose.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "  image: nginx",
+          "content": "    image: nginx",
+          "line": 3
+        }
+      ],
+      "before": "services:\n  web:\n  image: nginx\n",
+      "after": "services:\n  web:\n    image: nginx\n"
+    },
+    {
+      "id": "ws-indent-js",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "loop.js",
+      "read": true,
+      "edits": [
+        {
+          "target": "use(x);",
+          "content": "  use(x);",
+          "line": 2
+        }
+      ],
+      "before": "for (const x of xs) {\nuse(x);\n}\n",
+      "after": "for (const x of xs) {\n  use(x);\n}\n"
+    },
+    {
+      "id": "ws-indent-deeper",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "nested.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "    go()",
+          "content": "        go()",
+          "line": 3
+        }
+      ],
+      "before": "if a:\n    if b:\n    go()\n",
+      "after": "if a:\n    if b:\n        go()\n"
+    },
+    {
+      "id": "ws-indent-rb",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "each.rb",
+      "read": true,
+      "edits": [
+        {
+          "target": "puts item",
+          "content": "  puts item",
+          "line": 2
+        }
+      ],
+      "before": "items.each do |item|\nputs item\nend\n",
+      "after": "items.each do |item|\n  puts item\nend\n"
+    },
+    {
+      "id": "ws-dedent-md",
+      "task": "whitespace",
+      "shape": "dedent",
+      "file": "readme.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "    Run the tool with no arguments.",
+          "content": "Run the tool with no arguments.",
+          "line": 3
+        }
+      ],
+      "before": "# Usage\n\n    Run the tool with no arguments.\n",
+      "after": "# Usage\n\nRun the tool with no arguments.\n"
+    },
+    {
+      "id": "ws-dedent-sh",
+      "task": "whitespace",
+      "shape": "dedent",
+      "file": "start.sh",
+      "read": true,
+      "edits": [
+        {
+          "target": "  echo ready",
+          "content": "echo ready",
+          "line": 2
+        }
+      ],
+      "before": "#!/bin/sh\n  echo ready\n",
+      "after": "#!/bin/sh\necho ready\n"
+    },
+    {
+      "id": "ws-dedent-one-level",
+      "task": "whitespace",
+      "shape": "dedent",
+      "file": "deep.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "        return x",
+          "content": "    return x",
+          "line": 3
+        }
+      ],
+      "before": "def f():\n    x = 1\n        return x\n",
+      "after": "def f():\n    x = 1\n    return x\n"
+    },
+    {
+      "id": "ws-dedent-toml",
+      "task": "whitespace",
+      "shape": "dedent",
+      "file": "pkg.toml",
+      "read": true,
+      "edits": [
+        {
+          "target": "  name = \"x\"",
+          "content": "name = \"x\"",
+          "line": 2
+        }
+      ],
+      "before": "[tool]\n  name = \"x\"\n",
+      "after": "[tool]\nname = \"x\"\n"
+    },
+    {
+      "id": "ws-tabs-c",
+      "task": "whitespace",
+      "shape": "tabs-to-spaces",
+      "file": "main.c",
+      "read": true,
+      "edits": [
+        {
+          "target": "\tputs(\"hi\");",
+          "content": "    puts(\"hi\");",
+          "line": 2
+        }
+      ],
+      "before": "int main(void) {\n\tputs(\"hi\");\n\treturn 0;\n}\n",
+      "after": "int main(void) {\n    puts(\"hi\");\n\treturn 0;\n}\n"
+    },
+    {
+      "id": "ws-tabs-py",
+      "task": "whitespace",
+      "shape": "tabs-to-spaces",
+      "file": "mixed.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "\tvalue = 2",
+          "content": "    value = 2",
+          "line": 2
+        }
+      ],
+      "before": "def g():\n\tvalue = 2\n    return value\n",
+      "after": "def g():\n    value = 2\n    return value\n"
+    },
+    {
+      "id": "ws-tabs-two",
+      "task": "whitespace",
+      "shape": "tabs-to-spaces",
+      "file": "two.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "\t\tdone()",
+          "content": "        done()",
+          "line": 3
+        }
+      ],
+      "before": "func h() {\n\tif ok {\n\t\tdone()\n\t}\n}\n",
+      "after": "func h() {\n\tif ok {\n        done()\n\t}\n}\n"
+    },
+    {
+      "id": "ws-spaces-to-tab",
+      "task": "whitespace",
+      "shape": "spaces-to-tabs",
+      "file": "rules.mk",
+      "read": true,
+      "edits": [
+        {
+          "target": "    swift build",
+          "content": "\tswift build",
+          "line": 2
+        }
+      ],
+      "before": "build:\n    swift build\n",
+      "after": "build:\n\tswift build\n"
+    },
+    {
+      "id": "ws-spaces-to-tab-go",
+      "task": "whitespace",
+      "shape": "spaces-to-tabs",
+      "file": "fmt.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "    return",
+          "content": "\treturn",
+          "line": 2
+        }
+      ],
+      "before": "func k() {\n    return\n}\n",
+      "after": "func k() {\n\treturn\n}\n"
+    },
+    {
+      "id": "ws-trailing-py",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "trail.py",
+      "read": true,
+      "edits": [
+        {
+          "target": "x = 1  ",
+          "content": "x = 1",
+          "line": 1
+        }
+      ],
+      "before": "x = 1  \ny = 2\n",
+      "after": "x = 1\ny = 2\n"
+    },
+    {
+      "id": "ws-trailing-tab",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "trail.txt",
+      "read": true,
+      "edits": [
+        {
+          "target": "header\t",
+          "content": "header",
+          "line": 1
+        }
+      ],
+      "before": "header\t\nbody\n",
+      "after": "header\nbody\n"
+    },
+    {
+      "id": "ws-trailing-md",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "list.md",
+      "read": true,
+      "edits": [
+        {
+          "target": "- one ",
+          "content": "- one",
+          "line": 1
+        }
+      ],
+      "before": "- one \n- two\n- three\n",
+      "after": "- one\n- two\n- three\n"
+    },
+    {
+      "id": "ws-trailing-indented",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "trail.rs",
+      "read": true,
+      "edits": [
+        {
+          "target": "    let b = 1;   ",
+          "content": "    let b = 1;",
+          "line": 2
+        }
+      ],
+      "before": "fn a() {\n    let b = 1;   \n}\n",
+      "after": "fn a() {\n    let b = 1;\n}\n"
+    },
+    {
+      "id": "ws-trailing-yaml",
+      "task": "whitespace",
+      "shape": "trailing-whitespace",
+      "file": "trail.yml",
+      "read": true,
+      "edits": [
+        {
+          "target": "key: value ",
+          "content": "key: value",
+          "line": 1
+        }
+      ],
+      "before": "key: value \nother: thing\n",
+      "after": "key: value\nother: thing\n"
+    },
+    {
+      "id": "ws-indent-tab",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "tab.go",
+      "read": true,
+      "edits": [
+        {
+          "target": "return",
+          "content": "\treturn",
+          "line": 2
+        }
+      ],
+      "before": "func m() {\nreturn\n}\n",
+      "after": "func m() {\n\treturn\n}\n"
+    },
+    {
+      "id": "ws-indent-html",
+      "task": "whitespace",
+      "shape": "indent",
+      "file": "list.html",
+      "read": true,
+      "edits": [
+        {
+          "target": "<li>one</li>",
+          "content": "  <li>one</li>",
+          "line": 2
+        }
+      ],
+      "before": "<ul>\n<li>one</li>\n</ul>\n",
+      "after": "<ul>\n  <li>one</li>\n</ul>\n"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -14,4 +14,5 @@
+       - uses: actions/setup-node@v4
+         with:
+           node-version: 20
++          cache: npm
+       - run: npm ci

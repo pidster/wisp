@@ -1,0 +1,10 @@
+diff --git a/site/about.html b/site/about.html
+--- a/site/about.html
++++ b/site/about.html
+@@ -12,4 +12,4 @@
+ <section class="team">
+-  <img src="/img/office.jpg">
+-  <img src="/img/map.png">
++  <img src="/img/office.jpg" alt="The office's front entrance">
++  <img src="/img/map.png" alt="Map of the route from the station">
+ </section>

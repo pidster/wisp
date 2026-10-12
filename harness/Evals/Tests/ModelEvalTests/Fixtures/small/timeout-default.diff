@@ -1,0 +1,6 @@
+diff --git a/Sources/Config.swift b/Sources/Config.swift
+--- a/Sources/Config.swift
++++ b/Sources/Config.swift
+@@ -3,1 +3,1 @@ struct Config {
+-    var timeoutSeconds = 30
++    var timeoutSeconds = 120

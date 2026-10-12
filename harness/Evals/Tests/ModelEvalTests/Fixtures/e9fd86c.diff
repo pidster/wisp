@@ -1,0 +1,842 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ccf461e..a85a2e5 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
+ section for the version being cut as the GitHub release notes and refuses to release without one.
+ Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
+ 
++## Unreleased
++
++Added:
++
++- `wisp-tui` line editing: a cursor moved with Left and Right, word motions (Alt or Ctrl with an arrow,
++  Alt-B and Alt-F), Home and End, Ctrl-A, E, U, K, and W, Delete, Alt-Backspace, bracketed paste, and
++  Alt-Enter for a newline. A long line scrolls to keep the cursor in sight.
++
+ ## 0.10.1
+ 
+ Fixed:
+diff --git a/docs/backlog.md b/docs/backlog.md
+index 76b2f00..90cc036 100644
+--- a/docs/backlog.md
++++ b/docs/backlog.md
+@@ -59,8 +59,10 @@ for after them:
+ ## Terminal front end
+ 
+ Accepted 2026-09-22 ([ADR 0029](decisions/0029-tui-front-end.md)). Input history shipped 2026-09-23
+-(Up and Down recall, `/history` in chat). Next, in order: line editing in `wisp-tui`'s input (a cursor
+-moved with Left and Right, multi-line composition, paste); a `turn` event in the
++(Up and Down recall, `/history` in chat). Line editing shipped 2026-09-24: a cursor, word and line
++motions, readline's deletions, bracketed paste, and Alt-Enter for a newline. Next, in order: an input
++that grows to several rows for a multi-line message (today it scrolls on one, newlines shown as `⏎`); a
++`turn` event in the
+ protocol and a decision on raw versus pre-rendered events; a bordered approval dialog with the reasons inside
+ it; Markdown-ish rendering of replies at commit time.
+ 
+diff --git a/docs/wisp.md b/docs/wisp.md
+index 041c7f7..1f870b5 100644
+--- a/docs/wisp.md
++++ b/docs/wisp.md
+@@ -42,6 +42,23 @@ the one before it kept once): Up from a fresh line keeps what was typed as a dra
+ newest line brings it back. The plain chat reads whole lines and has no recall; `/history` lists them
+ in both.
+ 
++`wisp-tui`'s input edits in place, with readline's keys:
++
++| Keys | Effect |
++| --- | --- |
++| Left, Right | Move a character. |
++| Alt-Left, Alt-Right (or Ctrl-), Alt-B, Alt-F | Move a word. macOS terminals send Alt-B and Alt-F for Option-Left and Option-Right. |
++| Home, End, Ctrl-A, Ctrl-E | Move to the start or end. |
++| Backspace, Delete | Delete the character before or at the cursor. |
++| Ctrl-W, Alt-Backspace | Delete back to the previous whitespace. |
++| Ctrl-U, Ctrl-K | Delete to the start or to the end. |
++| Alt-Enter | A newline, for a message of several lines; shown as `⏎`. |
++| Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
++
++A line longer than the row scrolls sideways to keep the cursor in sight, and the terminal's own cursor
++marks where typing goes. Keys other than a dialog's answers are ignored while an approval is asked and
++while a turn runs.
++
+ What a session shows, and where it goes:
+ 
+ - A banner with the version, model, tool count, and audit session, then a status line above every
+diff --git a/tools/Cargo.lock b/tools/Cargo.lock
+index 2473ff6..a9c22c2 100644
+--- a/tools/Cargo.lock
++++ b/tools/Cargo.lock
+@@ -1680,6 +1680,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "thiserror 2.0.20",
++ "unicode-width",
+ ]
+ 
+ [[package]]
+diff --git a/tools/wisp-tui/Cargo.toml b/tools/wisp-tui/Cargo.toml
+index d69bfc1..888ea3a 100644
+--- a/tools/wisp-tui/Cargo.toml
++++ b/tools/wisp-tui/Cargo.toml
+@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+ anyhow = "1"
+ thiserror = "2"
++unicode-width = "0.2"
+ 
+ [lints]
+ workspace = true
+diff --git a/tools/wisp-tui/src/app.rs b/tools/wisp-tui/src/app.rs
+index 5e34d96..a717503 100644
+--- a/tools/wisp-tui/src/app.rs
++++ b/tools/wisp-tui/src/app.rs
+@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
+ use ratatui::widgets::Paragraph;
+ use serde_json::Value;
+ 
++use crate::editor::{Edit, Editor};
+ use crate::palette;
+ use crate::protocol::{Approval, Event, Inbound, Outbound, Status};
+ 
+@@ -70,7 +71,7 @@ pub struct App {
+     /// The reply so far on the current line, not yet committed.
+     pub partial: String,
+     /// What the user has typed.
+-    pub input: String,
++    pub editor: Editor,
+     /// The last status wisp sent.
+     pub status: Option<Status>,
+     /// An approval awaiting an answer.
+@@ -181,16 +182,14 @@ impl App {
+                 decision: decision.to_string(),
+             });
+         }
+-        if !self.busy {
+-            self.input.push(c);
+-        }
++        self.edit(&Edit::Insert(c));
+         Action::None
+     }
+ 
+-    /// Backspace.
+-    pub fn backspace(&mut self) {
+-        if self.approval.is_none() {
+-            self.input.pop();
++    /// An edit to the input: ignored while a dialog wants its keys or a turn is running.
++    pub fn edit(&mut self, edit: &Edit) {
++        if self.approval.is_none() && !self.busy {
++            self.editor.apply(edit);
+         }
+     }
+ 
+@@ -199,8 +198,7 @@ impl App {
+         if self.approval.is_some() || self.busy {
+             return Action::None;
+         }
+-        let text = self.input.trim().to_string();
+-        self.input.clear();
++        let text = self.editor.take().trim().to_string();
+         if text.is_empty() {
+             return Action::None;
+         }
+@@ -224,13 +222,13 @@ impl App {
+         }
+         let index = match self.recall_at {
+             None => {
+-                self.draft = std::mem::take(&mut self.input);
++                self.draft = self.editor.take();
+                 self.recall.len() - 1
+             }
+             Some(index) => index.saturating_sub(1),
+         };
+         self.recall_at = Some(index);
+-        self.input.clone_from(&self.recall[index]);
++        self.editor.set(&self.recall[index]);
+     }
+ 
+     /// Down: moves to the next submitted line, and past the newest back to the draft.
+@@ -243,10 +241,11 @@ impl App {
+         };
+         if index + 1 < self.recall.len() {
+             self.recall_at = Some(index + 1);
+-            self.input.clone_from(&self.recall[index + 1]);
++            self.editor.set(&self.recall[index + 1]);
+         } else {
+             self.recall_at = None;
+-            self.input = std::mem::take(&mut self.draft);
++            let draft = std::mem::take(&mut self.draft);
++            self.editor.set(&draft);
+         }
+     }
+ 
+@@ -297,10 +296,21 @@ impl App {
+                 Paragraph::new("").style(palette::input_background()),
+                 row(INPUT_ROW, area),
+             );
++            let (line, column) = self.input_line(usize::from(inset.width));
+             frame.render_widget(
+-                Paragraph::new(self.input_line()).style(palette::input_background()),
++                Paragraph::new(line).style(palette::input_background()),
+                 row(INPUT_ROW, inset),
+             );
++            // The terminal's own cursor marks where typing goes, while typing is taken.
++            if let Some(column) = column {
++                let x = inset
++                    .x
++                    .saturating_add(u16::try_from(column).unwrap_or(u16::MAX));
++                frame.set_cursor_position((
++                    x.min(area.right().saturating_sub(1)),
++                    area.y + INPUT_ROW,
++                ));
++            }
+         }
+         strip(frame, INPUT_ROW + 1, "▀");
+         plain(frame, STATUS_ROW, self.status_line());
+@@ -325,17 +335,25 @@ impl App {
+         ])
+     }
+ 
+-    fn input_line(&self) -> Line<'static> {
++    /// The input row in `width` cells, and the cursor's column when typing is taken. The text scrolls
++    /// sideways to keep the cursor in sight; newlines show as `⏎`.
++    fn input_line(&self, width: usize) -> (Line<'static>, Option<usize>) {
++        const PROMPT_CELLS: usize = 2;
+         let prompt = if self.busy { "…" } else { "›" };
+-        let text = if self.input.is_empty() && !self.busy {
++        let (text, column) = self.editor.view(width.saturating_sub(PROMPT_CELLS));
++        let shown = if self.editor.is_empty() && !self.busy {
+             Span::styled(PLACEHOLDER, palette::muted())
+         } else {
+-            Span::styled(self.input.clone(), palette::user())
++            Span::styled(text, palette::user())
+         };
+-        Line::from(vec![
+-            Span::styled(format!("{prompt} "), palette::prompt()),
+-            text,
+-        ])
++        let typing = self.approval.is_none() && !self.busy;
++        (
++            Line::from(vec![
++                Span::styled(format!("{prompt} "), palette::prompt()),
++                shown,
++            ]),
++            typing.then_some(PROMPT_CELLS + column),
++        )
+     }
+ 
+     fn status_line(&self) -> Line<'static> {
+@@ -540,7 +558,7 @@ mod tests {
+         for c in "hi".chars() {
+             assert_eq!(app.type_char(c), Action::None);
+         }
+-        app.backspace();
++        app.edit(&Edit::Backspace);
+         app.type_char('o');
+         assert_eq!(
+             app.submit(),
+@@ -556,7 +574,7 @@ mod tests {
+         );
+         // Typing while busy is dropped; a dialog takes over the keys.
+         app.type_char('x');
+-        assert!(app.input.is_empty());
++        assert!(app.editor.is_empty());
+         app.handle(Outbound::Approval(Approval {
+             id: "a1".into(),
+             command: "git push".into(),
+@@ -587,32 +605,32 @@ mod tests {
+         };
+         // Nothing to recall yet: Up leaves the input alone.
+         app.recall_previous();
+-        assert!(app.input.is_empty());
++        assert!(app.editor.is_empty());
+         for line in ["first", "second", "second", "third"] {
+-            app.input = line.into();
++            app.editor.set(line);
+             app.submit();
+             app.handle(Outbound::Status(Status::default()));
+         }
+         // A line repeating the one before it is kept once.
+         assert_eq!(app.recall, vec!["first", "second", "third"]);
+-        app.input = "draft".into();
++        app.editor.set("draft");
+         app.recall_previous();
+-        assert_eq!(app.input, "third");
++        assert_eq!(app.editor.text(), "third");
+         app.recall_previous();
+         app.recall_previous();
+-        assert_eq!(app.input, "first");
++        assert_eq!(app.editor.text(), "first");
+         // Up at the oldest stays there.
+         app.recall_previous();
+-        assert_eq!(app.input, "first");
++        assert_eq!(app.editor.text(), "first");
+         app.recall_next();
+-        assert_eq!(app.input, "second");
++        assert_eq!(app.editor.text(), "second");
+         app.recall_next();
+         app.recall_next();
+         // Down past the newest restores what was being typed.
+-        assert_eq!(app.input, "draft");
++        assert_eq!(app.editor.text(), "draft");
+         assert_eq!(app.recall_at, None);
+         app.recall_next();
+-        assert_eq!(app.input, "draft");
++        assert_eq!(app.editor.text(), "draft");
+         // A recalled line can be edited and sent; it joins the end of the list.
+         app.recall_previous();
+         app.type_char('!');
+@@ -625,14 +643,63 @@ mod tests {
+         assert_eq!(app.recall.last().map(String::as_str), Some("third!"));
+         // Busy or in a dialog, the keys do nothing.
+         app.recall_previous();
+-        assert!(app.input.is_empty());
++        assert!(app.editor.is_empty());
++    }
++
++    #[test]
++    fn edits_go_to_the_input_only_while_typing_is_taken() {
++        let mut app = App::default();
++        app.edit(&Edit::Paste("git log\n-3".into()));
++        app.edit(&Edit::Home);
++        app.type_char('>');
++        assert_eq!(app.editor.text(), ">git log\n-3");
++        app.busy = true;
++        app.edit(&Edit::KillToEnd);
++        assert_eq!(app.editor.text(), ">git log\n-3");
++        app.busy = false;
++        app.approval = Some(Approval {
++            id: "a".into(),
++            command: "x".into(),
++            line: "x".into(),
++            pattern: "x".into(),
++            directory: "/".into(),
++            level: "moderate".into(),
++            reasons: vec![],
++        });
++        app.edit(&Edit::Backspace);
++        assert_eq!(app.editor.text(), ">git log\n-3");
++    }
++
++    #[test]
++    fn the_terminal_cursor_sits_where_typing_goes() {
++        let mut app = App {
++            status: Some(Status::default()),
++            ..Default::default()
++        };
++        app.editor.set("hello world");
++        app.edit(&Edit::WordLeft);
++        let backend = TestBackend::new(40, BAND_HEIGHT);
++        let mut terminal = Terminal::new(backend).expect("test terminal");
++        terminal
++            .draw(|frame| app.render(frame, frame.area()))
++            .expect("draw");
++        // The margin, the prompt's two cells, then "hello ".
++        let position = terminal.get_cursor_position().expect("cursor");
++        assert_eq!((position.x, position.y), (MARGIN + 2 + 6, INPUT_ROW));
++        // Longer than the row: the text scrolls so the end, and the cursor, stay in sight.
++        app.editor.set(&"x".repeat(100));
++        terminal
++            .draw(|frame| app.render(frame, frame.area()))
++            .expect("draw");
++        let position = terminal.get_cursor_position().expect("cursor");
++        assert_eq!(position.x, 40 - MARGIN - 1);
+     }
+ 
+     #[test]
+     fn recall_keeps_only_the_latest_lines() {
+         let mut app = App::default();
+         for index in 0..=RECALL_LIMIT {
+-            app.input = format!("line {index}");
++            app.editor.set(&format!("line {index}"));
+             app.submit();
+             app.busy = false;
+         }
+@@ -651,7 +718,11 @@ mod tests {
+                 approval: "--yes".into(),
+                 context_used: Some(0.137),
+             }),
+-            input: "hello".into(),
++            editor: {
++                let mut editor = Editor::default();
++                editor.set("hello");
++                editor
++            },
+             partial: "so far".into(),
+             ..Default::default()
+         };
+diff --git a/tools/wisp-tui/src/editor.rs b/tools/wisp-tui/src/editor.rs
+new file mode 100644
+index 0000000..15f6fa6
+--- /dev/null
++++ b/tools/wisp-tui/src/editor.rs
+@@ -0,0 +1,267 @@
++//! The input line's text and cursor, and every edit the keys can make to them. Pure: the terminal is
++//! the caller's, so each edit is tested on its own. The cursor is an index in characters, never inside
++//! one; a word is a run of alphanumeric characters, as shells and editors take it.
++
++use unicode_width::UnicodeWidthChar;
++
++/// One edit, as a key or a paste asks for it.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum Edit {
++    /// Insert a character at the cursor.
++    Insert(char),
++    /// Insert pasted text at the cursor; carriage returns become newlines.
++    Paste(String),
++    /// Insert a newline at the cursor, for a message of several lines.
++    Newline,
++    /// Delete the character before the cursor.
++    Backspace,
++    /// Delete the character at the cursor.
++    Delete,
++    /// Move one character left.
++    Left,
++    /// Move one character right.
++    Right,
++    /// Move to the start of the previous word.
++    WordLeft,
++    /// Move past the end of the next word.
++    WordRight,
++    /// Move to the start.
++    Home,
++    /// Move to the end.
++    End,
++    /// Delete back to the previous whitespace, as readline's Ctrl-W does, so `-m msg` goes in two.
++    DeleteWordBefore,
++    /// Delete from the start to the cursor.
++    KillToStart,
++    /// Delete from the cursor to the end.
++    KillToEnd,
++}
++
++/// The text being composed and where the cursor is in it.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct Editor {
++    /// The characters, so the cursor indexes them directly.
++    chars: Vec<char>,
++    /// The cursor, from 0 to `chars.len()`.
++    cursor: usize,
++}
++
++impl Editor {
++    /// The text.
++    pub fn text(&self) -> String {
++        self.chars.iter().collect()
++    }
++
++    /// Whether nothing is typed.
++    pub fn is_empty(&self) -> bool {
++        self.chars.is_empty()
++    }
++
++    /// Replaces the text, with the cursor at its end, as recalling a line does.
++    pub fn set(&mut self, text: &str) {
++        self.chars = text.chars().collect();
++        self.cursor = self.chars.len();
++    }
++
++    /// Takes the text, leaving the editor empty.
++    pub fn take(&mut self) -> String {
++        let text = self.text();
++        self.set("");
++        text
++    }
++
++    /// Applies one edit.
++    pub fn apply(&mut self, edit: &Edit) {
++        match edit {
++            Edit::Insert(c) => self.insert(&[*c]),
++            Edit::Newline => self.insert(&['\n']),
++            Edit::Paste(text) => {
++                let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
++                let chars: Vec<char> = normalised
++                    .chars()
++                    .filter(|c| *c == '\n' || !c.is_control())
++                    .collect();
++                self.insert(&chars);
++            }
++            Edit::Backspace => {
++                if self.cursor > 0 {
++                    self.cursor -= 1;
++                    self.chars.remove(self.cursor);
++                }
++            }
++            Edit::Delete => {
++                if self.cursor < self.chars.len() {
++                    self.chars.remove(self.cursor);
++                }
++            }
++            Edit::Left => self.cursor = self.cursor.saturating_sub(1),
++            Edit::Right => self.cursor = (self.cursor + 1).min(self.chars.len()),
++            Edit::WordLeft => self.cursor = self.word_start_before(),
++            Edit::WordRight => self.cursor = self.word_end_after(),
++            Edit::Home => self.cursor = 0,
++            Edit::End => self.cursor = self.chars.len(),
++            Edit::DeleteWordBefore => {
++                let start = self.space_start_before();
++                self.chars.drain(start..self.cursor);
++                self.cursor = start;
++            }
++            Edit::KillToStart => {
++                self.chars.drain(..self.cursor);
++                self.cursor = 0;
++            }
++            Edit::KillToEnd => self.chars.truncate(self.cursor),
++        }
++    }
++
++    fn insert(&mut self, new: &[char]) {
++        self.chars
++            .splice(self.cursor..self.cursor, new.iter().copied());
++        self.cursor += new.len();
++    }
++
++    /// Where a word before the cursor starts: back over separators, then over the word.
++    fn word_start_before(&self) -> usize {
++        let mut index = self.cursor;
++        while index > 0 && !self.chars[index - 1].is_alphanumeric() {
++            index -= 1;
++        }
++        while index > 0 && self.chars[index - 1].is_alphanumeric() {
++            index -= 1;
++        }
++        index
++    }
++
++    /// Where a whitespace-delimited word before the cursor starts: back over spaces, then over the rest.
++    fn space_start_before(&self) -> usize {
++        let mut index = self.cursor;
++        while index > 0 && self.chars[index - 1].is_whitespace() {
++            index -= 1;
++        }
++        while index > 0 && !self.chars[index - 1].is_whitespace() {
++            index -= 1;
++        }
++        index
++    }
++
++    /// Where the next word ends: forward over separators, then over the word.
++    fn word_end_after(&self) -> usize {
++        let mut index = self.cursor;
++        while index < self.chars.len() && !self.chars[index].is_alphanumeric() {
++            index += 1;
++        }
++        while index < self.chars.len() && self.chars[index].is_alphanumeric() {
++            index += 1;
++        }
++        index
++    }
++
++    /// The part of the text to show in `width` cells so the cursor is visible, and the cursor's column
++    /// within it. Newlines show as `⏎`; wide characters take two cells. The view keeps the cursor at the
++    /// right edge when the text runs past it, so the most recent typing stays in sight.
++    pub fn view(&self, width: usize) -> (String, usize) {
++        let shown = |c: char| if c == '\n' { '⏎' } else { c };
++        let cells = |c: char| shown(c).width().unwrap_or(0);
++        let width = width.max(1);
++        // Walk back from the cursor until the window is full, leaving a cell for the cursor itself.
++        let mut start = self.cursor;
++        let mut used = 0;
++        while start > 0 && used + cells(self.chars[start - 1]) < width {
++            start -= 1;
++            used += cells(self.chars[start]);
++        }
++        let column = used;
++        let mut end = self.cursor;
++        while end < self.chars.len() && used + cells(self.chars[end]) <= width {
++            used += cells(self.chars[end]);
++            end += 1;
++        }
++        (
++            self.chars[start..end].iter().map(|c| shown(*c)).collect(),
++            column,
++        )
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn editor(text: &str, cursor: usize) -> Editor {
++        let mut editor = Editor::default();
++        editor.set(text);
++        editor.cursor = cursor;
++        editor
++    }
++
++    fn after(text: &str, cursor: usize, edit: &Edit) -> (String, usize) {
++        let mut editor = editor(text, cursor);
++        editor.apply(edit);
++        (editor.text(), editor.cursor)
++    }
++
++    #[test]
++    fn characters_go_in_at_the_cursor_and_come_out_around_it() {
++        assert_eq!(after("helo", 3, &Edit::Insert('l')), ("hello".into(), 4));
++        assert_eq!(after("hello", 5, &Edit::Backspace), ("hell".into(), 4));
++        assert_eq!(after("hello", 0, &Edit::Backspace), ("hello".into(), 0));
++        assert_eq!(after("hello", 1, &Edit::Delete), ("hllo".into(), 1));
++        assert_eq!(after("hello", 5, &Edit::Delete), ("hello".into(), 5));
++        assert_eq!(after("ab", 1, &Edit::Newline), ("a\nb".into(), 2));
++        assert_eq!(after("naïve", 3, &Edit::Backspace), ("nave".into(), 2));
++    }
++
++    #[test]
++    fn the_cursor_moves_by_character_word_and_line() {
++        assert_eq!(after("abc", 0, &Edit::Left), ("abc".into(), 0));
++        assert_eq!(after("abc", 3, &Edit::Right), ("abc".into(), 3));
++        assert_eq!(after("run the tests", 13, &Edit::WordLeft).1, 8);
++        assert_eq!(after("run the  tests", 9, &Edit::WordLeft).1, 4);
++        assert_eq!(after("run the tests", 0, &Edit::WordRight).1, 3);
++        assert_eq!(after("run the tests", 3, &Edit::WordRight).1, 7);
++        assert_eq!(after("abc", 2, &Edit::Home).1, 0);
++        assert_eq!(after("abc", 0, &Edit::End).1, 3);
++    }
++
++    #[test]
++    fn words_and_ends_are_deleted_up_to_the_cursor() {
++        assert_eq!(
++            after("git commit -m msg", 17, &Edit::DeleteWordBefore),
++            ("git commit -m ".into(), 14)
++        );
++        assert_eq!(
++            after("git commit -m ", 14, &Edit::DeleteWordBefore),
++            ("git commit ".into(), 11)
++        );
++        assert_eq!(after("abc def", 4, &Edit::KillToStart), ("def".into(), 0));
++        assert_eq!(after("abc def", 3, &Edit::KillToEnd), ("abc".into(), 3));
++    }
++
++    #[test]
++    fn paste_inserts_text_whole_with_line_ends_normalised_and_controls_dropped() {
++        assert_eq!(
++            after("[]", 1, &Edit::Paste("a\r\nb\rc\td".into())),
++            ("[a\nb\ncd]".into(), 7)
++        );
++        let mut editor = Editor::default();
++        editor.set("draft");
++        assert_eq!(editor.cursor, 5);
++        assert_eq!(editor.take(), "draft");
++        assert!(editor.is_empty() && editor.cursor == 0);
++    }
++
++    #[test]
++    fn the_view_keeps_the_cursor_in_sight() {
++        assert_eq!(editor("hello", 5).view(10), ("hello".into(), 5));
++        assert_eq!(editor("hello", 2).view(10), ("hello".into(), 2));
++        // Longer than the width: the window ends at the cursor, with a cell left for it.
++        let (text, column) = editor("abcdefghij", 10).view(5);
++        assert_eq!((text.as_str(), column), ("ghij", 4));
++        // Near the start, the window runs on past the cursor as far as it fits.
++        let (text, column) = editor("abcdefghij", 3).view(5);
++        assert_eq!((text.as_str(), column), ("abcde", 3));
++        // Newlines are shown as a mark; wide characters take two cells.
++        assert_eq!(editor("a\nb", 3).view(10), ("a⏎b".into(), 3));
++        assert_eq!(editor("日本", 2).view(10), ("日本".into(), 4));
++        assert_eq!(editor("", 0).view(0), (String::new(), 0));
++    }
++}
+diff --git a/tools/wisp-tui/src/main.rs b/tools/wisp-tui/src/main.rs
+index 241f244..3885f99 100644
+--- a/tools/wisp-tui/src/main.rs
++++ b/tools/wisp-tui/src/main.rs
+@@ -6,6 +6,7 @@
+ //! wisp binary (default `wisp` on `PATH`).
+ 
+ mod app;
++mod editor;
+ mod palette;
+ mod protocol;
+ 
+@@ -16,13 +17,18 @@ use std::thread;
+ use std::time::Duration;
+ 
+ use anyhow::{Context, Result};
+-use ratatui::crossterm::event::{self, Event as TermEvent, KeyCode, KeyEventKind, KeyModifiers};
++use ratatui::crossterm::event::{
++    self, DisableBracketedPaste, EnableBracketedPaste, Event as TermEvent, KeyCode, KeyEventKind,
++    KeyModifiers,
++};
++use ratatui::crossterm::execute;
+ use ratatui::layout::Rect;
+ use ratatui::text::{Line, Span};
+ use ratatui::widgets::{Paragraph, Widget, Wrap};
+ use ratatui::{TerminalOptions, Viewport};
+ 
+ use app::{Action, App, BAND_HEIGHT, HistoryLine, LineKind, MARGIN};
++use editor::Edit;
+ use protocol::Outbound;
+ 
+ /// What the main loop waits on.
+@@ -85,7 +91,10 @@ fn main() -> Result<()> {
+     let mut terminal = ratatui::init_with_options(TerminalOptions {
+         viewport: Viewport::Inline(BAND_HEIGHT),
+     });
++    // Bracketed paste delivers a paste as one event, so its newlines and keys cannot submit or edit.
++    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+     let result = run(&mut terminal, &rx, &mut stdin);
++    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+     ratatui::restore();
+     let _ = child.wait();
+     result
+@@ -128,24 +137,25 @@ fn run(
+             Some(Incoming::Line(line)) => app.handle(Outbound::parse(&line)),
+             Some(Incoming::Stderr(line)) => app.handle(Outbound::Note { text: line }),
+             Some(Incoming::Closed) => app.exited = true,
++            Some(Incoming::Terminal(TermEvent::Paste(text))) => app.edit(&Edit::Paste(text)),
+             Some(Incoming::Terminal(TermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
+-                let action = match (key.code, key.modifiers) {
+-                    (KeyCode::Char('c' | 'd'), KeyModifiers::CONTROL) => app.interrupt(),
+-                    (KeyCode::Enter, _) => app.submit(),
+-                    (KeyCode::Backspace, _) => {
+-                        app.backspace();
++                let action = match command_for(key.code, key.modifiers) {
++                    Key::Interrupt => app.interrupt(),
++                    Key::Submit => app.submit(),
++                    Key::Type(c) => app.type_char(c),
++                    Key::Edit(edit) => {
++                        app.edit(&edit);
+                         Action::None
+                     }
+-                    (KeyCode::Up, _) => {
++                    Key::RecallPrevious => {
+                         app.recall_previous();
+                         Action::None
+                     }
+-                    (KeyCode::Down, _) => {
++                    Key::RecallNext => {
+                         app.recall_next();
+                         Action::None
+                     }
+-                    (KeyCode::Char(c), _) => app.type_char(c),
+-                    _ => Action::None,
++                    Key::Nothing => Action::None,
+                 };
+                 match action {
+                     Action::None => {}
+@@ -169,6 +179,59 @@ fn run(
+     }
+ }
+ 
++/// What a key asks for.
++#[derive(Debug, Clone, PartialEq, Eq)]
++enum Key {
++    /// Cancel a dialog, or quit.
++    Interrupt,
++    /// Send the input.
++    Submit,
++    /// A character: typed into the input, or an answer to a dialog.
++    Type(char),
++    /// An edit to the input.
++    Edit(Edit),
++    /// The previous submitted line.
++    RecallPrevious,
++    /// The next submitted line, or back to the draft.
++    RecallNext,
++    /// Nothing wisp-tui uses.
++    Nothing,
++}
++
++/// The key map. Readline's bindings where a terminal user expects them (Ctrl-A, E, U, K, W), Alt with an
++/// arrow or `b`/`f` for words (what macOS terminals send for Option-arrow), and Alt-Enter for a newline,
++/// since a terminal cannot tell Shift-Enter from Enter without the keyboard protocol few support.
++fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
++    let control = modifiers.contains(KeyModifiers::CONTROL);
++    let alt = modifiers.contains(KeyModifiers::ALT);
++    match code {
++        KeyCode::Char('c' | 'd') if control => Key::Interrupt,
++        KeyCode::Char('a') if control => Key::Edit(Edit::Home),
++        KeyCode::Char('e') if control => Key::Edit(Edit::End),
++        KeyCode::Char('u') if control => Key::Edit(Edit::KillToStart),
++        KeyCode::Char('k') if control => Key::Edit(Edit::KillToEnd),
++        KeyCode::Char('w') if control => Key::Edit(Edit::DeleteWordBefore),
++        KeyCode::Char('b') if alt => Key::Edit(Edit::WordLeft),
++        KeyCode::Char('f') if alt => Key::Edit(Edit::WordRight),
++        KeyCode::Char(_) if control => Key::Nothing,
++        KeyCode::Char(c) => Key::Type(c),
++        KeyCode::Enter if alt => Key::Edit(Edit::Newline),
++        KeyCode::Enter => Key::Submit,
++        KeyCode::Backspace if alt || control => Key::Edit(Edit::DeleteWordBefore),
++        KeyCode::Backspace => Key::Edit(Edit::Backspace),
++        KeyCode::Delete => Key::Edit(Edit::Delete),
++        KeyCode::Left if alt || control => Key::Edit(Edit::WordLeft),
++        KeyCode::Right if alt || control => Key::Edit(Edit::WordRight),
++        KeyCode::Left => Key::Edit(Edit::Left),
++        KeyCode::Right => Key::Edit(Edit::Right),
++        KeyCode::Home => Key::Edit(Edit::Home),
++        KeyCode::End => Key::Edit(Edit::End),
++        KeyCode::Up => Key::RecallPrevious,
++        KeyCode::Down => Key::RecallNext,
++        _ => Key::Nothing,
++    }
++}
++
+ /// Writes one history line into scrollback above the band, wrapped to the width.
+ fn insert(terminal: &mut ratatui::DefaultTerminal, line: &HistoryLine, width: u16) -> Result<()> {
+     let style = match line.kind {
+@@ -200,7 +263,63 @@ fn wrapped_height(text: &str, width: u16) -> u16 {
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::{version_requested, wrapped_height};
++    use super::{Edit, Key, KeyCode, KeyModifiers, command_for, version_requested, wrapped_height};
++
++    #[test]
++    fn keys_map_to_the_edits_a_terminal_user_expects() {
++        let none = KeyModifiers::NONE;
++        let ctrl = KeyModifiers::CONTROL;
++        let alt = KeyModifiers::ALT;
++        assert_eq!(command_for(KeyCode::Char('x'), none), Key::Type('x'));
++        assert_eq!(
++            command_for(KeyCode::Char('X'), KeyModifiers::SHIFT),
++            Key::Type('X')
++        );
++        assert_eq!(command_for(KeyCode::Char('c'), ctrl), Key::Interrupt);
++        assert_eq!(command_for(KeyCode::Char('d'), ctrl), Key::Interrupt);
++        assert_eq!(command_for(KeyCode::Char('a'), ctrl), Key::Edit(Edit::Home));
++        assert_eq!(command_for(KeyCode::Char('e'), ctrl), Key::Edit(Edit::End));
++        assert_eq!(
++            command_for(KeyCode::Char('u'), ctrl),
++            Key::Edit(Edit::KillToStart)
++        );
++        assert_eq!(
++            command_for(KeyCode::Char('k'), ctrl),
++            Key::Edit(Edit::KillToEnd)
++        );
++        assert_eq!(
++            command_for(KeyCode::Char('w'), ctrl),
++            Key::Edit(Edit::DeleteWordBefore)
++        );
++        assert_eq!(command_for(KeyCode::Char('z'), ctrl), Key::Nothing);
++        assert_eq!(
++            command_for(KeyCode::Char('b'), alt),
++            Key::Edit(Edit::WordLeft)
++        );
++        assert_eq!(
++            command_for(KeyCode::Char('f'), alt),
++            Key::Edit(Edit::WordRight)
++        );
++        assert_eq!(command_for(KeyCode::Enter, none), Key::Submit);
++        assert_eq!(command_for(KeyCode::Enter, alt), Key::Edit(Edit::Newline));
++        assert_eq!(
++            command_for(KeyCode::Backspace, none),
++            Key::Edit(Edit::Backspace)
++        );
++        assert_eq!(
++            command_for(KeyCode::Backspace, alt),
++            Key::Edit(Edit::DeleteWordBefore)
++        );
++        assert_eq!(command_for(KeyCode::Delete, none), Key::Edit(Edit::Delete));
++        assert_eq!(command_for(KeyCode::Left, none), Key::Edit(Edit::Left));
++        assert_eq!(command_for(KeyCode::Right, alt), Key::Edit(Edit::WordRight));
++        assert_eq!(command_for(KeyCode::Left, ctrl), Key::Edit(Edit::WordLeft));
++        assert_eq!(command_for(KeyCode::Home, none), Key::Edit(Edit::Home));
++        assert_eq!(command_for(KeyCode::End, none), Key::Edit(Edit::End));
++        assert_eq!(command_for(KeyCode::Up, none), Key::RecallPrevious);
++        assert_eq!(command_for(KeyCode::Down, none), Key::RecallNext);
++        assert_eq!(command_for(KeyCode::F(1), none), Key::Nothing);
++    }
+ 
+     #[test]
+     fn version_is_only_the_bare_flag() {

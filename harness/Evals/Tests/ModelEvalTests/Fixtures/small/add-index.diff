@@ -1,0 +1,7 @@
+diff --git a/db/migrations/0042_users_email_index.sql b/db/migrations/0042_users_email_index.sql
+new file mode 100644
+--- /dev/null
++++ b/db/migrations/0042_users_email_index.sql
+@@ -0,0 +1,2 @@
++-- Look-ups by email scan the whole table without it.
++CREATE INDEX CONCURRENTLY IF NOT EXISTS users_email_idx ON users (email);

@@ -1,0 +1,10 @@
+diff --git a/Sources/CLI.swift b/Sources/CLI.swift
+--- a/Sources/CLI.swift
++++ b/Sources/CLI.swift
+@@ -8,3 +8,5 @@ struct List: ParsableCommand {
+     @Flag var all = false
++    /// Print JSON instead of text.
++    @Flag(name: .long, help: "Print JSON.") var json = false
+     func run() throws {
+-        print(items.map(\.name).joined(separator: "\n"))
++        print(json ? encode(items) : items.map(\.name).joined(separator: "\n"))

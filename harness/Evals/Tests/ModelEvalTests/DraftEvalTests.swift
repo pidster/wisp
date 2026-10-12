@@ -1,110 +1,28 @@
 import Foundation
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
 /// Whether the configured model's commit subjects, or each model's that `WISP_EVAL_MODELS` names (`EvalModels`),
-/// name what a change is about. Needs the model (`scripts/check eval`); the floor applies to the configured model. The shape rules (length, capital, no trailing period) are applied in code, so
-/// the eval measures content: a pass is a subject containing one of the words a reviewer would expect.
-/// The words name the gist of each change, not merely a file it touches: a looser set on 2026-09-24
-/// passed "Cache installation instructions and config format in JSON" for a README change.
+/// name what a change is about, in three size bands. Needs the model (`scripts/check eval`). The shape rules (length,
+/// capital, no trailing period) are applied in code, so the eval measures content, judged by an explicit rubric in
+/// code rather than by a model: each diff of `drafts.json` (`EvalSets.Drafts`) has terms a right subject contains
+/// (`must`, any one) and terms that would misdescribe the change (`mustNot`, none), each matched where it begins a word,
+/// ignoring case. The terms name the gist of each change, not merely a file it touches: a looser set on 2026-09-24
+/// passed "Cache installation instructions and config format in JSON" for a README change. Small diffs are written for
+/// the eval; medium (4 to 16 KB) and large (24 to 56 KB) ones are real commits of this repository. Each diff is drafted
+/// once; the release drafts a fixed subset of each band (`WISP_EVAL_FULL=1` drafts all), against floors set from the
+/// configured model's history (docs/measurements.md).
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MODEL_TESTS"] != nil))
 struct DraftEvalTests {
-    struct Fixture {
-        let name: String
-        let diff: String
-        /// Any one of these, case-insensitively, in the subject.
-        let words: [String]
-    }
-
-    static let fixtures: [Fixture] = [
-        Fixture(
-            name: "retry",
-            diff: """
-                diff --git a/Sources/Upload.swift b/Sources/Upload.swift
-                --- a/Sources/Upload.swift
-                +++ b/Sources/Upload.swift
-                @@ -10,6 +10,14 @@ struct Uploader {
-                     func send(_ data: Data) async throws {
-                -        try await client.post(data)
-                +        var attempt = 0
-                +        while true {
-                +            do { return try await client.post(data) } catch where attempt < 2 {
-                +                attempt += 1
-                +                try await Task.sleep(for: .seconds(attempt))
-                +            }
-                +        }
-                     }
-                """, words: ["retry", "retries", "retrying"]),
-        Fixture(
-            name: "timeout default",
-            diff: """
-                diff --git a/Sources/Config.swift b/Sources/Config.swift
-                --- a/Sources/Config.swift
-                +++ b/Sources/Config.swift
-                @@ -3,3 +3,3 @@ struct Config {
-                -    var timeoutSeconds = 30
-                +    var timeoutSeconds = 120
-                """, words: ["timeout", "time out"]),
-        Fixture(
-            name: "new flag",
-            diff: """
-                diff --git a/Sources/CLI.swift b/Sources/CLI.swift
-                --- a/Sources/CLI.swift
-                +++ b/Sources/CLI.swift
-                @@ -8,4 +8,7 @@ struct List: ParsableCommand {
-                     @Flag var all = false
-                +    /// Print JSON instead of text.
-                +    @Flag(name: .long, help: "Print JSON.") var json = false
-                     func run() throws {
-                -        print(items.map(\\.name).joined(separator: "\\n"))
-                +        print(json ? encode(items) : items.map(\\.name).joined(separator: "\\n"))
-                """, words: ["json"]),
-        Fixture(
-            name: "bug fix",
-            diff: """
-                diff --git a/Sources/Paging.swift b/Sources/Paging.swift
-                --- a/Sources/Paging.swift
-                +++ b/Sources/Paging.swift
-                @@ -20,3 +20,3 @@ func page(_ items: [Item], number: Int, size: Int) -> [Item] {
-                -    let start = number * size + 1
-                +    let start = number * size
-                     return Array(items[start..<min(start + size, items.count)])
-                """, words: ["off-by-one", "off by one", "start index", "page start", "first item"]),
-        Fixture(
-            name: "docs only",
-            diff: """
-                diff --git a/README.md b/README.md
-                --- a/README.md
-                +++ b/README.md
-                @@ -12,2 +12,6 @@ ## Install
-                 brew install tool
-                +
-                +## Configuration
-                +
-                +Settings live in `~/.tool/config.json`; `tool config` prints the effective values.
-                """, words: ["readme", "document", "docs"]),
-    ]
-
-    /// Real commits from this repository's history, in two size bands, with words their subjects had.
-    static let bands: [(name: String, fixtures: [(file: String, words: [String])])] = [
-        (
-            "medium",
-            [("f7b9cd9", ["process name", "require"]), ("d6bdf31", ["cache", "verdict"])]
-        ),
-        (
-            "large",
-            [("19d3748", ["unified log", "unified-log", "exit status", "failing command"]), ("b816acd", ["watch"])]
-        ),
-    ]
-
-    /// The diff of a fixture commit, read beside this file.
-    static func diff(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/\(name).diff")
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
     /// Drafts a commit subject for `diff` on `model`, as `draft_change` would.
+    ///
+    /// - Parameters:
+    ///   - diff: The diff.
+    ///   - model: The model.
+    /// - Returns: The subject.
+    /// - Throws: A model or schema error.
     static func subject(_ diff: String, model: ResolvedModel) async throws -> String {
         let instructions = Prompting().rendered(toolsAvailable: false)
         let summarySchema = try OutputSchema(json: DiffSummary.schemaJSON)
@@ -126,64 +44,59 @@ struct DraftEvalTests {
         ).subject
     }
 
+    /// Each band's suite name in the summary table, and the configured model's historical rate, which sets its floor.
+    static let suites: [String: (suite: String, rate: EvalFloor.Rate)] = [
+        "small": ("draft", EvalFloor.Historical.draftSmall),
+        "medium": ("draft.medium", EvalFloor.Historical.draftMedium),
+        "large": ("draft.large", EvalFloor.Historical.draftLarge),
+    ]
+
     @Test func subjectsNameWhatTheChangeIsAboutAtEachSize() async throws {
+        let set = try EvalSets.Drafts.load()
+        // Every band's diffs, read once: a missing fixture fails the suite before any model runs.
+        var bands: [(band: String, all: Int, cases: [(item: EvalSets.Drafts.Case, diff: String)])] = []
+        for band in EvalSets.Drafts.bands {
+            let all = set.cases(band)
+            let chosen = EvalModels.chosen(all, release: set.release[band], id: \.id, stratum: { _ in "" })
+            bands.append((band, all.count, try chosen.map { ($0, try $0.diff()) }))
+        }
         for selection in EvalModels.selections {
-            let suites = ["draft"] + Self.bands.map { "draft.\($0.name)" }
+            let suites = EvalSets.Drafts.bands.compactMap { Self.suites[$0]?.suite }
             guard let model = EvalModels.resolve(selection, for: suites) else { continue }
-            // Small diffs, twice each; the floor applies here.
-            var passed = 0
-            var times: [Double] = []
-            for (round, fixture) in (1...2).flatMap({ round in Self.fixtures.map { (round, $0) } }) {
-                let diff = fixture.diff
-                let (drafted, milliseconds) = await EvalModels.attempt(
-                    "draft eval: small #\(round) \(fixture.name)", on: selection, strict: true
-                ) { try await Self.subject(diff, model: model) }
-                times.append(milliseconds)
-                let subject = drafted ?? ""
-                let ok = drafted != nil && fixture.words.contains { subject.lowercased().contains($0) }
-                if ok { passed += 1 }
-                print("draft eval: on \(selection) small #\(round) \(fixture.name): \(ok ? "pass" : "FAIL") \(subject)")
-            }
-            let total = Self.fixtures.count * 2
-            EvalModels.result("draft", on: selection, passed: passed, total: total, milliseconds: times)
-            try? Measurements.report(
-                Measurement(
-                    task: ChangeDraft.routingTask, model: selection.description, passed: passed, total: total,
-                    notes: "commit subjects for five small diffs (a retry loop, a default changed, a new flag, an "
-                        + "off-by-one fix, a docs addition), twice each; a pass is a subject naming what the change is about",
-                    maxInputBytes: Self.fixtures.map(\.diff.utf8.count).max()))
-            if EvalModels.floorsApply(to: selection) {
-                #expect(passed * 2 >= total, "\(selection): small draft subjects passed \(passed)/\(total)")
-            }
-            // Real commits in larger bands, once each: evidence for routing, not a floor.
-            for band in Self.bands {
-                var bandPassed = 0
-                var largest = 0
-                var bandTimes: [Double] = []
-                for fixture in band.fixtures {
-                    let diff = try Self.diff(fixture.file)
-                    largest = max(largest, diff.utf8.count)
+            for (band, all, cases) in bands {
+                guard let (suite, rate) = Self.suites[band] else { continue }
+                var passed = 0
+                var times: [Double] = []
+                for (item, diff) in cases {
                     let (drafted, milliseconds) = await EvalModels.attempt(
-                        "draft eval: \(band.name) \(fixture.file)", on: selection, strict: true
+                        "draft eval: \(band) \(item.id)", on: selection, strict: true
                     ) { try await Self.subject(diff, model: model) }
-                    bandTimes.append(milliseconds)
-                    let subject = drafted ?? ""
-                    let ok = drafted != nil && fixture.words.contains { subject.lowercased().contains($0) }
-                    if ok { bandPassed += 1 }
+                    times.append(milliseconds)
+                    let verdict = drafted.map(item.judge)
+                    if verdict == .pass { passed += 1 }
+                    let why =
+                        switch verdict {
+                        case .pass: "pass"
+                        case .missing: "FAIL (names none of \(item.must))"
+                        case .forbidden(let term): "FAIL (says \(term))"
+                        case nil: "FAIL (no subject)"
+                        }
                     print(
-                        "draft eval: on \(selection) \(band.name) \(fixture.file) (\(diff.utf8.count) B): "
-                            + "\(ok ? "pass" : "FAIL") \(subject)")
+                        "draft eval: on \(selection) \(band) \(item.id) (\(diff.utf8.count) B): \(why) "
+                            + "\(drafted ?? "")")
                 }
-                EvalModels.result(
-                    "draft.\(band.name)", on: selection, passed: bandPassed, total: band.fixtures.count,
-                    milliseconds: bandTimes)
+                let largest = cases.map(\.diff.utf8.count).max()
+                EvalModels.result(suite, on: selection, passed: passed, total: cases.count, milliseconds: times)
                 try? Measurements.report(
                     Measurement(
-                        task: ChangeDraft.routingTask, model: selection.description, passed: bandPassed,
-                        total: band.fixtures.count,
-                        notes: "commit subjects for \(band.fixtures.count) real commits of this repository up to "
-                            + "\(largest / 1024) KB of diff; a pass is a subject naming what the commit did",
+                        task: ChangeDraft.routingTask, model: selection.description, passed: passed,
+                        total: cases.count,
+                        notes: "commit subjects for \(band) diffs up to \((largest ?? 0) / 1024) KB, "
+                            + "\(EvalModels.scope(cases.count, of: all)) once each"
+                            + (band == "small" ? " (written for the eval)" : " (real commits of this repository)")
+                            + "; a pass names the change's gist and says nothing it does not do (drafts.json's rubric)",
                         maxInputBytes: largest))
+                EvalModels.expectFloor(suite, passed: passed, total: cases.count, rate: rate, on: selection)
             }
         }
     }

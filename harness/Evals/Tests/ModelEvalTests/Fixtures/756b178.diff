@@ -1,0 +1,777 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f1bc597..bf0306c 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -14,6 +14,12 @@ Fixed:
+   and counts the draft model Ollama runs beside gemma4. With 30 GB available, 12b gets its full 262,144 tokens.
+   The reason in `wisp models` and the `model.resolved` event says how the layers were counted, for example
+   `40 of 48 layers sliding-window (1,024 tokens), with a draft model`. Other models' windows are unchanged.
++- Hybrid models, which interleave attention with recurrent layers, are sized by their attention layers only.
++  `ollama:qwen3.8:27b` was counted at 260 KiB a token for all 65 layers and stayed at 8,192 tokens; it is now
++  68 KiB a token plus 748 MiB of fixed recurrent state, as Ollama allocates it, and `ollama:ornith:9b` gets its
++  full 262,144 tokens with 30 GB available instead of 65,536. MLX's Falcon-H1 models count their Mamba-2 state.
++  The reason names the class, for example `16 of 64 layers attention, with 1 draft layer of its own; 748 MiB
++  recurrent state`. Other models' windows are unchanged.
+ 
+ ## 0.19.0
+ 
+diff --git a/docs/backends.md b/docs/backends.md
+index 76163fd..e3906c3 100644
+--- a/docs/backends.md
++++ b/docs/backends.md
+@@ -88,6 +88,13 @@ is selected, wisp works out its window from the model's shape and the Mac's memo
+   cost taken off the budget first. A model whose Modelfile names a `DRAFT` (gemma4's speculative decoder) adds
+   one more whole-window layer as wide as its widest, and its working buffers are counted twice. The reason says
+   how the layers were counted, for example `40 of 48 layers sliding-window (1,024 tokens), with a draft model`;
++- a hybrid model, which interleaves attention with recurrent (state-space) layers (`qwen35`: qwen3.8, ornith), counts
++  only its attention layers per token: every `full_attention_interval`th layer, or, for a model reporting heads
++  per layer, those with heads. The recurrent layers' state does not grow with the window; it is sized from the
++  `ssm.*` fields as llama.cpp allocates it (32-bit, once plus once per drafted token for a model that drafts) and
++  taken off the budget first. The model's own draft layers (`nextn_predict_layers`) count as a draft model's do.
++  The reason names the class, for example `16 of 64 layers attention, with 1 draft layer of its own; 748 MiB
++  recurrent state`;
+ - the window is the largest multiple of 4,096 at which the weights, the cache, and 512 MiB of buffers fit
+   half the memory available now, and no more than three quarters of installed memory, capped at the
+   model's maximum;
+@@ -96,7 +103,9 @@ is selected, wisp works out its window from the model's shape and the Mac's memo
+ On 2026-09-29, with 19.6 GB available, `granite4.1:8b` (131,072 at most) got 24,576 tokens, estimated at
+ 9.2 GiB; Ollama loaded it in 8.95 GiB. On 2026-10-04, `gemma4:12b` was measured at exactly the 18 KiB per token
+ the per-layer rule estimates (16 KiB for its 8 global layers, 2 KiB for its draft model); with 30 GB available
+-it gets its full 262,144 tokens. The
++it gets its full 262,144 tokens. On 2026-10-05, `qwen3.8:27b` was measured at the 68 KiB per token and 748 MiB of
++recurrent state the hybrid rule estimates (it had been counted at 260 KiB), at 8,192 and 32,768 tokens, and
++`ornith:9b` at 32 KiB and 50 MiB; with 30 GB available ornith now gets 262,144 tokens instead of 65,536. The
+ `model.resolved` audit event records the window and why.
+ Setting `contextLength` fixes one window for every model instead.
+ 
+@@ -334,7 +343,11 @@ models and as the fallback until 0.20.0 has measured wisp's executor against it.
+ 
+ **The window.** An MLX directory's `config.json` gives the shape ADR 0043's rule needs: `max_position_embeddings`,
+ `num_hidden_layers`, `num_key_value_heads` (else `num_attention_heads`), and `head_dim` (else `hidden_size` ÷
+-`num_attention_heads`), read from `text_config` first in a multimodal model. With the weights' size (the
++`num_attention_heads`), read from `text_config` first in a multimodal model. A hybrid model's recurrent layers
++are counted as for Ollama, from the fields mlx-swift-lm reads: with `full_attention_interval` (Qwen3.5,
++Qwen3-Next) only every interval's last layer has a cache and the rest a state sized from the `linear_*` fields;
++with the `mamba_*` fields (Falcon-H1) every layer has both, so the cache is counted as before and the Mamba-2
++state (134 MiB for the 7B models) is a fixed cost. With the weights' size (the
+ `*.safetensors` files) and the Mac's memory now, wisp chooses the largest multiple of 4,096 that fits half the
+ available memory and three quarters of the installed, capped at the model's maximum and never below 8,192;
+ weights this process already holds count as available. `mlx.contextLength` sets the window for every MLX model
+diff --git a/docs/decisions/0043-context-window-from-memory.md b/docs/decisions/0043-context-window-from-memory.md
+index c4d11c8..435cb68 100644
+--- a/docs/decisions/0043-context-window-from-memory.md
++++ b/docs/decisions/0043-context-window-from-memory.md
+@@ -141,3 +141,63 @@ drafted model, covers only at the smaller batches; the budget's half of availabl
+ own scheduler predicted 12.5 GiB for 12b at 131,072 tokens, against 11.7 GiB by this rule.
+ `gemma4:26b` (18.7 GB of weights) was not loaded: with about 19 GB available and another model in use it would
+ not have fitted. Its estimate is 24 KiB a token (5 global layers of 2 heads, and its draft's) and 600 MiB fixed.
++
++## Refined 2026-10-05: hybrid attention and recurrent models
++
++`qwen3.8:27b` (architecture `qwen35`, 17.7 GB) sized at 8,192 tokens wherever it ran. Its `/api/show` reports
++`block_count` 65, 4 key-value heads of 256, `full_attention_interval` 4, `nextn_predict_layers` 1, and `ssm.*` fields
++(`conv_kernel` 4, `state_size` 128, `group_count` 16, `inner_size` 6,144). It is a hybrid: 64 layers of which every
++fourth attends and the rest are gated-delta recurrent layers, which keep a state of fixed size instead of a cache,
++and one multi-token-prediction layer after them that Ollama runs as a draft (`--spec-type draft-mtp
++--spec-draft-n-max 4`, from the Modelfile's `PARAMETER draft_num_predict 4`). The rule counted all 65 layers at
++260 KiB a token, 3.8 times the real cost. `ornith:9b` is the same architecture (32 layers, no draft layer), counted
++at 128 KiB against 32.
++
++The rule now counts only the layers that keep a cache:
++
++```
++attention layers = layers i < block_count − nextn_predict_layers with (i + 1) % full_attention_interval == 0,
++                   or, for a model reporting heads per layer, those with heads > 0
++bytes per token  = Σ over attention layers of heads × (key length + value length) × 2
++                   + the nextn_predict_layers' own, counted as draft layers (the working buffers twice)
++fixed bytes      = recurrent layers × 4 × ((conv_kernel − 1) × (inner_size + 2 × group_count × state_size)
++                                           + state_size × inner_size)
++                   × (1 + draft_num_predict, for a model that drafts)
++```
++
++`(i + 1) % interval == 0` is mlx-swift-lm's convention (`Qwen35.swift`); llama.cpp's source was not available
++here, but the layer counts it logged agree (16 of 64, 8 of 32). The state formula is llama.cpp's `n_embd_r` (the
++convolution's last inputs) plus `n_embd_s` (the state matrix) at 32 bits, reconstructed from the log rather than
++read in source, and it matches the log to the byte. llama.cpp keeps one copy of the state per drafted token to roll
++back to (`4 rs_seq`), so a drafting model's state is multiplied. A model that sets none of these fields is sized
++exactly as before; without the `ssm.*` fields the layers are still counted but no state is guessed at.
++
++Measured on this Mac (Ollama 0.35.1), reading what llama.cpp allocated from Ollama's server log:
++
++| Model | `num_ctx` | Attention cache | Draft layer's cache | Recurrent state |
++| --- | --- | --- | --- | --- |
++| `qwen3.8:27b` | 8,192 | 512 MiB (16 layers) | 32 MiB (1 layer) | 748.12 MiB (64 layers, `1 seqs 4 rs_seq`) |
++| `qwen3.8:27b` | 32,768 (2026-10-05) | 2,048 MiB | 128 MiB | 748.12 MiB |
++| `ornith:9b` | 8,192 (2026-09-23) | 256 MiB (8 layers) | none | 50.25 MiB (`0 rs_seq`) |
++| `ornith:9b` | 32,768 (2026-10-04) | 1,024 MiB | none | 50.25 MiB |
++
++The estimate is 68 KiB a token for qwen3.8 (64 for its attention layers, 4 for the draft layer) and 748.125 MiB
++fixed (48 layers × 3.12 MiB × 5 copies); 32 KiB a token for ornith and 50.25 MiB fixed (24 × 2.09 MiB): every
++figure in the table, exactly. With 30 GB available ornith now gets its full 262,144 tokens (65,536 before);
++with its 17.7 GB of weights qwen3.8 needs about 41 GB available to leave the floor (43 GB before), and at 50 GB
++available it gets 73,728 tokens, against 24,576 before.
++
++No other installed model changed: `llama`, `granite`, `mistral3`, `qwen3moe`, and `gemma4` set none of these fields.
++`deepseek2` (`deepseek-coder-v2`) reports `kv_lora_rank` 512, the compressed cache of multi-head latent attention,
++but llama.cpp did not use it for this GGUF: loaded at 8,192 tokens on 2026-10-05 it allocated 2,160 MiB, 270 KiB a
++token, the full 27 layers × 16 heads × (192 + 128) × 2 the rule already estimated. A newer deepseek2 GGUF that
++llama.cpp runs compressed would be over-estimated, the safe direction.
++
++Not verified, because no such model is installed and llama.cpp's source was not at hand: the GGUF fields of
++`granitehybrid`, `jamba`, `nemotron_h`, `lfm2`, `falcon-h1`, `mamba`/`mamba2`, and `qwen3next`. The rule covers them
++where they use the same names: a layer reported with no key-value heads is counted as recurrent, and the `ssm.*`
++state formula takes a missing `group_count` as 0 (Mamba-1's shape). A pure state-space model reports no
++key-value heads and falls back to 8,192 as before; `lfm2`'s short-convolution state is not sized (it is small);
++`falcon-h1`, which runs attention and Mamba-2 side by side in every layer, gets every layer counted per token but no
++state, which the 512 MiB of working buffers covers for the sizes published. MLX's side is in
++[ADR 0052](0052-mlx-on-a-par-with-ollama.md).
+diff --git a/docs/decisions/0052-mlx-on-a-par-with-ollama.md b/docs/decisions/0052-mlx-on-a-par-with-ollama.md
+index 1f2c12c..e44eb71 100644
+--- a/docs/decisions/0052-mlx-on-a-par-with-ollama.md
++++ b/docs/decisions/0052-mlx-on-a-par-with-ollama.md
+@@ -230,3 +230,16 @@ and usage for Core AI are unchanged.
+   - `wisp models pull` against the real Hub: the listing's format (the LFS `oid` as SHA-256), throughput, and
+     resuming after an interruption;
+   - whether Core AI refuses or truncates a prompt past the bundle's window.
++
++**Refined 2026-10-05: hybrid models' windows.** ADR 0043's hybrid rule (refined 2026-10-05) applies to
++`config.json` as mlx-swift-lm builds the caches. With `full_attention_interval` (Qwen3.5, Qwen3-Next) only every
++interval's last layer keeps a key-value cache and the others a gated-delta state, sized from `linear_conv_kernel_dim`,
++`linear_num_value_heads` × `linear_value_head_dim`, and `linear_num_key_heads` × `linear_key_head_dim`. With
++`mamba_d_conv`, `mamba_d_ssm`, and `mamba_d_state` (Falcon-H1, whose `FalconH1.swift` gives every layer a
++`CacheList` of a Mamba cache and an attention cache) every layer keeps both: the cache is counted as before and the
++Mamba-2 state, with `mamba_n_groups` (else 1), is added as a fixed cost. The state is counted at 32 bits, as
++llama.cpp keeps it; MLX keeps the convolution window in the activations' type, so this errs towards a smaller
++window. For `Falcon-H1-7B-Instruct-4bit` and `Falcon-H1R-7B-4bit` (44 layers): 44 KiB a token as before and
++134 MiB of state, so 221,184 tokens with 30 GB available instead of 225,280; `Falcon-H1-Tiny-Tool-Calling-90M-bf16`
++(24 layers) 12 KiB a token and 5 MiB. `Qwen3-1.7B-4bit` sets none of these fields and sizes exactly as before. Not
++measured on MLX: no hybrid was run live for this.
+diff --git a/docs/roadmap.md b/docs/roadmap.md
+index 5930ca7..a9198f4 100644
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
+ | Release | Larger | Smaller |
+ | --- | --- | --- |
+ | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
+-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
++| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning | The assessment reconsidered; MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates; MLX thinking shown |
+ | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | |
+ | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
+ 
+@@ -99,6 +99,14 @@ The release given to measurement, once the four before it are out:
+   tokens with 30 GB available and 126,976 with 25 GB; 26b needs about 41.5 GB available to leave the floor (at
+   most 217,088 tokens with all 51.5 GB free), so on this Mac it stays at 8,192 while much else is loaded. No other
+   installed model's window changed.
++- **Hybrid models' windows.** Built ([ADR 0043](decisions/0043-context-window-from-memory.md), refined
++  2026-10-05). `qwen3.8:27b` (`qwen35`) interleaves 16 attention layers with 48 recurrent ones and was counted at
++  260 KiB a token for all 65 layers, so it never left the floor. Sizing now counts only the attention layers
++  (`full_attention_interval`) and the model's own draft layer per token, and the recurrent state as a fixed cost
++  from the `ssm.*` fields: 68 KiB a token and 748 MiB, both measured exactly in llama.cpp's allocations at 8,192
++  and 32,768 tokens. `ornith:9b` (same architecture) goes from 65,536 to 262,144 tokens with 30 GB available. MLX
++  applies the same principle to `config.json` (Falcon-H1's parallel Mamba-2 state, Qwen3.5's interval). Other
++  hybrid families' GGUF fields are unverified (listed in the ADR).
+ - **The local-model comparison**: `gemma4:26b`, `gemma4:12b`, `ministral-3:14b`, `ministral-3:8b`,
+   and `llama3.2:3b` against `granite4.1:8b` and `qwen3.8:27b`, on the suites that decide delegation
+   (tool calls and schema replies, triage, `summarise_diff`, `draft_change`, the classifier's model
+diff --git a/harness/Sources/WispCore/Session/ContextSizing.swift b/harness/Sources/WispCore/Session/ContextSizing.swift
+index ad5764e..9eac104 100644
+--- a/harness/Sources/WispCore/Session/ContextSizing.swift
++++ b/harness/Sources/WispCore/Session/ContextSizing.swift
+@@ -18,14 +18,18 @@ public enum ContextSizing {
+         public var keyLength: Int
+         /// See `keyLength`.
+         public var valueLength: Int
+-        /// How the cache differs from layer to layer, for a model that reports its layers individually (gemma4);
+-        /// nil when every layer is alike and attends to the whole window.
++        /// How the cache differs from layer to layer, for a model that reports its layers individually (gemma4),
++        /// interleaves attention with recurrent layers (qwen35), or drafts with layers of its own; nil when every
++        /// layer is alike and attends to the whole window.
+         public var perLayer: PerLayer?
++        /// The state a hybrid or state-space model's recurrent layers keep, which does not grow with the window;
++        /// nil for a model without such layers or whose state the runtime does not describe.
++        public var recurrent: Recurrent?
+ 
+         /// Creates a shape.
+         public init(
+             maxContext: Int, layers: Int, keyValueHeads: Int, keyLength: Int, valueLength: Int,
+-            perLayer: PerLayer? = nil
++            perLayer: PerLayer? = nil, recurrent: Recurrent? = nil
+         ) {
+             self.maxContext = maxContext
+             self.layers = layers
+@@ -33,11 +37,12 @@ public enum ContextSizing {
+             self.keyLength = keyLength
+             self.valueLength = valueLength
+             self.perLayer = perLayer
++            self.recurrent = recurrent
+         }
+ 
+         /// Cache bytes per token of window, with 16-bit entries: a quantised cache takes less, so this
+         /// errs towards a smaller window. For a per-layer model, only the layers that attend to the whole window
+-        /// grow with it, and a draft model's.
++        /// grow with it, and the draft layers' (a draft model's, or the model's own); recurrent layers do not.
+         public var bytesPerToken: Int {
+             guard let perLayer else { return layers * keyValueHeads * (keyLength + valueLength) * 2 }
+             return (perLayer.globalHeads + perLayer.draftHeads) * (keyLength + valueLength) * 2
+@@ -48,14 +53,67 @@ public enum ContextSizing {
+         public var overhead: Int { ContextSizing.overhead * (perLayer?.draftHeads ?? 0 > 0 ? 2 : 1) }
+ 
+         /// Cache bytes that do not grow with a window of `window` tokens beyond the sliding window: the
+-        /// sliding-window layers', which keep the window plus a batch of cells; zero without such layers.
++        /// sliding-window layers', which keep the window plus a batch of cells, and the recurrent layers' state;
++        /// zero without such layers.
+         ///
+         /// - Parameter window: The window, in tokens.
+         /// - Returns: The bytes.
+         public func fixedBytes(window: Int) -> Int {
+-            guard let perLayer, perLayer.slidingHeads > 0 else { return 0 }
++            let state = recurrent?.bytes ?? 0
++            guard let perLayer, perLayer.slidingHeads > 0 else { return state }
+             let cells = min(window, perLayer.slidingWindow + ContextSizing.slidingBatch)
+-            return perLayer.slidingHeads * (perLayer.slidingKeyLength + perLayer.slidingValueLength) * 2 * cells
++            return state + perLayer.slidingHeads * (perLayer.slidingKeyLength + perLayer.slidingValueLength) * 2
++                * cells
++        }
++
++        /// How the layers were counted, for the reason (`16 of 64 layers attention, with 1 draft layer of its own;
++        /// 748 MiB recurrent state`); nil for a model whose every layer is alike and attends to the whole window.
++        var note: String? {
++            let state = recurrent.map {
++                "\(ContextSizing.mib($0.bytes)) recurrent state"
++                    + (perLayer == nil ? " beside every layer's cache" : "")
++            }
++            let parts = [perLayer?.note, state].compactMap(\.self)
++            return parts.isEmpty ? nil : parts.joined(separator: "; ")
++        }
++    }
++
++    /// The state a recurrent (state-space) layer keeps in place of a key-value cache: a fixed size whatever the
++    /// window, counted with the fixed bytes. Hybrid models interleave such layers with attention (qwen35, Qwen3.5 and
++    /// Qwen3-Next in MLX) or run both side by side in every layer (Falcon-H1).
++    public struct Recurrent: Equatable, Sendable {
++        /// Layers that keep a state.
++        public var layers: Int
++        /// Bytes of one layer's state, as `bytesPerLayer(convKernel:inner:groupWidth:state:)` counts it.
++        public var bytesPerLayer: Int
++        /// Copies of the state kept: one, plus one per token drafted ahead when Ollama runs the model with draft
++        /// layers (`draft_num_predict`): llama.cpp keeps a state per drafted token to roll back to, measured on
++        /// 2026-10-05 as `4 rs_seq` for qwen3.8:27b drafting 4 tokens (ADR 0043).
++        public var copies: Int
++
++        /// Creates a recurrent state description.
++        public init(layers: Int, bytesPerLayer: Int, copies: Int = 1) {
++            self.layers = layers
++            self.bytesPerLayer = bytesPerLayer
++            self.copies = copies
++        }
++
++        /// Every copy of every layer's state.
++        public var bytes: Int { layers * bytesPerLayer * copies }
++
++        /// One layer's state with 32-bit entries, as llama.cpp allocates it: the convolution's last
++        /// `convKernel - 1` inputs, each as wide as the inner size plus two group widths (the B and C projections),
++        /// and the state matrix, `state` × the inner size. MLX keeps some of it in 16 bits, so this errs towards a
++        /// smaller window there.
++        ///
++        /// - Parameters:
++        ///   - convKernel: The convolution's width (`ssm.conv_kernel`, `mamba_d_conv`, `linear_conv_kernel_dim`).
++        ///   - inner: The inner size (`ssm.inner_size`, `mamba_d_ssm`, value heads × value head size).
++        ///   - groupWidth: Groups × state size (`ssm.group_count` × `ssm.state_size`, key heads × key head size).
++        ///   - state: The state size per channel (`ssm.state_size`, `mamba_d_state`, the key head size).
++        /// - Returns: The bytes.
++        public static func bytesPerLayer(convKernel: Int, inner: Int, groupWidth: Int, state: Int) -> Int {
++            4 * ((convKernel - 1) * (inner + 2 * groupWidth) + state * inner)
+         }
+     }
+ 
+@@ -81,12 +139,20 @@ public enum ContextSizing {
+         /// decoding (a `DRAFT` in its Modelfile). `/api/show` does not describe the draft, so it is counted as one
+         /// more whole-window layer as wide as the model's widest: what gemma4's drafts have (their GGUF) and what
+         /// Ollama allocated for gemma4:12b's (ADR 0043). Its sliding layers fall within the doubled `overhead`.
++        /// A model with draft layers of its own (`nextn_predict_layers`) adds theirs.
+         public var draftHeads: Int
++        /// Layers that keep no key-value cache: a hybrid model's recurrent layers, and a layer reported with no
++        /// key-value heads.
++        public var recurrentLayers: Int
++        /// The model's own draft layers (`nextn_predict_layers`, multi-token prediction), which Ollama runs as a
++        /// second context beside the model; they are the last of `block_count`.
++        public var draftLayers: Int
+ 
+         /// Creates a layer description.
+         public init(
+             globalLayers: Int, globalHeads: Int, slidingLayers: Int = 0, slidingHeads: Int = 0,
+-            slidingWindow: Int = 0, slidingKeyLength: Int = 0, slidingValueLength: Int = 0, draftHeads: Int = 0
++            slidingWindow: Int = 0, slidingKeyLength: Int = 0, slidingValueLength: Int = 0, draftHeads: Int = 0,
++            recurrentLayers: Int = 0, draftLayers: Int = 0
+         ) {
+             self.globalLayers = globalLayers
+             self.globalHeads = globalHeads
+@@ -96,19 +162,28 @@ public enum ContextSizing {
+             self.slidingKeyLength = slidingKeyLength
+             self.slidingValueLength = slidingValueLength
+             self.draftHeads = draftHeads
++            self.recurrentLayers = recurrentLayers
++            self.draftLayers = draftLayers
+         }
+ 
+-        /// How the layers were counted, for the reason: `40 of 48 layers sliding-window (1,024 tokens)`.
++        /// How the layers were counted, for the reason: `40 of 48 layers sliding-window (1,024 tokens)`, or
++        /// `16 of 64 layers attention` for a hybrid model.
+         var note: String {
+-            let total = globalLayers + slidingLayers
++            let total = globalLayers + slidingLayers + recurrentLayers
+             var parts: [String] = []
+-            if slidingLayers > 0 {
++            if recurrentLayers > 0 {
++                parts.append("\(globalLayers + slidingLayers) of \(total) layers attention")
++            } else if slidingLayers > 0 {
+                 parts.append(
+                     "\(slidingLayers) of \(total) layers sliding-window (\(slidingWindow.formatted()) tokens)")
+             } else {
+                 parts.append("\(globalLayers) of \(total) layers attending to the whole window")
+             }
+-            if draftHeads > 0 { parts.append("with a draft model") }
++            if draftLayers > 0 {
++                parts.append("with \(draftLayers) draft layer\(draftLayers == 1 ? "" : "s") of its own")
++            } else if draftHeads > 0 {
++                parts.append("with a draft model")
++            }
+             return parts.joined(separator: ", ")
+         }
+     }
+@@ -143,14 +218,19 @@ public enum ContextSizing {
+ 
+     /// Reads the shape from `/api/show`'s `model_info`, whose keys are prefixed by the architecture
+     /// (`granite.block_count`); nil when any part is missing. A model that reports `attention.head_count_kv` per
+-    /// layer or a `sliding_window_pattern` (gemma4), or that runs with a draft model, is
+-    /// sized layer by layer (`PerLayer`).
++    /// layer or a `sliding_window_pattern` (gemma4), interleaves attention with recurrent layers
++    /// (`full_attention_interval`, qwen35), has draft layers of its own (`nextn_predict_layers`), or runs with a
++    /// draft model, is sized layer by layer (`PerLayer`). Only layers with a key-value cache count per token: every
++    /// `full_attention_interval`th layer (llama.cpp's and mlx-swift-lm's `(i + 1) % interval == 0`), and none
++    /// reported with no key-value heads. The other layers' state is fixed (`Recurrent`), sized from `ssm.*`.
+     ///
+     /// - Parameters:
+     ///   - info: `/api/show`'s `model_info`.
+     ///   - drafted: Whether Ollama runs a draft model beside it (`OllamaModel.Shown.drafted`).
++    ///   - draftTokens: Tokens drafted ahead per step (`OllamaModel.Shown.draftTokens`), which multiply a
++    ///     drafting model's recurrent state.
+     /// - Returns: The shape, or nil.
+-    public static func shape(from info: [String: JSONValue], drafted: Bool = false) -> Shape? {
++    public static func shape(from info: [String: JSONValue], drafted: Bool = false, draftTokens: Int = 0) -> Shape? {
+         guard let architecture = info["general.architecture"]?.stringValue else { return nil }
+         func value(_ key: String) -> JSONValue? { info["\(architecture).\(key)"] }
+         func number(_ key: String) -> Int? { value(key)?.intValue }
+@@ -169,24 +249,48 @@ public enum ContextSizing {
+             maxContext: maxContext, layers: layers, keyValueHeads: keyValueHeads, keyLength: keyLength,
+             valueLength: valueLength)
+         let pattern = value("attention.sliding_window_pattern")?.arrayValue
+-        guard heads?.arrayValue != nil || pattern != nil || drafted else { return shape }
++        let interval = number("full_attention_interval")
++        let ownDraft = number("nextn_predict_layers") ?? 0
++        guard heads?.arrayValue != nil || pattern != nil || drafted || interval != nil || ownDraft != 0 else {
++            return shape
++        }
+         // Per layer: each layer's heads (one number for all, or one each), and whether it slides.
+         let layerHeads =
+             heads?.arrayValue.map { $0.compactMap(\.intValue) } ?? Array(repeating: keyValueHeads, count: layers)
+         let sliding = pattern.map { $0.compactMap(\.boolValue) } ?? Array(repeating: false, count: layers)
+         let window = number("attention.sliding_window") ?? 0
+-        guard layerHeads.count == layers, sliding.count == layers, !sliding.contains(true) || window > 0 else {
+-            return nil
++        guard layerHeads.count == layers, sliding.count == layers, !sliding.contains(true) || window > 0,
++            (0..<layers).contains(ownDraft), (interval ?? 1) > 0
++        else { return nil }
++        // The model's own draft layers are the last; of the rest, a layer keeps a cache when it has heads and, in a
++        // model that interleaves attention with recurrent layers, when it ends an interval.
++        let main = layers - ownDraft
++        let attends = (0..<main).filter { index in
++            layerHeads[index] > 0 && interval.map { (index + 1) % $0 == 0 } ?? true
+         }
+-        let global = (0..<layers).filter { !sliding[$0] }
+-        let slides = (0..<layers).filter { sliding[$0] }
+-        shape.perLayer = PerLayer(
++        let global = attends.filter { !sliding[$0] }
++        let slides = attends.filter { sliding[$0] }
++        let modelDraft = drafted ? global.map { layerHeads[$0] }.max() ?? 0 : 0
++        let perLayer = PerLayer(
+             globalLayers: global.count, globalHeads: global.reduce(0) { $0 + layerHeads[$1] },
+             slidingLayers: slides.count, slidingHeads: slides.reduce(0) { $0 + layerHeads[$1] },
+             slidingWindow: slides.isEmpty ? 0 : window,
+             slidingKeyLength: number("attention.key_length_swa") ?? keyLength,
+             slidingValueLength: number("attention.value_length_swa") ?? valueLength,
+-            draftHeads: drafted ? global.map { layerHeads[$0] }.max() ?? 0 : 0)
++            draftHeads: modelDraft + (main..<layers).reduce(0) { $0 + layerHeads[$1] },
++            recurrentLayers: main - attends.count, draftLayers: ownDraft)
++        shape.perLayer = perLayer
++        if perLayer.recurrentLayers > 0, let convKernel = number("ssm.conv_kernel"),
++            let inner = number("ssm.inner_size"), let state = number("ssm.state_size"), convKernel > 0, inner > 0,
++            state > 0
++        {
++            shape.recurrent = Recurrent(
++                layers: perLayer.recurrentLayers,
++                bytesPerLayer: Recurrent.bytesPerLayer(
++                    convKernel: convKernel, inner: inner, groupWidth: max(0, number("ssm.group_count") ?? 0) * state,
++                    state: state),
++                copies: drafted || ownDraft > 0 ? 1 + max(0, draftTokens) : 1)
++        }
+         return shape
+     }
+ 
+@@ -196,6 +300,11 @@ public enum ContextSizing {
+     /// `hidden_size` ÷ `num_attention_heads`). A multimodal model nests its language model's under
+     /// `text_config`, which is read first. Nil when any part is missing.
+     ///
++    /// Hybrid models, as mlx-swift-lm builds their caches: with a `full_attention_interval` (Qwen3.5, Qwen3-Next)
++    /// only every interval's last layer keeps a key-value cache and the rest a gated-delta state sized from the
++    /// `linear_*` fields; with `mamba_d_ssm`, `mamba_d_state`, and `mamba_d_conv` (Falcon-H1) every layer keeps both a
++    /// key-value cache and a Mamba-2 state (`mamba_n_groups`, else 1).
++    ///
+     /// - Parameter config: The decoded `config.json`.
+     /// - Returns: The shape, or nil.
+     public static func shape(fromModelConfig config: [String: JSONValue]) -> Shape? {
+@@ -214,9 +323,36 @@ public enum ContextSizing {
+         guard let headSize = number("head_dim") ?? number("hidden_size", "n_embd").map({ $0 / heads }),
+             keyValueHeads > 0, headSize > 0
+         else { return nil }
+-        return Shape(
++        var shape = Shape(
+             maxContext: maxContext, layers: layers, keyValueHeads: keyValueHeads, keyLength: headSize,
+             valueLength: headSize)
++        func positive(_ keys: String...) -> [Int]? {
++            let values = keys.compactMap { number($0) }.filter { $0 > 0 }
++            return values.count == keys.count ? values : nil
++        }
++        if let interval = number("full_attention_interval") {
++            guard interval > 0 else { return nil }
++            let attending = layers / interval
++            shape.perLayer = PerLayer(
++                globalLayers: attending, globalHeads: attending * keyValueHeads, recurrentLayers: layers - attending)
++            if let linear = positive(
++                "linear_conv_kernel_dim", "linear_num_value_heads", "linear_value_head_dim", "linear_num_key_heads",
++                "linear_key_head_dim"), attending < layers
++            {
++                shape.recurrent = Recurrent(
++                    layers: layers - attending,
++                    bytesPerLayer: Recurrent.bytesPerLayer(
++                        convKernel: linear[0], inner: linear[1] * linear[2], groupWidth: linear[3] * linear[4],
++                        state: linear[4]))
++            }
++        } else if let mamba = positive("mamba_d_conv", "mamba_d_ssm", "mamba_d_state") {
++            let groups = number("mamba_n_groups") ?? 1
++            shape.recurrent = Recurrent(
++                layers: layers,
++                bytesPerLayer: Recurrent.bytesPerLayer(
++                    convKernel: mamba[0], inner: mamba[1], groupWidth: max(0, groups) * mamba[2], state: mamba[2]))
++        }
++        return shape
+     }
+ 
+     /// What Ollama does when the floor does not fit, for the reason of a floor decision.
+@@ -244,7 +380,7 @@ public enum ContextSizing {
+         let chosen = max(window, floor)
+         let needed = weights + shape.overhead + shape.fixedBytes(window: chosen) + chosen * shape.bytesPerToken
+         let figures = "\(gib(needed)) of a \(gib(budget)) budget"
+-        let layers = shape.perLayer.map { "; \($0.note)" } ?? ""
++        let layers = shape.note.map { "; \($0)" } ?? ""
+         if window < floor {
+             return Decision(
+                 window: chosen,
+@@ -259,4 +395,9 @@ public enum ContextSizing {
+     static func gib(_ bytes: Int) -> String {
+         String(format: "%.1f GiB", Double(bytes) / Double(1 << 30))
+     }
++
++    /// Bytes as whole MiB.
++    static func mib(_ bytes: Int) -> String {
++        String(format: "%.0f MiB", Double(bytes) / Double(1 << 20))
++    }
+ }
+diff --git a/harness/Sources/WispCore/Session/OllamaModel.swift b/harness/Sources/WispCore/Session/OllamaModel.swift
+index 0f92795..6adc9ef 100644
+--- a/harness/Sources/WispCore/Session/OllamaModel.swift
++++ b/harness/Sources/WispCore/Session/OllamaModel.swift
+@@ -305,7 +305,10 @@ public struct OllamaModel: LanguageModel, Sendable {
+         guard settings.contextLength == nil else {
+             return OllamaModel(name: name, settings: settings, reported: shown.capabilities)
+         }
+-        guard let shape = ContextSizing.shape(from: shown.info, drafted: shown.drafted) else {
++        guard
++            let shape = ContextSizing.shape(
++                from: shown.info, drafted: shown.drafted, draftTokens: shown.draftTokens)
++        else {
+             return OllamaModel(
+                 name: name, settings: settings, reported: shown.capabilities, window: ContextSizing.floor,
+                 windowReason:
+@@ -328,6 +331,9 @@ public struct OllamaModel: LanguageModel, Sendable {
+         /// Whether Ollama runs a draft model beside this one for speculative decoding: a `DRAFT` line in its
+         /// `modelfile` (gemma4 has one), whose cache sizing counts too.
+         public var drafted: Bool
++        /// Tokens Ollama drafts ahead per step (`PARAMETER draft_num_predict` in its `modelfile`; 4 for
++        /// qwen3.8:27b, 3 for gemma4), or 0 when it sets none.
++        public var draftTokens: Int
+ 
+         private enum CodingKeys: String, CodingKey { case capabilities, model_info, modelfile }
+ 
+@@ -337,7 +343,12 @@ public struct OllamaModel: LanguageModel, Sendable {
+             capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+             info = (try? container.decodeIfPresent([String: JSONValue].self, forKey: .model_info)) ?? [:]
+             let modelfile = (try? container.decodeIfPresent(String.self, forKey: .modelfile)) ?? nil
+-            drafted = (modelfile ?? "").split(whereSeparator: \.isNewline).contains { $0.hasPrefix("DRAFT ") }
++            let lines = (modelfile ?? "").split(whereSeparator: \.isNewline)
++            drafted = lines.contains { $0.hasPrefix("DRAFT ") }
++            let draft = lines.map { $0.split(separator: " ") }.first { (words: [Substring]) in
++                words.count == 3 && words[0] == "PARAMETER" && words[1] == "draft_num_predict"
++            }
++            draftTokens = draft.flatMap { Int($0[2]) } ?? 0
+         }
+     }
+ 
+diff --git a/harness/Tests/WispCoreTests/ContextSizingHybridTests.swift b/harness/Tests/WispCoreTests/ContextSizingHybridTests.swift
+new file mode 100644
+index 0000000..20b627a
+--- /dev/null
++++ b/harness/Tests/WispCoreTests/ContextSizingHybridTests.swift
+@@ -0,0 +1,241 @@
++import Foundation
++import Testing
++
++@testable import WispCore
++
++/// The window sizing rule of ADR 0043 for hybrid models, whose recurrent layers keep a fixed state instead of a
++/// key-value cache, over the shapes Ollama and the MLX models' `config.json` reported on 2026-10-05.
++@Suite struct ContextSizingHybridTests {
++    static let installed = 51_539_607_552
++    static let gib = 1 << 30
++    static let mib = 1 << 20
++
++    /// qwen3.8:27b's `model_info` as Ollama 0.35.1 reported it (the parts sizing reads): 64 layers, every fourth
++    /// one attention and the rest gated-delta recurrent, and one draft (multi-token prediction) layer after them.
++    static let qwen38: [String: JSONValue] = [
++        "general.architecture": "qwen35", "qwen35.context_length": 262_144, "qwen35.block_count": 65,
++        "qwen35.embedding_length": 5120, "qwen35.attention.head_count": 24, "qwen35.attention.head_count_kv": 4,
++        "qwen35.attention.key_length": 256, "qwen35.attention.value_length": 256,
++        "qwen35.full_attention_interval": 4, "qwen35.nextn_predict_layers": 1, "qwen35.ssm.conv_kernel": 4,
++        "qwen35.ssm.group_count": 16, "qwen35.ssm.inner_size": 6144, "qwen35.ssm.state_size": 128,
++        "qwen35.ssm.time_step_rank": 48,
++    ]
++    static let qwen38Weights = 17_741_872_154
++
++    /// ornith:9b's: the same architecture, 32 layers, without draft layers.
++    static let ornith: [String: JSONValue] = [
++        "general.architecture": "qwen35", "qwen35.context_length": 262_144, "qwen35.block_count": 32,
++        "qwen35.embedding_length": 4096, "qwen35.attention.head_count": 16, "qwen35.attention.head_count_kv": 4,
++        "qwen35.attention.key_length": 256, "qwen35.attention.value_length": 256,
++        "qwen35.full_attention_interval": 4, "qwen35.ssm.conv_kernel": 4, "qwen35.ssm.group_count": 16,
++        "qwen35.ssm.inner_size": 4096, "qwen35.ssm.state_size": 128, "qwen35.ssm.time_step_rank": 32,
++    ]
++    static let ornithWeights = 5_629_110_568
++
++    @Test func aHybridModelCountsOnlyItsAttentionLayersPerTokenAsLlamaCppAllocatesThem() throws {
++        let shape = try #require(ContextSizing.shape(from: Self.qwen38, drafted: false, draftTokens: 4))
++        #expect(
++            shape.perLayer
++                == .init(
++                    globalLayers: 16, globalHeads: 64, slidingKeyLength: 256, slidingValueLength: 256, draftHeads: 4,
++                    recurrentLayers: 48, draftLayers: 1))
++        // 64 KiB a token for the 16 attention layers and 4 KiB for the draft layer: what llama.cpp allocated on
++        // 2026-10-05 (512 + 32 MiB at 8,192 tokens, 2,048 + 128 MiB at 32,768). Counting all 65 layers gave 260.
++        #expect(shape.bytesPerToken == 69632)
++        #expect(8192 * 64 * 1024 == 512 * Self.mib && 32768 * 64 * 1024 == 2048 * Self.mib)
++        // The recurrent state, kept once and once per drafted token: 748.125 MiB, as measured at both windows.
++        let state = try #require(shape.recurrent)
++        #expect(state == .init(layers: 48, bytesPerLayer: 3_268_608, copies: 5))
++        #expect(shape.fixedBytes(window: 8192) == 784_465_920 && shape.fixedBytes(window: 262_144) == 784_465_920)
++        // Its draft layer runs as a second context with its own buffers, as a draft model does.
++        #expect(shape.overhead == 2 * ContextSizing.overhead)
++        // Ollama's modelfile sets no draft_num_predict: one copy.
++        #expect(ContextSizing.shape(from: Self.qwen38)?.recurrent?.copies == 1)
++    }
++
++    @Test func aHybridModelWithoutDraftLayersKeepsOneStateAndOneOverhead() throws {
++        let shape = try #require(ContextSizing.shape(from: Self.ornith, draftTokens: 4))
++        #expect(
++            shape.perLayer
++                == .init(
++                    globalLayers: 8, globalHeads: 32, slidingKeyLength: 256, slidingValueLength: 256,
++                    recurrentLayers: 24))
++        // 32 KiB a token: llama.cpp allocated 256 MiB at 8,192 tokens and 1,024 MiB at 32,768 (2026-09-23 and
++        // 2026-10-04); the state 50.25 MiB (`0 rs_seq`).
++        #expect(shape.bytesPerToken == 32768)
++        #expect(shape.fixedBytes(window: 8192) == 52_690_944 && shape.recurrent?.copies == 1)
++        #expect(shape.overhead == ContextSizing.overhead)
++    }
++
++    @Test func aHybridWindowNamesItsLayersAndItsState() throws {
++        let qwen = try #require(ContextSizing.shape(from: Self.qwen38, draftTokens: 4))
++        // 50 GB available: a 25 GB budget less the weights, two overheads, and the state leaves 73,728 tokens,
++        // where every layer counted gave 24,576.
++        let roomy = ContextSizing.size(
++            shape: qwen, weights: Self.qwen38Weights,
++            memory: .init(installed: Self.installed, available: 50_000_000_000))
++        let room = 25_000_000_000 - Self.qwen38Weights - 2 * ContextSizing.overhead - 784_465_920
++        #expect(roomy.window == room / 69632 / 4096 * 4096 && roomy.window == 73728)
++        #expect(
++            roomy.reason == "73,728 of 262,144: 23.0 GiB of a 23.3 GiB budget; "
++                + "16 of 64 layers attention, with 1 draft layer of its own; 748 MiB recurrent state",
++            "\(roomy.reason)")
++        let ornith = try #require(ContextSizing.shape(from: Self.ornith))
++        let sized = ContextSizing.size(
++            shape: ornith, weights: Self.ornithWeights,
++            memory: .init(installed: Self.installed, available: 30_000_000_000))
++        #expect(sized.window == 262_144, "\(sized.reason)")
++        #expect(sized.reason.hasSuffix("; 8 of 32 layers attention; 50 MiB recurrent state"), "\(sized.reason)")
++    }
++
++    @Test func malformedOrPartialHybridFieldsFallBackAsTheyShould() throws {
++        // An interval of 0, or draft layers that are all the layers, give no shape.
++        var zero = Self.ornith
++        zero["qwen35.full_attention_interval"] = 0
++        #expect(ContextSizing.shape(from: zero) == nil)
++        var allDraft = Self.ornith
++        allDraft["qwen35.nextn_predict_layers"] = 32
++        #expect(ContextSizing.shape(from: allDraft) == nil)
++        var negative = Self.ornith
++        negative["qwen35.nextn_predict_layers"] = -1
++        #expect(ContextSizing.shape(from: negative) == nil)
++        // Without the ssm fields the layers are still counted, but no state is guessed at.
++        var stateless = Self.ornith
++        stateless["qwen35.ssm.inner_size"] = nil
++        let counted = try #require(ContextSizing.shape(from: stateless))
++        #expect(counted.bytesPerToken == 32768 && counted.recurrent == nil && counted.fixedBytes(window: 8192) == 0)
++        // Without a group count the B and C projections add nothing (Mamba-1's shape).
++        var ungrouped = Self.ornith
++        ungrouped["qwen35.ssm.group_count"] = nil
++        #expect(
++            ContextSizing.shape(from: ungrouped)?.recurrent?.bytesPerLayer
++                == ContextSizing.Recurrent.bytesPerLayer(convKernel: 4, inner: 4096, groupWidth: 0, state: 128))
++        // A layer reported with no key-value heads keeps no cache, and counts as recurrent.
++        var zeroHeads = Self.ornith
++        zeroHeads["qwen35.full_attention_interval"] = nil
++        zeroHeads["qwen35.attention.head_count_kv"] = .array(
++            (0..<32).map { ($0 + 1) % 4 == 0 ? 4 : 0 })
++        let byHeads = try #require(ContextSizing.shape(from: zeroHeads))
++        #expect(byHeads.perLayer == ContextSizing.shape(from: Self.ornith)?.perLayer)
++        #expect(byHeads.recurrent == ContextSizing.shape(from: Self.ornith)?.recurrent)
++    }
++
++    @Test func modelsWithoutRecurrentLayersSizeExactlyAsBefore() throws {
++        // granite4.1:8b, llama3.2:3b, and deepseek-coder-v2 (deepseek2, whose kv_lora_rank llama.cpp did not use:
++        // 2,160 MiB at 8,192 tokens on 2026-10-05, 270 KiB a token, the estimate) as Ollama reported them.
++        let deepseek: [String: JSONValue] = [
++            "general.architecture": "deepseek2", "deepseek2.context_length": 163_840, "deepseek2.block_count": 27,
++            "deepseek2.embedding_length": 2048, "deepseek2.attention.head_count": 16,
++            "deepseek2.attention.head_count_kv": 16, "deepseek2.attention.key_length": 192,
++            "deepseek2.attention.value_length": 128, "deepseek2.attention.kv_lora_rank": 512,
++            "deepseek2.rope.dimension_count": 64,
++        ]
++        let llama: [String: JSONValue] = [
++            "general.architecture": "llama", "llama.context_length": 131_072, "llama.block_count": 28,
++            "llama.attention.head_count": 24, "llama.attention.head_count_kv": 8, "llama.attention.key_length": 128,
++            "llama.attention.value_length": 128, "llama.embedding_length": 3072,
++        ]
++        let cases: [([String: JSONValue], ContextSizing.Shape, Int, Int, String)] = [
++            (
++                ContextSizingTests.granite,
++                .init(maxContext: 131_072, layers: 40, keyValueHeads: 8, keyLength: 128, valueLength: 128),
++                ContextSizingTests.weights, 53248, "53,248 of 131,072: 13.6 GiB of a 14.0 GiB budget"
++            ),
++            (
++                llama, .init(maxContext: 131_072, layers: 28, keyValueHeads: 8, keyLength: 128, valueLength: 128),
++                2_019_393_189, 106_496, "106,496 of 131,072: 13.8 GiB of a 14.0 GiB budget"
++            ),
++            (
++                deepseek, .init(maxContext: 163_840, layers: 27, keyValueHeads: 16, keyLength: 192, valueLength: 128),
++                8_905_126_121, 16384, "16,384 of 163,840: 13.0 GiB of a 14.0 GiB budget"
++            ),
++        ]
++        for (info, expected, weights, window, reason) in cases {
++            let shape = try #require(ContextSizing.shape(from: info, draftTokens: 4))
++            #expect(shape == expected && shape.recurrent == nil && shape.note == nil)
++            let sized = ContextSizing.size(
++                shape: shape, weights: weights, memory: .init(installed: Self.installed, available: 30_000_000_000))
++            #expect(sized == .init(window: window, reason: reason), "\(sized.reason)")
++        }
++        // gemma4 with its draft model: the draft's tokens change nothing without recurrent layers.
++        let gemma = try #require(ContextSizing.shape(from: ContextSizingTests.gemma4, drafted: true, draftTokens: 3))
++        #expect(gemma == ContextSizing.shape(from: ContextSizingTests.gemma4, drafted: true) && gemma.recurrent == nil)
++        #expect(gemma.perLayer?.recurrentLayers == 0 && gemma.perLayer?.draftLayers == 0)
++    }
++
++    @Test func ollamaSaysHowManyTokensItDraftsAhead() throws {
++        let drafting = #"{"modelfile":"FROM /blobs/a\nPARAMETER draft_num_predict 4\nPARAMETER top_k 20\n"}"#
++        #expect(try JSONDecoder().decode(OllamaModel.Shown.self, from: Data(drafting.utf8)).draftTokens == 4)
++        let malformed = #"{"modelfile":"FROM /blobs/a\nPARAMETER draft_num_predict many\n"}"#
++        #expect(try JSONDecoder().decode(OllamaModel.Shown.self, from: Data(malformed.utf8)).draftTokens == 0)
++        #expect(try JSONDecoder().decode(OllamaModel.Shown.self, from: Data("{}".utf8)).draftTokens == 0)
++    }
++
++    /// Falcon-H1-7B-Instruct-4bit's `config.json` (mlx-community, the parts sizing reads): attention and Mamba-2 side
++    /// by side in every layer. Falcon-H1R-7B-4bit's has the same shape.
++    static let falcon7B: [String: JSONValue] = [
++        "model_type": "falcon_h1", "max_position_embeddings": 262_144, "num_hidden_layers": 44,
++        "num_attention_heads": 12, "num_key_value_heads": 2, "head_dim": 128, "hidden_size": 3072,
++        "attn_layer_indices": nil, "mamba_d_conv": 4, "mamba_d_head": 128, "mamba_d_ssm": 3072, "mamba_d_state": 256,
++        "mamba_expand": 2, "mamba_n_groups": 1, "mamba_n_heads": 24,
++    ]
++    /// Falcon-H1-Tiny-Tool-Calling-90M-bf16's.
++    static let falconTiny: [String: JSONValue] = [
++        "model_type": "falcon_h1", "max_position_embeddings": 262_144, "num_hidden_layers": 24,
++        "num_attention_heads": 8, "num_key_value_heads": 2, "head_dim": 64, "hidden_size": 512, "mamba_d_conv": 4,
++        "mamba_d_head": 32, "mamba_d_ssm": 768, "mamba_d_state": 64, "mamba_expand": 2, "mamba_n_groups": 1,
++        "mamba_n_heads": 24,
++    ]
++    static let falcon7BWeights = 4_268_832_515
++
++    @Test func aParallelHybridKeepsEveryLayersCacheAndAddsItsMambaState() throws {
++        let shape = try #require(ContextSizing.shape(fromModelConfig: Self.falcon7B))
++        // Every layer attends, as before: 44 KiB a token.
++        #expect(shape.perLayer == nil && shape.bytesPerToken == 44 * 2 * 256 * 2)
++        // And keeps a Mamba-2 state, as mlx-swift-lm's FalconH1 cache does: a 3-input convolution window 3,072 +
++        // 2 × 256 wide and a 256 × 3,072 state, 32-bit, 3.0 MiB a layer, 134 MiB in all.
++        #expect(shape.recurrent == .init(layers: 44, bytesPerLayer: 3_188_736))
++        #expect(shape.fixedBytes(window: 8192) == 140_304_384)
++        let sized = ContextSizing.size(
++            shape: shape, weights: Self.falcon7BWeights,
++            memory: .init(installed: Self.installed, available: 30_000_000_000))
++        let room = 15_000_000_000 - Self.falcon7BWeights - ContextSizing.overhead - 140_304_384
++        #expect(sized.window == room / 45056 / 4096 * 4096 && sized.window == 221_184)
++        #expect(sized.reason.hasSuffix("; 134 MiB recurrent state beside every layer's cache"), "\(sized.reason)")
++        let tiny = try #require(ContextSizing.shape(fromModelConfig: Self.falconTiny))
++        #expect(tiny.bytesPerToken == 24 * 2 * 128 * 2 && tiny.recurrent == .init(layers: 24, bytesPerLayer: 207_360))
++        // Without the state's fields, the cache is sized as before and no state is guessed at.
++        var partial = Self.falcon7B
++        partial["mamba_d_ssm"] = nil
++        #expect(ContextSizing.shape(fromModelConfig: partial)?.recurrent == nil)
++    }
++
++    @Test func anInterleavedHybridInMLXIsSizedAsOllamaSizesIt() throws {
++        // A Qwen3.5 configuration with qwen3.8:27b's dimensions, under the fields mlx-swift-lm's Qwen35 reads.
++        let config: [String: JSONValue] = [
++            "model_type": "qwen3_5",
++            "text_config": [
++                "max_position_embeddings": 262_144, "num_hidden_layers": 64, "num_attention_heads": 24,
++                "num_key_value_heads": 4, "head_dim": 256, "hidden_size": 5120, "full_attention_interval": 4,
++                "linear_conv_kernel_dim": 4, "linear_num_value_heads": 48, "linear_value_head_dim": 128,
++                "linear_num_key_heads": 16, "linear_key_head_dim": 128,
++            ],
++        ]
++        let shape = try #require(ContextSizing.shape(fromModelConfig: config))
++        let ollama = try #require(ContextSizing.shape(from: Self.qwen38))
++        #expect(shape.perLayer == .init(globalLayers: 16, globalHeads: 64, recurrentLayers: 48))
++        #expect(shape.bytesPerToken == 65536 && shape.recurrent == ollama.recurrent)
++        // Without the linear fields, the layers are counted and no state is guessed at; an interval of 0 is no shape.
++        var partial = config
++        partial["text_config"] = .object(
++            (config["text_config"]?.objectValue ?? [:]).filter { !$0.key.hasPrefix("linear_") })
++        let counted = try #require(ContextSizing.shape(fromModelConfig: partial))
++        #expect(counted.bytesPerToken == 65536 && counted.recurrent == nil)
++        var zero = ContextSizingTests.qwen3
++        zero["full_attention_interval"] = 0
++        #expect(ContextSizing.shape(fromModelConfig: zero) == nil)
++        // A dense model is sized exactly as before.
++        let dense = try #require(ContextSizing.shape(fromModelConfig: ContextSizingTests.qwen3))
++        #expect(dense.perLayer == nil && dense.recurrent == nil && dense.bytesPerToken == 28 * 8 * 256 * 2)
++    }
++}

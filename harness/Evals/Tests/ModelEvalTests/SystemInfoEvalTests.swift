@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
@@ -7,48 +8,38 @@ import Testing
 /// question about the Mac, with `run_command` and `memory` also on offer, as they were in `wisp "…"` until `memory` went
 /// off by default (ADR 0057) and as they are with `context.memory` on: `memory` is the conversation's, and its name is
 /// shared with the `memory` topic (the Mac's RAM), so the turns that call it are counted, printed, and noted in the
-/// measurement. The set is explicit, so the measurement stays comparable with those recorded before. Needs the model
-/// (`scripts/check eval`). `run_command` sits behind a gate that refuses anything above safe, so the model
-/// cannot change the Mac while being measured. A pass is a `system_info` call in the turn naming the
-/// expected topic (and target, where the question gives one): a call the tool refuses with a directive
-/// error, followed by the corrected call, passes, since recovering from that error is the design.
+/// measurement. The tool set is explicit, so the measurement stays comparable with those recorded before. Needs the
+/// model (`scripts/check eval`). `run_command` sits behind a gate that refuses anything above safe, so the model
+/// cannot change the Mac while being measured. A pass is a `system_info` call in the turn matching one the question
+/// accepts: its topic, and its port, process, or folder where the question names one. A call the tool refuses with a
+/// directive error, followed by the corrected call, passes, since recovering from that error is the design. The
+/// questions are `system_info.json` (`EvalSets.SystemInfo`): every topic in several phrasings, the ambiguous ones
+/// accepting each topic a careful operator would. Each is asked once; the release asks a fixed subset spread over the
+/// topics (`WISP_EVAL_FULL=1` asks all), against a floor set from the configured model's history
+/// (docs/measurements.md).
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MODEL_TESTS"] != nil))
 struct SystemInfoEvalTests {
-    /// A question and what a right first call looks like.
-    struct Case {
-        let question: String
-        let topics: Set<String>
-        let target: String?
-    }
-
-    static let cases: [Case] = [
-        Case(question: "What is listening on port 11434 on this Mac?", topics: ["ports"], target: "11434"),
-        Case(question: "Which process is using the most CPU right now?", topics: ["processes"], target: nil),
-        Case(question: "How much free disk space do I have?", topics: ["freeSpace"], target: nil),
-        Case(question: "What is taking up the space in ~/Library/Caches?", topics: ["folderSizes"], target: nil),
-        Case(question: "How much battery is left?", topics: ["battery"], target: nil),
-        Case(question: "Which version of macOS is this Mac running?", topics: ["system"], target: nil),
-        Case(question: "How much memory is in use, and by what?", topics: ["memory"], target: nil),
-        Case(question: "Is Ollama running, and how much memory does it use?", topics: ["process"], target: "ollama"),
-    ]
-
     @Test func picksTheTopicAPlainQuestionNeeds() async throws {
+        let set = try EvalSets.SystemInfo.load()
+        let cases = EvalModels.chosen(set.cases, release: set.release, id: \.id, stratum: \.stratum)
         for selection in EvalModels.selections {
             guard let model = EvalModels.resolve(selection, for: ["system_info"]) else { continue }
-            await Self.measure(on: model)
+            await Self.measure(cases, of: set.cases.count, on: model)
         }
     }
 
-    /// The questions on one model, each asked twice; the floor applies to the configured model only.
+    /// The questions on one model, each asked once; the floor applies to the configured model only.
     ///
-    /// - Parameter model: The model.
-    static func measure(on model: ResolvedModel) async {
+    /// - Parameters:
+    ///   - cases: The questions this run asks.
+    ///   - total: The questions in the set.
+    ///   - model: The model.
+    static func measure(_ cases: [EvalSets.SystemInfo.Case], of total: Int, on model: ResolvedModel) async {
         let selection = model.selection
-        let attempts = 2
         var passed = 0
         var memoryTurns = 0
         var times: [Double] = []
-        for (round, item) in (1...attempts).flatMap({ round in Self.cases.map { (round, $0) } }) {
+        for item in cases {
             let question = item.question
             let (made, milliseconds) = await EvalModels.attempt(
                 "system_info eval: \(question)", on: selection
@@ -79,30 +70,27 @@ struct SystemInfoEvalTests {
             times.append(milliseconds)
             let calls = made ?? []
             let ok = calls.filter { $0.tool == "system_info" }.compactMap { Self.arguments($0.arguments) }.contains {
-                call in
-                item.topics.contains(call.topic)
-                    && (item.target.map { call.target?.localizedCaseInsensitiveContains($0) == true } ?? true)
+                call in item.accept.contains { $0.matches(topic: call.topic, target: call.target, path: call.path) }
             }
             if ok { passed += 1 }
             if calls.contains(where: { $0.tool == "memory" }) { memoryTurns += 1 }
             print(
-                "system_info eval: on \(selection) #\(round) \(ok ? "pass" : "FAIL") \(item.question) "
+                "system_info eval: on \(selection) \(item.id) \(ok ? "pass" : "FAIL") \(item.question) "
                     + "calls=\(calls.map { "\($0.tool) \($0.arguments)" })")
         }
-        let total = Self.cases.count * attempts
-        EvalModels.result("system_info", on: selection, passed: passed, total: total, milliseconds: times)
+        EvalModels.result("system_info", on: selection, passed: passed, total: cases.count, milliseconds: times)
         try? Measurements.report(
             Measurement(
                 task: "system_info.topic", tool: "system_info", model: selection.description, passed: passed,
-                total: total,
+                total: cases.count,
                 notes:
-                    "eight plain questions about the Mac (a port, the busiest process, free space, a folder's usage, "
-                    + "battery, macOS version, memory, one app) with run_command and memory also offered, twice each; "
-                    + "a pass is a system_info call in the turn naming the expected topic and target; "
+                    "plain questions about the Mac over every topic (ports, processes, free space, a folder's usage, "
+                    + "memory, one app, battery, the system, the network), some ambiguous, with run_command and memory "
+                    + "also offered, \(EvalModels.scope(cases.count, of: total)) once each; a pass is a system_info "
+                    + "call in the turn naming a topic a careful operator accepts, with its port, process, or folder; "
                     + "\(memoryTurns) turn\(memoryTurns == 1 ? "" : "s") called memory"))
-        if EvalModels.floorsApply(to: selection) {
-            #expect(passed * 2 >= total, "system_info topic passed \(passed)/\(total)")
-        }
+        EvalModels.expectFloor(
+            "system_info", passed: passed, total: cases.count, rate: EvalFloor.Historical.systemInfo, on: selection)
     }
 
     /// One tool call a turn made: the tool's name and its JSON arguments.
@@ -113,12 +101,16 @@ struct SystemInfoEvalTests {
         let arguments: String
     }
 
-    /// The topic and target of a call's JSON arguments.
-    static func arguments(_ json: String) -> (topic: String, target: String?)? {
+    /// The topic, target (the port as text, or the process), and folder of a call's JSON arguments.
+    ///
+    /// - Parameter json: The call's arguments.
+    /// - Returns: The parts, or nil when the arguments do not parse or name no topic.
+    static func arguments(_ json: String) -> (topic: String, target: String?, path: String?)? {
         guard let data = json.data(using: .utf8),
             let object = (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue,
             let topic = object["topic"]?.stringValue
         else { return nil }
-        return (topic, object["port"].flatMap { $0.intValue.map(String.init) } ?? object["process"]?.stringValue)
+        let target = object["port"].flatMap { $0.intValue.map(String.init) } ?? object["process"]?.stringValue
+        return (topic, target, object["path"]?.stringValue)
     }
 }

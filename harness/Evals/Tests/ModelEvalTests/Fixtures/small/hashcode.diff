@@ -1,0 +1,12 @@
+diff --git a/src/main/java/shop/Sku.java b/src/main/java/shop/Sku.java
+--- a/src/main/java/shop/Sku.java
++++ b/src/main/java/shop/Sku.java
+@@ -18,3 +18,8 @@
+         return code.equals(other.code) && size == other.size;
+     }
++
++    @Override
++    public int hashCode() {
++        return Objects.hash(code, size);
++    }
+ }

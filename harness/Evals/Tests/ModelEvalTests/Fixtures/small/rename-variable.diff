@@ -1,0 +1,12 @@
+diff --git a/app/accounts.py b/app/accounts.py
+--- a/app/accounts.py
++++ b/app/accounts.py
+@@ -14,5 +14,5 @@
+ def display_name(accounts, account_id):
+-    usr = accounts.get(account_id)
+-    if usr is None:
++    user = accounts.get(account_id)
++    if user is None:
+         return "unknown"
+-    return f"{usr.first} {usr.last}"
++    return f"{user.first} {user.last}"

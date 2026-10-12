@@ -1,0 +1,163 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c62d03c..e15709f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,13 @@ Notable changes per release, written for people who run wisp. The release script
+ section for the version being cut as the GitHub release notes and refuses to release without one.
+ Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
+ 
++## Unreleased
++
++Fixed:
++
++- `wisp-tui` no longer redraws its band while idle, which could make the cursor flicker or restart its
++  blink, and no longer resizes the band back and forth when deleting across a wrapped line.
++
+ ## 0.10.3
+ 
+ Added:
+diff --git a/docs/wisp.md b/docs/wisp.md
+index 65dc785..b72830d 100644
+--- a/docs/wisp.md
++++ b/docs/wisp.md
+@@ -56,12 +56,14 @@ in both.
+ | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
+ 
+ The input grows a row for each line or wrapped line of the message, up to six rows; beyond that it
+-scrolls within them to keep the cursor's row in sight, and it shrinks back when the message is sent. The
++scrolls within them to keep the cursor's row in sight. It shrinks back only once the input is empty, as
++it is when the message is sent, so deleting across a wrap does not resize the band as you type. The
+ terminal's own cursor marks where typing goes. ratatui fixes an inline band's height when it is made, so
+ the band is redrawn at the new height; after it shrinks it can sit a row or two above the bottom of the
+ terminal until the next output closes the gap. Each frame is sent as one synchronized update, so a
+ terminal that supports it (Ghostty, iTerm2, kitty, WezTerm, Alacritty) shows only finished frames, and
+-lines are added above the band by scrolling a region rather than redrawing it. Keys other than a dialog's answers are ignored while an approval is asked and
++lines are added above the band by scrolling a region rather than redrawing it. The band is redrawn only
++when something changes it (a line from wisp, a key, a paste, a resize), never while idle. Keys other than a dialog's answers are ignored while an approval is asked and
+ while a turn runs.
+ 
+ What a session shows, and where it goes:
+diff --git a/tools/wisp-tui/src/app.rs b/tools/wisp-tui/src/app.rs
+index e3d5e4f..e6ccc76 100644
+--- a/tools/wisp-tui/src/app.rs
++++ b/tools/wisp-tui/src/app.rs
+@@ -266,6 +266,11 @@ impl App {
+         Action::Quit
+     }
+ 
++    /// Whether nothing is typed.
++    pub fn input_is_empty(&self) -> bool {
++        self.editor.is_empty()
++    }
++
+     /// The band's height for a terminal `width` cells wide: the base, plus a row for each further row
+     /// the input's text needs, up to `MAX_INPUT_ROWS`.
+     pub fn band_height(&self, width: u16) -> u16 {
+diff --git a/tools/wisp-tui/src/main.rs b/tools/wisp-tui/src/main.rs
+index 31fd97a..dc78328 100644
+--- a/tools/wisp-tui/src/main.rs
++++ b/tools/wisp-tui/src/main.rs
+@@ -136,6 +136,7 @@ fn run(
+             Err(mpsc::RecvTimeoutError::Timeout) => None,
+             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+         };
++        let changed = changes_the_band(incoming.as_ref());
+         match incoming {
+             Some(Incoming::Line(line)) => app.handle(Outbound::parse(&line)),
+             Some(Incoming::Stderr(line)) => app.handle(Outbound::Note { text: line }),
+@@ -171,6 +172,9 @@ fn run(
+             }
+             Some(Incoming::Terminal(_)) | None => {}
+         }
++        if !changed {
++            continue;
++        }
+         // One synchronized update per frame: the terminal shows the finished frame, not the cleared band
+         // of a resize or the steps of inserting lines, which it would otherwise paint as they arrive.
+         let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
+@@ -183,6 +187,27 @@ fn run(
+     }
+ }
+ 
++/// Whether what arrived can change what the band shows. Nothing in the band animates, so a wake with
++/// nothing, a key release, or focus and mouse events leave it as drawn; drawing anyway would show and
++/// move the cursor four times a second, which some terminals paint as a flicker or a restarted blink.
++fn changes_the_band(incoming: Option<&Incoming>) -> bool {
++    match incoming {
++        None => false,
++        Some(Incoming::Terminal(TermEvent::Key(key))) => key.kind == KeyEventKind::Press,
++        Some(Incoming::Terminal(event)) => {
++            matches!(event, TermEvent::Paste(_) | TermEvent::Resize(..))
++        }
++        Some(Incoming::Line(_) | Incoming::Stderr(_) | Incoming::Closed) => true,
++    }
++}
++
++/// The band's next height, when it should change: at once when the input needs more rows, but back
++/// down only once the input is empty, as it is when a message is sent. Shrinking remakes the terminal,
++/// so doing it on every Backspace across a wrap would remake it back and forth while the user types.
++fn next_height(current: u16, wanted: u16, input_empty: bool) -> Option<u16> {
++    (wanted > current || (wanted < current && input_empty)).then_some(wanted)
++}
++
+ /// What a key asks for.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ enum Key {
+@@ -243,8 +268,7 @@ fn paint(terminal: &mut ratatui::DefaultTerminal, app: &mut App, height: &mut u1
+     for line in app.take_pending() {
+         insert(terminal, &line, width)?;
+     }
+-    let wanted = app.band_height(width);
+-    if wanted != *height {
++    if let Some(wanted) = next_height(*height, app.band_height(width), app.input_is_empty()) {
+         regrow(terminal, wanted)?;
+         *height = wanted;
+     }
+@@ -300,7 +324,46 @@ fn wrapped_height(text: &str, width: u16) -> u16 {
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::{Edit, Key, KeyCode, KeyModifiers, command_for, version_requested, wrapped_height};
++    use super::{
++        Edit, Incoming, Key, KeyCode, KeyModifiers, TermEvent, changes_the_band, command_for,
++        next_height, version_requested, wrapped_height,
++    };
++    use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
++
++    #[test]
++    fn only_what_can_change_the_band_redraws_it() {
++        let key = |kind| {
++            Incoming::Terminal(TermEvent::Key(KeyEvent {
++                code: KeyCode::Char('x'),
++                modifiers: KeyModifiers::NONE,
++                kind,
++                state: KeyEventState::NONE,
++            }))
++        };
++        assert!(!changes_the_band(None));
++        assert!(!changes_the_band(Some(&key(KeyEventKind::Release))));
++        assert!(!changes_the_band(Some(&Incoming::Terminal(
++            TermEvent::FocusGained
++        ))));
++        assert!(changes_the_band(Some(&key(KeyEventKind::Press))));
++        assert!(changes_the_band(Some(&Incoming::Terminal(
++            TermEvent::Resize(80, 24)
++        ))));
++        assert!(changes_the_band(Some(&Incoming::Terminal(
++            TermEvent::Paste("p".into())
++        ))));
++        assert!(changes_the_band(Some(&Incoming::Line("{}".into()))));
++        assert!(changes_the_band(Some(&Incoming::Stderr("note".into()))));
++        assert!(changes_the_band(Some(&Incoming::Closed)));
++    }
++
++    #[test]
++    fn the_band_grows_at_once_and_shrinks_only_when_the_input_is_empty() {
++        assert_eq!(next_height(6, 8, false), Some(8));
++        assert_eq!(next_height(8, 7, false), None);
++        assert_eq!(next_height(8, 6, true), Some(6));
++        assert_eq!(next_height(6, 6, true), None);
++    }
+ 
+     #[test]
+     fn keys_map_to_the_edits_a_terminal_user_expects() {
