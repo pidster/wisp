@@ -1291,8 +1291,9 @@
       "read": true,
       "edits": [
         {
-          "find": "2,York",
-          "content": "2,Bath"
+          "target": "2,York",
+          "content": "2,Bath",
+          "line": 3
         }
       ],
       "before": "id,city\r\n1,Leeds\r\n2,York\r\n3,Hull\r\n",
@@ -1306,8 +1307,9 @@
       "read": true,
       "edits": [
         {
-          "find": "Retries = 2",
-          "content": "Retries = 5"
+          "target": "    static int Retries = 2;",
+          "content": "    static int Retries = 5;",
+          "line": 3
         }
       ],
       "before": "class Program\r\n{\r\n    static int Retries = 2;\r\n}\r\n",

@@ -146,6 +146,14 @@ public struct FileReader: Sendable {
             return lines.count == limit
         }
 
+        // Whether a line follows in the bytes not yet read: the line feed completing a carriage return that ended
+        // the last chunk ends no line of its own.
+        func unread(after scanner: LineScanner) -> Bool {
+            guard let byte = try? handle.read(upToCount: 1), let first = byte.first else { return false }
+            guard scanner.awaitsLineFeed, first == TextLines.lineFeed else { return true }
+            return (try? handle.read(upToCount: 1))?.isEmpty == false
+        }
+
         var hasMore = false
         var filled = false
         chunks: while let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty {
@@ -158,9 +166,7 @@ public struct FileReader: Sendable {
                 filled = true
                 // More only if something follows: further lines in this batch, an unterminated tail,
                 // or bytes still unread in the file.
-                hasMore =
-                    index + 1 < batch.count || scanner.hasPending
-                    || ((try? handle.read(upToCount: 1))?.isEmpty == false)
+                hasMore = index + 1 < batch.count || scanner.hasPending || unread(after: scanner)
                 break chunks
             }
         }
@@ -172,14 +178,18 @@ public struct FileReader: Sendable {
     }
 }
 
-/// Splits a byte stream into newline-terminated lines across chunk boundaries, keeping at most `keep` bytes of
-/// a line still open: a longer line is cut there (the reader cuts it to the page anyway) and the rest is counted,
-/// not held, so memory is bounded by the page whatever the file holds.
+/// Splits a byte stream into lines across chunk boundaries, keeping at most `keep` bytes of a line still open: a
+/// longer line is cut there (the reader cuts it to the page anyway) and the rest is counted, not held, so memory is
+/// bounded by the page whatever the file holds. A line ends as `TextLines` ends one, at `\n`, `\r\n`, or a lone
+/// `\r`, so `read_file` numbers lines exactly as `edit_file` edits them, CRLF, classic Mac, and mixed files included.
 struct LineScanner {
-    /// Bytes after the last newline seen, carried into the next feed; at most `keep`.
+    /// Bytes after the last line ending seen, carried into the next feed; at most `keep`.
     private var pending = Data()
     /// Bytes of the open line dropped past `keep`.
     private var overflow = 0
+    /// Whether the last byte fed was a carriage return that ended a line, so a line feed opening the next chunk
+    /// completes that ending rather than ending an empty line.
+    private(set) var awaitsLineFeed = false
     /// The most bytes of an open line kept.
     let keep: Int
 
@@ -194,18 +204,28 @@ struct LineScanner {
     /// Bytes held for the open line, for tests of the bound.
     var pendingBytes: Int { pending.count }
 
-    /// Feeds a chunk and returns the complete lines it closed, without their newlines, each cut to `keep` bytes.
+    /// Feeds a chunk and returns the complete lines it closed, without their endings, each cut to `keep` bytes.
     mutating func feed(_ chunk: Data) -> [Data] {
         var lines: [Data] = []
         var rest = chunk[...]
-        while let newline = rest.firstIndex(of: 0x0A) {
-            take(rest[rest.startIndex..<newline])
-            var line = pending
-            if line.last == 0x0D { line = line.dropLast() }
-            lines.append(Data(line))
+        if awaitsLineFeed, let first = rest.first {
+            if first == TextLines.lineFeed { rest = rest.dropFirst() }
+            awaitsLineFeed = false
+        }
+        while let end = rest.firstIndex(where: { $0 == TextLines.lineFeed || $0 == TextLines.carriageReturn }) {
+            take(rest[rest.startIndex..<end])
+            lines.append(pending)
             pending = Data()
             overflow = 0
-            rest = rest[rest.index(after: newline)...]
+            var next = rest.index(after: end)
+            if rest[end] == TextLines.carriageReturn {
+                if next == rest.endIndex {
+                    awaitsLineFeed = true
+                } else if rest[next] == TextLines.lineFeed {
+                    next = rest.index(after: next)
+                }
+            }
+            rest = rest[next...]
         }
         take(rest)
         return lines
@@ -228,6 +248,7 @@ struct LineScanner {
         defer {
             pending = Data()
             overflow = 0
+            awaitsLineFeed = false
         }
         return pending.isEmpty && overflow == 0 ? nil : pending
     }

@@ -49,7 +49,9 @@ to leave `read_file` out of a conversation that should not read at all.
 | Directories, missing files, `offset`/`limit` below 1 | Errors | |
 | Wildcards (`*`, `?`, `[`) in a path that does not exist | `error: read_file takes one path, not a pattern: …; list matches with run_command, e.g. ls …`, so the model lists the files instead of retrying the path. A file really named with a wildcard character is read. | |
 
-CRLF line endings are handled; the returned lines never include `\n` or `\r`.
+A line ends at `\n`, `\r\n`, or a lone `\r` (a classic Mac OS file), so CRLF, CR-only, and mixed files are numbered
+line by line, exactly as [edit_file](edit_file.md)'s `line` counts them; the returned lines never include `\n` or
+`\r`.
 
 It reads forward only: there is no search, no tail, and no binary content. To find a line in a large
 file or see its end, have the model use `run_command` with `grep -n` or `tail`, then `read_file` at the

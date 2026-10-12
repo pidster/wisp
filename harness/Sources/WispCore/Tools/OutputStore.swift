@@ -257,10 +257,11 @@ public final class OutputStore: Sendable {
     }
 
     /// Output `id` as lines, without their newlines; an unterminated last line is one, and a trailing newline
-    /// adds none. Nil when the store does not hold it.
+    /// adds none. Split at line feeds on scalars, as `Kept.lines` counts them, so CRLF output has lines too. Nil when
+    /// the store does not hold it.
     public func lines(_ id: String) -> [String]? {
         guard let text = text(id) else { return nil }
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = TextLines.splitAtLineFeeds(text).map(String.init)
         if lines.last == "" { lines.removeLast() }
         return lines
     }

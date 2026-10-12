@@ -512,6 +512,11 @@ page, not the file; the scanner keeps at most a page of a line still open, so a 
 page too. Only regular files are read (a FIFO or a device is refused before it is opened, non-blocking and
 close-on-exec). The rendering ends with an offset hint the model follows to continue.
 
+Both tools split lines the same way, on bytes (`TextLines`, and `LineScanner` while streaming): a line ends at `\n`,
+`\r\n`, or a lone `\r`, so `read_file`'s numbers are `edit_file`'s on CRLF, classic Mac, and mixed files alike. Never
+on `Character`, which takes `"\r\n"` as one grapheme: a CRLF file was once one line to `FileWriter`, and an edit of
+line 1 replaced it whole (ADR 0024, refined 2026-10-12).
+
 `EditFileTool` is its counterpart: `FileWriter` writes, appends, or replaces one exact match, and refuses
 any path outside `CommandPolicy.writableRoots`, the list the Seatbelt profile is built from, so the
 tool can change no more than a command could. Each edit is cleared by the gate as

@@ -64,7 +64,7 @@ enum OutputReference {
     ///   - tool: The tool's name.
     /// - Returns: The notes.
     static func notes(on output: String, tool: String) -> Notes {
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = TextLines.splitAtLineFeeds(output)
         var status = output.hasPrefix("error:") ? "failed" : "ok"
         var content = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         var cutStart = false
@@ -173,7 +173,7 @@ enum OutputReference {
         _ command: ThreadRecord.PersonCommand, entry: Int, time: Date?, output: String,
         timeZone: TimeZone = .current, recallable: Bool = false
     ) -> String {
-        var lines = output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = TextLines.splitAtLineFeeds(output).map(String.init)
         if lines.last == "" { lines.removeLast() }
         let plural = { (count: Int, noun: String) in "\(count) \(noun)\(count == 1 ? "" : "s")" }
         var status = "exit status \(command.exitStatus)"

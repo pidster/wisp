@@ -31,6 +31,9 @@ struct EvalSetsTests {
             "stale",
         ]
         #expect(wanted.isSubset(of: shapes), "missing shapes: \(wanted.subtracting(shapes))")
+        // CRLF files are edited both ways: by line number since 2026-10-12, when line edits learned CRLF, and by find.
+        let crlf = set.cases("replace").filter { $0.shape == "crlf" }.flatMap(\.edits)
+        #expect(crlf.contains { $0.line != nil } && crlf.contains { $0.line == nil }, "CRLF by line and by find")
         #expect(set.cases("whitespace").contains { $0.shape == "trailing-whitespace" })
     }
 
@@ -97,14 +100,14 @@ struct EvalSetsTests {
         }
     }
 
-    /// The lines of a file as `read_file` numbers them: split at line feeds, with no line after a final one.
+    /// The lines of a file as `read_file` numbers them (`TextLines`): split at any line ending, `\r\n` included,
+    /// with no line after a final one.
     ///
     /// - Parameter text: The file.
     /// - Returns: The lines.
     private static func lines(_ text: String) -> [String] {
-        var lines = text.components(separatedBy: "\n")
-        if text.hasSuffix("\n") { lines.removeLast() }
-        return lines
+        let lines = TextLines(Array(text.utf8))
+        return (0..<lines.count).map(lines.text)
     }
 
     @Test func whitespaceCasesChangeOnlyALinesWhitespace() throws {

@@ -41,11 +41,35 @@ number is past the end, nothing changes, with the errors below.
 The blind spot: a text change and a dedent to column zero in one edit (`    return 1` to `print(1)` at the
 margin) keeps the indentation. The result says so, and the model can make the edit in two steps, or by `find`.
 
+## Line endings
+
+`replace` numbers lines exactly as [read_file](read_file.md) does: a line ends at `\n`, `\r\n`, or a lone `\r` (a
+classic Mac OS file). Lines are split on the file's bytes, never on Swift's `Character`, which takes `\r\n` as one
+grapheme; until 2026-10-12 a CRLF file was one line to `edit_file`, so a `line` past 1 was refused and an edit of line 1
+replaced the whole file ([ADR 0024](../decisions/0024-edit-file.md), refined that day).
+
+| Case | What is written |
+| --- | --- |
+| A line edit | The line's text; its own ending is kept, so a CRLF file stays CRLF and a mixed file keeps each line's ending. One trailing ending of any kind on `content` is dropped; any other line break in it is refused |
+| A line break in `find` | Matches any ending in the file (`a\nb` finds `a\r\nb`), and a match never splits `\r` from its `\n` |
+| A line break in the replacement | Written with the file's dominant ending: the one most of its lines end with, ties going to `\n` and then `\r\n`; `\n` for a file with no line break at all. A CRLF file gets CRLF lines however the model wrote them |
+| No final line break | Stays without one, unless the edit itself adds one |
+| Everything outside the edit | Written back byte for byte, invalid UTF-8 included |
+
+`write` and `append` write `content` exactly as given, line endings included, and never read the file.
+
+A guard makes a wider change impossible: before anything is written, the edited file is split again and compared with
+the original, and an edit whose result changes a line it does not name, has more or fewer line breaks than the edit
+removes and adds, or changes the ending of the line it touches is refused with nothing written
+(`error: edit at line 1 refused: the file would have 0 line breaks, not 3, more than the edit names; nothing
+changed`). Every edit is built not to reach it; it exists so that a fault in that construction refuses rather than
+loses data.
+
 ## Result
 
-One line, and for a replacement the edited line as it now reads, quoted with tabs, quotes, backslashes, and
-carriage returns escaped and cut at 200 characters (a replacement by `find` that spans lines shows the first
-three and says how many more):
+One line, and for a replacement the edited line as it now reads, quoted with tabs, quotes, backslashes, line
+feeds, and carriage returns escaped and cut at 200 characters (a replacement by `find` that spans lines shows the
+first three and says how many more):
 
 ```
 created /repo/notes.md; now 42 bytes
@@ -57,7 +81,7 @@ line 2 did not contain "return 1"; replaced line 3 of /repo/b.py, the one line t
 
 Errors come back as text so the model can react: `error: text to replace not found: …`, `error: text to
 replace occurs 2 times, include more surrounding text: …`, `error: cannot write …: outside the writable
-directories (…)`, `error: edit not approved: …`.
+directories (…)`, `error: edit not approved: …`, and the guard's `error: edit at line N refused: …; nothing changed`.
 
 ## Confinement
 
@@ -84,7 +108,7 @@ program. Where nobody can answer the edit is refused and the file is untouched.
 | Limit | Value |
 | --- | --- |
 | `replace` file size | 1 MiB; larger files are refused (`FileWriter(maxBytes:)`, fixed in code) |
-| Line edits | One line per call: `content` is that line, one trailing newline is dropped, and any other newline (a pasted neighbour or the `[end of file]` marker) is refused with nothing changed; a line that is not there is an error, and so is one that does not contain `find` unless exactly one other line does |
+| Line edits | One line per call: `content` is that line, one trailing line ending (`\n`, `\r\n`, or `\r`) is dropped, and any other line break (a pasted neighbour or the `[end of file]` marker) is refused with nothing changed; a line that is not there is an error, and so is one that does not contain `find` unless exactly one other line does |
 | Shown lines | The edited line, or the first three lines a `find` replacement covers, each cut at 200 characters |
 | Binary files | Refused for `replace` (a NUL byte); `write` and `append` do not read the file |
 | Directories, missing parent directory, unknown `mode`, `replace` without `find` | Errors |
@@ -98,18 +122,25 @@ is in the `tool.call` event's arguments.
 
 ## Measured with the model
 
-The eval (`ToolEvalTests`, ten small files) reads a file and rewrites one numbered line; the recorded
-result is in [measurements.md](../measurements.md) and on `wisp tools --markdown`. The `line`
-argument exists because the first version, replace by `find` only, measured 3 of 5 on 2026-09-20: the
-model copied `find` correctly and then put the neighbouring line into `content` too. A write outside
-the writable set is refused with the directories named and no file created. A second measurement,
-`edit_file.whitespace` (four files, three attempts each), rewrites only a line's whitespace: indent, dedent,
-tabs to spaces, trailing spaces stripped; it is kept apart so `edit_file.replace` stays comparable across runs.
+The eval (`ToolEvalTests`, `scripts/check eval`) runs the 86 `replace` cases of `edit_file.json`, each once: files in
+35 languages and formats of 2 to 81 lines, one line named by its text, two neighbouring lines, a line emptied or a
+fragment cut, an empty line filled, near-duplicate lines, non-ASCII text, CRLF files edited by line number and by
+`find`, and stale line numbers reconciled by `find`. A pass is the file ending up exactly as intended. The release runs
+a fixed subset of 36 spread over those shapes, against a floor set from the configured model's history (44 of 86 for
+the whole set, 16 of 36 for the subset); `WISP_EVAL_FULL=1` runs all of them ([measurements.md](../measurements.md),
+"The case sets" and "The floors"); the recorded result is also on `wisp tools --markdown`. Until 0.23.0 it was ten
+small files, three attempts each. The `line` argument exists because the first version, replace by `find` only,
+measured 3 of 5 on 2026-09-20: the model copied `find` correctly and then put the neighbouring line into `content`
+too. A write outside the writable set is refused with the directories named and no file created. A second
+measurement, `edit_file.whitespace` (24 cases, a subset of 8 in the release, floors 19 and 5), rewrites only a line's
+whitespace: indent, dedent, tabs to spaces and back, trailing spaces or a tab stripped; it is kept apart so
+`edit_file.replace` stays comparable across runs.
 The line-edit rules above were measured before and after on 2026-10-06 ([measurements.md](../measurements.md),
 "edit_file's line rules").
 
 ## Implementation
 
 `FileWriter` in `harness/Sources/WispCore/Tools/FileWriter.swift` (confinement from
-`CommandPolicy.writableRoots`, the list the Seatbelt profile is built from), tested in `FileWriterTests`;
+`CommandPolicy.writableRoots`, the list the Seatbelt profile is built from), tested in `FileWriterTests`, with lines
+split by `TextLines` (`TextLines.swift`), tested with `read_file`'s numbering in `LineEndingTests`;
 `EditFileTool` is the model-facing wrapper, tested in `ToolWrapperTests`.

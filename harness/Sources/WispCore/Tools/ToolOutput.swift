@@ -98,9 +98,10 @@ enum ToolOutput {
         return Fit(shown: (top.lines + [marker] + bottom.lines).joined(separator: "\n"), held: held)
     }
 
-    /// `text`'s lines, without newlines; a trailing newline adds no empty line.
+    /// `text`'s lines, without newlines; a trailing newline adds no empty line. Split at line feeds on scalars, not
+    /// `Character`, so CRLF output has lines too (`TextLines.splitAtLineFeeds`).
     static func lines(_ text: String) -> [String] {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = TextLines.splitAtLineFeeds(text).map(String.init)
         if lines.last == "" { lines.removeLast() }
         return lines
     }

@@ -11,6 +11,12 @@ import Foundation
 /// `find` that is on exactly one other line edits that line. Each says so in the result, which also shows
 /// the line as it now reads. Every write is atomic: a temporary file beside the target, renamed over it.
 /// Nothing here creates directories or follows the model outside the set.
+///
+/// A replacement works on the file's bytes through `TextLines`, which numbers lines as `read_file` does: a line ends
+/// at `\n`, `\r\n`, or a lone `\r`. Every line keeps its own ending, so a CRLF file stays CRLF and a mixed file
+/// stays mixed; a line break a replacement adds takes the file's dominant ending; a file without a final line break
+/// keeps having none; and every byte outside the edit is written back as it was. A guard (`checked`) refuses any
+/// edit whose result changes a line it does not name.
 public struct FileWriter: Sendable {
     /// What to do to the file.
     public enum Edit: Equatable, Sendable {
@@ -18,7 +24,8 @@ public struct FileWriter: Sendable {
         case write(String)
         /// Add `content` to the end, creating the file if absent.
         case append(String)
-        /// Replace the one occurrence of `find` with `replacement`.
+        /// Replace the one occurrence of `find` with `replacement`; a line break in either stands for any line ending,
+        /// and the replacement's take the file's dominant one.
         case replace(find: String, replacement: String)
         /// Replace the whole 1-based `line` with `content`; when `expecting` is given the line must
         /// contain it, or else `expecting` must be on exactly one line of the file, which is edited instead,
@@ -101,18 +108,20 @@ public struct FileWriter: Sendable {
             return "; \(label) now: \(quoted)\(more)"
         }
 
-        /// `text` in double quotes with backslashes, quotes, tabs, and carriage returns escaped, so its
-        /// whitespace is visible, cut at `shownCharacters`.
+        /// `text` in double quotes with backslashes, quotes, tabs, carriage returns, and line feeds escaped, so its
+        /// whitespace is visible, cut at `shownCharacters`. Escaped scalar by scalar: as a `Character`, `"\r\n"` is
+        /// one grapheme that matches neither `"\r"` nor `"\n"`.
         static func quoted(_ text: String) -> String {
             let cut = text.count > shownCharacters ? String(text.prefix(shownCharacters)) + "…" : text
             var escaped = ""
-            for character in cut {
-                switch character {
+            for scalar in cut.unicodeScalars {
+                switch scalar {
                 case "\\": escaped += "\\\\"
                 case "\"": escaped += "\\\""
                 case "\t": escaped += "\\t"
                 case "\r": escaped += "\\r"
-                default: escaped.append(character)
+                case "\n": escaped += "\\n"
+                default: escaped.unicodeScalars.append(scalar)
                 }
             }
             return "\"\(escaped)\""
@@ -152,6 +161,8 @@ public struct FileWriter: Sendable {
         case lineMismatch(Int, expected: String, actual: String)
         /// A line edit was given more than one line of content.
         case notOneLine(Int)
+        /// The edit would change lines it does not name; a guard, which no edit is built to reach.
+        case changesUnnamedLines(line: Int, reason: String)
         /// The approval gate refused the edit.
         case notApproved(String)
 
@@ -173,13 +184,15 @@ public struct FileWriter: Sendable {
             case .lineMismatch(let line, let expected, let actual):
                 "line \(line) does not contain \(Self.excerpt(expected)); it is: \(Self.excerpt(actual))"
             case .notOneLine(let line): "content for line \(line) must be one line; nothing changed"
+            case .changesUnnamedLines(let line, let reason):
+                "edit at line \(line) refused: \(reason), more than the edit names; nothing changed"
             case .notApproved(let reason): "edit not approved: \(reason)"
             }
         }
 
-        /// The first line of `text`, shortened.
+        /// The first line of `text`, up to any line ending, shortened.
         private static func excerpt(_ text: String) -> String {
-            let first = text.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            let first = String(Substring(text.unicodeScalars.prefix { $0 != "\n" && $0 != "\r" }))
             return first.count > 60 ? String(first.prefix(60)) + "…" : first
         }
     }
@@ -328,70 +341,129 @@ public struct FileWriter: Sendable {
             break
         }
         let before = exists ? try Data(contentsOf: url) : Data()
-        let after: Data
+        let file = try editableBytes(before, path: path)
+        let lines = TextLines(file)
+        let after: [UInt8]
         switch edit {
         case .write, .append:
-            after = before
+            after = file
         case .replace(let find, let replacement):
-            let text = try editableText(before, path: path)
-            let ranges = text.ranges(of: find)
-            guard let range = ranges.first, !find.isEmpty else { throw Failure.notFound(find: find) }
-            guard ranges.count == 1 else { throw Failure.ambiguous(find: find, count: ranges.count) }
-            let line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
-            let replaced = text.replacingCharacters(in: range, with: replacement)
-            // The lines the replacement now covers: one, plus one for each newline it holds, a final one
+            // Matched on bytes with every line ending made one line feed, so a line break in `find` matches any
+            // ending and a match never splits a carriage return from its line feed; the replacement's line breaks
+            // take the file's dominant ending.
+            let (flat, origins) = TextLines.normalised(file)
+            let needle = TextLines.normalised(Array(find.utf8)).bytes
+            let found = TextLines.occurrences(of: needle, in: flat)
+            guard let match = found.first else { throw Failure.notFound(find: find) }
+            guard found.count == 1 else { throw Failure.ambiguous(find: find, count: found.count) }
+            let inserted = TextLines.converting(Array(replacement.utf8), to: lines.dominantEnding)
+            let range = origins[match.lowerBound]..<origins[match.upperBound]
+            let written = Array(file[..<range.lowerBound]) + inserted + Array(file[range.upperBound...])
+            let first = flat[..<match.lowerBound].count(where: { $0 == TextLines.lineFeed })
+            let added = TextLines.endings(in: inserted)
+            let now = try Self.checked(
+                written, against: lines, at: first, replacing: needle.count(where: { $0 == TextLines.lineFeed }),
+                with: added)
+            // The lines the replacement now covers: one, plus one for each line break it holds, a final one
             // ending the replacement's last line rather than starting another.
-            let newlines = replacement.count(where: { $0 == "\n" })
-            let edited = max(1, replacement.hasSuffix("\n") ? newlines : newlines + 1)
-            result.line = line
+            let edited = max(
+                1,
+                inserted.last == TextLines.lineFeed || inserted.last == TextLines.carriageReturn
+                    ? added : added + 1)
+            result.line = first + 1
             result.editedLines = edited
-            result.nowReads = replaced.split(separator: "\n", omittingEmptySubsequences: false)
-                .dropFirst(line - 1).prefix(min(edited, Result.shownLines)).map(String.init)
-            after = Data(replaced.utf8)
+            result.nowReads = (first..<min(now.segments.count, first + min(edited, Result.shownLines))).map(now.text)
+            after = written
         case .replaceLine(let number, let content, let expecting):
-            let text = try editableText(before, path: path)
-            var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            let count = text.hasSuffix("\n") ? lines.count - 1 : lines.count
+            let count = lines.count
             guard number >= 1, number <= count else { throw Failure.noSuchLine(number, lines: count) }
             var target = number
-            if let expecting, !lines[number - 1].contains(expecting) {
+            if let expecting, !lines.text(number - 1).contains(expecting) {
                 // A stale number: the one line that holds `expecting` exactly is the line meant; none or
                 // several is not knowable, so nothing changes.
-                let holding = lines[..<count].indices.filter { lines[$0].contains(expecting) }
+                let holding = (0..<count).filter { lines.text($0).contains(expecting) }
                 guard holding.count == 1, let only = holding.first else {
-                    throw Failure.lineMismatch(number, expected: expecting, actual: lines[number - 1])
+                    throw Failure.lineMismatch(number, expected: expecting, actual: lines.text(number - 1))
                 }
                 target = only + 1
                 result.movedFrom = .init(line: number, find: expecting)
             }
-            // A line has no newline of its own: one trailing newline is dropped, any other is refused,
-            // so a model that pastes the page marker or a neighbour cannot corrupt the file.
-            let single = content.hasSuffix("\n") ? String(content.dropLast()) : content
-            guard !single.contains("\n") else { throw Failure.notOneLine(number) }
-            let written = Self.indented(single, replacing: lines[target - 1])
-            lines[target - 1] = written.line
+            // A line has no line break of its own: one trailing ending is dropped, any other is refused, so a
+            // model that pastes the page marker or a neighbour cannot corrupt the file. The line keeps its ending.
+            let single = TextLines(Array(content.utf8)).segments
+            guard single.count == 1 || (single.count == 2 && single[1].text.isEmpty) else {
+                throw Failure.notOneLine(number)
+            }
+            let written = Self.indented(
+                String(decoding: single[0].text, as: UTF8.self), replacing: lines.text(target - 1))
+            var changed = lines
+            changed.segments[target - 1].text = Array(written.line.utf8)
+            after = try Self.checked(changed.bytes, against: lines, at: target - 1, replacing: 0, with: 0).bytes
             result.line = target
             result.keptIndentation = written.kept
             result.editedLines = 1
             result.nowReads = [written.line]
-            after = Data(lines.joined(separator: "\n").utf8)
         }
-        try Self.writeAtomically(after, to: url, replacing: exists)
-        result.bytesAfter = after.count
+        let data = Data(after)
+        try Self.writeAtomically(data, to: url, replacing: exists)
+        result.bytesAfter = data.count
         return result
     }
 
-    /// The file's text for a replacement, once it is known to be small enough and not binary.
+    /// The edited file, once it is known to change no line the edit does not name: segments `first` to
+    /// `first + replacing` of `before` (0-based; `replacing` is how many line endings the edit removes) become
+    /// segments `first` to `first + with` of `written`, and every segment before and after them is as it was, its
+    /// ending included, as is the ending of the last one touched. A line edit names one line and no ending, so it can
+    /// never change the line count; a `find` replacement changes it by exactly the line breaks it removes and adds.
+    /// Every edit is built to keep this; the check is the structural guarantee that a mistake in that construction
+    /// refuses rather than writes (2026-10-12: a CRLF file read as one line, and a one-line edit replaced all of it).
+    ///
+    /// - Parameters:
+    ///   - written: The bytes the edit would write.
+    ///   - before: The file as it is.
+    ///   - first: The first segment the edit touches, from 0.
+    ///   - replacing: The line endings the edit removes.
+    ///   - with: The line endings the edit adds.
+    /// - Returns: The edited file's lines.
+    /// - Throws: `Failure.changesUnnamedLines` when the edit would change more than that.
+    static func checked(
+        _ written: [UInt8], against before: TextLines, at first: Int, replacing: Int, with: Int
+    ) throws -> TextLines {
+        let after = TextLines(written)
+        let old = before.segments
+        let new = after.segments
+        let line = first + 1
+        let expected = old.count - 1 - replacing + with
+        guard new.count - 1 == expected, first + replacing < old.count, first + with < new.count else {
+            throw Failure.changesUnnamedLines(
+                line: line, reason: "the file would have \(new.count - 1) line breaks, not \(expected)")
+        }
+        if let other = (0..<first).first(where: { old[$0] != new[$0] }) {
+            throw Failure.changesUnnamedLines(line: line, reason: "line \(other + 1) would change too")
+        }
+        let oldTail = first + replacing + 1
+        let newTail = first + with + 1
+        if let offset = (0..<(old.count - oldTail)).first(where: { old[oldTail + $0] != new[newTail + $0] }) {
+            throw Failure.changesUnnamedLines(line: line, reason: "line \(newTail + offset + 1) would change too")
+        }
+        guard old[first + replacing].ending == new[first + with].ending else {
+            throw Failure.changesUnnamedLines(
+                line: line, reason: "line \(first + with + 1) would end differently")
+        }
+        return after
+    }
+
+    /// The file's bytes for a replacement, once they are known to be few enough and not binary.
     ///
     /// - Parameters:
     ///   - data: The file's bytes.
     ///   - path: The file, for the errors.
-    /// - Returns: The bytes decoded as UTF-8.
+    /// - Returns: The bytes.
     /// - Throws: `Failure.tooLarge` or `Failure.binary`.
-    private func editableText(_ data: Data, path: String) throws -> String {
+    private func editableBytes(_ data: Data, path: String) throws -> [UInt8] {
         guard data.count <= maxBytes else { throw Failure.tooLarge(path: path, bytes: data.count, limit: maxBytes) }
         guard !data.contains(0) else { throw Failure.binary(path) }
-        return String(decoding: data, as: UTF8.self)
+        return Array(data)
     }
 
     /// The line to write for `content` in place of `old`, and the indentation kept, if any.

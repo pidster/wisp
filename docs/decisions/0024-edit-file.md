@@ -79,3 +79,31 @@ new measurement `edit_file.whitespace` (four whitespace-only edits, three attemp
 as text, refused before the tool runs), and `ollama:granite4.1:8b`, after only, 27/30 and 11/12 (its four failures an
 empty `find` beside a right `line`, which changed nothing before the rules too). No dropped indentation or stale
 number with `find` remained. Tested without the model in `FileWriterTests`.
+
+**Refined 2026-10-12: lines are split on bytes, every line keeps its ending, and a guard refuses a wider change.**
+Building the eval sets found that `FileWriter` split a file into lines with `String.split(separator: "\n")`, on
+Swift's `Character`, which takes `"\r\n"` as one grapheme: a CRLF file had no line break at all
+(`"a\r\nb\r\n".split(separator: "\n", omittingEmptySubsequences: false).count` is 1). A `line` past 1 was refused,
+the stale-number reconciliation could find nothing, and an edit of line 1 replaced the whole file with that one line,
+which is data loss. `read_file` had numbered the same file correctly, so the two disagreed. The CRLF eval cases had
+used `find` only, which matched within a line and hid it.
+
+- **One line model for both tools.** `TextLines` splits the file's bytes, never `Character`s: a line ends at `\n`,
+  `\r\n`, or a lone `\r`, and `read_file`'s `LineScanner` ends lines the same way, also across chunk boundaries. A
+  lone `\r` is a line end so that a classic Mac OS file is numbered line by line, not as one line a `line` edit would
+  replace whole; a stray `\r` in an otherwise LF file now ends a line in both tools alike.
+- **Endings kept.** Each line's ending is held apart from its text, so a line edit rewrites the text and keeps the
+  ending: a CRLF file stays CRLF and a mixed file keeps each line's. A line break in `find` matches any ending, and
+  a match never splits `\r` from `\n`. A line break in the replacement takes the file's dominant ending (ties to
+  `\n`, then `\r\n`), not the neighbouring line's: one rule the result and the docs can state, and the same answer for
+  every file that is not mixed. A file without a final line break keeps having none; every byte outside the edit,
+  invalid UTF-8 included, is written back as it was. `write` and `append` still write exactly what they are given.
+- **A guard.** Before writing, the edited bytes are split again and compared with the original: segments before
+  and after the edit must be identical, endings included, and the line-break count must change by exactly what the
+  edit removes and adds (zero for a line edit). Anything else is refused with nothing written. The construction
+  already keeps this; the guard makes a repeat of this bug a refusal, not a lost file.
+
+Tested without the model in `LineEndingTests` (LF, CRLF, CR-only, mixed, and no final line break through every line
+edit, ranges, insertions, deletions, `find`, the stale-number reconciliation, indentation keeping, the shown line,
+`read_file`'s numbering in every chunk size, and the guard), and in `EvalSetsTests`, which now numbers lines as
+`read_file` does; two of the four CRLF eval cases became line-number edits.

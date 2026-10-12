@@ -20,8 +20,8 @@ struct ToolEvalTests {
     /// Read a file, then rewrite what the prompt names: the pairing `edit_file` exists for. The cases are
     /// `edit_file.json`'s `replace` set (`EvalSets.EditFile`): files in many languages and of three sizes, a line
     /// named by its text, neighbouring lines in two calls, a line emptied or a fragment cut, an empty line filled,
-    /// near-duplicate lines, non-ASCII text, a CRLF file edited by `find`, and a stale line number reconciled by `find`.
-    /// A pass is the file ending up exactly as intended. Single runs of the first ten files, three attempts each,
+    /// near-duplicate lines, non-ASCII text, CRLF files edited by line number and by `find`, and a stale line number
+    /// reconciled by `find`. A pass is the file ending up exactly as intended. Single runs of the first ten files, three attempts each,
     /// varied from 16 to 25 of 30 (2026-10-04 to 2026-10-12); since 0.23.0 each case runs once, and the release runs a
     /// fixed subset (`WISP_EVAL_FULL=1` runs all), with a floor set from that history (docs/measurements.md).
     @Test func replacesExactlyWhatItReadWithEditFile() async throws {

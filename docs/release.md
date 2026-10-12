@@ -51,12 +51,13 @@ every local step and prints the remote ones instead of executing them.
    trait, warnings as errors, before the release build is the first to compile that code), `scripts/check coverage-gate` passes, and `scripts/check eval` passes, judged by `swift test`'s own exit status (until 0.21.1 it was `grep`'s, so a missed floor passed): every suite but the context eval, which is a measurement for design decisions
    (ADR 0045) and runs on purpose with `scripts/check eval context`. `--skip-eval` leaves the eval out, for a release whose eval already
    passed on the same code (a dry run just before, with only docs changed since); 0.15.0 was the first. The release's eval only asserts the
-   floors; it does not rewrite `harness/Sources/WispCore/Resources/measurements.json`, because the sets
-   are small and every run re-rolls the numbers. Record deliberately with `scripts/check eval record`
+   floors; it does not rewrite `harness/Sources/WispCore/Resources/measurements.json`, because it runs
+   only the subsets and every run re-rolls the numbers. Record deliberately with `scripts/check eval record`
    and commit the file; the binary embeds it, so a release carries the numbers that were committed.
-   If the eval nonetheless dirtied the tree the release stops. The eval is the slow step: about eight
-   minutes on the on-device model on this Mac (2026-09-22), longer since the risk dev set grew to 392
-   commands, and much longer when the Mac is busy. **Change nothing in the checkout while a release
+   If the eval nonetheless dirtied the tree the release stops. The eval is the slow step: since 0.23.0 it
+   runs a fixed subset of each large case set, about 52 minutes for `edit_file`, `system_info`, and
+   `draft_change` at the configured model's 2026-10-12 times ([measurements.md](measurements.md), "Run time, and
+   the release's subsets"), plus the other suites, and much longer when the Mac is busy. **Change nothing in the checkout while a release
    runs.** The binary is built from the working tree, so before building and again before publishing
    the script checks that `HEAD` and the tree are as preflight found them, and stops if not. 0.13.0
    shipped an edit made while its evals ran; 0.13.1 is the build that matches its source.
