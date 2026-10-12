@@ -736,7 +736,7 @@ extension AuditEvent {
             return details
         }
 
-        /// `approval.answered`: the person answered a waiting request in this process (`via` `cli` or `tui`).
+        /// `approval.answered`: the person answered a waiting request in this process (`via` `cli`, `tui`, or `chat`).
         /// `delivery` is `taken` (the server took it), `too-late` (the request went another way first),
         /// `waiting` (not yet read), or `refused` (not written, with `reason`). A fact request's answer is
         /// `keep` or `drop`, with the fact's fields in place of the command's.

@@ -343,8 +343,9 @@ wisp: keep as a permanent fact?
 release codename = BLUE HERON — wisp facts keep a1b2c3d4
 ```
 
-The person answers from a terminal with `wisp facts keep a1b2c3d4` or `wisp facts drop a1b2c3d4`, or in a
-running `wisp-tui`; nothing in the MCP conversation answers it, and wisp's own model cannot
+The person answers from a terminal with `wisp facts keep a1b2c3d4` or `wisp facts drop a1b2c3d4`, in a
+running `wisp-tui`, or with `/facts keep|drop a1b2c3d4` in a plain `wisp chat`, which notes the request before
+its next prompt; nothing in the MCP conversation answers it, and wisp's own model cannot
 ([wisp.md](wisp.md), "wisp facts"). The call does not wait: it returns at once, because a fact blocks nothing
 the caller is doing, and the request has no time limit. The fact is not kept until the person answers; the
 result's text says so ("proposed c1 … as a permanent fact; waiting for the person, with no time limit: wisp
@@ -369,7 +370,7 @@ nothing, for as long as it lasts. Asking again while a request waits returns the
 conversation. When the thread closes or is evicted, the request stays filed and watched; a keep that comes
 later is admitted to the shared store from what the request names (the fact the person was shown), audited on
 the server's own log, and a drop just ends it. When the server stops, the request stays in `~/.wisp/pending`;
-the person can still answer it, and `wisp facts keep|drop` or `wisp-tui` applies the answer itself, since no
+the person can still answer it, and `wisp facts keep|drop`, `wisp-tui`, or the plain chat applies the answer itself, since no
 server is left to. Each step is audited on the thread: `approval.pending`, the `notification`, and
 `approval.settled`, with `kind: "fact"`.
 
@@ -415,8 +416,10 @@ Commands the model runs inside `respond`, or that a condensing tool captures, th
 - **Through another of wisp's faces.** The request is filed in `~/.wisp/pending` and a notification says
   what waits and how to answer it ("wisp: approval needed", "git push origin main — wisp approvals approve
   a1b2c3d4"). The person answers from a terminal with `wisp approvals approve ID [--scope
-  once|session|project|always]` or `wisp approvals deny ID`, or in a running `wisp-tui`, which shows the
-  request as its approval dialog ([wisp.md](wisp.md)). This works for every client, with or without
+  once|session|project|always]` or `wisp approvals deny ID`, in a running `wisp-tui`, which shows the
+  request as its approval dialog, or in a plain `wisp chat`, which notes it before its next prompt and answers
+  it with `/approvals approve|deny ID` when its input is a terminal ([wisp.md](wisp.md), "`wisp chat`"). This
+  works for every client, with or without
   elicitation, and is the way out when a client's dialog sticks.
 - **Through the client's dialog,** when the client advertised elicitation at initialize.
 

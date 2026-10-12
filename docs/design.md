@@ -365,7 +365,10 @@ same way; one withdrawn before its request went out is remembered, and the trans
 sending it; the tracker forgets a dialog's key when its wait ends, so it holds only those in flight. A leg that fails leaves the other asking;
 cancelling the call settles the race as abandoned. Answers come from other processes:
 `wisp approvals approve|deny` writes the answer file, and `wisp chat --json`'s `PendingRelay` shows a
-front end that declared `approve-mcp` each waiting request and writes its answer. The channel carries a
+front end that declared `approve-mcp` each waiting request and writes its answer. The plain chat's
+`ChatPending` lists the channel before each prompt, notes each new request once and each one gone once (how it
+ended read from the servers' `approval.settled` events through an `AuditTail`), and writes the answers that
+`/approvals approve|deny` and `/facts keep|drop` give, only when the chat's input is a terminal. The channel carries a
 second kind of request, a fact to keep (above, "Permanent facts over MCP"); each kind has its own file
 suffix, binding, and answers, and the relay shows a front end only the kinds it declared. With
 `approval.outOfBand` off, `ElicitationOnly` asks through the dialog alone.

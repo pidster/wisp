@@ -184,3 +184,27 @@ stops it answering for the person by accident or by design. It is still a speed 
 obtain a pseudo-terminal); the default policy's refusal of these commands to wisp's own model and the sandbox's
 refusal to write under `~/.wisp` stay beside it. The person has two other ways to answer, neither of them a shell:
 `wisp-tui`'s dialog and the MCP client's own elicitation dialog.
+
+## Note, 2026-10-12: plain chat shows and answers waiting requests
+
+"Consequences" said plain terminal chat does not show waiting MCP requests, having no place for a dialog. It now
+shows them without one (planned for 0.24.0, `docs/roadmap.md`): before each prompt, `wisp chat --plain` notes once
+each request newly waiting in `~/.wisp/pending`, a command to approve or a fact to keep
+([ADR 0048](0048-permanent-facts-over-mcp.md)), with its id, and the person answers with a typed slash command,
+`/approvals approve ID [once|session|project|always]`, `/approvals deny ID`, `/facts keep ID`, or `/facts drop ID`;
+`/approvals pending` lists what waits. Nothing is drawn over a half-typed line: a request that arrives while the
+person is at the prompt is noted at the next prompt, and its notification announces it meanwhile. A request seen and
+gone is noted once with how it ended, read from the servers' `approval.settled` events in the audit log ("answered
+in wisp-tui", "withdrawn: its server stopped"), or as "answered elsewhere or withdrawn" when the log has no word of
+it; one answered in the chat is not noted again. Quiet, as waiting is safe: one line per request, and the answering
+commands named once per kind.
+
+The answer goes through the channel's checks unchanged (still waiting, the right kind, the binding, the first answer
+winning), is written with `via` `chat`, and is audited as `approval.answered` on the chat's session; a fact whose
+server has stopped is applied by the chat, as `wisp facts keep` applies it. The terminal-only rule holds: the chat
+answers only when its standard input is a terminal, so a process piping lines into `wisp chat --plain` cannot answer
+for the person; such a chat still notes what waits and says where to answer. The commands are the person's typed
+lines; no tool of the model reaches them. In `wisp-tui` the same commands answer from its input (`via` `tui`), beside
+its dialog. Built as `ChatPending`; tested without the model: a request noted once, nothing when nothing waits, an
+answer through the slash command taken by a stand-in server, a fact kept and dropped, one answered elsewhere and one
+withdrawn each reported once, and a tampered, stale, unknown, or other-kind request refused.

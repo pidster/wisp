@@ -77,7 +77,7 @@ to be stopped).
 | Ctrl-U, Ctrl-K | Delete to the start or to the end. |
 | Alt-Enter | A newline, for a message of several lines. |
 | Paste | Inserted whole (bracketed paste), newlines kept, so pasting never sends. |
-| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words and the approval ids after `/approvals revoke`, a model after `/model`, a view after `/inspect` (`next` or `turns` after `/inspect context`, `all` after `/inspect facts` or `/inspect summary`), a subject kind, a fact id, or `delete` after `/fact`, a fact id after `/fact delete`, and a scope after `/fact ID`, and a session id after `/audit`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
+| Tab | Complete the slash command being typed: the command, `/config`'s words, a setting, a setting's values, `/approvals`'s words, the approval ids after `/approvals revoke`, and the waiting commands' ids after `/approvals approve` or `deny` (then a scope), `/facts`' words and the waiting facts' ids after `/facts keep` or `drop`, a model after `/model`, a view after `/inspect` (`next` or `turns` after `/inspect context`, `all` after `/inspect facts` or `/inspect summary`), a subject kind, a fact id, or `delete` after `/fact`, a fact id after `/fact delete`, and a scope after `/fact ID`, and a session id after `/audit`. One match fills in; several fill in what they share and show above the input, and Tab again cycles through them. |
 
 Two keys open a panel over the band, a rounded border around up to 16 rows, with its keys in the bottom
 border: Up and Down scroll a row, PageUp and PageDown a page, and Esc (or the key that opened it) closes
@@ -138,6 +138,33 @@ take the box over: a note says it waits (`⚠ waiting in wisp mcp: git push · i
 input is empty`), the status line counts it (`⚠ 1 waiting`), and its dialog opens once the box is empty,
 when the line is sent or cleared. An approval or a choice that stops waiting (answered elsewhere, or its
 `approval.timeoutSeconds` passed) closes with `⚠ no longer waiting: …`.
+
+The plain chat (`--plain`, or `wisp-tui` not installed) has no dialog for these, since it reads a line at a time.
+Before each prompt it notes, once, each request newly waiting in a `wisp mcp` server, a command to approve or a
+fact to keep, with its id; the first of each kind also says how to answer:
+
+```
+⚠ a1b2c3d4 waiting in wisp mcp (claude-code, thread git): run git push origin main in ~/src/wisp, moderate
+  answer with /approvals approve ID [once|session|project|always] or /approvals deny ID
+⚠ 5e6f7a8b waiting in wisp mcp (claude-code, thread docs): keep as a permanent fact entity release codename = BLUE HERON, from model
+  answer with /facts keep ID or /facts drop ID
+```
+
+`/approvals approve`, `/approvals deny`, `/facts keep`, and `/facts drop` answer one (without an id, they offer
+what waits to choose from), and `/approvals pending` lists everything waiting. A request is noted only between
+prompts: one that arrives while you are at the prompt is noted once you press Enter (an empty line will do), and
+its notification announces it meanwhile. A request seen before and gone now is noted once with how it ended, read
+from the audit log: `· a1b2c3d4 no longer waiting: answered in wisp-tui (git push origin main)`, `answered in the
+client's dialog`, `its wait ran out unanswered`, `withdrawn: its server stopped`, or, when the log has no word of
+it, `answered elsewhere or withdrawn`. One you answered in the chat is not noted again. The answer goes through the
+same checks as `wisp approvals` and `wisp-tui` (still waiting, the right kind, bound to what was shown, the first
+answer winning), is written with `via` `chat`, and is audited as `approval.answered` on the chat's own session; a
+fact whose server has stopped is kept by the chat itself, as `wisp facts keep` does. As with `wisp approvals`, the
+chat answers only when its standard input is a terminal, so an agent piping lines into `wisp chat --plain` cannot
+answer for you; such a chat still notes what waits, and says where to answer. The commands are typed lines, never
+the model's: no tool reaches them ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), note of
+2026-10-12). In `wisp-tui` the same commands answer from its input, written with `via` `tui`; its dialog stays the
+usual way.
 
 A choice, such as `/config set approval.classifier` without a value, takes the input's place the same
 way: a border titled `choose` around the question, up to eight options with `▸` on the highlighted one
@@ -307,6 +334,9 @@ What a session shows, and where it goes:
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
 | `/status` | wisp's own state, as the model's `inspect` tool shows it, in YAML: the model, tools, policy, and session. |
 | `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML, each with `gone: true` when it is a project approval whose folder no longer exists; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from, a gone one marked `(gone)`. `wisp approvals clear --gone` removes the gone ones. |
+| `/approvals pending` | What waits in `wisp mcp` servers for your answer: the commands waiting for approval and the facts waiting to be kept, as `wisp approvals pending` and `wisp facts pending` list them. |
+| `/approvals approve [ID] [once\|session\|project\|always]`, `/approvals deny [ID]` | Answer a command waiting in a `wisp mcp` server, as `wisp approvals approve\|deny` does: the scope is `once` unless given, and without an ID the waiting commands are offered to choose from. Says whether the server took the answer. Only when the chat's input is a terminal (see the plain chat's waiting requests, above). |
+| `/facts`, `/facts keep [ID]`, `/facts drop [ID]` | The facts `wisp mcp` callers asked to keep as permanent facts, or your answer to one, as `wisp facts` gives it: `keep` admits it as yours, `drop` leaves it in its thread; without an ID they are offered to choose from. |
 | `/audit [sessions\|ID]` | The latest 20 audit events of every session, one line each, MCP calls and other terminals included. `sessions` lists the sessions in the log, each with its latest activity, how it began (`chat`, `mcp`, `scan`, …, or `-` for an MCP thread or a condensing call), and how many events it wrote. An id shows that session's latest events, such as `/audit git` for a `respond` thread named `git`; Tab completes ids. |
 | `/inspect [config\|status\|approvals\|audit]` | Kept as an alias: the same views as `/config`, `/status`, `/approvals`, and `/audit`; with no view, `/status`. `/inspect context` is its own command, above. |
 | `/inspect facts [all]` | The facts the model is given, as a table: id (`c…` the conversation's, `s…` the session's, `p…` the shared store's), subject, name, value, source (`the person`, `tool run_command, turn 3, entry 9`, `model, distilled: the person said, turns 1-12`, `model, noted, turn 4` for a fact the model noted with `memory`), class, and a note: which fact wins where sources disagree, and how to keep a proposed permanent fact. `all` adds superseded and deleted versions with what replaced them. Below it, "Proposed in other conversations" lists the permanent facts proposed in the process's other conversations (the one before a `/new`, say) and awaiting you, by the reference `/fact` takes (`CONVERSATION/ID`, such as `3f9a1c2e/c4`). The running summary is not here; it has its own view, `/inspect summary`. `wisp-tui` shows the facts in its panel; `wisp chat --json` sends them as a `view` of kind `facts`. See [context-management.md](context-management.md), "Facts". |
@@ -1029,6 +1059,8 @@ reason and exits 1, as does one answered another way first, which says so; only 
 fact's id given to `wisp approvals`, is a usage error (exit 64). The notification that announced the request
 names the id ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md); [mcp.md](mcp.md), "Approval").
 `wisp approvals approve` on a fact a caller asked to keep is refused with a pointer to `wisp facts`.
+A running `wisp-tui` shows the same requests as dialogs, and the plain chat notes them between prompts and
+answers them with `/approvals approve|deny` ("`wisp chat`", above).
 
 ### `wisp facts`
 
@@ -1065,7 +1097,8 @@ kept as a permanent fact: release codename = BLUE HERON (thread git)
 An id that is unknown, stale, already answered, or altered is refused with the reason and exits 1, as does an
 answer that came after the request stopped waiting; a command waiting for approval (answer that with
 `wisp approvals`) is a usage error (exit 64). Until you answer, nothing is kept. A running `wisp-tui` shows
-the same requests as dialogs, and applies an answer the same way when the server has stopped. The default policy refuses
+the same requests as dialogs, and applies an answer the same way when the server has stopped; the plain chat notes them
+between prompts and answers them with `/facts keep|drop`, applying the answer the same way. The default policy refuses
 `wisp facts keep|drop` when the model runs it.
 
 ### `wisp completions`
