@@ -1,52 +1,13 @@
 # Roadmap
 
-The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01 (0.16.0, the first, 0.17.0,
-0.18.x, 0.19.0, 0.20.0, 0.21.0, 0.21.1, 0.21.2, and 0.22.0 have shipped, 0.22.0 on 2026-10-12; 0.23.0, the last
-release planned, whose items are all built, is the release being made). Each release carries one or two
-larger items and a few smaller ones; a small item sits with the larger one it touches. These are plans,
-not commitments: an item may move when its work shows it should, and the page is edited when it does.
-When an item ships it leaves this page for [CHANGELOG.md](../CHANGELOG.md), and anything not yet
-scheduled stays in [backlog.md](backlog.md). Analysis, evals, and tuning were given to 0.20.0 (the operator,
-2026-10-02), which ran them. Each release's preflight still runs the eval's floors, as a guard against
-regressions, not a measurement.
-
-| Release | Larger | Smaller |
-| --- | --- | --- |
-| 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; a stored output shown whole in chat and `wisp-tui`; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
-
-## 0.23.0
-
-Every item below is built (2026-10-12); what each left open is under "Not scheduled".
-
-- Built: **a verification pass** (larger), [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)'s
-  open option: after a reply, a classifier or a model is given the reply and the turn's complete call list
-  from the audit log, not a slice the model fetched, and answers one narrow question: does the reply report
-  a result from a call that is not in the list? Flagged beside `ran:` when it does, behind a setting, with
-  an eval of its own built from the fabricated runs of 2026-10-04 (sessions `eefc5b0e`, `ba7865f0`,
-  `ce87576a`). Built and [ADR 0060](decisions/0060-a-verification-pass.md) accepted on 2026-10-12: exact readers,
-  on by default (`verification.mode: readers`), flag 8 of the 9 fabricated turns and none of 14 honest replies; the
-  model step is built and off by default, since on the on-device model it flagged 6 of 14 honest replies
-  ([verification.md](verification.md)).
-- Built 2026-10-12: **a stored output shown whole in chat and `wisp-tui`**, left over from 0.22.0's budget (ADR
-  0050, "The person's views"): `/show` and `wisp-tui`'s expanded view printed what the tool returned, head, marker,
-  and tail, while the whole was in the output store and only `wisp://threads/{thread_id}/output/{id}` served it.
-  Now `/show` and `/last` show the stored whole, through `$PAGER` on a terminal, and Ctrl-O loads it 64 KiB at a
-  time through the protocol's `output` request.
-- Built 2026-10-12: **larger eval sets** for `edit_file`, `system_info`, and `draft_change`: their floors swing from
-  run to run (`edit_file` 16 to 23 of 30 across 0.17.0 to 0.19.0's preflights), so a release can pass or stop on
-  chance. Now 110, 54, and 44 cases, each floor set from the suite's pooled history; the release runs a fixed
-  subset and `WISP_EVAL_FULL=1` the whole sets ([measurements.md](measurements.md)).
-- Built 2026-10-12: **three details of permanent facts settled**, left unconfirmed since 0.17.0 (ADR 0048): a fact
-  request's wait reused `approval.timeoutSeconds`; a drop is remembered only for the thread's life; a drop takes the
-  proposal off the proposed list. The operator settled them: a request has no time limit and outlives its thread
-  and its server; the other two stay as built ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md), amended).
-- Done 2026-10-12: **the terminal-only answers reviewed.** `wisp approvals approve|deny` and `wisp facts keep|drop`
-  answer only from a terminal, kept on 2026-10-02 to see how it behaves; reviewed with the use since and kept
-  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Review, 2026-10-12").
-- Built 2026-10-12: **the process title decided.** Whether wisp describes itself in the process list (`ps` shows a
-  rewritten argument list; Activity Monitor only the executable's name), or only names the processes it starts at
-  spawn. Decided for naming at spawn ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)): `scripts/wisp-mcp`
-  starts `wisp mcp (CLIENT)` from `WISP_MCP_CLIENT`, and `wisp-tui` its child as `wisp chat (tui)`.
+The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped: 0.16.0 to
+0.21.0, the patches 0.21.1 and 0.21.2, 0.22.0, and 0.23.0 on 2026-10-12. What each carried is in
+[CHANGELOG.md](../CHANGELOG.md). No release is planned beyond it yet; the next is chosen with the operator from
+the list below and from use. Each release carries one or two larger items and a few smaller ones; a small item
+sits with the larger one it touches. These are plans, not commitments: an item may move when its work shows it
+should, and the page is edited when it does. When an item ships it leaves this page for the changelog, and
+anything not yet scheduled stays in [backlog.md](backlog.md). Each release's preflight runs the eval's floors,
+as a guard against regressions, not a measurement.
 
 ## Not scheduled
 
