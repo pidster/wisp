@@ -129,6 +129,114 @@ pub enum PanelKind {
     Thinking(Option<u64>),
 }
 
+/// Pages of a tool's output whole the panel holds at once: scrolling past them loads the next and drops
+/// the farthest, so an output of up to wisp's 16 MiB ceiling is never held whole (ADR 0050).
+pub const OUTPUT_PAGES_HELD: usize = 4;
+
+/// The whole of a tool's output in the panel, asked of wisp a page at a time as the panel scrolls (ADR
+/// 0050): the pages held run in order from `first`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PagedOutput {
+    /// The id of the event that recorded the output, which every request names.
+    pub id: String,
+    /// The event's audit session, when wisp named one.
+    pub session: Option<String>,
+    /// wisp's line saying what it is: the whole from the output store, or what the tool returned and why.
+    pub header: String,
+    /// The pages in all.
+    pub pages: u64,
+    /// The first page held, from 1; 0 before any has arrived.
+    pub first: u64,
+    /// The pages held, in order.
+    pub held: VecDeque<String>,
+    /// The page asked for and not yet arrived.
+    pub asked: Option<u64>,
+}
+
+impl PagedOutput {
+    /// The last page held; 0 before any.
+    fn last(&self) -> u64 {
+        self.first + self.held.len() as u64 - u64::from(!self.held.is_empty())
+    }
+
+    /// The panel's rows at `width` cells: the header, a line when earlier pages are not held, each page held,
+    /// and a line when later ones are not; with the row each held page starts on.
+    fn rows(&self, width: usize) -> (Vec<String>, Vec<usize>) {
+        let mut rows = wrap_rows(&self.header, width);
+        if self.first > 1 {
+            rows.push(format!("↑ pages 1–{} above: scroll up", self.first - 1));
+        }
+        let mut starts = Vec::with_capacity(self.held.len());
+        for page in &self.held {
+            starts.push(rows.len());
+            rows.extend(wrap_rows(page, width));
+        }
+        if self.last() < self.pages {
+            rows.push(format!(
+                "↓ page {} of {}: scroll down for more",
+                self.last(),
+                self.pages
+            ));
+        }
+        (rows, starts)
+    }
+
+    /// The request for page `page`, remembered as asked.
+    fn ask(&mut self, page: u64) -> Inbound {
+        self.asked = Some(page);
+        Inbound::Output {
+            id: self.id.clone(),
+            session: self.session.clone(),
+            page,
+        }
+    }
+
+    /// Takes page `page` into the pages held when it follows the last or precedes the first, dropping the
+    /// farthest beyond `OUTPUT_PAGES_HELD`, and moves `scroll` so the rows in view stay in view. Any other
+    /// page, arriving late, is ignored.
+    fn take(&mut self, page: u64, text: String, scroll: &mut usize, width: usize) {
+        if self.asked == Some(page) {
+            self.asked = None;
+        }
+        if self.held.is_empty() {
+            self.first = page;
+            self.held.push_back(text);
+            *scroll = 0;
+            return;
+        }
+        // Where the view is: a page held and a row within it, or the header above them.
+        let (_, starts) = self.rows(width);
+        let anchor = starts
+            .iter()
+            .rposition(|start| *start <= *scroll)
+            .map(|index| (self.first + index as u64, *scroll - starts[index]));
+        if page == self.last() + 1 {
+            self.held.push_back(text);
+            if self.held.len() > OUTPUT_PAGES_HELD {
+                self.held.pop_front();
+                self.first += 1;
+            }
+        } else if page + 1 == self.first {
+            self.held.push_front(text);
+            self.first = page;
+            if self.held.len() > OUTPUT_PAGES_HELD {
+                self.held.pop_back();
+            }
+        } else {
+            return;
+        }
+        let (rows, starts) = self.rows(width);
+        if let Some((at, offset)) = anchor {
+            *scroll = at
+                .checked_sub(self.first)
+                .and_then(|index| usize::try_from(index).ok())
+                .and_then(|index| starts.get(index))
+                .map_or(0, |start| start + offset);
+        }
+        *scroll = (*scroll).min(rows.len().saturating_sub(1));
+    }
+}
+
 /// A panel over the band: text to scroll, opened by Ctrl-O or by a view from wisp.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Panel {
@@ -140,13 +248,27 @@ pub struct Panel {
     pub scroll: usize,
     /// How many turns the conversation has had, for stepping through them.
     pub turns: u64,
+    /// For an output, its whole as wisp sends it a page at a time; until a page arrives the panel shows
+    /// `text`, the output as the event carried it.
+    pub paged: Option<PagedOutput>,
 }
 
 impl Panel {
     /// The title on the top border.
     fn title(&self) -> String {
         match self.kind {
-            PanelKind::Output => " output ".into(),
+            PanelKind::Output => match &self.paged {
+                Some(paged) if paged.held.is_empty() => {
+                    " output · asking wisp for the whole ".into()
+                }
+                Some(paged) if paged.pages > 1 => format!(
+                    " output · pages {}–{} of {} ",
+                    paged.first,
+                    paged.last(),
+                    paged.pages
+                ),
+                _ => " output ".into(),
+            },
             PanelKind::Context(None) => " context · next request ".into(),
             PanelKind::Context(Some(turn)) => format!(" context · turn {turn} "),
             PanelKind::Turns => " context · turns ".into(),
@@ -393,6 +515,13 @@ pub struct App {
     pub draft: String,
     /// The last tool output wisp sent, for Ctrl-O.
     pub last_output: Option<ToolOutput>,
+    /// Lines for wisp that no key returned, such as a page of an output the panel scrolled to; the main
+    /// loop sends them after each event.
+    pub requests: Vec<Inbound>,
+    /// The output pages asked of wisp and not yet arrived, by event id and page, newest last: a page that
+    /// was not asked for is `/show`'s or `/last`'s, and opens the panel; one asked for a panel since closed
+    /// is dropped.
+    outputs_asked: VecDeque<(String, u64)>,
     /// The panel over the band, when open.
     pub panel: Option<Panel>,
     /// Whether an `/inspect context` request from a key is awaiting its view.
@@ -542,6 +671,10 @@ impl App {
                 self.panel = None;
                 self.picker = Some(Picker::new(choice));
             }
+            Outbound::View(view) if view.kind == "output" => {
+                self.flush_partial();
+                self.output_page(view);
+            }
             Outbound::View(view) => {
                 self.flush_partial();
                 self.open_view(view);
@@ -687,7 +820,94 @@ impl App {
             text: view.text,
             scroll: 0,
             turns: view.turns,
+            paged: None,
         });
+    }
+
+    /// A page of an output whole (ADR 0050): taken into the output panel that asked for it, or, sent
+    /// unasked by `/show` or `/last`, opening the panel on it. A page for a panel since closed is dropped, and
+    /// nothing opens over a dialog. When wisp holds no such output the panel keeps what the event carried,
+    /// under wisp's line saying so.
+    fn output_page(&mut self, view: View) {
+        if self.approval.is_some() || self.picker.is_some() {
+            return;
+        }
+        let asked = self
+            .outputs_asked
+            .iter()
+            .position(|(id, page)| *id == view.id && *page == view.page)
+            .and_then(|index| self.outputs_asked.remove(index))
+            .is_some();
+        let waiting = matches!(
+            &self.panel,
+            Some(Panel { kind: PanelKind::Output, paged: Some(paged), .. }) if paged.id == view.id
+        );
+        if !waiting {
+            if asked || view.page != 1 {
+                return; // a late page for a panel since closed
+            }
+            self.panel = Some(Panel {
+                kind: PanelKind::Output,
+                text: String::new(),
+                scroll: 0,
+                turns: 0,
+                paged: Some(PagedOutput {
+                    id: view.id.clone(),
+                    session: view.session.clone(),
+                    ..PagedOutput::default()
+                }),
+            });
+        }
+        let width = dialog_width(self.panel_width());
+        let Some(panel) = &mut self.panel else {
+            return;
+        };
+        if view.pages == 0 {
+            panel.paged = None;
+            panel.text = if panel.text.is_empty() {
+                view.header
+            } else {
+                format!("{}\n{}", view.header, panel.text)
+            };
+            return;
+        }
+        let Some(paged) = &mut panel.paged else {
+            return;
+        };
+        paged.header = view.header;
+        paged.pages = view.pages;
+        if view.session.is_some() {
+            paged.session = view.session;
+        }
+        if view.page == 0 || view.page > view.pages {
+            paged.asked = None;
+            return;
+        }
+        paged.take(view.page, view.text, &mut panel.scroll, width);
+    }
+
+    /// The band's width as last drawn, or 80 before the first frame.
+    fn panel_width(&self) -> u16 {
+        match self.band_width.get() {
+            0 => 80,
+            width => width,
+        }
+    }
+
+    /// The lines for wisp waiting to be sent, oldest first.
+    pub fn take_requests(&mut self) -> Vec<Inbound> {
+        std::mem::take(&mut self.requests)
+    }
+
+    /// Queues a request for a page of an output and remembers it as asked (at most 16 remembered).
+    fn request_output(&mut self, request: Inbound) {
+        if let Inbound::Output { id, page, .. } = &request {
+            self.outputs_asked.push_back((id.clone(), *page));
+            if self.outputs_asked.len() > 16 {
+                self.outputs_asked.pop_front();
+            }
+        }
+        self.requests.push(request);
     }
 
     /// Ctrl-O: opens the last tool output in the panel, or closes the panel when it shows that.
@@ -715,11 +935,21 @@ impl App {
                 output.lines, output.bytes
             );
         }
+        // What the event carried shows at once; wisp is asked for the whole, from its output store when the
+        // model was given only part of it (ADR 0050), and the first page replaces it.
+        let mut paged = (!output.id.is_empty()).then(|| PagedOutput {
+            id: output.id.clone(),
+            ..PagedOutput::default()
+        });
+        if let Some(request) = paged.as_mut().map(|paged| paged.ask(1)) {
+            self.request_output(request);
+        }
         self.panel = Some(Panel {
             kind: PanelKind::Output,
             text,
             scroll: 0,
             turns: 0,
+            paged,
         });
     }
 
@@ -774,20 +1004,39 @@ impl App {
         let Some(panel) = &self.panel else {
             return (Vec::new(), 1);
         };
-        let rows = wrap_rows(&panel.text, dialog_width(width));
+        let rows = match &panel.paged {
+            Some(paged) if !paged.held.is_empty() => paged.rows(dialog_width(width)).0,
+            _ => wrap_rows(&panel.text, dialog_width(width)),
+        };
         let visible = rows.len().clamp(1, PANEL_ROWS);
         (rows, visible)
     }
 
-    /// Scrolls the panel by `rows` (negative is up), within its text.
+    /// Scrolls the panel by `rows` (negative is up), within its text. An output's whole asks wisp for the
+    /// next page when the scroll meets the end of the pages held, or the previous one when it meets the top.
     fn scroll_panel(&mut self, rows: isize) {
-        let width = self.band_width.get();
-        let (all, visible) = self.panel_rows(if width == 0 { 80 } else { width });
+        let (all, visible) = self.panel_rows(self.panel_width());
         let Some(panel) = &mut self.panel else {
             return;
         };
         let max = all.len().saturating_sub(visible);
         panel.scroll = panel.scroll.saturating_add_signed(rows).min(max);
+        let Some(paged) = &mut panel.paged else {
+            return;
+        };
+        if paged.asked.is_some() || paged.held.is_empty() {
+            return;
+        }
+        let request = if rows > 0 && panel.scroll >= max && paged.last() < paged.pages {
+            Some(paged.ask(paged.last() + 1))
+        } else if rows < 0 && panel.scroll == 0 && paged.first > 1 {
+            Some(paged.ask(paged.first - 1))
+        } else {
+            None
+        };
+        if let Some(request) = request {
+            self.request_output(request);
+        }
     }
 
     /// `PageUp`: a page up in the panel.
@@ -1900,6 +2149,7 @@ mod tests {
             turn,
             turns,
             text: "# Context\nbody".into(),
+            ..View::default()
         })
     }
 
@@ -2033,6 +2283,188 @@ mod tests {
             rows[4].contains("truncated: 900 lines, 90000 bytes"),
             "{rows:?}"
         );
+    }
+
+    /// A page of an output whole, as wisp answers an `output` request.
+    fn output_page(id: &str, page: u64, pages: u64, text: &str) -> Outbound {
+        Outbound::View(View {
+            kind: "output".into(),
+            id: id.into(),
+            session: Some("s1".into()),
+            page,
+            pages,
+            text: text.into(),
+            header: "output c1 from run_command: the whole of it".into(),
+            source: "stored".into(),
+            ..View::default()
+        })
+    }
+
+    /// Lines `from` to `to`, numbered, each ending in a newline.
+    fn numbered_from(from: usize, to: usize) -> String {
+        (from..=to).fold(String::new(), |text, i| text + &format!("line {i}\n"))
+    }
+
+    /// The page wanted, from the requests the app queued.
+    fn asked(app: &mut App) -> Vec<u64> {
+        app.take_requests()
+            .into_iter()
+            .map(|request| match request {
+                Inbound::Output { page, .. } => page,
+                other => panic!("not an output request: {other:?}"),
+            })
+            .collect()
+    }
+
+    /// Scrolls down until the app asks for a page, and answers it with 30 lines.
+    fn scroll_to_next_page(app: &mut App, id: &str, pages: u64) -> u64 {
+        for _ in 0..20 {
+            app.page_down();
+            if let Some(page) = asked(app).first().copied() {
+                let from = usize::try_from(page - 1).unwrap_or(0) * 30 + 1;
+                app.handle(output_page(
+                    id,
+                    page,
+                    pages,
+                    &numbered_from(from, from + 29),
+                ));
+                return page;
+            }
+        }
+        panic!("no page asked for")
+    }
+
+    #[test]
+    fn ctrl_o_asks_for_the_whole_output_and_pages_it_in_as_the_panel_scrolls() {
+        let id = "0123456789abcdef";
+        let mut app = App::default();
+        app.handle(result_with(&numbered(40), 3));
+        app.take_pending();
+        app.toggle_output();
+        assert_eq!(
+            app.take_requests(),
+            vec![Inbound::Output {
+                id: id.into(),
+                session: None,
+                page: 1
+            }]
+        );
+        // Until the page arrives the panel shows what the event carried, and says it is asking.
+        let rows = drawn(&app, 60);
+        assert!(rows[1].contains("asking wisp for the whole"), "{rows:?}");
+        assert!(rows[2].contains("line 1"), "{rows:?}");
+        // The first of six pages: wisp's header, then the page, and a line saying more is below.
+        app.handle(output_page(id, 1, 6, &numbered_from(1, 30)));
+        let rows = drawn(&app, 60);
+        assert!(rows[1].contains("pages 1–1 of 6"), "{rows:?}");
+        assert!(
+            rows[2].contains("the whole of it") && rows[3].contains("line 1"),
+            "{rows:?}"
+        );
+        // Scrolling to the end asks for the next page, once.
+        assert_eq!(scroll_to_next_page(&mut app, id, 6), 2);
+        app.page_down();
+        app.page_down();
+        app.page_down();
+        app.page_down();
+        let before = drawn(&app, 60);
+        assert_eq!(
+            asked(&mut app),
+            vec![3],
+            "asked when the end of page 2 is met"
+        );
+        assert_eq!(asked(&mut app), Vec::<u64>::new());
+        app.page_down();
+        assert_eq!(
+            asked(&mut app),
+            Vec::<u64>::new(),
+            "not asked again while it waits"
+        );
+        // An arriving page keeps the rows in view where they were.
+        app.handle(output_page(id, 3, 6, &numbered_from(61, 90)));
+        assert_eq!(drawn(&app, 60)[2], before[2]);
+        assert_eq!(scroll_to_next_page(&mut app, id, 6), 4);
+        // A fifth page drops the first: no more than four are held, and the view stays put.
+        for _ in 0..3 {
+            app.page_down();
+        }
+        let before = drawn(&app, 60);
+        assert_eq!(asked(&mut app), vec![5]);
+        app.handle(output_page(id, 5, 6, &numbered_from(121, 150)));
+        let paged = app
+            .panel
+            .as_ref()
+            .and_then(|panel| panel.paged.clone())
+            .unwrap_or_default();
+        assert_eq!((paged.first, paged.held.len()), (2, OUTPUT_PAGES_HELD));
+        assert_eq!(drawn(&app, 60)[2], before[2]);
+        // Back at the top, the line says earlier pages are above, and scrolling up asks for page 1 again.
+        for _ in 0..40 {
+            app.page_up();
+        }
+        assert!(drawn(&app, 60)[3].contains("↑ pages 1–1 above"));
+        assert_eq!(asked(&mut app), vec![1]);
+        app.handle(output_page(id, 1, 6, &numbered_from(1, 30)));
+        let paged = app
+            .panel
+            .as_ref()
+            .and_then(|panel| panel.paged.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            (paged.first, paged.last()),
+            (1, 4),
+            "the farthest page went"
+        );
+        // A page out of order, arriving late, is ignored.
+        app.handle(output_page(id, 6, 6, "late\n"));
+        assert_eq!(
+            app.panel.as_ref().and_then(|p| p.paged.clone()),
+            Some(paged)
+        );
+    }
+
+    #[test]
+    fn an_output_wisp_does_not_hold_keeps_what_the_event_carried_under_its_line() {
+        let mut app = App::default();
+        app.handle(result_with("one\ntwo\n", 1));
+        app.take_pending();
+        app.toggle_output();
+        app.take_requests();
+        app.handle(Outbound::View(View {
+            kind: "output".into(),
+            id: "0123456789abcdef".into(),
+            page: 1,
+            pages: 0,
+            header: "no tool output 0123456789abcdef here".into(),
+            source: "missing".into(),
+            ..View::default()
+        }));
+        let panel = app.panel.clone().unwrap_or_else(|| panic!("no panel"));
+        assert_eq!(panel.paged, None);
+        assert_eq!(
+            panel.text,
+            "no tool output 0123456789abcdef here\none\ntwo\n"
+        );
+    }
+
+    #[test]
+    fn show_opens_the_panel_on_its_page_and_a_page_for_a_closed_panel_is_dropped() {
+        let mut app = App::default();
+        // /show and /last send the first page unasked: it opens the panel.
+        app.handle(output_page("e9", 1, 1, "the whole\n"));
+        let rows = drawn(&app, 60);
+        assert!(rows[1].starts_with(" ╭ output "), "{rows:?}");
+        assert!(rows[3].contains("the whole"), "{rows:?}");
+        assert!(app.take_requests().is_empty());
+        // Ctrl-O, then Esc before wisp answers: the answer opens nothing.
+        app.cancel();
+        app.handle(result_with("a\n", 1));
+        app.toggle_output();
+        assert_eq!(asked(&mut app), vec![1]);
+        app.cancel();
+        assert!(app.panel.is_none());
+        app.handle(output_page("0123456789abcdef", 1, 1, "a\n"));
+        assert!(app.panel.is_none(), "the panel that asked was closed");
     }
 
     #[test]

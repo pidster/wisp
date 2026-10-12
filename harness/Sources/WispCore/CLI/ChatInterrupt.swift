@@ -19,12 +19,16 @@ public final class ChatInterrupt: Sendable {
         case stoppingTurn
         /// The turn had been asked to stop already; what it still had running was killed now.
         case killingTurn
+        /// The terminal's pager shows an output (`/show`, `/last`) and takes Ctrl-C itself: the face does nothing.
+        case paging
     }
 
     /// The command running and its stop, while one runs.
     private let armed = Mutex<(line: String, stop: CommandStop, pressed: @Sendable (Press) -> Void)?>(nil)
     /// The model's turn under way and its stop, while one runs.
     private let turn = Mutex<(stop: TurnStop, pressed: @Sendable (Press) -> Void)?>(nil)
+    /// Whether the terminal's pager is showing an output.
+    private let pager = Mutex(false)
 
     /// The note the terminal chat writes on the first press during a model's turn.
     public static let stoppingTurnNote = "stopping the turn; \(ChatActivity.stoppingHint)"
@@ -49,6 +53,7 @@ public final class ChatInterrupt: Sendable {
     /// - Returns: What it did.
     @discardableResult
     public func press() -> Press {
+        if pager.withLock({ $0 }) { return .paging }
         if let running = armed.withLock({ $0 }) {
             let press: Press = running.stop.request() == .stop ? .stopping(running.line) : .killing(running.line)
             running.pressed(press)
@@ -65,6 +70,17 @@ public final class ChatInterrupt: Sendable {
     public func kill() {
         armed.withLock { $0 }?.stop.kill()
         turn.withLock { $0 }?.stop.kill()
+    }
+
+    /// Runs `body`, the terminal's pager showing an output, with Ctrl-C left to the pager: `less` takes it to stop
+    /// what it is doing, and the chat must not quit under it.
+    ///
+    /// - Parameter body: What runs the pager.
+    /// - Returns: What `body` returns.
+    func whilePaging<T>(_ body: () -> T) -> T {
+        pager.withLock { $0 = true }
+        defer { pager.withLock { $0 = false } }
+        return body()
     }
 
     /// Arms the interrupt for a model's turn, stopped by `stop`, until `disarmTurn()`.

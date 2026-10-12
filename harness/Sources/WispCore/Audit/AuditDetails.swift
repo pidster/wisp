@@ -169,7 +169,8 @@ extension AuditEvent {
         /// status, whether it timed out (only a model's command has a timeout, so this is false) or lost output to the
         /// bound, `stopped` (true) when the person stopped it, whether the sandbox refused it or may have
         /// (`sandboxRefused`, with the check's `sandboxRefusal` and `sandboxPaths`, ADR 0054), and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
-        /// size in `bytes`. `failure` says why one that was allowed could not start.
+        /// size in `bytes`. `stored` is the output store's id for the whole output when part of it was held back (ADR
+        /// 0050). `failure` says why one that was allowed could not start.
         public static func commandTyped(
             command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String? = nil,
             outcome: CommandRunner.Outcome? = nil, output: String = "", sandboxRefused: Bool = false,
@@ -187,6 +188,8 @@ extension AuditEvent {
                 details["timedOut"] = .bool(outcome.timedOut)
                 details["truncated"] = .bool(outcome.truncated)
                 if outcome.stopped { details["stopped"] = true }
+                // The output store's id for the whole output, when part was held back (ADR 0050): `/show` finds it.
+                if let stored = outcome.stored { details["stored"] = .string(stored.id) }
                 details["sandboxRefused"] = .bool(sandboxRefused)
                 if let refusal = outcome.sandboxRefusal {
                     details["sandboxRefusal"] = .string(refusal.name)

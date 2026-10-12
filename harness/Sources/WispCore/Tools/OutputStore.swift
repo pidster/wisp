@@ -265,6 +265,27 @@ public final class OutputStore: Sendable {
         return lines
     }
 
+    /// Page `number` (from 1) of output `id`, `Paging.bytePage`'s pages of `size` bytes, read from the file without
+    /// loading the rest of it, and how many pages there are: how a face shows a stored output of up to the ceiling
+    /// a page at a time (`wisp-tui`'s expanded view, ADR 0050). Nil when the store does not hold it or the page is out
+    /// of range.
+    ///
+    /// - Parameters:
+    ///   - id: The output's id.
+    ///   - number: The page, from 1.
+    ///   - size: The page size in bytes.
+    /// - Returns: The page as text, decoded as UTF-8 with replacement, and the page count, or nil.
+    public func page(_ id: String, number: Int, size: Int) -> (text: String, count: Int)? {
+        guard let kept = kept(id), let handle = try? FileHandle(forReadingFrom: url(id)) else { return nil }
+        defer { try? handle.close() }
+        let total = (try? handle.seekToEnd()).map { Int($0) } ?? kept.bytes
+        let page = Paging.bytePage(number: number, size: size, total: total) { range in
+            guard (try? handle.seek(toOffset: UInt64(range.lowerBound))) != nil else { return Data() }
+            return (try? handle.read(upToCount: range.count)) ?? Data()
+        }
+        return page.map { (String(decoding: $0.data, as: UTF8.self), $0.count) }
+    }
+
     /// Bytes the store's files take, for `doctor`.
     public var bytes: Int {
         let files =

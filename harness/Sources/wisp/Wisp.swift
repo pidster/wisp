@@ -398,7 +398,8 @@ struct Chat: AsyncParsableCommand {
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt),
+                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
+                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil),
             style: style,
             io: .init(
                 readLine: { readLine() },
@@ -434,11 +435,30 @@ struct Chat: AsyncParsableCommand {
                         let marker = ChatLoop.commandMarker(for: line, width: Self.terminalWidth(), style: style)
                     else { return }
                     Self.onScreen { FileHandle.standardError.write(Data(marker.utf8)) }
-                }))
+                },
+                showOutput: Self.pagerShow()))
         let ticker =
             isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
         defer { ticker?.cancel() }
         try await loop.run()
+    }
+
+    /// How the terminal chat shows a stored output whole (`/show`, `/last`, ADR 0050): through the pager (`$PAGER`, or
+    /// `less -R`) when standard output is a terminal, its header first; nil when it is not, so the loop prints the
+    /// output whole. An output not stored, which is never larger than the tool-output budget, is printed as before.
+    ///
+    /// - Returns: The face's `showOutput`, or nil.
+    private static func pagerShow() -> ((ChatOutput) -> Bool)? {
+        guard
+            let pager = TerminalPager.command(
+                environment: ProcessInfo.processInfo.environment,
+                isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
+        else { return nil }
+        return { output in
+            guard output.isStored else { return false }
+            freshLine()
+            return TerminalPager.run(output.header + "\n\n" + output.text, command: pager).shown
+        }
     }
 
     /// Takes Ctrl-C for the terminal chat (ADR 0049, amended 2026-10-09 and 2026-10-11): while a command the person
@@ -460,6 +480,8 @@ struct Chat: AsyncParsableCommand {
                 note(style.muted(ChatInterrupt.stoppingNote(line)))
             case .stoppingTurn:
                 note(style.muted(ChatInterrupt.stoppingTurnNote))
+            case .paging:
+                break  // the pager takes Ctrl-C itself
             case .idle, .killing, .killingTurn:
                 // A second press has killed what the turn or the command had running; nothing outlives the quit.
                 signal(SIGINT, SIG_DFL)
@@ -593,7 +615,8 @@ struct Chat: AsyncParsableCommand {
                     try session.openAgent(host: host, store: store, observer: tap, model: selection)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
-                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt),
+                activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
+                outputs: session.config.auditEnabled ? Wisp.home.outputs : nil),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },
@@ -603,7 +626,25 @@ struct Chat: AsyncParsableCommand {
                 turn: { send(ChatProtocol.encode("turn", ChatProtocol.turn($0))) },
                 choose: { choice in
                     await ChatProtocol.ask(choice, router: router, timeout: session.config.approvalTimeout, send: send)
-                }, view: { send(ChatProtocol.encode("view", ChatProtocol.view($0))) }))
+                }, view: { send(ChatProtocol.encode("view", ChatProtocol.view($0))) },
+                showOutput: { output in
+                    // The front end's expanded view opens on the first page and asks for the rest (ADR 0050).
+                    let id = output.source?.event ?? ""
+                    send(
+                        ChatProtocol.encode(
+                            "view", ChatProtocol.outputView(output, id: id, session: output.source?.session, page: 1)))
+                    return true
+                }))
+        // A page of an output whole, asked for by the expanded view as it scrolls, answered beside the loop.
+        let outputs = session.config.auditEnabled ? Wisp.home.outputs : nil
+        router.onOutput { id, named, page in
+            let auditSession = named ?? audit.session
+            let output = ChatOutput.find(
+                id: id, session: auditSession, audit: audit, last: tap.lastToolEvent, outputs: outputs)
+            send(
+                ChatProtocol.encode(
+                    "view", ChatProtocol.outputView(output, id: id, session: auditSession, page: page)))
+        }
         // Events for the front end, raw and with the terminal's line, instead of the notes the loop would write.
         let shownLines = session.config.shownOutputLines
         tap.onEvent { event in

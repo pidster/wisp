@@ -218,6 +218,23 @@ named at the end describe the result.
   A conversation idle for longer than the setting inside a running `wisp mcp` server loses its stored outputs;
   its references then say the output is not held.
 
+- **2026-10-12: "The person's views" built.** Chat's `/show` and `/last` show the stored whole of an output the
+  model was given only in part, not its head, marker, and tail: the output is found by the `tool.result`'s call
+  id, a typed command's by `command.typed`'s new `stored` detail, or by the id the held-back note names (in the
+  output's own audit session, so a resumed conversation's older outputs are found too). A line on stderr says
+  what is shown: the whole, its lines and size, and the cut when the store stopped at its 16 MiB ceiling; or,
+  when the store has nothing, why, and what the tool returned follows: nothing was held back, the conversation
+  had no store (the audit off), or the output is no longer there (swept, or removed). On a terminal a stored
+  output goes through the pager, `$PAGER` or `less -R`, with Ctrl-C left to the pager while it runs and the pipe
+  set not to raise `SIGPIPE` when the pager quits early; when standard output is not a terminal it is printed
+  whole, bounded only by the ceiling, so a pipe or a file gets all of it. An output that was not held back is
+  printed as before: it is never larger than the budget. `wisp-tui`'s expanded view (Ctrl-O) and a `/show` or
+  `/last` under it load the output on demand through a new inbound line, `{"type":"output","id":…,"page":N}`,
+  answered with a `view` of kind `output`: pages of 64 KiB that end at a line (each found from two reads of the
+  file, so a page of a 16 MiB output costs two small reads, not a read of the file), joining back to the output
+  exactly; the panel holds four pages at most and asks for the next or the previous as it scrolls past them,
+  keeping the rows in view where they were. Never the whole 16 MiB at once, in either process.
+
 ## Consequences
 
 - A larger model sees more of each result at once, and every model can reach all of it, by page or by

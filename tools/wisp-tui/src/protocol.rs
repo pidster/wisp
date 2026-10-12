@@ -185,10 +185,11 @@ pub struct ToolOutput {
     pub shown_lines: usize,
 }
 
-/// A view answering a chat command: Markdown text for a panel.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+/// A view answering a chat command: Markdown text for a panel. Kind `output` is one page of a tool's output
+/// whole (ADR 0050), answering an `output` request or shown by `/show` and `/last`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct View {
-    /// `context` or `turns`.
+    /// `context`, `turns`, `facts`, `summary`, `thinking`, or `output`.
     pub kind: String,
     /// For `context`, the turn it was composed for; `None` is the next request.
     #[serde(default)]
@@ -196,9 +197,28 @@ pub struct View {
     /// How many turns the conversation has had.
     #[serde(default)]
     pub turns: u64,
-    /// The Markdown.
+    /// The Markdown; for `output`, the page's text.
     #[serde(default)]
     pub text: String,
+    /// For `output`, the id of the event that recorded it, to ask for other pages by.
+    #[serde(default)]
+    pub id: String,
+    /// For `output`, the event's audit session.
+    #[serde(default)]
+    pub session: Option<String>,
+    /// For `output`, the page, from 1.
+    #[serde(default)]
+    pub page: u64,
+    /// For `output`, the pages in all; 0 when wisp holds no such output.
+    #[serde(default)]
+    pub pages: u64,
+    /// For `output`, the line saying what it is: the whole from the output store, or what the tool returned
+    /// and why.
+    #[serde(default)]
+    pub header: String,
+    /// For `output`: `stored`, `returned`, `not-kept`, `gone`, or `missing`.
+    #[serde(default)]
+    pub source: String,
 }
 
 /// One answer a choice offers.
@@ -397,6 +417,16 @@ pub enum Inbound {
     /// command's process group, then SIGKILL; a turn's request cancelled and its command stopped), or kills
     /// what it has running at once when asked before (ADR 0049, amended 2026-10-09 and 2026-10-11).
     Interrupt,
+    /// A page of a tool's output whole (ADR 0050), answered with a `view` of kind `output`.
+    Output {
+        /// The id of the event that recorded it.
+        id: String,
+        /// Its audit session; absent for the conversation's own.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session: Option<String>,
+        /// The page, from 1.
+        page: u64,
+    },
 }
 
 impl Outbound {
@@ -574,7 +604,25 @@ mod tests {
                 kind: "context".into(),
                 turn: Some(3),
                 turns: 4,
-                text: "# Context".into()
+                text: "# Context".into(),
+                ..View::default()
+            })
+        );
+        // A page of an output whole, as wisp answers an `output` request.
+        assert_eq!(
+            Outbound::parse(
+                r#"{"type":"view","kind":"output","id":"e1","session":"s1","page":2,"pages":5,"text":"a\n","header":"output c1 from run_command: the whole of it","source":"stored","bytes":9,"lines":3,"cut":false,"turn":null,"turns":0}"#
+            ),
+            Outbound::View(View {
+                kind: "output".into(),
+                text: "a\n".into(),
+                id: "e1".into(),
+                session: Some("s1".into()),
+                page: 2,
+                pages: 5,
+                header: "output c1 from run_command: the whole of it".into(),
+                source: "stored".into(),
+                ..View::default()
             })
         );
         assert!(matches!(
@@ -678,6 +726,24 @@ mod tests {
         );
         // The interrupt is a bare type, as wisp's `ChatProtocol.Inbound` reads it.
         assert_eq!(Inbound::Interrupt.line(), "{\"type\":\"interrupt\"}\n");
+        assert_eq!(
+            Inbound::Output {
+                id: "e1".into(),
+                session: None,
+                page: 2
+            }
+            .line(),
+            "{\"type\":\"output\",\"id\":\"e1\",\"page\":2}\n"
+        );
+        assert_eq!(
+            Inbound::Output {
+                id: "e1".into(),
+                session: Some("s1".into()),
+                page: 1
+            }
+            .line(),
+            "{\"type\":\"output\",\"id\":\"e1\",\"session\":\"s1\",\"page\":1}\n"
+        );
     }
 
     #[test]

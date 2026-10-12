@@ -207,20 +207,30 @@ public enum ChatEvents {
     ///   - last: The last tool result chat saw, which a turn not yet stored may hold.
     /// - Returns: The output, or nil.
     public static func output(_ argument: String?, in store: ThreadRecord, last: String?) -> String? {
-        let outputs = store.entries.filter { [.toolOutput, .command, .reasoning].contains($0.kind) }
         guard let argument, !argument.isEmpty else {
-            return last ?? outputs.last { $0.kind != .reasoning }.map { ThreadRecord.text(of: $0.value) }
+            let outputs = store.entries.filter { [.toolOutput, .command].contains($0.kind) }
+            return last ?? outputs.last.map { ThreadRecord.text(of: $0.value) }
         }
+        return outputEntry(argument, in: store).map { ThreadRecord.text(of: $0.value) }
+    }
+
+    /// The entry `/show <argument>` names: a tool output, a typed command's output, or the model's thinking, with
+    /// that store entry id, or whose `tool.result`, `command.typed`, or `model.reasoning` event id starts with
+    /// `argument` (at least four characters, and only one such); nil when there is none.
+    ///
+    /// - Parameters:
+    ///   - argument: What follows `/show`.
+    ///   - store: The thread's record.
+    /// - Returns: The entry, or nil.
+    public static func outputEntry(_ argument: String, in store: ThreadRecord) -> ThreadRecord.Entry? {
+        let outputs = store.entries.filter { [.toolOutput, .command, .reasoning].contains($0.kind) }
         // An event-id prefix can be all digits (one in about forty of eight characters), so a number that names no
         // entry is tried as a prefix too.
-        if let id = Int(argument), let entry = outputs.first(where: { $0.id == id }) {
-            return ThreadRecord.text(of: entry.value)
-        }
+        if let id = Int(argument), let entry = outputs.first(where: { $0.id == id }) { return entry }
         let prefix = argument.lowercased()
         guard prefix.count >= 4 else { return nil }
         let found = outputs.filter { $0.sources.contains { $0.event.hasPrefix(prefix) } }
-        guard found.count == 1, let entry = found.first else { return nil }
-        return ThreadRecord.text(of: entry.value)
+        return found.count == 1 ? found.first : nil
     }
 
     /// The line a caller waiting on an MCP call is shown for `event` as progress: what chat shows,
@@ -307,10 +317,10 @@ public enum ChatEvents {
     }
 
     /// The sink chat attaches to its conversation: forwards each event to a handler set once the
-    /// loop exists, and keeps the last tool result whole for `/last`.
+    /// loop exists, and keeps the last tool result's event for `/last`.
     public final class Tap: AuditSink, Sendable {
         private let handler = Mutex<(@Sendable (AuditEvent) -> Void)?>(nil)
-        private let last = Mutex<String?>(nil)
+        private let last = Mutex<AuditEvent?>(nil)
 
         /// Creates a tap with no handler yet.
         public init() {}
@@ -320,15 +330,16 @@ public enum ChatEvents {
             handler.withLock { $0 = handle }
         }
 
-        /// The last tool result's full output, or nil before any.
-        public var lastToolOutput: String? { last.withLock { $0 } }
+        /// The last tool result's output as the tool returned it, or nil before any.
+        public var lastToolOutput: String? { lastToolEvent?.details["output"]?.stringValue }
+
+        /// The last `tool.result` or `command.typed` event with an output, or nil before any.
+        public var lastToolEvent: AuditEvent? { last.withLock { $0 } }
 
         /// Forwards the event and remembers a tool result or a typed command's output.
         public func write(_ event: AuditEvent) {
-            if event.kind == .toolResult || event.kind == .commandTyped,
-                let output = event.details["output"]?.stringValue
-            {
-                last.withLock { $0 = output }
+            if event.kind == .toolResult || event.kind == .commandTyped, event.details["output"]?.stringValue != nil {
+                last.withLock { $0 = event }
             }
             handler.withLock { $0 }?(event)
         }

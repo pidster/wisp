@@ -111,14 +111,20 @@ public struct ChatLoop {
         /// Told the line as it was typed when it is a command the person runs (`!`, ADR 0049), before it runs; the
         /// terminal colours the line's prompt marker in the command colour, having no box to colour.
         public var command: (String) -> Void
+        /// Shows an output `/show` or `/last` asks for the face's own way, its header with it: the terminal through
+        /// its pager when standard output is a terminal, a front end in its expanded view (ADR 0050). Returns false
+        /// when it did not, and the loop notes the header and prints the text; nil always prints.
+        public var showOutput: ((ChatOutput) -> Bool)?
 
         /// Creates an IO.
         public init(
             readLine: @escaping () -> String?, print: @escaping (String) -> Void, write: @escaping (String) -> Void,
             note: @escaping @Sendable (String) -> Void, prompt: @escaping (ChatStatus) -> Void,
             turn: @escaping (ChatTurn) -> Void = { _ in }, choose: ((ChatChoice) async -> String?)? = nil,
-            view: ((ChatView) -> Void)? = nil, command: @escaping (String) -> Void = { _ in }
+            view: ((ChatView) -> Void)? = nil, command: @escaping (String) -> Void = { _ in },
+            showOutput: ((ChatOutput) -> Bool)? = nil
         ) {
+            self.showOutput = showOutput
             self.choose = choose
             self.view = view
             self.command = command
@@ -172,6 +178,9 @@ public struct ChatLoop {
         /// Where the face's Ctrl-C goes while a command the person typed runs, which has no timeout (ADR 0049,
         /// amended 2026-10-09); nil leaves such a command to run to its end.
         public var interrupt: ChatInterrupt?
+        /// The output stores' directory (`Home.outputs`), where `/show` and `/last` find the whole of an output the
+        /// model was given only part of (ADR 0050); nil when the audit is off, so nothing is stored.
+        public var outputs: URL?
 
         /// Creates a context.
         public init(
@@ -184,8 +193,10 @@ public struct ChatLoop {
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
-            shownOutputLines: Int = Config().resolved.shownOutputLines, interrupt: ChatInterrupt? = nil
+            shownOutputLines: Int = Config().resolved.shownOutputLines, interrupt: ChatInterrupt? = nil,
+            outputs: URL? = nil
         ) {
+            self.outputs = outputs
             self.interrupt = interrupt
             self.shownOutputLines = shownOutputLines
             self.approvalStore = approvalStore
@@ -325,10 +336,14 @@ public struct ChatLoop {
             case .approvals(let request):
                 await approvals(request)
             case .last:
-                io.print(tap.lastToolOutput ?? "no tool has run yet")
+                guard let output = shownOutput(nil) else {
+                    io.print("no tool has run yet")
+                    continue
+                }
+                show(output)
             case .show(let argument):
-                if let output = ChatEvents.output(argument, in: agent.store, last: tap.lastToolOutput) {
-                    io.print(output)
+                if let output = shownOutput(argument) {
+                    show(output)
                 } else {
                     io.note(argument == nil ? "no tool has run yet" : "no tool output \(argument ?? "")")
                 }
@@ -467,6 +482,42 @@ public struct ChatLoop {
             try store.save(agent.store, as: saveName)
             io.note("saved '\(saveName)'")
         }
+    }
+
+    /// The output `/show <argument>` asks for (`ChatEvents.outputEntry`), or with no argument the last tool result,
+    /// as the person's views show it (`ChatOutput`): the whole from the output store when the model was given part of
+    /// it and the store still holds it. Nil when there is none.
+    ///
+    /// - Parameter argument: What follows `/show`; nil for `/last` and a bare `/show`.
+    /// - Returns: The output, or nil.
+    func shownOutput(_ argument: String?) -> ChatOutput? {
+        let entry: ThreadRecord.Entry?
+        if let argument, !argument.isEmpty {
+            entry = ChatEvents.outputEntry(argument, in: agent.store)
+        } else if let event = tap.lastToolEvent {
+            return ChatOutput.resolve(
+                returned: event.details["output"]?.stringValue ?? "", event: event, outputs: context.outputs)
+        } else {
+            entry = agent.store.entries.last { [.toolOutput, .command].contains($0.kind) }
+        }
+        guard let entry else { return nil }
+        let reference = entry.sources.first
+        return ChatOutput.resolve(
+            returned: ThreadRecord.text(of: entry.value), event: reference.flatMap { agent.audit?.event($0) },
+            session: reference?.session, outputs: context.outputs)
+    }
+
+    /// Shows an output whole: the face's own way when it has one (`IO.showOutput`), with Ctrl-C left to a pager
+    /// while it runs; otherwise its header as a note and its text printed.
+    ///
+    /// - Parameter output: The output.
+    private func show(_ output: ChatOutput) {
+        if let face = io.showOutput {
+            let shown = context.interrupt.map { interrupt in interrupt.whilePaging { face(output) } } ?? face(output)
+            if shown { return }
+        }
+        io.note(style.muted(output.header))
+        io.print(output.text)
     }
 
     /// Runs a command the person typed after `!` (ADR 0049) in the conversation's directory, without a model

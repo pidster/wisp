@@ -18,9 +18,10 @@ import Synchronization
 /// `kind: "fact"`, answered `keep` or `drop` (ADR 0048). Inbound: `hello` (the first line, optional: the effects the
 /// front end carries, ADR 0044), `message` (a chat line, slash commands included), `answer` (to an
 /// approval, by id), `choose` (to a choice, by id; no value is no answer), and `complete` (the input line
-/// and cursor to complete, by id; the cursor and the reply's `from` count Unicode scalars), and `interrupt` (Ctrl-C
-/// while a command the person typed runs: stop it, ADR 0049 amended 2026-10-09). A line of a type not listed here is
-/// ignored and reported once on the diagnostics channel.
+/// and cursor to complete, by id; the cursor and the reply's `from` count Unicode scalars), `interrupt` (Ctrl-C
+/// while a command the person typed runs: stop it, ADR 0049 amended 2026-10-09), and `output` (a page of a tool's
+/// output whole, by its event's id, answered with a `view` of kind `output`, ADR 0050). A line of a type not listed
+/// here is ignored and reported once on the diagnostics channel.
 public enum ChatProtocol {
     /// What a front end declared in its `hello`: the host effects it carries (`approve`, `notify`), and
     /// who it is.
@@ -56,6 +57,9 @@ public enum ChatProtocol {
         /// Ctrl-C in the front end while a command the person typed runs: stop it, or kill it when it was asked
         /// to stop before (`ChatInterrupt`); with none running it does nothing.
         case interrupt
+        /// A request for page `page` (from 1) of the output the event `id` recorded, whole (ADR 0050): of the audit
+        /// `session` named, or the conversation's own when nil. Answered with a `view` of kind `output`.
+        case output(id: String, session: String?, page: Int)
         /// A typed line of a type this version does not know: ignored, so a newer front end's line does not
         /// arrive as an empty message.
         case unknown(type: String)
@@ -91,6 +95,10 @@ public enum ChatProtocol {
                 self = .message(object["text"]?.stringValue ?? "")
             case "interrupt":
                 self = .interrupt
+            case "output":
+                self = .output(
+                    id: object["id"]?.stringValue ?? "", session: object["session"]?.stringValue,
+                    page: object["page"]?.intValue ?? 1)
             default:
                 self = .unknown(type: type)
             }
@@ -160,6 +168,57 @@ public enum ChatProtocol {
             "kind": .string(view.kind.rawValue), "turn": view.turn.map { .int($0) } ?? .null,
             "turns": .int(view.turns), "text": .string(view.text),
         ]
+    }
+
+    /// The `view` line answering an `output` request, or showing an output `/show` or `/last` asks for: kind `output`,
+    /// the event's `id` and `session` to ask for other pages by, `page` (from 1) of `pages`, `text` (that page,
+    /// `ChatOutput.pageBytes` at most but for a line longer than a page; the pages joined are the output exactly),
+    /// `header` (the line saying what it is, `ChatOutput.header`), `source` (`stored`, the whole from the output
+    /// store; `returned`, nothing was held back; `not-kept`, held back with no store; `gone`, no longer in the
+    /// store), and for `stored` the record's `bytes`, `lines`, `cut`, and `totalBytes`, else the returned text's
+    /// `bytes` and `lines`. A page out of range has `pages` with no `text`, and an unknown id `pages` 0 and a header
+    /// saying so.
+    ///
+    /// - Parameters:
+    ///   - output: The output, or nil when the id names none.
+    ///   - id: The event's id, as asked.
+    ///   - session: The event's audit session.
+    ///   - page: The page asked for.
+    /// - Returns: The fields.
+    public static func outputView(
+        _ output: ChatOutput?, id: String, session: String?, page: Int
+    )
+        -> [String: JSONValue]
+    {
+        var fields: [String: JSONValue] = [
+            "kind": "output", "id": .string(id), "session": session.map { .string($0) } ?? .null, "page": .int(page),
+            "turn": .null, "turns": .int(0),
+        ]
+        guard let output else {
+            fields["pages"] = .int(0)
+            fields["text"] = ""
+            fields["header"] = .string("no tool output \(id) here: the audit may be off, or the event rotated out")
+            fields["source"] = "missing"
+            return fields
+        }
+        fields["header"] = .string(output.header)
+        fields["source"] = .string(output.sourceName)
+        if case .stored(let kept) = output.whole {
+            fields["bytes"] = .int(kept.bytes)
+            fields["lines"] = .int(kept.lines)
+            fields["cut"] = .bool(kept.cut)
+            fields["totalBytes"] = .int(kept.totalBytes)
+        } else {
+            fields["bytes"] = .int(output.returned.utf8.count)
+            fields["lines"] = .int(ChatOutput.lineCount(output.returned))
+        }
+        if let shown = output.page(page) {
+            fields["pages"] = .int(shown.count)
+            fields["text"] = .string(shown.text)
+        } else {
+            fields["pages"] = .int(output.page(1)?.count ?? 0)
+        }
+        return fields
     }
 
     /// The `activity` line's fields: what the turn under way is doing (`doing`, such as `running git
@@ -360,6 +419,7 @@ public final class LineRouter: Sendable {
     private let available = DispatchSemaphore(value: 0)
     private let completer = Mutex<(@Sendable (String, String, Int?) -> Void)?>(nil)
     private let interrupter = Mutex<(@Sendable () -> Void)?>(nil)
+    private let outputs = Mutex<(@Sendable (String, String?, Int) -> Void)?>(nil)
     private let declared = Mutex<ChatProtocol.Hello?>(nil)
     private let greeted = Mutex<(@Sendable (ChatProtocol.Hello) -> Void)?>(nil)
     /// The unknown line types already reported, so each is reported once (at most 32 of them).
@@ -388,6 +448,11 @@ public final class LineRouter: Sendable {
         interrupter.withLock { $0 = handle }
     }
 
+    /// Sets what answers `output` requests: called with the event id, the session, and the page, off the chat loop.
+    public func onOutput(_ handle: @escaping @Sendable (String, String?, Int) -> Void) {
+        outputs.withLock { $0 = handle }
+    }
+
     /// Creates an empty router.
     public init() {}
 
@@ -404,6 +469,8 @@ public final class LineRouter: Sendable {
             completer.withLock { $0 }?(id, text, cursor)
         case .interrupt:
             interrupter.withLock { $0 }?()
+        case .output(let id, let session, let page):
+            outputs.withLock { $0 }?(id, session, page)
         case .unknown(let type):
             // Said once per type, on the diagnostics channel: stdout is the protocol.
             let first = unknownTypes.withLock { seen in

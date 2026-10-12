@@ -321,6 +321,11 @@ fn run(
             }
             Some(Incoming::Terminal(_) | Incoming::StderrClosed) | None => {}
         }
+        // Lines no key returned, such as a page of an output the panel scrolled to (ADR 0050).
+        for request in app.take_requests() {
+            stdin.write_all(request.line().as_bytes())?;
+            stdin.flush()?;
+        }
         if !changed {
             continue;
         }
