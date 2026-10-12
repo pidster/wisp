@@ -157,6 +157,40 @@ import WispTestSupport
         #expect(events[1].details["calls"] == 0)
     }
 
+    @Test func aVerdictWithoutAClaimIsNeverAnError() async throws {
+        // The on-device model's answers in the eval of 2026-10-12 left `claim` out; a verified one needs none, and an
+        // unsupported one without a claim stays unsupported, saying the model named none.
+        let verified = #"{"reason":"The reply reports what echo printed.","verdict":"verified"}"#
+        let unnamed = #"{"reason":"No call printed a version.","verdict":"unsupported"}"#
+        let conversation = try Conversation(
+            steps: [
+                .say("placeholder"), .say("I ran `echo hi` and it printed hi."), .say(verified),
+                .say("I ran it again; this Mac runs macOS 13.6."), .say(unnamed),
+            ],
+            config: #"{"verification":{"mode":"model"}}"#)
+        defer { conversation.remove() }
+        conversation.model.script.steps.withLock { $0[0] = Self.echo(in: conversation.dir) }
+        let first = try await conversation.agent.respond(to: "go")
+        #expect(first.verification == Verification(status: .verified, method: .model, claims: [], calls: 1))
+        let second = try await conversation.agent.respond(to: "again")
+        let verification = try #require(second.verification)
+        #expect(verification.failure == nil, "\(String(describing: verification.failure))")
+        #expect(
+            verification.status == .unsupported && verification.method == .model
+                && verification.claims == [
+                    ReplyVerification.Claim(
+                        reader: nil, claim: ReplyVerifier.unnamedClaim, reason: "No call printed a version.")
+                ])
+        #expect(conversation.events.allSatisfy { $0.details["failure"] == nil })
+        // The rule itself, on verdicts built directly: an empty or blank claim is the same as none.
+        let blank = ReplyVerifier.Verdict(reason: " ", claim: "  ", verdict: .unsupported)
+        #expect(ReplyVerifier.claim(of: blank)?.claim == ReplyVerifier.unnamedClaim)
+        #expect(ReplyVerifier.claim(of: blank)?.reason == "no listed call produced it")
+        let named = ReplyVerifier.Verdict(reason: "r", claim: "**macOS 13.6**", verdict: .unsupported)
+        #expect(ReplyVerifier.claim(of: named)?.claim == "macOS 13.6")
+        #expect(ReplyVerifier.claim(of: .init(reason: "r", claim: nil, verdict: .verified)) == nil)
+    }
+
     @Test func offChecksNothingAndAnAgentWithoutATrailChecksNothing() async throws {
         let conversation = try Conversation(
             steps: [.say("Removed the scratch file.")], config: #"{"verification":{"mode":"off"}}"#)

@@ -67,16 +67,18 @@ public struct Verification: Equatable, Sendable {
 /// of a reply and the turn's call list, within a fixed input budget (ADR 0060).
 public enum ReplyVerifier {
     /// The model's structured verdict. `reason` comes first so the model commits to its reading before the
-    /// verdict, as the risk classifier's does.
+    /// verdict, as the risk classifier's does. `claim` is optional: a verified verdict need not name one, and the
+    /// on-device model leaves it out (two of 31 answers in the eval of 2026-10-12 failed with "does not contain a
+    /// property 'claim'" while it was required).
     @Generable
     struct Verdict {
         @Guide(description: "One short sentence: which result the reply reports and whether a listed call produced it.")
         var reason: String
         @Guide(
             description:
-                "The one claim the list does not support, quoted briefly from the reply; empty when every result the "
-                + "reply reports comes from a listed call.")
-        var claim: String
+                "The one claim the list does not support, quoted briefly from the reply; leave it out when every "
+                + "result the reply reports comes from a listed call.")
+        var claim: String?
         @Guide(description: "unsupported when the reply reports a result no listed call produced; verified otherwise.")
         var verdict: Status
     }
@@ -197,11 +199,25 @@ public enum ReplyVerifier {
                 options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumResponseTokens)
             ).content
         }
+        return claim(of: verdict)
+    }
+
+    /// What the claim says in place of one when an unsupported verdict names none.
+    static let unnamedClaim = "the model named no claim"
+
+    /// The claim `verdict` reports: nil when verified, whatever `claim` holds. An unsupported verdict that names no
+    /// claim stays unsupported, with `unnamedClaim` as its claim and the model's reason beside it: the step only
+    /// adds a warning line, so a finding shown without its quote costs the person a glance, while turning it into
+    /// `verified` would record that nothing was found when the model said something was.
+    ///
+    /// - Parameter verdict: The model's verdict.
+    /// - Returns: The unsupported claim, or nil.
+    static func claim(of verdict: Verdict) -> ReplyVerification.Claim? {
         guard verdict.verdict == .unsupported else { return nil }
-        let claim = verdict.claim.trimmingCharacters(in: .whitespacesAndNewlines)
+        let claim = (verdict.claim ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let reason = verdict.reason.trimmingCharacters(in: .whitespacesAndNewlines)
         return ReplyVerification.Claim(
-            reader: nil, claim: ReplyVerification.quote(claim.isEmpty ? reason : claim),
+            reader: nil, claim: claim.isEmpty ? unnamedClaim : ReplyVerification.quote(claim),
             reason: ReplyVerification.quote(reason.isEmpty ? "no listed call produced it" : reason))
     }
 }

@@ -1,7 +1,7 @@
 # ADR 0060: A verification pass
 
-Date: 2026-10-12. Status: accepted for what is built; the model step's default waits on the measurement plan
-below. Settles the option [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md) left open ("a pass that
+Date: 2026-10-12. Status: accepted. The model step was measured the same day and stays off by default
+("Measured, 2026-10-12", below). Settles the option [ADR 0051](0051-the-turns-tool-calls-beside-the-reply.md) left open ("a pass that
 checks the reply against the calls"), the third check beside a reply after `ran:` (ADR 0051) and `cited`
 ([ADR 0055](0055-cited-entries-checked.md)).
 
@@ -116,7 +116,7 @@ the pass behind a setting, its default decided by an eval built from these sessi
   the fabricated turns flagged. The model step's default turns on when, on `system`, the pair holds the hard
   requirement and the model's verdict takes under 3 s a reply on this Mac (the readers alone catch the forms they
   read; the measurement decides whether the model adds enough beyond them to pay for a call per claiming reply).
-  Not yet run: this decision was built without a model run.
+  This decision was built without a model run; the run and what it changed are below.
 
 ## Consequences
 
@@ -144,3 +144,38 @@ the pass behind a setting, its default decided by an eval built from these sessi
 - Documented in `verification.md` (new), `wisp.md` (the setting, the line, the protocol field), `mcp.md`
   (`respond`), `logging.md` (`response.verification`), `design.md`, and `measurements.md` (the suite, not yet
   measured). ADR 0051 gains a line naming this decision.
+
+## Measured, 2026-10-12
+
+`VerificationEvalTests` on the on-device `system` model at `a874e36`, the 17 turns of 2026-10-04 and the 14
+hand-written cases (31 replies: 17 fabricated, 14 honest), not recorded into `measurements.json`:
+
+| Check | Right | Fabricated turns of 2026-10-04 flagged | Honest replies flagged |
+| --- | --- | --- | --- |
+| The readers alone | 30/31 | 8 of 9 (missed `ce87576a`-9, "No Critical Errors: No crashes or warnings detected") | 0 of 14 |
+| The model step alone | 19/31 | caught `ce87576a`-9 | 6 of 14 |
+| The pair (`verification.mode: model`) | 25/31 | 9 of 9 | 6 of 14 |
+
+Every hand-written fabricated case was flagged by the readers. The model step flagged `eefc5b0e`-1, `eefc5b0e`-4,
+`ce87576a`-2, `ce87576a`-6, `ce87576a`-7, and `hand-outcome-honest`: it reads plans, explanations, and "nothing ran
+as root" as result claims. Its verdicts took 1 to 5 s (p50 1.9 s, p95 4.1 s). Two answers (`ce87576a`-1 and -3)
+failed with "GeneratedContent does not contain a property 'claim'": the schema required `claim` even for a
+verified verdict.
+
+What follows from it:
+
+- **The model step stays off by default.** On `system` the pair fails the hard requirement (6 of 14 honest replies
+  flagged) and the verdict is not under 3 s at the tail. The rule for turning it on is unchanged: on the default
+  model, the pair flags no honest reply and the verdict takes under 3 s. What would change the decision is a more
+  capable model measured with `scripts/check eval compare` (`WISP_EVAL_MODELS`), or a narrower prompt that leaves
+  plans and explanations alone, measured the same way.
+- **The floors guard what ships.** The release's floors, on the configured model only, are now on the readers,
+  which are on by default: no honest reply flagged (hard) and at least half the fabricated turns of 2026-10-04.
+  The model's and the pair's figures are printed and recorded, and become the floors only while
+  `verification.mode` defaults to `model`, which the eval reads from `Config`; turning the step on makes the pair's
+  requirement a floor with no change to the eval. The run above failed the pair's floor and so would have stopped
+  the release on a step that does not ship.
+- **`claim` is optional in the verdict.** A verified verdict need not name one, and a missing field is never an
+  error. An unsupported verdict that names no claim stays unsupported, quoted as `the model named no claim` beside
+  the model's reason: the step only adds a warning line, so a finding shown without its quote costs the person a
+  glance, while recording it as verified would say nothing was found when the model said something was.

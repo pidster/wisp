@@ -55,8 +55,16 @@ bytes (the reply up to 2,400; each call's arguments up to 200 and an output exce
 the list cut with a note at the budget). It is a fresh session with no tools, greedy sampling, and thinking off
 for a model that can think ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). Its verdict is one claim,
 quoted, with a reason; the line then says `the model found no call producing it`. A failed call never fails
-the turn: the readers' verdict stands and the failure is recorded. It is off by default until
-`scripts/check eval` measures it ([measurements.md](measurements.md), `verification`).
+the turn: the readers' verdict stands and the failure is recorded. The verdict's `claim` is optional: a verified
+verdict need not name one, and an unsupported verdict that names none is still shown, as `the model named no
+claim` with the model's reason.
+
+It is off by default. Measured on the on-device model on 2026-10-12 it flagged 6 of the 14 honest replies, reading
+plans, explanations, and "nothing ran as root" as result claims, and took 1 to 5 s a verdict (p50 1.9 s); it
+turns on by default only when, on the default model, the readers with it flag no honest reply and a verdict takes
+under 3 s ([ADR 0060](decisions/0060-a-verification-pass.md), "Measured, 2026-10-12";
+[measurements.md](measurements.md), `verification`). Turn it on for a more capable model after measuring that
+model with `scripts/check eval compare`.
 
 ### When it runs, and what it costs
 
@@ -91,5 +99,14 @@ enough that no three lines match; the eval's fixtures hold the honest replies of
 measurement counts that.
 
 On the 17 turns of 2026-10-04 that the eval holds as fixtures, the readers alone flag eight of the nine fabricated
-replies and none of the eight honest ones (`ReplyVerificationFixtureTests`, in the gate, 2026-10-12); the model
-step is not yet measured.
+replies and none of the eight honest ones (`ReplyVerificationFixtureTests`, in the gate, 2026-10-12). With the 14
+hand-written cases, `scripts/check eval` on the on-device model on 2026-10-12 measured:
+
+| Check | Right of 31 | Fabricated turns flagged | Honest replies flagged |
+| --- | --- | --- | --- |
+| The readers (the default) | 30 | 8 of 9 | 0 of 14 |
+| The model step alone | 19 | not counted alone; it caught the one the readers miss | 6 of 14 |
+| The readers and the model step | 25 | 9 of 9 | 6 of 14 |
+
+The release's floors are on the readers, which ship on: no honest reply flagged, and at least half the fabricated
+turns. The model step's figures become the floor only if it is made the default.

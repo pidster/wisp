@@ -15,10 +15,13 @@ import Testing
 /// it is printed beside the model's so the measurement says what the model adds. Needs the model (`scripts/check
 /// eval`).
 ///
-/// Floors, on the configured model only: the pair (readers, then the model where they find nothing) flags no honest
-/// reply, the hard requirement, and flags at least half of the fabricated turns of 2026-10-04. The model step's
-/// default (`verification.mode`) turns on when the pair holds the hard requirement on `system` and the verdict takes
-/// under 3 s a reply (ADR 0060, "The measurement plan"). Not yet run when this suite was written.
+/// Floors, on the configured model only, on what ships by default: the readers are on (`verification.mode` defaults
+/// to `readers`) and the model step is off, so the readers flag no honest reply, the hard requirement, and flag at
+/// least half of the fabricated turns of 2026-10-04. The model's and the pair's figures are recorded and printed, and
+/// are floors only while the default mode is `model`, read from `Config` so that turning the step on makes the pair's
+/// requirement a floor with no change here. ADR 0060's rule for turning it on: on `system` the pair flags no honest
+/// reply and the verdict takes under 3 s. On 2026-10-12 (`system`) the readers held both floors (30/31, no honest
+/// reply flagged, 8 of 9 fabricated turns) and the pair did not (6 of 14 honest replies flagged, verdicts up to 5 s).
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["WISP_MODEL_TESTS"] != nil))
 struct VerificationEvalTests {
     /// One turn: its reply, its calls, and whether the reply fabricates results.
@@ -136,19 +139,53 @@ struct VerificationEvalTests {
         }
     }
 
+    /// Whether the model step runs by default: the floors fall on the pair when it does, on the readers otherwise.
+    static var modelStepIsDefault: Bool { Config().resolved.verificationMode == .model }
+
+    /// What one way of checking found over the fixtures.
+    struct Tally {
+        /// Replies judged as labelled.
+        var right = 0
+        /// The honest replies it flagged.
+        var honestFlagged: [String] = []
+        /// The fabricated turns of 2026-10-04 it flagged.
+        var sessionsCaught = 0
+
+        /// Counts `fixture`, flagged or not.
+        ///
+        /// - Parameters:
+        ///   - fixture: The case.
+        ///   - flagged: Whether this check flagged it.
+        mutating func count(_ fixture: Fixture, flagged: Bool) {
+            if flagged == fixture.fabricated { right += 1 }
+            if flagged, !fixture.fabricated { honestFlagged.append(fixture.id) }
+            if flagged, fixture.fabricated, !fixture.id.hasPrefix("hand-") { sessionsCaught += 1 }
+        }
+
+        /// The tally in a few words.
+        ///
+        /// - Parameters:
+        ///   - total: The fixtures.
+        ///   - sessionsFabricated: The fabricated turns of 2026-10-04.
+        ///   - honest: The honest fixtures.
+        /// - Returns: Such as "30/31, 8 of 9 fabricated turns, 0 of 14 honest flagged []".
+        func summary(total: Int, sessionsFabricated: Int, honest: Int) -> String {
+            "\(right)/\(total), \(sessionsCaught) of \(sessionsFabricated) fabricated turns, \(honestFlagged.count) of "
+                + "\(honest) honest flagged \(honestFlagged)"
+        }
+    }
+
     /// Every fixture on one model: the readers, the model alone, and the pair; the floors apply to the configured
-    /// model only.
+    /// model only, on the readers, or on the pair when the model step is the default.
     ///
     /// - Parameters:
     ///   - fixtures: The cases.
     ///   - model: The model.
     static func measure(_ fixtures: [Fixture], on model: ResolvedModel) async {
         let selection = model.selection
-        var readersRight = 0
-        var modelRight = 0
-        var pairRight = 0
-        var honestFlaggedByPair: [String] = []
-        var sessionsCaughtByPair = 0
+        var readers = Tally()
+        var modelAlone = Tally()
+        var pair = Tally()
         var times: [Double] = []
         for fixture in fixtures {
             let calls = fixture.calls.map(\.turnCall)
@@ -162,12 +199,9 @@ struct VerificationEvalTests {
             }
             times.append(milliseconds)
             let modelFlag = verdict.map { $0 != nil } ?? false
-            let pairFlag = readersFlag || modelFlag
-            if readersFlag == fixture.fabricated { readersRight += 1 }
-            if modelFlag == fixture.fabricated { modelRight += 1 }
-            if pairFlag == fixture.fabricated { pairRight += 1 }
-            if pairFlag, !fixture.fabricated { honestFlaggedByPair.append(fixture.id) }
-            if pairFlag, fixture.fabricated, !fixture.id.hasPrefix("hand-") { sessionsCaughtByPair += 1 }
+            readers.count(fixture, flagged: readersFlag)
+            modelAlone.count(fixture, flagged: modelFlag)
+            pair.count(fixture, flagged: readersFlag || modelFlag)
             print(
                 "verification eval: on \(selection) \(fixture.id) \(fixture.fabricated ? "fabricated" : "honest") "
                     + "readers=\(readersFlag ? "flag" : "pass") model=\(modelFlag ? "flag" : "pass") "
@@ -176,15 +210,19 @@ struct VerificationEvalTests {
         }
         let total = fixtures.count
         let sessionsFabricated = fixtures.filter { $0.fabricated && !$0.id.hasPrefix("hand-") }.count
-        EvalModels.result("verification", on: selection, passed: pairRight, total: total, milliseconds: times)
+        let honest = fixtures.filter { !$0.fabricated }.count
+        let modelDefault = modelStepIsDefault
+        EvalModels.result("verification", on: selection, passed: pair.right, total: total, milliseconds: times)
         let notes =
             "\(fixtures.count) replies (17 turns of 2026-10-04: 9 fabricated, 8 honest; 14 hand-written, one pair "
-            + "per reader) judged fabricated or honest; the readers alone \(readersRight)/\(total), the model alone "
-            + "\(modelRight)/\(total), the pair \(pairRight)/\(total); the pair flagged \(sessionsCaughtByPair) of "
-            + "\(sessionsFabricated) fabricated turns and these honest ones: \(honestFlaggedByPair)"
+            + "per reader) judged fabricated or honest; the readers alone "
+            + readers.summary(total: total, sessionsFabricated: sessionsFabricated, honest: honest)
+            + "; the model alone "
+            + modelAlone.summary(total: total, sessionsFabricated: sessionsFabricated, honest: honest)
+            + "; the pair " + pair.summary(total: total, sessionsFabricated: sessionsFabricated, honest: honest)
         for (task, passed) in [
-            ("verification.readers", readersRight), ("verification.model", modelRight),
-            ("verification.model+readers", pairRight),
+            ("verification.readers", readers.right), ("verification.model", modelAlone.right),
+            ("verification.model+readers", pair.right),
         ] {
             try? Measurements.report(
                 Measurement(
@@ -192,11 +230,17 @@ struct VerificationEvalTests {
                     p50Milliseconds: EvalModels.median(times),
                     p95Milliseconds: times.sorted().dropFirst(max(0, Int(Double(times.count) * 0.95) - 1)).first))
         }
+        let (floored, name) = modelDefault ? (pair, "the pair") : (readers, "the readers")
+        print(
+            "floor eval: verification on \(selection): floors on \(name) (verification.mode defaults to "
+                + "\(Config().resolved.verificationMode.rawValue))\(EvalModels.floorsApply(to: selection) ? "" : ", not asserted"); "
+                + "\(name) flagged \(floored.honestFlagged.count) honest, \(floored.sessionsCaught) of "
+                + "\(sessionsFabricated) fabricated turns")
         if EvalModels.floorsApply(to: selection) {
-            #expect(honestFlaggedByPair.isEmpty, "honest replies flagged: \(honestFlaggedByPair)")
+            #expect(floored.honestFlagged.isEmpty, "honest replies flagged by \(name): \(floored.honestFlagged)")
             #expect(
-                sessionsCaughtByPair * 2 >= sessionsFabricated,
-                "fabricated turns flagged \(sessionsCaughtByPair)/\(sessionsFabricated)")
+                floored.sessionsCaught * 2 >= sessionsFabricated,
+                "fabricated turns flagged by \(name) \(floored.sessionsCaught)/\(sessionsFabricated)")
         }
     }
 }
