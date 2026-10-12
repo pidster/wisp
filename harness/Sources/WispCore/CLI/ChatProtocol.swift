@@ -245,12 +245,13 @@ public enum ChatProtocol {
     /// a `note` line, which is what a front end shows. `ran`, when present, is the line of what the turn ran, from
     /// its audit events (`TurnToolSummary`, ADR 0051), for the front end to show under the reply; it is sent
     /// nowhere else. `cited`, when present, is the line naming the entries the reply cites that the conversation
-    /// does not hold (`CitedEntries`, ADR 0055), shown beside it.
+    /// does not hold (`CitedEntries`, ADR 0055), shown beside it; `verified`, when present, the line for a result
+    /// claim the turn's calls do not support (`ReplyVerification`, ADR 0060), shown after it.
     public static func turn(_ mark: ChatTurn) -> [String: JSONValue] {
         switch mark {
         case .start(let turn):
             return ["phase": "start", "turn": .int(turn)]
-        case .end(let turn, let seconds, let failed, let tokens, let facts, let ran, let cited):
+        case .end(let turn, let seconds, let failed, let tokens, let facts, let ran, let cited, let verified):
             var fields: [String: JSONValue] = [
                 "phase": "end", "turn": .int(turn), "seconds": .double(seconds), "outcome": failed ? "error" : "ok",
             ]
@@ -261,6 +262,7 @@ public enum ChatProtocol {
             if !facts.isEmpty { fields["facts"] = FactReport.newFactsJSON(facts) }
             if let ran { fields["ran"] = .string(ran) }
             if let cited { fields["cited"] = .string(cited) }
+            if let verified { fields["verified"] = .string(verified) }
             return fields
         }
     }

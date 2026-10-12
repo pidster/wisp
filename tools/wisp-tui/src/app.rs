@@ -571,6 +571,9 @@ impl App {
         if let Some(cited) = &turn.cited {
             self.push(cited, LineKind::Note);
         }
+        if let Some(verified) = &turn.verified {
+            self.push(verified, LineKind::Note);
+        }
         self.turn = Some(if turn.is_start() {
             self.busy = true;
             TurnState::Running(turn.number)
@@ -2587,6 +2590,7 @@ mod tests {
             output_tokens: None,
             ran: None,
             cited: None,
+            verified: None,
         }
     }
 
@@ -2620,6 +2624,23 @@ mod tests {
                 ("ran: inspect".to_string(), LineKind::Note),
                 (
                     "cited but not in this conversation: entries 19–30 (12)".to_string(),
+                    LineKind::Note
+                )
+            ]
+        );
+        // A result claim the turn's calls do not support follows them (ADR 0060).
+        let mut verified = turn("end", 4, Some(1.0), Some("ok"));
+        verified.ran = Some("ran: no tools".into());
+        verified.verified =
+            Some("unsupported: \"Removed the scratch file.\" (no rm, rmdir, unlink, or trash command ran in this turn)".into());
+        app.handle(Outbound::Turn(verified));
+        assert_eq!(
+            texts(&mut app),
+            vec![
+                ("ran: no tools".to_string(), LineKind::Note),
+                (
+                    "unsupported: \"Removed the scratch file.\" (no rm, rmdir, unlink, or trash command ran in this turn)"
+                        .to_string(),
                     LineKind::Note
                 )
             ]

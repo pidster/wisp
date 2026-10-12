@@ -23,7 +23,8 @@ import Testing
         "ollama": ["backends", "ollama"], "coreai": ["backends"], "mlx": ["backends"],
         "llamacpp": ["backends", "llamacpp"], "lmstudio": ["backends", "lmstudio"],
         "notifications": ["notifications"], "tools": ["tools"], "routing": ["routing"], "facts": ["facts"],
-        "assessment": ["assessment"], "context": ["context"], "watch": ["watch"], "models": ["models", "disabled"],
+        "assessment": ["assessment"], "context": ["context"], "watch": ["watch"], "verification": ["verification"],
+        "models": ["models", "disabled"],
     ]
 
     private func renderedConfiguration() throws -> JSONValue {

@@ -198,7 +198,13 @@ handling). One turn, as the agent runs it:
    (`TurnToolSummary`, [ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)): the line every
    face shows beside the reply, as `Agent.Reply.ran`. Beside it, `CitedEntries` reads the entry numbers the reply
    cites in wisp's reference forms and keeps those the store does not hold (`Agent.Reply.unknownEntries` and
-   `cited`, [ADR 0055](decisions/0055-cited-entries-checked.md)). The trail also keeps `model.reasoning`, whose
+   `cited`, [ADR 0055](decisions/0055-cited-entries-checked.md)). Third, the verification pass
+   (`ReplyVerification`, the exact readers, and `ReplyVerifier`, the model step behind `verification.mode`)
+   checks the results the reply reports against the turn's complete call list (`TurnCalls` over the same
+   events, each call's whole output read from the `OutputStore`), with earlier turns' calls as a second support
+   kept in the store's continuity; what it finds is `Agent.Reply.verification` and `verified`, and is recorded
+   as `response.verification` ([ADR 0060](decisions/0060-a-verification-pass.md), [verification.md](verification.md)).
+   The trail also keeps `model.reasoning`, whose
    `end` event a reasoning entry refers to ([ADR 0053](decisions/0053-the-models-thinking-shown.md)).
 6. After a turn that succeeded, the composer looks in each of its replies for presentational text:
    a stretch that reproduces one of the turn's tool outputs exactly, formatting aside (`Presentation`).

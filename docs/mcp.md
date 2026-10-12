@@ -262,6 +262,17 @@ entry 7"`, `entries 16-30`, `entries 19, 20 and 21`) that the thread's store doe
 there are none ([ADR 0055](decisions/0055-cited-entries-checked.md)). Ranges are expanded up to 100 numbers in all.
 A reply that cites entries that do not exist reports work in a form that looks checked; the caller can tell.
 
+`verification` is the verification pass over the reply ([verification.md](verification.md),
+[ADR 0060](decisions/0060-a-verification-pass.md)): exact readers, and with `verification.mode` `model` a side
+call to the thread's model, check the results the reply reports (a tool in call form with a result, a command
+said to have run, an exit status, a denial, a test or build outcome, a notification, a file removed, output
+quoted, a count) against the turn's complete call list from the audit log, with each call's whole output. It is
+`{ "status": "verified" | "unsupported", "method": "readers" | "model", "claims": [{ "reader", "claim", "reason" }],
+"calls": N }`, with `failure` when the model step failed, or null when the reply made no claim to check (or the
+mode is `off`). `claims` quotes each unsupported claim with why: `{ "reader": "removal", "claim": "Removed the
+scratch file.", "reason": "no rm, rmdir, unlink, or trash command ran in this turn" }`; `reader` is `model` for the
+model step's one finding. The text content the caller's model reads is unchanged.
+
 This is the same rule chat follows (decision D12): the transcript carries every tool's real output, from
 the same `tool.result` audit event, whatever the model's reply says, and only the rendering differs by
 face. Chat prints it under the call's note and folds past `shownOutputLines`; `wisp-tui` folds it and

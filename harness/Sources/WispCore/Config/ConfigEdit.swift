@@ -150,6 +150,10 @@ public enum ConfigSettings {
             summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
             kind: .integer(Config.ContextConfig.outputDaysRange)),
         Setting(
+            path: "verification.mode",
+            summary: "how a reply's result claims are checked against the turn's calls: off, readers, or model",
+            kind: .choice(VerificationMode.allCases.map(\.rawValue))),
+        Setting(
             path: "watch.settle",
             summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
             kind: .number(Config.WatchConfig.settleRange)),
@@ -265,6 +269,7 @@ public enum ConfigSettings {
         case "context.memory": return .bool(d.contextMemory)
         case "context.outputDays": return .int(d.contextOutputDays)
         case "watch.settle": return .double(d.watchSettle)
+        case "verification.mode": return .string(d.verificationMode.rawValue)
         default:
             // A model's own window falls back to the runtime's, then to sizing; its thinking to the runtime's.
             guard let named = perModel(path) else { return nil }

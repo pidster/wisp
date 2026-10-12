@@ -9,16 +9,20 @@ public enum ChatTurn: Equatable, Sendable {
     /// turn's requests used, when the model reports it; `facts` are the ones the turn recorded or changed;
     /// `ran` is what the turn ran, from its audit events (`TurnToolSummary`, ADR 0051), nil when there is
     /// nothing to show; `cited` names the entries the reply cites that the conversation does not hold
-    /// (`CitedEntries`, ADR 0055), nil when there are none.
+    /// (`CitedEntries`, ADR 0055), nil when there are none; `verified` is the line for a result claim the turn's
+    /// calls do not support (`ReplyVerification`, ADR 0060), nil when there is none.
     case end(
         turn: Int, seconds: Double, failed: Bool, tokens: TurnTokens? = nil, facts: [Fact] = [], ran: String? = nil,
-        cited: String? = nil)
+        cited: String? = nil, verified: String? = nil)
 
     /// The lines under a reply in the terminal chat, muted: what the turn ran, when there is a line for it
-    /// (ADR 0051), the entries it cited that do not exist (ADR 0055), and how long the turn took and, when the model reports them, the tokens it read (↓, pale
-    /// yellow) and wrote (↑, pale blue). Nil for a turn's start.
+    /// (ADR 0051), the entries it cited that do not exist (ADR 0055), a claim its calls do not support (ADR 0060),
+    /// and how long the turn took and, when the model reports them, the tokens it read (↓, pale yellow) and wrote
+    /// (↑, pale blue). Nil for a turn's start.
     public func footer(style: Style) -> String? {
-        guard case .end(_, let seconds, let failed, let tokens, _, let ran, let cited) = self else { return nil }
+        guard case .end(_, let seconds, let failed, let tokens, _, let ran, let cited, let verified) = self else {
+            return nil
+        }
         var parts = [failed ? "failed after \(String(format: "%.1f", seconds)) s" : String(format: "%.1f s", seconds)]
         if let tokens {
             // No rate: the turn's time includes its commands and approvals, so tokens over it is not the
@@ -26,8 +30,8 @@ public enum ChatTurn: Equatable, Sendable {
             parts.append(
                 style.tokensIn("↓\(tokens.input.formatted())") + " " + style.tokensOut("↑\(tokens.output.formatted())"))
         }
-        return (ran.map { "  " + style.muted($0) + "\n" } ?? "") + (cited.map { "  " + style.muted($0) + "\n" } ?? "")
-            + "  "
+        let notes = [ran, cited, verified].compactMap { $0 }.map { "  " + style.muted($0) + "\n" }.joined()
+        return notes + "  "
             + parts.enumerated().map { $0.offset == 0 ? style.muted($0.element) : $0.element }
             .joined(separator: style.muted(" · "))
     }
@@ -474,7 +478,7 @@ public struct ChatLoop {
                     .end(
                         turn: number, seconds: Date().timeIntervalSince(started), failed: failed,
                         tokens: .between(before, agent.tokensUsed), facts: reply?.facts ?? [], ran: reply?.ran,
-                        cited: reply?.cited))
+                        cited: reply?.cited, verified: reply?.verified))
                 if let note = FactReport.newFacts(reply?.facts ?? []) { io.note(style.muted(note)) }
             }
         }

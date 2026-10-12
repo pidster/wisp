@@ -160,6 +160,18 @@ public final class Agent {
     /// The conversation's tool events, so the store can link tool calls and outputs to them; set by
     /// `WispThread.openAgent`. Nil leaves tool entries without sources.
     public var toolEvents: ToolEventTrail?
+    /// The conversation's output store, where a tool output larger than the budget is kept whole (ADR 0050), so the
+    /// verification pass reads a call's whole output rather than the slice the model saw; set by
+    /// `WispThread.openAgent`. Nil reads each call's output from its `tool.result` event.
+    public var outputs: OutputStore?
+    /// How each reply's result claims are checked against the turn's call list
+    /// ([ADR 0060](../../../../docs/decisions/0060-a-verification-pass.md)): the exact readers by default, a model
+    /// step too with `.model`, nothing with `.off`. Without a `ToolEventTrail` there is no call list and nothing is
+    /// checked whatever the mode.
+    public var verification = VerificationMode.readers
+    /// The last stored turn's complete call list, from its audit events (`TurnCalls`, no limit), for the
+    /// verification pass; nil before the first turn or without a trail.
+    var lastCalls: [TurnCalls.Call]?
     /// What runs the commands the person types in chat after `!` (ADR 0049): the conversation's own runner,
     /// with `run_command`'s policy, sandbox, bounds, and audit, called with `.person` so its gate is not consulted.
     /// Set by `WispThread.openAgent`; nil, for an agent made directly, makes typed commands unavailable.
@@ -588,6 +600,7 @@ public final class Agent {
             added = Self.answered(added)
         }
         turnTools = toolEvents == nil ? nil : TurnToolSummary(events: events, turn: turn)
+        lastCalls = toolEvents == nil ? nil : TurnCalls(events: events, turn: turn, limit: .max).calls
         let sources = ThreadRecord.sources(
             for: added, prompt: prompt, response: response, toolEvents: events)
         let now = Date()
@@ -717,6 +730,11 @@ public final class Agent {
         public var unknownEntries: [Int] = []
         /// The line beside `ran` that names `unknownEntries` (`CitedEntries.line`); nil when there are none.
         public var cited: String?
+        /// The verification pass over the reply (ADR 0060): what was checked and what was found; nil when the reply
+        /// made no claim to check, the pass is off, or the agent has no call list.
+        public var verification: Verification?
+        /// The line beside `cited` when a claim is unsupported (`ReplyVerification.line`); nil otherwise.
+        public var verified: String?
 
         /// Creates a reply.
         public init(
@@ -886,6 +904,9 @@ public final class Agent {
             let missing = CitedEntries.missing(in: text, store: store)
             reply.unknownEntries = missing.numbers
             reply.cited = CitedEntries.line(missing.numbers, capped: missing.capped)
+            // The reply's result claims against the turn's complete call list (ADR 0060).
+            reply.verification = await verify(text, calls: lastCalls)
+            reply.verified = reply.verification.flatMap { ReplyVerification.line($0.claims) }
             return reply
         } catch {
             // Whatever the request threw as it was cancelled, a turn the person stopped ended because they did.

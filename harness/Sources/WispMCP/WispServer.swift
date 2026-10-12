@@ -441,6 +441,7 @@ public struct WispServer: Sendable {
                     "ran": reply.ran.map { .string($0) } ?? .null,
                     "unknownEntries": .array(reply.unknownEntries.map { .int($0) }),
                     "cited": reply.cited.map { .string($0) } ?? .null,
+                    "verification": reply.verification.map { Value(json: $0.json) } ?? .null,
                     "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
                     "notifications": Value(json: Self.notifications(in: events)),
                     "factsProposed": Value(json: factsProposed(thread: id)),

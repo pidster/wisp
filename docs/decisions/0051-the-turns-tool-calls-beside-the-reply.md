@@ -64,7 +64,8 @@ not a judgement of the reply, not parsed from it, only the facts.
   `run_command` counted as failed, not denied, beside "denied per policy".
 - A pass that checks the reply against the calls (a model asked whether the reply's claims match this list)
   is a separate decision, still open, for the 0.20.0 eval round, where what it catches and what it costs can be
-  measured.
+  measured. Decided on 2026-10-12 in [ADR 0060](0060-a-verification-pass.md): exact readers by default, a model
+  step behind `verification.mode`, and `VerificationEvalTests` built from the runs above to measure it.
 - The heuristic can miss: a reply that describes work in other words ("I checked the config") after running
   nothing shows no line. Naming a tool is the sign the two runs gave; widening it would mean judging the
   reply, which this decision does not do.

@@ -190,6 +190,8 @@ public struct WispThread: Sendable {
             }
         agent.stats = stats
         agent.toolEvents = toolEvents
+        agent.outputs = outputs
+        agent.verification = config.verificationMode
         agent.commandRunner = runner
         agent.thinking = thinking
         // The budget follows the window: known now for most backends, at the first overflow for the rest.

@@ -112,6 +112,7 @@ public struct Introspection: Sendable {
                 "outputDays": .int(config.contextOutputDays),
             ]),
             "watch": .object(["settle": .double(config.watchSettle)]),
+            "verification": .object(["mode": .string(config.verificationMode.rawValue)]),
             "backends": .object(
                 Self.configuredBackends(config).merging(
                     ModelBackends.all.map { ($0.scheme, $0.settings(in: config, home: home)) },

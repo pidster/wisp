@@ -35,6 +35,7 @@ import WispTestSupport
             .say("Done: run_command printed it."),
             .say("I used run_command for that."),
             .say("Logged in entries 2-40."),
+            .say("Removed the scratch file."),
         ])
         defer { try? FileManager.default.removeItem(at: pair.server.session.home.root) }
         let result = try await call(pair.client, "respond", ["prompt": "go", "thread_id": "t"])
@@ -57,6 +58,17 @@ import WispTestSupport
         let unknown = try #require(third["unknownEntries"]?.arrayValue).compactMap(\.intValue)
         #expect(unknown.last == 40 && !unknown.contains(2), "\(unknown)")
         #expect(third["cited"]?.stringValue?.hasPrefix("cited but not in this conversation: entries ") == true)
+        #expect(third["verification"] == .null, "no result language, nothing checked")
+        // A result the turn's calls do not support is returned as `verification` (ADR 0060).
+        let fourth = try #require(
+            try await call(pair.client, "respond", ["prompt": "clean?", "thread_id": "t"]).structuredContent?
+                .objectValue)
+        let verification = try #require(fourth["verification"]?.objectValue)
+        #expect(
+            verification["status"] == "unsupported" && verification["method"] == "readers" && verification["calls"] == 0
+        )
+        let claim = try #require(verification["claims"]?.arrayValue?.first?.objectValue)
+        #expect(claim["reader"] == "removal" && claim["claim"] == "Removed the scratch file.")
         await pair.client.disconnect()
         await pair.server.stop()
     }
