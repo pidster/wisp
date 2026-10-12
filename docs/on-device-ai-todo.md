@@ -118,7 +118,7 @@ against 0/7 and 1/7).
   dangerous command is rated safe.)
 - [ ] Include ambiguous commands, contextual risks and misleading text in labelled evaluation cases.
   *Partly:* real and drafted commands with look-alikes, reviewed adversarially. The frozen test set
-  holds only 25 dangerous commands.
+  holds 29 dangerous commands (25 until 2026-10-12, when 13 confirmed rows from real use joined it).
 - [x] Link the assessment, policy verdict and human decision to the originating prompt and tool call
   (`classifier.verdict`, `policy.decision`, and `approval.decided` carry the turn and the call).
 

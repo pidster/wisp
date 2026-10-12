@@ -42,7 +42,7 @@ rules' reasons.
 
 | Task | train | dev | test | Labels |
 | --- | --- | --- | --- | --- |
-| `risk` | 2,135 (1,060 drafted, 1,075 real) | 392 (123 drafted, 269 real) | 996 (627 safe, 344 moderate, 25 dangerous) | safe, moderate, dangerous |
+| `risk` | 2,135 (1,060 drafted, 1,075 real) | 392 (123 drafted, 269 real) | 1,009 (631 safe, 349 moderate, 29 dangerous; 13 added from real use on 2026-10-12) | safe, moderate, dangerous |
 | `secrets` | 527 | 93 | 645 (216 none, 218 personal, 211 secret; third-party synthetic data, see `secrets/NOTICE.md`) | secret, personal, none |
 | `failures` | 542 | 96 | 400 (169 none, 71 test-failure, 59 error, 51 warning, 50 crash) | error, test-failure, warning, crash, none |
 | `log-severity` | 451 | 80 | 381 (275 info, 64 error, 41 warning, 1 fault) | fault, error, warning, info |
@@ -75,7 +75,7 @@ The risk train set also has 74 lines on credentials printed into output (`printe
 safe and moderate near-misses so the word `token` alone does not predict the label, and reviewed
 adversarially (`reviews/risk-credentials.md`).
 
-What they cannot yet measure: risk has 25 dangerous commands, so no dangerous command rated safe bounds
+What they cannot yet measure: risk has 29 dangerous commands (25 until 2026-10-12), so no dangerous command rated safe bounds
 that rate only below about 12%; log severity has one fault. Both need more real cases.
 
 ## How they were made

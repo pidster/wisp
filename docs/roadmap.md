@@ -30,9 +30,9 @@ regressions, not a measurement.
   `wisp mcp` posts a banner, even when the client's dialog is answered at once
   ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Consequences"): post it only after the
   dialog has gone unanswered for some seconds.
-- **The risk test set grown from real use.** The classifier's frozen test set holds 25 dangerous commands; add
+- **The risk test set grown from real use.** The classifier's frozen test set held 25 dangerous commands; add
   dangerous commands the gate sees in use, each confirmed by the operator before it joins (ADR 0038,
-  [backlog.md](backlog.md), "Classifiers").
+  [backlog.md](backlog.md), "Classifiers"). Done 2026-10-12: 13 rows, the operator confirming each; 29 dangerous.
 
 ## Not scheduled
 

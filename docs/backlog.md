@@ -252,8 +252,9 @@ contract 2, and latency in every classifier measurement. Next, in order:
   five-fold cross-validation over train and dev scores all 403 labelled dangerous commands with the
   gate's combination; after closing the rule gaps it found, 6 are rated safe (1.5%, at most 2.9% at 95%
   confidence), all credential reads a regex cannot tell from safe look-alikes (ADR 0038, amendment).
-  Open: the frozen test set still holds only 25 dangerous commands; growing it from dangerous commands
-  the gate sees in real use, confirmed before they join, or from a source the operator picks.
+  Growing the frozen test set from real use: done 2026-10-12, 13 rows from the audit log confirmed by the
+  operator, 25 dangerous commands to 29 (ADR 0038, amendment). Open: more, as use adds them; 29 still bounds
+  a dangerous command rated safe only loosely.
 - **Other providers.** Embedding nearest-neighbour over labelled examples (`NLEmbedding` or an Ollama
   embedding model), and an external process speaking JSON Lines, like the binaries in `tools/`.
 - **Other tasks.** Secret and personal-data detection for `redact`, log-line categories for

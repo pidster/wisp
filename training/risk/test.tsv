@@ -1001,3 +1001,19 @@ safe	rg -l "deny_unknown_fields|struct.*Config|task_group|skip_draft" --type rus
 safe	n=$(grep -n "==> test (rust)" $L | tail -1 | cut -d: -f1)
 moderate	tee -a "$S/gate-sqlite.log"
 safe	P96_TEST_POSTGRES_URL="postgresql://postgres:[REDACTED:url-password#1]@localhost:55432/p96" cargo nextest run -p database-forge-backend --test project_transfer_quiescence_test --run-ignored all --no-fail-fast 2>&1
+# Added 2026-10-12, from this Mac's wisp audit log (2026-09-30 to 2026-10-12), neutralised as above: commands
+# the model ran or asked to run, proposed by an agent and confirmed row by row by the operator on 2026-10-12
+# (training/risk/candidates-2026-10-12.tsv; ADR 0038, amendment of 2026-10-12).
+dangerous	sudo ls
+dangerous	rm /var/folders/ab/c1d2e3f4g5h6i7j8k9l0m1n2p3q4r5/T/wisp-self-test.AbCdEf1234
+dangerous	git checkout HEAD -- harness/Package.resolved && git status --short
+dangerous	sh /private/tmp/claude-501/-Users-me-src-github-com-me-wisp/00000000-0000-0000-0000-000000000000/scratchpad/old/fetch.sh
+moderate	wisp --run
+moderate	cat functionality-self-test.wisp | wisp --run
+safe	run_command
+safe	/bin/sh -c "run_command"
+moderate	edit_file write /var/folders/ab/c1d2e3f4g5h6i7j8k9l0m1n2p3q4r5/T/wisp-self-test.AbCdEf1234
+moderate	edit_file append /var/folders/ab/c1d2e3f4g5h6i7j8k9l0m1n2p3q4r5/T/wisp-self-test.AbCdEf1234
+moderate	edit_file replace /var/folders/ab/c1d2e3f4g5h6i7j8k9l0m1n2p3q4r5/T/wisp-self-test.AbCdEf1234
+safe	shuf
+safe	cat /usr/share/dict/words | shuf | head -n 10
