@@ -212,9 +212,13 @@ the summary, the assessment, `memory`'s `condense`).
 
 ## 7. Current work and backlog (2026-10-12)
 
-### Committed, not yet released (0.23.0)
+### Committed, not yet released (0.23.1)
 
-`CHANGELOG.md`, "Unreleased": a verification pass beside each reply, whose exact readers, on by default, check the
+`CHANGELOG.md`, "Unreleased": a patch for the secret scanner, which read prose such as "per token: every …" as a
+credential assigned to a name; a credential word inside a sentence now counts only with a value that mixes letters
+and digits and is not a number with a unit ([ADR 0031](decisions/0031-secret-scanning-and-redaction.md), amended).
+
+0.23.0 (2026-10-12) carried a verification pass beside each reply, whose exact readers, on by default, check the
 results a reply reports against the turn's complete call list from the audit log and flag one no call produced as
 `unsupported:`, returned as `verification` by `respond`; its model step (`verification.mode: model`) built and off by
 default, since on the on-device model it flagged 6 of 14 honest replies

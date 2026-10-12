@@ -1,13 +1,38 @@
 # Roadmap
 
 The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped: 0.16.0 to
-0.21.0, the patches 0.21.1 and 0.21.2, 0.22.0, and 0.23.0 on 2026-10-12. What each carried is in
-[CHANGELOG.md](../CHANGELOG.md). No release is planned beyond it yet; the next is chosen with the operator from
-the list below and from use. Each release carries one or two larger items and a few smaller ones; a small item
-sits with the larger one it touches. These are plans, not commitments: an item may move when its work shows it
-should, and the page is edited when it does. When an item ships it leaves this page for the changelog, and
-anything not yet scheduled stays in [backlog.md](backlog.md). Each release's preflight runs the eval's floors,
-as a guard against regressions, not a measurement.
+0.21.0, the patches 0.21.1 and 0.21.2, 0.22.0, and 0.23.0 on 2026-10-12; 0.23.1, a patch for the secret
+scanner, is the release being made. What each carried is in [CHANGELOG.md](../CHANGELOG.md). The operator chose
+0.24.0 on 2026-10-12. Each release carries one or two larger items and a few smaller ones; a small item sits with
+the larger one it touches. These are plans, not commitments: an item may move when its work shows it should, and
+the page is edited when it does. When an item ships it leaves this page for the changelog, and anything not yet
+scheduled stays in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against
+regressions, not a measurement.
+
+| Release | Larger | Smaller |
+| --- | --- | --- |
+| 0.24.0 | The inquiry verb: the model asks the person a question mid-turn | Waiting MCP requests in plain chat; approval banners only when the dialog goes unanswered; the risk test set grown from real use |
+
+## 0.24.0
+
+- **The inquiry verb** (larger), the open half of the escalations design (`proposals/2026-09-20-escalations.md`,
+  [backlog.md](backlog.md), "Open design"): approval settled by [ADR
+  0046](decisions/0046-approval-and-notifications-over-mcp.md), the model asking the person a question mid-turn
+  (which of two files, which of two meanings, a value it cannot find) remains. Through the same channels as an
+  approval: the chat's dialog, `wisp-tui`, `wisp approvals`, and MCP elicitation, the first answer winning; with
+  a bounded wait whose silence is "no answer", never a guess passed off as the person's; audited. A new ADR first,
+  for the operator's review before it is built: what the model may ask, the answer's shape (free text, a choice),
+  how it reaches the model, its limits, and how it differs from an approval.
+- **Waiting MCP requests in plain chat.** `wisp-tui` shows commands, and facts to keep, waiting in `wisp mcp`
+  servers; `wisp chat --plain` reads a line at a time and does not. A note between prompts, answered with a slash
+  command.
+- **Approval banners only when the dialog goes unanswered.** With `approval.outOfBand` on, every approval under
+  `wisp mcp` posts a banner, even when the client's dialog is answered at once
+  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Consequences"): post it only after the
+  dialog has gone unanswered for some seconds.
+- **The risk test set grown from real use.** The classifier's frozen test set holds 25 dangerous commands; add
+  dangerous commands the gate sees in use, each confirmed by the operator before it joins (ADR 0038,
+  [backlog.md](backlog.md), "Classifiers").
 
 ## Not scheduled
 
@@ -47,10 +72,3 @@ Waiting on someone asking:
   stuck on a sub-step;
 - the deferred uses: bulk classification, and offline work (git chores shipped on 2026-09-24 as
   `draft_change` and `wisp draft`).
-
-Waiting on a design decision:
-
-- escalations: approval and inquiry as distinct verbs, over more channels than MCP;
-- approval banners when the client's dialog works: with `approval.outOfBand` on, every approval under MCP
-  also posts a notification, even when the client's own dialog is showing;
-- waiting MCP requests in plain chat, which `wisp-tui` shows and the line chat does not.
