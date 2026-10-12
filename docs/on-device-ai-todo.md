@@ -212,9 +212,22 @@ the summary, the assessment, `memory`'s `condense`).
 
 ## 7. Current work and backlog (2026-10-12)
 
-### Committed, not yet released (0.22.0)
+### Committed, not yet released (0.23.0)
 
-`CHANGELOG.md`, "Unreleased": one tool-output budget from the model's window, an eighth of it (4 KiB on the
+`CHANGELOG.md`, "Unreleased": a verification pass beside each reply, whose exact readers, on by default, check the
+results a reply reports against the turn's complete call list from the audit log and flag one no call produced as
+`unsupported:`, returned as `verification` by `respond`; its model step (`verification.mode: model`) built and off by
+default, since on the on-device model it flagged 6 of 14 honest replies
+([ADR 0060](decisions/0060-a-verification-pass.md)). Chat's `/show` and `/last` and `wisp-tui`'s Ctrl-O showing a
+stored output whole, through the protocol's `output` request. Larger eval sets for `edit_file`, `system_info`, and
+`draft_change`, with floors set from statistics and `WISP_EVAL_FULL=1` for the whole sets. A request to keep a
+permanent fact waiting with no time limit and outliving its thread and its server
+([ADR 0048](decisions/0048-permanent-facts-over-mcp.md), amended); the terminal-only answers reviewed and kept
+([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)); processes named at spawn
+([ADR 0061](decisions/0061-process-names-set-at-spawn.md)). `edit_file` on CRLF and mixed-ending files, with a guard
+against a wider change ([ADR 0024](decisions/0024-edit-file.md), refined 2026-10-12).
+
+0.22.0 (2026-10-12) carried one tool-output budget from the model's window, an eighth of it (4 KiB on the
 on-device model, 64 KiB at most), with what does not fit kept whole in the conversation's output store and reached
 through `memory` by page, filter, exact summary, or a condensing question; the store swept by age
 (`context.outputDays`) and reported by `wisp doctor`; `inspect` listing a turn's calls and a repeated call noted;
@@ -226,8 +239,7 @@ model actions for the person and the model: `/models pull`, `trust`, and `cancel
 calls sending `think: false` and `respond` taking `think` ([ADR 0053](decisions/0053-the-models-thinking-shown.md),
 amended 2026-10-11). Ctrl-C stopping a model's turn and its command. Shell loops judged by what they run, inline
 programs and pipes into an interpreter judged, a line asked once, approvals for folders that are gone marked and
-cleared, and the risk rules reading search patterns and printed text as data. Not built: chat's `/show` and
-`wisp-tui`'s expanded view still show a stored output as the model got it ([roadmap.md](roadmap.md), 0.23.0).
+cleared, and the risk rules reading search patterns and printed text as data.
 
 0.21.2 (2026-10-11): a patch for one fault found after 0.21.1. Under load, Swift's cooperative thread pool
 could be filled by synchronous bridges (`Blocking.run`, for Core ML compiles and model resolution) waiting on work
@@ -284,9 +296,9 @@ and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts over MCP
 
 ### Planned next
 
-The [roadmap](roadmap.md) has each release to 0.23.0; next, 0.23.0: a verification pass, a reply checked against
-the turn's calls ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)'s open option), with larger
-eval sets and a stored output shown whole in chat and `wisp-tui`. Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
+The [roadmap](roadmap.md) ends with 0.23.0, the last release planned; what is left is under its "Not
+scheduled", among it the verification pass's model step, waiting on a more capable model.
+Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
 0.20.0 must measure" beyond the Qwen3-1.7B comparison.
 
 ### Open from the layered context

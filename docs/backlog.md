@@ -24,13 +24,15 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
   only when a request restates one (`assessment.taskChanges: restated`).
 - Done 2026-10-03: permanent facts over MCP ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A
   `wisp mcp` caller asks with `set_fact_scope` `permanent`, and the person keeps or drops the fact with
-  `wisp facts keep|drop` or in `wisp-tui`.
+  `wisp facts keep|drop` or in `wisp-tui`. Settled 2026-10-12: a request has no time limit and outlives its thread
+  and its server (ADR 0048, amended); the terminal-only answers were reviewed and kept
+  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Review, 2026-10-12").
 - Done 2026-10-12: the tool-output budget ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)). Every
   tool result is bounded by an eighth of the model's window (4 to 64 KiB); what does not fit is kept whole in the
   conversation's output store (`~/.wisp/output/<session>/`, swept by age, `context.outputDays`) and reached through
   `memory` by page, filter, exact summary, or a condensing question; `inspect` lists a turn's calls and a repeated
-  call is noted. Open: chat's `/show` and `wisp-tui`'s expanded view still show the cut output, not the stored
-  whole ([roadmap.md](roadmap.md), 0.23.0).
+  call is noted. Done 2026-10-12 too: chat's `/show` and `/last` and `wisp-tui`'s expanded view (Ctrl-O) show the
+  stored whole, through a pager on a terminal and a page at a time in `wisp-tui` (ADR 0050, "The person's views").
 
 ## Policy
 
@@ -71,6 +73,17 @@ not the differentiator. Items, in order of leverage:
 - Done 2026-09-20: a measured task catalogue. `scripts/check eval` records a `Measurement` per task
   into an embedded resource; the tool catalogue and `wisp://measurements` publish them
   ([ADR 0026](decisions/0026-task-catalogue.md), [measurements.md](measurements.md)).
+- Done 2026-10-12: the verification pass ([ADR 0060](decisions/0060-a-verification-pass.md),
+  [verification.md](verification.md)). Exact readers check the results a reply reports against the turn's complete
+  call list from the audit log, on by default; an unsupported claim is shown as `unsupported:` and returned as
+  `verification` by `respond`. The model step (`verification.mode: model`) is built and off by default: on the
+  on-device model it flagged 6 of 14 honest replies; open until a more capable model is measured
+  ([roadmap.md](roadmap.md), "Not scheduled").
+- Done 2026-10-12: the eval sets of `edit_file`, `system_info`, and `draft_change` enlarged (110, 54, and 44 cases),
+  with floors set from the suites' pooled history; the release runs a fixed subset, `WISP_EVAL_FULL=1` all of them
+  ([measurements.md](measurements.md)).
+- Done 2026-10-12: processes named at spawn ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)):
+  `scripts/wisp-mcp` starts `wisp mcp (CLIENT)` from `WISP_MCP_CLIENT`, `wisp-tui` its child as `wisp chat (tui)`.
 - **Reverse delegation through MCP sampling.** When the on-device model is stuck on a sub-step, ask the
   calling harness's model through the protocol, with data leaving the device only for that step and only
   with approval.
@@ -98,6 +111,12 @@ for after them:
 - Done 2026-10-09: `edit_file`'s line edits forgive a line sent without its indentation and a stale line number
   beside `find`, without guessing, and an empty `find` beside `line` checks nothing
   ([ADR 0024](decisions/0024-edit-file.md), refined 2026-10-06).
+- Done 2026-10-12: `edit_file` on CRLF, CR-only, and mixed-ending files: lines split on bytes as `read_file` numbers
+  them, each line keeping its ending, and a guard refusing an edit that would change lines it does not name (ADR
+  0024, refined 2026-10-12). Before, an edit of line 1 of a CRLF file replaced the whole file.
+- Open, found 2026-10-12: the secret scanner's unquoted `assigned-secret` rule reads prose as a credential assigned
+  to a name ("per token: every …th layer", "per drafted token: 748.125 MiB" in the `756b178` eval fixture, which
+  `EvalSetsTests` allows by name). Narrow it without missing a real unquoted credential.
 
 ## Terminal front end
 

@@ -4,6 +4,58 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+A verification pass beside each reply, whole stored outputs in chat, larger eval sets with floors set from
+statistics, and a fix for `edit_file` on files with Windows line endings.
+
+Added:
+
+- A verification pass beside each reply (ADR 0060): exact readers check the results a reply reports (a tool in
+  call form with a result, a command said to have run, an exit status, a denial, a test or build outcome, a
+  notification, a file removed, quoted output, a count) against the turn's complete call list from the audit log,
+  with each call's whole output from the output store. An unsupported claim is shown under the reply as
+  `unsupported: "…" (why)`, carried as `verified` on `wisp chat --json`'s turn line and in `wisp-tui`, returned as
+  `verification` by `respond`, and audited as `response.verification`. On the three fabricated runs of 2026-10-04
+  the readers flag 8 of 9 fabricated replies and no honest one.
+- `verification.mode` (`off`, `readers` by default, `model`): `model` adds one side call to the conversation's
+  model (thinking off, input bounded to 6,000 bytes) when the readers find nothing and the reply has result
+  language. It stays off by default: measured on 2026-10-12, it flagged 6 of 14 honest replies on the on-device
+  model.
+- `/show` and `/last` show the whole of an output the model was given only in part, from the output store, under a
+  line saying so (and that the store cut it at 16 MiB, when it did); on a terminal it goes through `$PAGER` (`less
+  -R` by default). When the store has nothing they say why (nothing held back, the audit off, or swept) and show
+  what the tool returned. `wisp-tui`'s expanded view (Ctrl-O) shows the whole stored output, loaded 64 KiB at a
+  time as you scroll, holding at most four pages.
+- `wisp chat --json`: a new inbound `output` request, answered with a `view` of kind `output` (one page of an
+  output whole); `command.typed` records `stored`, the output store's id for its whole output.
+
+Changed:
+
+- A request to keep a fact as permanent (`set_fact_scope` `permanent`) no longer times out: it waits for you with
+  no time limit, and nothing is kept until you answer with `wisp facts keep|drop` or in `wisp-tui`. It also
+  outlives its thread and its server: a keep after the thread closed goes to the shared store, and after the
+  server stopped, `wisp facts keep` or `wisp-tui` keeps it itself. The result no longer carries `expiresAt`.
+- `scripts/wisp-mcp` starts the server named `wisp mcp (claude-code)` (from `WISP_MCP_CLIENT`, set in
+  `.mcp.json`), and `wisp-tui` starts its child as `wisp chat (tui)`, so `ps` tells them apart; wisp finds its own
+  executable by the kernel's path, never by `argv[0]` (ADR 0061).
+- The answers `wisp approvals approve|deny` and `wisp facts keep|drop` stay terminal-only, after review (ADR 0046).
+- The model evals of `edit_file`, `system_info`, and `draft_change` are larger: 110 `edit_file` cases, 54
+  questions, and 30, 8, and 6 diffs. Each floor is set from the suite's history pooled with the full run of
+  2026-10-12, so a release stops at most about 1% of the time by chance alone (before, `edit_file`'s half-floor
+  did about 4% of the time). Commit subjects are judged by an explicit rubric of terms they must and must not
+  contain. The release eval runs a fixed subset of each set; `WISP_EVAL_FULL=1 scripts/check eval` runs all of
+  them (41 minutes on 2026-10-12).
+- The README overview shows the optional `memory` and `models` tools.
+
+Fixed:
+
+- `edit_file` edits CRLF, classic Mac (CR-only), and mixed-ending files line by line, numbered exactly as
+  `read_file` numbers them: each line keeps its own ending, a replacement's line breaks take the file's dominant
+  ending, and a guard refuses any edit that would change lines it does not name. Before, a CRLF file was one line
+  to `edit_file`, so an edit of its line 1 replaced the whole file. `read_file` now also ends a line at a lone
+  carriage return.
+
 ## 0.22.0
 
 The tool-output budget, models managed in chat by the person and the model, thinking chosen per call, Ctrl-C

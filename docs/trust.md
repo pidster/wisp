@@ -20,8 +20,11 @@ disable, or check, and is refused trusting a publisher or switching the model ([
 under the sandbox but without asking, since the model supplies no command ([system_info](tools/system_info.md)).
 Tools you declare yourself in `~/.wisp/config.json` run their command through `run_command`'s policy,
 classifier, approval, and sandbox, so they grant nothing `run_command` does not; a project cannot
-declare one ([custom tools](tools/custom.md)). `edit_file` writes a text file under the same directories the sandbox allows
-([edit_file](tools/edit_file.md)). `run_command` runs a shell command through `/bin/sh -c` with wisp's
+declare one ([custom tools](tools/custom.md)).
+`edit_file` writes a text file under the same directories the sandbox allows; a line edit keeps each line's
+own ending (CRLF, CR, or LF), and a guard refuses, with nothing written, any edit that would change a line it does
+not name ([edit_file](tools/edit_file.md), [ADR 0024](decisions/0024-edit-file.md)).
+`run_command` runs a shell command through `/bin/sh -c` with wisp's
 own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 
 | The sandbox confines | It does not confine |
@@ -115,7 +118,10 @@ anyone else's word. In chat you state one or move one there (`/fact ID permanent
 `wisp facts keep <id>` or `drop <id>` in a terminal, or in a running `wisp-tui`. The rules are the ones for
 approval above: nothing in the MCP conversation answers, the answer is bound to the exact fact you were
 shown, wisp's own model is refused `wisp facts keep|drop` by the default policy, and both run only with a
-terminal on standard input. Unanswered, nothing is kept. A caller cannot change or remove a permanent fact;
+terminal on standard input. A request has no time limit and nothing is kept until you answer: it waits in
+`~/.wisp/pending`, outliving the thread and the server that asked (once the server has stopped, `wisp facts keep`
+or `wisp-tui` keeps the fact itself), until you keep or drop it; `wisp facts pending` lists what waits.
+A caller cannot change or remove a permanent fact;
 only you can, from chat ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)).
 
 wisp downloads a model only when you ask for it, with `wisp models pull <organisation>/<name>` in a terminal or
@@ -178,7 +184,17 @@ remembered as ([logging](logging.md)). A reasoning model's thinking is recorded 
 and shown to you (`/show`, `/inspect thinking`), and is never sent back to the model; wisp's own side calls
 (classifier verdicts, schema replies, the summary and facts) ask a thinking model not to think
 ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). A tool output too large for the model is kept whole in
-`~/.wisp/output/<session>/` (audited as `output.kept` by size and hash, not content) until it is swept.
+`~/.wisp/output/<session>/` (audited as `output.kept` by size and hash, not content) until it is swept; `/show`,
+`/last`, and `wisp-tui`'s Ctrl-O show you the whole of it.
+
+**What the line under a reply means.** Beside each reply wisp shows what the turn ran (`ran:`), the entries the
+reply cites that the conversation does not hold, and, from the verification pass (on by default,
+`verification.mode`), `unsupported:` for a result the reply reports that no call in the turn produced: a command
+said to have run that did not, an exit status or denial no command had, output no call printed. Each is read
+from wisp's own audit log, never from the reply. An `unsupported:` line means the reply claimed something the
+calls do not show; no line does not mean the reply is right: the pass reads only the forms of claim it knows, does
+not judge whether a conclusion follows from the output, and misses a result put in other words
+([verification.md](verification.md), [ADR 0060](decisions/0060-a-verification-pass.md)).
 
 ## Undoing
 

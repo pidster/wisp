@@ -40,7 +40,7 @@ scripts/check install-hooks        # once per clone
 scripts/check                      # hygiene + strict lint + warnings-as-errors build + tests (the gate)
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
-scripts/check eval [context|compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama: or mlx:), or (checkpoint) context checkpoint 2; record rewrites measurements.json
+scripts/check eval [context|compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama: or mlx:), or (checkpoint) context checkpoint 2; record rewrites measurements.json; WISP_EVAL_FULL=1 runs the whole case sets, not the release's subsets
 scripts/check mlx-live <model dir> # MLX live test on real weights, built with --traits MLX; not in the gate
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code
 
@@ -82,7 +82,11 @@ file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build ti
 unified logging. `Agent` keeps each conversation in a `ThreadRecord` that refers to the audit log, and
 `ContextComposer` composes every request from it: facts (`Facts/`), a running summary, recent turns with
 earlier tool output as references, and the request; `ContextPolicy` condenses it to a token target ahead
-of the window and on overflow (ADR 0045), and, where a conversation has it, the model's `memory` tool recalls what was dropped (off by default, ADR 0057). `Session.begin` is
+of the window and on overflow (ADR 0045), and, where a conversation has it, the model's `memory` tool recalls what was dropped (off by default, ADR 0057). Beside each reply the agent sets three checks from its own
+records: `ran:`, what the turn called (ADR 0051); entries the reply cites that the record lacks (ADR 0055); and the
+verification pass, `ReplyVerification`'s exact readers (`verification.mode`, on by default), which flags as
+`unsupported:` each result the reply reports that no call in the turn's audited call list produced, and is
+returned as `verification` by `respond` (ADR 0060). `Session.begin` is
 the single set-up path for every face; `respond` and `chat` open the session's own `WispThread`, and
 `WispMCP` opens one per `thread_id` through `Session.thread` (threads held by
 `ThreadRegistry`/`ThreadActor` actors), so all of them share one config, approval store, and
@@ -185,7 +189,9 @@ pre-commit hook then runs inside wisp's sandbox, which `scripts/check` detects. 
 connected, say so and ask the user to reconnect it rather than falling back to your own shell.
 
 The `wisp` server is this repository's own release build, for dogfooding, launched through
-`scripts/wisp-mcp`. **If the server fails to connect at start-up, the cause is almost always a missing
+`scripts/wisp-mcp`, which names the process `wisp mcp (claude-code)` from `WISP_MCP_CLIENT` in `.mcp.json`
+so `ps` tells it from another harness's server (ADR 0061).
+**If the server fails to connect at start-up, the cause is almost always a missing
 release build**: tell the user to run `scripts/check mcp-build` and reconnect, and offer to
 run the build yourself. The build is also stale after code changes until it is rerun. Use `respond` to
 delegate small, self-contained tasks to a local model (pass back `thread_id` to continue) and

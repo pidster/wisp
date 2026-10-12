@@ -14,7 +14,7 @@ wisp chat
 - **Redact before you share.** Secrets and personal data stripped from a file, on the Mac.
 - **Watches while you work.** Reruns your tests on save; pings you when they break.
 - **Your coding agent's local helper.** A 14,000-line log comes back as its top 30 messages.
-- **Shows its work.** Every reply says what actually ran; every action is logged.
+- **Shows its work.** Every reply says what actually ran and flags any result no call produced; every action is logged.
 
 ```bash
 wisp redact crash.log | pbcopy                 # secrets and personal data replaced
@@ -32,7 +32,8 @@ turn them on, recall what its context no longer holds and ask you to pull or ena
 chat, and your coding agent uses it as an MCP server, handing it the local chores that would otherwise
 fill the agent's context: run the tests and return the failures, condense a log, summarise a diff, scan
 a commit for secrets. Every command the model runs passes a policy, a sandbox, a risk classifier, and,
-when it matters, you, and every step is written to an audit log you can read back.
+when it matters, you, and every step is written to an audit log you can read back. Beside each reply wisp
+shows what the turn ran and flags any result the reply reports that no call produced.
 
 You and your coding agent reach the same session, and a command the model asks for passes the gate
 before it touches your Mac:
@@ -168,8 +169,9 @@ nobody answers is a refusal. `wisp approvals` shows what is remembered; `revoke`
 
 **You can see exactly what happened.** `~/.wisp/logs/audit.jsonl` records every prompt, reply, tool
 call, policy decision, classifier verdict, approval, and command outcome, verbatim, in order. `wisp
-logs` reads it, and `respond` returns each turn's receipt folded from the same events, so a calling
-agent can check delegated work without reading the log. [trust.md](docs/trust.md) states in one page
+logs` reads it, and `respond` returns each turn's receipt folded from the same events, with the results the
+reply reports that no call produced ([verification.md](docs/verification.md)), so a calling agent can check
+delegated work without reading the log. [trust.md](docs/trust.md) states in one page
 what wisp can and cannot do to your Mac.
 
 **It is a microharness.** One binary, one session, a registry of nine tools, and the smallest correct
@@ -195,13 +197,14 @@ and delete.
 | | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
 | Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
-| | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
+| | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |
 | Seeing what happened | The audit log and `wisp logs`; `wisp doctor` | [logging.md](docs/logging.md), [wisp.md](docs/wisp.md) |
 | | `ran:` beside every reply, and references to entries that do not exist flagged | [ADR 0051](docs/decisions/0051-the-turns-tool-calls-beside-the-reply.md), [ADR 0055](docs/decisions/0055-cited-entries-checked.md) |
+| | The verification pass: a result the reply reports that no call in the turn produced (a command, an exit status, a denial, quoted output) shown as `unsupported:`, and returned to an MCP caller | [verification.md](docs/verification.md), [ADR 0060](docs/decisions/0060-a-verification-pass.md) |
 | | What the model carried on any turn, without spending its context (`/inspect context`) | [context-management.md](docs/context-management.md) |
 | Everyday jobs | `wisp watch`, `wisp scan`, `wisp redact`, `wisp draft`, and `wisp notify` | [wisp.md](docs/wisp.md) |
 | | Notifications from your terminal or its app, with what routes each takes | [tools/notify.md](docs/tools/notify.md), [ADR 0044](docs/decisions/0044-host-effects.md) |

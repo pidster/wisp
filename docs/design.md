@@ -669,7 +669,13 @@ terminal to it and `ChatLoopTests` runs the whole loop over a scripted model. Ch
 live through `ChatEvents.Tap`, an `AuditSink` the conversation is opened with (`Session.openAgent(observer:)`
 tees it beside the log and the receipt collector), so the lines the user sees are rendered from the
 audited events, each tool's output included (`ChatEvents.shownOutput`, folded past `shownOutputLines`;
-`ChatView.output` finds one again for `/show`); `ChatView` carries a view shown whole (`/inspect context next`, `N`, `turns`),
+`ChatView.output` finds one again for `/show`); `ChatOutput` resolves what `/show` and `/last` show of a tool's
+output: the whole from the `OutputStore` when the tool held part of it back and the store still holds it, otherwise
+what the tool returned, under a header saying which and why. On a terminal `TerminalPager` runs it through `$PAGER`
+(`less -R` when unset); piped, it is printed whole; over `--json` the front end's `output` request is answered a page
+at a time as a `view` of kind `output` (`ChatProtocol.outputView`), which `wisp-tui`'s Ctrl-O view loads as it
+scrolls ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), "The person's views");
+`ChatView` carries a view shown whole (`/inspect context next`, `N`, `turns`),
 which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
 in a terminal and in the TUI. `TerminalTable` and `ListingLayout` lay out `wisp tools`, `models`, and
@@ -684,7 +690,11 @@ running a command, waiting for approval). The terminal chat redraws that as a wo
 sends it as `activity` lines. `ChatLoop.history` keeps the latest 100 typed lines for `/history`; `wisp-tui` keeps its own
 list for Up and Down. `wisp chat --json` is the same loop with its IO mapped onto a JSON Lines protocol
 (`ChatProtocol`, `LineRouter`, `JSONApprover`), so a front end in another process, `tools/wisp-tui`,
-can own the screen while the session stays here. The front end's optional first line, `hello`, declares
+can own the screen while the session stays here. `wisp chat` on a terminal hands its session to `wisp-tui`,
+found beside the running executable (`FrontEnd`), which starts its child as `wisp chat (tui)`; `ExecutablePath`
+finds that executable by the path the kernel started it from, never by `argv[0]`, which a parent may set at spawn
+(`wisp-tui`, and `scripts/wisp-mcp` naming the server `wisp mcp (CLIENT)` from `WISP_MCP_CLIENT`;
+[ADR 0061](decisions/0061-process-names-set-at-spawn.md)). The front end's optional first line, `hello`, declares
 the host effects it carries; `LineRouter` keeps it (`declares`), the host's notification routes ask it at
 each notification, and `JSONApprover` denies without asking when a `hello` left out `approve`. A
 `hello` that declares `approve-mcp` or `keep-facts` starts a `PendingRelay` for the kinds it declared
