@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- The secret scanner (`scan_secrets`, `redact`, `wisp scan`) no longer reads prose such as "per token: every …th
+  layer" or "per drafted token: 748.125 MiB" as a credential assigned to a name. When a credential word follows
+  another word and is followed by a colon, as in a sentence, the value now counts only if it mixes letters and digits
+  and is not a number with a unit; `key: value` lines in config, env files, headers, and code are read as before.
+
 ## 0.23.0
 
 A verification pass beside each reply, whole stored outputs in chat, larger eval sets with floors set from

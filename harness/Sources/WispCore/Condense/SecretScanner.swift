@@ -123,10 +123,21 @@ public enum SecretScanner {
             "assigned-secret", .secret,
             #"(?i)"# + credentialName + #"["']?\s*[:=]\s*["']([^"'\n]{4,})["'](?!\s*[+\[])"#,
             group: 1, accepts: { !isPlaceholder($0) }),
+        // Unquoted, the value is taken as it stands after `=`, and after `:` where the name is in a key's place:
+        // starting the line or following punctuation (`  db_pass: …`, `{ token: … }`, `-H "X-Api-Key: …`).
+        Rule(
+            "assigned-secret", .secret, #"(?i)"# + credentialName + #"["']?\s*=\s*"# + unquotedValue,
+            group: 1, accepts: { !isPlaceholder($0) && !isCode($0) }),
         Rule(
             "assigned-secret", .secret,
-            #"(?i)"# + credentialName + #"["']?\s*[:=]\s*([^\s"'`,;{}()\[\]<>]{4,}+)(?![(\[])"#,
+            #"(?i)(?<![A-Za-z0-9][ \t]{1,16})"# + credentialName + #"["']?\s*:\s*"# + unquotedValue,
             group: 1, accepts: { !isPlaceholder($0) && !isCode($0) }),
+        // A name after a word and a colon is a sentence as often as a key: "per token: every …th layer", "per
+        // drafted token: 748.125 MiB". There the value must read as a credential, not a word or a measure.
+        Rule(
+            "assigned-secret", .secret,
+            #"(?i)(?<=[A-Za-z0-9][ \t]{1,16})"# + credentialName + #"["']?\s*:\s*"# + unquotedValue,
+            group: 1, accepts: { !isPlaceholder($0) && !isCode($0) && readsAsCredential($0) }),
         Rule(
             "cli-password", .secret,
             #"(?i)--(?:password|passwd|pass|token|api-key|secret|client-secret)(?:=|\s+)['"]?([^\s'"]{3,})"#, group: 1,
@@ -183,6 +194,18 @@ public enum SecretScanner {
         #"(?<![A-Za-z0-9:])(?:(?:[A-Za-z0-9]+[_.\-])+(?:pass|pw)|(?:[A-Za-z0-9]+[_.\-])*(?:password|passwd"#
         + #"|passphrase|pwd|secret(?:[_\-]?key)?|token|api[_\-]?key|access[_\-]?key|private[_\-]?key|encryption[_\-]?key"#
         + #"|signing[_\-]?key|auth[_\-]?key|credentials?))(?:[_.\-](?:hash|digest|base))?"#
+
+    /// An unquoted assigned value, captured as group 1: four or more characters up to a space, quote, or
+    /// bracket, and not a call or subscript (`token = attach(…)`, `key = keys[0]`).
+    static let unquotedValue = #"([^\s"'`,;{}()\[\]<>]{4,}+)(?![(\[])"#
+
+    /// Whether an unquoted value after a name in a sentence reads as a credential: letters and digits
+    /// together, and not a number with a short unit (`748.125`, `32KiB`, `2ms`). A plain word, such as
+    /// "every" in "per token: every …th layer", does not.
+    static func readsAsCredential(_ value: String) -> Bool {
+        guard value.contains(where: \.isLetter), value.contains(where: \.isNumber) else { return false }
+        return value.range(of: #"^[0-9][0-9.,]*(?:[A-Za-z]{1,3}|%)?$"#, options: .regularExpression) == nil
+    }
 
     /// One rule's match in scanned text.
     public struct Match: Equatable, Sendable {

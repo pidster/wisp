@@ -175,3 +175,31 @@ the raw text on anyway.
   checked by rule only.
 - **Triage is unchanged.** It keeps failing on a failed chunk: it only condenses, so failing there
   costs the caller no protection.
+
+## Amendment, 2026-10-12: a credential word in a sentence
+
+**The false positive.** The unquoted `assigned-secret` rule took any credential word followed by `:` or `=` and four
+or more characters as a name and its value. Prose has that shape: "per token: every …th layer" and "per drafted
+token: 748.125 MiB" in commit `756b178`'s documentation, an eval fixture, were reported as credentials, and
+`EvalSetsTests` had to allow the two values by name. The same shape was in this repository's own files, in "four
+bytes a token: their text", and in a log line, "control-looking token: 128247".
+
+**Decision.** The unquoted rule is read by where the name stands:
+
+- after `=`, and after `:` where the name is in a key's place (starting the line, or after punctuation such as `{`,
+  `(`, or a quote), the value is taken as before: `db_pass: …`, `{ token: … }`, `-H "X-Api-Key: …"`,
+  `service=github password=…`;
+- after a word and a blank, then `:`, the name may be a sentence, and the value counts only when it reads as a
+  credential: it holds both letters and digits, and is not a number with a short unit (`748.125`, `32KiB`, `2ms`).
+  "the following password: wdpfe*Lv0%…", "VPN shared secret: nightjar-quay-19", and "jupyter token: 8c1f…" are still
+  found; "per token: every", "per token: 748.125", and "a token: their" are not.
+
+The quoted rule is unchanged, and a word-only password in a sentence ("your password: sunshine") is now missed: by
+form it cannot be told from prose. A test now checks that every rule compiles, since `scan` skips one that does not.
+
+**Measured, 2026-10-12.** `wisp classifier baseline --task secrets` gives the same label to every line of train,
+dev, and test (1,265 lines) before and after: no secret lost, none gained. Of the old unquoted rule's matches on
+those sets and on this repository's tracked docs, sources, tests, fixtures, and training files, 102 are still
+found, by this rule or a more specific one, and the 17 that are not are all prose or log text: the fixture's three,
+their quotations in the docs and tests, "a token: their", "token: 128247", and "secret: crackable" in
+`training/secrets/labels.md`. The fixture now passes the scanner with no allowance.

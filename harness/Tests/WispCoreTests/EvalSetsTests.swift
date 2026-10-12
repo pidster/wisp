@@ -277,19 +277,13 @@ struct EvalSetsTests {
 
     // MARK: Every set
 
-    /// The scanner's matches in the fixtures that are prose, not credentials: in a real commit's documentation,
-    /// "per token: every …th layer" and "per drafted token: 748.125 MiB" read as a value assigned to a token.
-    static let proseMatches: [String: Set<String>] = ["756b178": ["every", "748.125"]]
-
     @Test func noFixtureCarriesASecret() throws {
         var texts: [(String, String)] = []
         for item in try EvalSets.EditFile.load().cases { texts += [(item.id, item.before), (item.id, item.after)] }
         for item in try EvalSets.SystemInfo.load().cases { texts.append((item.id, item.question)) }
         for item in try EvalSets.Drafts.load().cases { texts.append((item.id, try item.diff())) }
         for (id, text) in texts {
-            let found = SecretScanner.scan(text, categories: [.secret]).filter {
-                Self.proseMatches[id]?.contains($0.value) != true
-            }
+            let found = SecretScanner.scan(text, categories: [.secret])
             #expect(found.isEmpty, "\(id): \(found.map(\.kind))")
         }
     }

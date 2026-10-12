@@ -34,12 +34,6 @@ Waiting on a measurement run:
   that leaves plans and explanations alone, measured with `scripts/check eval compare`
   ([ADR 0060](decisions/0060-a-verification-pass.md), "Measured, 2026-10-12").
 
-Known, not yet fixed:
-
-- the secret scanner's unquoted `assigned-secret` rule (`scan_secrets`, `redact`, `wisp scan`) reads prose as a
-  credential assigned to a name: "per token: every …th layer" and "per drafted token: 748.125 MiB" in commit
-  `756b178`'s diff, an eval fixture, which `EvalSetsTests` allows by name (`proseMatches`).
-
 Waiting on signing (a Developer ID or App Store signature):
 
 - a notification helper app, so notifications come from wisp itself, with its icon and action buttons;

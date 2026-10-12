@@ -116,8 +116,7 @@ exactly the calls its prompt asks for (applied with the real `FileWriter`, a nam
 one with its text, a stale number being wrong and `find` on exactly one other line), every whitespace case changes
 only one line's whitespace, every file fits one `read_file` page at the smallest budget, every `system_info` topic and
 target is one the tool takes, every diff's hunks match their headers and its size its band, no rubric term is
-contradicted by another, and the secret scanner finds nothing (two prose matches in `756b178`, "per token: every"
-and "per drafted token: 748.125 MiB", are named as such).
+contradicted by another, and the secret scanner finds nothing.
 
 The draft rubric is explicit and checked in code, not by a model: a subject passes when one of the case's `must`
 terms and none of its `mustNot` terms begins a word of it, ignoring case (`fix` is found in "Fix paging" and

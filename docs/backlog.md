@@ -114,9 +114,10 @@ for after them:
 - Done 2026-10-12: `edit_file` on CRLF, CR-only, and mixed-ending files: lines split on bytes as `read_file` numbers
   them, each line keeping its ending, and a guard refusing an edit that would change lines it does not name (ADR
   0024, refined 2026-10-12). Before, an edit of line 1 of a CRLF file replaced the whole file.
-- Open, found 2026-10-12: the secret scanner's unquoted `assigned-secret` rule reads prose as a credential assigned
-  to a name ("per token: every …th layer", "per drafted token: 748.125 MiB" in the `756b178` eval fixture, which
-  `EvalSetsTests` allows by name). Narrow it without missing a real unquoted credential.
+- Done 2026-10-12: the secret scanner's unquoted `assigned-secret` rule no longer reads prose as a credential
+  assigned to a name ("per token: every …th layer", "per drafted token: 748.125 MiB" in the `756b178` eval fixture):
+  after a word and a colon, the value must hold letters and digits and not be a measure (ADR 0031, amended
+  2026-10-12).
 
 ## Terminal front end
 

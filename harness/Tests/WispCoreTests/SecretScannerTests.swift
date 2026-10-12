@@ -117,6 +117,48 @@ import Testing
         }
     }
 
+    /// `scan` skips a rule whose expression does not compile, so a broken rule would only show as missed secrets.
+    @Test func everyRuleCompiles() {
+        for rule in SecretScanner.rules {
+            #expect((try? RegexCache.regex(rule.pattern)) != nil, "\(rule.kind): \(rule.pattern)")
+        }
+    }
+
+    @Test func aCredentialWordInASentenceIsNotAKeyUnlessItsValueReadsAsACredential() {
+        let prose = [
+            "only its attention layers per token: every `full_attention_interval`th layer",
+            "kept once and once per drafted token: 748.125 MiB, as measured at both windows",
+            "Tokens come to at four bytes a token: their text, and each call's name",
+            "load: control-looking token: 128247 '</s>' was not control-type", "the cache costs per token: 32KiB",
+            "per request: about 2 s", "the token: a word", "key: value pairs are read as such",
+            "a shared secret: nothing more than a word", "the password:  everything after it",
+        ]
+        for line in prose {
+            #expect(SecretScanner.scan(line, categories: [.secret]).isEmpty, "\(line)")
+        }
+        let hex = String(repeating: "8c1f4a7e", count: 4)
+        let keyed: [(String, String)] = [
+            ("token: " + Self.github, "github-token"),
+            ("API_KEY=" + "sk-" + String(repeating: "Ab3d", count: 6), "openai-key"),
+            ("password: \"" + "Tr0ub4dor&3x" + "\"", "assigned-secret"),
+            ("aws_secret_access_key = " + String(repeating: "Tq4nVb8Rw2", count: 4), "aws-secret-key"),
+            (#"{"api_key": ""# + "Zs4Qm8Vx2Rw7Nb1K" + #""}"#, "assigned-secret"),
+            ("  password: " + "UyFCXCpkJHpE", "assigned-secret"), ("admin_password: " + "admin", "assigned-secret"),
+            ("data: { token: " + "ZXhhbXBsZS1zZXJ2aWNl" + " }", "assigned-secret"),
+            ("account=deploy service=github password=" + "Maple&Rye5", "assigned-secret"),
+            ("please use the following password: " + "wdpfe*Lv0%R", "assigned-secret"),
+            ("VPN shared secret: " + "nightjar-quay-19", "assigned-secret"),
+            ("jupyter token: " + hex, "assigned-secret"),
+        ]
+        for (line, kind) in keyed {
+            #expect(SecretScanner.scan(line, categories: [.secret]).map(\.kind) == [kind], "\(line)")
+        }
+        #expect(SecretScanner.readsAsCredential("nightjar-quay-19") && SecretScanner.readsAsCredential("3fea6af1"))
+        for value in ["every", "748.125", "32KiB", "2ms", "50%", "128247", "admin"] {
+            #expect(!SecretScanner.readsAsCredential(value), "\(value)")
+        }
+    }
+
     @Test func aTrainingLineIsLabelledByItsMostSevereMatchWithTheScannerMarkRemoved() {
         let marked = String(Self.github.prefix(4)) + "\u{200B}" + Self.github.dropFirst(4)
         #expect(SecretScanner.label(of: "token: \(marked) for jo@acme.co") == "secret")
