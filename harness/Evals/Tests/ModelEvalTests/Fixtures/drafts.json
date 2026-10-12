@@ -1,0 +1,660 @@
+{
+  "about": "draft_change's eval cases (DraftEvalTests): a diff, what the change does, and the rubric a drafted commit subject is held to. A subject passes when one `must` term and no `mustNot` term begins a word of it, case-insensitively. EvalSets.Drafts reads them, EvalSetsTests checks them.",
+  "declared": {
+    "small": 30,
+    "medium": 8,
+    "large": 6
+  },
+  "release": {
+    "small": 12,
+    "medium": 4,
+    "large": 2
+  },
+  "cases": [
+    {
+      "id": "retry",
+      "band": "small",
+      "file": "small/retry.diff",
+      "gist": "retries a failed upload twice, waiting longer each time",
+      "must": [
+        "retry",
+        "retries",
+        "retrying"
+      ],
+      "mustNot": [
+        "timeout",
+        "remove"
+      ]
+    },
+    {
+      "id": "timeout-default",
+      "band": "small",
+      "file": "small/timeout-default.diff",
+      "gist": "raises the default timeout from 30 to 120 seconds",
+      "must": [
+        "timeout",
+        "time out"
+      ],
+      "mustNot": [
+        "reduce",
+        "lower",
+        "decrease",
+        "shorten"
+      ]
+    },
+    {
+      "id": "new-flag",
+      "band": "small",
+      "file": "small/new-flag.diff",
+      "gist": "adds a --json flag that prints the list as JSON",
+      "must": [
+        "json"
+      ],
+      "mustNot": [
+        "remove",
+        "yaml"
+      ]
+    },
+    {
+      "id": "bug-fix",
+      "band": "small",
+      "file": "small/bug-fix.diff",
+      "gist": "fixes an off-by-one: a page started one item late",
+      "must": [
+        "off-by-one",
+        "off by one",
+        "start index",
+        "page start",
+        "first item"
+      ],
+      "mustNot": [
+        "end index",
+        "last item"
+      ]
+    },
+    {
+      "id": "docs-only",
+      "band": "small",
+      "file": "small/docs-only.diff",
+      "gist": "documents where the configuration lives in the README",
+      "must": [
+        "readme",
+        "document",
+        "docs"
+      ],
+      "mustNot": [
+        "fix",
+        "bug",
+        "test"
+      ]
+    },
+    {
+      "id": "rename-variable",
+      "band": "small",
+      "file": "small/rename-variable.diff",
+      "gist": "renames usr to user throughout a function, no behaviour change",
+      "must": [
+        "rename"
+      ],
+      "mustNot": [
+        "fix",
+        "add"
+      ]
+    },
+    {
+      "id": "remove-deprecated",
+      "band": "small",
+      "file": "small/remove-deprecated.diff",
+      "gist": "deletes the deprecated legacyFormat function",
+      "must": [
+        "remove",
+        "delete",
+        "drop"
+      ],
+      "mustNot": [
+        "add",
+        "introduce"
+      ]
+    },
+    {
+      "id": "bump-lodash",
+      "band": "small",
+      "file": "small/bump-lodash.diff",
+      "gist": "upgrades lodash from 4.17.20 to 4.17.21",
+      "must": [
+        "lodash"
+      ],
+      "mustNot": [
+        "downgrade",
+        "remove"
+      ]
+    },
+    {
+      "id": "add-test",
+      "band": "small",
+      "file": "small/add-test.diff",
+      "gist": "adds a test that parsing empty input returns an error",
+      "must": [
+        "test"
+      ],
+      "mustNot": [
+        "fix",
+        "remove"
+      ]
+    },
+    {
+      "id": "nil-guard",
+      "band": "small",
+      "file": "small/nil-guard.diff",
+      "gist": "stops a crash when the signed-in user is nil by returning early",
+      "must": [
+        "nil",
+        "crash",
+        "guard",
+        "signed-out",
+        "signed out",
+        "no user",
+        "missing user"
+      ],
+      "mustNot": [
+        "remove",
+        "test"
+      ]
+    },
+    {
+      "id": "dark-mode",
+      "band": "small",
+      "file": "small/dark-mode.diff",
+      "gist": "adds a dark colour scheme through prefers-color-scheme",
+      "must": [
+        "dark"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "log-level",
+      "band": "small",
+      "file": "small/log-level.diff",
+      "gist": "quietens production logging from debug to info",
+      "must": [
+        "log",
+        "logging",
+        "verbosity",
+        "quiet"
+      ],
+      "mustNot": [
+        "enable debug",
+        "more verbose"
+      ]
+    },
+    {
+      "id": "add-index",
+      "band": "small",
+      "file": "small/add-index.diff",
+      "gist": "adds a database index on users.email",
+      "must": [
+        "index"
+      ],
+      "mustNot": [
+        "drop",
+        "remove"
+      ]
+    },
+    {
+      "id": "alpine-base",
+      "band": "small",
+      "file": "small/alpine-base.diff",
+      "gist": "switches the image's base from debian to alpine",
+      "must": [
+        "alpine"
+      ],
+      "mustNot": [
+        "ubuntu"
+      ]
+    },
+    {
+      "id": "quote-vars",
+      "band": "small",
+      "file": "small/quote-vars.diff",
+      "gist": "quotes shell variables so paths with spaces work",
+      "must": [
+        "quote",
+        "quoting",
+        "word splitting",
+        "spaces"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "unwrap-to-question",
+      "band": "small",
+      "file": "small/unwrap-to-question.diff",
+      "gist": "returns read errors to the caller instead of panicking on unwrap",
+      "must": [
+        "unwrap",
+        "propagat",
+        "panic",
+        "return error",
+        "return the error"
+      ],
+      "mustNot": [
+        "add test"
+      ]
+    },
+    {
+      "id": "ci-cache",
+      "band": "small",
+      "file": "small/ci-cache.diff",
+      "gist": "caches npm downloads in CI",
+      "must": [
+        "cache",
+        "caching"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "type-hints",
+      "band": "small",
+      "file": "small/type-hints.diff",
+      "gist": "adds type hints to two helpers",
+      "must": [
+        "type hint",
+        "type annotation",
+        "annotate",
+        "typing",
+        "types",
+        "typed"
+      ],
+      "mustNot": [
+        "fix",
+        "remove"
+      ]
+    },
+    {
+      "id": "upload-limit",
+      "band": "small",
+      "file": "small/upload-limit.diff",
+      "gist": "lowers the largest upload from 50 MB to 10 MB",
+      "must": [
+        "upload",
+        "size limit",
+        "max size",
+        "maximum size"
+      ],
+      "mustNot": [
+        "raise",
+        "increase"
+      ]
+    },
+    {
+      "id": "debounce-search",
+      "band": "small",
+      "file": "small/debounce-search.diff",
+      "gist": "debounces the search box so it queries once typing pauses",
+      "must": [
+        "debounc"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "close-body",
+      "band": "small",
+      "file": "small/close-body.diff",
+      "gist": "closes HTTP response bodies so connections are not leaked",
+      "must": [
+        "close",
+        "leak"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "thread-safe-cache",
+      "band": "small",
+      "file": "small/thread-safe-cache.diff",
+      "gist": "guards the cache's dictionary with a lock for concurrent use",
+      "must": [
+        "thread",
+        "lock",
+        "concurren",
+        "race",
+        "mutex",
+        "synchron"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "ignore-env",
+      "band": "small",
+      "file": "small/ignore-env.diff",
+      "gist": "stops .env files being committed by ignoring them",
+      "must": [
+        "ignore",
+        ".env",
+        "gitignore"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "changelog-entry",
+      "band": "small",
+      "file": "small/changelog-entry.diff",
+      "gist": "adds the 1.4.0 entry to the changelog",
+      "must": [
+        "changelog",
+        "1.4.0",
+        "release notes"
+      ],
+      "mustNot": [
+        "fix",
+        "bump"
+      ]
+    },
+    {
+      "id": "narrow-except",
+      "band": "small",
+      "file": "small/narrow-except.diff",
+      "gist": "catches only the timeout instead of every exception",
+      "must": [
+        "except",
+        "exception",
+        "catch",
+        "timeout"
+      ],
+      "mustNot": [
+        "remove error handling",
+        "add test"
+      ]
+    },
+    {
+      "id": "alt-text",
+      "band": "small",
+      "file": "small/alt-text.diff",
+      "gist": "adds alt text to the page's images for screen readers",
+      "must": [
+        "alt",
+        "accessib",
+        "screen reader"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "lint-target",
+      "band": "small",
+      "file": "small/lint-target.diff",
+      "gist": "adds a lint target to the Makefile",
+      "must": [
+        "lint"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "hashcode",
+      "band": "small",
+      "file": "small/hashcode.diff",
+      "gist": "adds hashCode to match the class's equals",
+      "must": [
+        "hashcode",
+        "hash code",
+        "equals"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "checkout-flag",
+      "band": "small",
+      "file": "small/checkout-flag.diff",
+      "gist": "turns the new checkout on by default",
+      "must": [
+        "checkout"
+      ],
+      "mustNot": [
+        "disable",
+        "remove"
+      ]
+    },
+    {
+      "id": "api-v2",
+      "band": "small",
+      "file": "small/api-v2.diff",
+      "gist": "points the client at version 2 of the API",
+      "must": [
+        "v2",
+        "version 2"
+      ],
+      "mustNot": [
+        "v3",
+        "remove"
+      ]
+    },
+    {
+      "id": "f7b9cd9",
+      "band": "medium",
+      "file": "f7b9cd9.diff",
+      "gist": "makes system_info's process name required, so the model stops leaving it out",
+      "must": [
+        "process name",
+        "require"
+      ],
+      "mustNot": [
+        "remove",
+        "port"
+      ]
+    },
+    {
+      "id": "d6bdf31",
+      "band": "medium",
+      "file": "d6bdf31.diff",
+      "gist": "keeps the classifier's verdicts per command line and directory for the session",
+      "must": [
+        "cache",
+        "verdict"
+      ],
+      "mustNot": [
+        "remove",
+        "train"
+      ]
+    },
+    {
+      "id": "5eb27b7",
+      "band": "medium",
+      "file": "5eb27b7.diff",
+      "gist": "makes edit_file write through a temporary file renamed over the target",
+      "must": [
+        "atomic",
+        "temporary file",
+        "rename"
+      ],
+      "mustNot": [
+        "append",
+        "remove"
+      ]
+    },
+    {
+      "id": "961f028",
+      "band": "medium",
+      "file": "961f028.diff",
+      "gist": "adds a gate check that the Swift and Rust palettes agree",
+      "must": [
+        "palette",
+        "colour",
+        "color"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "417f5fb",
+      "band": "medium",
+      "file": "417f5fb.diff",
+      "gist": "makes the eval's output reach the log and terminal as it is printed",
+      "must": [
+        "stream",
+        "unbuffer",
+        "buffer",
+        "as it runs",
+        "as they are printed",
+        "live"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "3cb6b8e",
+      "band": "medium",
+      "file": "3cb6b8e.diff",
+      "gist": "redraws wisp-tui only when something changed",
+      "must": [
+        "redraw",
+        "repaint",
+        "flicker",
+        "render"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "8b32e04",
+      "band": "medium",
+      "file": "8b32e04.diff",
+      "gist": "leaves held-out commands out of the classifier's training",
+      "must": [
+        "held-out",
+        "held out",
+        "holdout",
+        "hold-out"
+      ],
+      "mustNot": [
+        "include held-out",
+        "include the held-out"
+      ]
+    },
+    {
+      "id": "c6c5df7",
+      "band": "medium",
+      "file": "c6c5df7.diff",
+      "gist": "finds near-match candidates through an index instead of comparing all pairs",
+      "must": [
+        "index",
+        "near-match",
+        "near match",
+        "candidate",
+        "pairs",
+        "quadratic"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "19d3748",
+      "band": "large",
+      "file": "19d3748.diff",
+      "gist": "reads the unified log in process and flags condensers' failing commands",
+      "must": [
+        "unified log",
+        "unified-log",
+        "exit status",
+        "failing command"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "b816acd",
+      "band": "large",
+      "file": "b816acd.diff",
+      "gist": "adds wisp watch, which reruns a command on file changes",
+      "must": [
+        "watch"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "d6c2fb9",
+      "band": "large",
+      "file": "d6c2fb9.diff",
+      "gist": "makes edit_file's line edits keep indentation and reconcile stale line numbers",
+      "must": [
+        "indentation",
+        "stale",
+        "line number",
+        "line edit"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "756b178",
+      "band": "large",
+      "file": "756b178.diff",
+      "gist": "sizes hybrid models' context windows by their attention layers",
+      "must": [
+        "hybrid",
+        "attention"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "7256caa",
+      "band": "large",
+      "file": "7256caa.diff",
+      "gist": "makes wisp watch wait for a burst of changes to settle before rerunning",
+      "must": [
+        "settle",
+        "debounc",
+        "burst",
+        "quiet"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    },
+    {
+      "id": "e9fd86c",
+      "band": "large",
+      "file": "e9fd86c.diff",
+      "gist": "adds in-place line editing to wisp-tui's input: cursor, word motions, readline keys",
+      "must": [
+        "cursor",
+        "readline",
+        "word motion",
+        "line editing",
+        "editing",
+        "in place",
+        "in-place"
+      ],
+      "mustNot": [
+        "remove"
+      ]
+    }
+  ]
+}

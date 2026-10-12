@@ -1,0 +1,8 @@
+diff --git a/config/production.yml b/config/production.yml
+--- a/config/production.yml
++++ b/config/production.yml
+@@ -5,3 +5,3 @@
+ logging:
+-  level: debug
++  level: info
+   format: json

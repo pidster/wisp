@@ -1,0 +1,9 @@
+diff --git a/jobs/poll.py b/jobs/poll.py
+--- a/jobs/poll.py
++++ b/jobs/poll.py
+@@ -30,4 +30,4 @@
+     try:
+         reply = client.poll(job_id, timeout=5)
+-    except:
++    except TimeoutError:
+         return None

@@ -1,0 +1,8 @@
+diff --git a/config/flags.json b/config/flags.json
+--- a/config/flags.json
++++ b/config/flags.json
+@@ -2,3 +2,3 @@
+   "search_v2": true,
+-  "new_checkout": false,
++  "new_checkout": true,
+   "gift_cards": false

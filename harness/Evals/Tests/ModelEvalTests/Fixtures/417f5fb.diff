@@ -1,0 +1,111 @@
+diff --git a/docs/engineering.md b/docs/engineering.md
+index 31ac9d8..e610c7e 100644
+--- a/docs/engineering.md
++++ b/docs/engineering.md
+@@ -15,7 +15,8 @@ recorded as [decisions](decisions/).
+ | `scripts/check evals-build` | Compiles the model evaluations (`harness/Evals`, its own package) with their tests, warnings as errors, without running them, so a change to an API they call fails in the gate rather than at release time. About 22 s cold, 2 to 4 s after a change to the harness (2026-10-09) |
+ | `scripts/check test` | `swift test` with the build's flags, so it reuses the build's products (a flag that differed recompiled everything, about 15 to 20 s a run); then the `CommandRunner` suites again inside an outer Seatbelt sandbox to exercise the nested-sandbox fallback, which fails if its filter ran no tests; `cargo test --workspace` |
+ | `scripts/check format` | Auto-fix formatting with swift-format and rustfmt |
+-| `scripts/check eval [context\|compare\|checkpoint] [record]` | Runs the model evaluation (the separate `harness/Evals` package; `WISP_MODEL_TESTS=1` is set for you): every suite but the context eval, or with `context` only the context eval, which is a measurement for design decisions (ADR 0045) and takes hours, or with `compare` the suites that decide delegation on each model `WISP_EVAL_MODELS` names, one model at a time ([measurements.md](measurements.md#comparing-models)), or with `checkpoint` context checkpoint 2, the parts `WISP_CHECKPOINT` names (all by default), ending with its own table and a TSV of its rows. `record` also writes each task's measurement into `harness/Sources/WispCore/Resources/measurements.json`, to commit. It reports classifier accuracy and every miss, asserts the floors on the configured model, and ends with a summary table, model by suite, saved with the whole output under `harness/Evals/.build/evals`. It exits non-zero when `swift test` failed (a floor missed, a strict case errored, the build failed), after the summary; `compare` goes on past a model that fails and names the failed models after its summary instead. Needs a model; not in the gate |
++| `scripts/check eval [context\|compare\|checkpoint] [record]` | Runs the model evaluation (the separate `harness/Evals` package; `WISP_MODEL_TESTS=1` is set for you): every suite but the context eval, or with `context` only the context eval, which is a measurement for design decisions (ADR 0045) and takes hours, or with `compare` the suites that decide delegation on each model `WISP_EVAL_MODELS` names, one model at a time ([measurements.md](measurements.md#comparing-models)), or with `checkpoint` context checkpoint 2, the parts `WISP_CHECKPOINT` names (all by default), ending with its own table and a TSV of its rows. `record` also writes each task's measurement into `harness/Sources/WispCore/Resources/measurements.json`, to commit. It reports classifier accuracy and every miss, asserts the floors on the configured model, and ends with a summary table, model by suite, saved with the whole output under `harness/Evals/.build/evals`. It exits non-zero when `swift test` failed (a floor missed, a strict case errored, the build failed), after the summary; `compare` goes on past a model that fails and names the failed models after its summary instead. Every line reaches the log and the terminal as it is printed: the test process runs with `NSUnbufferedIO=YES`, since its `print` goes through C stdio, which buffers a pipe in blocks, so until 0.22.0 a run's results arrived only when it ended (six hours for `granite4.2:8b` on 2026-10-09). Needs a model; not in the gate |
++| `scripts/check eval-stream-probe` | Proves the eval's output streams and keeps `swift test`'s status, with no model: a small Swift program stands in for `swift` on `PATH`, prints an eval line through `print`, sleeps two seconds, prints another, and exits with a status of its choosing; it runs once passing and once exiting 3. Each line's arrival is stamped in seconds from the start: the first must arrive at 0 or 1, before the second is printed, the second at 2 or later, and the step's status must be the program's own. Without `NSUnbufferedIO` both lines arrive together at 2 and the probe fails. About five seconds; not in the gate, since it compiles a program with `swiftc` |
+ | `scripts/check mlx-build` | Builds the harness and its tests with the MLX trait, warnings as errors, in `harness/.build/mlx`: the code only that trait compiles, which the release ships. About 80 s cold, 1 s warm (2026-10-09). Needs the Metal toolchain; the release preflight runs it, the gate does not |
+ | `scripts/check mlx-live <model directory>` | The MLX live test (`MLXLiveTests`) on real weights: builds with `--traits MLX` in `harness/.build/mlx`, so the gate's build is untouched, copies MLX's Metal library beside each test bundle's binary as `mlx.metallib`, and runs it with `WISP_MLX_TESTS=1` (needs the Metal toolchain and a model directory; not in the gate; ADR 0047) |
+ | `scripts/check mcp-build` | The release build `.mcp.json` runs as the `wisp` MCP server (`scripts/wisp-mcp` execs `harness/.build/release/wisp`): with the MLX trait, as Homebrew ships it, when the Metal toolchain is there, otherwise without it. Either way the lockfiles are left as they were (a bare `swift build -c release` drops their MLX pins). Rerun it after code changes; the server runs the last build |
+diff --git a/scripts/check b/scripts/check
+index 4387cac..d59acc6 100755
+--- a/scripts/check
++++ b/scripts/check
+@@ -307,6 +307,12 @@ eval_() {
+ # appending everything it prints to <log> and showing the lines EVAL_LINES selects as they come. Its exit status, and
+ # EVAL_STATUS, are the command's own: in `cmd | tee | grep` the status is grep's, which matches `✘` and `Test run`
+ # exactly when tests fail, so until 0.21.1 a failing eval, and the release's floors, passed.
++#
++# Every line reaches the log and the terminal as it is printed. The test process's `print` goes through C stdio, which
++# buffers a pipe in blocks, so a run's result lines once arrived only when it ended (six hours for granite4.2 on
++# 2026-10-09); NSUnbufferedIO=YES makes Foundation turn that buffering off as the process starts, as Xcode does for
++# the apps it runs. tee and grep --line-buffered pass each line on at once. `scripts/check eval-stream-probe` proves it
++# with a Swift program in place of swift.
+ EVAL_STATUS=0
+ eval_swift_test() {
+     log="$1"; shift
+@@ -314,13 +320,63 @@ eval_swift_test() {
+     printf '1\n' >"$status_file"
+     {
+         status=0
+-        (cd harness/Evals && "$@" 2>&1) || status=$?
++        (cd harness/Evals && NSUnbufferedIO=YES "$@" 2>&1) || status=$?
+         printf '%s\n' "$status" >"$status_file"
+     } | tee -a "$log" | grep --line-buffered -E "$EVAL_LINES" || true
+     EVAL_STATUS="$(cat "$status_file")"
+     return "$EVAL_STATUS"
+ }
+ 
++# eval_stream_probe: proves that eval_swift_test streams and keeps the status, with no model and no real test run. A
++# small Swift program stands in for `swift` on PATH: it prints an eval line through `print` (C stdio, buffered when its
++# output is a pipe, as the test process's is), sleeps two seconds, prints another, and exits with FAKE_STATUS. Run once
++# passing and once failing; each line's arrival is stamped in seconds from the start. The first line must arrive before
++# the second is printed (second 0 or 1), the second at 2 or later, and EVAL_STATUS must be the program's own status.
++eval_stream_probe() {
++    echo "==> eval stream probe (eval_swift_test with a fake swift that prints, sleeps 2 s, prints)"
++    dir="$LOCK_SAVED/stream-probe"
++    mkdir -p "$dir"
++    cat >"$dir/main.swift" <<'EOF'
++import Foundation
++
++print("eval: probe first line")
++Thread.sleep(forTimeInterval: 2)
++print("eval: probe second line")
++exit(Int32(ProcessInfo.processInfo.environment["FAKE_STATUS"] ?? "0") ?? 0)
++EOF
++    xcrun swiftc -o "$dir/swift" "$dir/main.swift"
++    probe_failed=""
++    for want in 0 3; do
++        log="$dir/run-$want.log"
++        : >"$log"
++        start="$(date +%s)"
++        {
++            PATH="$dir:$PATH" FAKE_STATUS="$want" eval_swift_test "$log" env swift test || true
++            printf 'status %s\n' "$EVAL_STATUS"
++        } | while IFS= read -r line; do
++            printf '%s %s\n' "$(($(date +%s) - start))" "$line"
++        done >"$dir/seen-$want"
++        sed "s/^/  fake swift exiting $want: second /" "$dir/seen-$want"
++        first="$(sed -n 's/^\([0-9]*\) eval: probe first line$/\1/p' "$dir/seen-$want")"
++        second="$(sed -n 's/^\([0-9]*\) eval: probe second line$/\1/p' "$dir/seen-$want")"
++        status="$(sed -n 's/^[0-9]* status \([0-9]*\)$/\1/p' "$dir/seen-$want")"
++        if [ -z "$first" ] || [ -z "$second" ] || [ "$first" -gt 1 ] || [ "$second" -lt 2 ]; then
++            echo "eval stream probe: the lines did not arrive as they were printed (first at '$first', second at '$second')" >&2
++            probe_failed=1
++        fi
++        if [ "$status" != "$want" ]; then
++            echo "eval stream probe: EVAL_STATUS was '$status', not the fake swift's own $want" >&2
++            probe_failed=1
++        fi
++        if ! grep -q 'eval: probe second line' "$log"; then
++            echo "eval stream probe: the log lacks the run's output" >&2
++            probe_failed=1
++        fi
++    done
++    if [ -n "$probe_failed" ]; then exit 1; fi
++    echo "eval stream probe: each line arrived as printed, and the status was the command's own"
++}
++
+ # The summary of an eval's output: each suite's `eval result` line (EvalModels.result) as a table, a row per model
+ # and a column per suite, each cell passed/total and the median time per case; a cell's note below the table.
+ eval_summary() {
+@@ -713,6 +769,7 @@ case "${1:-all}" in
+     coverage-baseline) coverage_baseline ;;
+     classifier-default) classifier_default ;;
+     eval) shift; eval_ "$@" ;;
++    eval-stream-probe) eval_stream_probe ;;
+     mlx-live) shift; mlx_live "$@" ;;
+     completions) completions_write ;;
+     hygiene) hygiene ;;
+@@ -722,5 +779,5 @@ case "${1:-all}" in
+     mcp-build) mcp_build ;;
+     all) hygiene; palette; lint; build; evals_build; test_ ;;
+     install-hooks) install_hooks ;;
+-    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|mlx-live <model directory>|completions|mcp-build|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
++    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|hygiene|palette|all|install-hooks]" >&2; exit 64 ;;
+ esac

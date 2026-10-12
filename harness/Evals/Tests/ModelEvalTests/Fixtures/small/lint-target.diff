@@ -1,0 +1,12 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -4,4 +4,7 @@
+ test:
+ 	go test ./...
++
++lint:
++	golangci-lint run ./...
+ 
+-.PHONY: build test
++.PHONY: build test lint

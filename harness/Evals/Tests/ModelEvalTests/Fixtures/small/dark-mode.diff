@@ -1,0 +1,15 @@
+diff --git a/static/site.css b/static/site.css
+--- a/static/site.css
++++ b/static/site.css
+@@ -1,4 +1,11 @@
+ :root {
+   --bg: #ffffff;
+   --fg: #1d1d1f;
+ }
++
++@media (prefers-color-scheme: dark) {
++  :root {
++    --bg: #111114;
++    --fg: #f2f2f7;
++  }
++}

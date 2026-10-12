@@ -1,0 +1,12 @@
+diff --git a/src/format.js b/src/format.js
+--- a/src/format.js
++++ b/src/format.js
+@@ -40,8 +40,3 @@
+ export function format(date) {
+   return date.toISOString();
+ }
+-
+-/** @deprecated Use format() instead. */
+-export function legacyFormat(date) {
+-  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+-}

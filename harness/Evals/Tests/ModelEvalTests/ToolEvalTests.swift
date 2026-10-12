@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WispTestSupport
 
 @testable import WispCore
 
@@ -16,96 +17,84 @@ struct ToolEvalTests {
         return dir
     }
 
-    /// Read a small file, then rewrite one numbered line: the pairing `edit_file` exists for. A pass
-    /// is the file ending up exactly as intended, nothing else changed. Single runs varied between 5
-    /// and 10 of 10 on 2026-09-21, so every case is attempted `attempts` times and all count.
+    /// Read a file, then rewrite what the prompt names: the pairing `edit_file` exists for. The cases are
+    /// `edit_file.json`'s `replace` set (`EvalSets.EditFile`): files in many languages and of three sizes, a line
+    /// named by its text, neighbouring lines in two calls, a line emptied or a fragment cut, an empty line filled,
+    /// near-duplicate lines, non-ASCII text, a CRLF file edited by `find`, and a stale line number reconciled by `find`.
+    /// A pass is the file ending up exactly as intended. Single runs of the first ten files, three attempts each,
+    /// varied from 16 to 25 of 30 (2026-10-04 to 2026-10-12); since 0.23.0 each case runs once, and the release runs a
+    /// fixed subset (`WISP_EVAL_FULL=1` runs all), with a floor set from that history (docs/measurements.md).
     @Test func replacesExactlyWhatItReadWithEditFile() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cases: [(name: String, before: String, find: String, replacement: String)] = [
-            ("a.swift", "let x = 1\nlet y = 2\n", "let x = 1", "let x = 42"),
-            ("b.py", "def f():\n    return 1\n\ndef g():\n    return 2\n", "    return 1", "    return 10"),
-            ("c.md", "# Title\n\nfirst paragraph\n\nsecond paragraph\n", "first paragraph", "opening paragraph"),
-            (
-                "d.toml", "[package]\nname = \"tools\"\nversion = \"0.1.0\"\n", "version = \"0.1.0\"",
-                "version = \"0.2.0\""
-            ),
-            ("e.txt", "alpha\nbeta\ngamma\ndelta\n", "gamma", "GAMMA"),
-            (
-                "f.json", "{\n  \"name\": \"wisp\",\n  \"debug\": false\n}\n", "  \"debug\": false",
-                "  \"debug\": true"
-            ),
-            ("g.sh", "#!/bin/sh\nset -eu\necho start\necho done\n", "echo start", "echo starting"),
-            (
-                "h.yml", "name: ci\non: push\njobs:\n  build:\n    runs-on: macos-15\n", "    runs-on: macos-15",
-                "    runs-on: macos-26"
-            ),
-            ("i.rs", "fn main() {\n    let n = 3;\n    println!(\"{n}\");\n}\n", "    let n = 3;", "    let n = 4;"),
-            ("j.css", "body {\n  color: black;\n  margin: 0;\n}\n", "  color: black;", "  color: navy;"),
-        ]
-        for selection in EvalModels.selections {
-            guard let model = EvalModels.resolve(selection, for: ["edit_file"]) else { continue }
-            try await editFile(
-                cases, in: dir, on: model, suite: "edit_file", task: "edit_file.replace",
-                notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
-                    + "attempted three times each; a pass is the file ending up exactly as intended",
-                floor: true)
-        }
+        try await editFile(
+            task: "replace", suite: "edit_file", measurement: "edit_file.replace",
+            rate: EvalFloor.Historical.editFileReplace,
+            notes: "read a file with read_file, then rewrite what the prompt names with edit_file (a numbered line, "
+                + "two neighbouring lines, a line emptied or filled, a fragment by find, a stale number with find) "
+                + "across languages, file sizes, near-duplicate lines, non-ASCII text, and CRLF files")
     }
 
-    /// Whitespace-only rewrites of one numbered line: indent, dedent, tabs to spaces, trailing spaces stripped. The
-    /// cases where keeping a line's indentation must not apply (ADR 0024, refined 2026-10-06), measured apart from
-    /// `edit_file.replace` so that score keeps its thirty cases. No floor: added 2026-10-06, before the configured
-    /// model was measured on it.
+    /// Whitespace-only rewrites of one numbered line: indent, dedent, tabs to spaces and back, trailing spaces or a
+    /// tab stripped. The cases where keeping a line's indentation must not apply (ADR 0024, refined 2026-10-06),
+    /// measured apart from `edit_file.replace`; the `whitespace` set of `edit_file.json`.
     @Test func rewritesWhitespaceExactlyWithEditFile() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cases: [(name: String, before: String, find: String, replacement: String)] = [
-            ("k.py", "def f():\nreturn 1\n", "return 1", "    return 1"),
-            ("l.py", "x = 1\n    y = 2\n", "    y = 2", "y = 2"),
-            ("m.go", "func f() int {\n\treturn 1\n}\n", "\treturn 1", "    return 1"),
-            ("n.txt", "first line   \nsecond line\n", "first line   ", "first line"),
-        ]
-        for selection in EvalModels.selections {
-            guard let model = EvalModels.resolve(selection, for: ["edit_file.whitespace"]) else { continue }
-            try await editFile(
-                cases, in: dir, on: model, suite: "edit_file.whitespace", task: "edit_file.whitespace",
-                notes: "read a small file with read_file, then change only one numbered line's whitespace with "
-                    + "edit_file (indent, dedent, tabs to spaces, trailing spaces), four files attempted three times "
-                    + "each; a pass is the file ending up exactly as intended",
-                floor: false)
-        }
+        try await editFile(
+            task: "whitespace", suite: "edit_file.whitespace", measurement: "edit_file.whitespace",
+            rate: EvalFloor.Historical.editFileWhitespace,
+            notes: "read a file with read_file, then change only one numbered line's whitespace with edit_file "
+                + "(indent, dedent, tabs to spaces and back, trailing spaces or a tab)")
     }
 
-    /// The edit_file cases on one model, each attempted three times.
+    /// One `edit_file` task on every model: the cases this run measures, each once.
     ///
     /// - Parameters:
-    ///   - cases: Each file's name, its content, the line's text, and the line as it should end up.
+    ///   - task: The set's task, `replace` or `whitespace`.
+    ///   - suite: The column of the summary table.
+    ///   - measurement: The measurement's task.
+    ///   - rate: The configured model's historical pass rate, which sets the floor.
+    ///   - notes: What the cases are, for the measurement's notes.
+    /// - Throws: A fixture or file error.
+    private func editFile(
+        task: String, suite: String, measurement: String, rate: EvalFloor.Rate, notes: String
+    ) async throws {
+        let set = try EvalSets.EditFile.load()
+        let all = set.cases(task)
+        let cases = EvalModels.chosen(all, release: set.release[task], id: \.id, stratum: \.shape)
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for selection in EvalModels.selections {
+            guard let model = EvalModels.resolve(selection, for: [suite]) else { continue }
+            let passed = try await editFile(cases, in: dir, on: model, suite: suite)
+            let total = cases.count
+            try? Measurements.report(
+                Measurement(
+                    task: measurement, tool: "edit_file", model: selection.description, passed: passed, total: total,
+                    notes: notes + ", \(EvalModels.scope(total, of: all.count)) cases once each; a pass is the file "
+                        + "ending up exactly as intended"))
+            EvalModels.expectFloor(suite, passed: passed, total: total, rate: rate, on: selection)
+        }
+    }
+
+    /// The edit_file cases on one model, each once.
+    ///
+    /// - Parameters:
+    ///   - cases: The cases.
     ///   - dir: The scratch directory the files are written in.
     ///   - model: The model measured.
     ///   - suite: The column of the summary table.
-    ///   - task: The measurement's task.
-    ///   - notes: The measurement's notes.
-    ///   - floor: Whether the release's floor (half) applies on the configured model.
+    /// - Returns: The cases passed.
     /// - Throws: A file error writing a case's file.
     private func editFile(
-        _ cases: [(name: String, before: String, find: String, replacement: String)], in dir: URL,
-        on model: ResolvedModel, suite: String, task: String, notes: String, floor: Bool
-    ) async throws {
+        _ cases: [EvalSets.EditFile.Case], in dir: URL, on model: ResolvedModel, suite: String
+    ) async throws -> Int {
         let selection = model.selection
-        let attempts = 3
         var passed = 0
         var times: [Double] = []
-        for (round, item) in (1...attempts).flatMap({ round in cases.map { (round, $0) } }) {
-            let file = dir.appending(path: item.name)
+        for item in cases {
+            let file = dir.appending(path: item.file)
             try Data(item.before.utf8).write(to: file)
-            let prompt =
-                "Use read_file to read \(file.path). Then use edit_file with mode replace on \(file.path), with line "
-                + "set to the number read_file showed for `\(item.find)` and content `\(item.replacement)`. "
-                + "Report the tool results verbatim."
-            let expected = item.before.replacingOccurrences(of: item.find, with: item.replacement)
+            let prompt = item.prompt(path: file.path)
             let root = dir.path
-            let (calls, milliseconds) = await EvalModels.attempt("tool eval: edit_file \(item.name)", on: selection) {
+            let (calls, milliseconds) = await EvalModels.attempt("tool eval: edit_file \(item.id)", on: selection) {
                 let sink = MemoryAuditSink()
                 let audit = AuditLog(session: "eval", sink: sink)
                 let registry = ToolRegistry(runner: .init(writableRoot: root), audit: audit)
@@ -118,21 +107,14 @@ struct ToolEvalTests {
             }
             times.append(milliseconds)
             let after = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-            let ok = after == expected
+            let ok = after == item.after
             if ok { passed += 1 }
             print(
-                "tool eval: edit_file on \(selection) \(item.name) #\(round): \(ok ? "pass" : "FAIL") "
-                    + (ok ? "" : "file=\(after.replacingOccurrences(of: "\n", with: "⏎")) calls=\(calls ?? [])"))
+                "tool eval: \(suite) on \(selection) \(item.id) (\(item.shape)): \(ok ? "pass" : "FAIL") "
+                    + (ok ? "" : "file=\(after.debugDescription) calls=\(calls ?? [])"))
         }
-        let total = cases.count * attempts
-        EvalModels.result(suite, on: selection, passed: passed, total: total, milliseconds: times)
-        try? Measurements.report(
-            Measurement(
-                task: task, tool: "edit_file", model: selection.description, passed: passed, total: total,
-                notes: notes))
-        if floor, EvalModels.floorsApply(to: selection) {
-            #expect(passed * 2 >= total, "edit_file replace passed \(passed)/\(total)")
-        }
+        EvalModels.result(suite, on: selection, passed: passed, total: cases.count, milliseconds: times)
+        return passed
     }
 
     /// A classification with a schema: the reply must parse and carry the expected enum value.

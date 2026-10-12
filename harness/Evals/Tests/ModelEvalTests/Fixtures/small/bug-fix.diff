@@ -1,0 +1,7 @@
+diff --git a/Sources/Paging.swift b/Sources/Paging.swift
+--- a/Sources/Paging.swift
++++ b/Sources/Paging.swift
+@@ -20,2 +20,2 @@ func page(_ items: [Item], number: Int, size: Int) -> [Item] {
+-    let start = number * size + 1
++    let start = number * size
+     return Array(items[start..<min(start + size, items.count)])

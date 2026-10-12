@@ -1,0 +1,133 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6b18785..65612a9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -13,6 +13,8 @@ Added:
+   needs no training. `wisp classifier train` adds a new version, `risk@X.Y.Z-local.<n>`, and never
+   overwrites one; `wisp classifier list`, `use`, and `remove` manage them, and `measure` records each
+   result in the version's manifest. Versions live in `~/.wisp/classifiers/risk`.
++- `wisp classifier train` leaves out every example that overlaps `~/.wisp/classifiers/risk/held-out.tsv`
++  or a file given with `--exclude`, so a test set of commands run on this Mac is never trained on.
+ - `/config` in chat shows the configuration as YAML; `wisp config` and `/inspect config` stay JSON.
+ 
+ Fixed:
+diff --git a/docs/approval.md b/docs/approval.md
+index 6d8ab0e..04fb32b 100644
+--- a/docs/approval.md
++++ b/docs/approval.md
+@@ -199,6 +199,12 @@ replaced by markers first, since a trained model keeps the words it learned. The
+ bundled ones for the same command. `train` prints how many commands it found, how many verdicts were
+ fallbacks, how many were raised, and how many were redacted.
+ 
++A test set of commands actually run on this Mac must never be trained on, and `--from-audit` would
++otherwise learn exactly those. `train` always leaves out any example that overlaps
++`~/.wisp/classifiers/risk/held-out.tsv` (labelled commands, one `level<TAB>command` per line), exactly,
++after normalising, by family, or by near match, and says how many it left out; `--exclude <file>` adds
++more files to leave out. Keep the test set there, or pass it with `--exclude`.
++
+ `measure` runs a classifier over labelled commands with the rules beside it, as the gate runs it, and
+ prints the commands rated exactly, over, and under, every miss, and the latency per verdict (p50, p95,
+ slowest). It exits 1 when a dangerous command is rated safe. Given a version it measures that one, and
+diff --git a/docs/wisp.md b/docs/wisp.md
+index 5ce7291..4496885 100644
+--- a/docs/wisp.md
++++ b/docs/wisp.md
+@@ -403,9 +403,11 @@ Risk classifier versions live in `~/.wisp/classifiers/risk`: the default each re
+ `risk@X.Y.Z-default`, never changed, and those trained here, `risk@X.Y.Z-local.<n>`, never overwritten.
+ 
+ `wisp classifier list` shows them, the one in use marked `*`, each with its source and latest
+-measurement. `wisp classifier train [--examples <file>] [--from-audit] [--use]` trains a new version with
++measurement. `wisp classifier train [--examples <file>] [--from-audit] [--exclude <file>]… [--use]` trains a new version with
+ Create ML from labelled commands (`level<TAB>command` per line) or the bundled examples; `--from-audit`
+ adds the on-device model's verdicts on the commands in this Mac's audit log, and `--use` switches to it.
++Anything overlapping `~/.wisp/classifiers/risk/held-out.tsv`, or a file given with `--exclude`, is left
++out, so a test set of this Mac's commands is never trained on.
+ `wisp classifier use risk@<version>` sets `approval.classifier` to `coreml` and `approval.coremlModel`
+ to it, from the next session; `wisp classifier remove risk@<version>` deletes one trained here, not the
+ default or the one in use.
+diff --git a/harness/Sources/WispCore/Approval/ClassifierStore.swift b/harness/Sources/WispCore/Approval/ClassifierStore.swift
+index 9a0ec24..679fb2c 100644
+--- a/harness/Sources/WispCore/Approval/ClassifierStore.swift
++++ b/harness/Sources/WispCore/Approval/ClassifierStore.swift
+@@ -114,6 +114,25 @@ public struct ClassifierStore: Sendable {
+     /// The reference for `version`, as config names it.
+     public static func reference(_ version: String) -> String { "\(task)@\(version)" }
+ 
++    /// Labelled commands kept out of every training run on this Mac: a test set of commands actually run
++    /// here, which `--from-audit` would otherwise learn from. `train` always leaves out anything that
++    /// overlaps it.
++    public var heldOut: URL { root.appending(path: "held-out.tsv") }
++
++    /// `examples` without any that overlap `heldOut` (exactly, after normalising, by family, or by near
++    /// match), and how many were left out.
++    public func withoutHeldOut(_ examples: [RiskExample], also extra: [URL] = []) -> (kept: [RiskExample], removed: Int)
++    {
++        let files = ([heldOut] + extra).filter { FileManager.default.fileExists(atPath: $0.path) }
++        let held = files.flatMap { url in (try? String(contentsOf: url, encoding: .utf8)).map(TrainingSplit.parse) ?? []
++        }
++        guard !held.isEmpty else { return (examples, 0) }
++        let asExamples = examples.map { TrainingSplit.Example(label: $0.level.rawValue, text: $0.command) }
++        let clashing = Set(TrainingSplit.overlaps(held, asExamples).map(\.second))
++        let kept = examples.filter { !clashing.contains($0.command) }
++        return (kept, examples.count - kept.count)
++    }
++
+     /// The directory of `version`.
+     public func directory(_ version: String) -> URL { root.appending(path: version) }
+ 
+diff --git a/harness/Sources/wisp/Wisp.swift b/harness/Sources/wisp/Wisp.swift
+index e9aaad4..7091c87 100644
+--- a/harness/Sources/wisp/Wisp.swift
++++ b/harness/Sources/wisp/Wisp.swift
+@@ -1086,6 +1086,9 @@ struct ClassifierCommand: AsyncParsableCommand {
+         @Flag(name: .long, help: "Use the new version at once, as 'wisp classifier use' would.")
+         var use = false
+ 
++        @Option(name: .long, help: "Labelled commands to leave out of training, such as a test set; repeatable.")
++        var exclude: [String] = []
++
+         func run() async throws {
+             let session = try Wisp.begin(.init(entryPoint: .classifier))
+             defer { session.end() }
+@@ -1099,6 +1102,12 @@ struct ClassifierCommand: AsyncParsableCommand {
+                 examples = RiskExamples.merged(examples, with: harvest.examples)
+                 source += " + audit"
+             }
++            let held = ClassifierCommand.store.withoutHeldOut(
++                examples, also: exclude.map { URL(filePath: ($0 as NSString).expandingTildeInPath) })
++            if held.removed > 0 {
++                print("left out \(held.removed) examples that overlap held-out commands")
++                examples = held.kept
++            }
+             let parent = session.config.approvalClassifier == .coreml ? ClassifierCommand.inUse(session.config) : nil
+             let trained: (manifest: ClassifierStore.Manifest, outcome: RiskClassifierTraining.Outcome)
+             do {
+diff --git a/harness/Tests/WispCoreTests/ClassifierStoreTests.swift b/harness/Tests/WispCoreTests/ClassifierStoreTests.swift
+index 470a536..d3d0f3c 100644
+--- a/harness/Tests/WispCoreTests/ClassifierStoreTests.swift
++++ b/harness/Tests/WispCoreTests/ClassifierStoreTests.swift
+@@ -52,6 +52,24 @@ import Testing
+         }
+     }
+ 
++    @Test func heldOutCommandsNeverTrain() throws {
++        let home = try home()
++        defer { try? FileManager.default.removeItem(at: home.root) }
++        let store = ClassifierStore(home: home)
++        let examples = [
++            RiskExample(command: "git push origin main", level: .moderate),
++            RiskExample(command: "cat notes.txt", level: .safe), RiskExample(command: "ls", level: .safe),
++        ]
++        #expect(store.withoutHeldOut(examples).removed == 0, "no held-out file, nothing left out")
++        try FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
++        try Data("moderate\tgit push origin main\nsafe\tcat other.txt\n".utf8).write(to: store.heldOut)
++        let held = store.withoutHeldOut(examples)
++        #expect(held.removed == 2 && held.kept.map(\.command) == ["ls"], "exact and family overlaps both go")
++        let extra = home.root.appending(path: "more.tsv")
++        try Data("safe\tls\n".utf8).write(to: extra)
++        #expect(store.withoutHeldOut(examples, also: [extra]).kept.isEmpty)
++    }
++
+     @Test func removingSparesTheDefaultAndTheVersionInUse() throws {
+         let home = try home()
+         defer { try? FileManager.default.removeItem(at: home.root) }

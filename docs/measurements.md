@@ -23,14 +23,14 @@ Mac on one day; it is evidence, not a certification.
 | `triage` | `TriageEvalTests`, abridged swift build, swift test, cargo test, and pytest output | an expected failure found, by test name or file:line |
 | `summarise_diff` | `DiffSummaryEvalTests`, five small diffs | the expected flag (secret, deleted or disabled test) on the expected file, or no flag for an ordinary change, from the rules and the model together; every file must also get a summary line. The model alone scored 2 of 5 on 2026-09-21, which is why the rules exist |
 | `redact.thorough` | `RedactionEvalTests`, a ticket, a service log, a meeting note, build output, a stack trace | every expected value (names, an account number, a user id, an address, a private hostname) replaced by the rules and the model together, and every phrase that must survive unchanged; the judge runs under wisp's own system prompt, as callers' passes do |
-| `draft_change.commit` | `DraftEvalTests`, three size bands: five small diffs twice each, then real commits of this repository at 9 and 14 KB and at 30 and 52 KB, once each | a commit subject naming the gist of the change (words chosen so a vague subject fails); each band is recorded with its `maxInputBytes` for routing ([ADR 0037](decisions/0037-routing-by-input-size.md)). On 2026-09-24 the system model scored 7/10, 2/2, 1/2 and `qwen3.8:27b` 10/10, 2/2, 2/2 |
-| `system_info.topic` | `SystemInfoEvalTests`, eight plain questions about the Mac, twice each, with `run_command` also offered | a `system_info` call in the turn naming the expected topic (and port or process); three runs on 2026-09-24, with the process name required, scored 15, 16, and 16 of 16 |
+| `draft_change.commit` | `DraftEvalTests`, three size bands of `drafts.json` ([below](#the-case-sets)): 30 small diffs written for the eval (up to 2 KB), and real commits of this repository, 8 medium (4 to 16 KB) and 6 large (24 to 56 KB), each drafted once | a commit subject that names the gist of the change and says nothing it does not do, by the case's rubric: one of its `must` terms and none of its `mustNot` terms, each beginning a word (terms chosen so a vague subject fails); each band is recorded with its `maxInputBytes` for routing ([ADR 0037](decisions/0037-routing-by-input-size.md)). On 2026-09-24, with five small diffs twice each and two of each larger band, the system model scored 7/10, 2/2, 1/2 and `qwen3.8:27b` 10/10, 2/2, 2/2 |
+| `system_info.topic` | `SystemInfoEvalTests`, the 54 questions of `system_info.json`, every topic in several phrasings, five of them ambiguous, each asked once, with `run_command` and `memory` also offered | a `system_info` call in the turn matching a call the question accepts: its topic, and its port, process, or folder where the question names one; an ambiguous question accepts each topic a careful operator would, and says why. With the first eight questions twice each, three runs on 2026-09-24, with the process name required, scored 15, 16, and 16 of 16 |
 | `chat.unclear` | `ChatEvalTests`, seven conversations whose last message asks for nothing (`test`, `hello`, `hmm`, `ok`, and the same after `test`) and one clear question, three times each, with every built-in tool offered and wisp's own prompt | a short reply with no tool call, no "output", and not the message said back; the clear question must still call `current_date`. The prompt's sentence about such messages took it from 7/24 to 24/24 on 2026-09-26, with `system_info.topic` at 16, 16, and 14 of 16 against 15, 14, and 14 without it |
 | `context.dropping`, `context.dropping.window-8192`, `context.dropping.window-32768`, `context.dropping.window-sized` | `ContextEvalTests`, the [layered-context proposal](proposals/2026-09-29-layered-context.md)'s eval: one scripted conversation of 14 turns (a task and four facts planted, 13 file reads including a ten-file digression, one fact changed midway) then six questions, through today's dropping; on the on-device model, and on `ollama:granite4.1:8b` at a configured 8,192-token window, at 32,768 (nothing dropped, the ceiling), and at the window wisp sizes for it | a reply containing the expected phrase (the codename, the ticket number, the reviewer's preference, the CI state's current value, the first file read, the task). A baseline: the floor is only that every question was asked and scored. The notes carry the run's condensations, median tokens after a turn, and load average; `p50Milliseconds` and `p95Milliseconds` are time per turn |
 | `context.dropping.recalling[…]`, `context.memory-target.recalling[…]`, `context.memory.recalling[…].budget-50`, `context.summary-target.recalling[…].budget-50`, `context.assessing[-task\|-all]-target.recalling[…].budget-50.all-tools` | `ContextEvalTests`, the layered-context design's checkpoint ([ADR 0045](decisions/0045-layered-context.md)): the `recalling` scenario (15 turns, then seven questions) at a window of 8,192, through dropping, the whole design (`memory-target`), phase 2's fixed four turns (`memory`), the design without `memory` (`summary-target`), and the assessment per request in its three tool sets; `[…]` is `.window-8192` for granite, `.budget-50` for half the window, and `.all-tools` for every built-in tool offered | a reply containing the expected phrase, as above, plus a detail of the first file read that no fact or summary carries. The notes carry the condensations, the fill after condensing and the turns between condensations, the distillations' times, the `memory` calls, the median tokens, and the load average |
 | `context.<strategy>.checkpoint.<cell>` | `ContextCheckpointTests`, context checkpoint 2 ([below](#context-checkpoint-2)): the `sustained` scenario (29 turns, then ten questions) and the `recalling` one, through the cells of each part; recorded only with `record` | as the context eval's, above; the notes add the model switches |
-| `edit_file.replace` | `ToolEvalTests`, ten small files | after read_file then edit_file replace by line number, the file is exactly as intended |
-| `edit_file.whitespace` | `ToolEvalTests`, four small files, three attempts each: indent a line, dedent one, tabs to spaces, trailing spaces stripped | as `edit_file.replace`; kept apart so that measurement stays thirty cases. No floor yet |
+| `edit_file.replace` | `ToolEvalTests`, the 86 `replace` cases of `edit_file.json`, each once: files in 35 languages and formats, from 2 lines to 81, one line named by its text, two neighbouring lines, a line emptied or a fragment cut, an empty line filled, near-duplicate lines, non-ASCII text, CRLF files edited by `find`, and stale line numbers reconciled by `find` | the file ends up exactly as the case's `after`; every case is checked in the gate to be solved by exactly the calls its prompt asks for |
+| `edit_file.whitespace` | `ToolEvalTests`, the 24 `whitespace` cases of `edit_file.json`, each once: indent a line, dedent one, tabs to spaces and back, trailing spaces or a tab stripped | as `edit_file.replace`; measured apart, since these are the edits where keeping a line's indentation must not apply |
 | `respond.schema` | `ToolEvalTests`, six code snippets | the schema-shaped reply parses and names the language |
 
 Classifier measurements also carry `p50Milliseconds` and `p95Milliseconds`, the latency per verdict,
@@ -38,8 +38,9 @@ since a classifier runs on every command and speed is half of what makes one fit
 ([ADR 0038](decisions/0038-fast-specialised-classifiers.md)); `wisp classifier measure` reports the same
 for any classifier over any labelled file.
 
-The sets are small on purpose: they prove the pipeline and catch regressions. Widen a set when the
-model gets a case wrong in practice, keeping cases that do not resemble the prompt's own examples.
+Most sets are small on purpose: they prove the pipeline and catch regressions. `edit_file`, `system_info`, and
+`draft_change` were widened in 0.23.0, because their floors stopped or passed a release on chance ([below](#the-case-sets));
+widen a set when the model gets a case wrong in practice, keeping cases that do not resemble the prompt's own examples.
 
 ## How to run and record
 
@@ -81,8 +82,9 @@ by the `EmbedSystemPrompt` plugin, so the numbers a binary reports are the numbe
 Commit the file with the change that moved the numbers, and say so in the message. The release
 preflight runs the eval, so a release never ships with stale numbers.
 
-The eval asserts only floors (half or three quarters recall, and the classifier's hard requirement);
-everything else is reported and recorded. Run `WISP_MODEL_TESTS=1 swift test --filter ToolEvalTests`
+The eval asserts only floors (half or three quarters recall, the classifier's hard requirement, and for `edit_file`,
+`system_info`, and `draft_change` floors set from each suite's history, [below](#the-floors)); everything else is
+reported and recorded. Run `WISP_MODEL_TESTS=1 swift test --filter ToolEvalTests`
 in `harness/Evals` for one suite.
 
 Every run ends with a summary table, a row per model and a column per suite, each cell the cases passed of
@@ -91,6 +93,92 @@ those run and the median time per case (per verdict for the classifier, per turn
 (`eval-<date>-<time>.log` and `.summary.txt`). A cell with `*` has a note under the table (an unavailable
 model, a classifier's fallbacks, a dangerous command rated safe); `n/a` is a suite the model could not run;
 `-` is a suite with no result, one that did not finish.
+
+## The case sets
+
+`edit_file`, `system_info`, and `draft_change` have case sets large enough that a floor stops a release on a real
+regression rather than on chance (0.23.0). Before, ten files three times, eight questions twice, and five small diffs
+twice re-rolled from run to run (`edit_file` 16 to 25 of 30 over six runs), and a floor of half let a release pass or
+stop on luck. The sets are data files under `harness/Evals/Tests/ModelEvalTests/Fixtures`, read through
+`EvalSets` in `WispTestSupport`:
+
+| File | Cases | What they are |
+| --- | --- | --- |
+| `edit_file.json` | 86 `replace`, 24 `whitespace` | A file, the `edit_file` calls a right answer makes, and the file as it must end up. `replace`: single lines in 35 languages and formats (28, the first ten files among them, word for word), medium files of 25 to 53 lines (10) and large ones of 50 to 81 lines, up to 2 KB (7), near-duplicate lines (8), two neighbouring lines in two calls (6), a line emptied or a fragment cut by `find` (6), an empty line filled (4), non-ASCII text (7), CRLF files edited by `find` (4), and a stale line number the model passes with `find`, without reading the file (6). `whitespace` (the first four among them): indent (7), dedent (5), tabs to spaces (4) and back (2), trailing spaces or a tab (6) |
+| `system_info.json` | 54 | The first eight questions kept, then each of the nine topics in several phrasings (5 to 8 a topic); five ambiguous questions accept each topic a careful operator would (a slow Mac: `processes` or `memory`; installed RAM: `memory` or `system`; what eats the disk: `freeSpace` or `folderSizes`; postgres's ports: `process` or `ports`; whether Ollama is up: `process` or `ports` on 11434), each with a note saying why. Folder questions also require the folder named |
+| `drafts.json` and its diffs | 30 small, 8 medium, 6 large | Small: the first five diffs kept (their hunk headers corrected), then 25 written for the eval across Swift, Python, Go, Rust, JavaScript, TypeScript, Java, SQL, shell, CSS, HTML, YAML, TOML, JSON, Dockerfile, Makefile, and Markdown (a rename, a removal, a dependency bump, a test, a nil guard, a migration, a CI cache, a flag turned on, …). Medium and large: real commits of this repository, `git show --format=` of each, the first four kept. Each diff has its gist in a sentence and its rubric |
+
+Claude wrote the new cases and labelled them on 2026-10-12, as the operator agreed for training and eval sets; none
+holds a real secret or personal data. The gate checks every set without a model (`EvalSetsTests`): each loads, its
+ids are unique, its counts match the counts it declares and the sizes above, every `edit_file` case is solved by
+exactly the calls its prompt asks for (applied with the real `FileWriter`, a named line being that line and the only
+one with its text, a stale number being wrong and `find` on exactly one other line), every whitespace case changes
+only one line's whitespace, every file fits one `read_file` page at the smallest budget, every `system_info` topic and
+target is one the tool takes, every diff's hunks match their headers and its size its band, no rubric term is
+contradicted by another, and the secret scanner finds nothing (two prose matches in `756b178`, "per token: every"
+and "per drafted token: 748.125 MiB", are named as such).
+
+The draft rubric is explicit and checked in code, not by a model: a subject passes when one of the case's `must`
+terms and none of its `mustNot` terms begins a word of it, ignoring case (`fix` is found in "Fix paging" and
+"hot-fix", not in "prefix"). `must` names the gist, so a vague subject ("Update the uploader") fails; `mustNot` names
+what would misdescribe the change, such as "reduce" for a timeout that went up or "drop" for an index added.
+
+### The floors
+
+A floor is set from statistics: with `n` cases each passed at the configured model's historical rate `p`, it is the
+largest `k` for which a run at that rate scores below `k` with a chance of at most 1% (the binomial distribution's
+lower tail, `EvalFloor.minimum`), so a release stops on chance alone at most one time in a hundred. `p` is the
+configured model's pooled score over the six eval runs saved from 2026-10-04 to 2026-10-12 (the summaries under
+`harness/Evals/.build/evals`):
+
+| Suite | Runs | `p` | Whole set: `n`, floor, chance of stopping | Release's subset: `n`, floor, chance of stopping |
+| --- | --- | --- | --- | --- |
+| `edit_file` (replace) | 16, 19, 25, 18, 16, 21 of 30: 115/180 | 0.639 | 86, 44, 0.58% | 36, 16, 0.54% |
+| `edit_file.whitespace` | 11, 10, 12, 11, 12 of 12: 56/60 | 0.933 | 24, 19, 0.41% | 8, 5, 0.11% |
+| `system_info` | 13, 15, 15, 15, 14, 12 of 16: 84/96 | 0.875 | 54, 41, 0.56% | 24, 17, 0.68% |
+| `draft` (small) | 9, 10, 8, 6, 7, 8 of 10: 48/60 | 0.800 | 30, 19, 0.95% | 12, 6, 0.39% |
+| `draft.medium` | 1, 1, 2, 1, 1, 1 of 2: 7/12 | 0.583 | 8, 1, 0.09% | 4, 0, none |
+| `draft.large` | 1 of 2 each time: 6/12 | 0.500 | 6, 0, none | 2, 0, none |
+
+For example, `edit_file` on the whole set: at `p` = 0.639 a run of 86 scores 43 or fewer with a chance of 0.58% and
+44 or fewer with more than 1%, so the floor is 44. The old floor of half of 30 stopped a run at that rate with a chance
+of 4.0% (more in practice, since three attempts at one file are not independent). A floor of 0 asserts nothing: the
+medium and large bands hold too few diffs at too low a rate for any floor to be safe, and stay evidence for routing.
+What a floor buys is shown by a fall of 20 points in the true rate: the whole sets would stop it with a chance of 89%
+(`edit_file`), 65% (whitespace), 88% (`system_info`), and 57% (small drafts); the release's subsets 46%, 14%, 54%, and
+16%. The rates and floors are in `EvalFloor.Historical`, and a gate test holds every figure in this table to the code.
+The new cases have not yet run on a model: the first whole run should be recorded
+(`WISP_EVAL_FULL=1 scripts/check eval record`), and if its rates differ from these, `EvalFloor.Historical` and this
+table move with them.
+
+### Run time, and the release's subsets
+
+At the configured model's median times per case in the 2026-10-12 run (`edit_file` 32.4 s, whitespace 44.8 s,
+`system_info` 32.2 s, drafts 23.7 s small, 56.6 s medium, 156.7 s large), the three suites, one after another, take:
+
+| Suite | 0.22.0's cases | Minutes | Whole set | Minutes | Release's subset | Minutes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `edit_file` | 30 | 16.2 | 86 | 46.4 | 36 | 19.4 |
+| `edit_file.whitespace` | 12 | 9.0 | 24 | 17.9 | 8 | 6.0 |
+| `system_info` | 16 | 8.6 | 54 | 29.0 | 24 | 12.9 |
+| `draft` | 10 | 4.0 | 30 | 11.9 | 12 | 4.7 |
+| `draft.medium` | 2 | 1.9 | 8 | 7.5 | 4 | 3.8 |
+| `draft.large` | 2 | 5.2 | 6 | 15.7 | 2 | 5.2 |
+| Total | 72 | 44.9 | 208 | 128.4 | 86 | 52.0 |
+
+The whole sets would add about 84 minutes to the release's eval, so the release runs a subset: a fixed number of each
+set (`release` in each file), chosen by `EvalSample` with a fixed seed and spread over the edit shapes and the
+`system_info` topics, so every release runs the same cases, about 7 minutes more than 0.22.0's (distinct cases once
+each where it ran ten files three times). `WISP_EVAL_FULL=1` runs the whole sets, with each floor computed for the cases
+run:
+
+```
+WISP_EVAL_FULL=1 scripts/check eval record
+```
+
+`scripts/check eval` without it, which the release preflight runs, and `scripts/check eval compare` run the subsets.
+Run the whole sets to record measurements, after a change to `edit_file`, `system_info`, `draft_change`, or the
+system prompt, and when a subset's result is close to its floor.
 
 ## Comparing models
 

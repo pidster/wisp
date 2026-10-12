@@ -1,0 +1,14 @@
+diff --git a/Sources/Store/Cache.swift b/Sources/Store/Cache.swift
+--- a/Sources/Store/Cache.swift
++++ b/Sources/Store/Cache.swift
+@@ -3,7 +3,8 @@
+ final class Cache {
+     private var entries: [String: Data] = [:]
++    private let lock = NSLock()
+ 
+-    func value(for key: String) -> Data? { entries[key] }
++    func value(for key: String) -> Data? { lock.withLock { entries[key] } }
+ 
+-    func set(_ value: Data, for key: String) { entries[key] = value }
++    func set(_ value: Data, for key: String) { lock.withLock { entries[key] = value } }
+ }

@@ -1,0 +1,10 @@
+diff --git a/scripts/backup.sh b/scripts/backup.sh
+--- a/scripts/backup.sh
++++ b/scripts/backup.sh
+@@ -8,4 +8,4 @@
+ SRC=$1
+ DEST=$2
+-mkdir -p $DEST
+-rsync -a $SRC/ $DEST/
++mkdir -p "$DEST"
++rsync -a "$SRC/" "$DEST/"

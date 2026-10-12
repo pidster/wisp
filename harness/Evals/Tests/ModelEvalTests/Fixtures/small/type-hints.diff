@@ -1,0 +1,12 @@
+diff --git a/tools/units.py b/tools/units.py
+--- a/tools/units.py
++++ b/tools/units.py
+@@ -1,6 +1,6 @@
+-def to_celsius(f):
++def to_celsius(f: float) -> float:
+     return (f - 32) * 5 / 9
+ 
+ 
+-def to_fahrenheit(c):
++def to_fahrenheit(c: float) -> float:
+     return c * 9 / 5 + 32

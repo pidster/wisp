@@ -1,0 +1,11 @@
+diff --git a/web/search.js b/web/search.js
+--- a/web/search.js
++++ b/web/search.js
+@@ -3,2 +3,6 @@
+ const box = document.querySelector('#search');
+-box.addEventListener('input', () => runQuery(box.value));
++let timer;
++box.addEventListener('input', () => {
++  clearTimeout(timer);
++  timer = setTimeout(() => runQuery(box.value), 250);
++});

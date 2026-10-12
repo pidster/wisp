@@ -1,0 +1,130 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 728f57b..8341e56 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,8 +9,8 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
+ Added:
+ 
+ - `edit_file`, a new model tool: write a whole text file, append to it, or replace one exact
+-  occurrence of a piece of text. Writes are confined to the directories the sandbox lets commands
+-  write under, every edit passes the risk classifier and approval as `edit_file <mode> <path>`, and
++  occurrence of a piece of text. Writes are atomic and confined to the directories the sandbox lets
++  commands write under, every edit passes the risk classifier and approval as `edit_file <mode> <path>`, and
+   each edit is audited as `file.write` and listed in the receipt's `files`.
+ - `triage`, a new MCP tool: run a build or test command on this Mac (or read an output file) and get
+   back only the failures as `kind`, `location`, `message`, judged chunk by chunk by the on-device model.
+diff --git a/docs/decisions/0024-edit-file.md b/docs/decisions/0024-edit-file.md
+index 91e5257..be0c230 100644
+--- a/docs/decisions/0024-edit-file.md
++++ b/docs/decisions/0024-edit-file.md
+@@ -37,8 +37,9 @@ gate, and Seatbelt; `read_file` runs the gate's rules only; `inspect` and `curre
+ 
+ - A conversation that should not write leaves `edit_file` out with `--tool` or `tools`; a conversation
+   with it can write only where the sandbox would have let a command write, after the same approval.
+-- The file is written in place, not atomically; a failure mid-write can leave it partial. Acceptable for
+-  now: the sizes are small and the audit shows the attempt.
++- Writes are atomic (a temporary file beside the target, renamed over it, mode preserved), so a
++  crash or a full disk leaves the original; the cost is one extra file operation. Amended the same
++  day: the first version wrote in place.
+ - Probed once with the system model on 2026-09-20: `find` came back verbatim after a `read_file` page,
+   but `content` carried the following line too, duplicating it. The tool cannot tell intent from
+   accident; the tool description now says `content` replaces only `find`, and a proper measurement
+diff --git a/docs/tools/edit_file.md b/docs/tools/edit_file.md
+index dd56c50..0780c7f 100644
+--- a/docs/tools/edit_file.md
++++ b/docs/tools/edit_file.md
+@@ -51,7 +51,7 @@ program. Where nobody can answer the edit is refused and the file is untouched.
+ | `replace` file size | 1 MiB; larger files are refused (`FileWriter(maxBytes:)`, fixed in code) |
+ | Binary files | Refused for `replace` (a NUL byte); `write` and `append` do not read the file |
+ | Directories, missing parent directory, unknown `mode`, `replace` without `find` | Errors |
+-| Atomicity | The file is written in place; a failure during the write can leave it partial |
++| Atomicity | Every write goes to a temporary file beside the target (same directory, the existing mode copied) and is renamed over it, so a reader never sees a partial file and a failure leaves the original untouched |
+ 
+ ## Audit and receipts
+ 
+diff --git a/harness/Sources/DaimonCore/Tools/FileWriter.swift b/harness/Sources/DaimonCore/Tools/FileWriter.swift
+index dfb6494..8fa5d94 100644
+--- a/harness/Sources/DaimonCore/Tools/FileWriter.swift
++++ b/harness/Sources/DaimonCore/Tools/FileWriter.swift
+@@ -5,7 +5,8 @@ import Foundation
+ ///
+ /// Three edits: write the whole file (created if absent), append, or replace one exact occurrence of
+ /// a piece of text. Replacement demands exactly one match so the model cannot change more than it
+-/// showed it meant to. Nothing here creates directories or follows the model outside the set.
++/// showed it meant to. Every write is atomic: a temporary file beside the target, renamed over it.
++/// Nothing here creates directories or follows the model outside the set.
+ public struct FileWriter: Sendable {
+     /// What to do to the file.
+     public enum Edit: Equatable, Sendable {
+@@ -132,6 +133,27 @@ public struct FileWriter: Sendable {
+         }
+     }
+ 
++    /// Writes `data` to a temporary file beside `url`, gives it the existing file's mode, and renames
++    /// it over the target, so a reader never sees a partial file and a failure leaves the original.
++    ///
++    /// - Throws: A file-system error; the temporary file is removed on failure.
++    static func writeAtomically(_ data: Data, to url: URL, replacing exists: Bool) throws {
++        let directory = url.deletingLastPathComponent()
++        let temporary = directory.appending(path: ".\(url.lastPathComponent).daimon-\(ShortID.make())")
++        do {
++            try data.write(to: temporary)
++            if exists, let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] {
++                try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: temporary.path)
++            }
++            guard rename(temporary.path, url.path) == 0 else {
++                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
++            }
++        } catch {
++            try? FileManager.default.removeItem(at: temporary)
++            throw error
++        }
++    }
++
+     /// Applies `edit` to the file at `path`.
+     ///
+     /// - Parameters:
+@@ -168,7 +190,7 @@ public struct FileWriter: Sendable {
+             line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
+             after = Data(text.replacingCharacters(in: range, with: replacement).utf8)
+         }
+-        try after.write(to: url)
++        try Self.writeAtomically(after, to: url, replacing: exists)
+         return Result(
+             path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: after.count,
+             line: line)
+diff --git a/harness/Tests/DaimonCoreTests/FileWriterTests.swift b/harness/Tests/DaimonCoreTests/FileWriterTests.swift
+index 7e64791..78f8bf2 100644
+--- a/harness/Tests/DaimonCoreTests/FileWriterTests.swift
++++ b/harness/Tests/DaimonCoreTests/FileWriterTests.swift
+@@ -28,6 +28,12 @@ import Testing
+         #expect(try String(contentsOfFile: file, encoding: .utf8) == "one\n2\nthree\n")
+         let overwritten = try writer.apply(.write("x"), to: file)
+         #expect(overwritten.rendered == "wrote \(file); now 1 bytes")
++        // Writes are atomic: the mode survives the rename and no temporary file is left behind.
++        try FileManager.default.setAttributes([.posixPermissions: 0o640], ofItemAtPath: file)
++        _ = try writer.apply(.append("y"), to: file)
++        #expect(try FileManager.default.attributesOfItem(atPath: file)[.posixPermissions] as? Int == 0o640)
++        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["a.txt"])
++        #expect(try String(contentsOfFile: file, encoding: .utf8) == "xy")
+         #expect(throws: FileWriter.Failure.notFound(find: "zzz")) {
+             try writer.apply(.replace(find: "zzz", replacement: ""), to: file)
+         }
+@@ -56,6 +62,17 @@ import Testing
+         // The check follows symlinks: /tmp is /private/tmp.
+         #expect(FileWriter(roots: ["/private/tmp"]).permits("/tmp/x"))
+         #expect(throws: FileWriter.Failure.isDirectory(dir.path)) { try inside.apply(.write("x"), to: dir.path) }
++        // A rename that cannot happen leaves no temporary file and the original untouched.
++        let locked = dir.appending(path: "locked")
++        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
++        let target = locked.appending(path: "t.txt")
++        try Data("keep".utf8).write(to: target)
++        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: locked.path)
++        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path) }
++        #expect(throws: (any Error).self) { try inside.apply(.write("new"), to: target.path) }
++        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
++        #expect(try String(contentsOfFile: target.path, encoding: .utf8) == "keep")
++        #expect(try FileManager.default.contentsOfDirectory(atPath: locked.path) == ["t.txt"])
+         let orphan = dir.appending(path: "missing/x.txt").path
+         #expect(throws: FileWriter.Failure.noParent(orphan)) { try inside.apply(.write("x"), to: orphan) }
+         let binary = dir.appending(path: "b.bin").path

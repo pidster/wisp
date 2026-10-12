@@ -23,7 +23,8 @@ let package = Package(
                 .product(name: "WispMLX", package: "wisp"),
                 .product(name: "WispTestSupport", package: "wisp"),
             ],
-            // Real diffs from this repository's history, read by path in DraftEvalTests.
+            // The case sets of edit_file, system_info, and draft_change (real diffs among them), read by path through
+            // WispTestSupport's EvalSets, which the gate's EvalSetsTests also checks.
             exclude: ["Fixtures"]
         )
     ]

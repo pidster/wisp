@@ -1,0 +1,9 @@
+diff --git a/src/api/client.ts b/src/api/client.ts
+--- a/src/api/client.ts
++++ b/src/api/client.ts
+@@ -1,4 +1,4 @@
+-const BASE_URL = 'https://api.example.com/v1';
++const BASE_URL = 'https://api.example.com/v2';
+ 
+ export async function get<T>(path: string): Promise<T> {
+   const response = await fetch(`${BASE_URL}${path}`);

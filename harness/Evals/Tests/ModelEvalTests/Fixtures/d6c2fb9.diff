@@ -1,0 +1,721 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 6cc41c6..ddacde3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -40,6 +40,14 @@ Fixed:
+ - An MLX conversation no longer breaks after a tool call whose arguments hold a `null`: every later request failed
+   with "Cannot convert value of type NSNull to Jinja Value".
+ 
++Changed:
++
++- `edit_file`'s line edits forgive two slips small models make, without guessing. A rewritten line sent without
++  its indentation (`return 10` for `    return 10`) keeps the old line's, unless only whitespace changes, so a
++  deliberate indent, dedent, or tab-to-space edit is written exactly. A stale line number with `find` edits the one
++  line that holds `find`; none or several still change nothing. The result says when either applied and shows the
++  edited line as it now reads, for example `line 2 now: "    return 10"`.
++
+ Added:
+ 
+ - `scripts/check eval` and `eval compare` measure `mlx:` models named in `WISP_EVAL_MODELS`: the evals are built
+diff --git a/docs/decisions/0024-edit-file.md b/docs/decisions/0024-edit-file.md
+index 9f67bd1..c41b789 100644
+--- a/docs/decisions/0024-edit-file.md
++++ b/docs/decisions/0024-edit-file.md
+@@ -50,3 +50,32 @@ gate, and Seatbelt; `read_file` runs the gate's rules only; `inspect` and `curre
+ - Tests without the model: confinement including symlinks and look-alike siblings, every failure,
+   each edit and its rendering (`FileWriterTests`); the tool's gate refusal, audit event, receipt
+   entry, and classifier levels (`ToolWrapperTests`, `ReceiptTests`).
++
++**Refined 2026-10-06: line edits forgive two slips, without guessing.** `scripts/check eval compare` on Qwen3-1.7B
++(log `eval-20261006-143217.log`) classified the failed line edits, MLX then Ollama: the new line written without its
++indentation (asked for `    return 10`, the model sent `return 10`) 8 and 7; the wrong line, off by one, 6 and 4;
++further off, 5 and 3; no call, 3 and 1; several calls, 3 and 0. Larger models rarely fail this way (granite4.1:8b
++28/30, gemma4:12b 30/30). Several of the wrong lines came with a `find` that named the right one. Three rules, each
++acting only on an exact condition and saying what it did, so the principle above stands: exact text, nothing guessed.
++
++- **Keep indentation, narrowly.** With `line`, when `content` is not empty and starts with neither a space nor a tab,
++  the old line starts with spaces or tabs, and the two differ by more than whitespace at their ends, the line keeps
++  its indentation, and the result says so ("keeping the line's indentation (4 spaces)"). Every other content is
++  written exactly, so a deliberate indent, dedent (the stripped texts equal), tabs to spaces, or trailing spaces
++  stripped is not touched. The blind spot is a text change and a dedent to column zero in one edit: it keeps the
++  indentation, and the result line tells the model, which can redo it in two steps or by `find`.
++- **Reconcile `line` with `find`.** When the numbered line does not contain `find` and exactly one line of the file
++  does, that line is edited and the result says so ("line 2 did not contain "return 1"; replaced line 3 …, the one
++  line that does"). On no line or several, nothing changes, with the error as before. A number past the end is
++  still an error.
++- **Show the result.** A replacement's result ends with the edited line as it now reads (`line 3 now: "    return
++  10"`), escaped so whitespace shows and cut at 200 characters; a `find` replacement over several lines shows the
++  first three.
++
++Measured before and after the same day ([measurements.md](../measurements.md), "edit_file's line rules"), with a
++new measurement `edit_file.whitespace` (four whitespace-only edits, three attempts each) kept apart so
++`edit_file.replace` stays comparable: `mlx:Qwen3-1.7B-4bit` 11/30 to 27/30 and 9/12 to 11/12, `ollama:qwen3:1.7b`
++16/30 to 19/30 and 9/12 to 11/12, `ollama:llama3.2:3b` 3/30 to 1/30 and 5/12 to 3/12 (its failures are a `line` sent
++as text, refused before the tool runs), and `ollama:granite4.1:8b`, after only, 27/30 and 11/12 (its four failures an
++empty `find` beside a right `line`, which changed nothing before the rules too). No dropped indentation or stale
++number with `find` remained. Tested without the model in `FileWriterTests`.
+diff --git a/docs/measurements.md b/docs/measurements.md
+index bf9a36e..dd152f3 100644
+--- a/docs/measurements.md
++++ b/docs/measurements.md
+@@ -30,6 +30,7 @@ Mac on one day; it is evidence, not a certification.
+ | `context.dropping.recalling[…]`, `context.memory-target.recalling[…]`, `context.memory.recalling[…].budget-50`, `context.summary-target.recalling[…].budget-50`, `context.assessing[-task\|-all]-target.recalling[…].budget-50.all-tools` | `ContextEvalTests`, the layered-context design's checkpoint ([ADR 0045](decisions/0045-layered-context.md)): the `recalling` scenario (15 turns, then seven questions) at a window of 8,192, through dropping, the whole design (`memory-target`), phase 2's fixed four turns (`memory`), the design without `memory` (`summary-target`), and the assessment per request in its three tool sets; `[…]` is `.window-8192` for granite, `.budget-50` for half the window, and `.all-tools` for every built-in tool offered | a reply containing the expected phrase, as above, plus a detail of the first file read that no fact or summary carries. The notes carry the condensations, the fill after condensing and the turns between condensations, the distillations' times, the `memory` calls, the median tokens, and the load average |
+ | `context.<strategy>.checkpoint.<cell>` | `ContextCheckpointTests`, context checkpoint 2 ([below](#context-checkpoint-2)): the `sustained` scenario (29 turns, then ten questions) and the `recalling` one, through the cells of each part; recorded only with `record` | as the context eval's, above; the notes add the model switches |
+ | `edit_file.replace` | `ToolEvalTests`, ten small files | after read_file then edit_file replace by line number, the file is exactly as intended |
++| `edit_file.whitespace` | `ToolEvalTests`, four small files, three attempts each: indent a line, dedent one, tabs to spaces, trailing spaces stripped | as `edit_file.replace`; kept apart so that measurement stays thirty cases. No floor yet |
+ | `respond.schema` | `ToolEvalTests`, six code snippets | the schema-shaped reply parses and names the language |
+ 
+ Classifier measurements also carry `p50Milliseconds` and `p95Milliseconds`, the latency per verdict,
+@@ -197,6 +198,38 @@ are close on content and two to three times slower. Without thinking the MLX con
+ the tool loop where Ollama's quantisation does not, on the very same prompt; the 4B model does not have that
+ weakness on MLX.
+ 
++### edit_file's line rules, 2026-10-06
++
++The two line-edit rules of [ADR 0024](decisions/0024-edit-file.md) (refined 2026-10-06: a line that lost its
++indentation keeps it, and a stale number with `find` moves to the one line holding it) and the edited line shown in
++the result, measured before and after with a copy of the script whose `EVAL_COMPARE_SUITES` named only the two
++`edit_file` measurements (not recorded). Before is the code without the rules; `llama3.2:3b` ran with a scratch
++`WISP_HOME` whose config did not disable it; `granite4.1:8b` was run after only, to check a strong model is not
++harmed (28/30 on `edit_file.replace` on 2026-10-04).
++
++| Model | `edit_file.replace` before | after | `edit_file.whitespace` before | after |
++| --- | --- | --- | --- | --- |
++| `ollama:qwen3:1.7b` | 16/30, 7.3 s a case | 19/30, 11.9 s | 9/12 | 11/12 |
++| `mlx:Qwen3-1.7B-4bit` | 11/30, 15.1 s | 27/30, 13.4 s | 9/12 | 11/12 |
++| `ollama:llama3.2:3b` | 3/30 | 1/30 | 5/12 | 3/12 |
++| `ollama:granite4.1:8b` | not run | 27/30, 8.9 s | not run | 11/12 |
++
++What failed, from each failing case's last call (`edit_file.replace`, then `edit_file.whitespace`):
++
++| Model | Before | After |
++| --- | --- | --- |
++| `ollama:qwen3:1.7b` | indentation dropped 7 / 1; wrong line, off by one 1 / 1, further 6 / 0; the turn ended in an error 0 / 1 | wrong line, off by one 3, further 7, all without `find`; an error 1 / a `find`-only call 1 |
++| `mlx:Qwen3-1.7B-4bit` | indentation dropped 10, two of them after several calls; wrong line with `find` 4; wrong content 1; "Session ended without producing a response" 4 / wrong whitespace sent 3 | that error 3 / 1 |
++| `ollama:llama3.2:3b` | no call, the turn ending in an error 9 / 2 (the run's 11 errors all `line` sent as text, refused before the tool ran: "GeneratedContent does not contain Double"); neither `line` nor `find` 8 / 2; other 10 / 3 | no call, an error 20 / 5 (the run's 23 errors: 22 `line` as text, one Ollama timeout); neither 3 / 3; other 6 / 1 |
++| `ollama:granite4.1:8b` | | `find` sent empty with a right `line` 3 / 1: an empty `find` is on no line, so nothing changed |
++
++The rules removed every failure they were for: no dropped indentation and no stale number with `find` remain, and no
++whitespace case was spoiled by the indentation rule. What is left is a wrong number without `find` (the Ollama
++1.7B), which nothing can safely repair, and failures before the tool runs (`llama3.2:3b`'s text `line`, MLX's empty
++sessions). Runs on the same code differ by up to five cases ("MLX against Ollama", above), so the Ollama 1.7B's
++gain and `llama3.2:3b`'s loss are within that spread; MLX's 11 to 27 is not. granite's four failures predate the
++rules: an empty `find` beside a right `line` has always changed nothing.
++
+ The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of it the classifier's 392
+ verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
+ test output is buffered, so a model's lines reach the log when its `swift test` ends.
+diff --git a/docs/roadmap.md b/docs/roadmap.md
+index d40b3b1..cef0ac9 100644
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -12,7 +12,7 @@ release's preflight still runs the eval's floors, as a guard against regressions
+ | Release | Larger | Smaller |
+ | --- | --- | --- |
+ | 0.19.0 | MLX on a par with Ollama (built) | Core AI's context window (built); the model's thinking shown (built); the sandbox's refusals checked (built); the pathless refusal note (built); wisp itself denied to the model (built); cited entries checked (built); models enabled and disabled, the models table, capability checks on enable (built); chat's fallback when its model is unavailable (built); Ollama stopping mid-turn tested (built) |
+-| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (prepared) | The assessment reconsidered (built, to measure); MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built) |
++| 0.20.0 | Context checkpoint 2: analysis, evals, and tuning (prepared) | The assessment reconsidered (built, to measure); MLX against Ollama; gemma4's window (built); hybrid models' windows (built); the local-model comparison (run); Falcon candidates (run); the lockfile's MLX pins guarded (built); MLX thinking shown (built); `edit_file`'s line edits forgiving (built) |
+ | 0.21.0 | A shared HTTP executor: llama.cpp and LM Studio | A context length per model; `wisp models pull` follow-ups; token usage in `respond`'s receipt; qwen3.8's slowdown; the README overview image; `model-controls.md` brought up to date |
+ | 0.22.0 | The tool-output budget from the model's window, and nothing past it dropped | |
+ | 0.23.0 | A verification pass: a reply checked against the turn's calls | Larger eval sets; three details of permanent facts settled; the terminal-only answers reviewed; the process title decided |
+@@ -133,6 +133,13 @@ The release given to measurement, once the four before it are out:
+   comparison, 2026-10-04". Follow-ups: read Mistral's `name[ARGS]{…}` calls from a reply's text, which
+   `ministral-3:14b` makes and its template leaves unparsed (built on 2026-10-06, [backends.md](backends.md),
+   "Ollama"; not re-measured); and the gemma4 models as labellers for training sets.
++- **`edit_file`'s line edits forgiving.** Built ([ADR 0024](decisions/0024-edit-file.md), refined 2026-10-06). The
++  1.7B models' failed line edits were mostly a line written without its indentation and a stale number, often with
++  a `find` naming the right line. A line that lost its indentation keeps it unless only whitespace changes, a stale
++  number with `find` edits the one line holding it, and the result shows the line as it now reads. Measured before
++  and after ([measurements.md](measurements.md), "edit_file's line rules"): `mlx:Qwen3-1.7B-4bit` 11/30 to 27/30,
++  `ollama:qwen3:1.7b` 16/30 to 19/30, granite4.1:8b unharmed at 27/30, with a new `edit_file.whitespace`
++  measurement. Follow-up: an empty `find` beside `line` checks nothing yet changes nothing (granite's four failures).
+ - **Falcon candidates**, chosen on 2026-10-04 from the Hugging Face listings: `mlx:Falcon-H1R-7B-4bit`, a
+   reasoning model for the complex-work slot that `qwen3.8:27b` holds at a quarter of its size, and
+   `mlx:Falcon-H1-7B-Instruct-4bit`, a delegation-default candidate against `granite4.1:8b`, in a second
+diff --git a/docs/tools/edit_file.md b/docs/tools/edit_file.md
+index ff4b82a..c6df0b0 100644
+--- a/docs/tools/edit_file.md
++++ b/docs/tools/edit_file.md
+@@ -10,9 +10,9 @@ Writes a text file: the whole file, an addition at the end, or one exact replace
+ | --- | --- | --- | --- |
+ | `path` | string | yes | Path of the file. Its directory must exist; `edit_file` never creates directories. |
+ | `mode` | string | yes | `write` replaces the whole file, creating it if absent. `append` adds to the end, creating it if absent. `replace` changes one line, by number or by exact text. |
+-| `content` | string | yes | The text to write or append; for `replace` with `line`, the whole new line; for `replace` with `find` alone, the replacement for `find` only. |
++| `content` | string | yes | The text to write or append; for `replace` with `line`, the whole new line (see "Line edits" for the one case its indentation is supplied); for `replace` with `find` alone, the replacement for `find` only. |
+ | `line` | integer | for `replace` | The 1-based line to rewrite, as `read_file` numbered it. Past the end, nothing changes. Preferred: the model copies a number it just read instead of retyping the text. |
+-| `find` | string | for `replace` | Without `line`: the exact existing text to replace, which must occur exactly once. With `line`: text that line must contain, so a stale number changes nothing. |
++| `find` | string | for `replace` | Without `line`: the exact existing text to replace, which must occur exactly once. With `line`: text that line must contain; when it does not, the one line of the file that does is edited instead, and when none or several do, nothing changes. |
+ 
+ Read the file first, then replace by `line`:
+ 
+@@ -22,14 +22,37 @@ with line set to the number read_file showed for `let version = "0.1.0"` and con
+ Report the tool results verbatim.
+ ```
+ 
++## Line edits
++
++`replace` with `line` writes `content` as given, with two exceptions for the slips small models make most
++(measured with Qwen3-1.7B on 2026-10-06, [ADR 0024](../decisions/0024-edit-file.md), refined that day). Neither
++guesses: each acts only on an exact condition, and the result says what it did.
++
++| Rule | When | What is written |
++| --- | --- | --- |
++| The line keeps its indentation | `content` starts with neither a space nor a tab, is not empty, and the old line starts with spaces or tabs, and the two differ by more than whitespace at their ends | The old line's indentation, then `content` (asked for `    return 10`, the model sent `return 10`: `    return 10` is written) |
++| A stale number with `find` | The numbered line does not contain `find`, and exactly one line of the file does (once or more on that line) | That line, rewritten; the indentation rule applies to it too |
++
++Every other line edit is written exactly, so a deliberate whitespace change works: indenting a line
++(`return 1` to `    return 1`), dedenting one (`    y = 2` to `y = 2`, the stripped texts being equal), tabs
++to spaces, trailing spaces stripped, or an indented line emptied. When `find` is on no line or on several, or the
++number is past the end, nothing changes, with the errors below.
++
++The blind spot: a text change and a dedent to column zero in one edit (`    return 1` to `print(1)` at the
++margin) keeps the indentation. The result says so, and the model can make the edit in two steps, or by `find`.
++
+ ## Result
+ 
+-One line:
++One line, and for a replacement the edited line as it now reads, quoted with tabs, quotes, backslashes, and
++carriage returns escaped and cut at 200 characters (a replacement by `find` that spans lines shows the first
++three and says how many more):
+ 
+ ```
+ created /repo/notes.md; now 42 bytes
+ appended to /repo/notes.md; now 60 bytes
+-replaced at line 3 of /repo/notes.md; now 58 bytes
++replaced at line 3 of /repo/notes.md; now 58 bytes; line 3 now: "opening paragraph"
++replaced at line 2 of /repo/b.py, keeping the line's indentation (4 spaces); now 42 bytes; line 2 now: "    return 10"
++line 2 did not contain "return 1"; replaced line 3 of /repo/b.py, the one line that does; now 42 bytes; line 3 now: "    return 10"
+ ```
+ 
+ Errors come back as text so the model can react: `error: text to replace not found: …`, `error: text to
+@@ -58,7 +81,8 @@ program. Where nobody can answer the edit is refused and the file is untouched.
+ | Limit | Value |
+ | --- | --- |
+ | `replace` file size | 1 MiB; larger files are refused (`FileWriter(maxBytes:)`, fixed in code) |
+-| Line edits | One line per call: `content` is that line, one trailing newline is dropped, and any other newline (a pasted neighbour or the `[end of file]` marker) is refused with nothing changed; a line that is not there or does not contain `find` is an error |
++| Line edits | One line per call: `content` is that line, one trailing newline is dropped, and any other newline (a pasted neighbour or the `[end of file]` marker) is refused with nothing changed; a line that is not there is an error, and so is one that does not contain `find` unless exactly one other line does |
++| Shown lines | The edited line, or the first three lines a `find` replacement covers, each cut at 200 characters |
+ | Binary files | Refused for `replace` (a NUL byte); `write` and `append` do not read the file |
+ | Directories, missing parent directory, unknown `mode`, `replace` without `find` | Errors |
+ | Atomicity | Every write goes to a temporary file beside the target (same directory, the existing mode copied) and is renamed over it, so a reader never sees a partial file and a failure leaves the original untouched |
+@@ -75,7 +99,11 @@ The eval (`ToolEvalTests`, ten small files) reads a file and rewrites one number
+ result is in [measurements.md](../measurements.md) and on `wisp tools --markdown`. The `line`
+ argument exists because the first version, replace by `find` only, measured 3 of 5 on 2026-09-20: the
+ model copied `find` correctly and then put the neighbouring line into `content` too. A write outside
+-the writable set is refused with the directories named and no file created.
++the writable set is refused with the directories named and no file created. A second measurement,
++`edit_file.whitespace` (four files, three attempts each), rewrites only a line's whitespace: indent, dedent,
++tabs to spaces, trailing spaces stripped; it is kept apart so `edit_file.replace` stays comparable across runs.
++The line-edit rules above were measured before and after on 2026-10-06 ([measurements.md](../measurements.md),
++"edit_file's line rules").
+ 
+ ## Implementation
+ 
+diff --git a/harness/Evals/Tests/ModelEvalTests/ToolEvalTests.swift b/harness/Evals/Tests/ModelEvalTests/ToolEvalTests.swift
+index 86a80e3..11cc078 100644
+--- a/harness/Evals/Tests/ModelEvalTests/ToolEvalTests.swift
++++ b/harness/Evals/Tests/ModelEvalTests/ToolEvalTests.swift
+@@ -45,14 +45,52 @@ struct ToolEvalTests {
+         ]
+         for selection in EvalModels.selections {
+             guard let model = EvalModels.resolve(selection, for: ["edit_file"]) else { continue }
+-            try await editFile(cases, in: dir, on: model)
++            try await editFile(
++                cases, in: dir, on: model, suite: "edit_file", task: "edit_file.replace",
++                notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
++                    + "attempted three times each; a pass is the file ending up exactly as intended",
++                floor: true)
++        }
++    }
++
++    /// Whitespace-only rewrites of one numbered line: indent, dedent, tabs to spaces, trailing spaces stripped. The
++    /// cases where keeping a line's indentation must not apply (ADR 0024, refined 2026-10-06), measured apart from
++    /// `edit_file.replace` so that score keeps its thirty cases. No floor: added 2026-10-06, before the configured
++    /// model was measured on it.
++    @Test func rewritesWhitespaceExactlyWithEditFile() async throws {
++        let dir = try scratch()
++        defer { try? FileManager.default.removeItem(at: dir) }
++        let cases: [(name: String, before: String, find: String, replacement: String)] = [
++            ("k.py", "def f():\nreturn 1\n", "return 1", "    return 1"),
++            ("l.py", "x = 1\n    y = 2\n", "    y = 2", "y = 2"),
++            ("m.go", "func f() int {\n\treturn 1\n}\n", "\treturn 1", "    return 1"),
++            ("n.txt", "first line   \nsecond line\n", "first line   ", "first line"),
++        ]
++        for selection in EvalModels.selections {
++            guard let model = EvalModels.resolve(selection, for: ["edit_file.whitespace"]) else { continue }
++            try await editFile(
++                cases, in: dir, on: model, suite: "edit_file.whitespace", task: "edit_file.whitespace",
++                notes: "read a small file with read_file, then change only one numbered line's whitespace with "
++                    + "edit_file (indent, dedent, tabs to spaces, trailing spaces), four files attempted three times "
++                    + "each; a pass is the file ending up exactly as intended",
++                floor: false)
+         }
+     }
+ 
+     /// The edit_file cases on one model, each attempted three times.
++    ///
++    /// - Parameters:
++    ///   - cases: Each file's name, its content, the line's text, and the line as it should end up.
++    ///   - dir: The scratch directory the files are written in.
++    ///   - model: The model measured.
++    ///   - suite: The column of the summary table.
++    ///   - task: The measurement's task.
++    ///   - notes: The measurement's notes.
++    ///   - floor: Whether the release's floor (half) applies on the configured model.
++    /// - Throws: A file error writing a case's file.
+     private func editFile(
+         _ cases: [(name: String, before: String, find: String, replacement: String)], in dir: URL,
+-        on model: ResolvedModel
++        on model: ResolvedModel, suite: String, task: String, notes: String, floor: Bool
+     ) async throws {
+         let selection = model.selection
+         let attempts = 3
+@@ -87,14 +125,12 @@ struct ToolEvalTests {
+                     + (ok ? "" : "file=\(after.replacingOccurrences(of: "\n", with: "⏎")) calls=\(calls ?? [])"))
+         }
+         let total = cases.count * attempts
+-        EvalModels.result("edit_file", on: selection, passed: passed, total: total, milliseconds: times)
++        EvalModels.result(suite, on: selection, passed: passed, total: total, milliseconds: times)
+         try? Measurements.report(
+             Measurement(
+-                task: "edit_file.replace", tool: "edit_file", model: selection.description, passed: passed,
+-                total: total,
+-                notes: "read a small file with read_file, then rewrite one numbered line with edit_file, ten files "
+-                    + "attempted three times each; a pass is the file ending up exactly as intended"))
+-        if EvalModels.floorsApply(to: selection) {
++                task: task, tool: "edit_file", model: selection.description, passed: passed, total: total,
++                notes: notes))
++        if floor, EvalModels.floorsApply(to: selection) {
+             #expect(passed * 2 >= total, "edit_file replace passed \(passed)/\(total)")
+         }
+     }
+diff --git a/harness/Sources/WispCore/Tools/EditFileTool.swift b/harness/Sources/WispCore/Tools/EditFileTool.swift
+index 7138193..7a8d892 100644
+--- a/harness/Sources/WispCore/Tools/EditFileTool.swift
++++ b/harness/Sources/WispCore/Tools/EditFileTool.swift
+@@ -52,7 +52,8 @@ public struct EditFileTool: WispTool {
+             ?? "No write confinement (the sandbox is off)"
+         return
+             "\(confinement). replace loads files up to \(writer.maxBytes) bytes and needs exactly one match. "
+-            + "With line, content is the whole new line and find, if given, must be on it. "
++            + "With line, content is the whole new line, keeping the old line's indentation when it has none and "
++            + "more than whitespace changes; find, if given, must be on that line or on exactly one other. "
+             + "Every edit passes the risk classifier and needs the user's approval at moderate and above."
+     }
+     /// How to ask for it.
+@@ -77,7 +78,8 @@ public struct EditFileTool: WispTool {
+     /// Refusals and errors are returned as text so the model can react.
+     ///
+     /// - Parameter arguments: Path, mode, content, and for replace the text to find.
+-    /// - Returns: One line saying what changed, or `error: …`.
++    /// - Returns: One line saying what changed, and for a replacement the edited lines as they now read, or
++    ///   `error: …`.
+     public func call(arguments: Arguments) async -> String {
+         let edit: FileWriter.Edit
+         switch arguments.mode.trimmingCharacters(in: .whitespaces).lowercased() {
+diff --git a/harness/Sources/WispCore/Tools/FileWriter.swift b/harness/Sources/WispCore/Tools/FileWriter.swift
+index 296ae20..3f186f1 100644
+--- a/harness/Sources/WispCore/Tools/FileWriter.swift
++++ b/harness/Sources/WispCore/Tools/FileWriter.swift
+@@ -6,7 +6,10 @@ import Foundation
+ /// Three edits: write the whole file (created if absent), append, or replace: one exact occurrence of
+ /// a piece of text, or one numbered line as `read_file` numbered it. Replacement demands exactly one
+ /// match, or a line that still holds what the model expects, so it cannot change more than it showed
+-/// it meant to. Every write is atomic: a temporary file beside the target, renamed over it.
++/// it meant to. Two refinements forgive a small model's commonest slips without guessing (ADR 0024, refined
++/// 2026-10-06): a rewritten line that lost its indentation keeps the old line's, and a stale number with a
++/// `find` that is on exactly one other line edits that line. Each says so in the result, which also shows
++/// the line as it now reads. Every write is atomic: a temporary file beside the target, renamed over it.
+ /// Nothing here creates directories or follows the model outside the set.
+ public struct FileWriter: Sendable {
+     /// What to do to the file.
+@@ -18,7 +21,9 @@ public struct FileWriter: Sendable {
+         /// Replace the one occurrence of `find` with `replacement`.
+         case replace(find: String, replacement: String)
+         /// Replace the whole 1-based `line` with `content`; when `expecting` is given the line must
+-        /// contain it, so a stale number changes nothing.
++        /// contain it, or else `expecting` must be on exactly one line of the file, which is edited instead,
++        /// so a stale number changes nothing it should not. A `content` without indentation for a line
++        /// with some keeps the line's indentation unless only whitespace differs (`FileWriter.indented`).
+         case replaceLine(Int, content: String, expecting: String?)
+ 
+         /// The spelling the model uses and the audit records.
+@@ -33,6 +38,14 @@ public struct FileWriter: Sendable {
+ 
+     /// What an edit did.
+     public struct Result: Equatable, Sendable {
++        /// A line edit whose number did not hold `find`, moved to the one line that does.
++        public struct Moved: Equatable, Sendable {
++            /// The line number the model gave.
++            public var line: Int
++            /// The text that line did not contain.
++            public var find: String
++        }
++
+         /// The path as given.
+         public var path: String
+         /// The edit's mode.
+@@ -45,14 +58,73 @@ public struct FileWriter: Sendable {
+         public var bytesAfter: Int
+         /// For a replacement, the 1-based line where it started.
+         public var line: Int?
++        /// For a line edit moved to the one line holding `find`: the number the model gave, and `find`.
++        public var movedFrom: Moved?
++        /// For a line edit that kept the old line's indentation, that indentation.
++        public var keptIndentation: String?
++        /// For a replacement, the first `shownLines` edited lines as they now read.
++        public var nowReads: [String] = []
++        /// For a replacement, how many lines it edited; more than `nowReads` holds when it spans many.
++        public var editedLines = 0
++
++        /// How many edited lines a result shows.
++        static let shownLines = 3
++        /// How many characters of each shown line a result keeps.
++        static let shownCharacters = 200
+ 
+-        /// Model-facing rendering.
++        /// Model-facing rendering: what happened, in one line, and for a replacement the edited lines as
++        /// they now read, so a model that got it wrong can see it.
+         public var rendered: String {
+             switch mode {
+-            case "replace": "replaced at line \(line ?? 0) of \(path); now \(bytesAfter) bytes"
+-            case "append": "appended to \(path); now \(bytesAfter) bytes"
+-            default: "\(created ? "created" : "wrote") \(path); now \(bytesAfter) bytes"
++            case "replace":
++                let place =
++                    if let movedFrom {
++                        "line \(movedFrom.line) did not contain \(Self.quoted(movedFrom.find)); replaced line "
++                            + "\(line ?? 0) of \(path), the one line that does"
++                    } else {
++                        "replaced at line \(line ?? 0) of \(path)"
++                    }
++                let kept = keptIndentation.map { ", keeping the line's indentation (\(Self.describe($0)))" } ?? ""
++                return "\(place)\(kept); now \(bytesAfter) bytes\(shown)"
++            case "append": return "appended to \(path); now \(bytesAfter) bytes"
++            default: return "\(created ? "created" : "wrote") \(path); now \(bytesAfter) bytes"
++            }
++        }
++
++        /// `; line N now: "…"`, or `; lines N-M now: "…", "…"`, for the edited lines; empty when none.
++        private var shown: String {
++            guard let line, !nowReads.isEmpty else { return "" }
++            let quoted = nowReads.prefix(Self.shownLines).map(Self.quoted).joined(separator: ", ")
++            let count = max(editedLines, nowReads.count)
++            let more = count > nowReads.count ? " (and \(count - nowReads.count) more)" : ""
++            let label = count == 1 ? "line \(line)" : "lines \(line)-\(line + count - 1)"
++            return "; \(label) now: \(quoted)\(more)"
++        }
++
++        /// `text` in double quotes with backslashes, quotes, tabs, and carriage returns escaped, so its
++        /// whitespace is visible, cut at `shownCharacters`.
++        static func quoted(_ text: String) -> String {
++            let cut = text.count > shownCharacters ? String(text.prefix(shownCharacters)) + "…" : text
++            var escaped = ""
++            for character in cut {
++                switch character {
++                case "\\": escaped += "\\\\"
++                case "\"": escaped += "\\\""
++                case "\t": escaped += "\\t"
++                case "\r": escaped += "\\r"
++                default: escaped.append(character)
++                }
+             }
++            return "\"\(escaped)\""
++        }
++
++        /// Indentation in words: `4 spaces`, `1 tab`, `1 tab and 2 spaces`.
++        static func describe(_ indentation: String) -> String {
++            let tabs = indentation.count(where: { $0 == "\t" })
++            let spaces = indentation.count - tabs
++            let parts = [(tabs, "tab"), (spaces, "space")].filter { $0.0 > 0 }
++                .map { "\($0.0) \($0.1)\($0.0 == 1 ? "" : "s")" }
++            return parts.joined(separator: " and ")
+         }
+     }
+ 
+@@ -185,7 +257,8 @@ public struct FileWriter: Sendable {
+             isDirectory.boolValue
+         else { throw Failure.noParent(path) }
+         let before = exists ? try Data(contentsOf: url) : Data()
+-        var line: Int?
++        var result = Result(
++            path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: 0, line: nil)
+         let after: Data
+         switch edit {
+         case .write(let content):
+@@ -193,39 +266,94 @@ public struct FileWriter: Sendable {
+         case .append(let content):
+             after = before + Data(content.utf8)
+         case .replace(let find, let replacement):
+-            guard before.count <= maxBytes else {
+-                throw Failure.tooLarge(path: path, bytes: before.count, limit: maxBytes)
+-            }
+-            guard !before.contains(0) else { throw Failure.binary(path) }
+-            let text = String(decoding: before, as: UTF8.self)
++            let text = try editableText(before, path: path)
+             let ranges = text.ranges(of: find)
+             guard let range = ranges.first, !find.isEmpty else { throw Failure.notFound(find: find) }
+             guard ranges.count == 1 else { throw Failure.ambiguous(find: find, count: ranges.count) }
+-            line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
+-            after = Data(text.replacingCharacters(in: range, with: replacement).utf8)
++            let line = text[..<range.lowerBound].count(where: { $0 == "\n" }) + 1
++            let replaced = text.replacingCharacters(in: range, with: replacement)
++            // The lines the replacement now covers: one, plus one for each newline it holds, a final one
++            // ending the replacement's last line rather than starting another.
++            let newlines = replacement.count(where: { $0 == "\n" })
++            let edited = max(1, replacement.hasSuffix("\n") ? newlines : newlines + 1)
++            result.line = line
++            result.editedLines = edited
++            result.nowReads = replaced.split(separator: "\n", omittingEmptySubsequences: false)
++                .dropFirst(line - 1).prefix(min(edited, Result.shownLines)).map(String.init)
++            after = Data(replaced.utf8)
+         case .replaceLine(let number, let content, let expecting):
+-            guard before.count <= maxBytes else {
+-                throw Failure.tooLarge(path: path, bytes: before.count, limit: maxBytes)
+-            }
+-            guard !before.contains(0) else { throw Failure.binary(path) }
+-            let text = String(decoding: before, as: UTF8.self)
++            let text = try editableText(before, path: path)
+             var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+             let count = text.hasSuffix("\n") ? lines.count - 1 : lines.count
+             guard number >= 1, number <= count else { throw Failure.noSuchLine(number, lines: count) }
++            var target = number
+             if let expecting, !lines[number - 1].contains(expecting) {
+-                throw Failure.lineMismatch(number, expected: expecting, actual: lines[number - 1])
++                // A stale number: the one line that holds `expecting` exactly is the line meant; none or
++                // several is not knowable, so nothing changes.
++                let holding = lines[..<count].indices.filter { lines[$0].contains(expecting) }
++                guard holding.count == 1, let only = holding.first else {
++                    throw Failure.lineMismatch(number, expected: expecting, actual: lines[number - 1])
++                }
++                target = only + 1
++                result.movedFrom = .init(line: number, find: expecting)
+             }
+             // A line has no newline of its own: one trailing newline is dropped, any other is refused,
+             // so a model that pastes the page marker or a neighbour cannot corrupt the file.
+             let single = content.hasSuffix("\n") ? String(content.dropLast()) : content
+             guard !single.contains("\n") else { throw Failure.notOneLine(number) }
+-            lines[number - 1] = single
+-            line = number
++            let written = Self.indented(single, replacing: lines[target - 1])
++            lines[target - 1] = written.line
++            result.line = target
++            result.keptIndentation = written.kept
++            result.editedLines = 1
++            result.nowReads = [written.line]
+             after = Data(lines.joined(separator: "\n").utf8)
+         }
+         try Self.writeAtomically(after, to: url, replacing: exists)
+-        return Result(
+-            path: path, mode: edit.mode, created: !exists, bytesBefore: before.count, bytesAfter: after.count,
+-            line: line)
++        result.bytesAfter = after.count
++        return result
++    }
++
++    /// The file's text for a replacement, once it is known to be small enough and not binary.
++    ///
++    /// - Parameters:
++    ///   - data: The file's bytes.
++    ///   - path: The file, for the errors.
++    /// - Returns: The bytes decoded as UTF-8.
++    /// - Throws: `Failure.tooLarge` or `Failure.binary`.
++    private func editableText(_ data: Data, path: String) throws -> String {
++        guard data.count <= maxBytes else { throw Failure.tooLarge(path: path, bytes: data.count, limit: maxBytes) }
++        guard !data.contains(0) else { throw Failure.binary(path) }
++        return String(decoding: data, as: UTF8.self)
++    }
++
++    /// The line to write for `content` in place of `old`, and the indentation kept, if any.
++    ///
++    /// Small models rewrite an indented line without its indentation (asked for `    return 10`, they send
++    /// `return 10`). When `content` has no leading spaces or tabs, `old` has some, and the two differ by
++    /// more than whitespace at their ends, the line keeps `old`'s indentation. Everything else is written
++    /// exactly: an empty line, any content with indentation of its own, and a whitespace-only change
++    /// (`    x` to `x` is a deliberate dedent). The one blind spot, a text change and a dedent to column
++    /// zero in one edit, keeps the indentation, and the result says so, so the model can redo it.
++    ///
++    /// - Parameters:
++    ///   - content: The new line, as the model gave it.
++    ///   - old: The line it replaces.
++    /// - Returns: The line to write, and the indentation it kept from `old` (nil when written exactly).
++    static func indented(_ content: String, replacing old: String) -> (line: String, kept: String?) {
++        let indentation = String(old.prefix(while: isIndentation))
++        guard let first = content.first, !isIndentation(first), !indentation.isEmpty,
++            trimmed(content) != trimmed(old)
++        else { return (content, nil) }
++        return (indentation + content, indentation)
++    }
++
++    /// Whether `character` indents a line: a space or a tab.
++    private static func isIndentation(_ character: Character) -> Bool { character == " " || character == "\t" }
++
++    /// `text` without the spaces and tabs at either end.
++    private static func trimmed(_ text: String) -> Substring {
++        let start = text.drop(while: isIndentation)
++        return start.prefix(start.count - start.reversed().prefix(while: isIndentation).count)
+     }
+ }
+diff --git a/harness/Tests/WispCoreTests/FileWriterTests.swift b/harness/Tests/WispCoreTests/FileWriterTests.swift
+index d6040d8..4e5732f 100644
+--- a/harness/Tests/WispCoreTests/FileWriterTests.swift
++++ b/harness/Tests/WispCoreTests/FileWriterTests.swift
+@@ -24,7 +24,7 @@ import Testing
+         #expect(appended.rendered == "appended to \(file); now 14 bytes")
+         let replaced = try writer.apply(.replace(find: "two", replacement: "2"), to: file)
+         #expect(replaced.line == 2 && replaced.bytesAfter == 12)
+-        #expect(replaced.rendered == "replaced at line 2 of \(file); now 12 bytes")
++        #expect(replaced.rendered == "replaced at line 2 of \(file); now 12 bytes; line 2 now: \"2\"")
+         #expect(try String(contentsOfFile: file, encoding: .utf8) == "one\n2\nthree\n")
+         let overwritten = try writer.apply(.write("x"), to: file)
+         #expect(overwritten.rendered == "wrote \(file); now 1 bytes")
+@@ -144,4 +144,127 @@ import Testing
+         }
+         #expect(FileWriter.Failure.notFound(find: String(repeating: "x", count: 70)).description.hasSuffix("…"))
+     }
++
++    /// Writes `text` to a fresh file in `dir` and returns its path.
++    private func file(_ text: String, named name: String, in dir: URL) throws -> String {
++        let url = dir.appending(path: name)
++        try Data(text.utf8).write(to: url)
++        return url.path
++    }
++
++    @Test func keepsALinesIndentationWhenTheNewLineLostIt() throws {
++        let dir = try scratch()
++        defer { try? FileManager.default.removeItem(at: dir) }
++        let writer = FileWriter(roots: [CommandPolicy.canonical(dir.path)])
++        let path = try file("def f():\n    return 1\n", named: "b.py", in: dir)
++        let result = try writer.apply(.replaceLine(2, content: "return 10", expecting: nil), to: path)
++        #expect(try String(contentsOfFile: path, encoding: .utf8) == "def f():\n    return 10\n")
++        #expect(result.keptIndentation == "    " && result.movedFrom == nil && result.nowReads == ["    return 10"])
++        #expect(
++            result.rendered
++                == "replaced at line 2 of \(path), keeping the line's indentation (4 spaces); now 23 bytes; "
++                + "line 2 now: \"    return 10\"")
++        // Tabs are kept as tabs, and named.
++        let tabbed = try file("func f() {\n\treturn 1\n}\n", named: "t.go", in: dir)
++        let tab = try writer.apply(.replaceLine(2, content: "return 2", expecting: "return 1"), to: tabbed)
++        #expect(try String(contentsOfFile: tabbed, encoding: .utf8) == "func f() {\n\treturn 2\n}\n")
++        #expect(
++            tab.rendered.contains("keeping the line's indentation (1 tab)") && tab.rendered.hasSuffix("\"\\treturn 2\"")
++        )
++        #expect(FileWriter.Result.describe("\t\t  ") == "2 tabs and 2 spaces")
++        #expect(FileWriter.Result.describe(" ") == "1 space")
++        // The blind spot: a text change and a dedent to column zero in one edit keeps the indentation, and
++        // the result says so, so the model can see it and write the line again some other way.
++        let blind = try file("    return 1\n", named: "blind.py", in: dir)
++        let kept = try writer.apply(.replaceLine(1, content: "print(1)", expecting: nil), to: blind)
++        #expect(try String(contentsOfFile: blind, encoding: .utf8) == "    print(1)\n")
++        #expect(kept.rendered.contains("keeping the line's indentation (4 spaces)"))
++    }
++
++    @Test func writesDeliberateWhitespaceEditsExactly() throws {
++        let dir = try scratch()
++        defer { try? FileManager.default.removeItem(at: dir) }
++        let writer = FileWriter(roots: [CommandPolicy.canonical(dir.path)])
++        // (file, line, content, file afterwards): indent, dedent, dedent with trailing spaces stripped, tabs to
++        // spaces, trailing spaces stripped, indentation of the content's own, an emptied line, an unindented
++        // line rewritten.
++        let cases: [(String, Int, String, String)] = [
++            ("def f():\nreturn 1\n", 2, "    return 1", "def f():\n    return 1\n"),
++            ("x = 1\n    y = 2\n", 2, "y = 2", "x = 1\ny = 2\n"),
++            ("x = 1\n    y = 2  \n", 2, "y = 2", "x = 1\ny = 2\n"),
++            ("{\n\treturn 1\n}\n", 2, "    return 1", "{\n    return 1\n}\n"),
++            ("first line   \nsecond\n", 1, "first line", "first line\nsecond\n"),
++            ("if x:\n    a = 1\n", 2, "  a = 2", "if x:\n  a = 2\n"),
++            ("if x:\n    a = 1\n", 2, "", "if x:\n\n"),
++            ("a = 1\nb = 2\n", 1, "a = 3", "a = 3\nb = 2\n"),
++        ]
++        for (index, (before, line, content, expected)) in cases.enumerated() {
++            let path = try file(before, named: "w\(index).txt", in: dir)
++            let result = try writer.apply(.replaceLine(line, content: content, expecting: nil), to: path)
++            #expect(try String(contentsOfFile: path, encoding: .utf8) == expected, "case \(index)")
++            #expect(result.keptIndentation == nil && !result.rendered.contains("keeping"), "case \(index)")
++        }
++        #expect(FileWriter.indented("x", replacing: "\t x \t") == ("x", nil))
++        #expect(FileWriter.indented("y", replacing: "  ") == ("  y", "  "))
++    }
++
++    @Test func movesAStaleLineToTheOneLineHoldingFind() throws {
++        let dir = try scratch()
++        defer { try? FileManager.default.removeItem(at: dir) }
++        let writer = FileWriter(roots: [CommandPolicy.canonical(dir.path)])
++        let original = "def f():\n    return 1\n\ndef g():\n    return 2\n"
++        let path = try file(original, named: "b.py", in: dir)
++        // None and several change nothing, with the error as before.
++        #expect(throws: FileWriter.Failure.lineMismatch(1, expected: "nope", actual: "def f():")) {
++            try writer.apply(.replaceLine(1, content: "x", expecting: "nope"), to: path)
++        }
++        #expect(throws: FileWriter.Failure.lineMismatch(3, expected: "return", actual: "")) {
++            try writer.apply(.replaceLine(3, content: "x", expecting: "return"), to: path)
++        }
++        #expect(try String(contentsOfFile: path, encoding: .utf8) == original)
++        // Exactly one line holds it: that line is edited, and the result says so.
++        let moved = try writer.apply(.replaceLine(1, content: "return 10", expecting: "return 1"), to: path)
++        #expect(
++            try String(contentsOfFile: path, encoding: .utf8) == "def f():\n    return 10\n\ndef g():\n    return 2\n")
++        #expect(moved.line == 2 && moved.movedFrom == .init(line: 1, find: "return 1"))
++        #expect(
++            moved.rendered
++                == "line 1 did not contain \"return 1\"; replaced line 2 of \(path), the one line that does, "
++                + "keeping the line's indentation (4 spaces); now \(moved.bytesAfter) bytes; line 2 now: \"    return 10\""
++        )
++        // Twice on one line is still one line; a number past the end is still an error.
++        let twice = try file("a a\nb\n", named: "twice.txt", in: dir)
++        let once = try writer.apply(.replaceLine(2, content: "c", expecting: "a"), to: twice)
++        #expect(try String(contentsOfFile: twice, encoding: .utf8) == "c\nb\n" && once.line == 1)
++        #expect(throws: FileWriter.Failure.noSuchLine(9, lines: 2)) {
++            try writer.apply(.replaceLine(9, content: "x", expecting: "b"), to: twice)
++        }
++        // The line given holds it: no move.
++        let held = try writer.apply(.replaceLine(2, content: "B", expecting: "b"), to: twice)
++        #expect(
++            held.movedFrom == nil && held.rendered == "replaced at line 2 of \(twice); now 4 bytes; line 2 now: \"B\"")
++    }
++
++    @Test func showsTheEditedLinesBounded() throws {
++        let dir = try scratch()
++        defer { try? FileManager.default.removeItem(at: dir) }
++        let writer = FileWriter(roots: [CommandPolicy.canonical(dir.path)])
++        // Quotes, backslashes, tabs, and carriage returns are escaped, so whitespace is visible.
++        #expect(FileWriter.Result.quoted("a\t\"b\"\\\r") == #""a\t\"b\"\\\r""#)
++        // A long line is cut at 200 characters.
++        let long = String(repeating: "x", count: 250)
++        let path = try file("short\n", named: "long.txt", in: dir)
++        let result = try writer.apply(.replaceLine(1, content: long, expecting: nil), to: path)
++        #expect(result.rendered.hasSuffix("line 1 now: \"" + String(repeating: "x", count: 200) + "…\""))
++        // A replacement by find shows the lines it now covers, at most three.
++        let many = try file("a\nb\nc\n", named: "many.txt", in: dir)
++        let two = try writer.apply(.replace(find: "b", replacement: "B1\nB2"), to: many)
++        #expect(two.rendered.hasSuffix("; lines 2-3 now: \"B1\", \"B2\""), "\(two.rendered)")
++        let five = try writer.apply(.replace(find: "B1\nB2\n", replacement: "1\n2\n3\n4\n5\n"), to: many)
++        #expect(five.rendered.hasSuffix("; lines 2-6 now: \"1\", \"2\", \"3\" (and 2 more)"), "\(five.rendered)")
++        let joined = try writer.apply(.replace(find: "5\nc", replacement: "5c"), to: many)
++        #expect(joined.rendered.hasSuffix("; line 6 now: \"5c\""), "\(joined.rendered)")
++        // Writes and appends show nothing more.
++        #expect(try writer.apply(.append("z"), to: many).rendered == "appended to \(many); now 14 bytes")
++    }
+ }
+diff --git a/harness/Tests/WispCoreTests/ToolWrapperTests.swift b/harness/Tests/WispCoreTests/ToolWrapperTests.swift
+index 7c04b72..3960edd 100644
+--- a/harness/Tests/WispCoreTests/ToolWrapperTests.swift
++++ b/harness/Tests/WispCoreTests/ToolWrapperTests.swift
+@@ -48,7 +48,7 @@ import Testing
+                 == "created \(file); now 6 bytes")
+         #expect(
+             await open.call(arguments: .init(path: file, mode: " Replace ", content: "bye", find: "hello", line: nil))
+-                == "replaced at line 1 of \(file); now 4 bytes")
++                == "replaced at line 1 of \(file); now 4 bytes; line 1 now: \"bye\"")
+         let write = sink.events.first { $0.kind == .fileWrite }
+         #expect(write?.details["mode"] == "write" && write?.details["created"] == true)
+         #expect(write?.details["bytesAfter"] == 6 && write?.details["path"] == .string(file))
+@@ -58,7 +58,7 @@ import Testing
+                 == "error: replace needs line (from read_file) or find (the exact text to replace)")
+         #expect(
+             await open.call(arguments: .init(path: file, mode: "replace", content: "BYE", find: "bye", line: 1))
+-                == "replaced at line 1 of \(file); now 4 bytes")
++                == "replaced at line 1 of \(file); now 4 bytes; line 1 now: \"BYE\"")
+         #expect(
+             await open.call(arguments: .init(path: file, mode: "replace", content: "x", find: "bye", line: 1))
+                 == "error: line 1 does not contain bye; it is: BYE")

@@ -1,0 +1,14 @@
+diff --git a/Sources/Upload.swift b/Sources/Upload.swift
+--- a/Sources/Upload.swift
++++ b/Sources/Upload.swift
+@@ -10,3 +10,9 @@ struct Uploader {
+     func send(_ data: Data) async throws {
+-        try await client.post(data)
++        var attempt = 0
++        while true {
++            do { return try await client.post(data) } catch where attempt < 2 {
++                attempt += 1
++                try await Task.sleep(for: .seconds(attempt))
++            }
++        }
+     }

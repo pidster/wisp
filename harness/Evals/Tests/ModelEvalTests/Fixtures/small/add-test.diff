@@ -1,0 +1,12 @@
+diff --git a/parse/parse_test.go b/parse/parse_test.go
+--- a/parse/parse_test.go
++++ b/parse/parse_test.go
+@@ -30,2 +30,8 @@
+ 	}
+ }
++
++func TestParseEmptyInput(t *testing.T) {
++	if _, err := Parse(""); err == nil {
++		t.Fatal("Parse(\"\") succeeded; want an error")
++	}
++}

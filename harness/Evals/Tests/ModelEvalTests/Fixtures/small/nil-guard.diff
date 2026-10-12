@@ -1,0 +1,9 @@
+diff --git a/Sources/App/ProfileView.swift b/Sources/App/ProfileView.swift
+--- a/Sources/App/ProfileView.swift
++++ b/Sources/App/ProfileView.swift
+@@ -22,3 +22,4 @@ final class ProfileView {
+     func refresh() {
+-        let name = session.user!.name
++        guard let user = session.user else { return }
++        let name = user.name
+         title = "Hello, \(name)"

@@ -1,0 +1,10 @@
+diff --git a/client/fetch.go b/client/fetch.go
+--- a/client/fetch.go
++++ b/client/fetch.go
+@@ -20,5 +20,6 @@
+ 	resp, err := http.Get(url)
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	defer resp.Body.Close()
+ 	return io.ReadAll(resp.Body)

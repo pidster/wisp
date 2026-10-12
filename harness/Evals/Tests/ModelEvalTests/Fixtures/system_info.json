@@ -1,0 +1,536 @@
+{
+  "about": "system_info's eval questions (SystemInfoEvalTests): plain questions about the Mac that do not name the tool, and the calls a careful operator accepts. A pass is a system_info call in the turn matching one `accept` entry: its topic, and where given its port or process (`target`, contained, ignoring case) and folder (`path`, contained, ignoring case). An ambiguous question accepts more than one topic and says why in `note`. EvalSets.SystemInfo reads them, EvalSetsTests checks them.",
+  "declared": 54,
+  "release": 24,
+  "cases": [
+    {
+      "id": "port-11434",
+      "question": "What is listening on port 11434 on this Mac?",
+      "accept": [
+        {
+          "topic": "ports",
+          "target": "11434"
+        }
+      ]
+    },
+    {
+      "id": "busiest-cpu",
+      "question": "Which process is using the most CPU right now?",
+      "accept": [
+        {
+          "topic": "processes"
+        }
+      ]
+    },
+    {
+      "id": "free-disk",
+      "question": "How much free disk space do I have?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        }
+      ]
+    },
+    {
+      "id": "caches-usage",
+      "question": "What is taking up the space in ~/Library/Caches?",
+      "accept": [
+        {
+          "topic": "folderSizes"
+        }
+      ]
+    },
+    {
+      "id": "battery-left",
+      "question": "How much battery is left?",
+      "accept": [
+        {
+          "topic": "battery"
+        }
+      ]
+    },
+    {
+      "id": "macos-version",
+      "question": "Which version of macOS is this Mac running?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "memory-use",
+      "question": "How much memory is in use, and by what?",
+      "accept": [
+        {
+          "topic": "memory"
+        }
+      ]
+    },
+    {
+      "id": "ollama-memory",
+      "question": "Is Ollama running, and how much memory does it use?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "ollama"
+        }
+      ]
+    },
+    {
+      "id": "port-3000",
+      "question": "Is anything already using port 3000?",
+      "accept": [
+        {
+          "topic": "ports",
+          "target": "3000"
+        }
+      ]
+    },
+    {
+      "id": "port-5432",
+      "question": "Which program has port 5432 open?",
+      "accept": [
+        {
+          "topic": "ports",
+          "target": "5432"
+        }
+      ]
+    },
+    {
+      "id": "port-8080-blocked",
+      "question": "My dev server won't start because port 8080 is taken. What's holding it?",
+      "accept": [
+        {
+          "topic": "ports",
+          "target": "8080"
+        }
+      ]
+    },
+    {
+      "id": "ports-all",
+      "question": "List every port that is listening for connections on this machine.",
+      "accept": [
+        {
+          "topic": "ports"
+        }
+      ]
+    },
+    {
+      "id": "port-443",
+      "question": "Is something serving on port 443 here?",
+      "accept": [
+        {
+          "topic": "ports",
+          "target": "443"
+        }
+      ]
+    },
+    {
+      "id": "fans",
+      "question": "Something is making the fans spin up. Which process is busiest?",
+      "accept": [
+        {
+          "topic": "processes"
+        }
+      ]
+    },
+    {
+      "id": "top-five",
+      "question": "Show me the five busiest processes.",
+      "accept": [
+        {
+          "topic": "processes"
+        }
+      ]
+    },
+    {
+      "id": "working-hardest",
+      "question": "Which apps are working hardest at the moment?",
+      "accept": [
+        {
+          "topic": "processes"
+        }
+      ]
+    },
+    {
+      "id": "stuck-cpu",
+      "question": "Is any process stuck at 100% CPU?",
+      "accept": [
+        {
+          "topic": "processes"
+        }
+      ]
+    },
+    {
+      "id": "slow-mac",
+      "question": "Why is my Mac so slow right now?",
+      "accept": [
+        {
+          "topic": "processes"
+        },
+        {
+          "topic": "memory"
+        }
+      ],
+      "ambiguous": true,
+      "note": "slowness is CPU or memory; the busiest processes or the memory pressure both start a fair answer"
+    },
+    {
+      "id": "disk-nearly-full",
+      "question": "Is my startup disk nearly full?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        }
+      ]
+    },
+    {
+      "id": "gigabytes-left",
+      "question": "How many gigabytes are left on the internal drive?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        }
+      ]
+    },
+    {
+      "id": "room-for-download",
+      "question": "Do I have room to download a 40 GB file?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        }
+      ]
+    },
+    {
+      "id": "external-drive",
+      "question": "How full is the external drive I plugged in?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        }
+      ]
+    },
+    {
+      "id": "eating-disk",
+      "question": "What's eating my disk?",
+      "accept": [
+        {
+          "topic": "freeSpace"
+        },
+        {
+          "topic": "folderSizes"
+        }
+      ],
+      "ambiguous": true,
+      "note": "how full the disk is, or what in the home folder is largest, both answer it"
+    },
+    {
+      "id": "downloads-biggest",
+      "question": "Which folders in ~/Downloads are the biggest?",
+      "accept": [
+        {
+          "topic": "folderSizes",
+          "path": "Downloads"
+        }
+      ]
+    },
+    {
+      "id": "developer-size",
+      "question": "How big is ~/Developer, and what is in it?",
+      "accept": [
+        {
+          "topic": "folderSizes",
+          "path": "Developer"
+        }
+      ]
+    },
+    {
+      "id": "home-usage",
+      "question": "What is using the space in my home folder?",
+      "accept": [
+        {
+          "topic": "folderSizes"
+        }
+      ]
+    },
+    {
+      "id": "app-support",
+      "question": "Break down the size of ~/Library/Application Support by folder.",
+      "accept": [
+        {
+          "topic": "folderSizes",
+          "path": "Application Support"
+        }
+      ]
+    },
+    {
+      "id": "derived-data",
+      "question": "How much space does Xcode's DerivedData take? It is in ~/Library/Developer/Xcode/DerivedData.",
+      "accept": [
+        {
+          "topic": "folderSizes",
+          "path": "DerivedData"
+        }
+      ]
+    },
+    {
+      "id": "ram-installed",
+      "question": "How much RAM does this Mac have?",
+      "accept": [
+        {
+          "topic": "memory"
+        },
+        {
+          "topic": "system"
+        }
+      ],
+      "ambiguous": true,
+      "note": "both topics report the installed memory"
+    },
+    {
+      "id": "memory-pressure",
+      "question": "Is the Mac under memory pressure?",
+      "accept": [
+        {
+          "topic": "memory"
+        }
+      ]
+    },
+    {
+      "id": "most-memory",
+      "question": "Which apps are using the most memory?",
+      "accept": [
+        {
+          "topic": "memory"
+        }
+      ]
+    },
+    {
+      "id": "running-out-ram",
+      "question": "Am I running out of RAM?",
+      "accept": [
+        {
+          "topic": "memory"
+        }
+      ]
+    },
+    {
+      "id": "safari-running",
+      "question": "Is Safari running?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "safari"
+        }
+      ]
+    },
+    {
+      "id": "node-command",
+      "question": "What command line was node started with?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "node"
+        }
+      ]
+    },
+    {
+      "id": "docker-cpu",
+      "question": "How much CPU is Docker using?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "docker"
+        }
+      ]
+    },
+    {
+      "id": "postgres-ports",
+      "question": "Which ports does postgres have open?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "postgres"
+        },
+        {
+          "topic": "ports"
+        }
+      ],
+      "ambiguous": true,
+      "note": "the process topic lists a single match's listening ports; every listening port also shows postgres's"
+    },
+    {
+      "id": "mds-busy",
+      "question": "Is the Spotlight indexer, mds, busy?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "mds"
+        }
+      ]
+    },
+    {
+      "id": "xcode-elapsed",
+      "question": "How long has Xcode been open?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "xcode"
+        }
+      ]
+    },
+    {
+      "id": "ollama-up",
+      "question": "Is the Ollama server up?",
+      "accept": [
+        {
+          "topic": "process",
+          "target": "ollama"
+        },
+        {
+          "topic": "ports",
+          "target": "11434"
+        }
+      ],
+      "ambiguous": true,
+      "note": "the process by name, or Ollama's default port 11434, both show whether it runs"
+    },
+    {
+      "id": "charger",
+      "question": "Is the charger plugged in?",
+      "accept": [
+        {
+          "topic": "battery"
+        }
+      ]
+    },
+    {
+      "id": "on-battery",
+      "question": "Is this laptop running on battery power?",
+      "accept": [
+        {
+          "topic": "battery"
+        }
+      ]
+    },
+    {
+      "id": "battery-percent",
+      "question": "What percentage is my battery at?",
+      "accept": [
+        {
+          "topic": "battery"
+        }
+      ]
+    },
+    {
+      "id": "battery-full",
+      "question": "How long until the battery is full?",
+      "accept": [
+        {
+          "topic": "battery"
+        }
+      ]
+    },
+    {
+      "id": "chip",
+      "question": "What chip does this Mac have?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "uptime",
+      "question": "How long has this Mac been up since the last restart?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "cores",
+      "question": "How many CPU cores does this machine have?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "question": "What model of Mac is this?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "build-number",
+      "question": "What build number is macOS on?",
+      "accept": [
+        {
+          "topic": "system"
+        }
+      ]
+    },
+    {
+      "id": "local-ip",
+      "question": "What is my IP address on the local network?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    },
+    {
+      "id": "wifi-or-ethernet",
+      "question": "Am I connected over Wi-Fi or Ethernet?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    },
+    {
+      "id": "interfaces-up",
+      "question": "Which network interfaces are up?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    },
+    {
+      "id": "online",
+      "question": "Is this Mac online right now?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    },
+    {
+      "id": "en0-address",
+      "question": "What address does en0 have?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    },
+    {
+      "id": "vpn",
+      "question": "Is the VPN interface connected?",
+      "accept": [
+        {
+          "topic": "network"
+        }
+      ]
+    }
+  ]
+}
