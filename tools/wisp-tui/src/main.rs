@@ -14,6 +14,7 @@ mod picker;
 mod protocol;
 
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -228,16 +229,30 @@ fn version_requested(args: &[String]) -> bool {
     args.len() == 1 && (args[0] == "--version" || args[0] == "-V")
 }
 
-/// Starts `wisp chat --json` with the given extra arguments.
-fn spawn(args: &[String]) -> Result<Child> {
-    let bin = std::env::var("WISP_BIN").unwrap_or_else(|_| "wisp".to_string());
-    Command::new(&bin)
+/// The name the child is given at spawn, its `argv[0]` (ADR 0061), so `ps` tells the chat behind a
+/// front end from one typed at a terminal. wisp finds its own executable by the kernel's path, never
+/// by `argv[0]`.
+const CHILD_NAME: &str = "wisp chat (tui)";
+
+/// The command that starts `wisp chat --json` on `bin` with the given extra arguments, named
+/// `CHILD_NAME`, its three streams piped.
+fn chat_command(bin: &str, args: &[String]) -> Command {
+    let mut command = Command::new(bin);
+    command
+        .arg0(CHILD_NAME)
         .arg("chat")
         .arg("--json")
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// Starts `wisp chat --json` with the given extra arguments.
+fn spawn(args: &[String]) -> Result<Child> {
+    let bin = std::env::var("WISP_BIN").unwrap_or_else(|_| "wisp".to_string());
+    chat_command(&bin, args)
         .spawn()
         .with_context(|| format!("cannot start {bin} chat --json"))
 }
@@ -590,6 +605,7 @@ mod tests {
         changes_the_band, command_for, next_height, post_notices, version_display,
         version_requested, wrapped_height,
     };
+    use super::{CHILD_NAME, chat_command};
     use super::{Ending, exit_code, remaining_stderr, shut_down};
     use super::{HistoryLine, Line, LineKind, palette, styled};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
@@ -649,6 +665,28 @@ mod tests {
         // Reaped: nothing is left running.
         assert!(child.try_wait().is_ok_and(|status| status.is_some()));
         assert_eq!(exit_code(&ending), Some(1));
+        Ok(())
+    }
+
+    /// The child is named `wisp chat (tui)` at spawn (ADR 0061). The stand-in for wisp is `/bin/sh`,
+    /// which reads the script named by its first argument, `chat`, from its working directory; the
+    /// script prints its own process's arguments as `ps` shows them.
+    #[test]
+    fn the_child_is_named_at_spawn() -> std::io::Result<()> {
+        let folder = std::env::temp_dir().join(format!("wisp-tui-arg0-{}", std::process::id()));
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(folder.join("chat"), "ps -o args= -p $$\n")?;
+        let mut command = chat_command("/bin/sh", &["--model".to_string(), "system".to_string()]);
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args, ["chat", "--json", "--model", "system"]);
+        assert_eq!(command.get_program(), "/bin/sh");
+        let output = command.current_dir(&folder).stdin(Stdio::null()).output()?;
+        std::fs::remove_dir_all(&folder)?;
+        let shown = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            shown.trim_end(),
+            format!("{CHILD_NAME} chat --json --model system")
+        );
         Ok(())
     }
 

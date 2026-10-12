@@ -24,6 +24,8 @@ public final class PendingRelay: Sendable {
     private let audit: AuditLog?
     /// The requests shown and still waiting, by request id.
     private let shown = Mutex<Set<String>>([])
+    /// The shared store, for a fact kept after the server that asked has stopped; nil leaves that to the server.
+    private let facts: SharedFacts?
 
     /// Creates a relay.
     ///
@@ -32,12 +34,15 @@ public final class PendingRelay: Sendable {
     ///   - router: Where the front end's answers arrive.
     ///   - audit: The chat's log.
     ///   - kinds: The kinds of request to show: commands for `approve-mcp`, facts for `keep-facts`.
+    ///   - facts: The shared store, where a fact is kept when the server that asked has stopped.
     ///   - send: Writes one protocol line.
     public init(
         channel: PendingApprovals, router: LineRouter, audit: AuditLog?,
-        kinds: Set<PendingApprovals.Kind> = [.command], send: @escaping @Sendable (String) -> Void
+        kinds: Set<PendingApprovals.Kind> = [.command], facts: SharedFacts? = nil,
+        send: @escaping @Sendable (String) -> Void
     ) {
         self.channel = channel
+        self.facts = facts
         self.kinds = kinds
         self.router = router
         self.audit = audit
@@ -85,17 +90,31 @@ public final class PendingRelay: Sendable {
         }
     }
 
-    /// Waits for the front end's answer to `request` and writes it to the channel.
-    func awaitAnswer(_ request: PendingApprovals.Request) async {
+    /// Waits for the front end's answer to `request` and writes it to the channel. A fact request whose server
+    /// has stopped is applied here, since no server is left to take the answer (ADR 0048, amended 2026-10-12).
+    ///
+    /// - Parameters:
+    ///   - request: The request shown.
+    ///   - alive: Whether a process is running.
+    func awaitAnswer(
+        _ request: PendingApprovals.Request, alive: (Int32) -> Bool = PendingApprovals.isAlive
+    ) async {
         guard let answer = await router.answerUnlessWithdrawn(for: Self.protocolID(request.id)) else { return }
         let refusal = request.kind == .fact ? "drop" : "no"
         let decision = request.kind.decisions.contains(answer) ? answer : refusal
         do {
             try channel.answer(request.id, decision: decision, via: "tui")
+            let applied = facts.flatMap {
+                FactKeeper.settleUnwatched(request, channel: channel, store: $0, audit: audit, alive: alive)
+            }
             audit?.record(
                 .approvalAnswered,
                 details: AuditEvent.Details.approvalAnswered(
-                    request: request.id, request, decision: decision, via: "tui", delivery: "waiting"))
+                    request: request.id, request, decision: decision, via: "tui",
+                    delivery: applied == nil ? "waiting" : "applied"))
+            if case .failed(let why)? = applied {
+                send(ChatProtocol.encode("note", ["text": .string("\(request.subject) was not kept: \(why)")]))
+            }
         } catch {
             audit?.record(
                 .approvalAnswered,

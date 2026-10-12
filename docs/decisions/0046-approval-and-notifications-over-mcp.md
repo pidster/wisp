@@ -173,3 +173,14 @@ while the input box has text: it waits in the queue, a note says so, the status 
 has a 500 ms grace before its keys answer it (ADR 0029, amendment of the same date). A `withdrawn` line now
 also closes an open choice, and wisp sends one when its own approval or choice times out; the note reads
 `⚠ no longer waiting: …`, since it may have been answered elsewhere or have lapsed.
+
+## Review, 2026-10-12: the terminal-only answers kept
+
+`wisp approvals approve|deny` and `wisp facts keep|drop` answer only with standard input a terminal ("Decision",
+above; ADR 0048 took the same rule). The rule was kept on 2026-10-02 to see how it behaves, and reviewed with the
+use since on 2026-10-12. Kept, because an agent with a shell must never answer its own approvals: the agent that
+asked for a command, or for a fact to be kept, runs commands through a shell tool with no terminal, and the check
+stops it answering for the person by accident or by design. It is still a speed bump, not a wall (a process can
+obtain a pseudo-terminal); the default policy's refusal of these commands to wisp's own model and the sandbox's
+refusal to write under `~/.wisp` stay beside it. The person has two other ways to answer, neither of them a shell:
+`wisp-tui`'s dialog and the MCP client's own elicitation dialog.

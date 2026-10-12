@@ -493,7 +493,8 @@ public enum ToolCatalog {
             + "(s1, ...), listed in the result's structuredContent.facts and under wisp://threads/{thread_id}/facts. "
             + "A proposed permanent fact moved to thread stops being proposed. Permanent asks the person, who "
             + "answers outside this conversation (wisp facts keep or drop): the call returns at once with state "
-            + "pending and the request id, and the fact's resource shows the outcome later. Permanent facts "
+            + "pending and the request id, the request waits with no time limit and nothing is kept until they "
+            + "answer, and the fact's resource shows the outcome later. Permanent facts "
             + "cannot be moved or removed here.",
         inputSchema: .object([
             "type": .string("object"),

@@ -1,6 +1,7 @@
 # ADR 0048: Permanent facts over MCP
 
-Date: 2026-10-03. Status: accepted; built 2026-10-03 (see "Built" at the end). Amends
+Date: 2026-10-03. Status: accepted; built 2026-10-03 (see "Built" at the end); amended 2026-10-12 (the three open
+details settled: no time limit, and a request outlives its thread and server). Amends
 [ADR 0045](0045-layered-context.md) (who admits a permanent fact, and where: only the person, now also from a
 terminal or `wisp-tui` when an MCP caller asks) and [ADR 0046](0046-approval-and-notifications-over-mcp.md)
 (the pending channel gains a second kind of request, a fact to keep). Settles the question
@@ -113,3 +114,39 @@ mistyped answer, staleness, a 0.16.0 request), the keeper (kept, dropped and rem
 a closing thread, an answer that cannot be applied, a channel that cannot be used), the agent's keep and drop,
 the policy, the listing, the relay, the MCP path over the wire (asked, kept from the command line, dropped,
 refused again, a closing thread, `factsProposed`, a permanent fact never moved), and the TUI's dialog.
+
+## Amendment, 2026-10-12: the three open details settled
+
+Three details were left for the operator to confirm when this was built (roadmap 0.23.0). The operator settled
+them on 2026-10-12.
+
+- **A fact request has no time limit.** "Facts should not have a timeout for review." The request no longer reuses
+  `approval.timeoutSeconds`: it is filed with no expiry and waits until the person answers. The bounded-wait rule
+  (no answer is never a yes, and nothing waits on a person without end) still holds, because nothing waits:
+  `set_fact_scope` returns at once, as decided above, and the fact is not kept until the person answers. Silence
+  keeps nothing, however long it lasts. The result drops `expiresAt`, and its text says the request waits with no
+  time limit and names `wisp facts keep|drop ID` and `wisp-tui`. The `timed-out` outcome is gone for facts.
+- **A request outlives its thread and its server.** Chosen over withdrawing it, which this ADR did until now,
+  because keeping a fact needs no live conversation: the request names the fact the person is shown (subject, name,
+  value, and source, all in its binding), and a keep admits exactly that to the shared store. When the thread closes
+  or is evicted, the server's watch goes on, and a later keep is admitted from the request
+  (`FactKeeper.keep(_:in:audit:)`), audited on the server's own log; a later drop just ends the request. When the
+  server stops, the request stays in `~/.wisp/pending`, settled `handed-over` on the thread. A fact request is never
+  stale for its server having gone (a command's still is), so `wisp facts pending` and `wisp-tui` go on showing it,
+  and the process the person answers in takes its own answer and applies it (`FactKeeper.settleUnwatched`), audited
+  there with `delivery` `applied`. A request filed with an expiry by 0.22.0 or earlier still expires. The cost is
+  that a request nobody answers stays filed until someone does; `wisp facts pending` shows it, and `drop` clears it.
+- **A drop is remembered for the thread's life**, as built: a new thread, or a thread reopened under the same id,
+  may ask again. Not changed.
+- **A drop takes the proposal off the proposed list**, as built: a proposed permanent fact is retargeted to the
+  thread in place and no longer waits in `wisp://facts/proposed`. Not changed. A drop that comes after the thread
+  closed changes nothing in it, the thread being gone.
+
+The terminal-only answers were reviewed the same day and kept; see [ADR 0046](0046-approval-and-notifications-over-mcp.md),
+"Review, 2026-10-12".
+
+Tested without the model: a request returning at once and staying filed with no deadline; a keep after the thread
+closed admitted to the shared store and audited on the server's log, over the wire too; a stopped server handing its
+request over, and the answering process (`wisp facts`, the relay behind `wisp-tui`) applying a keep and a drop
+itself; a request that names no fact, and a store that cannot be written; a 0.22.0 request with an expiry still
+expiring; a drop still remembered for the thread, and forgotten when it closes.

@@ -16,8 +16,9 @@ import Foundation
 /// `<id>.answer.json` beside it by a hard link from a private temporary file, which fails when an answer is
 /// already there, so the first answer wins and is always whole. The server polls for the answer, checks it is
 /// bound to the request it filed, takes it (deleting the answer, then the request), and deletes the request
-/// when it stops waiting for any other reason. A request whose server has died, or whose wait has expired, is
-/// stale: listing skips it and a sweep removes it. A fact request has a suffix of its own so that a `wisp`
+/// when it stops waiting for any other reason. A command request whose server has died, or any request whose wait
+/// has expired, is stale: listing skips it and a sweep removes it. A fact request has no expiry and outlives its
+/// server, which a keep does not need (ADR 0048, amended 2026-10-12). A fact request has a suffix of its own so that a `wisp`
 /// from before fact requests, which lists and sweeps `.request.json` files, never sees one.
 ///
 /// **Binding.** Each request carries `binding`, a SHA-256 over its id, command, whole line, pattern,
@@ -470,10 +471,13 @@ public struct PendingApprovals: Sendable {
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
     }
 
-    /// Whether `request` is stale at `now`: its wait has expired or its server has gone.
+    /// Whether `request` is stale at `now`: its wait has expired, or, for a command, its server has gone. A fact
+    /// request is filed with no expiry and outlives its server (ADR 0048, amended 2026-10-12): keeping a fact
+    /// needs no live thread, so the face the person answers in applies the answer (`FactKeeper.settleUnwatched`).
+    /// One filed with an expiry, as wisp 0.22.0 and earlier filed them, still expires.
     static func isStale(_ request: Request, now: Date, alive: (Int32) -> Bool) -> Bool {
         if let expires = request.expiresAt, expires < now { return true }
-        return !alive(request.pid)
+        return request.kind == .command && !alive(request.pid)
     }
 
     /// The requests still waiting, oldest first; stale ones are left for `sweep`.

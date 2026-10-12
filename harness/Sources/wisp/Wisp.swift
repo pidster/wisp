@@ -349,11 +349,12 @@ struct Chat: AsyncParsableCommand {
             for name in try store.list() { print(name) }
             return
         }
-        let executable = FrontEnd.runningExecutable
         let interactive =
             isatty(FileHandle.standardInput.fileDescriptor) != 0
             && isatty(FileHandle.standardOutput.fileDescriptor) != 0
-        if let frontEnd = Self.frontEnd(besides: executable, json: json, plain: plain, interactive: interactive) {
+        if let executable = FrontEnd.runningExecutable,
+            let frontEnd = Self.frontEnd(besides: executable, json: json, plain: plain, interactive: interactive)
+        {
             Self.handOff(to: frontEnd, executable: executable)
             Self.note("could not start \(frontEnd.path); continuing with the plain chat")
         }
@@ -582,7 +583,8 @@ struct Chat: AsyncParsableCommand {
             let kinds = PendingRelay.kinds(declared: router.declares)
             guard !kinds.isEmpty else { return }
             await PendingRelay(
-                channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, kinds: kinds, send: send
+                channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, kinds: kinds,
+                facts: session.permanentFacts, send: send
             )
             .run()
         }

@@ -9,15 +9,20 @@ import Synchronization
 /// The request is filed in the pending channel (`PendingApprovals`, kind `fact`) and the person is told by a
 /// notification naming the fact and the command that answers it (`wisp facts keep ID`); they answer from a
 /// terminal with `wisp facts keep|drop`, or in a running `wisp-tui`. The caller's call does not wait: `ask`
-/// files the request, starts a watch, and returns. The watch polls the channel until the answer, the bound
-/// (`approval.timeoutSeconds`), or the thread's closing, and applies the answer through the closure the server
-/// gave: `keep` admits the fact to the shared store as the person's, `drop` leaves it in its thread and is
-/// remembered, so the same fact (its subject, name, and value) is not asked about again by that thread. Silence
-/// keeps nothing and is not remembered. Every step is audited on the asking thread's log: `approval.pending`,
-/// the `notification`, and `approval.settled`, each with `kind` `fact`.
+/// files the request, starts a watch, and returns. The request has no time limit (ADR 0048's amendment of
+/// 2026-10-12): nothing blocks on it, so nothing needs to give up, and silence keeps nothing. The watch polls the
+/// channel until the answer, and applies it through the closure the server gave: `keep` admits the fact to the
+/// shared store as the person's, `drop` leaves it in its thread and is remembered, so the same fact (its subject,
+/// name, and value) is not asked about again by that thread. Every step is audited on the asking thread's log:
+/// `approval.pending`, the `notification`, and `approval.settled`, each with `kind` `fact`.
+///
+/// A request outlives its thread. When the thread closes (`release`) the watch goes on, and a later `keep` is
+/// admitted to the shared store straight from what the request names (`keep(_:in:audit:)`), audited on the
+/// keeper's own log; a later `drop` just ends it. When the server stops (`stop`) the request stays filed, and
+/// whichever face the person answers in applies the answer itself (`settleUnwatched`), since no server is left to.
 ///
 /// Every operation is a short critical section, so this is a `final class` with a `Mutex`
-/// (`docs/design.md`, "Concurrency"); the watches are tasks it holds so a closing thread can stop its own.
+/// (`docs/design.md`, "Concurrency"); the watches are tasks it holds so a stopping server can end them.
 public final class FactKeeper: Sendable {
     /// Where a request stands.
     public enum State: String, Sendable, Equatable {
@@ -27,12 +32,11 @@ public final class FactKeeper: Sendable {
         case kept
         /// The person dropped it: it stays in its thread, and the thread is not asked about it again.
         case dropped
-        /// Nobody answered within the bound; nothing was kept, and the caller may ask again.
-        case timedOut = "timed-out"
-        /// The thread closed, or the server stopped, before an answer.
-        case withdrawn
+        /// The server stopped before an answer; the request stays filed for the person, and the face they
+        /// answer in applies the answer.
+        case handedOver = "handed-over"
         /// The answer could not be applied (the fact changed or went, the store could not be written), or
-        /// the request could not be filed or watched; `Record.reason` says why.
+        /// the request was removed from the channel; `Record.reason` says why.
         case failed
     }
 
@@ -54,6 +58,8 @@ public final class FactKeeper: Sendable {
         public var reason: String?
         /// When it stopped waiting.
         public var settledAt: Date?
+        /// Whether its thread has closed: an answer is then applied to the shared store directly.
+        public var released = false
     }
 
     /// What applying an answer did.
@@ -93,8 +99,10 @@ public final class FactKeeper: Sendable {
     private let contents = Mutex(Contents())
     /// Where requests are filed.
     public let channel: PendingApprovals
-    /// How long a request waits; nil for ever.
-    public let timeout: Duration?
+    /// The shared store a request whose thread has closed is kept in; nil keeps nothing that way.
+    private let store: SharedFacts?
+    /// The log for a request whose thread has closed: the server's own.
+    private let audit: AuditLog?
     /// The MCP client's name, for the request.
     private let client: @Sendable () -> String?
     /// Posts the notification that a request waits, audited on the thread's log.
@@ -108,16 +116,19 @@ public final class FactKeeper: Sendable {
     ///
     /// - Parameters:
     ///   - channel: The pending channel.
-    ///   - timeout: How long a request waits (`approval.timeoutSeconds`); nil for ever.
+    ///   - store: The shared store, for a keep that arrives after its thread closed.
+    ///   - audit: The server's log, for a request whose thread has closed.
     ///   - client: The MCP client's name.
     ///   - notify: Posts a notification (the host's routes, source `approval`).
     ///   - poll: How often to look for an answer.
     public init(
-        channel: PendingApprovals, timeout: Duration?, client: @escaping @Sendable () -> String? = { nil },
+        channel: PendingApprovals, store: SharedFacts? = nil, audit: AuditLog? = nil,
+        client: @escaping @Sendable () -> String? = { nil },
         notify: @escaping @Sendable (Notifier.Message, AuditLog?) -> Void, poll: Duration = .milliseconds(200)
     ) {
         self.channel = channel
-        self.timeout = timeout
+        self.store = store
+        self.audit = audit
         self.client = client
         self.notify = notify
         self.poll = poll
@@ -153,16 +164,17 @@ public final class FactKeeper: Sendable {
     /// Every request, oldest first.
     public var records: [Record] { contents.withLock { $0.records } }
 
-    /// The latest request about fact `fact` of `thread`, or nil.
+    /// The latest request about fact `fact` of the open thread `thread`, or nil. A request of an earlier thread of
+    /// the same id, released when it closed, is not this thread's.
     public func record(thread: String, fact: String) -> Record? {
-        contents.withLock { $0.records.last { $0.thread == thread && $0.fact == fact } }
+        contents.withLock { $0.records.last { $0.thread == thread && $0.fact == fact && !$0.released } }
     }
 
     /// The pending requests, oldest first.
     public var pending: [Record] { records.filter { $0.state == .pending } }
 
     /// Asks the person to keep `fact`, unless a request for it already waits or the person dropped it for this
-    /// thread. Returns at once; the answer is applied by `apply` when it comes.
+    /// thread. Returns at once; the answer is applied by `apply` when it comes, however long that takes.
     ///
     /// - Parameters:
     ///   - fact: The fact as the thread holds it.
@@ -174,11 +186,11 @@ public final class FactKeeper: Sendable {
     ///   with outcome `failed`.
     public func ask(_ fact: Fact, thread: String, audit: AuditLog?, apply: @escaping Apply) throws -> Asked {
         let proposed = Self.proposed(fact)
-        let request = PendingApprovals.request(keeping: proposed, thread: thread, client: client(), timeout: timeout)
+        let request = PendingApprovals.request(keeping: proposed, thread: thread, client: client(), timeout: nil)
         let earlier = contents.withLock { contents -> Asked? in
             if let dropped = contents.dropped[thread]?[Self.dropKey(proposed)] { return .dropped(dropped) }
             if let waiting = contents.records.last(where: {
-                $0.thread == thread && $0.fact == fact.id && $0.state == .pending
+                $0.thread == thread && $0.fact == fact.id && $0.state == .pending && !$0.released
             }) {
                 return .waiting(waiting)
             }
@@ -201,8 +213,8 @@ public final class FactKeeper: Sendable {
         notify(Self.message(for: request), audit)
         let started = Date()
         let task = Task { [self] in
-            let (state, answer) = await watch(request, audit: audit)
-            await settle(request, state: state, answer: answer, started: started, audit: audit, apply: apply)
+            let answer = await watch(request, audit: audit)
+            await settle(request, answer: answer, started: started, audit: audit, apply: apply)
         }
         contents.withLock { contents in
             if contents.records.contains(where: { $0.request.id == request.id && $0.state == .pending }) {
@@ -212,18 +224,35 @@ public final class FactKeeper: Sendable {
         return .filed(record)
     }
 
-    /// Waits for the answer to `request`: the answer, the bound, the request's removal, or cancellation. An
-    /// answer not bound to the request is refused and audited, and the wait goes on.
-    private func watch(
-        _ request: PendingApprovals.Request, audit: AuditLog?
-    ) async -> (State, PendingApprovals.Answer?) {
-        let deadline = timeout.map { ContinuousClock.now + $0 }
+    /// Whether `request`'s thread has closed.
+    private func isReleased(_ request: PendingApprovals.Request) -> Bool {
+        contents.withLock { $0.records.contains { $0.request.id == request.id && $0.released } }
+    }
+
+    /// The log for `request`: its thread's while the thread is open, the keeper's once it has closed.
+    private func log(_ request: PendingApprovals.Request, thread audit: AuditLog?) -> AuditLog? {
+        isReleased(request) ? self.audit : audit
+    }
+
+    /// What a watch ended with.
+    private enum Watched {
+        /// The person's answer, taken from the channel.
+        case answer(PendingApprovals.Answer)
+        /// The request left the channel without an answer.
+        case removed
+        /// The server is stopping; the request stays filed.
+        case stopped
+    }
+
+    /// Waits for the answer to `request`, with no time limit: the answer, the request's removal, or cancellation.
+    /// An answer not bound to the request is refused and audited, and the wait goes on.
+    private func watch(_ request: PendingApprovals.Request, audit: AuditLog?) async -> Watched {
         while !Task.isCancelled {
             switch channel.take(request) {
             case .answer(let answer)?:
-                return (answer.decision == "keep" ? .kept : .dropped, answer)
+                return .answer(answer)
             case .rejected(let reason)?:
-                audit?.record(
+                log(request, thread: audit)?.record(
                     .approvalAnswered,
                     details: AuditEvent.Details.approvalAnswered(
                         request: request.id, request, decision: "?", via: "unknown", delivery: "refused",
@@ -231,24 +260,42 @@ public final class FactKeeper: Sendable {
             case nil:
                 break
             }
-            if !channel.isFiled(request) { return (.failed, nil) }
-            if let deadline, ContinuousClock.now >= deadline { return (.timedOut, nil) }
+            if !channel.isFiled(request) { return .removed }
             try? await Task.sleep(for: poll)
         }
-        return (.withdrawn, nil)
+        return .stopped
     }
 
-    /// Applies the outcome of a watch and records it.
+    /// Applies the outcome of a watch and records it: through `apply` while the thread is open, to the shared
+    /// store directly once it has closed. A stopping server leaves the request filed.
     private func settle(
-        _ request: PendingApprovals.Request, state: State, answer: PendingApprovals.Answer?, started: Date,
-        audit: AuditLog?, apply: Apply
+        _ request: PendingApprovals.Request, answer watched: Watched, started: Date, audit: AuditLog?, apply: Apply
     ) async {
-        channel.withdraw(request)
-        var state = state
+        let released = isReleased(request)
+        var state: State
         var kept: String?
-        var reason: String? = state == .failed ? "the pending request was removed" : nil
-        if let answer {
-            switch await apply(answer.decision, request.id) {
+        var reason: String?
+        var answer: PendingApprovals.Answer?
+        switch watched {
+        case .stopped:
+            state = .handedOver
+            reason = "the server stopped; the request stays filed, and wisp facts keep or wisp-tui applies the answer"
+        case .removed:
+            state = .failed
+            reason = "the pending request was removed"
+        case .answer(let given):
+            answer = given
+            state = given.decision == "keep" ? .kept : .dropped
+            let applied: Applied
+            if released {
+                applied =
+                    given.decision == "keep"
+                    ? store.map { Self.keep(request, in: $0, audit: self.audit) }
+                        ?? .failed("no shared store to keep it in") : .dropped
+            } else {
+                applied = await apply(given.decision, request.id)
+            }
+            switch applied {
             case .kept(let id): kept = id
             case .dropped: break
             case .failed(let why):
@@ -256,23 +303,21 @@ public final class FactKeeper: Sendable {
                 reason = why
             }
         }
-        let seconds = Date().timeIntervalSince(started)
         let outcome =
             switch state {
             case .kept, .dropped: "answered"
-            case .timedOut: "timed-out"
-            case .withdrawn: "withdrawn"
+            case .handedOver: "handed-over"
             case .failed, .pending: "failed"
             }
-        audit?.record(
+        (released ? self.audit : audit)?.record(
             .approvalSettled,
             details: AuditEvent.Details.approvalSettled(
                 request, outcome: outcome, via: answer?.via, decision: answer?.decision, reason: reason,
-                seconds: seconds, kept: kept))
+                seconds: Date().timeIntervalSince(started), kept: kept))
         finish(request, state: state, kept: kept, via: answer?.via, reason: reason)
     }
 
-    /// Records how a request ended, and remembers a drop.
+    /// Records how a request ended, and remembers a drop while its thread is open.
     private func finish(_ request: PendingApprovals.Request, state: State, kept: String?, via: String?, reason: String?)
     {
         contents.withLock { contents in
@@ -285,25 +330,34 @@ public final class FactKeeper: Sendable {
             contents.records[index].via = via
             contents.records[index].reason = reason
             contents.records[index].settledAt = Date()
-            if state == .dropped, let fact = request.fact, let thread = request.thread {
+            if state == .dropped, !contents.records[index].released, let fact = request.fact,
+                let thread = request.thread
+            {
                 contents.dropped[thread, default: [:]][Self.dropKey(fact)] = contents.records[index]
             }
             Self.trim(&contents.records)
         }
     }
 
-    /// Stops the watches of `thread` (it closed, or was evicted) and withdraws its requests, audited as
-    /// `withdrawn`; nil stops every watch (the server is stopping). Its dropped facts are forgotten with it.
+    /// `thread` closed, or was evicted: its requests stay filed and watched, and an answer that comes later is
+    /// applied to the shared store directly (a keep needs no live thread); its dropped facts are forgotten with
+    /// it, so a new thread of the same id may ask again.
     ///
-    /// - Parameter thread: The thread, or nil for all.
-    public func withdraw(thread: String?) {
-        let tasks = contents.withLock { contents -> [Task<Void, Never>] in
-            let ids = Set(
-                contents.records.filter { $0.state == .pending && (thread == nil || $0.thread == thread) }
-                    .map(\.request.id))
-            if let thread { contents.dropped[thread] = nil }
-            return contents.watches.filter { ids.contains($0.key) }.map(\.value)
+    /// - Parameter thread: The thread.
+    public func release(thread: String) {
+        contents.withLock { contents in
+            for index in contents.records.indices
+            where contents.records[index].thread == thread && contents.records[index].state == .pending {
+                contents.records[index].released = true
+            }
+            contents.dropped[thread] = nil
         }
+    }
+
+    /// The server is stopping: every watch ends, and every request waiting stays filed, settled here as
+    /// `handed-over`. The person can still answer each; the face they answer in applies it (`settleUnwatched`).
+    public func stop() {
+        let tasks = contents.withLock { Array($0.watches.values) }
         for task in tasks { task.cancel() }
     }
 
@@ -313,6 +367,85 @@ public final class FactKeeper: Sendable {
         guard settled.count > historyLimit else { return }
         let drop = Set(settled.prefix(settled.count - historyLimit))
         records = records.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
+    }
+}
+
+extension FactKeeper {
+    /// Keeps the fact `request` names in `store` as the person's, with no thread to move it from: its thread
+    /// closed, or its server stopped, before the person answered. The fact is admitted as the request names it
+    /// (its subject, name, value, and source, which the person was shown and the binding covers), approved now,
+    /// and audited as `fact.scope.changed` with `by: person` and the request, as a keep from a live thread is.
+    ///
+    /// - Parameters:
+    ///   - request: The fact request the person answered `keep`.
+    ///   - store: The shared store of permanent facts.
+    ///   - audit: Where the change is recorded.
+    ///   - now: The time of the approval.
+    /// - Returns: `kept` with the permanent fact's id, or `failed` when the request names no fact or the store
+    ///   could not be written.
+    public static func keep(
+        _ request: PendingApprovals.Request, in store: SharedFacts, audit: AuditLog?, now: Date = Date()
+    ) -> Applied {
+        guard request.kind == .fact, let shown = request.fact else { return .failed("the request names no fact") }
+        let source = FactSource(rawValue: shown.source) ?? .caller
+        let method: FactMethod =
+            switch source {
+            case .model: .distilled
+            case .tool: .extracted
+            case .person, .caller: .stated
+            }
+        let scope: FactScope = shown.id.hasPrefix(FactScope.session.prefix) ? .session : .thread
+        let before = Fact(
+            id: shown.id, identity: FactIdentity(scope: scope, subject: shown.subject, name: shown.name),
+            source: source, version: 1, value: shown.value, temporalClass: .permanent, method: method,
+            detail: request.thread.map { "thread \($0)" }, entries: [], audit: [], recorded: request.createdAt,
+            turn: nil, supersededBy: nil, state: .current, approved: nil)
+        var candidate = before
+        candidate.approved = now
+        let after: Fact
+        do { after = try store.admit(candidate) } catch { return .failed("\(error)") }
+        audit?.record(
+            .factScopeChanged,
+            details: AuditEvent.Details.factScopeChanged(
+                named: shown.id, before: before, after: after, to: .permanent, by: .person, request: request.id))
+        return .kept(after.id)
+    }
+
+    /// Applies the person's answer to a fact request that no server watches any more, its server having stopped:
+    /// the answering process (`wisp facts keep|drop`, or `wisp chat --json` for `wisp-tui`) takes the answer it
+    /// wrote and applies it itself. A keep is admitted to `store` (`keep(_:in:audit:)`); a drop ends the request,
+    /// the thread that asked being gone. Audited as `approval.settled` on `audit`.
+    ///
+    /// - Parameters:
+    ///   - request: The request as the answering process read it.
+    ///   - channel: The pending channel.
+    ///   - store: The shared store of permanent facts.
+    ///   - audit: The answering process's log.
+    ///   - alive: Whether a process is running.
+    /// - Returns: What was applied, or nil when the request is a command, its server still runs (and takes the
+    ///   answer itself), or no answer is there to take.
+    public static func settleUnwatched(
+        _ request: PendingApprovals.Request, channel: PendingApprovals, store: SharedFacts, audit: AuditLog?,
+        alive: (Int32) -> Bool = PendingApprovals.isAlive
+    ) -> Applied? {
+        guard request.kind == .fact, !alive(request.pid) else { return nil }
+        guard case .answer(let answer)? = channel.take(request) else { return nil }
+        let applied: Applied = answer.decision == "keep" ? keep(request, in: store, audit: audit) : .dropped
+        var kept: String?
+        var outcome = "answered"
+        var reason = "its server had stopped; applied by the answering process"
+        switch applied {
+        case .kept(let id): kept = id
+        case .dropped: break
+        case .failed(let why):
+            outcome = "failed"
+            reason = why
+        }
+        audit?.record(
+            .approvalSettled,
+            details: AuditEvent.Details.approvalSettled(
+                request, outcome: outcome, via: answer.via, decision: answer.decision, reason: reason, kept: kept))
+        return applied
     }
 }
 

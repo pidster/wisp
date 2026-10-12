@@ -32,9 +32,8 @@ public enum FrontEnd {
         candidates(besides: executable).first { exists($0.path) }
     }
 
-    /// The running executable's real path: `Bundle.main`'s, not `argv[0]`, which is a bare name when launched
-    /// through `PATH`, with links resolved.
-    public static var runningExecutable: URL {
-        (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).resolvingSymlinksInPath()
-    }
+    /// The running executable's real path, with links resolved (`ExecutablePath`): never `argv[0]`, which is a
+    /// bare name when launched through `PATH` and a chosen name when a parent names its child at spawn (ADR 0061).
+    /// Nil only when the kernel and Foundation both cannot say, and then `wisp chat` stays the plain chat.
+    public static var runningExecutable: URL? { ExecutablePath.current }
 }

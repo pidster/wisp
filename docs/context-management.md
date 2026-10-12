@@ -215,8 +215,9 @@ the turn recorded or changed, so they can be seen and moved: chat prints a note 
 --json` carries them on the turn's end, and MCP `respond` returns them in `structuredContent.facts`. Over
 MCP a caller may move a fact between `thread` and `session` with `set_fact_scope`, and may ask for one to be
 kept as `permanent`: the request waits in `~/.wisp/pending`, a notification names it, and the person keeps or
-drops it from a terminal (`wisp facts keep|drop`) or in `wisp-tui`; the call returns at once and the outcome
-shows on the fact's resource ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A drop leaves the fact
+drops it from a terminal (`wisp facts keep|drop`) or in `wisp-tui`; the call returns at once, the request
+waits with no time limit, even after its thread or server has ended, and the outcome shows on the fact's
+resource ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). A drop leaves the fact
 in its thread and is remembered there; a caller never moves or removes a permanent fact, and one that
 disagrees records a newer thread fact, which shows as a conflict. The model's own proposals in an MCP thread
 announce nothing; `respond` counts them in `factsProposed` ([mcp.md](mcp.md), "Facts a turn recorded, and their

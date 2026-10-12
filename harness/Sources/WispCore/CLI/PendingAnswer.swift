@@ -59,4 +59,22 @@ public enum PendingAnswer {
                     : "\(request.subject) was answered another way first; your answer was not used")
         }
     }
+
+    /// How an answer to a fact request ends when the answering process applied it itself, the server that filed
+    /// the request having stopped (`FactKeeper.settleUnwatched`, ADR 0048 as amended 2026-10-12).
+    ///
+    /// - Parameters:
+    ///   - request: The fact request answered.
+    ///   - applied: What applying the answer did.
+    /// - Returns: The ending.
+    public static func ending(of request: PendingApprovals.Request, applied: FactKeeper.Applied) -> Ending {
+        let from = request.thread.map { " (thread \($0))" } ?? ""
+        switch applied {
+        case .kept(let id):
+            return .printed("kept as a permanent fact, \(id): \(request.subject)\(from); its server had stopped")
+        case .dropped:
+            return .printed("dropped: \(request.subject)\(from); its server had stopped, so nothing else changes")
+        case .failed(let why): return .failed("\(request.subject) was not kept: \(why)")
+        }
+    }
 }

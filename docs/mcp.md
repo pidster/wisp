@@ -24,6 +24,11 @@ command = "/path/to/wisp"
 args = ["mcp"]
 ```
 
+In this repository, `.mcp.json` runs `scripts/wisp-mcp`, which starts the release build under the name
+`wisp mcp (claude-code)`, from `WISP_MCP_CLIENT` in the server's `env` (`wisp mcp` when unset), so `ps` tells
+one harness's server from another's ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)). A Codex
+configuration that runs the launcher may set `env = { WISP_MCP_CLIENT = "codex" }`.
+
 ## Client compatibility
 
 wisp speaks MCP through the official Swift SDK (0.12.1). Where the SDK is stricter than the protocol,
@@ -330,24 +335,31 @@ release codename = BLUE HERON — wisp facts keep a1b2c3d4
 The person answers from a terminal with `wisp facts keep a1b2c3d4` or `wisp facts drop a1b2c3d4`, or in a
 running `wisp-tui`; nothing in the MCP conversation answers it, and wisp's own model cannot
 ([wisp.md](wisp.md), "wisp facts"). The call does not wait: it returns at once, because a fact blocks nothing
-the caller is doing.
+the caller is doing, and the request has no time limit. The fact is not kept until the person answers; the
+result's text says so ("proposed c1 … as a permanent fact; waiting for the person, with no time limit: wisp
+facts keep|drop a1b2c3d4, or wisp-tui").
 
 ```json
 { "thread_id": "git", "from": "c1", "state": "pending", "request": "a1b2c3d4",
-  "expiresAt": "2026-10-03T10:24:00Z", "fact": { "id": "c1", "scope": "thread", … },
-  "uri": "wisp://threads/git/facts/c1" }
+  "fact": { "id": "c1", "scope": "thread", … }, "uri": "wisp://threads/git/facts/c1" }
 ```
 
 The outcome shows later as `request` on the fact's resource (`uri`) and on its row in
-`wisp://facts/proposed`: `{ "id", "state", "kept", "via", "reason", "asked", "expiresAt", "settled" }`, where
-`state` is `pending`, `kept` (with `kept`, the permanent fact's id), `dropped`, `timed-out`, `withdrawn` (the
-thread closed or the server stopped), or `failed` (with `reason`, such as the fact having changed since the
+`wisp://facts/proposed`: `{ "id", "state", "kept", "via", "reason", "asked", "settled" }`, where `state` is
+`pending`, `kept` (with `kept`, the permanent fact's id), `dropped`, `handed-over` (the server stopped before
+an answer; the request stays filed), or `failed` (with `reason`, such as the fact having changed since the
 person was asked). Keeping admits the fact to the shared store as the person's, as `/fact ID permanent` does,
 audited as `fact.scope.changed` with `by: person` and the `request`. Dropping leaves it where it is (a proposal
 stops being proposed, in place), and the thread is not asked about the same fact (subject, name, and value)
-again while it is open: a second request is a tool error that says when it was dropped. Silence for
-`approval.timeoutSeconds` keeps nothing and is not remembered. Asking again while a request waits returns
-the same request. Each step is audited on the thread: `approval.pending`, the `notification`, and
+again while it is open: a second request is a tool error that says when it was dropped. Silence keeps
+nothing, for as long as it lasts. Asking again while a request waits returns the same request.
+
+**A request outlives its thread and its server** (ADR 0048, amended 2026-10-12): keeping a fact needs no live
+conversation. When the thread closes or is evicted, the request stays filed and watched; a keep that comes
+later is admitted to the shared store from what the request names (the fact the person was shown), audited on
+the server's own log, and a drop just ends it. When the server stops, the request stays in `~/.wisp/pending`;
+the person can still answer it, and `wisp facts keep|drop` or `wisp-tui` applies the answer itself, since no
+server is left to. Each step is audited on the thread: `approval.pending`, the `notification`, and
 `approval.settled`, with `kind: "fact"`.
 
 ## Structured output
@@ -802,7 +814,8 @@ they were the innermost frame) with their total time (samples in which they were
 ### `close_thread`
 
 Free a thread's model session, once the turn under way on it, if any, has ended; calls still waiting their turn
-on it are refused. Its requests to keep facts that are still waiting are withdrawn.
+on it are refused. Its requests to keep facts that are still waiting stay filed for the person, and a keep
+that comes later goes to the shared store ("`set_fact_scope`", above).
 
 | Argument | Type | Required |
 | --- | --- | --- |

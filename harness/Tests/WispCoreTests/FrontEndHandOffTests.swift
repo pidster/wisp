@@ -46,3 +46,40 @@ import Testing
         #expect(FrontEnd.locate(besides: build, exists: { _ in false }) == nil)
     }
 }
+
+/// Where the running `wisp` is, by the kernel's path and never by `argv[0]`, which a parent may set to a name of
+/// its choosing at spawn (ADR 0061: `wisp mcp (claude-code)`, `wisp chat (tui)`).
+@Suite struct ExecutablePathTests {
+    @Test func theKernelsAbsolutePathWinsAndLinksAreResolved() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "wisp-exe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let real = folder.appending(path: "wisp")
+        try Data().write(to: real)
+        let link = folder.appending(path: "wisp-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        let bundle = URL(fileURLWithPath: "/opt/elsewhere/wisp")
+        #expect(
+            ExecutablePath.resolve(kernel: link.path, bundle: bundle)?.path == real.resolvingSymlinksInPath().path)
+    }
+
+    @Test func aRelativeKernelPathDefersToTheBundleAndNothingFallsBackToArgv0() {
+        let bundle = URL(fileURLWithPath: "/opt/homebrew/Cellar/wisp/0.23.0/libexec/wisp")
+        #expect(ExecutablePath.resolve(kernel: ".build/debug/wisp", bundle: bundle)?.path == bundle.path)
+        #expect(ExecutablePath.resolve(kernel: nil, bundle: bundle)?.path == bundle.path)
+        // With neither source there is no answer: a name such as argv[0] is never taken for a path.
+        #expect(ExecutablePath.resolve(kernel: nil, bundle: nil) == nil)
+        #expect(ExecutablePath.resolve(kernel: "", bundle: nil) == nil)
+    }
+
+    @Test func theRunningProcessIsFoundByTheKernelsPath() throws {
+        let kernel = try #require(ExecutablePath.kernelPath())
+        let current = try #require(ExecutablePath.current)
+        #expect(current.path.hasPrefix("/"))
+        #expect(FileManager.default.isExecutableFile(atPath: current.path))
+        // The kernel's path, not the name the process was given: the two agree on the file, links resolved.
+        let byKernel = URL(fileURLWithPath: kernel).standardizedFileURL.resolvingSymlinksInPath()
+        #expect(current.path == byKernel.path)
+        #expect(FrontEnd.runningExecutable == current)
+    }
+}
