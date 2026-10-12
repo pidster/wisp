@@ -297,4 +297,59 @@ import WispTestSupport
         await pair.client.disconnect()
         await pair.server.stop()
     }
+
+    @Test func aDialogThatFailsOrIsCancelledLeavesTheQuestionToTheChannel() async throws {
+        struct DialogGone: Error {}
+        // The client's handler throws: the dialog leg fails, and the out-of-band answer still wins.
+        let broken = try await connected(
+            steps: [Self.ask("Which?", options: ["a", "b"]), .say("{tool}")], hold: .seconds(10),
+            config: #"{"inquiry":{"elicitation":true}}"#, elicitation: { _ in throw DialogGone() })
+        let answering = answerWhenFiled(broken.channel, decision: "chose", text: "a")
+        #expect(text(try await respond(broken.client, "x")) == "chose: a\n(from the person)")
+        _ = await answering.value
+        #expect(events(broken.sink, .inquirySettled, thread: "x").first?.details["via"] == "cli")
+        await broken.client.disconnect()
+        await broken.server.stop()
+        // The person cancels the dialog: that is not an answer, and the question waits on the channel.
+        let cancelling = try await connected(
+            steps: [Self.ask("Which?", options: ["a", "b"]), .say("{tool}")], hold: .seconds(10),
+            config: #"{"inquiry":{"elicitation":true}}"#, elicitation: { _ in .init(action: .cancel, content: nil) })
+        let later = answerWhenFiled(cancelling.channel, decision: "none", text: nil)
+        #expect(text(try await respond(cancelling.client, "y")) == "the person chose none of these options")
+        _ = await later.value
+        await cancelling.client.disconnect()
+        await cancelling.server.stop()
+    }
+
+    @Test func evictingAThreadWithAWaitingQuestionWithdrawsItAndEndsTheThreadsSession() async throws {
+        let pair = try await connected(
+            steps: [Self.ask("Which?", options: ["a", "b"]), .say("{tool}"), .say("hello")],
+            config: #"{"maxThreads":1}"#)
+        _ = try await respond(pair.client, "old")
+        let id = try #require(pair.channel.waiting(.question).first?.id)
+        // A second thread needs the only slot: the first is evicted, and its question goes with it.
+        let result = try await call(pair.client, "respond", ["prompt": .string("hi"), "thread_id": .string("new")])
+        #expect(result.isError != true)
+        #expect(pair.channel.waiting(.question).isEmpty, "the evicted thread's question is withdrawn from the channel")
+        let settled = try #require(events(pair.sink, .inquirySettled, thread: "old").first)
+        #expect(settled.details["outcome"] == "withdrawn" && settled.details["inquiry"] == .string(id))
+        let ended = try await firstValue("the evicted session ended") {
+            events(pair.sink, .sessionEnd, thread: "old").first
+        }
+        #expect(ended.details["reason"] == "evicted")
+        #expect(throws: PendingApprovals.Failure.unknown(id)) {
+            try pair.channel.answer(id, decision: "none", via: "cli")
+        }
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
+    @Test func anUnknownResourceIsRefusedAsInvalid() async throws {
+        let pair = try await connected(steps: [])
+        await #expect(throws: (any Error).self) {
+            _ = try await pair.client.readResource(uri: "wisp://no-such-collection")
+        }
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
 }
