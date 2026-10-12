@@ -284,4 +284,45 @@ import Testing
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["target"])
     }
+
+    /// An append whose rename into place fails (the target is a directory) throws and leaves no temporary.
+    @Test func anAtomicAppendThatCannotRenameThrowsAndLeavesNoTemporary() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appending(path: "target")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) {
+            try FileWriter.appendAtomically(Data("x".utf8), to: target, replacing: false)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["target"])
+    }
+
+    /// An append told the file exists when it does not (it vanished between the check and the copy) throws and
+    /// leaves no temporary behind.
+    @Test func anAppendToAFileThatVanishedThrowsAndLeavesNoTemporary() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(throws: (any Error).self) {
+            try FileWriter.appendAtomically(Data("x".utf8), to: dir.appending(path: "gone.txt"), replacing: true)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).isEmpty)
+    }
+
+    /// An append into a directory that cannot be written throws without touching the file.
+    @Test func anAppendWhereNoTemporaryCanBeCreatedThrowsAndKeepsTheFile() throws {
+        let dir = try scratch()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let file = dir.appending(path: "kept.txt")
+        try Data("original".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: dir.path)
+        #expect(throws: (any Error).self) {
+            try FileWriter.appendAtomically(Data("x".utf8), to: file, replacing: true)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["kept.txt"])
+    }
 }

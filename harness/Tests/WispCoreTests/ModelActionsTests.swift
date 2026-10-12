@@ -9,6 +9,11 @@ import WispTestSupport
 /// (ADR 0059): its plan says what it is told, its fetch reports progress and, when `blocks`, waits until it is
 /// cancelled, and its link records whether it was told to replace a directory.
 final class FakePuller: ModelPuller {
+    /// Why a fetch failed.
+    struct NetworkDropped: Error, CustomStringConvertible, Equatable {
+        var description: String { "the network dropped" }
+    }
+
     /// Why a name was refused.
     struct NotAllowed: Error, CustomStringConvertible, Equatable {
         let text: String
@@ -20,6 +25,8 @@ final class FakePuller: ModelPuller {
     let licence: String?
     let replacesDirectory: Bool
     let blocks: Bool
+    /// Whether the fetch fails (the network dropped) after reporting its first progress.
+    let fails: Bool
     /// Each repository prepared, in order.
     let prepared = Guarded<[String]>([])
     /// Each link's `replacingDirectory`, in order.
@@ -27,8 +34,9 @@ final class FakePuller: ModelPuller {
 
     init(
         missing: Int = 2, remaining: Int = 2_000_000_000, licence: String? = "apache-2.0",
-        replacesDirectory: Bool = false, blocks: Bool = false
+        replacesDirectory: Bool = false, blocks: Bool = false, fails: Bool = false
     ) {
+        self.fails = fails
         self.missing = missing
         self.remaining = remaining
         self.licence = licence
@@ -55,7 +63,7 @@ final class FakePuller: ModelPuller {
             bytes: remaining + 1000, missing: missing, remaining: remaining, destination: "/models/\(name)",
             snapshot: "/hub/\(name)", replacesDirectory: replacesDirectory, reused: 3 - missing, seeded: 0,
             lines: ["\(repository) at 0123456789ab: 3 files"])
-        let (missing, remaining, blocks, linked) = (missing, remaining, blocks, linked)
+        let (missing, remaining, blocks, fails, linked) = (missing, remaining, blocks, fails, linked)
         return PreparedPull(
             summary: summary,
             fetch: { progress, notice in
@@ -64,6 +72,7 @@ final class FakePuller: ModelPuller {
                     PullProgress(
                         repository: repository, file: "weights.safetensors", size: remaining, index: 1,
                         files: missing, fetched: remaining / 4, total: remaining))
+                if fails { throw NetworkDropped() }
                 if blocks {
                     while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
                     throw CancellationError()
