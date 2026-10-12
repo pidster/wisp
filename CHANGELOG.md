@@ -4,7 +4,7 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.23.0
 
 A verification pass beside each reply, whole stored outputs in chat, larger eval sets with floors set from
 statistics, and a fix for `edit_file` on files with Windows line endings.
