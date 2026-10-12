@@ -371,6 +371,24 @@ extension AuditEvent {
             return details
         }
 
+        /// `response.verification`: the verification pass over a reply (ADR 0060): `method` (`readers` or `model`),
+        /// `status` (`verified` or `unsupported`), the `claims` found, how many `calls` were checked, `seconds`, and
+        /// for the model step its prompt's `bytes`, the `model`, the `think` it sent, and a `failure`.
+        public static func verification(
+            method: String, status: String, claims: [JSONValue], calls: Int, seconds: Double, bytes: Int?,
+            model: ModelSelection?, think: OllamaThink?, failure: String?
+        ) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "method": .string(method), "status": .string(status), "claims": .array(claims), "calls": .int(calls),
+                "seconds": .double((seconds * 1000).rounded() / 1000),
+            ]
+            if let bytes { details["bytes"] = .int(bytes) }
+            if let model { details["model"] = .string(model.description) }
+            if let think { details["think"] = .string(think.text) }
+            if let failure { details["failure"] = .string(failure) }
+            return details
+        }
+
         /// `fact.recorded`: a new fact, or a new version of one, with what it superseded.
         public static func factRecorded(_ fact: Fact, supersedes: String?) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
@@ -865,6 +883,7 @@ extension AuditEvent {
                 "method", "tools", "ruleTools", "registered", "intent", "taskChanged", "task", "facts", "seconds",
                 "bytes", "model", "failure", "think",
             ]
+        case .verification: ["method", "status", "claims", "calls", "seconds", "bytes", "model", "think", "failure"]
         case .factRecorded:
             [
                 "id", "scope", "subject", "name", "source", "version", "value", "class", "method", "detail", "entries",

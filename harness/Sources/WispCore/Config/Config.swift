@@ -53,6 +53,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var context: ContextConfig?
     /// `wisp watch`: how long file changes must be quiet before a run starts.
     public var watch: WatchConfig?
+    /// The verification pass over each reply: off, the exact readers, or the readers and a model step.
+    public var verification: VerificationConfig?
 
     /// The models the operator turned off ([ADR 0056](../../../../docs/decisions/0056-models-enabled-and-disabled.md)).
     public struct ModelsConfig: Codable, Equatable, Sendable {
@@ -104,6 +106,18 @@ public struct Config: Codable, Equatable, Sendable {
                 throw DecodingError.dataCorrupted(
                     .init(codingPath: [], debugDescription: "watch: settle must be between 0 and 60"))
             }
+        }
+    }
+
+    /// The verification pass over each reply ([ADR 0060](../../../../docs/decisions/0060-a-verification-pass.md)).
+    public struct VerificationConfig: Codable, Equatable, Sendable {
+        /// `off`, `readers` (the default), or `model`: whether a reply's result claims are checked against the
+        /// turn's call list by the exact readers alone, or by a model step too when they find nothing.
+        public var mode: VerificationMode?
+
+        /// Creates settings; nil takes the default.
+        public init(mode: VerificationMode? = nil) {
+            self.mode = mode
         }
     }
 
@@ -564,8 +578,9 @@ public struct Config: Codable, Equatable, Sendable {
         tools: ToolsConfig? = nil, routing: RoutingConfig? = nil, inlineOutputBytes: Int? = nil,
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
         watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
-        lmstudio: OpenAICompatibleConfig? = nil
+        lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil
     ) {
+        self.verification = verification
         self.llamacpp = llamacpp
         self.lmstudio = lmstudio
         self.models = models
@@ -741,7 +756,8 @@ public struct Config: Codable, Equatable, Sendable {
                 headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
             contextMemory: context?.memory ?? false,
             contextOutputDays: context?.outputDays ?? ContextConfig.defaultOutputDays,
-            watchSettle: watch?.settle ?? WatchConfig.defaultSettle
+            watchSettle: watch?.settle ?? WatchConfig.defaultSettle,
+            verificationMode: verification?.mode ?? .readers
         )
     }
 
@@ -864,6 +880,9 @@ public struct Config: Codable, Equatable, Sendable {
         public var contextOutputDays = ContextConfig.defaultOutputDays
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
         public var watchSettle = WatchConfig.defaultSettle
+        /// How each reply's result claims are checked against the turn's calls (`verification.mode`, ADR 0060):
+        /// the exact readers by default.
+        public var verificationMode = VerificationMode.readers
     }
 }
 

@@ -126,6 +126,10 @@ pub struct Turn {
     /// shown beside `ran`; absent when there are none.
     #[serde(default)]
     pub cited: Option<String>,
+    /// At the end, the line for a result claim the turn's calls do not support (ADR 0060), shown after
+    /// `cited`; absent when there is none.
+    #[serde(default)]
+    pub verified: Option<String>,
 }
 
 impl Turn {
@@ -492,7 +496,13 @@ mod tests {
         assert!(
             matches!(&cited, Outbound::Turn(t) if t.cited.as_deref() == Some("cited but not in this conversation: entries 19–30 (12)"))
         );
-        assert!(matches!(&end, Outbound::Turn(t) if t.ran.is_none()));
+        let verified = Outbound::parse(
+            r#"{"type":"turn","phase":"end","turn":4,"verified":"unsupported: \"Removed the file.\" (no rm ran in this turn)"}"#,
+        );
+        assert!(
+            matches!(&verified, Outbound::Turn(t) if t.verified.as_deref() == Some("unsupported: \"Removed the file.\" (no rm ran in this turn)"))
+        );
+        assert!(matches!(&end, Outbound::Turn(t) if t.ran.is_none() && t.verified.is_none()));
         let choice = Outbound::parse(
             r#"{"type":"choice","id":"c","title":"pick","options":[{"value":"a","label":"A","detail":""}],"current":null,"acceptsText":true}"#,
         );

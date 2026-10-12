@@ -265,6 +265,9 @@ public struct ThreadRecord: Sendable {
         var factConflicts: Set<FactIdentity.Key> = []
         /// What the last stored turn ran (`Agent.turnTools`).
         var turnTools: TurnToolSummary?
+        /// Earlier turns' calls, the newest last, a second support for the verification pass (ADR 0060); at most
+        /// `Agent.earlierCallsLimit`.
+        var earlierCalls: [TurnCalls.Call] = []
         /// The runtime's report of the conversation's last request (`Agent.lastInputTokens`); nil before one.
         var inputTokens: Int?
     }
