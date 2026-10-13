@@ -64,8 +64,9 @@ public struct MLXPuller: ModelPuller {
     }
 
     /// Runs the plan's fetch, telling `progress` as each file starts and, every `interval` while it arrives, how many
-    /// bytes have, read from the size of its `.incomplete` part. A cancelled task stops between files and inside one
-    /// (the transport's request is cancelled with it), keeping the part for the next pull to resume.
+    /// bytes have, read from the size of its `.incomplete` part, in order and never going back (`FetchProgress`). A
+    /// cancelled task stops between files and inside one (the transport's request is cancelled with it), keeping the
+    /// part for the next pull to resume.
     ///
     /// - Parameters:
     ///   - pull: The pull.
@@ -79,22 +80,11 @@ public struct MLXPuller: ModelPuller {
         _ pull: ModelPull, _ plan: ModelPull.Plan, interval: Duration,
         progress: @escaping @Sendable (PullProgress) -> Void, notice: @escaping @Sendable (String) -> Void
     ) async throws -> Int {
-        let missing = plan.missing
-        // The file arriving now, its index, and the bytes of the files before it.
-        let current = Guarded<(file: ModelPull.File, index: Int, before: Int)?>(nil)
-        let report: @Sendable () -> Void = {
-            guard let (file, index, before) = current.value else { return }
-            let part = ModelPull.incomplete(of: pull.cache.blob(file.blob, of: plan.repository))
-            let held = min(max(0, ModelPull.size(of: part)), file.size)
-            progress(
-                PullProgress(
-                    repository: plan.repository, file: file.path, size: file.size, index: index, files: missing.count,
-                    fetched: before + held, total: plan.remaining))
-        }
+        let reporter = FetchProgress(pull, plan, progress: progress)
         let ticker = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
-                report()
+                reporter.report()
             }
         }
         defer { ticker.cancel() }
@@ -102,11 +92,7 @@ public struct MLXPuller: ModelPuller {
         do {
             fetched = try await pull.fetch(
                 plan,
-                progress: { file, index in
-                    let before = missing.prefix(index - 1).reduce(0) { $0 + $1.size }
-                    current.update { $0 = (file, index, before) }
-                    report()
-                }, notice: notice)
+                progress: { file, index in reporter.start(file, index: index) }, notice: notice)
         } catch {
             // A cancelled request surfaces as the transport's failure; the cancellation is what happened.
             if Task.isCancelled { throw CancellationError() }
@@ -136,6 +122,69 @@ public struct MLXPuller: ModelPuller {
                 + "--model mlx:\(plan.name); \(declare)"
         case .created, .replacedLink, .unchanged:
             return "\(plan.destination.path) links to the snapshot. Use it as --model mlx:\(plan.name); \(declare)"
+        }
+    }
+}
+
+/// A fetch's progress, told from two places at once: the fetch, as each file starts, and the ticker, every interval
+/// while one arrives. Each report is read and delivered under one lock, so reports arrive in the order they were
+/// read, and none says less than the one before it: a file's `.incomplete` part is renamed to the blob once it is
+/// checked, and until the next file starts a reading that found no part counted none of that file (progress seen
+/// going `4127, 4120` on 2026-10-12); a part started again because the server ignored the range would count less too.
+final class FetchProgress: Sendable {
+    /// What a report reads and what the last one said.
+    private struct State {
+        /// The file arriving now, its index from 1, and the bytes of the files before it; nil before the first.
+        var current: (file: ModelPull.File, index: Int, before: Int)?
+        /// The `fetched` last reported, below which no report goes.
+        var reported = 0
+    }
+
+    /// The pull, whose cache holds the parts.
+    private let pull: ModelPull
+    /// The approved plan.
+    private let plan: ModelPull.Plan
+    /// Told how far the fetch has gone, under the lock.
+    private let progress: @Sendable (PullProgress) -> Void
+    /// The state, and the lock that orders the reports.
+    private let state = Guarded(State())
+
+    /// Creates the progress of one fetch.
+    ///
+    /// - Parameters:
+    ///   - pull: The pull.
+    ///   - plan: The approved plan.
+    ///   - progress: Told how far the fetch has gone.
+    init(_ pull: ModelPull, _ plan: ModelPull.Plan, progress: @escaping @Sendable (PullProgress) -> Void) {
+        self.pull = pull
+        self.plan = plan
+        self.progress = progress
+    }
+
+    /// Notes that a file has started, and reports it.
+    ///
+    /// - Parameters:
+    ///   - file: The file.
+    ///   - index: Its index from 1 among the files to fetch.
+    func start(_ file: ModelPull.File, index: Int) {
+        let before = plan.missing.prefix(index - 1).reduce(0) { $0 + $1.size }
+        state.update { $0.current = (file, index, before) }
+        report()
+    }
+
+    /// Reports how far the fetch has gone: the files before the current one, and its part, or the whole file once
+    /// its blob is there; nothing before the first file starts.
+    func report() {
+        state.update { state in
+            guard let (file, index, before) = state.current else { return }
+            let blob = pull.cache.blob(file.blob, of: plan.repository)
+            let part = ModelPull.size(of: ModelPull.incomplete(of: blob))
+            let held = part < 0 && ModelPull.size(of: blob) == file.size ? file.size : min(max(0, part), file.size)
+            state.reported = max(state.reported, before + held)
+            progress(
+                PullProgress(
+                    repository: plan.repository, file: file.path, size: file.size, index: index,
+                    files: plan.missing.count, fetched: state.reported, total: plan.remaining))
         }
     }
 }

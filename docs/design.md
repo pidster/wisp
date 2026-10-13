@@ -132,7 +132,8 @@ lists the repository into a `PreparedPull` (a `PullSummary` and closures over th
 `ModelActions.pull` screens the publisher, puts the question through the face's `PullDialog` (the terminal's lines,
 chat's notes and `ChatChoice`), asks about the download, and runs the fetch in a child task that the dialog's
 `CommandStop` cancels, as Ctrl-C stops a typed command, keeping the part of the file for the next pull to resume;
-progress is `PullProgress`, which chat shows as its `ChatActivity`. The model's pull, `requestPull`, puts one approval
+progress is `PullProgress`, which chat shows as its `ChatActivity`, read from the file's part by a ticker and as each
+file starts, and delivered under one lock (`FetchProgress`) so it arrives in order and never goes back. The model's pull, `requestPull`, puts one approval
 request through the conversation's gate (`ApprovalGate.clear(modelAction:subject:reasons:workingDirectory:)`, of kind
 `ApprovalRequest.Kind.modelAction`), then starts the fetch in the session's `ModelPulls` and returns; its end is posted
 to `Session.notices` (`ConversationNotices`), which chat shows as it arrives and the agent stores as a

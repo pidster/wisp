@@ -88,6 +88,37 @@ final class StallingHub: ModelPull.Transport {
         #expect(link.closing.contains("Use it as --model mlx:q"))
     }
 
+    /// The flake of 2026-10-12, made deterministic: a reading between a file's part becoming its blob and the next
+    /// file starting found no part and counted none of the file, so progress went back (`4127, 4120`).
+    @Test func progressCountsAFinishedFileWholeAndNeverGoesBack() async throws {
+        let place = try Place()
+        defer { place.remove() }
+        let pull = ModelPull(
+            hub: ModelPullTests.hubURL, transport: FakeHub(files: ModelPullTests.repository), cache: place.cache)
+        let plan = try await pull.plan("mlx-community/q", into: place.home.models.appending(path: "mlx"))
+        let steps = Mutex<[Int]>([])
+        let reporter = FetchProgress(pull, plan) { step in steps.withLock { $0.append(step.fetched) } }
+        reporter.report()
+        #expect(steps.withLock { $0 }.isEmpty, "nothing before the first file starts")
+        let last = try #require(plan.missing.last)
+        let before = plan.remaining - last.size
+        let blob = place.cache.blob(last.blob, of: plan.repository)
+        let part = ModelPull.incomplete(of: blob)
+        try FileManager.default.createDirectory(at: blob.deletingLastPathComponent(), withIntermediateDirectories: true)
+        reporter.start(last, index: plan.missing.count)
+        try Data(count: 1).write(to: part)
+        reporter.report()
+        // The part checked and renamed: the file is whole, and is counted so.
+        try Data(count: last.size).write(to: blob)
+        try FileManager.default.removeItem(at: part)
+        reporter.report()
+        // A part started again (the server ignored the range) is smaller than what was reported; it does not lower it.
+        try FileManager.default.removeItem(at: blob)
+        try Data().write(to: part)
+        reporter.report()
+        #expect(steps.withLock { $0 } == [before, before + 1, plan.remaining, plan.remaining])
+    }
+
     @Test func aCancelledFetchKeepsItsPartAndTheNextPullResumesIt() async throws {
         let place = try Place()
         defer { place.remove() }

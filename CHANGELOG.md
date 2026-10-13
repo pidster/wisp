@@ -9,6 +9,11 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 - A guide, [How to install local models](docs/install-local-models.md), signposted from the README: each runtime's
   steps, which model to choose as measured, the window, and what to do when a model will not start.
 
+Fixed:
+
+- An MLX model pull's progress (`wisp models pull`, chat's `/models pull`, the `models` tool) no longer goes
+  back: a file that had just finished was briefly counted as not fetched until the next one started.
+
 ## 0.24.0
 
 The model can ask you a question mid-turn; waiting MCP requests in plain chat; the approval banner only when the
