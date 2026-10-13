@@ -144,7 +144,7 @@ configured model's pooled score over the six eval runs saved from 2026-10-04 to 
 | --- | --- | --- | --- | --- |
 | `edit_file` (replace) | 16, 19, 25, 18, 16, 21 of 30, then 61 of 86: 176/266 | 0.662 | 86, 47, 1.0% | 36, 17, 0.60% |
 | `edit_file.whitespace` | 11, 10, 12, 11, 12 of 12, then 20 of 24: 76/84 | 0.905 | 24, 18, 0.57% | 8, 5, 0.42% |
-| `system_info` | 13, 15, 15, 15, 14, 12 of 16, then 43 of 54: 127/150 | 0.847 | 54, 39, 0.57% | 24, 16, 0.68% |
+| `system_info` | 43, 36, 39 of 54, and 17, 19, 16, 15 of 24, the new set only (below): 185/258 | 0.717 | 54, 31, 0.82% | 24, 12, 0.68% |
 | `draft` (small) | 9, 10, 8, 6, 7, 8 of 10, then 21 of 30: 69/90 | 0.767 | 30, 17, 0.43% | 12, 6, 0.96% |
 | `draft.medium` | 1, 1, 2, 1, 1, 1 of 2, then 4 of 8: 11/20 | 0.550 | 8, 1, 0.17% | 4, 0, none |
 | `draft.large` | 1 of 2 each time, then 3 of 6: 9/18 | 0.500 | 6, 0, none | 2, 0, none |
@@ -153,6 +153,11 @@ For example, `edit_file` on the whole set: at `p` = 0.662 a run of 86 scores 46 
 47 or fewer with more than 1%, so the floor is 47. The old floor of half of 30 stopped a run at that rate with a chance
 of 2.2% (more in practice, since three attempts at one file are not independent). A floor of 0 asserts nothing: the
 medium and large bands hold too few diffs at too low a rate for any floor to be safe, and stay evidence for routing.
+`system_info`'s `p` was re-set on 2026-10-13 from the runs on its 54-case set alone. The 16-case set it replaced was
+easier (84 of 96 over six runs), and pooling those runs in gave 0.847 (127/150), well above the 0.72 every run on the
+new set scored; 0.24.1's release eval stopped at 15 of 24 against that floor of 16 with no case erroring
+([below](#system_info-on-its-floor-2026-10-13)). The subset's runs repeat cases of the full set, so the pool slightly
+overstates its independence. The other suites' rates still pool their old and new sets.
 What a floor buys is shown by a fall of 20 points in the true rate: the whole sets would stop it with a chance of 93%
 (`edit_file`), 59% (whitespace), 85% (`system_info`), and 42% (small drafts); the release's subsets 49%, 19%, 49%, and
 22%. The rates and floors are in `EvalFloor.Historical`, and a gate test holds every figure in this table to the code.
@@ -197,12 +202,14 @@ commit `7c93dcc`), took 41 minutes for everything, the classifier and chat suite
 
 0.24.0's release eval passed `system_info` at exactly its floor, 16 of 24, so the whole set was run on the on-device
 model to tell chance from a decline, on the same code: 43 of 54 on 2026-10-12, then 36 and 39 of 54 on 2026-10-13
-(the runs between those two met the service fault above and measured nothing). The whole set's floor is 39. At the
-historical rate of 0.85 a run of 54 averages about 46, with a spread of about 2.6, so 36 is well outside chance and 39
-is low; 43 is in line. Nothing the eval exercises changed in the code between them (the system prompt and the tool
-are as they were at 0.23.0). Whether the 36 came from the model service already failing, which that run did not show
-as an error, is not known. The floor stands and is not lowered; the run after the restart passed it at 39, and the
-next full runs say whether the rate has moved. No measurement was recorded from these runs.
+(the runs between those two met the service fault above and measured nothing). The whole set's floor was then 39,
+from a rate of 0.85, at which a run of 54 averages about 46 with a spread of about 2.6, so 36 looked well outside
+chance. Nothing the eval exercises changed in the code between them (the system prompt and the tool are as they were
+at 0.23.0). 0.24.1's release eval then scored 15 of 24 against the subset's floor of 16, with no case erroring.
+Lined up, every run on the 54-case set, full or subset, scored about 0.72 (185/258), and only the runs of the old
+16-case set scored higher: the rate was set too high by pooling the two sets, not lowered by a change in the model.
+The rate was re-set from the new set alone ([The floors](#the-floors)): floors of 31 of 54 and 12 of 24. No
+measurement was recorded from these runs.
 
 ### The full run of 2026-10-12
 

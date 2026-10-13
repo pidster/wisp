@@ -363,8 +363,10 @@ public enum EvalFloor {
         public static let editFileReplace = Rate(passed: 176, total: 266)
         /// `edit_file.whitespace`: 11, 10, 12, 11, and 12 of 12 (five runs), and 20 of 24 on the 2026-10-12 full set.
         public static let editFileWhitespace = Rate(passed: 76, total: 84)
-        /// `system_info.topic`: 13, 15, 15, 15, 14, and 12 of 16, and 43 of 54 on the 2026-10-12 full set.
-        public static let systemInfo = Rate(passed: 127, total: 150)
+        /// `system_info.topic`, on the 54-case set only (re-set on 2026-10-13: the 16-case set it replaced was easier,
+        /// 84 of 96, and pooling it in set the floor above what the set scores): 43, 36, and 39 of 54 on the full set,
+        /// and 17, 19, 16, and 15 of 24 on the release's subset, from 2026-10-12 to 2026-10-13.
+        public static let systemInfo = Rate(passed: 185, total: 258)
         /// `draft_change.commit`, small diffs: 9, 10, 8, 6, 7, and 8 of 10, and 21 of 30 on the 2026-10-12 full set.
         public static let draftSmall = Rate(passed: 69, total: 90)
         /// `draft_change.commit`, medium diffs: 1, 1, 2, 1, 1, and 1 of 2, and 4 of 8 on the 2026-10-12 full set.

@@ -19,8 +19,8 @@ measurement.
   each runtime's steps, which model to choose as measured, the window, and what to do when a model will not start.
 - **The flaky MLX pull progress test**, `MLXPullerTests.theFetchReportsItsProgressAndTheLinkSaysWhatHappened`,
   its progress-ordering race found and fixed at the source.
-- **`system_info` on its floor.** 0.24.0's release eval passed it at exactly its floor, 16 of 24; the whole case
-  set is run on the on-device model to tell chance from a decline.
+- **`system_info` on its floor.** 0.24.0's release eval passed it at exactly its floor, 16 of 24. Its rate pooled
+  the old, easier 16-case set with the new one; re-set from the new set alone (0.717, floors 31 of 54 and 12 of 24).
 - **`wisp doctor` asks the on-device model for a reply**, so a model service that refuses every request while the
   model reports itself available fails the `model` finding, with the fix (seen on 2026-10-13).
 - **The eval counts the model service's faults apart**, so a run whose cases never reached the model fails as not

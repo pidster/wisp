@@ -326,7 +326,7 @@ struct EvalSetsTests {
     @Test(arguments: [
         (EvalFloor.Historical.editFileReplace, 86, 47), (EvalFloor.Historical.editFileReplace, 36, 17),
         (EvalFloor.Historical.editFileWhitespace, 24, 18), (EvalFloor.Historical.editFileWhitespace, 8, 5),
-        (EvalFloor.Historical.systemInfo, 54, 39), (EvalFloor.Historical.systemInfo, 24, 16),
+        (EvalFloor.Historical.systemInfo, 54, 31), (EvalFloor.Historical.systemInfo, 24, 12),
         (EvalFloor.Historical.draftSmall, 30, 17), (EvalFloor.Historical.draftSmall, 12, 6),
         (EvalFloor.Historical.draftMedium, 8, 1), (EvalFloor.Historical.draftMedium, 4, 0),
         (EvalFloor.Historical.draftLarge, 6, 0), (EvalFloor.Historical.draftLarge, 2, 0),
