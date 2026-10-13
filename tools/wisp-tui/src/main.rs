@@ -719,6 +719,12 @@ mod tests {
         assert_eq!(command.get_program(), "/bin/sh");
         let output = command.current_dir(&folder).stdin(Stdio::null()).output()?;
         std::fs::remove_dir_all(&folder)?;
+        // Inside wisp's own sandbox (the hook run through run_command) ps is refused, so the
+        // name cannot be read.
+        if String::from_utf8_lossy(&output.stderr).contains("Operation not permitted") {
+            eprintln!("the_child_is_named_at_spawn: ps cannot run here (a sandbox), skipped");
+            return Ok(());
+        }
         let shown = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             shown.trim_end(),
@@ -746,7 +752,10 @@ mod tests {
         // Without its end, the wait is bounded.
         let started = Instant::now();
         let (_tx, quiet) = mpsc::channel();
-        assert!(remaining_stderr(&quiet, Duration::from_millis(50)).is_empty());
+        assert_eq!(
+            remaining_stderr(&quiet, Duration::from_millis(50)),
+            Vec::<String>::new()
+        );
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 

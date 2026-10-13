@@ -2854,7 +2854,7 @@ mod tests {
         let rows = drawn(&app, 60);
         assert!(rows[1].starts_with(" ╭ output "), "{rows:?}");
         assert!(rows[3].contains("the whole"), "{rows:?}");
-        assert!(app.take_requests().is_empty());
+        assert_eq!(app.take_requests(), Vec::<crate::protocol::Inbound>::new());
         // Ctrl-O, then Esc before wisp answers: the answer opens nothing.
         app.cancel();
         app.handle(result_with("a\n", 1));
@@ -3008,7 +3008,7 @@ mod tests {
             ]
         );
         app.handle(Outbound::Turn(turn("end", 2, Some(1.0), Some("ok"))));
-        assert!(texts(&mut app).is_empty());
+        assert_eq!(texts(&mut app), Vec::<(String, LineKind)>::new());
         // The entries a reply cites that do not exist are named beside it (ADR 0055).
         let mut cited = turn("end", 3, Some(1.0), Some("ok"));
         cited.ran = Some("ran: inspect".into());
@@ -3062,7 +3062,7 @@ mod tests {
         assert_eq!(app.partial, "is");
         app.handle(Outbound::Status(Status::default()));
         assert_eq!(app.take_pending()[0].text, "is");
-        assert!(app.partial.is_empty());
+        assert_eq!(app.partial, "");
         assert!(!app.busy);
     }
 
@@ -3506,7 +3506,7 @@ mod tests {
             ..Approval::default()
         }));
         // The reasons are in the dialog, not the scrollback.
-        assert!(app.take_pending().is_empty());
+        assert_eq!(app.take_pending(), Vec::<HistoryLine>::new());
         // A key pressed as the dialog appears was meant for the input: it is held for the box, not an answer,
         // and the held key before it is not replayed into the dialog either.
         assert_eq!(app.type_char('s'), Action::None);
@@ -4786,7 +4786,7 @@ mod tests {
         // A dialog takes its keys even while busy; they are not held.
         app.approval = Some(approval("rm x", "rm x", &[]));
         app.type_char('q');
-        assert!(app.held.is_empty());
+        assert_eq!(app.held, Vec::<crate::editor::Edit>::new());
     }
 
     #[test]

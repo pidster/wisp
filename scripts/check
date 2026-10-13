@@ -599,6 +599,11 @@ mcp_build() {
 # shows them: `wisp mcp mcp` with no client named, `wisp mcp (claude-code) mcp` with one, and a name stripped of
 # anything but letters, digits, dot, underscore, and hyphen. Cheap, so part of the gate.
 launcher() {
+    # Inside wisp's own sandbox (the hook run through run_command) ps is refused, so the names cannot be read.
+    if ! ps -o args= -p $$ >/dev/null 2>&1; then
+        echo "==> launcher (scripts/wisp-mcp names the server): ps cannot run here (a sandbox), skipped"
+        return 0
+    fi
     echo "==> launcher (scripts/wisp-mcp names the server)"
     scratch="$(mktemp -d)"
     mkdir -p "$scratch/scripts" "$scratch/harness/.build/release" "$scratch/run"

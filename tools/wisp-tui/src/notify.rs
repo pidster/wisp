@@ -221,7 +221,7 @@ mod tests {
         let mut out = Vec::new();
         let mut next = 0;
         post(&mut out, Sequence::Osc9, &[], &mut next)?;
-        assert!(out.is_empty());
+        assert_eq!(out, Vec::<u8>::new());
         post(
             &mut out,
             Sequence::Osc9,
