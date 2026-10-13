@@ -4,7 +4,10 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.24.1
+
+A guide to installing local models; `wisp doctor` catches Apple's model service refusing every request; and an MLX
+pull's progress that no longer goes back.
 
 - A guide, [How to install local models](docs/install-local-models.md), signposted from the README: each runtime's
   steps, which model to choose as measured, the window, and what to do when a model will not start.
