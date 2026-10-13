@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 import WispMLX
 import WispTestSupport
@@ -15,7 +16,42 @@ import WispTestSupport
 /// Floors are the release's: they apply to the configured model only, and a compared model below a floor is
 /// reported, not failed. A model that is missing, refuses (no tool calling, say), throws, or runs past
 /// `caseLimit` scores that case as a failure and the run goes on to the next case and the next model.
+///
+/// A case that fails because Apple's model service refused it (`ModelServiceFault`) never reached the model, so it is
+/// counted apart (`serviceFaults`): on a model that met one, a floor is not asserted, and the configured model's run
+/// fails as not measured, naming the fault and the fix, rather than reporting a low score.
 enum EvalModels {
+    /// The model service faults each model met in this run.
+    static let serviceFaults = ServiceFaults()
+
+    /// Model service faults counted per model, for the whole run: the service is the Mac's, so one fault puts every
+    /// suite measured on that model after it in doubt.
+    final class ServiceFaults: Sendable {
+        /// Each model's count and its latest fault, keyed by the model's spelling.
+        private let faults = Mutex<[String: (count: Int, fault: ModelServiceFault)]>([:])
+
+        /// Counts `error` against `selection` when it is a model service fault.
+        ///
+        /// - Parameters:
+        ///   - error: What a case threw.
+        ///   - selection: The model the case ran on.
+        /// - Returns: Whether it was one.
+        @discardableResult
+        func record(_ error: any Error, on selection: ModelSelection) -> Bool {
+            guard let fault = ModelServiceFault.recognise(error) else { return false }
+            faults.withLock { $0[selection.description] = (($0[selection.description]?.count ?? 0) + 1, fault) }
+            return true
+        }
+
+        /// How many faults `selection` met so far, and the latest.
+        ///
+        /// - Parameter selection: The model.
+        /// - Returns: The count, 0 for none, and the fault.
+        func met(on selection: ModelSelection) -> (count: Int, fault: ModelServiceFault?) {
+            faults.withLock { $0[selection.description].map { ($0.count, $0.fault) } ?? (0, nil) }
+        }
+    }
+
     /// The environment variable naming the models.
     static let variable = "WISP_EVAL_MODELS"
 
@@ -78,6 +114,15 @@ enum EvalModels {
     static func expectFloor(
         _ suite: String, passed: Int, total: Int, rate: EvalFloor.Rate, on selection: ModelSelection
     ) {
+        let (faults, fault) = serviceFaults.met(on: selection)
+        if let fault {
+            let text =
+                "\(suite) on \(selection) not measured: \(faults) case\(faults == 1 ? "" : "s") in this run never "
+                + "reached the model: \(fault)"
+            print("floor eval: \(text)")
+            if floorsApply(to: selection) { Issue.record("\(text)") }
+            return
+        }
         let floor = EvalFloor.minimum(cases: total, rate: rate.value)
         print(
             "floor eval: \(suite) on \(selection): \(passed)/\(total) against a floor of \(floor) "
@@ -174,6 +219,7 @@ enum EvalModels {
             let value = try await Timeout.run(caseLimit, operation)
             return (value, milliseconds(started.duration(to: clock.now)))
         } catch {
+            serviceFaults.record(error, on: selection)
             print("\(label) on \(selection): error \(error)")
             if strict, floorsApply(to: selection) { Issue.record("\(label) on \(selection): \(error)") }
             return (nil, milliseconds(started.duration(to: clock.now)))
@@ -221,6 +267,10 @@ enum EvalModels {
     static func result(
         _ suite: String, on selection: ModelSelection, passed: Int, total: Int, median: Double?, note: String = ""
     ) {
+        let faults = serviceFaults.met(on: selection).count
+        let note =
+            faults == 0
+            ? note : [note, "\(faults) model service faults"].filter { !$0.isEmpty }.joined(separator: "; ")
         let shown = note.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
         print(
             "eval result\t\(selection)\t\(suite)\t\(passed)\t\(total)\t"

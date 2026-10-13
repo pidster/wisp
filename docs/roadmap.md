@@ -11,7 +11,7 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.24.1 (patch) | | How to install local models, signposted from the README; the flaky MLX pull progress test; `system_info` on its floor, looked at |
+| 0.24.1 (patch) | | How to install local models, signposted from the README; the flaky MLX pull progress test; `system_info` on its floor, looked at; `wisp doctor` asks the on-device model for a reply; the eval counts the model service's faults apart |
 
 ## 0.24.1
 
@@ -21,6 +21,10 @@ measurement.
   its progress-ordering race found and fixed at the source.
 - **`system_info` on its floor.** 0.24.0's release eval passed it at exactly its floor, 16 of 24; the whole case
   set is run on the on-device model to tell chance from a decline.
+- **`wisp doctor` asks the on-device model for a reply**, so a model service that refuses every request while the
+  model reports itself available fails the `model` finding, with the fix (seen on 2026-10-13).
+- **The eval counts the model service's faults apart**, so a run whose cases never reached the model fails as not
+  measured instead of reporting a low score.
 
 ## Not scheduled
 

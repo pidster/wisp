@@ -62,6 +62,15 @@ case that threw, a build that failed. Before 0.21.1 the run's status was `grep`'
 so a failing eval, and the release's floors with it, passed. `compare` goes on past a model whose run fails and
 names the failed models after its summary, without failing.
 
+A case that fails because Apple's model service refused it never reached the model, so it is counted apart, not as a
+failure of the model (`EvalModels.serviceFaults`, `ModelServiceFault`): its line says `ERROR` rather than `FAIL`, the
+summary table's note counts the faults, and on a model that met one no floor is asserted. On the configured model
+the run then fails as `not measured`, naming the fault and the fix. The service is the Mac's, so one fault puts every
+suite measured after it on that model in doubt. On 2026-10-13 `modelmanagerd`, 26 days up, ran out of open files part
+of the way through a run: `system_info` scored 17 of 54 with 34 cases refused, then 0 of 54, and both looked like
+scores. Restarting the service (`sudo killall modelmanagerd`) cleared it, and `wisp doctor` now asks the model for a
+reply, which catches the fault.
+
 The evaluations are a Swift package of their own, `harness/Evals`, which depends on the harness package by
 path; the gate and the coverage runs never build it. Its tests `@testable import WispCore`, which works
 because SwiftPM builds a path dependency in debug with testing enabled (verified on 2026-09-30 with
@@ -183,6 +192,17 @@ system prompt, and when a subset's result is close to its floor.
 The 128-minute figure assumed the suites ran one after another. They do not: the suites run in parallel, and the
 first full run, `WISP_EVAL_FULL=1 scripts/check eval record` on the on-device model on 2026-10-12 (11:02 to 11:43, at
 commit `7c93dcc`), took 41 minutes for everything, the classifier and chat suites included.
+
+### `system_info` on its floor, 2026-10-13
+
+0.24.0's release eval passed `system_info` at exactly its floor, 16 of 24, so the whole set was run on the on-device
+model to tell chance from a decline, on the same code: 43 of 54 on 2026-10-12, then 36 and 39 of 54 on 2026-10-13
+(the runs between those two met the service fault above and measured nothing). The whole set's floor is 39. At the
+historical rate of 0.85 a run of 54 averages about 46, with a spread of about 2.6, so 36 is well outside chance and 39
+is low; 43 is in line. Nothing the eval exercises changed in the code between them (the system prompt and the tool
+are as they were at 0.23.0). Whether the 36 came from the model service already failing, which that run did not show
+as an error, is not known. The floor stands and is not lowered; the run after the restart passed it at 39, and the
+next full runs say whether the rate has moved. No measurement was recorded from these runs.
 
 ### The full run of 2026-10-12
 

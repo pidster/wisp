@@ -41,6 +41,7 @@ struct SystemInfoEvalTests {
         var times: [Double] = []
         for item in cases {
             let question = item.question
+            let faultsBefore = EvalModels.serviceFaults.met(on: selection).count
             let (made, milliseconds) = await EvalModels.attempt(
                 "system_info eval: \(question)", on: selection
             ) {
@@ -59,6 +60,7 @@ struct SystemInfoEvalTests {
                 do {
                     _ = try await agent.respond(to: question)
                 } catch {
+                    EvalModels.serviceFaults.record(error, on: selection)
                     print("system_info eval: on \(selection) \(question): error \(error)")
                 }
                 return sink.events.filter { $0.kind == .toolCall }.map {
@@ -73,9 +75,10 @@ struct SystemInfoEvalTests {
                 call in item.accept.contains { $0.matches(topic: call.topic, target: call.target, path: call.path) }
             }
             if ok { passed += 1 }
+            let faulted = EvalModels.serviceFaults.met(on: selection).count > faultsBefore
             if calls.contains(where: { $0.tool == "memory" }) { memoryTurns += 1 }
             print(
-                "system_info eval: on \(selection) \(item.id) \(ok ? "pass" : "FAIL") \(item.question) "
+                "system_info eval: on \(selection) \(item.id) \(ok ? "pass" : faulted ? "ERROR" : "FAIL") \(item.question) "
                     + "calls=\(calls.map { "\($0.tool) \($0.arguments)" })")
         }
         EvalModels.result("system_info", on: selection, passed: passed, total: cases.count, milliseconds: times)
