@@ -234,4 +234,35 @@ import WispTestSupport
         #expect(
             absent.detail.contains("libexec") && absent.detail.contains("/bin") && absent.detail.contains("plain chat"))
     }
+
+    @Test func asksTheAvailableModelForAReply() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        func model(_ probes: Doctor.Probes) async throws -> Doctor.Finding {
+            try #require(await Doctor(home: Home(root: root), probes: probes).check().first { $0.name == "model" })
+        }
+        let answers = try await model(Doctor.Probes(systemModel: { nil }, configuredModel: { _, _, _ in nil }))
+        #expect(answers.ok && answers.detail == "on-device model available and answers")
+        // Available, yet the service refuses the request: the finding fails and says what to do.
+        let refused = try await model(
+            Doctor.Probes(
+                systemModel: { nil },
+                systemModelAnswers: {
+                    Doctor.unanswered(
+                        CocoaError(
+                            .fileReadUnknown,
+                            userInfo: [
+                                NSLocalizedDescriptionKey: ModelServiceFaultTests.outOfFiles
+                            ]))
+                },
+                configuredModel: { _, _, _ in nil }))
+        #expect(!refused.ok && refused.detail.contains(ModelServiceFault.restart))
+        // Unavailable: no request is made, and the reason stands.
+        let unavailable = try await model(
+            Doctor.Probes(
+                systemModel: { "not enabled" }, systemModelAnswers: { "asked" }, configuredModel: { _, _, _ in nil }))
+        #expect(!unavailable.ok && unavailable.detail == "not enabled")
+        // An error that is not the service's is shown as it is.
+        #expect(Doctor.unanswered(Timeout.Failure.elapsed(.seconds(30))).hasSuffix("no answer within 30.0 seconds"))
+    }
 }

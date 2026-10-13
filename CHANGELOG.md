@@ -11,6 +11,10 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 Fixed:
 
+- `wisp doctor` asks the on-device model for a one-word reply, not only whether it is available, so Apple's model
+  service refusing every request fails the `model` finding. When the error is the service's own, such as "Too many
+  open files" from a `modelmanagerd` that has run for weeks, the finding says to restart it:
+  `sudo killall modelmanagerd`.
 - An MLX model pull's progress (`wisp models pull`, chat's `/models pull`, the `models` tool) no longer goes
   back: a file that had just finished was briefly counted as not fetched until the next one started.
 

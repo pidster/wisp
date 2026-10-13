@@ -1489,15 +1489,16 @@ struct Watch: AsyncParsableCommand {
 }
 
 /// Checks that this install can work: OS version, model availability, sandbox, config, home directory.
-struct DoctorCommand: ParsableCommand {
+struct DoctorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doctor", abstract: "Check that wisp can run on this Mac.",
         discussion: "Exits non-zero if any check fails. The first thing to run when something is wrong.")
 
-    func run() throws {
+    func run() async throws {
         let config = try? Session.loadConfig(home: Wisp.home)
-        let findings = Doctor(home: Wisp.home, model: config?.model ?? .default, config: config ?? Config().resolved)
-            .run()
+        let findings = await Doctor(
+            home: Wisp.home, model: config?.model ?? .default, config: config ?? Config().resolved
+        ).check()
         print("wisp \(WispVersion.display)")
         print(Doctor.render(findings))
         guard Doctor.allPassed(findings) else { throw ExitCode.failure }

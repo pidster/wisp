@@ -906,7 +906,9 @@ started with. The model cannot change the configuration; there is no tool for it
 ### `wisp doctor`
 
 Checks that this install can work and exits non-zero if anything fails: macOS 27 or later, the on-device
-model available, the configured model available when it is not `system` (for `ollama:<name>`, `llamacpp:<name>`, or
+model available and answering a one-word request (availability alone said yes on 2026-10-13 while Apple's model
+service, `modelmanagerd`, refused every request with "Too many open files"; when a request fails with the service's
+own error, the finding says to restart it, `sudo killall modelmanagerd`, which launchd starts again), the configured model available when it is not `system` (for `ollama:<name>`, `llamacpp:<name>`, or
 `lmstudio:<name>`, that the server answers, accepts the key if it wants one, and lists the model), the Core ML risk classifier preparing when `approval.classifier` is
 `coreml` (the default), MLX's Metal library loading in a build with MLX, `/usr/bin/sandbox-exec` present,
 `config.json` parses, `~/.wisp` writable. Run it first

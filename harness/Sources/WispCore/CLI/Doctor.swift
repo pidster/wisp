@@ -24,6 +24,9 @@ public struct Doctor: Sendable {
     public struct Probes: Sendable {
         /// Nil when the system model is available, else the reason it is not.
         public var systemModel: @Sendable () -> String?
+        /// Nil when the system model answers a one-word request, else what went wrong; asked only when it is
+        /// available, since availability alone missed a model service that refused every request (2026-10-13).
+        public var systemModelAnswers: @Sendable () async -> String?
         /// Nil when the given model resolves under this configuration and home, else the failure text.
         public var configuredModel: @Sendable (ModelSelection, Config.Resolved, Home) -> String?
         /// For a `coreml` classifier: nil when its model prepares, else the failure text.
@@ -50,6 +53,7 @@ public struct Doctor: Sendable {
                 }
                 return nil
             },
+            systemModelAnswers: { await Doctor.askSystemModel() },
             configuredModel: { model, config, home in
                 do {
                     _ = try model.resolve(config: config, home: home)
@@ -83,6 +87,7 @@ public struct Doctor: Sendable {
         /// Creates probes.
         public init(
             systemModel: @escaping @Sendable () -> String?,
+            systemModelAnswers: @escaping @Sendable () async -> String? = { nil },
             configuredModel: @escaping @Sendable (ModelSelection, Config.Resolved, Home) -> String?,
             coremlClassifier: @escaping @Sendable (Config.Resolved, Home) -> String? = { _, _ in nil },
             contextWindow: @escaping @Sendable (ModelSelection, Config.Resolved, Home) -> ContextWindow? = { _, _, _ in
@@ -95,6 +100,7 @@ public struct Doctor: Sendable {
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) }
         ) {
             self.systemModel = systemModel
+            self.systemModelAnswers = systemModelAnswers
             self.configuredModel = configuredModel
             self.coremlClassifier = coremlClassifier
             self.contextWindow = contextWindow
@@ -160,6 +166,50 @@ public struct Doctor: Sendable {
         let afterModels = findings.firstIndex { $0.name == "sandbox" } ?? findings.endIndex
         findings.insert(contentsOf: probes.backends(), at: afterModels)
         return findings
+    }
+
+    /// Runs every check, and asks the on-device model for a one-word reply when it reports itself available, so a
+    /// model service that refuses every request fails the `model` finding. `wisp doctor` runs this; `run()` is
+    /// the checks without the request.
+    public func check() async -> [Finding] {
+        var findings = run()
+        guard let index = findings.firstIndex(where: { $0.name == "model" && $0.ok }) else { return findings }
+        if let problem = await probes.systemModelAnswers() {
+            findings[index] = Finding(name: "model", ok: false, detail: problem)
+        } else {
+            findings[index].detail = "on-device model available and answers"
+        }
+        return findings
+    }
+
+    /// How long the doctor waits for the on-device model's one-word reply: far past the second or so it takes.
+    static let answerLimit: Duration = .seconds(30)
+
+    /// Asks the on-device model for one word, within `answerLimit`.
+    ///
+    /// - Returns: Nil when it answers, else what went wrong (`unanswered(_:)`).
+    static func askSystemModel() async -> String? {
+        do {
+            try await Timeout.run(answerLimit) {
+                let session = LanguageModelSession(model: SystemLanguageModel.default)
+                _ = try await session.respond(
+                    to: "Reply with the word ok.",
+                    options: GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 4))
+            }
+            return nil
+        } catch {
+            return unanswered(error)
+        }
+    }
+
+    /// The `model` finding's detail when the on-device model is available but a request to it failed: what to do
+    /// for a model service fault (`ModelServiceFault`), else the error.
+    ///
+    /// - Parameter error: What the request threw.
+    /// - Returns: The detail.
+    static func unanswered(_ error: any Error) -> String {
+        let reason = ModelServiceFault.recognise(error).map(String.init(describing:)) ?? "\(error)"
+        return "on-device model available but a request to it failed: \(reason)"
     }
 
     /// Where `wisp chat` finds `wisp-tui`. Not finding it is no failure, since the plain chat works, but it says
