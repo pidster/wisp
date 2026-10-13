@@ -1,48 +1,26 @@
 # Roadmap
 
-The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped: 0.16.0 to
-0.21.0, the patches 0.21.1 and 0.21.2, 0.22.0, and 0.23.0 on 2026-10-12, and 0.23.1, a patch for the secret
-scanner, the same day. What each carried is in [CHANGELOG.md](../CHANGELOG.md). The operator chose 0.24.0 on
-2026-10-12, and it is the release being made: every item below is built. Each release carries one or two larger items and a few smaller ones; a small item sits with
-the larger one it touches. These are plans, not commitments: an item may move when its work shows it should, and
-the page is edited when it does. When an item ships it leaves this page for the changelog, and anything not yet
-scheduled stays in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against
-regressions, not a measurement.
+The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped, and so have
+0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12. What each carried is in [CHANGELOG.md](../CHANGELOG.md). The
+operator chose on 2026-10-13 to put the small items in a patch, 0.24.1, and it is the release being made. Each
+release carries one or two larger items and a few smaller ones; a small item sits with the larger one it touches.
+These are plans, not commitments: an item may move when its work shows it should, and the page is edited when it
+does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays in
+[backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
+measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.24.0 | The inquiry verb: the model asks the person a question mid-turn | Waiting MCP requests in plain chat; approval banners only when the dialog goes unanswered; the risk test set grown from real use; an interactive status bar in `wisp-tui` |
+| 0.24.1 (patch) | | How to install local models, signposted from the README; the flaky MLX pull progress test; `system_info` on its floor, looked at |
 
-## 0.24.0
+## 0.24.1
 
-- **The inquiry verb** (larger), the open half of the escalations design (`proposals/2026-09-20-escalations.md`,
-  [backlog.md](backlog.md), "Open design"): approval settled by [ADR
-  0046](decisions/0046-approval-and-notifications-over-mcp.md), the model asking the person a question mid-turn
-  (which of two files, which of two meanings, a value it cannot find) remains. Through the same channels as an
-  approval: the chat's dialog, `wisp-tui`, `wisp approvals`, and MCP elicitation, the first answer winning; with
-  a bounded wait whose silence is "no answer", never a guess passed off as the person's; audited. A new ADR first,
-  for the operator's review before it is built: what the model may ask, the answer's shape (free text, a choice),
-  how it reaches the model, its limits, and how it differs from an approval. Built 2026-10-12
-  ([ADR 0062](decisions/0062-the-inquiry-verb.md), accepted the same day; [tools/ask.md](tools/ask.md)): the `ask`
-  tool, off by default (`tools.ask`); `inquiry.timeoutSeconds`, 0 by default, waiting until the person answers;
-  `wisp questions` and plain chat's `/questions`; under MCP the turn parks after 60 s and the answer reaches the
-  thread's next turn; the client's question form behind `inquiry.elicitation`, off until the hand test (below).
-- **Waiting MCP requests in plain chat.** `wisp-tui` shows commands, and facts to keep, waiting in `wisp mcp`
-  servers; `wisp chat --plain` reads a line at a time and does not. A note between prompts, answered with a slash
-  command. Built 2026-10-12: `/approvals pending|approve|deny`, `/facts keep|drop`, and `/questions
-  answer|decline`, answering only when the chat's input is a terminal.
-- **Approval banners only when the dialog goes unanswered.** With `approval.outOfBand` on, every approval under
-  `wisp mcp` posts a banner, even when the client's dialog is answered at once
-  ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), "Consequences"): post it only after the
-  dialog has gone unanswered for some seconds. Built 2026-10-12: `approval.bannerDelaySeconds`, 10 by default.
-- **The risk test set grown from real use.** The classifier's frozen test set held 25 dangerous commands; add
-  dangerous commands the gate sees in use, each confirmed by the operator before it joins (ADR 0038,
-  [backlog.md](backlog.md), "Classifiers"). Done 2026-10-12: 13 rows, the operator confirming each; 29 dangerous.
-- **An interactive status bar in `wisp-tui`** (smaller, asked for by the operator on 2026-10-12). `questions: N`
-  and `approvals: N` in the status row, and the row focusable from the input: Left and Right move between items
-  and Enter opens the model's picker, the context panel, the waiting question or approval, or the turn list; `/model`
-  with no name offers the models in `wisp-tui` ([ADR 0029](decisions/0029-tui-front-end.md), amendment of
-  2026-10-12). Built 2026-10-12.
+- **How to install local models**, a guide signposted from the README (asked for by the operator on 2026-10-13):
+  each runtime's steps, which model to choose as measured, the window, and what to do when a model will not start.
+- **The flaky MLX pull progress test**, `MLXPullerTests.theFetchReportsItsProgressAndTheLinkSaysWhatHappened`,
+  its progress-ordering race found and fixed at the source.
+- **`system_info` on its floor.** 0.24.0's release eval passed it at exactly its floor, 16 of 24; the whole case
+  set is run on the on-device model to tell chance from a decline.
 
 ## Not scheduled
 
@@ -75,11 +53,6 @@ Waiting on the operator:
   still to run; once it passes, `inquiry.elicitation` may default on. Whether a question's banner should then wait
   for the dialog as an approval's does (`approval.bannerDelaySeconds`) is open: today it is posted at once, and
   waiting would need an amendment to [ADR 0062](decisions/0062-the-inquiry-verb.md).
-
-Seen once, to investigate:
-
-- a flaky test, `MLXPullerTests.theFetchReportsItsProgressAndTheLinkSaysWhatHappened`: a progress-ordering race
-  seen once on 2026-10-12, the reported progress going back (`[0, 22, 4118, 4120, 4127, 4120]`).
 
 Waiting on signing (a Developer ID or App Store signature):
 

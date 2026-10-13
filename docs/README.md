@@ -4,6 +4,7 @@
 | --- | --- |
 | [trust.md](trust.md) | What wisp can do to your Mac, what leaves it, what it remembers, how to see and undo |
 | [objective.md](objective.md) | What wisp is for and what "done" looks like |
+| [install-local-models.md](install-local-models.md) | How to install a local model (Ollama, MLX, llama.cpp, LM Studio, Core AI), choose it, and which to choose, as measured |
 | [wisp.md](wisp.md) | Command reference: subcommands, flags, `~/.wisp`, `config.json`, exit codes |
 | [tools/](tools/README.md) | One page per model-facing tool (the ten built-in, `memory`, `models`, and `ask` among them, and custom tools): contract, result format, limits |
 | [measurements.md](measurements.md) | What the eval harness found each delegated task achieves, how it is recorded, and where it is published |
@@ -11,7 +12,7 @@
 | [design.md](design.md) | Architecture: components (the thread record and composer, facts, the session host), data flow, extension points |
 | [fm-cli.md](fm-cli.md) | What the Apple `fm` command family does and does not offer, as observed |
 | [local-model-evaluation.md](local-model-evaluation.md) | Local-model research, candidate shortlist, and agreed workload/delegation evaluation design |
-| [local-model-installation.md](local-model-installation.md) | Selected model revisions, local installation, offline smoke results, and remaining integration work |
+| [local-model-installation.md](local-model-installation.md) | A dated record (2026-09-19) of the first MLX installations and smoke checks; to install a model now, see [install-local-models.md](install-local-models.md) |
 | [on-device-ai-todo.md](on-device-ai-todo.md) | Living backlog for on-device AI: routing, context assembly, approval classification, local generation, audit, model controls; progress per track, what shipped since the last release, and what is planned |
 | [model-controls.md](model-controls.md) | Draft common controls for reasoning mode, effort, native speed mode, performance preferences, and reasoning output; marks the part `ollama.think`, `mlx.think`, and the thinking display build (ADR 0053) |
 | [approval.md](approval.md) | Risk classification (rules plus the shipped Core ML classifier by default, or the on-device model), classifier versions, approval scopes and persistence, approval under `wisp mcp` from `wisp approvals` and `wisp-tui`, eval results |

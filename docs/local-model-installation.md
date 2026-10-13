@@ -1,5 +1,8 @@
 # Local model selection and installation
 
+> To install a local model for wisp today, read [How to install local models](install-local-models.md). This page
+> is the dated record of the first installations.
+
 Date: 2026-09-19. Status: dated record of the initial three MLX installations and Python smoke checks.
 Integration follow-up added 2026-09-22; see the final section. Historical binary and evidence names below
 are intentional: the project was called Daimon at the time of these checks.

@@ -8,6 +8,9 @@ wisp "What is listening on port 8080?"
 wisp chat
 ```
 
+It runs on Apple's on-device model out of the box. For a larger window and stronger tool use, add a model of
+your own: **[How to install local models](docs/install-local-models.md)**.
+
 - **Local AI only.** Apple's on-device model, or yours in Ollama, MLX, llama.cpp, or LM Studio. No cloud, no key, no account.
 - **Nothing runs unchecked.** A sandbox, a deny list, a sub-millisecond risk classifier, and you.
 - **Trained on your data.** Teach the risk classifier from your own command history.
@@ -189,7 +192,7 @@ and delete.
 
 | Area | Feature | Read |
 | --- | --- | --- |
-| Models | The on-device model by default; Ollama, MLX, Core AI, llama.cpp, and LM Studio models by name; Private Cloud Compute as an explicit opt-in | [backends.md](docs/backends.md), [ADR 0058](docs/decisions/0058-a-shared-http-executor.md) |
+| Models | The on-device model by default; Ollama, MLX, Core AI, llama.cpp, and LM Studio models by name; Private Cloud Compute as an explicit opt-in | [install-local-models.md](docs/install-local-models.md), [backends.md](docs/backends.md), [ADR 0058](docs/decisions/0058-a-shared-http-executor.md) |
 | | A context window sized from the Mac's free memory for each Ollama and MLX model, or set for one model; a llama.cpp or LM Studio model's is the server's | [wisp.md](docs/wisp.md#context-window), [ADR 0043](docs/decisions/0043-context-window-from-memory.md) |
 | | `wisp models`: every model this Mac can run as one table; enable or disable a model, and have its capabilities checked when you enable it | [wisp.md](docs/wisp.md#wisp-models), [ADR 0056](docs/decisions/0056-models-enabled-and-disabled.md) |
 | | Models in chat: `/models pull`, `trust`, and `cancel` beside `enable`, `disable`, and `check`; the model's own `models` tool (off by default), whose every change asks you | [tools/models.md](docs/tools/models.md), [ADR 0059](docs/decisions/0059-one-set-of-model-actions.md) |
@@ -228,6 +231,9 @@ wisp doctor                     # checks the model, MLX, sandbox, classifier, co
 wisp "What is the date in Tokyo?"
 ```
 
+That is all wisp needs: it runs on Apple's on-device model. To add a local model through Ollama, MLX, llama.cpp,
+LM Studio, or Core AI, and to choose which, follow **[How to install local models](docs/install-local-models.md)**.
+
 Homebrew also installs shell completions for zsh, bash, and fish; with any other install, `wisp completions install`
 writes them for your shell ([wisp.md](docs/wisp.md), "`wisp completions`").
 
@@ -246,7 +252,8 @@ Everything is under [docs/](docs/README.md). Start with the row that matches you
 | Use the command line: subcommands, flags, `config.json`, exit codes | [wisp.md](docs/wisp.md) |
 | See what the model can do and the limits on each tool | [tools/](docs/tools/README.md) |
 | Know how well each delegated task works, as measured | [measurements.md](docs/measurements.md) |
-| Choose a model or a local backend | [backends.md](docs/backends.md) |
+| Install a local model and choose which one | [install-local-models.md](docs/install-local-models.md) |
+| Know how each model backend works: windows, capabilities, errors | [backends.md](docs/backends.md) |
 | Connect it to another harness over MCP | [mcp.md](docs/mcp.md) |
 | Know what it can do to your Mac, what it remembers, and how to undo | [trust.md](docs/trust.md) |
 | Know how commands are confined and when you are asked | [tools/run_command.md](docs/tools/run_command.md), [approval.md](docs/approval.md) |

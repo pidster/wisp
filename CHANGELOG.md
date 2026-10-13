@@ -4,6 +4,11 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+- A guide, [How to install local models](docs/install-local-models.md), signposted from the README: each runtime's
+  steps, which model to choose as measured, the window, and what to do when a model will not start.
+
 ## 0.24.0
 
 The model can ask you a question mid-turn; waiting MCP requests in plain chat; the approval banner only when the
