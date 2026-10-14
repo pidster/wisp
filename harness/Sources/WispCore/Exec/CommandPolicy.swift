@@ -23,7 +23,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         public var writablePaths: [String]
         /// Whether the model may ask to run one command outside the sandbox (`run_command`'s `outsideSandbox`), which
         /// the person must approve each time ([ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md));
-        /// false refuses every such request. The operator's: no tool changes it.
+        /// false refuses every such request, and a line the person types after `!!` (amended 2026-10-14). The operator's: no
+        /// tool changes it.
         public var allowOutsideSandbox: Bool
 
         /// Creates sandbox settings.

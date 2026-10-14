@@ -187,17 +187,19 @@ extension AuditEvent {
         /// bound, `stopped` (true) when the person stopped it, whether the sandbox refused it or may have
         /// (`sandboxRefused`, with the check's `sandboxRefusal` and `sandboxPaths`, ADR 0054), and `output`, what it printed (stdout, then stderr) as the person is shown it, with its
         /// size in `bytes`. `stored` is the output store's id for the whole output when part of it was held back (ADR
-        /// 0050). `failure` says why one that was allowed could not start.
+        /// 0050). `failure` says why one that was allowed could not start. `outsideSandbox` (true) marks a line typed
+        /// after `!!` (ADR 0064, amended 2026-10-14), whether or not it ran outside: `command.outcome` says that.
         public static func commandTyped(
             command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String? = nil,
             outcome: CommandRunner.Outcome? = nil, output: String = "", sandboxRefused: Bool = false,
-            failure: String? = nil, seconds: TimeInterval
+            failure: String? = nil, seconds: TimeInterval, outsideSandbox: Bool = false
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "command": .string(command), "workingDirectory": .string(workingDirectory),
                 "verdict": .string(verdict.rawValue), "output": .string(output), "bytes": .int(output.utf8.count),
                 "seconds": .double(seconds),
             ]
+            if outsideSandbox { details["outsideSandbox"] = true }
             if let reason { details["reason"] = .string(reason) }
             if let failure { details["failure"] = .string(failure) }
             if let outcome {
@@ -933,6 +935,7 @@ extension AuditEvent {
             [
                 "command", "workingDirectory", "verdict", "reason", "exitStatus", "timedOut", "truncated", "stopped",
                 "sandboxRefused", "sandboxRefusal", "sandboxPaths", "output", "bytes", "seconds", "failure",
+                "outsideSandbox",
             ]
         case .fileWrite: ["path", "mode", "created", "bytesBefore", "bytesAfter"]
         case .notification: ["title", "body", "source", "outcome", "reason", "route", "skipped"]

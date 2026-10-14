@@ -2,7 +2,9 @@
 
 Date: 2026-10-14. Status: accepted; built 2026-10-14. Chosen by the operator on 2026-10-14. Amends
 [ADR 0009](0009-command-policy-and-sandbox.md) (every model's command runs under the sandbox when it is on) and
-[ADR 0054](0054-the-sandboxs-refusals-checked.md) (the refusal note).
+[ADR 0054](0054-the-sandboxs-refusals-checked.md) (the refusal note). Amended 2026-10-14 (below): the person runs a
+command outside the sandbox themselves by typing it after `!!`, which amends
+[ADR 0049](0049-commands-typed-in-chat.md) and changes item 10.
 
 ## Context
 
@@ -88,7 +90,9 @@ Considered:
    wisp runs inside another sandbox, which confined this command`; `limits` says so too. The switch is checked
    before nesting, so off refuses in both.
 10. **A command the person types after `!` is unaffected**: it never carries the argument. Nor do `wisp watch`,
-    custom tools, `system_info`, or `triage`; only `run_command` asks.
+    custom tools, `system_info`, or `triage`; only `run_command` asks. Changed by the amendment of 2026-10-14
+    (below): a command the person types after `!!` runs outside the sandbox, through the same resolution, with no
+    one asked.
 11. **Audited.** `policy.decision` carries `outsideSandbox: true` where the request applied (and `sandbox: false`
     when allowed), or `outsideSandboxIgnored` (`sandbox-off` or `nested`) where it changed nothing;
     `approval.requested`, `approval.decided`, and `approval.pending` carry `outsideSandbox: true`; `command.outcome`
@@ -141,3 +145,56 @@ about the next.
   refused when declined, and made when approved and run outside, and a write to a protected directory, standing for
   `~/.wisp`, refused sandboxed and made outside. Over MCP: a `respond` whose model asks with no way to ask the person
   is refused with the reason, and nothing runs.
+
+## Amended 2026-10-14: the person's own run outside the sandbox
+
+The operator asked, on 2026-10-14, for the person to be able to do in chat what the model now asks to do: run one
+command outside the sandbox themselves, as they would in another terminal, without leaving wisp. A typed command
+([ADR 0049](0049-commands-typed-in-chat.md)) already drops the checks that stand in for the person (the classifier,
+the approval, the time limit) and keeps the ones that protect the Mac (the lists, the sandbox); this lets the person
+drop the sandbox too, for one line, by saying so as they type it.
+
+1. **The line is `!!command`.** In the plain chat, and over `wisp chat --json`, a line that starts with `!!`, the two
+   marks together, is a command the person runs outside the sandbox; what follows, trimmed, is the command (`!!brew
+   upgrade` and `!! brew upgrade` alike). `ChatInput.command` gains `outsideSandbox`. Only the marks together count:
+   `! !x`, with a space, is an ordinary command whose text is `!x` (chosen as the simplest rule that leaves a way to
+   run a command that starts with `!` in the sandbox), and `!!!x` runs `!x` outside. `!!` alone runs nothing, as `!`
+   alone does. `!!` is not the shell's history: `sh -c` keeps none, and no wisp face offers one.
+2. **Typing it is the approval.** It runs through `Agent.runTyped` and `CommandRunner.run` with `origin` `.person` and
+   `outsideSandbox` true: the same resolution as item 9 (`OutsideSandbox.resolve`, now for either origin), the policy's
+   deny and allow lists first, then the operator's switch, then no gate at all: no classifier, no question, no
+   approval held or asked. It keeps a typed command's terms: the output bound, the output store, no time limit, and
+   Ctrl-C stopping it. Item 10's "unaffected" is reversed for `!!` deliberately; `run`'s doc comment says so.
+3. **The switch holds.** `commandPolicy.sandbox.allowOutsideSandbox` false refuses it after the lists, with the
+   person's wording: `running outside the sandbox is turned off here (commandPolicy.sandbox.allowOutsideSandbox is
+   false); type it after a single ! to run it in the sandbox`, shown as `· blocked by policy: …`.
+4. **When it changes nothing, it says so.** With the sandbox off or wisp nested, the command runs as a `!` command does,
+   and chat says `· !! changes nothing here: the sandbox is off, so every command runs without it` or `… wisp runs
+   inside another sandbox, which confines this command`.
+5. **Every face marks it before it runs.** Chat renders the person's allowed `policy.decision` with `outsideSandbox`
+   as `! running OUTSIDE the sandbox, as you typed it: it may write anywhere you can`, in the danger colour, before
+   the command starts; the activity reads `running … outside the sandbox`; the plain chat colours the line's prompt
+   marker in a new palette colour, `outside`; `/help` lists `!!COMMAND`.
+6. **`wisp-tui` gains outside mode,** a third state of the input box beside command mode (`InputMode`: normal,
+   command, outside). `!` typed with the cursor at the start in command mode enters it; there `!` at the start is
+   text. Backspace at the start of the line, or Delete in an empty box, steps back one mode: outside to command mode
+   (amber), then to the normal prompt, keeping the text. A paste at the start steps up a mode for each `!` it starts
+   with, as typing them would (`!!x` into an empty box, `!x` at the start in command mode). The box turns `outside`,
+   **#D27068**, a muted red darker and greyer than `ember` and `removed` (#FF6B6B), with command mode's black text,
+   and its marker is `!!`; the sent line is `!! command` on `outsideSent`, **#693834**, half its brightness as
+   `commandSent` is of `command`. Both are defined in both palettes and checked by the gate's palette check. They are
+   a first proposal, not chosen from renders as command mode's were; the operator may pick others. Recall brings a
+   line back in the mode it was sent from. Two cases keep the box honest: text in the normal box that starts with
+   `!!` (pasted after a space) is not sent unseen, but put into outside mode for a second Enter; and command mode text
+   that starts with `!` is sent as `! !x`, so it runs in the sandbox as the amber box showed.
+7. **Audited and told.** `policy.decision` and `command.outcome` carry `origin: "person"` and `outsideSandbox: true`
+   (item 11's fields); `command.typed` carries `outsideSandbox: true` for every `!!` line, and its summary marks it
+   `!!`. The thread record's `PersonCommand` gains `outsideSandbox` (written only when true, so older records read),
+   and the model's notice says the person ran it `themselves, outside the sandbox,`.
+
+The home's exposure is the section above's, accepted on the same ground, more plainly: the person typed the line.
+Tests without a model (`PersonOutsideSandboxTests`, and `wisp-tui`'s): the parsing (`!!x`, `!!`, `! !x`, `!x`,
+`!!!x`); nobody asked and, with the real sandbox (skipped when nested), a write outside the writable roots refused
+after `!` and made after `!!`; the switch off; the deny list; the sandbox off; the audit fields and summary; the
+record's round trip and notice; chat's lines, the marker's colour, and a bare `!!`; and in `wisp-tui` every
+transition, each paste, the line sent, recall, the round trip of a line and its mode, and the colours.

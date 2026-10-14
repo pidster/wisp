@@ -40,6 +40,10 @@ pub const PLACEHOLDER: &str = "Ask wisp to do anything";
 /// The placeholder in command mode, where what is typed runs as a shell command (ADR 0049).
 pub const COMMAND_PLACEHOLDER: &str =
     "Run a command yourself: sandboxed, no approval, the model is told";
+/// The placeholder in outside mode, where what is typed runs as a shell command outside the sandbox (ADR 0064,
+/// amended 2026-10-14).
+pub const OUTSIDE_PLACEHOLDER: &str =
+    "Run a command yourself OUTSIDE the sandbox: it may write anywhere you can";
 /// How many submitted lines Up and Down can recall; the same bound as the chat's `/history`.
 pub const RECALL_LIMIT: usize = 100;
 /// How long the keyboard must be quiet after an approval dialog appears before a key answers it. A key
@@ -94,6 +98,8 @@ pub enum LineKind {
     User,
     /// A command the user ran from command mode, echoed with its `!` (ADR 0049).
     Command,
+    /// A command the user ran outside the sandbox, echoed with its `!!` (ADR 0064, amended 2026-10-14).
+    Outside,
     /// The model's reply, in the little Markdown `markdown::spans` renders.
     Reply,
     /// A line inside a fenced block of a reply, shown as it is.
@@ -110,6 +116,63 @@ pub enum LineKind {
     Output,
     /// A tool's output, indented under its result line, and the fold line after it.
     ToolOutput,
+}
+
+/// What the input box sends: a message, a command run in the sandbox (`!`, ADR 0049), or a command run outside it
+/// (`!!`, ADR 0064, amended 2026-10-14). `!` typed at the start of the line steps up one mode, Backspace there (or
+/// Delete in an empty box) steps down one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InputMode {
+    /// The normal prompt: a message for the model, or a chat command.
+    #[default]
+    Normal,
+    /// Command mode: what is typed runs as a shell command in the sandbox, and the box takes the command colour.
+    Command,
+    /// Outside mode: what is typed runs as a shell command outside the sandbox, and the box takes the outside colour.
+    Outside,
+}
+
+impl InputMode {
+    /// The marks the line wisp is sent starts with in this mode: none, `!`, or `!!`.
+    #[must_use]
+    pub fn marks(self) -> &'static str {
+        match self {
+            InputMode::Normal => "",
+            InputMode::Command => "!",
+            InputMode::Outside => "!!",
+        }
+    }
+
+    /// The mode a `!` typed at the start of the line switches to, or `None` in outside mode, where it is text.
+    #[must_use]
+    pub fn up(self) -> Option<Self> {
+        match self {
+            InputMode::Normal => Some(InputMode::Command),
+            InputMode::Command => Some(InputMode::Outside),
+            InputMode::Outside => None,
+        }
+    }
+
+    /// The mode Backspace at the start of the line (or Delete in an empty box) steps back to.
+    #[must_use]
+    pub fn down(self) -> Self {
+        match self {
+            InputMode::Outside => InputMode::Command,
+            InputMode::Command | InputMode::Normal => InputMode::Normal,
+        }
+    }
+
+    /// The mode a line's marks put the box in, and the text after them: `!!` outside, `!` command, else normal.
+    #[must_use]
+    pub fn split(line: &str) -> (Self, &str) {
+        if let Some(rest) = line.strip_prefix("!!") {
+            (InputMode::Outside, rest)
+        } else if let Some(rest) = line.strip_prefix('!') {
+            (InputMode::Command, rest)
+        } else {
+            (InputMode::Normal, line)
+        }
+    }
 }
 
 /// Text rows the output and context panel shows at most.
@@ -528,9 +591,10 @@ pub struct App {
     /// stoppable work it reports (a `/models pull`, ADR 0059) is shown and stopped as a running command, while
     /// a message's stoppable activity is the model's turn (ADR 0049, amended 2026-10-11).
     pub slash_sent: bool,
-    /// Whether the input box is in command mode: `!` typed at the start of the line, so what is typed runs as a
-    /// shell command (ADR 0049) and the box takes the command colour.
-    pub command_mode: bool,
+    /// The input box's mode: normal, command mode (`!` typed at the start of the line, so what is typed runs as a
+    /// shell command, ADR 0049, and the box takes the command colour), or outside mode (`!` typed again at the start,
+    /// so it runs outside the sandbox, ADR 0064 amended 2026-10-14, and the box takes the outside colour).
+    pub mode: InputMode,
     /// Keys typed while a turn runs, or in a dialog's grace, in order: not shown as accepted, and applied to the
     /// input box when it next takes typing (the turn has ended and no dialog or choice is open), as if typed
     /// then. They are never replayed into a dialog or a choice.
@@ -750,7 +814,7 @@ impl App {
         if self.picker.is_none() && !self.editor.is_empty() {
             self.parked = Some(self.line());
             self.editor.take();
-            self.command_mode = false;
+            self.mode = InputMode::Normal;
             self.suggestions = None;
         }
         self.panel = None;
@@ -1403,18 +1467,18 @@ impl App {
         Action::None
     }
 
-    /// A character for the input box: `!` at the start of the line switches to command mode, anything else
-    /// is an edit.
+    /// A character for the input box: `!` at the start of the line steps up a mode (normal to command mode,
+    /// command mode to outside mode), anything else is an edit.
     fn type_into_box(&mut self, c: char) {
-        // `!` at the start of the line is the switch to command mode, not text, whatever follows it; after
-        // other text, or in command mode, it is text.
+        // `!` at the start of the line is the switch, not text, whatever follows it; after other text, or in
+        // outside mode, it is text.
         if c == '!'
             && self.typing()
             && self.picker.is_none()
             && self.editor.cursor() == 0
-            && !self.command_mode
+            && let Some(up) = self.mode.up()
         {
-            self.command_mode = true;
+            self.mode = up;
             self.suggestions = None;
             return;
         }
@@ -1441,25 +1505,35 @@ impl App {
         }
     }
 
-    /// Puts a line into the input as recalling it does: a line that starts with `!` returns in command mode,
-    /// without its `!`.
+    /// Puts a line into the input as recalling it does: a line that starts with `!!` returns in outside mode
+    /// without its `!!`, one that starts with `!` in command mode without its `!`; `! !x`, a command whose text
+    /// starts with `!`, returns in command mode as `!x`.
     fn set_line(&mut self, line: &str) {
-        if let Some(command) = line.strip_prefix('!') {
-            self.command_mode = true;
-            self.editor.set(command);
-        } else {
-            self.command_mode = false;
-            self.editor.set(line);
-        }
+        let (mode, text) = InputMode::split(line);
+        let text = match mode {
+            InputMode::Command => text
+                .strip_prefix(' ')
+                .filter(|t| t.starts_with('!'))
+                .unwrap_or(text),
+            InputMode::Normal | InputMode::Outside => text,
+        };
+        self.mode = mode;
+        self.editor.set(text);
     }
 
-    /// The input as a line, as `set_line` takes it back: `!` before it in command mode.
+    /// The input as a line, as `set_line` takes it back: its mode's marks before it, and in command mode a space
+    /// between the `!` and text that starts with `!`, so that it stays a command in the sandbox.
     fn line(&self) -> String {
-        let text = self.editor.text();
-        if self.command_mode {
-            format!("!{text}")
+        Self::marked(self.mode, &self.editor.text())
+    }
+
+    /// `text` with `mode`'s marks before it, as wisp parses the line: a space between command mode's `!` and text
+    /// that starts with `!`, which would otherwise read as `!!` and run outside the sandbox.
+    fn marked(mode: InputMode, text: &str) -> String {
+        if mode == InputMode::Command && text.starts_with('!') {
+            format!("! {text}")
         } else {
-            text
+            format!("{}{text}", mode.marks())
         }
     }
 
@@ -1485,9 +1559,9 @@ impl App {
         self.show_next();
     }
 
-    /// An edit to the input, as `edit` takes it, without a dialog's grace. In command mode, Backspace at the
-    /// start of the line, or Delete in an empty box, returns to the normal prompt; a paste that starts with `!`
-    /// at the start of the line enters command mode, as typing `!` does.
+    /// An edit to the input, as `edit` takes it, without a dialog's grace. In command or outside mode, Backspace at
+    /// the start of the line, or Delete in an empty box, steps back one mode (outside to command, command to
+    /// normal); a paste at the start of the line steps up a mode for each `!` it starts with, as typing them does.
     fn edit_input(&mut self, edit: &Edit) {
         if self.holding() {
             self.held.push(edit.clone());
@@ -1499,23 +1573,29 @@ impl App {
         self.suggestions = None;
         self.completing = None;
         let in_box = self.picker.is_none() && self.editor.is_empty();
-        // Backspace at the start of the line takes back the `!`, keeping what follows as ordinary text;
-        // Delete leaves command mode only in an empty box, as it deletes forwards.
+        // Backspace at the start of the line takes back the last `!`, keeping what follows; Delete steps back only
+        // in an empty box, as it deletes forwards.
         let at_start = self.picker.is_none() && self.editor.cursor() == 0;
-        if self.command_mode
+        if self.mode != InputMode::Normal
             && ((at_start && matches!(edit, Edit::Backspace))
                 || (in_box && matches!(edit, Edit::Delete)))
         {
-            self.command_mode = false;
+            self.mode = self.mode.down();
             return;
         }
         if let Edit::Paste(text) = edit
             && at_start
-            && !self.command_mode
-            && let Some(command) = text.strip_prefix('!')
+            && text.starts_with('!')
+            && self.mode.up().is_some()
         {
-            self.command_mode = true;
-            self.editor.apply(&Edit::Paste(command.to_string()));
+            let mut rest = text.as_str();
+            while let Some(after) = rest.strip_prefix('!')
+                && let Some(up) = self.mode.up()
+            {
+                self.mode = up;
+                rest = after;
+            }
+            self.editor.apply(&Edit::Paste(rest.to_string()));
             return;
         }
         self.editor.apply(edit);
@@ -1621,25 +1701,40 @@ impl App {
         if self.approval.is_some() || self.busy {
             return Action::None;
         }
-        // A command goes to wisp as the line plain chat takes, `!` and the command; so does text that starts
-        // with `!`, which wisp runs as a command too.
+        // A command goes to wisp as the line plain chat takes, its marks and the command (`marked`); so does text
+        // in the normal box that starts with `!`, which wisp runs as a command too. Text in the normal box that
+        // starts with `!!` would run outside the sandbox without the box having shown it, so it is put into outside
+        // mode instead, unsent, for the person to see and send with a second Enter.
         let typed = self.editor.text().trim().to_string();
-        let command = if self.command_mode {
-            Some(typed.clone())
-        } else {
-            typed.strip_prefix('!').map(|rest| rest.trim().to_string())
+        let (mode, command) = match self.mode {
+            InputMode::Normal => match InputMode::split(&typed) {
+                (InputMode::Outside, rest) => {
+                    let rest = rest.trim_start().to_string();
+                    self.mode = InputMode::Outside;
+                    self.editor.set(&rest);
+                    return Action::None;
+                }
+                (InputMode::Command, rest) => (InputMode::Command, Some(rest.trim().to_string())),
+                (InputMode::Normal, _) => (InputMode::Normal, None),
+            },
+            mode => (mode, Some(typed.clone())),
         };
         if typed.is_empty() || command.as_deref() == Some("") {
             return Action::None;
         }
         self.editor.take();
-        self.command_mode = false;
+        self.mode = InputMode::Normal;
         self.suggestions = None;
         let text = if let Some(command) = &command {
-            self.push(&format!("! {command}"), LineKind::Command);
+            let (echo, kind) = if mode == InputMode::Outside {
+                ("!!", LineKind::Outside)
+            } else {
+                ("!", LineKind::Command)
+            };
+            self.push(&format!("{echo} {command}"), kind);
             self.running_command = Some(command.clone());
             self.stopping = false;
-            format!("!{command}")
+            Self::marked(mode, command)
         } else {
             self.push(&format!("› {typed}"), LineKind::User);
             typed
@@ -1660,7 +1755,16 @@ impl App {
 
     /// Cells of text across the input's rows, as `input_lines` lays them out for the band's width.
     fn input_width(&self) -> usize {
-        usize::from(self.panel_width().saturating_sub(MARGIN * 2)).saturating_sub(PROMPT_CELLS)
+        usize::from(self.panel_width().saturating_sub(MARGIN * 2))
+            .saturating_sub(self.prompt_cells())
+    }
+
+    /// Cells the input's prompt takes: `PROMPT_CELLS`, and one more for outside mode's `!!`.
+    fn prompt_cells(&self) -> usize {
+        match self.mode {
+            InputMode::Outside => PROMPT_CELLS + 1,
+            InputMode::Normal | InputMode::Command => PROMPT_CELLS,
+        }
     }
 
     /// Up: replaces the input with the previous submitted line, keeping what was typed as the draft.
@@ -1795,7 +1899,8 @@ impl App {
 
     /// Rows the input needs at `width`, from 1 to `MAX_INPUT_ROWS`.
     fn input_rows(&self, width: u16) -> u16 {
-        let inner = usize::from(width.saturating_sub(MARGIN * 2)).saturating_sub(PROMPT_CELLS);
+        let inner =
+            usize::from(width.saturating_sub(MARGIN * 2)).saturating_sub(self.prompt_cells());
         let rows = self.editor.rows(inner).rows.len();
         u16::try_from(rows)
             .unwrap_or(MAX_INPUT_ROWS)
@@ -1975,11 +2080,11 @@ impl App {
             );
             return;
         }
-        // Command mode tints the box and its strips in the command colour.
-        let (background, edge) = if self.command_mode {
-            (palette::command_background(), palette::command_edge())
-        } else {
-            (palette::input_background(), palette::input_edge())
+        // Command mode tints the box and its strips in the command colour, outside mode in the outside colour.
+        let (background, edge) = match self.mode {
+            InputMode::Command => (palette::command_background(), palette::command_edge()),
+            InputMode::Outside => (palette::outside_background(), palette::outside_edge()),
+            InputMode::Normal => (palette::input_background(), palette::input_edge()),
         };
         let strip = |frame: &mut Frame, index: u16, glyph: &str| {
             if index < area.height {
@@ -2038,24 +2143,29 @@ impl App {
             };
             return (vec![line], None);
         }
-        let (prompt, prompt_style, text_style) = if self.command_mode {
-            ("!", palette::command_prompt(), palette::command_text())
-        } else {
-            ("›", palette::prompt(), palette::user())
+        let (prompt, prompt_style, text_style) = match self.mode {
+            InputMode::Command => ("!", palette::command_prompt(), palette::command_text()),
+            InputMode::Outside => ("!!", palette::command_prompt(), palette::command_text()),
+            InputMode::Normal => ("›", palette::prompt(), palette::user()),
         };
+        let cells = self.prompt_cells();
         if self.editor.is_empty() {
             let placeholder = Line::from(vec![
                 Span::styled(format!("{prompt} "), prompt_style),
-                if self.command_mode {
-                    Span::styled(COMMAND_PLACEHOLDER, palette::command_placeholder())
-                } else {
-                    Span::styled(PLACEHOLDER, palette::muted())
+                match self.mode {
+                    InputMode::Command => {
+                        Span::styled(COMMAND_PLACEHOLDER, palette::command_placeholder())
+                    }
+                    InputMode::Outside => {
+                        Span::styled(OUTSIDE_PLACEHOLDER, palette::command_placeholder())
+                    }
+                    InputMode::Normal => Span::styled(PLACEHOLDER, palette::muted()),
                 },
             ]);
             let typing = self.approval.is_none();
-            return (vec![placeholder], typing.then_some((0, PROMPT_CELLS)));
+            return (vec![placeholder], typing.then_some((0, cells)));
         }
-        let layout = self.editor.rows(width.saturating_sub(PROMPT_CELLS));
+        let layout = self.editor.rows(width.saturating_sub(cells));
         let first = layout.first_shown(visible);
         let lines = layout
             .rows
@@ -2067,7 +2177,7 @@ impl App {
                 let lead = if index == 0 {
                     format!("{prompt} ")
                 } else {
-                    " ".repeat(PROMPT_CELLS)
+                    " ".repeat(cells)
                 };
                 Line::from(vec![
                     Span::styled(lead, prompt_style),
@@ -2078,7 +2188,7 @@ impl App {
         let typing = self.approval.is_none();
         (
             lines,
-            typing.then_some((layout.row - first, PROMPT_CELLS + layout.column)),
+            typing.then_some((layout.row - first, cells + layout.column)),
         )
     }
 
@@ -4565,7 +4675,7 @@ mod tests {
         };
         // `!` into an empty box is the switch, not text.
         assert_eq!(app.type_char('!'), Action::None);
-        assert!(app.command_mode && app.editor.is_empty());
+        assert!(app.mode == InputMode::Command && app.editor.is_empty());
         for c in "ls".chars() {
             app.type_char(c);
         }
@@ -4573,9 +4683,9 @@ mod tests {
         // Backspace deletes text first; at the start of the line it leaves command mode.
         app.edit(&Edit::Backspace);
         app.edit(&Edit::Backspace);
-        assert!(app.command_mode && app.editor.is_empty());
+        assert!(app.mode == InputMode::Command && app.editor.is_empty());
         app.edit(&Edit::Backspace);
-        assert!(!app.command_mode && app.editor.is_empty());
+        assert!(app.mode == InputMode::Normal && app.editor.is_empty());
         // Backspace with the cursor at the start leaves command mode and keeps the text as ordinary input.
         app.type_char('!');
         for c in "git status".chars() {
@@ -4584,46 +4694,65 @@ mod tests {
         app.edit(&Edit::Home);
         app.edit(&Edit::Backspace);
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("git status", false)
         );
         // The opposite: `!` typed at the start of a line with text enters command mode around that text.
         app.type_char('!');
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("git status", true)
         );
-        // In command mode a `!` at the start is text.
+        // In command mode a `!` at the start steps up to outside mode (ADR 0064, amended 2026-10-14); there a `!`
+        // at the start is text.
         app.type_char('!');
-        assert_eq!(app.editor.text(), "!git status");
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("git status", InputMode::Outside)
+        );
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("!git status", InputMode::Outside)
+        );
+        // Backspace deletes that `!`, then at the start steps back one mode at a time, keeping the text.
         app.edit(&Edit::Backspace);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("git status", InputMode::Outside)
+        );
         app.edit(&Edit::Backspace);
-        assert!(!app.command_mode);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("git status", InputMode::Command)
+        );
+        app.edit(&Edit::Backspace);
+        assert_eq!(app.mode, InputMode::Normal);
         app.edit(&Edit::KillToEnd);
         // Delete in an empty box leaves it too; with text, Delete deletes forwards and stays.
         app.type_char('!');
         app.type_char('x');
         app.edit(&Edit::Home);
         app.edit(&Edit::Delete);
-        assert!(app.command_mode && app.editor.is_empty());
-        assert!(app.command_mode);
+        assert!(app.mode == InputMode::Command && app.editor.is_empty());
+        assert_eq!(app.mode, InputMode::Command);
         app.edit(&Edit::Delete);
-        assert!(!app.command_mode);
+        assert_eq!(app.mode, InputMode::Normal);
         // A `!` after other text stays text, and in a box emptied by other edits the next `!` switches again.
         app.type_char('a');
         app.type_char('!');
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("a!", false)
         );
         app.edit(&Edit::KillToStart);
         app.type_char('!');
-        assert!(app.command_mode && app.editor.is_empty());
+        assert!(app.mode == InputMode::Command && app.editor.is_empty());
         // A paste that starts with `!` into an empty box enters command mode with the rest.
         app.edit(&Edit::Backspace);
         app.edit(&Edit::Paste("!git log -3".into()));
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("git log -3", true)
         );
     }
@@ -4637,7 +4766,7 @@ mod tests {
         app.type_char('!');
         // An empty command sends nothing.
         assert_eq!(app.submit(), Action::None);
-        assert!(app.command_mode && !app.busy);
+        assert!(app.mode == InputMode::Command && !app.busy);
         app.editor.set(" git status --short ");
         assert_eq!(
             app.submit(),
@@ -4645,7 +4774,7 @@ mod tests {
                 text: "!git status --short".into()
             })
         );
-        assert!(!app.command_mode && app.editor.is_empty() && app.busy);
+        assert!(app.mode == InputMode::Normal && app.editor.is_empty() && app.busy);
         assert_eq!(
             app.take_pending(),
             vec![HistoryLine {
@@ -4679,12 +4808,12 @@ mod tests {
         app.editor.set("half");
         app.recall_previous();
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("pwd", true)
         );
         app.recall_next();
         assert_eq!(
-            (app.editor.text().as_str(), app.command_mode),
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
             ("half", false)
         );
         app.editor.set("");
@@ -4692,7 +4821,241 @@ mod tests {
         app.type_char('w');
         app.recall_previous();
         app.recall_next();
-        assert_eq!((app.editor.text().as_str(), app.command_mode), ("w", true));
+        assert_eq!(
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
+            ("w", true)
+        );
+    }
+
+    #[test]
+    fn a_bang_at_the_start_in_command_mode_enters_outside_mode_and_each_backspace_steps_back_one() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.type_char('!');
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("", InputMode::Outside)
+        );
+        // In outside mode a `!` at the start is text.
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("!", InputMode::Outside)
+        );
+        // Backspace deletes it; at the start it steps back to command mode, then to the normal prompt.
+        app.edit(&Edit::Backspace);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("", InputMode::Outside)
+        );
+        app.edit(&Edit::Backspace);
+        assert_eq!(app.mode, InputMode::Command);
+        app.edit(&Edit::Backspace);
+        assert_eq!(app.mode, InputMode::Normal);
+        // Delete in an empty box steps back the same way.
+        app.type_char('!');
+        app.type_char('!');
+        app.edit(&Edit::Delete);
+        assert_eq!(app.mode, InputMode::Command);
+        app.edit(&Edit::Delete);
+        assert_eq!(app.mode, InputMode::Normal);
+        // With text, Delete deletes forwards and stays outside; Backspace at the start steps back keeping the text.
+        app.type_char('!');
+        app.type_char('!');
+        for c in "xbrew upgrade".chars() {
+            app.type_char(c);
+        }
+        app.edit(&Edit::Home);
+        app.edit(&Edit::Delete);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("brew upgrade", InputMode::Outside)
+        );
+        app.edit(&Edit::Backspace);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("brew upgrade", InputMode::Command)
+        );
+        // A `!` after other text stays text in command mode.
+        app.edit(&Edit::End);
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("brew upgrade!", InputMode::Command)
+        );
+    }
+
+    #[test]
+    fn a_paste_at_the_start_steps_up_a_mode_for_each_bang_it_starts_with() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        let paste = |app: &mut App, text: &str| {
+            app.edit(&Edit::Paste(text.into()));
+            let seen = (app.editor.text(), app.mode);
+            app.editor.take();
+            app.mode = InputMode::Normal;
+            seen
+        };
+        assert_eq!(
+            paste(&mut app, "!!brew upgrade"),
+            ("brew upgrade".into(), InputMode::Outside)
+        );
+        assert_eq!(paste(&mut app, "!ls"), ("ls".into(), InputMode::Command));
+        assert_eq!(paste(&mut app, "!!!x"), ("!x".into(), InputMode::Outside));
+        // In command mode at the start, a `!` steps up to outside, as typing it does; the next is text.
+        app.type_char('!');
+        assert_eq!(paste(&mut app, "!x"), ("x".into(), InputMode::Outside));
+        app.type_char('!');
+        assert_eq!(paste(&mut app, "!!x"), ("!x".into(), InputMode::Outside));
+        // In outside mode it is text, and so it is anywhere but the start.
+        app.type_char('!');
+        app.type_char('!');
+        assert_eq!(paste(&mut app, "!x"), ("!x".into(), InputMode::Outside));
+        app.type_char('!');
+        app.type_char('a');
+        assert_eq!(paste(&mut app, "!!x"), ("a!!x".into(), InputMode::Command));
+    }
+
+    #[test]
+    fn sending_in_outside_mode_sends_two_marks_and_marks_the_line_apart() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.type_char('!');
+        app.type_char('!');
+        // An empty command sends nothing.
+        assert_eq!(app.submit(), Action::None);
+        assert_eq!(app.mode, InputMode::Outside);
+        app.editor.set(" brew upgrade ");
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "!!brew upgrade".into()
+            })
+        );
+        assert!(app.mode == InputMode::Normal && app.editor.is_empty() && app.busy);
+        assert_eq!(app.running_command.as_deref(), Some("brew upgrade"));
+        assert_eq!(
+            app.take_pending(),
+            vec![HistoryLine {
+                text: "!! brew upgrade".into(),
+                kind: LineKind::Outside
+            }]
+        );
+        app.handle(Outbound::Status(Status::default()));
+        // A command mode line whose text starts with `!` keeps a space after its mark, so wisp runs it in the
+        // sandbox as the box showed, never as `!!`.
+        app.type_char('!');
+        app.editor.set("!x");
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "! !x".into()
+            })
+        );
+        assert_eq!(app.take_pending()[0].kind, LineKind::Command);
+        app.handle(Outbound::Status(Status::default()));
+        // Text in the normal box that starts with `!!` is not sent unseen: the box turns to outside mode with the
+        // rest, and a second Enter sends it.
+        app.editor.set("!! pwd");
+        assert_eq!(app.submit(), Action::None);
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode, app.busy),
+            ("pwd", InputMode::Outside, false)
+        );
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "!!pwd".into()
+            })
+        );
+        app.handle(Outbound::Status(Status::default()));
+        // Recalled, each comes back in the mode it was sent from.
+        assert_eq!(app.recall, vec!["!!brew upgrade", "! !x", "!!pwd"]);
+        app.recall_previous();
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("pwd", InputMode::Outside)
+        );
+        app.recall_previous();
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("!x", InputMode::Command)
+        );
+        app.recall_previous();
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("brew upgrade", InputMode::Outside)
+        );
+    }
+
+    #[test]
+    fn a_line_and_its_mode_round_trip() {
+        let mut app = App::default();
+        for line in ["!!brew upgrade", "!ls", "! !x", "hello", "!!!x", ""] {
+            app.set_line(line);
+            assert_eq!(app.line(), line, "{line}");
+        }
+        app.set_line("!!a");
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("a", InputMode::Outside)
+        );
+    }
+
+    #[test]
+    fn outside_mode_tints_the_box_in_the_outside_colour_with_two_marks() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.type_char('!');
+        app.type_char('!');
+        let width = 90;
+        let height = app.band_height(width);
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        let row: String = (0..width)
+            .map(|x| buffer[(x, INPUT_ROW)].symbol().to_string())
+            .collect();
+        assert_eq!(row.trim_end(), format!(" !! {OUTSIDE_PLACEHOLDER}"));
+        assert_eq!(buffer[(0, INPUT_ROW)].bg, palette::OUTSIDE);
+        assert_eq!(buffer[(width - 1, INPUT_ROW)].bg, palette::OUTSIDE);
+        assert_eq!(buffer[(1, INPUT_ROW)].fg, palette::BLACK);
+        assert_eq!(buffer[(0, INPUT_ROW - 1)].fg, palette::OUTSIDE);
+        assert_eq!(buffer[(0, INPUT_ROW + 1)].fg, palette::OUTSIDE);
+        app.editor.set("ls");
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        assert_eq!(buffer[(4, INPUT_ROW)].symbol(), "l");
+        assert_eq!(buffer[(4, INPUT_ROW)].fg, palette::BLACK);
+        let position = terminal.get_cursor_position().expect("cursor");
+        assert_eq!((position.x, position.y), (MARGIN + 3 + 2, INPUT_ROW));
+        // A step back, and the box is command mode's colour again.
+        app.editor.set("");
+        app.edit(&Edit::Backspace);
+        terminal
+            .draw(|frame| app.render(frame, frame.area()))
+            .expect("draw");
+        assert_eq!(
+            terminal.backend().buffer()[(0, INPUT_ROW)].bg,
+            palette::COMMAND
+        );
+        // Kept apart from the danger colours and from command mode's.
+        assert_ne!(palette::OUTSIDE, palette::EMBER);
+        assert_ne!(palette::OUTSIDE, palette::REMOVED);
+        assert_ne!(palette::OUTSIDE, palette::COMMAND);
     }
 
     #[test]
@@ -4836,7 +5199,7 @@ mod tests {
             assert_eq!(app.type_char(c), Action::None);
         }
         app.edit(&Edit::Backspace);
-        assert!(app.editor.is_empty() && !app.command_mode);
+        assert!(app.editor.is_empty() && (app.mode == InputMode::Normal));
         assert_eq!(app.held.len(), 4);
         assert_eq!(
             app.busy_label(Instant::now()),
@@ -4864,7 +5227,10 @@ mod tests {
         app.handle(Outbound::Turn(turn("end", 1, Some(1.0), Some("ok"))));
         app.handle(Outbound::Status(Status::default()));
         assert!(app.held.is_empty() && !app.busy);
-        assert_eq!((app.editor.text().as_str(), app.command_mode), ("l", true));
+        assert_eq!(
+            (app.editor.text().as_str(), (app.mode == InputMode::Command)),
+            ("l", true)
+        );
         // With no activity yet, the box still says it is working.
         app.busy = true;
         app.activity = None;
@@ -5189,8 +5555,8 @@ mod tests {
         command.recall_next();
         command.bar = Some(BarItem::Questions);
         command.activate();
-        assert!(!command.command_mode);
+        assert_eq!(command.mode, InputMode::Normal);
         command.cancel();
-        assert!(command.command_mode && command.editor.text() == "ls");
+        assert!(command.mode == InputMode::Command && command.editor.text() == "ls");
     }
 }

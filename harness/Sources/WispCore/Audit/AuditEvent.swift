@@ -321,7 +321,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             body = "exit=\(details["exitStatus"]?.intValue ?? 0) \(details["command"]?.stringValue ?? "")"
         case .commandTyped:
             let result = details["exitStatus"]?.intValue.map { "exit=\($0)" } ?? details["verdict"]?.stringValue ?? "?"
-            body = "\(result) ! \(details["command"]?.stringValue ?? "")"
+            let mark = details["outsideSandbox"]?.boolValue == true ? "!!" : "!"
+            body = "\(result) \(mark) \(details["command"]?.stringValue ?? "")"
         case .notification:
             body =
                 "\(details["outcome"]?.stringValue ?? "?") from \(details["source"]?.stringValue ?? "?"): "

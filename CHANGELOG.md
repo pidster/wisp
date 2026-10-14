@@ -16,6 +16,11 @@ Added:
   with your privileges and no confinement, `~/.wisp` included. Turn it off with
   `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`. When the sandbox refuses a write, the model is
   told it may ask (ADR 0064).
+- You can run a command outside the sandbox yourself in chat: `!!brew upgrade` (two marks together; `! !x` runs `!x`
+  in the sandbox). Typing it is the approval, as for `!`; the deny list and
+  `commandPolicy.sandbox.allowOutsideSandbox` still apply, and chat says it runs OUTSIDE the sandbox before it starts.
+  In `wisp-tui`, `!` typed at the start of a command steps the input box from command mode's amber to a muted red,
+  and Backspace at the start steps back one mode at a time (ADR 0064, amended 2026-10-14).
 
 ## 0.24.2
 

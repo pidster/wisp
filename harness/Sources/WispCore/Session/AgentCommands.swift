@@ -44,13 +44,20 @@ extension Agent {
     /// It has no timeout (ADR 0049, amended 2026-10-09): the person stops it through `stop`, and one stopped is
     /// recorded as it ended, `stopped` in its audit and its entry.
     ///
+    /// A line typed after `!!` (`outsideSandbox`, ADR 0064, amended 2026-10-14) runs without wisp's sandbox, typing
+    /// it being the approval, under the same lists, bound, and audit; the operator's
+    /// `commandPolicy.sandbox.allowOutsideSandbox` false refuses it, and with the sandbox off or wisp inside another
+    /// sandbox it runs as any typed command does, its `policy.decision` saying why. Its audit and its entry say it ran
+    /// outside, so the model's notice does too.
+    ///
     /// - Parameters:
-    ///   - line: The command line, without the `!`.
+    ///   - line: The command line, without the `!` or `!!`.
     ///   - directory: Where to run it: the conversation's working directory.
     ///   - stop: Stops it when the person asks (Ctrl-C); nil runs it to its end.
+    ///   - outsideSandbox: Whether the person typed it after `!!`, to run it outside the sandbox.
     /// - Returns: What became of it.
     nonisolated(nonsending) public func runTyped(
-        _ line: String, in directory: String, stop: CommandStop? = nil
+        _ line: String, in directory: String, stop: CommandStop? = nil, outsideSandbox: Bool = false
     ) async -> TypedCommand {
         guard let runner = commandRunner else {
             return TypedCommand(line: line, directory: directory, result: .unavailable)
@@ -58,7 +65,8 @@ extension Agent {
         let started = Date()
         let outcome: CommandRunner.Outcome
         do {
-            outcome = try await runner.run(line, in: directory, origin: .person, stop: stop)
+            outcome = try await runner.run(
+                line, in: directory, origin: .person, stop: stop, outsideSandbox: outsideSandbox)
         } catch {
             let failure = (error as? CommandRunner.Failure) ?? .launchFailed("\(error)")
             var verdict = AuditEvent.Details.PolicyVerdict.allowed
@@ -73,7 +81,7 @@ extension Agent {
                 .commandTyped,
                 details: AuditEvent.Details.commandTyped(
                     command: line, workingDirectory: directory, verdict: verdict, reason: reason, failure: why,
-                    seconds: Date().timeIntervalSince(started)))
+                    seconds: Date().timeIntervalSince(started), outsideSandbox: outsideSandbox))
             return TypedCommand(line: line, directory: directory, result: .refused(failure))
         }
         let shown = Self.printed(outcome)
@@ -82,13 +90,13 @@ extension Agent {
             .commandTyped,
             details: AuditEvent.Details.commandTyped(
                 command: line, workingDirectory: directory, verdict: .allowed, outcome: outcome, output: shown,
-                sandboxRefused: refused, seconds: Date().timeIntervalSince(started)))
+                sandboxRefused: refused, seconds: Date().timeIntervalSince(started), outsideSandbox: outsideSandbox))
         let now = Date()
         // The entry belongs to the turn whose first request carries it: the next one.
         let entry = store.record(
             command: ThreadRecord.PersonCommand(
                 line: line, directory: directory, exitStatus: outcome.exitStatus, timedOut: outcome.timedOut,
-                truncated: outcome.truncated, stopped: outcome.stopped),
+                truncated: outcome.truncated, stopped: outcome.stopped, outsideSandbox: outcome.outsideSandbox),
             output: shown, turn: turns.current + 1, sources: event.map { [$0] } ?? [], time: now)
         let facts = recordFacts(typed: line, in: directory, outcome: outcome, event: event, entry: entry, time: now)
         return TypedCommand(

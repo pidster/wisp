@@ -417,17 +417,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: file), "an approved run outside the sandbox does not")
     }
 
-    @Test func aTypedCommandIsUnaffected() async throws {
-        let dir = try scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let sink = MemoryAuditSink()
-        let approver = Answering([])
-        let runner = runner(root: dir, gate: gate(approver, sink: sink), sink: sink)
-        let outcome = try await runner.run("echo hi", in: dir.path, origin: .person, outsideSandbox: true)
-        #expect(outcome.stdout == "hi\n" && !outcome.outsideSandbox && outcome.outsideNote == nil)
-        #expect(approver.requests.isEmpty)
-        #expect(last(.policyDecision, sink)["outsideSandbox"] == nil)
-    }
+    // A command the person types after `!!` (amended 2026-10-14) is tested in `PersonOutsideSandboxTests`.
 
     // MARK: Configuration
 

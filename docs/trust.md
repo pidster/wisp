@@ -51,7 +51,9 @@ to run one such command without the sandbox. You are asked every time, whatever 
 threshold, for that exact line, once; nothing remembers the answer, `--yes` does not give it, and every dialog and
 notification says `OUTSIDE the sandbox`. Approved, that command runs with your privileges and no confinement:
 it can write anywhere you can, `~/.wisp` included, as it could if you typed it in your own terminal. Read the line
-before you approve it. To turn the request off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
+before you approve it. You can also run one yourself in chat by typing it after `!!` (`!!brew upgrade`; in
+`wisp-tui` the input box turns red): typing it is the approval, so nothing asks, and the same exposure applies. To
+turn both off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
 ([run_command](tools/run_command.md#running-outside-the-sandbox),
 [ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)).
 

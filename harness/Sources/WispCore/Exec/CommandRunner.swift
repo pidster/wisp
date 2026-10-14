@@ -150,10 +150,11 @@ public struct CommandRunner: Sendable {
             case nested
         }
 
-        /// Not asked for, or not the model's command.
+        /// Not asked for.
         case notAsked
-        /// Asked for, and it applies: the person is asked about the whole line, every time, and approved, the line
-        /// runs without `sandbox-exec`.
+        /// Asked for, and it applies: for the model's command the person is asked about the whole line, every time,
+        /// and approved, the line runs without `sandbox-exec`; a command the person typed after `!!` runs so at once,
+        /// typing it being the approval (ADR 0064, amended 2026-10-14).
         case asked
         /// Asked for, and the operator turned it off (`sandbox.allowOutsideSandbox` false): refused.
         case turnedOff
@@ -164,6 +165,19 @@ public struct CommandRunner: Sendable {
         static let turnedOffReason =
             "running outside the sandbox is turned off here (commandPolicy.sandbox.allowOutsideSandbox is false); "
             + "run it without outsideSandbox, or ask the person to run it themselves"
+
+        /// What `turnedOff` refuses a command the person typed after `!!` with (ADR 0064, amended 2026-10-14).
+        static let turnedOffForThePerson =
+            "running outside the sandbox is turned off here (commandPolicy.sandbox.allowOutsideSandbox is false); "
+            + "type it after a single ! to run it in the sandbox"
+
+        /// What `turnedOff` refuses a command from `origin` with.
+        ///
+        /// - Parameter origin: Who chose the command.
+        /// - Returns: The reason.
+        static func turnedOffReason(for origin: Origin) -> String {
+            origin == .person ? turnedOffForThePerson : turnedOffReason
+        }
 
         /// What a request comes to under `sandbox` settings, in a process that is or is not `nested` in another
         /// sandbox. The sandbox's being off comes first (the request changes nothing), then the operator's switch,
@@ -182,9 +196,17 @@ public struct CommandRunner: Sendable {
         }
 
         /// The line the model's result carries for a command that was asked to run outside the sandbox and ran.
-        var note: String? {
+        var note: String? { note(for: .model) }
+
+        /// The line a result carries for a command from `origin` that was asked to run outside the sandbox and ran:
+        /// approved by the person for the model's, typed by them after `!!` for their own.
+        ///
+        /// - Parameter origin: Who chose the command.
+        /// - Returns: The line, or nil when nothing was asked or it was refused.
+        func note(for origin: Origin) -> String? {
             switch self {
             case .notAsked, .turnedOff: nil
+            case .asked where origin == .person: "sandbox: ran outside the sandbox, as the person typed it after !!"
             case .asked: "sandbox: ran outside the sandbox, as the person approved, this once"
             case .unchanged(.sandboxOff): "sandbox: outsideSandbox changed nothing: the sandbox is off here"
             case .unchanged(.nested):
@@ -404,10 +426,11 @@ public struct CommandRunner: Sendable {
     ///     `CommandStop.grace`, or SIGKILL at once on a second request; nil cannot be stopped but by the timeout.
     ///   - requested: The limit the caller asks for in place of `Options.timeout`, clamped to `Options.maxTimeout`;
     ///     nil when the caller cannot ask (ADR 0063). Not consulted for a command the person typed.
-    ///   - outsideSandbox: Whether the model asks to run it without wisp's sandbox (ADR 0064): after the policy's
-    ///     lists, the person is asked about the whole line whatever its level, and approved, it runs without
-    ///     `sandbox-exec`, this once. It changes nothing with the sandbox off or inside another sandbox, is refused
-    ///     when the operator turned it off, and is ignored for a command the person typed.
+    ///   - outsideSandbox: Whether to run it without wisp's sandbox (ADR 0064): after the policy's lists, the model's
+    ///     command is put to the person as the whole line whatever its level, and approved, runs without
+    ///     `sandbox-exec`, this once; a command the person typed after `!!` (`.person`) runs so at once, typing it
+    ///     being the approval (amended 2026-10-14). Either way it changes nothing with the sandbox off or inside
+    ///     another sandbox, and is refused when the operator turned it off.
     /// - Returns: The exit status and bounded output.
     /// - Throws: `Failure` if the policy rejects the command or it cannot be started.
     public func run(
@@ -416,8 +439,7 @@ public struct CommandRunner: Sendable {
     ) async throws -> Outcome {
         let workingDirectory = try Self.existingDirectory(directory)
         let outside = OutsideSandbox.resolve(
-            requested: outsideSandbox && origin == .model, sandbox: options.policy.sandbox,
-            nested: Self.isNestedSandbox)
+            requested: outsideSandbox, sandbox: options.policy.sandbox, nested: Self.isNestedSandbox)
         try await admit(
             command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin, outside: outside)
         decide(.allowed, command: command, in: workingDirectory, origin: origin, outside: outside)
@@ -551,7 +573,8 @@ public struct CommandRunner: Sendable {
     /// Checks the policy for the line and each simple command in it, then clears the line through `gate`;
     /// records the denial or refusal when there is one. A line the model asked to run outside the sandbox
     /// (`outside` `.asked`) is cleared by the person alone (`ApprovalGate.clear(outsideSandbox:…)`), and one the
-    /// operator turned that off for is denied after the lists.
+    /// operator turned that off for is denied after the lists. A command the person typed (`origin` `.person`) passes
+    /// the lists and the switch and no gate: typing it is the approval, `!!` included.
     ///
     /// - Throws: `Failure.denied` or `Failure.disapproved`.
     private func admit(
@@ -568,10 +591,12 @@ public struct CommandRunner: Sendable {
             throw Failure.denied(reason)
         }
         if outside == .turnedOff {
-            let reason = OutsideSandbox.turnedOffReason
+            let reason = OutsideSandbox.turnedOffReason(for: origin)
             decide(.denied, reason: reason, command: command, in: workingDirectory, origin: origin, outside: outside)
             throw Failure.denied(reason)
         }
+        // The person's own command has no gate: typing it, `!!` included, is the approval (ADR 0049, ADR 0064).
+        guard origin == .model else { return }
         do {
             if outside == .asked {
                 guard let gate else { throw ApprovalGate.Failure.refused(Self.noGateReason) }
@@ -602,7 +627,7 @@ public struct CommandRunner: Sendable {
         var outcome = try await launch(
             command, in: workingDirectory, sandboxed: sandboxed && !unconfined, limit: limit, stop: stop)
         outcome.outsideSandbox = unconfined
-        outcome.outsideNote = outside.note
+        outcome.outsideNote = outside.note(for: origin)
         if !unconfined, let refusal = sandboxRefusal(outcome, in: workingDirectory) {
             outcome.sandboxRefusal = refusal
             outcome.sandboxNote = refusal.note(roots: writableRoots)

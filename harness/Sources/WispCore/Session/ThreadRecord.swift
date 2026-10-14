@@ -162,17 +162,21 @@ public struct ThreadRecord: Sendable {
         public var truncated: Bool
         /// Whether the person stopped it (Ctrl-C) before it finished (ADR 0049, amended 2026-10-09).
         public var stopped: Bool
+        /// Whether it ran outside the sandbox, typed after `!!` (ADR 0064, amended 2026-10-14).
+        public var outsideSandbox: Bool
 
-        /// The keys it is saved under; `stopped` is written only when true, so a record saved before it existed reads.
+        /// The keys it is saved under; `stopped` and `outsideSandbox` are written only when true, so a record saved
+        /// before they existed reads.
         private enum CodingKeys: String, CodingKey {
-            case line, directory, exitStatus, timedOut, truncated, stopped
+            case line, directory, exitStatus, timedOut, truncated, stopped, outsideSandbox
         }
 
         /// Creates a description.
         public init(
             line: String, directory: String, exitStatus: Int32, timedOut: Bool = false, truncated: Bool = false,
-            stopped: Bool = false
+            stopped: Bool = false, outsideSandbox: Bool = false
         ) {
+            self.outsideSandbox = outsideSandbox
             self.line = line
             self.directory = directory
             self.exitStatus = exitStatus
@@ -181,7 +185,8 @@ public struct ThreadRecord: Sendable {
             self.stopped = stopped
         }
 
-        /// Reads a saved description; one saved without `stopped` was not stopped.
+        /// Reads a saved description; one saved without `stopped` was not stopped, and one without `outsideSandbox`
+        /// ran in the sandbox.
         ///
         /// - Parameter decoder: The decoder.
         /// - Throws: `DecodingError` when a required field is missing or of the wrong type.
@@ -193,9 +198,10 @@ public struct ThreadRecord: Sendable {
             timedOut = try container.decode(Bool.self, forKey: .timedOut)
             truncated = try container.decode(Bool.self, forKey: .truncated)
             stopped = try container.decodeIfPresent(Bool.self, forKey: .stopped) ?? false
+            outsideSandbox = try container.decodeIfPresent(Bool.self, forKey: .outsideSandbox) ?? false
         }
 
-        /// Writes the description, `stopped` only when true.
+        /// Writes the description, `stopped` and `outsideSandbox` only when true.
         ///
         /// - Parameter encoder: The encoder.
         /// - Throws: `EncodingError` from the encoder.
@@ -207,6 +213,7 @@ public struct ThreadRecord: Sendable {
             try container.encode(timedOut, forKey: .timedOut)
             try container.encode(truncated, forKey: .truncated)
             if stopped { try container.encode(stopped, forKey: .stopped) }
+            if outsideSandbox { try container.encode(outsideSandbox, forKey: .outsideSandbox) }
         }
     }
 

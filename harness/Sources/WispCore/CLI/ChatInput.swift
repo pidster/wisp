@@ -53,19 +53,26 @@ public enum ChatInput: Equatable, Sendable {
     /// List, answer, or decline the questions the model asked under `wisp mcp` (ADR 0062).
     case questions(QuestionsRequest)
     /// A command the person runs themselves (ADR 0049): a line that starts with `!`, with what follows it,
-    /// trimmed; empty for a bare `!`, which runs nothing.
-    case command(String)
+    /// trimmed; empty for a bare `!`, which runs nothing. `outsideSandbox` is true for a line that starts with `!!`,
+    /// the two marks together (ADR 0064, amended 2026-10-14): the command runs without wisp's sandbox. `! !x`, with a
+    /// space between them, is an ordinary command whose text is `!x`; `!!` alone runs nothing, as `!` does.
+    case command(String, outsideSandbox: Bool = false)
     /// A message for the model.
     case message(String)
     /// A slash command that does not exist.
     case unknown(String)
 
     /// Parses a raw line. Leading and trailing whitespace is ignored; a line
-    /// starting with `!` is a command the person runs, one starting with `/` is a
-    /// chat command, a bare `exit`, `quit`, or `q` ends the session, and anything
-    /// else is a message, a `!` inside it included.
+    /// starting with `!!` is a command the person runs outside the sandbox, one starting with `!` a command they run
+    /// in it, one starting with `/` a chat command, a bare `exit`, `quit`, or `q` ends the session, and anything
+    /// else is a message, a `!` inside it included. `!!` is not the shell's history: `sh -c` keeps none.
     public init(line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("!!") {
+            self = .command(
+                String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines), outsideSandbox: true)
+            return
+        }
         if trimmed.hasPrefix("!") {
             self = .command(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines))
             return
@@ -157,6 +164,11 @@ public enum ChatInput: Equatable, Sendable {
             about:
                 "run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops "
                 + "it); the model is told next turn"),
+        HelpEntry(
+            usage: "!!COMMAND",
+            about:
+                "run it yourself OUTSIDE the sandbox: it may write anywhere you can, ~/.wisp included; typing it is "
+                + "the approval (! !COMMAND runs !COMMAND in the sandbox)"),
         HelpEntry(
             usage: "/tools", about: "the tools the model can call", names: ["tools"],
             command: { _ in .tools }),
@@ -276,6 +288,7 @@ public enum ChatInput: Equatable, Sendable {
 
         In wisp-tui:
           !                           at the start of the line, command mode; Backspace there leaves it
+          ! in command mode           at its start, outside the sandbox (red); Backspace there steps back
           Ctrl-O                      the last tool output in full; again to close
           Ctrl-T                      the model's context in a panel
           Left, Right                 in that panel, the previous or next turn's context

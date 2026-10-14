@@ -55,6 +55,8 @@ public enum ChatEvents {
         case .policyDecision where d["verdict"]?.stringValue != "allowed":
             let reason = d["reason"]?.stringValue.map { ": \($0)" } ?? ""
             return style.ember("  · blocked by policy\(reason)")
+        case .policyDecision where d["origin"] == "person":
+            return outside(d, style: style)
         case .modelRouted:
             return style.muted(
                 "  · \(d["task"]?.stringValue ?? "task") runs on \(d["model"]?.stringValue ?? "?"): "
@@ -145,6 +147,29 @@ public enum ChatEvents {
             return style.ember(
                 "  · the sandbox refused it, as it would the model's: commands write only within wisp's writable roots"
             )
+        }
+    }
+
+    /// The line for the allowed `policy.decision` of a command the person typed after `!!` (ADR 0064, amended
+    /// 2026-10-14), shown before it runs: that it runs outside the sandbox, or why that changed nothing. Nil for a
+    /// command typed after `!`, which needs no line.
+    ///
+    /// - Parameters:
+    ///   - d: The event's details.
+    ///   - style: Styling.
+    /// - Returns: The line, or nil.
+    static func outside(_ d: [String: JSONValue], style: Style) -> String? {
+        if d["outsideSandbox"] == true {
+            return style.ember("  ! running OUTSIDE the sandbox, as you typed it: it may write anywhere you can")
+        }
+        switch d["outsideSandboxIgnored"]?.stringValue {
+        case CommandRunner.OutsideSandbox.Unchanged.sandboxOff.rawValue?:
+            return style.muted("  · !! changes nothing here: the sandbox is off, so every command runs without it")
+        case CommandRunner.OutsideSandbox.Unchanged.nested.rawValue?:
+            return style.muted(
+                "  · !! changes nothing here: wisp runs inside another sandbox, which confines this command")
+        default:
+            return nil
         }
     }
 

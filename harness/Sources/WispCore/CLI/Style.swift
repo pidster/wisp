@@ -52,6 +52,13 @@ public struct Style: Sendable, Equatable {
         /// A command's line in `wisp-tui`'s scrollback: `command` at half its brightness, as a sent prompt's
         /// tint is the input box's.
         public static let commandSent = (0x74, 0x5A, 0x3C)
+        /// A command the person types after `!!`, to run outside the sandbox (ADR 0064, amended 2026-10-14):
+        /// `wisp-tui`'s input box in that mode, a muted red, darker and greyer than `ember` and `removed`, so it reads
+        /// as command mode's red sibling rather than as an error; the plain chat colours its prompt marker with it.
+        public static let outside = (0xD2, 0x70, 0x68)
+        /// An outside command's line in `wisp-tui`'s scrollback: `outside` at half its brightness, as `commandSent`
+        /// is of `command`.
+        public static let outsideSent = (0x69, 0x38, 0x34)
     }
 
     private func rgb(_ colour: (Int, Int, Int), _ text: String) -> String {
@@ -80,6 +87,9 @@ public struct Style: Sendable, Equatable {
     public func tokensOut(_ text: String) -> String { rgb(Palette.tokensOut, text) }
     /// The prompt marker of a command the person typed after `!`: the command colour, bold.
     public func command(_ text: String) -> String { bold(rgb(Palette.command, text)) }
+    /// The prompt marker of a command the person typed after `!!`, to run outside the sandbox: the outside colour,
+    /// bold.
+    public func outside(_ text: String) -> String { bold(rgb(Palette.outside, text)) }
 
     /// Bold.
     public func bold(_ text: String) -> String { wrap("1", text) }

@@ -365,6 +365,15 @@ asked; the gate refuses. Approved, the runner launches the shell without `sandbo
 (nothing confined it), and marks the outcome `outsideSandbox`, whose `outsideNote` the result ends with. The request
 travels to every face as the request's `kind`: the pending file's `outsideSandbox` (bound into the SHA-256), the
 `approval` line's `outsideSandbox` for `wisp-tui`, and the dialogs' own wording.
+The person's own `!!` line (amended 2026-10-14) takes the same resolution with `origin` `.person`: `ChatInput`
+parses it as `.command(_, outsideSandbox: true)`, `Agent.runTyped(_:in:stop:outsideSandbox:)` passes it on, and
+`admit` returns after the lists and the switch, with no gate, so `asked` launches without `sandbox-exec` at once;
+`OutsideSandbox.note(for:)` and `turnedOffReason(for:)` give the person's wording. `PersonCommand.outsideSandbox`
+carries it into the thread record (written only when true), so the model's notice says it ran outside the sandbox.
+`ChatEvents.outside` turns the person's allowed `policy.decision` into the chat's line before the command runs.
+In `wisp-tui` the input box's `InputMode` (`Normal`, `Command`, `Outside`) replaces command mode's flag: `!` at the
+start steps up (`InputMode::up`), Backspace at the start or Delete in an empty box steps down, a paste steps up once
+per leading `!`, and `App::marked` writes the line with its marks, `! !x` for command mode text that starts with `!`.
 
 **Approval through another face** ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Under `wisp mcp`,
 `Session.mcpApprover` composes `OutOfBandApprover` from the configuration: it files the request in the

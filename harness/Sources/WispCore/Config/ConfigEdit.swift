@@ -84,7 +84,8 @@ public enum ConfigSettings {
             kind: .integer(Config.commandMaxTimeoutRange)),
         Setting(
             path: "commandPolicy.sandbox.allowOutsideSandbox",
-            summary: "let the model ask to run one command outside the sandbox, which you approve each time",
+            summary:
+                "let the model ask to run one command outside the sandbox, which you approve each time, and you run one after !!",
             kind: .flag),
         Setting(
             path: "commandMaxOutputBytes",

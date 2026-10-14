@@ -181,7 +181,8 @@ enum OutputReference {
         if command.stopped { status += ", stopped by the person" }
         let clock = time.map { " at " + Self.clock($0, in: timeZone) } ?? ""
         let head =
-            "[the person ran `\(shortened(flat(command.line), to: argumentCharacters))` themselves in "
+            "[the person ran `\(shortened(flat(command.line), to: argumentCharacters))` themselves"
+            + (command.outsideSandbox ? ", outside the sandbox," : "") + " in "
             + "\(shortened(command.directory, to: lineCharacters))\(clock) (\(status), \(plural(lines.count, "line")))"
             + "; this was not your action"
         guard !lines.isEmpty else { return head + "; it printed nothing]" }

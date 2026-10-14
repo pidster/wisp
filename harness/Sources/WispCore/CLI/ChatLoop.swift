@@ -443,8 +443,8 @@ public struct ChatLoop {
                 await config(request)
             case .unknown(let command):
                 io.note("unknown command /\(command); /help lists commands")
-            case .command(let command):
-                await run(typed: command, as: line)
+            case .command(let command, let outsideSandbox):
+                await run(typed: command, outsideSandbox: outsideSandbox, as: line)
             case .message(let text):
                 guard !text.isEmpty else { continue }
                 // The agent advances the clock as the prompt arrives, so this is the number the turn's
@@ -533,22 +533,29 @@ public struct ChatLoop {
     /// the activity says so; its `command.outcome` line then reads `↳ exit -15 (stopped by you)` and the chat goes
     /// on.
     ///
+    /// A line typed after `!!` (ADR 0064, amended 2026-10-14) runs outside the sandbox; its `policy.decision` arrives
+    /// through the tap before it starts and says so (`ChatEvents.render`), as it says when the request changed nothing
+    /// or was turned off, and the activity reads `running … outside the sandbox`.
+    ///
     /// - Parameters:
-    ///   - command: The command line, without the `!`; empty runs nothing.
+    ///   - command: The command line, without the `!` or `!!`; empty runs nothing.
+    ///   - outsideSandbox: Whether it was typed after `!!`.
     ///   - line: The line as typed, for the face's marker.
-    private func run(typed command: String, as line: String) async {
+    private func run(typed command: String, outsideSandbox: Bool = false, as line: String) async {
         guard !command.isEmpty else {
-            io.note(style.muted("nothing to run: type a command after !, as in ! git status"))
+            let example = outsideSandbox ? "!! brew upgrade" : "! git status"
+            io.note(
+                style.muted("nothing to run: type a command after \(outsideSandbox ? "!!" : "!"), as in \(example)"))
             return
         }
         io.command(line)
-        let shortened = ChatEvents.shortened(command)
+        let shortened = ChatEvents.shortened(command) + (outsideSandbox ? " outside the sandbox" : "")
         let stop = CommandStop()
         let activity = context.activity
         let interrupt = context.interrupt
         activity?.begin(doing: "running " + shortened, stoppable: interrupt != nil)
         interrupt?.arm(command, stop: stop) { _ in activity?.stopping("stopping " + shortened) }
-        let typed = await agent.runTyped(command, in: context.directory, stop: stop)
+        let typed = await agent.runTyped(command, in: context.directory, stop: stop, outsideSandbox: outsideSandbox)
         interrupt?.disarm()
         activity?.end()
         switch typed.result {
@@ -579,7 +586,8 @@ public struct ChatLoop {
 
     /// What the terminal writes to colour the prompt marker of a typed command's line in the command colour once
     /// the line has been read: up over the rows the prompt and the line took, the marker again, and back down.
-    /// Nil when the terminal's width is unknown or the style has no colour, where it writes nothing.
+    /// Nil when the terminal's width is unknown or the style has no colour, where it writes nothing. A line typed after
+    /// `!!`, to run outside the sandbox, takes the outside colour instead (ADR 0064, amended 2026-10-14).
     ///
     /// - Parameters:
     ///   - line: The line as typed.
@@ -589,6 +597,8 @@ public struct ChatLoop {
     public static func commandMarker(for line: String, width: Int?, style: Style) -> String? {
         guard let width, width > 0, style.command("›") != "›" else { return nil }
         let rows = max(1, (2 + line.count + width - 1) / width)
-        return "\u{1B}[\(rows)A\r" + style.command("›") + "\u{1B}[\(rows)B\r"
+        let outside = line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("!!")
+        let marker = outside ? style.outside("›") : style.command("›")
+        return "\u{1B}[\(rows)A\r" + marker + "\u{1B}[\(rows)B\r"
     }
 }

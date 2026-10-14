@@ -3,7 +3,9 @@
 Date: 2026-10-04. Status: accepted. Amended by [ADR 0054](0054-the-sandboxs-refusals-checked.md): the note for a
 command the sandbox refuses comes from a check of the paths in its error, not a guess. Amended on 2026-10-09: a typed command
 has no timeout, and the person stops it with Ctrl-C (below). Amended on 2026-10-11: Ctrl-C during a model's turn stops
-the turn and the command it started (below).
+the turn and the command it started (below). Amended by [ADR 0064](0064-an-approved-run-outside-the-sandbox.md)
+(amended 2026-10-14): a line typed after `!!` runs outside the sandbox, the step in the table below that a typed
+command keeps; `wisp-tui`'s command mode gains a red outside mode one `!` further.
 
 ## Context
 

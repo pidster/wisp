@@ -55,7 +55,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command: !COMMAND (run it yourself), !!COMMAND (run it yourself outside the sandbox), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr

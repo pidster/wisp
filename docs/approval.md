@@ -287,7 +287,9 @@ A command the model asks to run without the sandbox (`run_command`'s `outsideSan
 [tools/run_command.md](tools/run_command.md#running-outside-the-sandbox),
 [ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)) asks through the same gate, with a request of its
 own kind (`ApprovalRequest.Kind.outsideSandbox`), after the policy's lists and the operator's switch
-(`commandPolicy.sandbox.allowOutsideSandbox`). Every part is classified and audited as usual, and then:
+(`commandPolicy.sandbox.allowOutsideSandbox`). (A command the person types after `!!` in chat runs outside the
+sandbox without this gate: typing it is the approval, ADR 0064 amended 2026-10-14, [wisp.md](wisp.md#commands-you-run-yourself).)
+Every part is classified and audited as usual, and then:
 
 | | A run outside the sandbox |
 | --- | --- |

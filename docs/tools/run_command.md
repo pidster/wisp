@@ -155,8 +155,17 @@ face. With the sandbox off (`sandbox.enabled` false, `--unsafe`) the argument ch
 `sandbox: outsideSandbox changed nothing: the sandbox is off here`. When wisp itself runs inside another sandbox,
 wisp cannot leave it, so the command runs under that one as every command does there: `sandbox: outsideSandbox
 changed nothing: wisp runs inside another sandbox, which confined this command`. A command the person types after
-`!` never carries the argument. `policy.decision`, `approval.requested`, `approval.decided`, `approval.pending`, and
+`!` never carries the argument; one typed after `!!` runs outside the sandbox without asking (below). `policy.decision`, `approval.requested`, `approval.decided`, `approval.pending`, and
 `command.outcome` record `outsideSandbox` ([logging.md](../logging.md)).
+
+The person can run a command outside the sandbox themselves, in chat, by typing it after `!!` (`!!brew upgrade`;
+`wisp-tui`'s outside mode, its input box red): the same runner path as a command typed after `!`, with
+`outsideSandbox` set and no one asked, since typing it is the approval (ADR 0064, amended 2026-10-14). The deny and
+allow lists apply, `sandbox.allowOutsideSandbox` false refuses it (`… type it after a single ! to run it in the
+sandbox`), and with the sandbox off or nested it changes nothing, as above. It has no time limit, as any typed
+command; Ctrl-C stops it. Its events carry `origin: "person"` and `outsideSandbox: true`
+([wisp.md](../wisp.md#commands-you-run-yourself)). The model is never offered it: `!!` is a line the person types,
+not an argument.
 
 ### Risk classification and approval
 

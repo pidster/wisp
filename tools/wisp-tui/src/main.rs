@@ -556,13 +556,18 @@ fn insert(terminal: &mut ratatui::DefaultTerminal, line: &HistoryLine, width: u1
 }
 
 /// The background and strip styles a sent line is drawn in: an ordinary prompt's on the sent tint, a
-/// command's on the command colour's darker shade; `None` for every other line.
+/// command's on the command colour's darker shade, an outside command's on the outside colour's; `None` for every
+/// other line.
 fn sent_tint(kind: LineKind) -> Option<(Style, Style)> {
     match kind {
         LineKind::User => Some((palette::sent_background(), palette::sent_edge())),
         LineKind::Command => Some((
             palette::command_sent_background(),
             palette::command_sent_edge(),
+        )),
+        LineKind::Outside => Some((
+            palette::outside_sent_background(),
+            palette::outside_sent_edge(),
         )),
         _ => None,
     }
@@ -594,7 +599,7 @@ fn sent(
 /// A history line in its colours; a reply's Markdown is rendered here, as the line is committed.
 fn styled(line: &HistoryLine) -> Line<'static> {
     let style = match line.kind {
-        LineKind::User | LineKind::Command => palette::user(),
+        LineKind::User | LineKind::Command | LineKind::Outside => palette::user(),
         LineKind::Reply => {
             return Line::from(
                 markdown::spans(&line.text)
@@ -946,6 +951,21 @@ mod tests {
             Some((palette::sent_background(), palette::sent_edge()))
         );
         assert_eq!(super::sent_tint(LineKind::Note), None);
+        // An outside command's line sits on the outside colour's darker shade, in the same light text.
+        let outside = HistoryLine {
+            text: "!! brew upgrade".into(),
+            kind: LineKind::Outside,
+        };
+        let text = styled(&outside);
+        assert_eq!(text.spans[0].style, palette::user());
+        let tint = super::sent_tint(LineKind::Outside)
+            .unwrap_or((palette::sent_background(), palette::sent_edge()));
+        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 16, 3));
+        super::sent(&mut buffer, text, 16, 14, 1, tint);
+        assert_eq!(buffer[(15, 1)].bg, palette::OUTSIDE_SENT);
+        assert_eq!(buffer[(1, 1)].fg, palette::WHITE);
+        assert_eq!(buffer[(0, 0)].fg, palette::OUTSIDE_SENT);
+        assert_eq!(buffer[(0, 2)].fg, palette::OUTSIDE_SENT);
     }
 
     #[test]

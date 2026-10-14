@@ -145,6 +145,21 @@ nothing. In the scrollback the command's line is a stripe in a darker, faded sha
 (`commandSent`, #745A3C) with light text, `! git status --short`, as a prompt's is the darker shade of the
 input. Up and Down bring a command back in command mode.
 
+Outside mode is the step after command mode, for a command you run outside the sandbox
+([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), amended 2026-10-14). Typing `!` at the start of
+the line in command mode switches to it: the box turns a muted red (`outside`, #D27068, darker and greyer than the
+error colour) with black text, its marker becomes `!!`, and the hint reads `Run a command yourself OUTSIDE the
+sandbox: it may write anywhere you can`. A `!` at the start in outside mode is text. Backspace at the start of the
+line (Delete in an empty box) steps back one mode, to command mode's amber, and another to the normal prompt, keeping
+what you typed. A paste at the start of the line steps up a mode for each `!` it starts with, as typing them does:
+`!!brew upgrade` pasted into an empty box enters outside mode with `brew upgrade`, and `!x` pasted at the start in
+command mode enters outside mode with `x`. Enter sends `!!brew upgrade`; its scrollback line is `!! brew upgrade` on
+the outside colour's darker shade (`outsideSent`, #693834), and Up and Down bring it back in outside mode. Text in
+the normal box that starts with `!!` (pasted after a space, say) is not sent unseen: Enter puts the box in outside
+mode with the rest, and a second Enter sends it. A command mode line whose text starts with `!` is sent as `! !x`, so
+it runs in the sandbox as the amber box showed. The colours are a first proposal, not yet chosen from renders as
+command mode's were.
+
 While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
 place of the cursor, `… working: read_file README.md` or `… working: waiting for the model`; for a command you
 typed, which has no time limit, what it runs, for how long, and how to stop it, `… running ollama pull
@@ -250,6 +265,20 @@ input while one runs, wisp kills it, so none outlives the chat. A bare `!` runs 
 message is text. `wisp-tui` has a command mode for it (above); the plain chat, which has no box, colours the
 line's prompt marker in the command colour once you press Enter.
 
+A line that starts with `!!`, the two marks together, is a command you run outside the sandbox
+([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), amended 2026-10-14): `!!brew upgrade` and `!! brew
+upgrade` run `brew upgrade` without wisp's Seatbelt profile, for the chores the sandbox refuses (Homebrew, `cargo
+install`, `rustup update`). Typing it is the approval, as for `!`: nothing asks, nothing is classified. The policy's
+deny and allow lists still apply, and so do the output bound, no time limit, and Ctrl-C. It may write anywhere you
+can, `~/.wisp` included. Before it runs chat says `! running OUTSIDE the sandbox, as you typed it: it may write
+anywhere you can`, and the plain chat colours the line's prompt marker in the outside colour; `wisp-tui` has outside
+mode for it (above). With `commandPolicy.sandbox.allowOutsideSandbox` false it is refused, `· blocked by policy:
+running outside the sandbox is turned off here (…); type it after a single ! to run it in the sandbox`. With the
+sandbox off, or wisp inside another sandbox, it runs as a `!` command does and says `· !! changes nothing here: …`.
+Only the two marks together count: `! !x`, with a space, runs `!x` in the sandbox. `!!` alone runs nothing. `!!` is
+not the shell's history, which `sh -c` does not keep. The model's notice says you ran it `outside the sandbox`, and
+the audit marks it (`outsideSandbox: true` on `policy.decision`, `command.outcome`, and `command.typed`).
+
 Stopping a turn: Ctrl-C while the model is working, in the plain chat and in `wisp-tui`, stops the turn
 ([ADR 0049](decisions/0049-commands-typed-in-chat.md), amended 2026-10-11). The request to the model is cancelled (a
 local runtime's connection is closed, MLX's generation cancelled; Apple's models stop at their next words), and a
@@ -268,6 +297,7 @@ The checks that protect the Mac stay; the ones that stand in for you go:
 | Risk classifier | yes | no |
 | Your approval | at `moderate` and above | no: typing it is the approval |
 | Audit log | yes | yes: `policy.decision` and `command.outcome` marked `origin: "person"`, then `command.typed` ([logging.md](logging.md)) |
+| Running outside the sandbox | when the model asks with `outsideSandbox` and you approve that one run | when you type `!!`; the deny and allow lists and `allowOutsideSandbox` still apply |
 
 What the command printed (stdout, then stderr) is shown as a tool's output is: `↳ exit 0`, then up to
 `shownOutputLines` lines and the fold line, `… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`, which
@@ -363,7 +393,8 @@ What a session shows, and where it goes:
   past 80%; ember marks dangerous and errors; green and red mark lines added and removed; pale yellow
   marks tokens read; a muted pale amber (`command`, apart from the approvals' amber) marks a command you
   typed: the plain chat's prompt marker, and `wisp-tui`'s input box in command mode, whose scrollback stripe
-  is its darker shade (`commandSent`). White is for the conversation, bold for your own words. Colour is off when piped,
+  is its darker shade (`commandSent`); a muted red (`outside`, darker than ember) marks one typed after `!!`, to
+  run outside the sandbox, in the same places, with its darker shade (`outsideSent`). White is for the conversation, bold for your own words. Colour is off when piped,
   when `NO_COLOR` is set, or when `TERM` is `dumb`.
 
 | Flag | Meaning |
@@ -382,8 +413,9 @@ What a session shows, and where it goes:
 
 | Command | Effect |
 | --- | --- |
-| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, Ctrl-O, Ctrl-T, Left and Right in the context panel, Up and Down in a long message, Down to the status bar). |
+| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, and again for outside mode, Ctrl-O, Ctrl-T, Left and Right in the context panel, Up and Down in a long message, Down to the status bar). |
 | `!COMMAND` | Run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops it); the model is told on its next request. See "Commands you run yourself". |
+| `!!COMMAND` | The same, outside the sandbox: it may write anywhere you can, `~/.wisp` included; typing it is the approval. `! !COMMAND`, with a space, runs `!COMMAND` in the sandbox. See "Commands you run yourself". |
 | `/tools` | List the tools the model can call. |
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
@@ -490,7 +522,9 @@ title. A fact to keep is a dialog of its own, titled "keep as a permanent fact? 
 Then `{"type":"message","text":"…"}` for a chat line, slash commands included; a text that starts with `!` is a
 command the person runs, exactly as a line typed in the plain chat ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
 `wisp-tui` sends what is typed in command mode this way, `{"type":"message","text":"!git status"}`, so the
-protocol needs no type of its own for it and a front end without a command mode can still run one. No `turn`
+protocol needs no type of its own for it and a front end without a command mode can still run one; a text that
+starts with `!!` is a command the person runs outside the sandbox, which `wisp-tui` sends from outside mode,
+`{"type":"message","text":"!!brew upgrade"}` (ADR 0064, amended 2026-10-14). No `turn`
 lines follow: the command's audit events arrive as `event` lines (`policy.decision`, `command.outcome`,
 `command.typed` with the output), then `status`. While it runs, `{"type":"interrupt"}` stops it (Ctrl-C in
 `wisp-tui`): its process group gets SIGTERM, then SIGKILL two seconds later, and a second `interrupt` kills it at
@@ -872,7 +906,7 @@ wisp config unset approval.timeoutSeconds
 | `routing.tasks.secrets` | A model for the thorough pass of `wisp scan`, `wisp redact`, and the MCP tools `scan_secrets` and `redact`; unset, `system`. |
 | `commandTimeoutSeconds` | Seconds, 0 to 86,400; 0 is no limit. |
 | `commandMaxTimeoutSeconds` | Seconds, 1 to 86,400. |
-| `commandPolicy.sandbox.allowOutsideSandbox` | `true` (the default) or `false`: whether the model may ask to run one command outside the sandbox, which you approve each time ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)). The rest of `commandPolicy` is edited by hand. |
+| `commandPolicy.sandbox.allowOutsideSandbox` | `true` (the default) or `false`: whether the model may ask to run one command outside the sandbox, which you approve each time, and whether you may run one yourself after `!!` ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)). The rest of `commandPolicy` is edited by hand. |
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576; unset takes the tool-output budget. |
 | `tools.disabled` | Built-in tool names. |
 | `tools.models` | `true` or `false` (the default): whether a conversation given every tool gets the model's `models` tool, to list models and ask to pull, enable, disable, or check one ([tools/models.md](tools/models.md)). A tool list that names `models` gets it either way. |

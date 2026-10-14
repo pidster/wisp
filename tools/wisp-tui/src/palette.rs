@@ -33,7 +33,13 @@ pub const TOKENS_OUT: Color = GLOW;
 pub const COMMAND: Color = Color::Rgb(0xE8, 0xB5, 0x77);
 /// A command's line in the scrollback: `COMMAND` at half its brightness, as `SENT` is of `DEEP`.
 pub const COMMAND_SENT: Color = Color::Rgb(0x74, 0x5A, 0x3C);
-/// The text on `COMMAND`.
+/// Outside mode (ADR 0064, amended 2026-10-14): the input box's background while a `!!` command is typed, to run
+/// outside the sandbox, a muted red, darker and greyer than `EMBER` and `REMOVED`, so it reads as command mode's red
+/// sibling rather than as an error.
+pub const OUTSIDE: Color = Color::Rgb(0xD2, 0x70, 0x68);
+/// An outside command's line in the scrollback: `OUTSIDE` at half its brightness, as `COMMAND_SENT` is of `COMMAND`.
+pub const OUTSIDE_SENT: Color = Color::Rgb(0x69, 0x38, 0x34);
+/// The text on `COMMAND` and on `OUTSIDE`.
 pub const BLACK: Color = Color::Rgb(0x00, 0x00, 0x00);
 
 /// The user's own words.
@@ -143,6 +149,22 @@ pub fn command_sent_background() -> Style {
 /// The half-block strips above and below a command's line.
 pub fn command_sent_edge() -> Style {
     Style::default().fg(COMMAND_SENT)
+}
+/// The input row's background in outside mode; its text, hint, and marks are command mode's black.
+pub fn outside_background() -> Style {
+    Style::default().bg(OUTSIDE)
+}
+/// The half-block strips above and below the input in outside mode.
+pub fn outside_edge() -> Style {
+    Style::default().fg(OUTSIDE)
+}
+/// An outside command's line's background in the scrollback.
+pub fn outside_sent_background() -> Style {
+    Style::default().bg(OUTSIDE_SENT)
+}
+/// The half-block strips above and below an outside command's line.
+pub fn outside_sent_edge() -> Style {
+    Style::default().fg(OUTSIDE_SENT)
 }
 /// The input while a turn runs: dimmed, so it reads as inactive.
 pub fn busy() -> Style {
