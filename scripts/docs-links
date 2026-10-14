@@ -107,17 +107,34 @@ awk -v src="$SRC" -v blob="$BLOB" -v files="$work/files" -v dirs="$work/dirs" -v
 
     # read(page, file, depth): scans a file as part of page, following {{#include}} once (mdBook inserts the
     # included text as it is, so its links are read from the page).
+    # exact(path): whether path exists with its name spelled exactly, case included. macOS volumes ignore case, so
+    # a plain open of ../CHANGELOG.md from docs/decisions/ finds docs/changelog.md, which Linux, where the site is
+    # built, does not (the first docs workflow run, 2026-10-14).
+    function exact(path,   dir, name, cmd, entry, found) {
+        dir = dirname(path); name = path; sub(/^.*\//, "", name)
+        if (dir == "") dir = "."
+        cmd = "ls -1a \"" dir "\" 2>/dev/null"
+        found = 0
+        while ((cmd | getline entry) > 0) if (entry == name) found = 1
+        close(cmd)
+        return found
+    }
+
+    # read(page, file, depth): scans a file as part of page, following {{#include}} once (mdBook inserts the
+    # included text as it is, so its links are read from the page). An include escaped as \{{#include …}}, which
+    # mdBook leaves as text, is not followed.
     function read(page, file, depth,   l, n, fence, inc, incfile) {
         n = 0; fence = 0
         while ((getline l < file) > 0) {
             n++
             if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; continue }
             if (fence) continue
-            if (match(l, /\{\{#include [^}]+\}\}/)) {
+            if (match(l, /(^|[^\\])\{\{#include [^}]+\}\}/)) {
+                if (substr(l, RSTART, 1) != "{") { RSTART++; RLENGTH-- }
                 inc = substr(l, RSTART + 11, RLENGTH - 13)
                 sub(/:.*$/, "", inc)
                 incfile = normalize(dirname(file) "/" inc)
-                if (incfile == "\001" || (getline probe < incfile) < 0) {
+                if (incfile == "\001" || !exact(incfile) || (getline probe < incfile) < 0) {
                     problem(src "/" page ":" n, inc, "an include that does not exist")
                 } else {
                     close(incfile)

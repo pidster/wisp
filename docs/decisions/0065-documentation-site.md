@@ -35,7 +35,7 @@ writes to `book/`, which git ignores. `docs/SUMMARY.md` is the table of contents
 | Guides | New, under `docs/guide/`: install and first run, delegating from Claude Code and Codex, approvals and the sandbox, local models, configuration, troubleshooting. Each is a task's path through the reference, linking to it rather than repeating it |
 | Reference | `wisp.md`, `tools/` (its README and every tool), `mcp.md`, `trust.md`, `approval.md`, `logging.md`, `verification.md`, `context-management.md`, `backends.md`, `install-local-models.md`, `model-controls.md` |
 | Internals | The documentation index (`README.md`), `objective.md`, `design.md`, `policy-and-sandboxing.md`, `engineering.md`, `release.md`, `measurements.md`, `roadmap.md`, `backlog.md`, `on-device-ai-todo.md`, `fm-cli.md`, the local-model research pages, every decision in number order, the proposals, and the reviews |
-| Changelog | `changelog.md`, which includes the root `CHANGELOG.md` (`{{#include ../CHANGELOG.md}}`; mdBook reads an include outside `src`) |
+| Changelog | `changelog.md`, which includes the root `CHANGELOG.md` (`\{{#include ../CHANGELOG.md}}`, escaped here so this page does not include it; mdBook reads an include outside `src`) |
 
 The proposals and reviews are in the book, under Internals. They are Markdown in `docs/`, ADRs and pages link to
 them, and leaving them out would have meant rewriting those links to GitHub for no gain to a reader.
