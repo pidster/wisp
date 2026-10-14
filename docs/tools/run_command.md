@@ -11,6 +11,7 @@ machine.
 | `command` | string | yes | A POSIX shell command line, executed with `/bin/sh -c`. |
 | `workingDirectory` | string | no | Absolute path to run in. Default: wisp's current directory. A missing directory is an error. |
 | `timeoutSeconds` | integer | no | Seconds this command may run, for a long build or test. Default: the thread's limit (MCP `respond`'s `commandTimeoutSeconds`), else `commandTimeoutSeconds` (120). Above `commandMaxTimeoutSeconds` (1,800) it is cut to that; below 1 the result is `error: timeoutSeconds must be at least 1 …` and nothing runs ([ADR 0063](../decisions/0063-command-time-limits.md)). |
+| `outsideSandbox` | boolean | no | `true` asks to run this one command without the sandbox, for a command it refuses (`brew upgrade`, `cargo install`). The person is asked every time, whatever the command's risk, and approves that line once or not at all ([below](#running-outside-the-sandbox), [ADR 0064](../decisions/0064-an-approved-run-outside-the-sandbox.md)). Default: sandboxed. |
 
 ## Result
 
@@ -24,7 +25,8 @@ stderr:
 
 Extra lines appear when relevant: `timed out: the command was killed after 120 s; ask for up to 1800 s with
 timeoutSeconds` (or `…, the most allowed` when the limit was the cap), `stopped: the person stopped the command`,
-a `sandbox:` line (below), and, when more was printed than fits, a `held back:` note. Empty streams are omitted. A
+a `sandbox:` line (below, and for a command asked to run outside the sandbox), and, when more was printed than
+fits, a `held back:` note. Empty streams are omitted. A
 killed process reports its signal negated (for example `-15` for SIGTERM).
 
 **Output past the bound is held back, not dropped** ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)).
@@ -81,11 +83,13 @@ configured under `commandPolicy` in `config.json`:
 | `sandbox.enabled` | `true` | Run under `sandbox-exec`. |
 | `sandbox.allowNetwork` | `true` | Set `false` to deny all networking inside the sandbox. |
 | `sandbox.writablePaths` | `~/Library/Caches`, `~/.cargo/registry`, `~/.cargo/git` | Writable in addition to the directory wisp was launched in, `$TMPDIR`, the per-user cache directory (`getconf DARWIN_USER_CACHE_DIR`, where Clang keeps its module cache), and `/private/tmp`. A command's own `workingDirectory` never widens this. `~` expands. |
+| `sandbox.allowOutsideSandbox` | `true` | Whether the model may ask to run one command outside the sandbox (`outsideSandbox`), which the person approves each time; `false` refuses every such request. The policy's one field `wisp config set` changes ([below](#running-outside-the-sandbox)). |
 
 Inside the sandbox everything is readable and executable, but writes outside the writable set fail with
 `Operation not permitted`. So do writes to wisp's own home (`~/.wisp`, or `WISP_HOME`), wherever it is: the
-profile denies it after the allow rule (Seatbelt applies the last rule that matches), so a command can never change
-wisp's approvals, facts, configuration, or pending answers, even when the home lies inside the writable set (the
+profile denies it after the allow rule (Seatbelt applies the last rule that matches), so a sandboxed command can
+never change wisp's approvals, facts, configuration, or pending answers (one the person approved to run
+[outside the sandbox](#running-outside-the-sandbox) can), even when the home lies inside the writable set (the
 profile then carries a `; note:` comment saying so, and diagnostics log it). wisp itself writes its home in its
 own process, outside the sandbox. A denied pattern comes back to the model as `error: command denied by policy: …`
 so it can try something else.
@@ -107,7 +111,9 @@ permitted` from a nested `wisp` as the deny list's refusal (session `ce87576a`, 
 passed the policy. Seatbelt reports nothing of its own on macOS 27 (probed on 2026-10-04: no kernel `deny`
 record for a `sandbox-exec` profile, with `(debug deny)` or `(deny default)`; `(with report)` is refused on a deny
 rule; `(with send-signal …)` delivered nothing), so the error output is all there is to check. The line lists
-at most three paths and about 240 bytes of roots. `command.outcome` records the verdict as `sandboxRefusal`.
+at most three paths and about 240 bytes of roots. `command.outcome` records the verdict as `sandboxRefusal`. For a
+`refused` or a guess, while `sandbox.allowOutsideSandbox` is on, the line ends `; if it must, ask again with
+outsideSandbox true (the person approves each run)` ([ADR 0064](../decisions/0064-an-approved-run-outside-the-sandbox.md)).
 
 ```json
 { "commandPolicy": { "deny": ["sudo"], "allow": ["^(swift|cargo|git|ls|cat) "],
@@ -115,6 +121,42 @@ at most three paths and about 240 bytes of roots. `command.outcome` records the 
 ```
 
 `--unsafe` on `respond`, `chat`, and `mcp` turns both layers off with a warning on stderr.
+
+### Running outside the sandbox
+
+Some chores cannot run under the sandbox at all ([ADR 0064](../decisions/0064-an-approved-run-outside-the-sandbox.md)).
+Probed on 2026-10-14: `cargo update` in the project works, but `cargo install` writes `~/.cargo/bin` and
+`~/.cargo/.crates*.toml`, `rustup update` writes `~/.rustup`, and every Homebrew write goes to `/opt/homebrew/…` or
+`~/Library/Logs/Homebrew`, all outside the writable roots; `brew upgrade --dry-run` stops with Homebrew's "You should
+change the ownership of these directories". Widening `writablePaths` cannot fix Homebrew: Homebrew 7 runs its own
+`sandbox-exec` for fetching, post-install steps, and source builds, Seatbelt refuses a nested profile that differs
+(below), and Homebrew's opt-out is refused for the default prefix. Widening by default would also make
+`~/.cargo/bin` and `/opt/homebrew/bin`, both on `PATH`, writable to every command.
+
+So the model may ask for one command to run without the sandbox, with `outsideSandbox: true`:
+
+1. The policy's `deny` and `allow` patterns apply as to any command.
+2. With `sandbox.allowOutsideSandbox` false, it is refused: `error: command denied by policy: running outside the
+   sandbox is turned off here (commandPolicy.sandbox.allowOutsideSandbox is false); …`.
+3. The person is asked about the whole line, every time: whatever the classifier and `approval.threshold` say (a
+   read-only `ls` and `never` included), at `moderate` at least, with "runs OUTSIDE the sandbox: it may write anywhere
+   you can, ~/.wisp included; this one run only" first among the reasons. No earlier approval covers it, and the
+   answer covers nothing after it. It is approved once or not at all: the faces offer only that, and a wider answer
+   given anyway (`wisp approvals approve ID --scope session`) is taken as once ([approval.md](../approval.md#running-outside-the-sandbox)).
+4. Where no person can be asked (`--yes`, non-interactive `respond`, an MCP client with no dialog while
+   `approval.outOfBand` is off), it is refused with the reason: `error: command not approved: running outside the
+   sandbox is asked of a person every time, and no one can be asked here …`.
+5. Approved, it runs without `sandbox-exec`, under the same time limit, output bound, and output store, and the
+   result ends `sandbox: ran outside the sandbox, as the person approved, this once`.
+
+Without the sandbox, nothing protects wisp's home: the command can write anywhere the person can, `~/.wisp`
+included. That is what the person approves, for that exact line, and why it is asked every time and named on every
+face. With the sandbox off (`sandbox.enabled` false, `--unsafe`) the argument changes nothing and asks nothing more:
+`sandbox: outsideSandbox changed nothing: the sandbox is off here`. When wisp itself runs inside another sandbox,
+wisp cannot leave it, so the command runs under that one as every command does there: `sandbox: outsideSandbox
+changed nothing: wisp runs inside another sandbox, which confined this command`. A command the person types after
+`!` never carries the argument. `policy.decision`, `approval.requested`, `approval.decided`, `approval.pending`, and
+`command.outcome` record `outsideSandbox` ([logging.md](../logging.md)).
 
 ### Risk classification and approval
 

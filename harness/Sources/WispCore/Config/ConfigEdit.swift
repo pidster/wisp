@@ -2,7 +2,8 @@ import Foundation
 
 /// The settings a person can change from chat or `wisp config set`, and what each accepts
 /// ([ADR 0040](../../../../docs/decisions/0040-config-from-chat.md)). The rest of `config.json`
-/// (policies, custom tools, backend model tables) is edited by hand; an edit here keeps it as it is.
+/// (policies, custom tools, backend model tables) is edited by hand, but for the command policy's one switch,
+/// `commandPolicy.sandbox.allowOutsideSandbox` (ADR 0064); an edit here keeps it as it is.
 public enum ConfigSettings {
     /// What a setting's value is.
     public enum Kind: Equatable, Sendable {
@@ -81,6 +82,10 @@ public enum ConfigSettings {
             path: "commandMaxTimeoutSeconds",
             summary: "the most seconds a command's timeoutSeconds or a thread's commandTimeoutSeconds may ask for",
             kind: .integer(Config.commandMaxTimeoutRange)),
+        Setting(
+            path: "commandPolicy.sandbox.allowOutsideSandbox",
+            summary: "let the model ask to run one command outside the sandbox, which you approve each time",
+            kind: .flag),
         Setting(
             path: "commandMaxOutputBytes",
             summary: "bytes of a command's result the model is shown; unset takes the tool-output budget",
@@ -265,6 +270,7 @@ public enum ConfigSettings {
         case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
         case "commandMaxTimeoutSeconds": return .int(Int(d.runner.maxTimeout.components.seconds))
+        case "commandPolicy.sandbox.allowOutsideSandbox": return .bool(d.runner.policy.sandbox.allowOutsideSandbox)
         case "commandMaxOutputBytes": return d.runner.maxOutputBytes.map { .int($0) } ?? .null
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
         case "tools.models": return .bool(d.toolsModels)

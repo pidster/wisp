@@ -128,6 +128,10 @@ public struct PendingApprovals: Sendable {
         /// and earlier filed them, is the first set. A server only ever accepts the binding it computed itself, so
         /// a file changed to claim the older set is still refused when answered.
         public var bindingVersion: Int? = nil
+        /// True for a command line the model asked to run outside the sandbox (ADR 0064), approved this once alone,
+        /// whatever scope the answer gives; nil otherwise. Bound with the rest when true, so a file changed to drop
+        /// it is refused when answered.
+        public var outsideSandbox: Bool? = nil
 
         /// The binding these fields hash to.
         public var expectedBinding: String {
@@ -143,7 +147,8 @@ public struct PendingApprovals: Sendable {
                 id: id, command: command, line: line, pattern: pattern, directory: directory, level: level,
                 thread: thread, pid: pid, createdAt: createdAt)
             guard bindingVersion == PendingApprovals.bindingVersion else { return base }
-            return PendingApprovals.binding(base: base, reasons: reasons, expiresAt: expiresAt)
+            let bound = PendingApprovals.binding(base: base, reasons: reasons, expiresAt: expiresAt)
+            return outsideSandbox == true ? PendingApprovals.binding(outsideSandbox: bound) : bound
         }
 
         /// What it asks about, for a person: the command, the fact as one line, or the question.
@@ -280,6 +285,12 @@ public struct PendingApprovals: Sendable {
         ])
     }
 
+    /// A command request's binding when it is to run outside the sandbox (ADR 0064): the version 2 binding hashed
+    /// once more with the mark, so it can never equal the binding of the same line asked to run sandboxed.
+    static func binding(outsideSandbox base: String) -> String {
+        hash([.string(base), .string("outside-sandbox")])
+    }
+
     /// The binding of a fact request, led by the kind so it can never equal a command's.
     static func binding(fact: ProposedFact?, id: String, thread: String?, pid: Int32, createdAt: Date) -> String {
         hash([
@@ -323,6 +334,7 @@ public struct PendingApprovals: Sendable {
             directory: approval.workingDirectory, level: approval.assessment.level,
             reasons: approval.assessment.reasons, thread: approval.thread, client: client, pid: pid,
             createdAt: created, expiresAt: expires, binding: "", bindingVersion: bindingVersion)
+        if approval.outsideSandbox { request.outsideSandbox = true }
         request.binding = request.expectedBinding
         return request
     }
@@ -708,5 +720,6 @@ extension PendingApprovals.Request {
         expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
         binding = try container.decode(String.self, forKey: .binding)
         bindingVersion = try container.decodeIfPresent(Int.self, forKey: .bindingVersion)
+        outsideSandbox = try container.decodeIfPresent(Bool.self, forKey: .outsideSandbox)
     }
 }

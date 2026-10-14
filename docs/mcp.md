@@ -536,6 +536,16 @@ With `approval.outOfBand` off and no elicitation, the model's tool call is refus
 `structuredContent.refusals` carries it structurally. The calling harness should run the command itself
 or start wisp with `--yes`. See [approval.md](approval.md).
 
+**A command the model asks to run outside the sandbox** (`run_command`'s `outsideSandbox`,
+[ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)) is asked the same two ways, every time, whatever
+its risk, and is approved once or not at all. The dialog's title is `wisp: run OUTSIDE the sandbox? (<level> risk)`,
+its message opens `Command to run OUTSIDE the sandbox, this once:` and says `Never remembered: this run only.`, and it
+has no scope picker (whether Claude Code renders a form with no fields is not yet probed); a scope sent anyway is
+taken as once. The pending file carries `outsideSandbox: true` and the notification's title is `wisp: approve
+OUTSIDE the sandbox`. `--yes` does not answer it, and with `approval.outOfBand` off and no elicitation it is refused
+with `command not approved: running outside the sandbox is asked of the person every time, and this client does
+not support elicitation; …`.
+
 **The call waits for the answer**, as it does for the dialog, up to `approval.timeoutSeconds`. A client's
 own tool-call timeout may end the call first: Claude Code's is `MCP_TOOL_TIMEOUT`. A client that then
 sends `notifications/cancelled` cancels the call: wisp withdraws the request, refuses the command, and

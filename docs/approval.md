@@ -281,13 +281,42 @@ recorded as `approval.decided`'s `approvalID`, which the change records as `appr
 Trusting a publisher from now on and switching the conversation's model are never asked of the model: the tool
 refuses them.
 
+### Running outside the sandbox
+
+A command the model asks to run without the sandbox (`run_command`'s `outsideSandbox`,
+[tools/run_command.md](tools/run_command.md#running-outside-the-sandbox),
+[ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)) asks through the same gate, with a request of its
+own kind (`ApprovalRequest.Kind.outsideSandbox`), after the policy's lists and the operator's switch
+(`commandPolicy.sandbox.allowOutsideSandbox`). Every part is classified and audited as usual, and then:
+
+| | A run outside the sandbox |
+| --- | --- |
+| What is asked | the whole line, once, at the highest of its parts' levels and the rules' verdict on the line, `moderate` at least; the first reason is `runs OUTSIDE the sandbox: it may write anywhere you can, ~/.wisp included; this one run only` |
+| Asked at | every level, whatever `approval.threshold` says, `never` and the read-only list included |
+| Covered by a held approval | never: no once, session, project, or always approval, and its answer covers nothing after it, not even later in the turn |
+| Scopes an answer may give | `once`; a wider answer is narrowed and `downgradedFrom` records it |
+| `--yes`, or a channel that asks no one | refused: `running outside the sandbox is asked of a person every time, and no one can be asked here (--yes does not answer it); …` |
+
+How each face shows it:
+
+| Face | Shows |
+| --- | --- |
+| `wisp chat` (terminal) | `⚠ approve OUTSIDE the sandbox [level] <line>`, `never remembered`, and the keys `[y]once  [n]o` |
+| `wisp-tui` | the title `approve OUTSIDE the sandbox · <level>`, the line `runs OUTSIDE the sandbox: it may write anywhere you can`, `never remembered: this run only`, and only `y` and `n` answer |
+| MCP elicitation | the title `wisp: run OUTSIDE the sandbox? (<level> risk)`, a message opening `Command to run OUTSIDE the sandbox, this once:`, and no scope picker |
+| `~/.wisp/pending` | `outsideSandbox: true` in the request file, bound into its SHA-256, so a file edited to drop it is refused when answered |
+| The notification | the title `wisp: approve OUTSIDE the sandbox` |
+| `wisp approvals pending` | the command prefixed `OUTSIDE THE SANDBOX:` on a terminal; piped, the column is the command alone |
+| `wisp approvals approve` | `approved once, outside the sandbox: …`, and `(session is taken as once)` when a wider scope was given |
+| Plain chat's note | `run <line> OUTSIDE THE SANDBOX, this once, in …` |
+
 "This turn" is defined by the conversation's `TurnClock`, which the agent advances once per prompt and
 the gate and the audit log both read, so a once-approval covers the rest of the tool loop whether or
 not an audit log is attached, and the refusals `respond` reports are those of the turn just run.
 
 | Entry point | Approver | Behaviour |
 | --- | --- | --- |
-| `wisp respond` | denying, unless `--yes` | Non-interactive: risky commands are refused with a message naming the three ways forward. `--yes` approves everything. |
+| `wisp respond` | denying, unless `--yes` | Non-interactive: risky commands are refused with a message naming the three ways forward. `--yes` approves everything but a model pull and a run outside the sandbox, which are refused. |
 | `wisp chat` | terminal | Prints the command, level, and reasons on stderr; reads `y` (this turn), `s` (session), `p` (project), `a` (always), or `n`. |
 | `wisp mcp` | out of band and MCP elicitation, unless `--yes` | For commands the model runs inside `respond` and the condensing tools: files the request in `~/.wisp/pending`, posts a notification (beside a client's dialog, only once it has gone unanswered for `approval.bannerDelaySeconds`, default 10), and, when the client advertised elicitation, asks through its dialog at the same time; the first answer wins and the other is withdrawn. The person answers with `wisp approvals approve ID [--scope …]` or `deny ID` from a terminal, in a running `wisp-tui`, or with `/approvals approve|deny ID` in a plain `wisp chat` at a terminal; never through the MCP conversation. Silence for `approval.timeoutSeconds` refuses. With `approval.outOfBand` false: elicitation only, and a client without it is refused with a message telling the calling harness to run the command itself, start wisp with `--yes`, or lower the threshold ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). |
 
@@ -308,6 +337,9 @@ not an audit log is attached, and the refusals `respond` reports are those of th
 | `persistDays` | `30` | Lifetime of `project` and `always` approvals. |
 | `outOfBand` | `true` | Under `wisp mcp`, also file each waiting command for `wisp approvals` and `wisp-tui`, with a notification; the first answer, there or in the client's dialog, wins. `false` asks through elicitation only. |
 
+Whether the model may ask to run a command outside the sandbox at all is the command policy's
+`sandbox.allowOutsideSandbox` (true), not an `approval` field ([above](#running-outside-the-sandbox)).
+
 ## Approval over MCP through another face
 
 A client that does not render elicitation (the Claude mobile app), or whose dialog sticks, can still be
@@ -326,8 +358,9 @@ exact command, line, directory, thread, and server process shown, and since 0.21
 expiry too (a request records `bindingVersion: 2`; one filed by an older wisp, without it, is still answered by
 the first set), so it approves only what was shown and only once. A request whose server has stopped or whose wait has expired is stale and is swept by the next
 `wisp approvals pending`. The calling agent cannot answer: nothing in MCP approves, wisp's own model is
-refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox, and
-the commands refuse to run without a terminal on standard input. The same directory holds the facts a caller asked
+refused `wisp approvals approve|deny` by the default policy and cannot write `~/.wisp` from the sandbox (only a
+line the person approved to run [outside the sandbox](#running-outside-the-sandbox) can, as any command the person
+runs can), and the commands refuse to run without a terminal on standard input. The same directory holds the facts a caller asked
 the person to keep as permanent (`<id>.fact.json`), which are answered with `wisp facts keep|drop`, not
 `wisp approvals` ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)), and the model's questions to the person
 (`<id>.question.json`), answered with `wisp questions answer|decline`: a question is not an approval, and its dialog
@@ -434,7 +467,7 @@ commands need a larger test set.
 
 Every command produces `classifier.verdict` (level, reasons, sources, seconds) and, when asked,
 `approval.requested` and `approval.decided` (decision, reason; `cached` for session approvals, `covered-line` for
-a part covered by approving its whole line). See
+a part covered by approving its whole line; `outsideSandbox: true` for a run outside the sandbox). See
 [logging.md](logging.md).
 
 ## Testing policy without the model

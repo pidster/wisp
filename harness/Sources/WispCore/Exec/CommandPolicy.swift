@@ -21,20 +21,26 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         /// Directories writable in addition to the working directory and the temporary directory.
         /// `~` is expanded; symlinks are resolved because Seatbelt matches canonical paths.
         public var writablePaths: [String]
+        /// Whether the model may ask to run one command outside the sandbox (`run_command`'s `outsideSandbox`), which
+        /// the person must approve each time ([ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md));
+        /// false refuses every such request. The operator's: no tool changes it.
+        public var allowOutsideSandbox: Bool
 
         /// Creates sandbox settings.
         public init(
-            enabled: Bool = true, allowNetwork: Bool = true, writablePaths: [String] = Sandbox.defaultWritablePaths
+            enabled: Bool = true, allowNetwork: Bool = true, writablePaths: [String] = Sandbox.defaultWritablePaths,
+            allowOutsideSandbox: Bool = true
         ) {
             self.enabled = enabled
             self.allowNetwork = allowNetwork
             self.writablePaths = writablePaths
+            self.allowOutsideSandbox = allowOutsideSandbox
         }
 
         /// Caches that build tools expect to write: SwiftPM and Cargo registries.
         public static let defaultWritablePaths = ["~/Library/Caches", "~/.cargo/registry", "~/.cargo/git"]
 
-        private enum CodingKeys: String, CodingKey { case enabled, allowNetwork, writablePaths }
+        private enum CodingKeys: String, CodingKey { case enabled, allowNetwork, writablePaths, allowOutsideSandbox }
 
         /// Decodes a partial object; missing fields take their defaults.
         public init(from decoder: Decoder) throws {
@@ -43,6 +49,7 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
             allowNetwork = try container.decodeIfPresent(Bool.self, forKey: .allowNetwork) ?? true
             writablePaths =
                 try container.decodeIfPresent([String].self, forKey: .writablePaths) ?? Sandbox.defaultWritablePaths
+            allowOutsideSandbox = try container.decodeIfPresent(Bool.self, forKey: .allowOutsideSandbox) ?? true
         }
     }
 

@@ -11,15 +11,28 @@ public struct ApprovalRequest: Equatable, Sendable {
         /// ([ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)): `models pull <repo>`, approved
         /// once and never remembered; `models enable|disable|check <name>`, remembered for the session at most.
         case modelAction(pull: Bool)
+        /// A whole command line the model asked to run outside the sandbox (`run_command`'s `outsideSandbox`,
+        /// [ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md)): asked whatever its
+        /// level, approved for that one run alone, and never remembered.
+        case outsideSandbox
 
         /// The scopes an answer may give; a wider one is narrowed to the widest of these.
         public var scopes: [ApprovalScope] {
             switch self {
             case .command: ApprovalScope.allCases
             case .modelAction(let pull): pull ? [.once] : [.once, .session]
+            case .outsideSandbox: [.once]
             }
         }
     }
+
+    /// The reason every request to run outside the sandbox carries first, so every face that shows a request's
+    /// reasons (the terminal, the client's dialog, the pending file, `wisp approvals pending`, `wisp-tui`) says so.
+    public static let outsideSandboxReason =
+        "runs OUTSIDE the sandbox: it may write anywhere you can, ~/.wisp included; this one run only"
+
+    /// Whether this request is to run a command outside the sandbox.
+    public var outsideSandbox: Bool { kind == .outsideSandbox }
 
     /// The simple command being approved.
     public var command: String
@@ -84,6 +97,11 @@ public enum ApprovalDecision: Equatable, Sendable {
 
 /// A channel to a human (or a policy standing in for one).
 public protocol Approver: Sendable {
+    /// Whether this channel puts a request to a person. False for a policy standing in for one (`AutoApprover`,
+    /// `DenyingApprover`), which the gate never lets answer a request that must be a person's: a run outside the
+    /// sandbox (ADR 0064).
+    var asksAPerson: Bool { get }
+
     /// Decides. Must not throw: a channel that fails should deny with a reason.
     func decide(_ request: ApprovalRequest) async -> ApprovalDecision
 
@@ -93,6 +111,9 @@ public protocol Approver: Sendable {
 }
 
 extension Approver {
+    /// A channel asks a person unless it says otherwise.
+    public var asksAPerson: Bool { true }
+
     /// Decides without auditing anything of its own.
     public func decide(_ request: ApprovalRequest, audit: AuditLog?) async -> ApprovalDecision {
         await decide(request)
@@ -103,6 +124,8 @@ extension Approver {
 public struct AutoApprover: Approver {
     /// Creates the approver.
     public init() {}
+    /// It answers for the person, ahead of time.
+    public var asksAPerson: Bool { false }
     /// Always approves, once.
     public func decide(_ request: ApprovalRequest) async -> ApprovalDecision { .approved(.once) }
 }
@@ -116,6 +139,9 @@ public struct DenyingApprover: Approver {
     public init(reason: String) {
         self.reason = reason
     }
+
+    /// It stands in for a person who cannot be asked.
+    public var asksAPerson: Bool { false }
 
     /// Always denies.
     public func decide(_ request: ApprovalRequest) async -> ApprovalDecision { .denied(reason) }
@@ -137,8 +163,8 @@ public struct TerminalApprover: Approver {
         let visible = ApprovalRequest.visible
         var lines = [
             "",
-            style.amber("⚠ approve") + " [" + style.level(request.assessment.level) + "] "
-                + style.bold(visible(request.command)),
+            style.amber(request.outsideSandbox ? "⚠ approve OUTSIDE the sandbox" : "⚠ approve") + " ["
+                + style.level(request.assessment.level) + "] " + style.bold(visible(request.command)),
         ]
         if request.line != request.command { lines.append(style.muted("  part of: \(visible(request.line))")) }
         lines.append(style.muted("  in \(visible(ChatStatus.abbreviated(request.workingDirectory)))"))
@@ -388,6 +414,80 @@ public actor ApprovalGate {
     /// - Throws: `Failure.refused` with the reason otherwise.
     public func clear(parts: [SimpleCommand], line: String, workingDirectory: String) async throws {
         try await clear(parts: parts, line: line, workingDirectory: workingDirectory, classifier: classifier)
+    }
+
+    /// Returns normally if the person approves running `line` outside the sandbox, this once
+    /// ([ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md)).
+    ///
+    /// Every simple command is judged and its verdict audited as for any line, but the person is asked whatever the
+    /// verdicts and the threshold say (`never` and a command on the read-only list included), about the whole line,
+    /// at `moderate` at least, with `ApprovalRequest.outsideSandboxReason` first among the reasons. Nothing held
+    /// covers it: no once, session, project, or always approval, and the answer is kept for no later call, not even
+    /// later in the turn; an answer wider than once is narrowed to once, and `approval.decided` records what was
+    /// asked as `downgradedFrom`. A channel that asks no person (`--yes`'s `AutoApprover`, non-interactive `respond`'s
+    /// `DenyingApprover`) cannot answer it, so the line is refused, saying why.
+    ///
+    /// - Parameters:
+    ///   - parts: The line's simple commands, from `CommandSplitter.split`; empty falls back to the line.
+    ///   - line: The whole line, which is what the person approves.
+    ///   - workingDirectory: Where it would run.
+    /// - Throws: `Failure.refused` with the reason otherwise.
+    public func clear(outsideSandbox parts: [SimpleCommand], line: String, workingDirectory: String) async throws {
+        let segments = parts.isEmpty ? [SimpleCommand(text: line, executable: line)] : parts
+        var level = RiskLevel.moderate
+        var reasons = [ApprovalRequest.outsideSandboxReason]
+        for segment in segments {
+            let assessment = await judge(
+                segment, line: line, workingDirectory: workingDirectory, classifier: classifier)
+            level = max(level, assessment.level)
+            reasons += assessment.reasons.filter { !reasons.contains($0) }
+        }
+        let whole = await RuleRiskClassifier.standard.classify(command: line, workingDirectory: workingDirectory)
+        level = max(level, whole.level)
+        let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let segment = SimpleCommand(text: text, executable: text)
+        func decided(_ decision: String, scope: ApprovalScope? = nil, reason: String? = nil, from: ApprovalScope? = nil)
+        {
+            audit?.record(
+                .approvalDecided,
+                details: AuditEvent.Details.approvalDecided(
+                    command: text, pattern: text, line: line, decision: decision, scope: scope, reason: reason,
+                    approvalID: nil, expiresAt: nil, downgradedFrom: from, persistError: nil, outsideSandbox: true))
+        }
+        func refuse(_ reason: String) throws -> Never {
+            turnState.refusals.append(Refusal(command: text, reason: reason))
+            throw Failure.refused(reason)
+        }
+        _ = currentTurn()
+        audit?.record(
+            .approvalRequested,
+            details: AuditEvent.Details.approvalRequested(
+                command: text, pattern: segment.pattern, line: line, level: level, outsideSandbox: true))
+        guard approver.asksAPerson else {
+            let reason =
+                "running outside the sandbox is asked of a person every time, and no one can be asked here"
+                + (approver is AutoApprover ? " (--yes does not answer it)" : "")
+                + "; run it without outsideSandbox, or ask the person to run it themselves"
+            decided("denied", reason: reason)
+            try refuse(reason)
+        }
+        let decision = await approver.decide(
+            ApprovalRequest(
+                command: text, line: line, pattern: text, workingDirectory: workingDirectory,
+                assessment: RiskAssessment(level: level, reasons: reasons, sources: ["outside-sandbox"]),
+                thread: audit?.session, kind: .outsideSandbox),
+            audit: audit)
+        switch decision {
+        case .approved(let requested):
+            decided("approved", scope: .once, from: requested == .once ? nil : requested)
+        case .denied(let reason):
+            decided("denied", reason: reason)
+            try refuse(reason)
+        case .unanswered(let waited):
+            let reason = "no answer within \(waited); an unanswered approval counts as declined"
+            decided("timed-out", reason: reason)
+            try refuse(reason)
+        }
     }
 
     private func clear(

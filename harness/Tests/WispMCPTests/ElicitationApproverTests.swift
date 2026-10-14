@@ -156,10 +156,62 @@ import WispCore
         await client.disconnect()
         await server.stop()
     }
+
+    @Test func aRunOutsideTheSandboxSaysSoAndOffersNoScope() async throws {
+        let transports = await InMemoryTransport.createConnectedPair()
+        let server = Server(name: "t", version: "0", capabilities: .init(tools: .init(listChanged: false)))
+        let flags = ClientCapabilityFlags()
+        try await server.start(transport: transports.server) { _, capabilities in
+            flags.elicitation.withLock { $0 = capabilities.elicitation != nil }
+        }
+        let seen = SeenMessages()
+        let client = Client(
+            name: "test-client", version: "0", capabilities: .init(elicitation: .init(form: .init())))
+        _ = await client.withElicitationHandler { parameters in
+            if case .form(let form) = parameters {
+                seen.messages.withLock { $0.append(form.message) }
+                seen.schemas.withLock { $0.append(form.requestedSchema) }
+            }
+            // A client that sends a scope anyway is answered once: the gate narrows it.
+            return CreateElicitation.Result(action: .accept, content: ["scope": "always"])
+        }
+        _ = try await client.connect(transport: transports.client)
+        let outside = ApprovalRequest(
+            command: "brew upgrade", pattern: "brew upgrade", workingDirectory: "/tmp",
+            assessment: RiskAssessment(
+                level: .moderate, reasons: [ApprovalRequest.outsideSandboxReason], sources: ["outside-sandbox"]),
+            kind: .outsideSandbox)
+        let approver = ElicitationApprover(server: server, client: flags, timeout: .seconds(5))
+        #expect(await approver.decide(outside) == .approved(.always))
+        let message = try #require(seen.messages.withLock { $0.first })
+        let schema = try #require(seen.schemas.withLock { $0.first })
+        #expect(message.hasPrefix("Command to run OUTSIDE the sandbox, this once:\nbrew upgrade"), "\(message)")
+        #expect(message.contains("Never remembered: this run only.") && !message.contains("Remembered as"))
+        #expect(message.contains(ApprovalRequest.outsideSandboxReason))
+        #expect(schema.title == "wisp: run OUTSIDE the sandbox? (moderate risk)")
+        #expect(schema.properties.isEmpty)
+        await client.disconnect()
+        await server.stop()
+    }
+
+    @Test func aClientWithoutElicitationIsToldARunOutsideTheSandboxIsThePersons() async {
+        let approver = ElicitationApprover(
+            server: Server(name: "t", version: "0"), client: ClientCapabilityFlags(), timeout: .seconds(1))
+        var outside = request
+        outside.kind = .outsideSandbox
+        guard case .denied(let reason) = await approver.decide(outside) else {
+            Issue.record("expected a denial")
+            return
+        }
+        #expect(reason.contains("asked of the person every time"), "\(reason)")
+        #expect(!reason.contains("--yes"))
+    }
 }
 
 /// The messages a test client's dialogs showed.
 private final class SeenMessages: Sendable {
     /// Each dialog's message, in order.
     let messages = Mutex<[String]>([])
+    /// Each dialog's schema, in order.
+    let schemas = Mutex<[Elicitation.RequestSchema]>([])
 }

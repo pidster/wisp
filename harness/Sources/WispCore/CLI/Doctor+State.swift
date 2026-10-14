@@ -111,7 +111,8 @@ extension Doctor {
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,
     /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target`,
     /// `context.headroomTurns`, `context.outputDays`, and `commandMaxTimeoutSeconds` within their ranges, which loading the config enforces; a `context.target` above the
-    /// budget less `ContextComposer.targetMargin` is accepted and reported as used at that cap.
+    /// budget less `ContextComposer.targetMargin` is accepted and reported as used at that cap. The detail also states
+    /// the command time limits and `commandPolicy.sandbox.allowOutsideSandbox` as resolved.
     func settingsInRange() -> Finding {
         let name = "settings"
         var config = Config()
@@ -155,7 +156,8 @@ extension Doctor {
             + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare), "
             + "context.target \(resolved.contextTarget.share), context.headroomTurns \(resolved.contextTarget.headroomTurns), "
             + "commandTimeoutSeconds \(resolved.runner.timeout.components.seconds), "
-            + "commandMaxTimeoutSeconds \(resolved.runner.maxTimeout.components.seconds)"
+            + "commandMaxTimeoutSeconds \(resolved.runner.maxTimeout.components.seconds), "
+            + "commandPolicy.sandbox.allowOutsideSandbox \(resolved.runner.policy.sandbox.allowOutsideSandbox)"
         let composer = ContextComposer()
         let configured = config.context?.target ?? resolved.contextTarget.share
         let effective = composer.effectiveShare(of: ContextTarget(share: configured))

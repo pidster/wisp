@@ -1,7 +1,9 @@
 # ADR 0054: The sandbox's refusals checked
 
 Date: 2026-10-04. Status: accepted. Amends [ADR 0049](0049-commands-typed-in-chat.md) (the note for a typed command
-the sandbox refuses) and the default deny list of [ADR 0009](0009-command-policy-and-sandbox.md).
+the sandbox refuses) and the default deny list of [ADR 0009](0009-command-policy-and-sandbox.md). Amended by
+[ADR 0064](0064-an-approved-run-outside-the-sandbox.md): the model's note on a refusal ends by saying it may ask to run
+the command outside the sandbox, when the operator allows that.
 
 ## Context
 

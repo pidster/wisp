@@ -350,6 +350,10 @@ pub struct Approval {
     /// For a fact to keep, the fact.
     #[serde(default)]
     pub fact: Option<FactAsk>,
+    /// True for a command line the model asked to run outside the sandbox (ADR 0064): approved once or
+    /// refused, never remembered.
+    #[serde(default, rename = "outsideSandbox")]
+    pub outside_sandbox: bool,
 }
 
 /// The fact a `wisp mcp` caller asked to keep as a permanent fact, as its thread holds it.
@@ -754,8 +758,14 @@ mod tests {
             panic!("not an approval");
         };
         assert!(approval.is_mcp());
+        assert!(!approval.outside_sandbox);
         assert_eq!(approval.thread.as_deref(), Some("git"));
         assert_eq!(approval.client.as_deref(), Some("claude-code"));
+        let outside = r#"{"type":"approval","id":"a","command":"brew upgrade","line":"brew upgrade","pattern":"brew upgrade","directory":"/r","level":"moderate","reasons":[],"outsideSandbox":true}"#;
+        let Outbound::Approval(outside) = Outbound::parse(outside) else {
+            panic!("not an approval");
+        };
+        assert!(outside.outside_sandbox);
         assert_eq!(
             Outbound::parse(r#"{"type":"withdrawn","id":"mcp-a1b2c3d4"}"#),
             Outbound::Withdrawn {

@@ -189,6 +189,11 @@ struct ElicitationApprover: Approver {
     /// (once by default); Decline, Cancel, or silence refuses.
     func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
         guard client.elicitation.withLock({ $0 }) else {
+            if request.outsideSandbox {
+                return .denied(
+                    "running outside the sandbox is asked of the person every time, and this client does not support "
+                        + "elicitation; run it without outsideSandbox, or run it from the calling harness")
+            }
             return .denied(
                 "approval required (\(request.assessment.level.rawValue): "
                     + "\(request.assessment.reasons.joined(separator: "; "))) and this client does not support "
@@ -201,7 +206,15 @@ struct ElicitationApprover: Approver {
         }
     }
 
+    /// The scope picker's label for each scope.
+    static let scopeNames: [ApprovalScope: String] = [
+        .once: "This turn", .session: "This session", .project: "This project (30 days, this directory)",
+        .always: "Always (30 days, any directory)",
+    ]
+
     /// Sends the dialog, tagged with `key` so it can be withdrawn, and waits for the answer within `timeout`.
+    /// A request to run outside the sandbox (ADR 0064) says so in the title and first line and offers no scope to
+    /// remember, since it is approved for that one run alone.
     private func elicit(_ request: ApprovalRequest, key: String) async -> Result<ApprovalDecision, Failure> {
         // Clients render different parts of an elicitation, so the command appears in the title, the
         // message, and the description, and the scope picker's labels say exactly what each choice keeps.
@@ -210,33 +223,37 @@ struct ElicitationApprover: Approver {
         let shown = ApprovalRequest.visible
         let reasons = request.assessment.reasons.map { "- \(shown($0))" }.joined(separator: "\n")
         let context = request.line == request.command ? "" : "\nPart of: \(shown(request.line))"
+        let outside = request.outsideSandbox
+        let heading = outside ? "Command to run OUTSIDE the sandbox, this once:" : "Command:"
+        let remembered = outside ? "Never remembered: this run only." : "Remembered as: \(shown(request.pattern))"
         let text = """
-            Command:
+            \(heading)
             \(shown(request.command))\(context)
 
             Directory: \(shown(request.workingDirectory))
             Risk: \(level)
             \(reasons)
-            Remembered as: \(shown(request.pattern))
+            \(remembered)
 
             Accept runs it. Decline refuses.\(timeout.map { " No answer within \($0) counts as Decline." } ?? "")
             """
+        let scopes = ApprovalScope.allCases
         let schema = Elicitation.RequestSchema(
-            title: "wisp: approve command? (\(level) risk)",
+            title: outside
+                ? "wisp: run OUTSIDE the sandbox? (\(level) risk)" : "wisp: approve command? (\(level) risk)",
             description: text,
-            properties: [
-                "scope": .object([
-                    "type": .string("string"),
-                    "title": .string("Remember this approval"),
-                    "description": .string("How long to keep approving \(shown(request.pattern))"),
-                    "enum": .array(ApprovalScope.allCases.map { .string($0.rawValue) }),
-                    "enumNames": .array([
-                        .string("This turn"), .string("This session"),
-                        .string("This project (30 days, this directory)"), .string("Always (30 days, any directory)"),
-                    ]),
-                    "default": .string("once"),
-                ])
-            ],
+            properties: outside
+                ? [:]
+                : [
+                    "scope": .object([
+                        "type": .string("string"),
+                        "title": .string("Remember this approval"),
+                        "description": .string("How long to keep approving \(shown(request.pattern))"),
+                        "enum": .array(scopes.map { .string($0.rawValue) }),
+                        "enumNames": .array(scopes.map { .string(Self.scopeNames[$0] ?? $0.rawValue) }),
+                        "default": .string("once"),
+                    ])
+                ],
             required: []
         )
         let server = server

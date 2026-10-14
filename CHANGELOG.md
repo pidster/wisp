@@ -4,6 +4,19 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- The model can ask to run one command outside the sandbox, for the chores the sandbox refuses: `brew upgrade`
+  (Homebrew runs a sandbox of its own, which cannot nest in wisp's), `cargo install`, `rustup update`. `run_command`
+  takes `outsideSandbox`; after the deny list, you are asked about that exact line every time, whatever its risk
+  and your threshold, and approve it once or not at all: nothing remembers it, and `--yes` does not answer it. Every
+  dialog, notification, and listing says `OUTSIDE the sandbox`, and the audit records it. Approved, the command runs
+  with your privileges and no confinement, `~/.wisp` included. Turn it off with
+  `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`. When the sandbox refuses a write, the model is
+  told it may ask (ADR 0064).
+
 ## 0.24.2
 
 Commands the model runs may ask for a longer time limit, under a cap you set, and the default rises to 120 s.

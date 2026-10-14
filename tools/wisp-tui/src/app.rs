@@ -1355,6 +1355,13 @@ impl App {
                     'd' => "drop",
                     _ => return Action::None,
                 }
+            } else if approval.outside_sandbox {
+                // A run outside the sandbox is approved once or refused; nothing remembers it (ADR 0064).
+                match c.to_ascii_lowercase() {
+                    'y' => "once",
+                    'n' => "no",
+                    _ => return Action::None,
+                }
             } else {
                 match c.to_ascii_lowercase() {
                     'y' => "once",
@@ -1366,7 +1373,12 @@ impl App {
                 }
             };
             let id = approval.id.clone();
-            self.push(&answered(&approval.command, decision), LineKind::Note);
+            let note = if approval.outside_sandbox && decision == "once" {
+                format!("⚠ approved once, outside the sandbox: {}", approval.command)
+            } else {
+                answered(&approval.command, decision)
+            };
+            self.push(&note, LineKind::Note);
             self.approval = None;
             self.show_next();
             return Action::Send(Inbound::Answer {
@@ -1850,6 +1862,13 @@ impl App {
         };
         let title = if approval.is_fact() {
             String::from(" keep as a permanent fact? · wisp mcp ")
+        } else if approval.outside_sandbox {
+            let from = if approval.is_mcp() {
+                " · wisp mcp"
+            } else {
+                ""
+            };
+            format!(" approve OUTSIDE the sandbox · {}{from} ", approval.level)
         } else if approval.is_mcp() {
             format!(" approve · {} · wisp mcp ", approval.level)
         } else {
@@ -2382,7 +2401,9 @@ fn dialog_width(width: u16) -> usize {
 
 /// What a dialog says, each line fitted to `width` cells: the command, wrapped; the line it is part
 /// of, when it is one part of one; the directory; the reasons; the pattern the answer is remembered
-/// under; an empty row; and the keys, worded as `wisp chat` words them.
+/// under; an empty row; and the keys, worded as `wisp chat` words them. A run outside the sandbox
+/// (ADR 0064) says so under the command, in the dangerous colour, is never remembered, and offers
+/// only once or no.
 fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
     let mut command = Editor::default();
     command.set(&approval.command);
@@ -2401,6 +2422,15 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
         })
         .collect();
     let muted = |text: String| Line::from(Span::styled(fit(&text, width), palette::muted()));
+    if approval.outside_sandbox {
+        lines.push(Line::from(Span::styled(
+            fit(
+                "runs OUTSIDE the sandbox: it may write anywhere you can",
+                width,
+            ),
+            palette::level("dangerous"),
+        )));
+    }
     if approval.is_mcp() {
         let client = approval.client.as_deref().unwrap_or("an MCP client");
         let thread = approval
@@ -2419,13 +2449,21 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
             palette::body(),
         )));
     }
-    lines.push(muted(format!("remembered as {}", approval.pattern)));
+    let (remembered, keys) = if approval.outside_sandbox {
+        (
+            String::from("never remembered: this run only"),
+            "[y]once [n]o",
+        )
+    } else {
+        (
+            format!("remembered as {}", approval.pattern),
+            "[y]once [s]ession [p]roject 30d [a]lways 30d [n]o",
+        )
+    };
+    lines.push(muted(remembered));
     // One empty row sets the keys apart from what they answer.
     lines.push(Line::default());
-    lines.push(Line::from(Span::styled(
-        fit("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o", width),
-        palette::body(),
-    )));
+    lines.push(Line::from(Span::styled(fit(keys, width), palette::body())));
     lines
 }
 
@@ -3905,6 +3943,54 @@ mod tests {
             Action::Send(Inbound::Answer {
                 id: "mcp-3".into(),
                 decision: "drop".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_run_outside_the_sandbox_says_so_and_is_approved_once_or_refused() {
+        let outside = Approval {
+            outside_sandbox: true,
+            ..mcp_approval("mcp-1", "brew upgrade")
+        };
+        let lines: Vec<String> = dialog_lines(&outside, 70)
+            .iter()
+            .map(|line| line.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        assert_eq!(lines[0], "brew upgrade");
+        assert_eq!(
+            lines[1],
+            "runs OUTSIDE the sandbox: it may write anywhere you can"
+        );
+        assert!(lines.iter().any(|l| l == "never remembered: this run only"));
+        assert!(!lines.iter().any(|l| l.contains("remembered as")));
+        assert_eq!(lines.last().map(String::as_str), Some("[y]once [n]o"));
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        app.handle(Outbound::Approval(outside.clone()));
+        settle(&app);
+        let rows = drawn(&app, 70);
+        assert!(
+            rows[1].starts_with(" ╭ approve OUTSIDE the sandbox · moderate · wisp mcp "),
+            "{rows:?}"
+        );
+        // The scopes that remember mean nothing here.
+        for key in ['s', 'p', 'a'] {
+            assert_eq!(app.type_char(key), Action::None);
+        }
+        assert!(app.approval.is_some());
+        assert_eq!(
+            app.type_char('y'),
+            Action::Send(Inbound::Answer {
+                id: "mcp-1".into(),
+                decision: "once".into()
+            })
+        );
+        assert!(
+            app.take_pending().iter().any(|line| {
+                line.text == "⚠ approved once, outside the sandbox: brew upgrade"
             })
         );
     }

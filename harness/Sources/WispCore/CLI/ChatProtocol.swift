@@ -348,14 +348,17 @@ public enum ChatProtocol {
         ]
     }
 
-    /// The `approval` line's fields.
+    /// The `approval` line's fields; `outsideSandbox` (true) for a line the model asked to run outside the sandbox,
+    /// which is approved once or not at all (ADR 0064).
     public static func approval(id: String, _ request: ApprovalRequest) -> [String: JSONValue] {
-        [
+        var fields: [String: JSONValue] = [
             "id": .string(id), "command": .string(request.command), "line": .string(request.line),
             "pattern": .string(request.pattern), "directory": .string(request.workingDirectory),
             "level": .string(request.assessment.level.rawValue),
             "reasons": .array(request.assessment.reasons.map { .string($0) }),
         ]
+        if request.outsideSandbox { fields["outsideSandbox"] = true }
+        return fields
     }
 
     /// The `approval` line for a request waiting in a `wisp mcp` server: the usual fields, with `source`
@@ -372,6 +375,7 @@ public enum ChatProtocol {
             "source": .string("mcp"), "thread": request.thread.map { .string($0) } ?? .null,
             "client": request.client.map { .string($0) } ?? .null, "request": .string(request.id),
         ]
+        if request.outsideSandbox == true { fields["outsideSandbox"] = true }
         if request.kind == .fact, let fact = request.fact {
             fields["kind"] = .string(request.kind.rawValue)
             fields["fact"] = .object([

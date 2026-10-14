@@ -30,7 +30,7 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 
 | The sandbox confines | It does not confine |
 | --- | --- |
-| **Writes**: only under the directory wisp was launched in, the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is. | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
+| **Writes**: only under the directory wisp was launched in, the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is. A command you approve to run outside the sandbox is not confined at all (below). | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
 | **Network**, only if you set `sandbox.allowNetwork: false`. | **Network by default**: on, because builds fetch dependencies. |
 | **The process tree**: a timeout kills the whole group. | **Inter-process messaging and the rest of macOS**: unchanged. |
 
@@ -44,6 +44,16 @@ model plainly: that the sandbox refused writing to a path and where it may write
 refused by something else; or, when the error names no path, that the sandbox may have refused it and no policy
 rule did, since the policy let the command run
 ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md), [run_command](tools/run_command.md)).
+
+**A command run outside the sandbox, with your approval.** Some chores cannot run sandboxed at all: `brew upgrade`
+(Homebrew runs a sandbox of its own, which cannot nest in wisp's), `cargo install`, `rustup update`. The model may ask
+to run one such command without the sandbox. You are asked every time, whatever the command's risk and your
+threshold, for that exact line, once; nothing remembers the answer, `--yes` does not give it, and every dialog and
+notification says `OUTSIDE the sandbox`. Approved, that command runs with your privileges and no confinement:
+it can write anywhere you can, `~/.wisp` included, as it could if you typed it in your own terminal. Read the line
+before you approve it. To turn the request off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
+([run_command](tools/run_command.md#running-outside-the-sandbox),
+[ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)).
 
 **Commands you type yourself.** In `wisp chat` and `wisp-tui`, a line that starts with `!` (`! git status`)
 runs that command as yours, through the same runner as `run_command`
@@ -95,7 +105,8 @@ plain `wisp chat` at a terminal, and the first answer wins.
 `wisp-tui`'s dialog, `wisp approvals` at a terminal, or your MCP client's dialog. The agent that called wisp cannot:
 nothing in the MCP conversation approves a command, and the answer is bound to the exact command,
 directory, and thread you were shown. wisp's own model cannot: the sandbox denies its commands any write to
-`~/.wisp` even when that lies inside the writable set, `edit_file` refuses it, and the default policy refuses
+`~/.wisp` even when that lies inside the writable set (a command you approved to run outside the sandbox is the
+exception, above), `edit_file` refuses it, and the default policy refuses
 `wisp approvals approve|deny`, quoted or behind a wrapper, or spelt `w''isp` or with `${IFS}` between the words. `wisp approvals approve` and
 `deny`, and plain chat's `/approvals approve` and `deny`, refuse to run without a terminal on standard input, which an agent's shell tool does not give; that
 is a hurdle, not a wall, so keep your agent's own approval for shell commands on

@@ -1,9 +1,10 @@
 # Roadmap
 
 The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped, and so have
-0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, and 0.24.1, a patch of small items, on 2026-10-14. What each
-carried is in [CHANGELOG.md](../CHANGELOG.md). The operator chose on 2026-10-14 to make command time limits a
-patch, 0.24.2, and it is the release being made. Each
+0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, and 0.24.1, a patch of small items, and 0.24.2, command time
+limits, on 2026-10-14. What each carried is in [CHANGELOG.md](../CHANGELOG.md). An approved run outside the sandbox,
+chosen by the operator on 2026-10-14, is built for the next patch, 0.24.3, as command time limits were for 0.24.2;
+the operator may yet call it 0.25.0. Each
 release carries one or two larger items and a few smaller ones; a small item sits with the larger one it touches.
 These are plans, not commitments: an item may move when its work shows it should, and the page is edited when it
 does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays in
@@ -12,15 +13,16 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.24.2 (patch) | | Command time limits a call or an MCP thread may ask for, under a cap the operator sets |
+| 0.24.3 (patch) | | An approved run outside the sandbox, for `brew upgrade`, `cargo install`, and `rustup update` |
 
-## 0.24.2
+## 0.24.3
 
-- **Command time limits a call or an MCP thread may ask for**
-  ([ADR 0063](decisions/0063-command-time-limits.md), chosen by the operator on 2026-10-14): `run_command`'s
-  `timeoutSeconds`, `respond`'s `commandTimeoutSeconds` when a thread starts, both clamped to the operator's
-  `commandMaxTimeoutSeconds` (1,800 s), and a default of 120 s instead of 60. A `git commit` through `respond`, whose
-  hook ran the gate, was killed at 60 s twice on 2026-10-13.
+- **An approved run outside the sandbox**
+  ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), chosen by the operator on 2026-10-14):
+  `run_command`'s `outsideSandbox`, asked of the person every time for that exact line, once, behind the operator's
+  `commandPolicy.sandbox.allowOutsideSandbox`. Probed on 2026-10-14: `cargo install`, `rustup update`, and every
+  Homebrew write are refused by the sandbox, and no profile can fix Homebrew, whose own sandbox cannot nest in
+  wisp's.
 
 ## Not scheduled
 

@@ -1,7 +1,9 @@
 # ADR 0009: run_command is governed by a CommandPolicy and a Seatbelt sandbox
 
 Date: 2026-09-17. Status: accepted. Amends ADR 0005 (the "unsandboxed" clause). Amended by
-[ADR 0054](0054-the-sandboxs-refusals-checked.md): the default deny list refuses a nested wisp agent.
+[ADR 0054](0054-the-sandboxs-refusals-checked.md): the default deny list refuses a nested wisp agent. Amended by
+[ADR 0064](0064-an-approved-run-outside-the-sandbox.md): the model may ask to run one command outside the sandbox,
+which the person approves each time, unless the operator turns that off (`sandbox.allowOutsideSandbox`).
 
 ## Context
 

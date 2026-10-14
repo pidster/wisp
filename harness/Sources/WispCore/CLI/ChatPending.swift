@@ -150,7 +150,8 @@ public final class ChatPending: Sendable {
         let asker = "wisp mcp" + (from.isEmpty ? "" : " (\(from))")
         switch request.kind {
         case .command:
-            return "⚠ \(request.id) waiting in \(asker): run \(request.command) in "
+            let outside = request.outsideSandbox == true ? " OUTSIDE THE SANDBOX, this once," : ""
+            return "⚠ \(request.id) waiting in \(asker): run \(request.command)\(outside) in "
                 + "\(ChatStatus.abbreviated(request.directory)), \(request.level.rawValue)"
         case .fact:
             let fact = request.fact

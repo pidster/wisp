@@ -353,6 +353,19 @@ asking conversation's log, and puts the conversation's id on the request (`Appro
 approver that does work of its own (filing a request, posting a banner) audits it where the question was
 asked.
 
+**A run outside the sandbox** ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)). `run_command`'s
+`outsideSandbox` reaches `CommandRunner.run(_:in:origin:stop:requested:outsideSandbox:)`, which resolves it once into
+`CommandRunner.OutsideSandbox` from the policy's sandbox settings and `isNestedSandbox`: `notAsked`, `asked`,
+`turnedOff` (`sandbox.allowOutsideSandbox` false, denied after the lists), or `unchanged` (`sandbox-off`, `nested`).
+For `asked`, the runner clears the line through `ApprovalGate.clear(outsideSandbox:line:workingDirectory:)` instead
+of `clear(parts:…)`: every part is judged and audited, then the whole line is put to the approver as one
+`ApprovalRequest` of kind `outsideSandbox` (scopes `[.once]`), with no session, turn, or store lookup before it and
+nothing recorded after it. An approver whose `asksAPerson` is false (`AutoApprover`, `DenyingApprover`) is not
+asked; the gate refuses. Approved, the runner launches the shell without `sandbox-exec`, skips the refusal check
+(nothing confined it), and marks the outcome `outsideSandbox`, whose `outsideNote` the result ends with. The request
+travels to every face as the request's `kind`: the pending file's `outsideSandbox` (bound into the SHA-256), the
+`approval` line's `outsideSandbox` for `wisp-tui`, and the dialogs' own wording.
+
 **Approval through another face** ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Under `wisp mcp`,
 `Session.mcpApprover` composes `OutOfBandApprover` from the configuration: it files the request in the
 `PendingApprovals` channel (`~/.wisp/pending`, a directory of user-only files, each request bound to its

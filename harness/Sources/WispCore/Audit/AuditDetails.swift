@@ -127,10 +127,14 @@ extension AuditEvent {
             case disapproved
         }
 
-        /// `policy.decision`.
+        /// `policy.decision`. When the model asked to run the command outside the sandbox (ADR 0064),
+        /// `outsideSandbox` is true where the request applied (the line is asked of the person and, allowed, runs
+        /// without wisp's sandbox, `sandbox` false), and `outsideSandboxIgnored` says why it changed nothing where it
+        /// did not: `sandbox-off` or `nested`.
         public static func policyDecision(
             command: String, workingDirectory: String, verdict: PolicyVerdict, reason: String?, sandbox: Bool,
-            network: Bool, nested: Bool, origin: CommandRunner.Origin = .model
+            network: Bool, nested: Bool, origin: CommandRunner.Origin = .model,
+            outside: CommandRunner.OutsideSandbox = .notAsked
         ) -> [String: JSONValue] {
             var details: [String: JSONValue] = [
                 "command": .string(command), "workingDirectory": .string(workingDirectory),
@@ -139,6 +143,11 @@ extension AuditEvent {
             ]
             if let reason { details["reason"] = .string(reason) }
             if origin == .person { details["origin"] = .string(origin.rawValue) }
+            switch outside {
+            case .notAsked: break
+            case .asked, .turnedOff: details["outsideSandbox"] = true
+            case .unchanged(let why): details["outsideSandboxIgnored"] = .string(why.rawValue)
+            }
             return details
         }
 
@@ -159,6 +168,7 @@ extension AuditEvent {
             ]
             if origin == .person { details["origin"] = .string(origin.rawValue) }
             if outcome.stopped { details["stopped"] = true }
+            if outcome.outsideSandbox { details["outsideSandbox"] = true }
             if let limit = outcome.limit {
                 details["timeoutSource"] = .string(limit.source.rawValue)
                 if let limitSeconds = limit.seconds { details["timeoutSeconds"] = .int(limitSeconds) }
@@ -694,14 +704,17 @@ extension AuditEvent {
             return details
         }
 
-        /// `approval.requested`.
+        /// `approval.requested`; `outsideSandbox` (true) for a line the model asked to run outside the sandbox
+        /// (ADR 0064).
         public static func approvalRequested(
-            command: String, pattern: String, line: String, level: RiskLevel
+            command: String, pattern: String, line: String, level: RiskLevel, outsideSandbox: Bool = false
         )
             -> [String: JSONValue]
         {
-            approvalSubject(command: command, pattern: pattern, line: line).merging(["level": .string(level.rawValue)])
-            { $1 }
+            var details = approvalSubject(command: command, pattern: pattern, line: line)
+            details["level"] = .string(level.rawValue)
+            if outsideSandbox { details["outsideSandbox"] = true }
+            return details
         }
 
         /// What a pending request asks about: for a command, `command`, `pattern`, and `line` when it differs;
@@ -736,6 +749,7 @@ extension AuditEvent {
             if request.kind == .command {
                 details["directory"] = .string(request.directory)
                 details["level"] = .string(request.level.rawValue)
+                if request.outsideSandbox == true { details["outsideSandbox"] = true }
             }
             details["outcome"] = .string(outcome)
             if let thread = request.thread { details["thread"] = .string(thread) }
@@ -867,14 +881,16 @@ extension AuditEvent {
         }
 
         /// `approval.decided`. `decision` is `approved`, `denied`, `timed-out`, `cached`, `cached-turn`,
-        /// `cached-project`, or `cached-always`; the optionals apply as documented for each.
+        /// `cached-project`, or `cached-always`; the optionals apply as documented for each, and `outsideSandbox`
+        /// (true) marks a line the model asked to run outside the sandbox (ADR 0064).
         public static func approvalDecided(
             command: String, pattern: String, line: String, decision: String, scope: ApprovalScope? = nil,
             reason: String? = nil, approvalID: String? = nil, expiresAt: Date? = nil,
-            downgradedFrom: ApprovalScope? = nil, persistError: String? = nil
+            downgradedFrom: ApprovalScope? = nil, persistError: String? = nil, outsideSandbox: Bool = false
         ) -> [String: JSONValue] {
             var details = approvalSubject(command: command, pattern: pattern, line: line)
             details["decision"] = .string(decision)
+            if outsideSandbox { details["outsideSandbox"] = true }
             if let scope { details["scope"] = .string(scope.rawValue) }
             if let reason { details["reason"] = .string(reason) }
             if let approvalID { details["approvalID"] = .string(approvalID) }
@@ -904,11 +920,14 @@ extension AuditEvent {
         case .toolCall: ["tool", "arguments"]
         case .toolResult: ["tool", "output", "bytes", "seconds", "repeat"]
         case .policyDecision:
-            ["command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin"]
+            [
+                "command", "workingDirectory", "verdict", "reason", "sandbox", "network", "nested", "origin",
+                "outsideSandbox", "outsideSandboxIgnored",
+            ]
         case .commandOutcome:
             [
                 "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin", "stopped",
-                "timeoutSource", "timeoutSeconds", "timeoutClamped", "sandboxRefusal", "sandboxPaths",
+                "timeoutSource", "timeoutSeconds", "timeoutClamped", "sandboxRefusal", "sandboxPaths", "outsideSandbox",
             ]
         case .commandTyped:
             [
@@ -982,11 +1001,12 @@ extension AuditEvent {
         case .classifierVerdict: ["command", "pattern", "line", "level", "reasons", "sources", "seconds", "metadata"]
         case .classifierTrained: ["path", "examplesSource", "examples", "perLevel", "trainingAccuracy", "seconds"]
         case .configChange: ["path", "old", "new", "source", "approval"]
-        case .approvalRequested: ["command", "pattern", "line", "level"]
+        case .approvalRequested: ["command", "pattern", "line", "level", "outsideSandbox"]
         case .approvalPending:
             [
                 "request", "command", "pattern", "line", "directory", "level", "thread", "client", "expiresAt",
                 "alongside", "outcome", "reason", "kind", "fact", "subject", "name", "value", "source",
+                "outsideSandbox",
             ]
         case .approvalAnswered:
             [
@@ -1007,7 +1027,7 @@ extension AuditEvent {
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",
                 "downgradedFrom",
-                "persistError",
+                "persistError", "outsideSandbox",
             ]
         case .unknown: []
         }

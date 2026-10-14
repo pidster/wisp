@@ -53,6 +53,7 @@ import Testing
             "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
             "commandMaxTimeoutSeconds": ["runCommand", "maxTimeoutSeconds"],
             "commandMaxOutputBytes": ["runCommand", "maxOutputBytes"],
+            "commandPolicy.sandbox.allowOutsideSandbox": ["runCommand", "policy", "sandbox", "allowOutsideSandbox"],
         ]
         for setting in ConfigSettings.all {
             var path = moved[setting.path] ?? setting.path.split(separator: ".").map(String.init)

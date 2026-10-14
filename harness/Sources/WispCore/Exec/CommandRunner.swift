@@ -139,6 +139,60 @@ public struct CommandRunner: Sendable {
         }
     }
 
+    /// What becomes of the model's request to run one command outside the sandbox (`run_command`'s
+    /// `outsideSandbox`, [ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md)).
+    public enum OutsideSandbox: Equatable, Sendable {
+        /// Why a request changed nothing.
+        public enum Unchanged: String, Equatable, Sendable {
+            /// The sandbox is off (`sandbox.enabled` false, or `--unsafe`): every command already runs without it.
+            case sandboxOff = "sandbox-off"
+            /// wisp runs inside another sandbox, which confines its commands whatever it asks (`isNestedSandbox`).
+            case nested
+        }
+
+        /// Not asked for, or not the model's command.
+        case notAsked
+        /// Asked for, and it applies: the person is asked about the whole line, every time, and approved, the line
+        /// runs without `sandbox-exec`.
+        case asked
+        /// Asked for, and the operator turned it off (`sandbox.allowOutsideSandbox` false): refused.
+        case turnedOff
+        /// Asked for, and it changes nothing; the command is cleared and runs as any other.
+        case unchanged(Unchanged)
+
+        /// What `turnedOff` refuses with, as the model reads it after `command denied by policy:`.
+        static let turnedOffReason =
+            "running outside the sandbox is turned off here (commandPolicy.sandbox.allowOutsideSandbox is false); "
+            + "run it without outsideSandbox, or ask the person to run it themselves"
+
+        /// What a request comes to under `sandbox` settings, in a process that is or is not `nested` in another
+        /// sandbox. The sandbox's being off comes first (the request changes nothing), then the operator's switch,
+        /// then nesting.
+        ///
+        /// - Parameters:
+        ///   - requested: Whether the model asked for it.
+        ///   - sandbox: The policy's sandbox settings.
+        ///   - nested: Whether wisp runs inside another sandbox.
+        /// - Returns: The resolution.
+        static func resolve(requested: Bool, sandbox: CommandPolicy.Sandbox, nested: Bool) -> OutsideSandbox {
+            guard requested else { return .notAsked }
+            guard sandbox.enabled else { return .unchanged(.sandboxOff) }
+            guard sandbox.allowOutsideSandbox else { return .turnedOff }
+            return nested ? .unchanged(.nested) : .asked
+        }
+
+        /// The line the model's result carries for a command that was asked to run outside the sandbox and ran.
+        var note: String? {
+            switch self {
+            case .notAsked, .turnedOff: nil
+            case .asked: "sandbox: ran outside the sandbox, as the person approved, this once"
+            case .unchanged(.sandboxOff): "sandbox: outsideSandbox changed nothing: the sandbox is off here"
+            case .unchanged(.nested):
+                "sandbox: outsideSandbox changed nothing: wisp runs inside another sandbox, which confined this command"
+            }
+        }
+    }
+
     /// What a finished command produced.
     public struct Outcome: Sendable, Equatable {
         /// A run of one stream's lines the model is not shown.
@@ -188,13 +242,21 @@ public struct CommandRunner: Sendable {
         public var recallable: Bool = false
         /// The wall-clock limit it ran under (ADR 0063); nil for a command the person typed, which has none.
         public var limit: TimeLimit? = nil
+        /// Whether it ran without wisp's sandbox because the model asked and the person approved (ADR 0064).
+        public var outsideSandbox: Bool = false
+        /// What the model is told of a request to run it outside the sandbox (`OutsideSandbox.note`); nil when there
+        /// was none.
+        public var outsideNote: String? = nil
 
         /// Creates an outcome.
         public init(
             exitStatus: Int32, stdout: String, stderr: String, timedOut: Bool, truncated: Bool, stopped: Bool = false,
             sandboxRefusal: SandboxRefusal? = nil, sandboxNote: String? = nil, held: [Held] = [],
-            stored: OutputStore.Kept? = nil, recallable: Bool = false, limit: TimeLimit? = nil
+            stored: OutputStore.Kept? = nil, recallable: Bool = false, limit: TimeLimit? = nil,
+            outsideSandbox: Bool = false, outsideNote: String? = nil
         ) {
+            self.outsideSandbox = outsideSandbox
+            self.outsideNote = outsideNote
             self.limit = limit
             self.exitStatus = exitStatus
             self.stdout = stdout
@@ -219,8 +281,8 @@ public struct CommandRunner: Sendable {
         }
 
         /// A compact, model-facing rendering of the outcome: the header, each non-empty stream under its frame,
-        /// the note on what is held back and where the whole is kept, and the sandbox's note. Within the bound as
-        /// a whole, the notes included.
+        /// the note on what is held back and where the whole is kept, the sandbox's note, and the note on a request
+        /// to run outside the sandbox. Within the bound as a whole, the notes included.
         public var rendered: String {
             var lines = header
             if !stdout.isEmpty { lines.append("stdout:\n\(stdout)") }
@@ -236,6 +298,7 @@ public struct CommandRunner: Sendable {
                         }, kept: stored, memory: recallable, command: true))
             }
             if let sandboxNote { lines.append(sandboxNote) }
+            if let outsideNote { lines.append(outsideNote) }
             return lines.joined(separator: "\n")
         }
     }
@@ -341,17 +404,32 @@ public struct CommandRunner: Sendable {
     ///     `CommandStop.grace`, or SIGKILL at once on a second request; nil cannot be stopped but by the timeout.
     ///   - requested: The limit the caller asks for in place of `Options.timeout`, clamped to `Options.maxTimeout`;
     ///     nil when the caller cannot ask (ADR 0063). Not consulted for a command the person typed.
+    ///   - outsideSandbox: Whether the model asks to run it without wisp's sandbox (ADR 0064): after the policy's
+    ///     lists, the person is asked about the whole line whatever its level, and approved, it runs without
+    ///     `sandbox-exec`, this once. It changes nothing with the sandbox off or inside another sandbox, is refused
+    ///     when the operator turned it off, and is ignored for a command the person typed.
     /// - Returns: The exit status and bounded output.
     /// - Throws: `Failure` if the policy rejects the command or it cannot be started.
     public func run(
         _ command: String, in directory: String? = nil, origin: Origin = .model, stop: CommandStop? = nil,
-        requested: TimeLimit.Request? = nil
+        requested: TimeLimit.Request? = nil, outsideSandbox: Bool = false
     ) async throws -> Outcome {
         let workingDirectory = try Self.existingDirectory(directory)
-        try await admit(command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin)
-        decide(.allowed, command: command, in: workingDirectory, origin: origin)
+        let outside = OutsideSandbox.resolve(
+            requested: outsideSandbox && origin == .model, sandbox: options.policy.sandbox,
+            nested: Self.isNestedSandbox)
+        try await admit(
+            command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin, outside: outside)
+        decide(.allowed, command: command, in: workingDirectory, origin: origin, outside: outside)
         return try await execute(
-            command, in: workingDirectory, origin: origin, stop: stop, limit: limit(for: origin, requested: requested))
+            command, in: workingDirectory, origin: origin, stop: stop, limit: limit(for: origin, requested: requested),
+            outside: outside)
+    }
+
+    /// What the model's request to run a command outside the sandbox would come to here (ADR 0064), for the
+    /// `limits` text: `.asked`, `.turnedOff`, or why it changes nothing.
+    public var outsideSandboxRequest: OutsideSandbox {
+        OutsideSandbox.resolve(requested: true, sandbox: options.policy.sandbox, nested: Self.isNestedSandbox)
     }
 
     /// The wall-clock limit for a command from `origin` (ADR 0063): none for one the person typed, who stops it
@@ -451,55 +529,86 @@ public struct CommandRunner: Sendable {
     /// Whether commands run under Seatbelt here.
     private var sandboxed: Bool { options.policy.sandbox.enabled && !Self.isNestedSandbox }
 
-    /// Records a `policy.decision`, marked as the person's when they typed the command.
+    /// Records a `policy.decision`, marked as the person's when they typed the command, and with what became of a
+    /// request to run it outside the sandbox.
     private func decide(
         _ verdict: AuditEvent.Details.PolicyVerdict, reason: String? = nil, command: String,
-        in workingDirectory: String, origin: Origin = .model
+        in workingDirectory: String, origin: Origin = .model, outside: OutsideSandbox = .notAsked
     ) {
         audit?.record(
             .policyDecision,
             details: AuditEvent.Details.policyDecision(
                 command: command, workingDirectory: workingDirectory, verdict: verdict, reason: reason,
-                sandbox: sandboxed, network: options.policy.sandbox.allowNetwork,
-                nested: options.policy.sandbox.enabled && Self.isNestedSandbox, origin: origin))
+                sandbox: sandboxed && outside != .asked, network: options.policy.sandbox.allowNetwork,
+                nested: options.policy.sandbox.enabled && Self.isNestedSandbox, origin: origin, outside: outside))
     }
 
+    /// What the model is told when a line it asked to run outside the sandbox has no gate to ask the person through.
+    static let noGateReason =
+        "running outside the sandbox needs the person's approval, and nothing here can ask them; "
+        + "run it without outsideSandbox"
+
     /// Checks the policy for the line and each simple command in it, then clears the line through `gate`;
-    /// records the denial or refusal when there is one.
+    /// records the denial or refusal when there is one. A line the model asked to run outside the sandbox
+    /// (`outside` `.asked`) is cleared by the person alone (`ApprovalGate.clear(outsideSandbox:…)`), and one the
+    /// operator turned that off for is denied after the lists.
     ///
     /// - Throws: `Failure.denied` or `Failure.disapproved`.
     private func admit(
-        _ command: String, in workingDirectory: String, gate: ApprovalGate?, origin: Origin = .model
+        _ command: String, in workingDirectory: String, gate: ApprovalGate?, origin: Origin = .model,
+        outside: OutsideSandbox = .notAsked
     ) async throws {
         let parts = CommandSplitter.split(command)
         let verdicts = ([command] + parts.map(\.text)).map(options.policy.check)
         if let denial = verdicts.first(where: { if case .denied = $0 { true } else { false } }),
             case .denied(let reason) = denial
         {
-            decide(.denied, reason: reason, command: command, in: workingDirectory, origin: origin)
+            decide(.denied, reason: reason, command: command, in: workingDirectory, origin: origin, outside: outside)
             Diagnostics.policy.info("denied: \(reason): \(command)")
             throw Failure.denied(reason)
         }
+        if outside == .turnedOff {
+            let reason = OutsideSandbox.turnedOffReason
+            decide(.denied, reason: reason, command: command, in: workingDirectory, origin: origin, outside: outside)
+            throw Failure.denied(reason)
+        }
         do {
-            try await gate?.clear(parts: parts, line: command, workingDirectory: workingDirectory)
+            if outside == .asked {
+                guard let gate else { throw ApprovalGate.Failure.refused(Self.noGateReason) }
+                try await gate.clear(outsideSandbox: parts, line: command, workingDirectory: workingDirectory)
+            } else {
+                try await gate?.clear(parts: parts, line: command, workingDirectory: workingDirectory)
+            }
         } catch ApprovalGate.Failure.refused(let reason) {
-            decide(.disapproved, reason: reason, command: command, in: workingDirectory)
+            decide(.disapproved, reason: reason, command: command, in: workingDirectory, outside: outside)
             throw Failure.disapproved(reason)
         }
     }
 
-    /// Launches an admitted command and records its outcome, marked as the person's when they typed it.
+    /// The hint a model's sandbox-refusal note ends with when it may ask to run the command outside the sandbox
+    /// (ADR 0064).
+    static let outsideHint = "; if it must, ask again with outsideSandbox true (the person approves each run)"
+
+    /// Launches an admitted command and records its outcome, marked as the person's when they typed it. A command
+    /// approved to run outside the sandbox (`outside` `.asked`) is launched without `sandbox-exec`.
     private func execute(
         _ command: String, in workingDirectory: String, origin: Origin = .model, stop: CommandStop? = nil,
-        limit: TimeLimit?
+        limit: TimeLimit?, outside: OutsideSandbox = .notAsked
     ) async throws
         -> Outcome
     {
         let started = Date()
-        var outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed, limit: limit, stop: stop)
-        if let refusal = sandboxRefusal(outcome, in: workingDirectory) {
+        let unconfined = outside == .asked
+        var outcome = try await launch(
+            command, in: workingDirectory, sandboxed: sandboxed && !unconfined, limit: limit, stop: stop)
+        outcome.outsideSandbox = unconfined
+        outcome.outsideNote = outside.note
+        if !unconfined, let refusal = sandboxRefusal(outcome, in: workingDirectory) {
             outcome.sandboxRefusal = refusal
             outcome.sandboxNote = refusal.note(roots: writableRoots)
+            if origin == .model, refusal.mayBeTheSandbox, options.policy.sandbox.allowOutsideSandbox {
+                outcome.sandboxNote? += Self.outsideHint
+            }
         }
         audit?.record(
             .commandOutcome,

@@ -151,8 +151,16 @@ import WispTestSupport
             #expect(
                 result.hasSuffix(
                     "sandbox: the sandbox may have refused this (Operation not permitted, no path to check: a network "
-                        + "connection, a process, or a file the error does not name); no policy rule denied it"),
+                        + "connection, a process, or a file the error does not name); no policy rule denied it"
+                        + CommandRunner.outsideHint),
                 "\(result)")
+            // With the operator's switch off, the note does not offer it (ADR 0064).
+            var options = runner.options
+            options.policy.sandbox.allowOutsideSandbox = false
+            let off = await RunCommandTool(runner: CommandRunner(options: options)).call(
+                arguments: .init(
+                    command: "echo 'Error: Operation not permitted' >&2; exit 1", workingDirectory: root.path))
+            #expect(off.hasSuffix("no policy rule denied it"), "\(off)")
         } else {
             #expect(!result.contains("sandbox:"))
         }

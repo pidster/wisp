@@ -8,7 +8,9 @@ import FoundationModels
 /// model-chosen working directory changes where it runs, never what it may write.
 /// It runs under a wall-clock limit: the call's `timeoutSeconds`, else the thread's, else the operator's
 /// default, a requested one clamped to `commandMaxTimeoutSeconds`
-/// ([ADR 0063](../../../../docs/decisions/0063-command-time-limits.md)).
+/// ([ADR 0063](../../../../docs/decisions/0063-command-time-limits.md)). With `outsideSandbox` it asks to run one
+/// command without the sandbox, which the person approves for that line, once, every time
+/// ([ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md)).
 public struct RunCommandTool: WispTool {
     /// The identifier the model uses to request this tool.
     public let name = "run_command"
@@ -29,6 +31,12 @@ public struct RunCommandTool: WispTool {
         /// Optional wall-clock limit for this call, in seconds; nil takes the thread's or the default.
         @Guide(description: "Seconds this command may run, for a long build or test. Omit for the default.")
         public var timeoutSeconds: Int?
+        /// Whether to ask to run it without the sandbox (ADR 0064); nil or false runs it sandboxed.
+        @Guide(
+            description:
+                "Set true only for a command the sandbox refuses, such as brew upgrade or cargo install; "
+                + "the person must approve it.")
+        public var outsideSandbox: Bool?
     }
 
     /// Supplies the policy, timeout, and output cap.
@@ -51,6 +59,21 @@ public struct RunCommandTool: WispTool {
             + "\(bound): past that the first and last lines are shown, the rest is held back and kept whole in the "
             + "conversation's output store, and the result says how to page, filter, or summarise it. Commands pass "
             + "a deny/allow policy and a risk classifier; moderate and dangerous ones need the user's approval."
+            + outsideText
+    }
+
+    /// The `outsideSandbox` sentence of `limits` (ADR 0064): what asking for it does here, or nothing when the
+    /// sandbox is off.
+    private var outsideText: String {
+        switch runner.outsideSandboxRequest {
+        case .asked:
+            " outsideSandbox true asks to run one command the sandbox refuses without it; the user approves every such "
+                + "run, whatever its risk, and nothing remembers it."
+        case .turnedOff: " Running outside the sandbox is turned off here (outsideSandbox is refused)."
+        case .unchanged(.nested):
+            " wisp runs inside another sandbox, which confines its commands; outsideSandbox changes nothing here."
+        case .unchanged(.sandboxOff), .notAsked: ""
+        }
     }
 
     /// The timeout sentence of `limits`: the limit this thread's commands get when they ask for none, and the cap
@@ -81,11 +104,12 @@ public struct RunCommandTool: WispTool {
 
     /// Runs the command and returns a compact rendering of its outcome.
     ///
-    /// A policy denial, a bad working directory, or a `timeoutSeconds` below 1 is returned as text rather
-    /// than thrown, so the model sees why and can choose another approach
+    /// A policy denial, a bad working directory, a `timeoutSeconds` below 1, or a refused `outsideSandbox` is
+    /// returned as text rather than thrown, so the model sees why and can choose another approach
     /// instead of the whole response failing.
     ///
-    /// - Parameter arguments: The command, optional working directory, and optional limit.
+    /// - Parameter arguments: The command, optional working directory, optional limit, and whether to ask to run it
+    ///   outside the sandbox.
     /// - Returns: Exit status and bounded stdout/stderr, formatted for the model.
     public func call(arguments: Arguments) async -> String {
         if let seconds = arguments.timeoutSeconds, seconds < 1 {
@@ -95,8 +119,10 @@ public struct RunCommandTool: WispTool {
             arguments.timeoutSeconds.map { .init(seconds: $0, source: .call) }
             ?? .init(seconds: threadTimeout, source: .thread)
         do {
-            return try await runner.run(arguments.command, in: arguments.workingDirectory, requested: requested)
-                .rendered
+            return try await runner.run(
+                arguments.command, in: arguments.workingDirectory, requested: requested,
+                outsideSandbox: arguments.outsideSandbox == true
+            ).rendered
         } catch {
             return ToolOutput.error(error)
         }

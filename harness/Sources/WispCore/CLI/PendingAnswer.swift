@@ -49,6 +49,10 @@ public enum PendingAnswer {
         } else if question {
             verb = decision == "decline" ? "declined" : "answered"
             from = request.thread.map { "; thread \($0) reads it on its next turn" } ?? ""
+        } else if request.outsideSandbox == true, decision != "no" {
+            // Approved for this one run alone, whatever scope was given (ADR 0064).
+            verb = "approved once, outside the sandbox" + (decision == "once" ? "" : " (\(decision) is taken as once)")
+            from = request.thread.map { " for thread \($0)" } ?? ""
         } else {
             verb = decision == "no" ? "denied" : "approved (\(decision))"
             from = request.thread.map { " for thread \($0)" } ?? ""

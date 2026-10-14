@@ -72,7 +72,8 @@ public struct OutOfBandApprover: Approver {
         await decide(request, audit: nil)
     }
 
-    /// The notification for a waiting request: the command, where it came from, and how to answer it.
+    /// The notification for a waiting request: the command, where it came from, and how to answer it; a request to
+    /// run outside the sandbox says so in its title (ADR 0064).
     ///
     /// - Parameter request: The filed request.
     /// - Returns: The message; `Notifier` bounds it.
@@ -82,7 +83,7 @@ public struct OutOfBandApprover: Approver {
         let from = [request.client, request.thread.map { "thread \($0)" }].compactMap(\.self)
             .map(ApprovalRequest.visible).joined(separator: ", ")
         return Notifier.Message(
-            title: "wisp: approval needed",
+            title: request.outsideSandbox == true ? "wisp: approve OUTSIDE the sandbox" : "wisp: approval needed",
             body: "\(command) — wisp approvals approve \(request.id)",
             subtitle: "\(request.level.rawValue) risk\(from.isEmpty ? "" : " · \(from)")")
     }

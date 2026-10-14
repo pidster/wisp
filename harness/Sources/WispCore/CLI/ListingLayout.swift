@@ -57,7 +57,8 @@ public enum ListingLayout {
     ///   - width: The terminal's width, or nil when piped.
     ///   - now: The time, for how long each has waited.
     /// - Returns: `id<TAB>level<TAB>seconds<TAB>thread<TAB>directory<TAB>command` lines when piped; aligned
-    ///   columns under a header on a terminal, the command last so it takes the room left.
+    ///   columns under a header on a terminal, the command last so it takes the room left, prefixed
+    ///   `OUTSIDE THE SANDBOX:` for a line the model asked to run outside the sandbox (ADR 0064).
     public static func pending(_ requests: [PendingApprovals.Request], width: Int?, now: Date = Date()) -> [String] {
         let rows = requests.map { request in
             let waited = max(0, Int(now.timeIntervalSince(request.createdAt)))
@@ -65,7 +66,10 @@ public enum ListingLayout {
             return [
                 request.id, request.level.rawValue, width == nil ? "\(waited)" : waitedText(waited),
                 from.isEmpty ? "-" : from, width == nil ? request.directory : ChatStatus.abbreviated(request.directory),
-                request.command,
+                // On a terminal a run outside the sandbox says so where the eye lands; piped, the column stays the
+                // command, for a script (ADR 0064).
+                width != nil && request.outsideSandbox == true
+                    ? "OUTSIDE THE SANDBOX: " + request.command : request.command,
             ]
         }
         guard let width else { return rows.map { $0.joined(separator: "\t") } }

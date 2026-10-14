@@ -51,6 +51,7 @@ public struct Introspection: Sendable {
                     "sandbox": .object([
                         "enabled": .bool(policy.sandbox.enabled), "allowNetwork": .bool(policy.sandbox.allowNetwork),
                         "writablePaths": .array(policy.sandbox.writablePaths.map { .string($0) }),
+                        "allowOutsideSandbox": .bool(policy.sandbox.allowOutsideSandbox),
                     ]),
                 ]),
             ]),
