@@ -21,6 +21,10 @@ Added:
   `commandPolicy.sandbox.allowOutsideSandbox` still apply, and chat says it runs OUTSIDE the sandbox before it starts.
   In `wisp-tui`, `!` typed at the start of a command steps the input box from command mode's amber to a muted red,
   and Backspace at the start steps back one mode at a time (ADR 0064, amended 2026-10-14).
+- A documentation site, https://wisp.pidster.com, built from `docs/` with search and an edit link on every page. It
+  opens with new guides: installing and a first run, delegating from Claude Code and Codex, approvals and the
+  sandbox, local models, configuration, and troubleshooting; then the reference, then the internals, every decision
+  record among them, and this changelog (ADR 0065).
 
 Fixed:
 
@@ -55,7 +59,7 @@ Fixed:
 A guide to installing local models; `wisp doctor` catches Apple's model service refusing every request; and an MLX
 pull's progress that no longer goes back.
 
-- A guide, [How to install local models](docs/install-local-models.md), signposted from the README: each runtime's
+- A guide, [How to install local models](https://github.com/pidster/wisp/blob/main/docs/install-local-models.md), signposted from the README: each runtime's
   steps, which model to choose as measured, the window, and what to do when a model will not start.
 
 Fixed:
@@ -652,9 +656,9 @@ Added:
 
 - MLX models (`mlx:<name>`) in the release: the Homebrew install is built with MLX and carries its Metal
   library, `mlx.metallib`, beside `wisp` in the Cellar's `libexec`, so MLX models run without building wisp
-  yourself ([ADR 0047](docs/decisions/0047-mlx-in-the-release.md)). The download grows by about 6 MB.
+  yourself ([ADR 0047](https://github.com/pidster/wisp/blob/main/docs/decisions/0047-mlx-in-the-release.md)). The download grows by about 6 MB.
   `wisp doctor` has an `MLX` finding: the Metal library it found and that it loads, or what is missing.
-- Permanent facts over MCP ([ADR 0048](docs/decisions/0048-permanent-facts-over-mcp.md)). A `wisp mcp`
+- Permanent facts over MCP ([ADR 0048](https://github.com/pidster/wisp/blob/main/docs/decisions/0048-permanent-facts-over-mcp.md)). A `wisp mcp`
   caller can ask for one of its thread's facts to be kept as a permanent fact with `set_fact_scope`
   `scope: permanent`; the call returns at once with the request's id, and a notification ("wisp: keep as a
   permanent fact?", naming the fact and `wisp facts keep <id>`) tells you. Only you answer: `wisp facts keep
@@ -689,7 +693,7 @@ Added:
   triggered by file changes starts only once no change has arrived for the settle period, so a checkout, a
   formatter, or save-all gives one run after the burst instead of a spurious failure part-way through it.
   The first run and `--every` runs are not delayed.
-- Approval over MCP for every client ([ADR 0046](docs/decisions/0046-approval-and-notifications-over-mcp.md)).
+- Approval over MCP for every client ([ADR 0046](https://github.com/pidster/wisp/blob/main/docs/decisions/0046-approval-and-notifications-over-mcp.md)).
   A command the model runs under `wisp mcp` that needs approval is also filed in `~/.wisp/pending` and
   announced by a notification ("wisp: approval needed", naming the command and `wisp approvals approve
   <id>`). Answer it from a terminal with `wisp approvals approve <id> [--scope once|session|project|always]`
@@ -703,7 +707,7 @@ Added:
 - `wisp doctor` checks `~/.wisp/pending`: absent, or a directory only you can open, and how many requests
   wait.
 - The audit log records each step of an approval answered through another face: `approval.pending`,
-  `approval.answered`, and `approval.settled` ([logging.md](docs/logging.md)).
+  `approval.answered`, and `approval.settled` ([logging.md](https://github.com/pidster/wisp/blob/main/docs/logging.md)).
 - `wisp chat --json`: a front end whose `hello` declares the `approve-mcp` effect is sent the commands
   waiting in `wisp mcp` servers as `approval` lines with `source: "mcp"`, and a `withdrawn` line when one no
   longer waits; `wisp-tui` declares it.
@@ -1310,7 +1314,7 @@ Added:
 
 - `wisp chat --json`, a headless chat speaking JSON Lines, and `wisp-tui`, a Rust front end over it
   that keeps the conversation in the terminal's scrollback above a pinned input and status band. A
-  merged from a one-day spike ([ADR 0029](docs/decisions/0029-tui-front-end.md)); the protocol may
+  merged from a one-day spike ([ADR 0029](https://github.com/pidster/wisp/blob/main/docs/decisions/0029-tui-front-end.md)); the protocol may
   still change. The formula installs both binaries, and `wisp chat` on a terminal hands the session
   to `wisp-tui`; `--plain` keeps the line-based chat.
 

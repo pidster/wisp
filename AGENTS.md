@@ -27,7 +27,7 @@ only what applies everywhere and to every agent.
 | `harness/` | Swift package. Targets: `WispCore` (all logic, with the HTTP backends: Ollama, llama.cpp, LM Studio), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait, which the release is built with, ADR 0047), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers the Core AI and MLX backends), tests, and `WispTestSupport` (`ScriptedModel` and friends, also a library product). |
 | `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`, needing a model). The gate and coverage never build it; `scripts/check eval` does. |
 | `tools/` | Cargo workspace. `wisp-tui`, the terminal front end over `wisp chat --json` (ADR 0029); future tool binaries go here too. The gate runs fmt, pedantic clippy, and tests on it. |
-| `docs/` | Documentation and ADRs. Part of every change (see Definition of done). |
+| `docs/` | Documentation and ADRs, and the source of the documentation site: an mdBook (`book.toml` at the root, `docs/SUMMARY.md` its contents, ADR 0065). Part of every change (see Definition of done). |
 | `training/` | Labelled training sets for the fast classifiers, with their adversarial reviews (ADR 0038). Only `risk/train.tsv` is built in, copied to `Resources/risk-examples.tsv` by `scripts/check classifier-default`. |
 | `scripts/check` | The quality gate and the pre-commit hook's body. |
 
@@ -40,6 +40,7 @@ scripts/check install-hooks        # once per clone
 scripts/check                      # hygiene + strict lint + warnings-as-errors build + tests (the gate)
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
+scripts/check docs-site            # docs-links (in the gate: every page in SUMMARY.md, every link resolving), then mdbook build into book/
 scripts/check eval [context|compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval, or only it, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama: or mlx:), or (checkpoint) context checkpoint 2; record rewrites measurements.json; WISP_EVAL_FULL=1 runs the whole case sets, not the release's subsets
 scripts/check mlx-live <model dir> # MLX live test on real weights, built with --traits MLX; not in the gate
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code

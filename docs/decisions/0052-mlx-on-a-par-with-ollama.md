@@ -367,7 +367,7 @@ The 0.21.0 follow-ups of the cache refinement above.
 ## Amendment, 2026-10-09: any publisher, confirmed by the person
 
 **Context.** `wisp models pull mlx:ornith-ai/Ornith-1.5-9B-MLX-4bit` was refused: "is not an mlx-community model;
-wisp fetches only mlx-community/<name>". MLX conversions are published by many organisations besides
+wisp fetches only `mlx-community/<name>`". MLX conversions are published by many organisations besides
 `mlx-community`, often by a model's own authors, and the only way to run one was to fetch it with another tool and
 link it by hand, which skipped every check the pull makes. The operator asked that installs from other publishers
 be permitted, handled interactively or through a further permission question, and that it go into 0.21.1.

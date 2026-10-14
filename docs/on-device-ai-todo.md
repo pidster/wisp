@@ -152,9 +152,9 @@ against 0/7 and 1/7).
 Audit events carry `id`, `session`, `turn` and an optional `call`. `Agent` records the prompt before
 invoking the model, and the conversation's store links each entry to the audit events that recorded it,
 saved with a transcript as `<name>.store` (since 2026-09-29). See [logging](logging.md),
-[Agent](../harness/Sources/WispCore/Session/Agent.swift),
-[AuditEvent](../harness/Sources/WispCore/Audit/AuditEvent.swift) and
-[TranscriptStore](../harness/Sources/WispCore/Config/TranscriptStore.swift).
+[Agent](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Session/Agent.swift),
+[AuditEvent](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Audit/AuditEvent.swift) and
+[TranscriptStore](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Config/TranscriptStore.swift).
 
 **Progress:**
 - **`model.resolved`** records the model, its capabilities, and its window with why.

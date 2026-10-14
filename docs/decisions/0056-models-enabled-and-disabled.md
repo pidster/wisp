@@ -212,7 +212,7 @@ as it was, and `Session.checkModels` turns it on or keeps it off, recorded as `m
    agents with tools refuse it." Only what passed is recorded. Chat and agents with tools refuse it as they refuse
    any model without tool calling, so `/model` and Tab do not offer it; the listing and the picker show it, as
    enabled, with `CAPABILITIES` leading `text only` (`text only, structured replies (verified)` when the schema
-   reply passed) and the reason "wisp's check on <day> found it holds a conversation but calls no tools". `outcome`
+   reply passed) and the reason "wisp's check on `<day>` found it holds a conversation but calls no tools". `outcome`
    `text only`.
 3. **Both pass: enabled and usable.** `outcome` `usable`.
 

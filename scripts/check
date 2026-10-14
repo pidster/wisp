@@ -785,6 +785,43 @@ palette() {
     ' harness/Sources/WispCore/CLI/Style.swift tools/wisp-tui/src/palette.rs
 }
 
+# docs-links: the documentation site's sources, checked without mdBook (scripts/docs-links, ADR 0065): every page
+# under docs/ is in docs/SUMMARY.md, and every link in the book's pages resolves on the site. Cheap (well under a
+# second), so part of the gate.
+docs_links() {
+    echo "==> docs links (every page in SUMMARY.md, every link resolving on the site)"
+    scripts/docs-links
+}
+
+# The mdBook release the site is built with; .github/workflows/docs.yml installs the same one.
+MDBOOK_VERSION=0.5.4
+
+# docs-site: the link check, then the site itself, built with mdBook into book/ (git ignores it). Not in the gate:
+# it needs mdBook, which the gate does not; the docs workflow runs it on every push to main that touches the docs.
+docs_site() {
+    docs_links
+    if ! command -v mdbook >/dev/null 2>&1; then
+        echo "docs-site: mdbook is not installed; install mdBook $MDBOOK_VERSION (brew install mdbook, or its release" >&2
+        echo "  from https://github.com/rust-lang/mdBook/releases) and run this again" >&2
+        exit 1
+    fi
+    version="$(mdbook --version)"
+    case "$version" in
+        *"v$MDBOOK_VERSION") ;;
+        *) echo "note: $version; the site is built with mdBook $MDBOOK_VERSION" ;;
+    esac
+    echo "==> docs site (mdbook build into book/)"
+    log="$LOCK_SAVED/mdbook.log"
+    mdbook build >"$log" 2>&1 || { cat "$log" >&2; echo "mdbook build failed" >&2; exit 1; }
+    # mdBook warns, and still builds, on an unclosed HTML tag (a bare <name> in prose, which GitHub hides too).
+    if grep -q 'WARN' "$log"; then
+        grep -A1 'WARN' "$log" >&2
+        echo "mdbook build warned; fix the pages it names (a bare <placeholder> belongs in backticks)" >&2
+        exit 1
+    fi
+    echo "docs site: built in book/; open book/index.html"
+}
+
 install_hooks() {
     git config core.hooksPath .githooks
     echo "core.hooksPath set to .githooks"
@@ -809,7 +846,9 @@ case "${1:-all}" in
     evals-build) evals_build ;;
     mlx-build) mlx_build ;;
     mcp-build) mcp_build ;;
-    all) hygiene; palette; launcher; lint; build; evals_build; test_ ;;
+    docs-links) docs_links ;;
+    docs-site) docs_site ;;
+    all) hygiene; palette; launcher; docs_links; lint; build; evals_build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|hygiene|palette|launcher|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|docs-links|docs-site|hygiene|palette|launcher|all|install-hooks]" >&2; exit 64 ;;
 esac

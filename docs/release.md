@@ -30,6 +30,8 @@ made stale elsewhere. Read each against the code as it stands:
 | `README.md` | What wisp can do, the quick start commands, the MCP tool list, the doc map, developer setup, the layout table |
 | `AGENTS.md`, `CLAUDE.md` | The layout table, the architecture paragraph, the model's tool list, the MCP tool names, the smoke-test commands |
 | `docs/README.md` | Every page, ADR, and proposal has a row with a current description (the preflight checks presence, not accuracy) |
+| `docs/introduction.md`, `docs/guide/*.md` | The site's landing page and guides restate the reference: the commands, flags, defaults, messages, and `wisp doctor` output they quote, and the tool lists, against the binary's `--help` and the pages they link to |
+| `docs/SUMMARY.md` and the site | Every new page in its part, the ADRs in number order; `scripts/check docs-site` builds the site with no warning ([ADR 0065](decisions/0065-documentation-site.md)) |
 | `docs/wisp.md` | Every subcommand, flag, chat command, and config field the binary has; `wisp --help` and `/help` are the source |
 | `docs/mcp.md` | Every MCP tool, argument, result field, and resource `ToolCatalog` declares |
 | `docs/tools/README.md`, `docs/trust.md` | The model's tools, and what each can change on the Mac |
@@ -44,7 +46,7 @@ Commit it as "Bring the docs up to date for X.Y.Z", or "Docs sweep for X.Y.Z: no
 `scripts/release X.Y.Z` does all of it and refuses to continue at the first problem. `--dry-run` performs
 every local step and prints the remote ones instead of executing them.
 
-1. Preflight: the version is exactly three numbers, `X.Y.Z`; every `docs/*.md`, decision, and proposal is linked from `docs/README.md`; clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag here or on `origin`
+1. Preflight: the version is exactly three numbers, `X.Y.Z`; every `docs/*.md`, decision, and proposal is linked from `docs/README.md` (but `docs/SUMMARY.md`, the site's table of contents, which `scripts/check docs-links` checks instead); clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag here or on `origin`
    (`git ls-remote`), `origin/main` is `HEAD` (pushed, and nothing on origin left out), `gh` is
    authenticated, `CHANGELOG.md` has a non-empty `## X.Y.Z` section, `scripts/check` passes (the full
    test run, and the evaluations compiled), `scripts/check mlx-build` passes (the harness and its tests with the MLX

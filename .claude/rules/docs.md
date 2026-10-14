@@ -8,6 +8,13 @@ paths:
 
 # Documentation guidance
 
+- `docs/` is also the documentation site, an mdBook (`book.toml` at the root, ADR 0065). A new page goes in
+  `docs/SUMMARY.md`, in its part (Guides, Reference, Internals; an ADR under Decisions, in number order), as well
+  as in `docs/README.md`; `scripts/check docs-links`, in the gate, fails otherwise.
+- Links stay inside `docs/` or are absolute. A link to anything outside `docs/` (source, `AGENTS.md`,
+  `CHANGELOG.md`, `scripts/`) or to a directory is a GitHub URL, `https://github.com/pidster/wisp/blob/main/<path>`
+  (`tree/main/<path>` for a directory), so it works on GitHub and on the site. A bare `<placeholder>` in prose goes
+  in backticks: GitHub hides it as HTML and mdBook warns.
 - `docs/README.md` is the index; add a row for every new page. Pages describe the current state and are
   edited in place. Decision records are append-only: a superseded ADR keeps its file and gains a
   "Superseded by" or "Amends" line, and the newer ADR names what it changes.

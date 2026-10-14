@@ -40,7 +40,8 @@ remote() {
 echo "==> preflight"
 missing=""
 for page in docs/*.md docs/decisions/*.md docs/proposals/*.md docs/tools/*.md; do
-    case "$page" in docs/README.md|docs/tools/README.md) continue ;; esac
+    # SUMMARY.md is the site's table of contents, not a page; scripts/check docs-links checks it (ADR 0065).
+    case "$page" in docs/README.md|docs/tools/README.md|docs/SUMMARY.md) continue ;; esac
     name="${page#docs/}"
     index=docs/README.md
     case "$page" in docs/tools/*) index=docs/tools/README.md; name="${page#docs/tools/}" ;; esac

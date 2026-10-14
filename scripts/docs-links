@@ -1,0 +1,166 @@
+#!/bin/sh
+# docs-links: checks the documentation site's sources without building them (ADR 0065, docs/engineering.md).
+#
+# The site is an mdBook over docs/ (book.toml at the root, src = "docs"), whose table of contents is
+# docs/SUMMARY.md. It checks, with no mdBook and no network:
+#
+#   - every entry in SUMMARY.md names a page that exists, once;
+#   - every Markdown page under docs/ is in SUMMARY.md, except those EXCLUDED below;
+#   - every link in every page SUMMARY.md lists (and in what a page includes with {{#include …}}) is absolute
+#     (a scheme such as https:) or an anchor, or resolves inside docs/ to a page in SUMMARY.md or to a file
+#     the site copies (an image). A link that leaves docs/ (../harness/…, ../AGENTS.md) would 404 on the site,
+#     as would a directory (the site has no index for one); link to the file on GitHub instead,
+#     https://github.com/pidster/wisp/blob/main/<path> (tree/main for a directory). A path from the root (/…) is
+#     refused too: GitHub reads it from the repository's root and the site from its own.
+#
+# Links are Markdown inline links and images, reference definitions, and HTML href, src, and srcset; fenced
+# code blocks and code spans are skipped. Anchors (#…) are not checked. Prints each problem as
+# docs/<page>:<line>: <target>: <why>, and exits 1 when there is one.
+set -eu
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+SRC=docs
+# The GitHub view of a file outside the book, offered in the message for a link that leaves docs/.
+BLOB=https://github.com/pidster/wisp/blob/main
+
+# Pages under docs/ deliberately left out of the book, one path relative to docs/ a line. None today.
+EXCLUDED=""
+
+[ -f "$SRC/SUMMARY.md" ] || { echo "docs-links: no $SRC/SUMMARY.md" >&2; exit 1; }
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+# Every file and directory under docs/, relative to it.
+find "$SRC" -type f | sed "s|^$SRC/||" >"$work/files"
+find "$SRC" -mindepth 1 -type d | sed "s|^$SRC/||" >"$work/dirs"
+printf '%s\n' "$EXCLUDED" >"$work/excluded"
+
+awk -v src="$SRC" -v blob="$BLOB" -v files="$work/files" -v dirs="$work/dirs" -v excluded="$work/excluded" '
+    # normalize(path): path with "." and ".." resolved; "\001" when ".." climbs above its start.
+    function normalize(path,   n, parts, out, i, k, res) {
+        n = split(path, parts, "/")
+        k = 0
+        for (i = 1; i <= n; i++) {
+            if (parts[i] == "" || parts[i] == ".") continue
+            if (parts[i] == "..") { if (k == 0) return "\001"; k--; continue }
+            out[++k] = parts[i]
+        }
+        res = ""
+        for (i = 1; i <= k; i++) res = res (i > 1 ? "/" : "") out[i]
+        return res
+    }
+    function dirname(path) { return (path ~ /\//) ? substr(path, 1, match(path, /\/[^\/]*$/) - 1) : "" }
+    function problem(where, target, why) { printf "%s: %s: %s\n", where, target, why; bad++ }
+
+    # check(page, line, target): one link in a page in the book, judged as the site will serve it.
+    function check(page, line, target,   where, path, base, full, repo) {
+        where = src "/" page ":" line
+        links++
+        sub(/^</, "", target); sub(/>$/, "", target)
+        if (target == "" || target ~ /^#/) return
+        if (target ~ /^[A-Za-z][A-Za-z0-9+.-]*:/) return
+        if (target ~ /^\//) { problem(where, target, "a path from the root, which GitHub reads from the repository and the site from wisp.pidster.com; use a relative link"); return }
+        path = target
+        sub(/[#?].*$/, "", path)
+        if (path == "") return
+        base = dirname(page)
+        full = normalize(base == "" ? path : base "/" path)
+        if (full == "\001") {
+            repo = normalize(src "/" (base == "" ? path : base "/" path))
+            if (repo == "\001") repo = path
+            problem(where, target, "outside " src "/, so not on the site; link to GitHub: " blob "/" repo)
+            return
+        }
+        if (path ~ /\/$/ || (full in isDir) || full == "") {
+            problem(where, target, "a directory, which the site has no index for; link to a page, or to GitHub")
+            return
+        }
+        if (!(full in isFile)) { problem(where, target, "no such file under " src "/"); return }
+        if (full ~ /\.md$/ && !(full in inSummary)) problem(where, target, "a page not in SUMMARY.md, so not on the site")
+    }
+
+    # scan(page, line, text): every link in one line of text that is not code.
+    function scan(page, line, text,   s, inner, n, tok) {
+        gsub(/``[^`]+(`[^`]+)*``/, "", text)
+        gsub(/`[^`]*`/, "", text)
+        s = text
+        while (match(s, /\]\([^)]*\)/)) {
+            inner = substr(s, RSTART + 2, RLENGTH - 3)
+            s = substr(s, RSTART + RLENGTH)
+            if (inner ~ /^</) { sub(/>.*$/, ">", inner) } else { sub(/[ \t].*$/, "", inner) }
+            check(page, line, inner)
+        }
+        if (match(text, /^ {0,3}\[[^]]+\]:[ \t]+[^ \t]+/)) {
+            tok = substr(text, RSTART, RLENGTH); sub(/^[^]]*\]:[ \t]+/, "", tok)
+            check(page, line, tok)
+        }
+        s = text
+        while (match(s, /(href|src|srcset)="[^"]*"/)) {
+            inner = substr(s, RSTART, RLENGTH)
+            s = substr(s, RSTART + RLENGTH)
+            sub(/^[a-z]+="/, "", inner); sub(/"$/, "", inner); sub(/[ ,].*$/, "", inner)
+            check(page, line, inner)
+        }
+    }
+
+    # read(page, file, depth): scans a file as part of page, following {{#include}} once (mdBook inserts the
+    # included text as it is, so its links are read from the page).
+    function read(page, file, depth,   l, n, fence, inc, incfile) {
+        n = 0; fence = 0
+        while ((getline l < file) > 0) {
+            n++
+            if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; continue }
+            if (fence) continue
+            if (match(l, /\{\{#include [^}]+\}\}/)) {
+                inc = substr(l, RSTART + 11, RLENGTH - 13)
+                sub(/:.*$/, "", inc)
+                incfile = normalize(dirname(file) "/" inc)
+                if (incfile == "\001" || (getline probe < incfile) < 0) {
+                    problem(src "/" page ":" n, inc, "an include that does not exist")
+                } else {
+                    close(incfile)
+                    if (depth < 1) read(page, incfile, depth + 1)
+                }
+                continue
+            }
+            scan(page, n, l)
+        }
+        close(file)
+    }
+
+    BEGIN {
+        while ((getline f < files) > 0) isFile[f] = 1
+        while ((getline f < dirs) > 0) isDir[f] = 1
+        while ((getline f < excluded) > 0) if (f != "") isExcluded[f] = 1
+
+        # The pages SUMMARY.md lists, in order; a draft chapter, [Title](), has none.
+        summary = src "/SUMMARY.md"
+        n = 0
+        while ((getline l < summary) > 0) {
+            n++
+            s = l
+            while (match(s, /\]\([^)]*\)/)) {
+                t = substr(s, RSTART + 2, RLENGTH - 3)
+                s = substr(s, RSTART + RLENGTH)
+                if (t == "") continue
+                p = normalize(t)
+                if (p == "\001" || !(p in isFile)) { problem(summary ":" n, t, "no such page under " src "/"); continue }
+                if (p in inSummary) { problem(summary ":" n, t, "listed twice"); continue }
+                inSummary[p] = 1
+                pages[++pageCount] = p
+            }
+        }
+        close(summary)
+
+        for (f in isFile)
+            if (f ~ /\.md$/ && f != "SUMMARY.md" && !(f in inSummary) && !(f in isExcluded))
+                problem(src "/" f ":1", f, "not in SUMMARY.md (add it, or list it in EXCLUDED in scripts/docs-links)")
+
+        for (i = 1; i <= pageCount; i++) read(pages[i], src "/" pages[i], 0)
+
+        if (bad) { printf "docs-links: %d problem(s) in %d pages\n", bad, pageCount > "/dev/stderr"; exit 1 }
+        printf "docs-links: %d pages in SUMMARY.md, %d links, all resolve on the site\n", pageCount, links
+    }
+'

@@ -1,0 +1,32 @@
+# The documentation site: an mdBook over docs/ (ADR 0065). Build it from the repository root with mdBook 0.5.4,
+# `mdbook build` or `scripts/check docs-site`; the site is written to book/, which git ignores. mdBook 0.5 refuses a
+# key it does not know, so add one only from its documentation.
+
+[book]
+title = "wisp"
+description = "An on-device, tool-using AI microharness for macOS: a CLI and an MCP server on Apple's Foundation Models, with every command the model runs checked, sandboxed, approved when it matters, and audited."
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book"
+# Fail, rather than write an empty page, when SUMMARY.md names a file that does not exist.
+create-missing = false
+# The default preprocessors are links ({{#include}}) and index, which renames every README.md to index.md. That
+# would put docs/README.md over the Introduction as the site's index.html, and leave every link to a README.md
+# pointing at a README.html that is not there. So index is off, and links is named below to keep it.
+use-default-preprocessors = false
+
+[preprocessor.links]
+
+[output.html]
+site-url = "/"
+git-repository-url = "https://github.com/pidster/wisp"
+edit-url-template = "https://github.com/pidster/wisp/edit/main/{path}"
+# The ADRs carry their own numbers; mdBook's chapter numbers would sit beside them.
+no-section-label = true
+# GitHub draws the ```mermaid blocks; mdBook shows them as code unless this script draws them.
+additional-js = ["docs/assets/mermaid-init.js"]
+
+[output.html.search]
+enable = true

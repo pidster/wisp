@@ -262,14 +262,14 @@ at once (ADR 0048, amended 2026-10-12):
    `options`, `state: "waiting"`, and the thread's URI). The turn is recorded `inquiry.parked`.
 3. The server watches the channel for the answer, as `FactKeeper` watches for a keep (every 200 ms). When the person
    answers (`wisp questions answer`, or `wisp-tui`), the answer is held for the thread as a note in
-   `ConversationNotices`: "The person answered your question "<question>": <answer> (via wisp questions, 14:02)". The
+   `ConversationNotices`: "The person answered your question "`<question>`": `<answer>` (via wisp questions, 14:02)". The
    thread's next turn begins by storing it as a notice (`ThreadRecord.Kind.notice`), so the model reads it with that
    turn's request, exactly as a background pull's end reaches it (ADR 0059). `wisp://threads/{thread_id}` shows the
    question `answered`, with the answer, from the moment it is taken; nothing is pushed to a client that may not be
    listening. The person's command says so: "answered; thread git reads it on its next turn".
 4. The caller's next `respond` on the thread resumes the work: any prompt carries the note, a bare "continue"
    included. A different prompt while the question still waits runs as usual, and its turn begins with the notice
-   "your question "<question>" still waits for the person; do not assume its answer", and a second `ask` is refused
+   "your question "`<question>`" still waits for the person; do not assume its answer", and a second `ask` is refused
    while one waits (D4). With a deadline set and passed, the note says it went unanswered.
 
 *Considered and rejected for the park: keeping the turn's task suspended in `ask` after `respond` returns, and handing

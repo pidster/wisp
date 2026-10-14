@@ -1,7 +1,20 @@
 # wisp documentation
 
+These pages are also the documentation site, https://wisp.pidster.com, an mdBook whose table of contents is
+[SUMMARY.md](https://github.com/pidster/wisp/blob/main/docs/SUMMARY.md) ([ADR 0065](decisions/0065-documentation-site.md)).
+
 | Document | Purpose |
 | --- | --- |
+| [introduction.md](introduction.md) | The site's landing page: what wisp is, who it is for, the CLI and the MCP server, the safety model in five lines, and where to go next |
+| [guide/install.md](guide/install.md) | Guide: install with Homebrew, check with `wisp doctor`, a first `wisp "…"`, a first approval, `wisp chat` and `wisp-tui` |
+| [guide/delegating.md](guide/delegating.md) | Guide: wisp as an MCP server for Claude Code and Codex: registering it, `respond` threads, the condensing tools, approvals that reach the person, the git thread as a worked example |
+| [guide/approvals-and-sandbox.md](guide/approvals-and-sandbox.md) | Guide: what is asked and when, what each scope covers, `wisp approvals`, the sandbox's writable roots and its refusals, `outsideSandbox` and `!!`, what the audit log shows |
+| [guide/local-models.md](guide/local-models.md) | Guide: when to add a local model, which runtime and which model as measured, using one, windows and memory |
+| [guide/configuration.md](guide/configuration.md) | Guide: `wisp config` and `config.json`, the settings worth knowing, editing by hand, the instruction layers, the environment |
+| [guide/troubleshooting.md](guide/troubleshooting.md) | Guide: `wisp doctor`'s findings, restarting `modelmanagerd`, refused commands and the sandbox, an MCP server that does not connect, a stuck approval, the lockfile's MLX pins |
+| [SUMMARY.md](https://github.com/pidster/wisp/blob/main/docs/SUMMARY.md) | The site's table of contents, which mdBook reads; every page here is listed in it (`scripts/check docs-links`) |
+| [changelog.md](changelog.md) | The site's changelog page, which includes the repository's `CHANGELOG.md` |
+| [decisions/0065-documentation-site.md](decisions/0065-documentation-site.md) | The documentation site: an mdBook over `docs/` (users first, internals after), built on Linux and deployed to GitHub Pages at wisp.pidster.com by `.github/workflows/docs.yml`; links that leave `docs/` go to GitHub; `scripts/check docs-links` in the gate and `docs-site` beside it |
 | [trust.md](trust.md) | What wisp can do to your Mac, what leaves it, what it remembers, how to see and undo |
 | [objective.md](objective.md) | What wisp is for and what "done" looks like |
 | [install-local-models.md](install-local-models.md) | How to install a local model (Ollama, MLX, llama.cpp, LM Studio, Core AI), choose it, and which to choose, as measured |
@@ -89,12 +102,12 @@
 | [backlog.md](backlog.md) | Agreed work not yet scheduled, and what has shipped, done and dated; the release plan is in roadmap.md |
 | [engineering.md](engineering.md) | Standards, tooling, the pre-commit gate (with the lockfiles' MLX pins it guards), and CI |
 | [backends.md](backends.md) | Model backends: Apple's, Ollama, llama.cpp, LM Studio, Core AI, MLX; asset preparation, naming, declared capabilities, errors |
-| [decisions/](decisions/) | Architecture Decision Records, one per significant decision |
+| [decisions/](https://github.com/pidster/wisp/tree/main/docs/decisions) | Architecture Decision Records, one per significant decision |
 | [proposals/2026-09-22-tui-spike.md](proposals/2026-09-22-tui-spike.md) | Spike: a ratatui front end over a headless `wisp chat --json`; what was built, what was answered, what needs a real terminal |
 | [proposals/2026-09-29-layered-context.md](proposals/2026-09-29-layered-context.md) | Done, recorded in ADR 0045; the detailed record of decisions D1 to D12 and every evaluation, phases 1 to 6: stored, active, and shown views of a conversation; a context composed for each request from literal turns, a summary, facts, and recall; display decoupled from context by output handling |
 | [proposals/2026-10-06-context-checkpoint-2.md](proposals/2026-10-06-context-checkpoint-2.md) | Run 2026-10-06 to 2026-10-08, decided in ADR 0057: the second checkpoint of the layered context (ADR 0045's open items): the target and headroom at the default budget on a longer scenario, the 50% variants under the guard, a model switch mid-conversation, `memory` on and off, and the assessment changing the task only when restated; each question's measurement, decision rule, run time, and command |
 | [proposals/2026-09-20-escalations.md](proposals/2026-09-20-escalations.md) | For review: two escalation verbs (approval, inquiry) and a choice of channels, including a non-blocking hand-off to the calling agent. Its approval part was settled otherwise by ADR 0046 (through another face, not the calling agent), and its inquiry verb by ADR 0062 |
-| [reviews/](reviews/) | Dated code and documentation reviews with their todo lists and status |
+| [reviews/](https://github.com/pidster/wisp/tree/main/docs/reviews) | Dated code and documentation reviews with their todo lists and status |
 
 Conventions: documentation is updated in the same change as the code it describes (see the definition of done
 in [engineering.md](engineering.md)). Documents describe the current state and are edited in place. Decisions are append-only; a

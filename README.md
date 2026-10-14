@@ -244,7 +244,9 @@ with `brew upgrade pidster/tap/wisp`; remove with `brew uninstall wisp` and `rm 
 
 ## Documentation
 
-Everything is under [docs/](docs/README.md). Start with the row that matches your question.
+Everything is under [docs/](docs/README.md), which is also published, with guides and search, as the
+documentation site at wisp.pidster.com ([ADR 0065](docs/decisions/0065-documentation-site.md)). Start with the row
+that matches your question.
 
 | If you want to… | Read |
 | --- | --- |

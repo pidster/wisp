@@ -14,3 +14,6 @@ target/
 .claude/worktrees/
 # Claude Code personal settings, never shared
 .claude/settings.local.json
+
+# The documentation site, as mdBook builds it from docs/ (book.toml, ADR 0065)
+/book/

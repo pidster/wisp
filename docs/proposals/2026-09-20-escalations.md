@@ -110,7 +110,7 @@ public protocol EscalationChannel: Sendable {
   renamed `…Channel` and gain the inquiry case. `ResultChannel` is new and owns the `PendingEscalations`
   actor (per session, shared by threads like `SessionApprovals`).
 - `ApprovalGate` raises `.approval` and maps `.pending` to a refusal whose reason names the id, so the
-  model is told "pending approval <id>" and the refusal list carries it.
+  model is told "pending approval `<id>`" and the refusal list carries it.
 - `AskOperatorTool` raises `.inquiry` through the conversation's channel and renders the outcome.
 - `Conversation.setUp` takes the channel instead of the approver. `Session.Request` gains
   `escalationChannel: EscalationChannelName?`; the CLI sets it from `--escalation` on `mcp`

@@ -1,0 +1,63 @@
+name: Docs
+
+# The documentation site, https://wisp.pidster.com (ADR 0065): mdBook over docs/, built on Linux (the docs need no
+# macOS, unlike ci.yml) and deployed to GitHub Pages. Pages, its source (GitHub Actions), and the custom domain
+# are set in the repository's settings by the owner; until then the deploy job fails and the build still checks.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "book.toml"
+      - "CHANGELOG.md"
+      - "scripts/docs-links"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer push waits rather than cancelling one already deploying.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  MDBOOK_VERSION: 0.5.4
+  # The SHA-256 GitHub's release API gives for mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz (4,822,940 bytes),
+  # read on 2026-10-14. Change it with MDBOOK_VERSION, and with MDBOOK_VERSION in scripts/check.
+  MDBOOK_SHA256: 3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mdBook
+        run: |
+          set -eu
+          tarball="mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/$tarball"
+          printf '%s  %s\n' "$MDBOOK_SHA256" "$RUNNER_TEMP/$tarball" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/mdbook"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/mdbook"
+          printf '%s\n' "$RUNNER_TEMP/mdbook" >> "$GITHUB_PATH"
+      - name: Check links and build
+        run: scripts/check docs-site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

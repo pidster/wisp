@@ -2,7 +2,7 @@
 
 The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped, and so have
 0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, and 0.24.1, a patch of small items, and 0.24.2, command time
-limits, on 2026-10-14. What each carried is in [CHANGELOG.md](../CHANGELOG.md). An approved run outside the sandbox,
+limits, on 2026-10-14. What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main/CHANGELOG.md). An approved run outside the sandbox,
 chosen by the operator on 2026-10-14, is built for the next patch, 0.24.3, as command time limits were for 0.24.2;
 the operator may yet call it 0.25.0. Each
 release carries one or two larger items and a few smaller ones; a small item sits with the larger one it touches.
