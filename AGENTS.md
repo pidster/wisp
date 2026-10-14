@@ -148,7 +148,7 @@ diff, add, commit, push. There is no direct `run_command` MCP tool by decision; 
 approved, and audited as a turn. The tool is named by your harness's convention for the `wisp` server
 (Claude Code: `mcp__wisp__respond`; Codex: the `respond` tool of the `wisp` server).
 
-Open one thread for git and reuse it. When the thread starts, pass all four of these; they are refused on
+Open one thread for git and reuse it. When the thread starts, pass all five of these; they are refused on
 an existing thread:
 
 - `thread_id`: `git` (or `git2`, `git3` if the thread was closed).
@@ -157,6 +157,10 @@ an existing thread:
   follows a fixed instruction reliably and its context window is far larger than the on-device model's,
   so a thread survives many commits with hook output. If Ollama is not running the thread fails to start
   with a clear error; then use the default `system` model and keep prompts short.
+- `commandTimeoutSeconds`: `600`. The pre-commit hook runs the whole gate, which can pass 60 s after a
+  change (a commit was killed at 60 s twice on 2026-10-13, once leaving the lockfile half-restored), and
+  the default limit is 120 s. The operator's `commandMaxTimeoutSeconds` (1,800 by default) caps it
+  (ADR 0063).
 - `instructions` (the conversation layer; wisp's own system prompt and the config extension stay
   underneath it):
 

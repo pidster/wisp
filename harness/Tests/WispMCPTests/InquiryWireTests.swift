@@ -23,7 +23,8 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try scratchSession(dependencies: .testing(sink: sink), config: config)
         let model = ScriptedModel(steps: steps)
-        let server = WispServer(session: session, inquiryHold: hold) { session, host, id, instructions, tools, _, _ in
+        let server = WispServer(session: session, inquiryHold: hold) {
+            session, host, id, instructions, tools, _, _, _ in
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools,
                 auditSession: ThreadDirectory.auditSession(for: id))

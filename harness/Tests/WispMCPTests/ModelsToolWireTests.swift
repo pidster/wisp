@@ -44,7 +44,7 @@ private struct PlanOnlyPuller: ModelPuller {
         let steps: [ScriptedModel.Step] = [
             .call(name: "models", arguments: #"{"action":"pull","name":"ornith-ai/q"}"#), .say("{tool}"),
         ]
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _ in
+        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
             let thread = try session.thread(id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: ScriptedModel(steps: steps)))
             return OpenThread(

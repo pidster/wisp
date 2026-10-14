@@ -17,6 +17,7 @@ import Testing
     private static let rendered: [String: [String]] = [
         "systemPromptExtension": ["systemPromptExtension"], "instructions": ["systemPromptExtension"],
         "model": ["model"], "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
+        "commandMaxTimeoutSeconds": ["runCommand", "maxTimeoutSeconds"],
         "commandMaxOutputBytes": ["runCommand", "maxOutputBytes"], "maxThreads": ["maxThreads"],
         "inlineOutputBytes": ["inlineOutputBytes"], "shownOutputLines": ["shownOutputLines"],
         "commandPolicy": ["runCommand", "policy"], "audit": ["audit"], "approval": ["approval"],
@@ -50,6 +51,7 @@ import Testing
         let top = try renderedConfiguration()
         let moved: [String: [String]] = [
             "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
+            "commandMaxTimeoutSeconds": ["runCommand", "maxTimeoutSeconds"],
             "commandMaxOutputBytes": ["runCommand", "maxOutputBytes"],
         ]
         for setting in ConfigSettings.all {

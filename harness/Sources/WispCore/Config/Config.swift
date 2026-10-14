@@ -13,8 +13,11 @@ public struct Config: Codable, Equatable, Sendable {
     public var model: ModelSelection?
     /// Which models are turned off: hidden from `/model` and refused wherever a model is chosen (ADR 0056).
     public var models: ModelsConfig?
-    /// Wall-clock limit for `run_command`, in seconds.
+    /// Wall-clock limit for `run_command` when nothing asks for another, in seconds; 0 means none. Default 120.
     public var commandTimeoutSeconds: Int?
+    /// The most seconds a requested limit may be (`run_command`'s `timeoutSeconds`, `respond`'s
+    /// `commandTimeoutSeconds`); a request above it is clamped to it. 1 to 86,400; default 1,800 (ADR 0063).
+    public var commandMaxTimeoutSeconds: Int?
     /// Bytes kept from each of stdout and stderr by `run_command`.
     public var commandMaxOutputBytes: Int?
     /// Live MCP conversation threads kept before eviction.
@@ -634,8 +637,9 @@ public struct Config: Codable, Equatable, Sendable {
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
         watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
         lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil,
-        inquiry: InquiryConfig? = nil
+        inquiry: InquiryConfig? = nil, commandMaxTimeoutSeconds: Int? = nil
     ) {
+        self.commandMaxTimeoutSeconds = commandMaxTimeoutSeconds
         self.verification = verification
         self.inquiry = inquiry
         self.llamacpp = llamacpp
@@ -677,6 +681,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.watch?.validate()
         try config.approval?.validate()
         try config.validateServers()
+        try config.validateCommandLimits()
         // The file lives in wisp's home, which places the default models directories.
         if let model = config.disabledDefault(home: Home(root: url.deletingLastPathComponent())) {
             throw ModelSelection.Failure.defaultDisabled(model: model.description)
@@ -686,6 +691,22 @@ public struct Config: Codable, Equatable, Sendable {
 
     /// The seconds a local server's `timeoutSeconds` may be: from one second to a day.
     static let serverTimeoutRange = 1...86_400
+    /// The seconds `commandMaxTimeoutSeconds` may be: from one second to a day (ADR 0063).
+    static let commandMaxTimeoutRange = 1...86_400
+    /// The cap on a requested command limit when `commandMaxTimeoutSeconds` is unset: half an hour (ADR 0063).
+    static let defaultCommandMaxTimeoutSeconds = 1800
+
+    /// Refuses a `commandMaxTimeoutSeconds` outside `commandMaxTimeoutRange`, which a request would otherwise be
+    /// clamped to without the operator knowing (ADR 0063).
+    ///
+    /// - Throws: `DecodingError.dataCorrupted` naming the setting and what it takes.
+    func validateCommandLimits() throws {
+        guard let seconds = commandMaxTimeoutSeconds, !Self.commandMaxTimeoutRange.contains(seconds) else { return }
+        throw DecodingError.dataCorrupted(
+            .init(
+                codingPath: [],
+                debugDescription: "commandMaxTimeoutSeconds must be between 1 and 86400 (it was \(seconds))"))
+    }
     /// The tokens a `contextLength` may be: from 512 to 4,194,304.
     static let contextLengthRange = 512...4_194_304
 
@@ -756,7 +777,8 @@ public struct Config: Codable, Equatable, Sendable {
             model: model ?? .default,
             disabledModels: models?.disabled ?? [],
             runner: CommandRunner.Options(
-                timeout: .seconds(commandTimeoutSeconds ?? 60),
+                timeout: .seconds(commandTimeoutSeconds ?? 120),
+                maxTimeout: .seconds(commandMaxTimeoutSeconds ?? Self.defaultCommandMaxTimeoutSeconds),
                 maxOutputBytes: commandMaxOutputBytes,
                 policy: commandPolicy ?? .default
             ),

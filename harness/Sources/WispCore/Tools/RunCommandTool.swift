@@ -6,6 +6,9 @@ import FoundationModels
 /// The command passes the `CommandPolicy`, the approval gate, and runs under
 /// the Seatbelt sandbox rooted at the harness's launch directory; a
 /// model-chosen working directory changes where it runs, never what it may write.
+/// It runs under a wall-clock limit: the call's `timeoutSeconds`, else the thread's, else the operator's
+/// default, a requested one clamped to `commandMaxTimeoutSeconds`
+/// ([ADR 0063](../../../../docs/decisions/0063-command-time-limits.md)).
 public struct RunCommandTool: WispTool {
     /// The identifier the model uses to request this tool.
     public let name = "run_command"
@@ -23,14 +26,19 @@ public struct RunCommandTool: WispTool {
         /// Optional directory to run in; nil means the harness's current directory.
         @Guide(description: "Absolute path of the directory to run in. Omit to use the current directory.")
         public var workingDirectory: String?
+        /// Optional wall-clock limit for this call, in seconds; nil takes the thread's or the default.
+        @Guide(description: "Seconds this command may run, for a long build or test. Omit for the default.")
+        public var timeoutSeconds: Int?
     }
 
     /// Supplies the policy, timeout, and output cap.
     private let runner: CommandRunner
+    /// The thread's own limit, in seconds, from `respond`'s `commandTimeoutSeconds` when it started; nil takes the
+    /// operator's default. Read by this tool alone, so it never reaches another thread or another tool.
+    private let threadTimeout: Int?
 
     /// Sandbox, timeout, output cap, and approval, from the runner's live options.
     public var limits: String {
-        let seconds = runner.options.timeout.components.seconds
         let confinement =
             runner.options.policy.sandbox.enabled
             ? "in a Seatbelt sandbox rooted at wisp's launch directory; writes elsewhere fail"
@@ -39,32 +47,56 @@ public struct RunCommandTool: WispTool {
             runner.options.maxOutputBytes.map { "\($0) bytes (commandMaxOutputBytes)" }
             ?? "the tool-output budget, \(runner.bound) bytes now (an eighth of the model's window, 4 to 64 KiB)"
         return
-            "POSIX shell via /bin/sh -c \(confinement). Timeout \(seconds) s. The result is bounded as a whole to "
+            "POSIX shell via /bin/sh -c \(confinement). \(timeoutText) The result is bounded as a whole to "
             + "\(bound): past that the first and last lines are shown, the rest is held back and kept whole in the "
             + "conversation's output store, and the result says how to page, filter, or summarise it. Commands pass "
             + "a deny/allow policy and a risk classifier; moderate and dangerous ones need the user's approval."
     }
+
+    /// The timeout sentence of `limits`: the limit this thread's commands get when they ask for none, and the cap
+    /// on a request.
+    private var timeoutText: String {
+        let fallback = runner.limit(for: .model, requested: .init(seconds: threadTimeout, source: .thread))
+        let base = fallback?.seconds.map { "Timeout \($0) s" } ?? "No timeout"
+        let whose = fallback?.source == .thread ? " (this thread's)" : ""
+        let cap = fallback?.cap ?? 0
+        return "\(base)\(whose); timeoutSeconds asks for another, up to \(cap) s (commandMaxTimeoutSeconds)."
+    }
+
     /// How to ask for it.
     public let examplePrompt =
         "Use run_command with working directory /path/to/repo to run exactly: swift test 2>&1 | tail -3 . "
         + "Report the exit status and output verbatim, nothing else."
 
     /// Creates the tool over a runner that supplies timeout and output limits.
-    public init(runner: CommandRunner = CommandRunner()) {
+    ///
+    /// - Parameters:
+    ///   - runner: The runner, with the operator's default limit and the cap on a request.
+    ///   - threadTimeout: The thread's own limit in seconds, at least 1, clamped to the cap when a command runs;
+    ///     nil takes the default.
+    public init(runner: CommandRunner = CommandRunner(), threadTimeout: Int? = nil) {
         self.runner = runner
+        self.threadTimeout = threadTimeout
     }
 
     /// Runs the command and returns a compact rendering of its outcome.
     ///
-    /// A policy denial or a bad working directory is returned as text rather
+    /// A policy denial, a bad working directory, or a `timeoutSeconds` below 1 is returned as text rather
     /// than thrown, so the model sees why and can choose another approach
     /// instead of the whole response failing.
     ///
-    /// - Parameter arguments: The command and optional working directory.
+    /// - Parameter arguments: The command, optional working directory, and optional limit.
     /// - Returns: Exit status and bounded stdout/stderr, formatted for the model.
     public func call(arguments: Arguments) async -> String {
+        if let seconds = arguments.timeoutSeconds, seconds < 1 {
+            return "error: timeoutSeconds must be at least 1 (it was \(seconds)); omit it for the default"
+        }
+        let requested: CommandRunner.TimeLimit.Request =
+            arguments.timeoutSeconds.map { .init(seconds: $0, source: .call) }
+            ?? .init(seconds: threadTimeout, source: .thread)
         do {
-            return try await runner.run(arguments.command, in: arguments.workingDirectory).rendered
+            return try await runner.run(arguments.command, in: arguments.workingDirectory, requested: requested)
+                .rendered
         } catch {
             return ToolOutput.error(error)
         }

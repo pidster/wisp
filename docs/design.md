@@ -562,7 +562,10 @@ nothing.
 group (`posix_spawn`, with `POSIX_SPAWN_CLOEXEC_DEFAULT` so the child holds descriptors 0, 1, and 2 alone) under
 `sandbox-exec` with a profile rooted at the launch directory, captures stdout and stderr separately into
 bounded buffers (`OutputBuffer`: the first and last `bound` bytes of each stream in memory, the whole stream
-spilled to the output store as it arrives once a byte would be dropped), kills the whole group on timeout, and
+spilled to the output store as it arrives once a byte would be dropped), kills the whole group on timeout (the
+limit from `CommandRunner.limit(for:requested:)`: the caller's request, `run_command`'s `timeoutSeconds` or the
+thread's `commandTimeoutSeconds` that `RunCommandTool` carries, clamped to `commandMaxTimeoutSeconds`, else the
+operator's `commandTimeoutSeconds`; ADR 0063), and
 renders the result within the budget as a whole: each stream's head and tail within its share of the room, a
 marker between them, and a `held back:` note naming the stored output's lines (`CommandRunner.outcome`). The
 rendering (`Outcome.rendered`) is what the model sees; policy denials and refusals are rendered too rather
@@ -677,7 +680,7 @@ calls `Agent.runTyped` in the conversation's directory with no turn, its audit e
 tap as a tool's do, `ChatActivity.begin(doing:)` says what runs, and `ChatLoop.IO.command` lets the terminal colour
 the line's prompt marker (`ChatLoop.commandMarker`, the palette's `command`). Over `--json` the front end sends the
 same line as a `message`; `wisp-tui` keeps command mode, its colours, and keys held while busy on its side.
-The command has no timeout (`CommandRunner.timeout(for:)` is nil for `Origin.person`; ADR 0049, amended
+The command has no timeout (`CommandRunner.limit(for:requested:)` is nil for `Origin.person`; ADR 0049, amended
 2026-10-09): the loop arms the context's `ChatInterrupt` with a `CommandStop` while it runs, the face's Ctrl-C
 calls `ChatInterrupt.press()` (plain chat from a SIGINT dispatch source, `--json` on an `interrupt` line), and the
 runner's `ProcessGroup` sends the group SIGTERM, then SIGKILL after `CommandStop.grace`, never once the leader is

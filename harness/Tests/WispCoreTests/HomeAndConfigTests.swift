@@ -41,8 +41,25 @@ import Testing
     @Test func resolvedAppliesDefaults() {
         let resolved = Config().resolved
         #expect(resolved.systemPromptExtension == nil)
-        #expect(resolved.runner == CommandRunner.Options(timeout: .seconds(60), maxOutputBytes: nil))
+        #expect(
+            resolved.runner
+                == CommandRunner.Options(timeout: .seconds(120), maxTimeout: .seconds(1800), maxOutputBytes: nil))
         #expect(resolved.maxThreads == 32)
+    }
+
+    /// ADR 0063: `commandMaxTimeoutSeconds` caps requests, 1 to 86,400; outside that the file does not load.
+    @Test func commandMaxTimeoutSecondsIsRangedAndResolved() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "wisp-config-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        for (seconds, loads) in [(0, false), (1, true), (600, true), (86_400, true), (86_401, false), (-5, false)] {
+            try Data(#"{"commandMaxTimeoutSeconds":\#(seconds)}"#.utf8).write(to: file)
+            if loads {
+                #expect(try Config.load(from: file).resolved.runner.maxTimeout == .seconds(seconds))
+            } else {
+                #expect(throws: DecodingError.self, "\(seconds)") { try Config.load(from: file) }
+            }
+        }
+        #expect(Config(commandTimeoutSeconds: 0).resolved.runner.timeout == .zero)
     }
 
     @Test func roundTripsAndIgnoresUnknownKeys() throws {

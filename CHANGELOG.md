@@ -4,6 +4,28 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Commands the model runs may ask for a longer time limit, under a cap you set, and the default rises to 120 s.
+
+Added:
+
+- `run_command` takes `timeoutSeconds`, so the model can give a long build or test the time it needs, and MCP
+  `respond` takes `commandTimeoutSeconds` when a thread starts, the limit of that thread's commands (refused on a
+  thread that exists, as `model` is). Both are capped by a new setting, `commandMaxTimeoutSeconds` (1,800 s by
+  default, 1 to 86,400, `wisp config set`); a request above it is cut to it. `command.outcome` records the limit a
+  command ran under, and a timed-out result says how to ask for longer (ADR 0063).
+
+Changed:
+
+- A model's command that asks for no limit gets 120 s, not 60 (`commandTimeoutSeconds`). A `git commit` whose
+  pre-commit hook ran the tests was killed at 60 s.
+
+Fixed:
+
+- `commandTimeoutSeconds: 0` means no limit, as documented; it set a limit of zero seconds, which killed every
+  command at once.
+
 ## 0.24.1
 
 A guide to installing local models; `wisp doctor` catches Apple's model service refusing every request; and an MLX

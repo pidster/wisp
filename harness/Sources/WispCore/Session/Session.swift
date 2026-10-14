@@ -474,25 +474,30 @@ public struct Session: Sendable {
     ///   - auditSession: The audit session the conversation's events carry, when it is not `id`: the MCP server
     ///     gives each thread it opens one of its own (`<thread_id>-<suffix>`), so a `thread_id` reused after
     ///     `close_thread` does not mix the earlier thread's history into its resources (the 2026-10-09 review).
+    ///   - commandTimeout: The thread's own limit for `run_command`, in seconds, at least 1 (`respond`'s
+    ///     `commandTimeoutSeconds`, ADR 0063), clamped to `commandMaxTimeoutSeconds` when a command runs; nil takes
+    ///     the operator's `commandTimeoutSeconds`. Only this thread's `run_command` reads it.
     /// - Returns: The conversation, ready to open.
     /// - Throws: `Failure.unknownTools`.
     public func thread(
         id: String, host: SessionHost, instructions: String? = nil, tools: ToolSelection = .all,
-        model: ModelSelection? = nil, think: OllamaThink? = nil, auditSession: String? = nil
+        model: ModelSelection? = nil, think: OllamaThink? = nil, auditSession: String? = nil,
+        commandTimeout: Int? = nil
     ) throws -> WispThread {
         let audit = self.audit.log(forSession: auditSession ?? id)
         var prompting = self.prompting
         if let instructions { prompting.instructions = instructions }
         var thread = try WispThread.setUp(
             session: self, audit: audit, host: host, prompting: prompting,
-            toolNames: tools.resolved(or: toolNames), model: model ?? config.model)
+            toolNames: tools.resolved(or: toolNames), model: model ?? config.model, commandTimeout: commandTimeout)
         thread.thinking = think
-        audit.record(
-            .sessionStart,
-            details: AuditEvent.Details.sessionStart(
-                entryPoint: entryPoint.thread, prompting: thread.prompting,
-                tools: thread.tools.map(\.name), model: thread.model, unsafe: request.unsafe,
-                autoApprove: request.autoApprove, resume: nil, parent: self.audit.session))
+        var details = AuditEvent.Details.sessionStart(
+            entryPoint: entryPoint.thread, prompting: thread.prompting,
+            tools: thread.tools.map(\.name), model: thread.model, unsafe: request.unsafe,
+            autoApprove: request.autoApprove, resume: nil, parent: self.audit.session)
+        // The thread's own limit as asked for; each command's outcome records the limit it ran under (ADR 0063).
+        if let commandTimeout { details["commandTimeoutSeconds"] = .int(commandTimeout) }
+        audit.record(.sessionStart, details: details)
         return thread
     }
 

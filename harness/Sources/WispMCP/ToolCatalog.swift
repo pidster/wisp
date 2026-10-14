@@ -29,7 +29,8 @@ public enum ToolCatalog {
                     "type": .string("string"),
                     "description": .string(
                         "Conversation to continue. Omit to start a new one (an id is generated), or supply an unused "
-                            + "id to start one under that name. instructions and tools apply only when a thread starts."
+                            + "id to start one under that name. instructions, tools, model, think, and "
+                            + "commandTimeoutSeconds apply only when a thread starts."
                     ),
                 ]),
                 "instructions": .object([
@@ -59,6 +60,15 @@ public enum ToolCatalog {
                         "Whether a model that can think does, for a new thread: true, false, or (Ollama) low, medium, "
                             + "high, max. Omit for the model's configured default; false for quick fixed tasks such as "
                             + "git. Only when a thread starts."),
+                ]),
+                "commandTimeoutSeconds": .object([
+                    "type": .string("integer"),
+                    "minimum": .int(1),
+                    "description": .string(
+                        "Seconds each run_command of a new thread may run when the call asks for none, such as 600 "
+                            + "for a commit whose hook runs the tests. Clamped to the operator's "
+                            + "commandMaxTimeoutSeconds (default 1800). Omit for commandTimeoutSeconds (default 120). "
+                            + "Only when a thread starts."),
                 ]),
                 "task": .object([
                     "type": .string("string"),
@@ -776,11 +786,15 @@ public struct RespondRequest: Equatable, Sendable {
     /// The thinking a new thread's turns ask of its model (ADR 0053, amended 2026-10-11); nil leaves the model's
     /// configured default.
     public var think: OllamaThink?
+    /// The seconds a new thread's `run_command` may run when a call asks for none (ADR 0063), at least 1, clamped to
+    /// `commandMaxTimeoutSeconds` when a command runs; nil takes the operator's `commandTimeoutSeconds`.
+    public var commandTimeoutSeconds: Int?
 
     /// Decodes and validates MCP call arguments.
     ///
     /// - Parameter arguments: The raw `tools/call` arguments.
-    /// - Throws: `MCPError.invalidParams` if `prompt` is missing or a field has the wrong type.
+    /// - Throws: `MCPError.invalidParams` if `prompt` is missing or a field has the wrong type, or
+    ///   `commandTimeoutSeconds` is not a positive integer.
     public init(arguments: [String: Value]?) throws {
         guard let prompt = arguments?["prompt"]?.stringValue, !prompt.isEmpty else {
             throw MCPError.invalidParams("'prompt' is required and must be a non-empty string")
@@ -833,6 +847,15 @@ public struct RespondRequest: Equatable, Sendable {
             guard raw.objectValue != nil else { throw MCPError.invalidParams("'schema' must be a JSON Schema object") }
             schema = JSONValue(raw)
         }
+        if arguments?["commandTimeoutSeconds"] != nil {
+            commandTimeoutSeconds = try CondensingRequest.count(arguments, "commandTimeoutSeconds", fallback: 1)
+        }
+    }
+
+    /// Whether the call carries anything that applies only when a thread starts: `instructions`, `tools`, `model`,
+    /// `think`, or `commandTimeoutSeconds`, refused on an existing thread.
+    var startsThread: Bool {
+        instructions != nil || tools != .all || model != nil || think != nil || commandTimeoutSeconds != nil
     }
 }
 

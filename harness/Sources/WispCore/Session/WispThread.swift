@@ -60,12 +60,13 @@ public struct WispThread: Sendable {
     public let inquiries: InquiryBox
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
-    /// asks its approver, and `notify` posts through it.
+    /// asks its approver, and `notify` posts through it. `commandTimeout` is the thread's own limit for `run_command`
+    /// in seconds (ADR 0063); nil takes the operator's default.
     ///
     /// - Throws: `Session.Failure.unknownTools` for names not in the registry.
     static func setUp(
         session: Session, audit: AuditLog, host: SessionHost, prompting: Prompting, toolNames: [String],
-        model: ModelSelection, observer: (any AuditSink)? = nil
+        model: ModelSelection, observer: (any AuditSink)? = nil, commandTimeout: Int? = nil
     ) throws -> WispThread {
         let receipts = ReceiptCollector()
         let relay = EventRelay()
@@ -93,7 +94,7 @@ public struct WispThread: Sendable {
                 current: model),
             ask: AskTool(asker: asker, box: inquiries, audit: audit, timeout: session.config.inquiryTimeout),
             budget: budget, store: outputs, condenser: condenser,
-            disabled: session.config.disabledTools, custom: session.config.customTools)
+            disabled: session.config.disabledTools, custom: session.config.customTools, commandTimeout: commandTimeout)
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
         let hasMemory = selection.tools.contains { $0.name == MemoryTool.toolName }

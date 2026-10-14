@@ -1,8 +1,9 @@
 # Roadmap
 
 The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped, and so have
-0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12. What each carried is in [CHANGELOG.md](../CHANGELOG.md). The
-operator chose on 2026-10-13 to put the small items in a patch, 0.24.1, and it is the release being made. Each
+0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, and 0.24.1, a patch of small items, on 2026-10-14. What each
+carried is in [CHANGELOG.md](../CHANGELOG.md). The operator chose on 2026-10-14 to make command time limits a
+patch, 0.24.2, and it is the release being made. Each
 release carries one or two larger items and a few smaller ones; a small item sits with the larger one it touches.
 These are plans, not commitments: an item may move when its work shows it should, and the page is edited when it
 does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays in
@@ -11,20 +12,15 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.24.1 (patch) | | How to install local models, signposted from the README; the flaky MLX pull progress test; `system_info` on its floor, looked at; `wisp doctor` asks the on-device model for a reply; the eval counts the model service's faults apart |
+| 0.24.2 (patch) | | Command time limits a call or an MCP thread may ask for, under a cap the operator sets |
 
-## 0.24.1
+## 0.24.2
 
-- **How to install local models**, a guide signposted from the README (asked for by the operator on 2026-10-13):
-  each runtime's steps, which model to choose as measured, the window, and what to do when a model will not start.
-- **The flaky MLX pull progress test**, `MLXPullerTests.theFetchReportsItsProgressAndTheLinkSaysWhatHappened`,
-  its progress-ordering race found and fixed at the source.
-- **`system_info` on its floor.** 0.24.0's release eval passed it at exactly its floor, 16 of 24. Its rate pooled
-  the old, easier 16-case set with the new one; re-set from the new set alone (0.717, floors 31 of 54 and 12 of 24).
-- **`wisp doctor` asks the on-device model for a reply**, so a model service that refuses every request while the
-  model reports itself available fails the `model` finding, with the fix (seen on 2026-10-13).
-- **The eval counts the model service's faults apart**, so a run whose cases never reached the model fails as not
-  measured instead of reporting a low score.
+- **Command time limits a call or an MCP thread may ask for**
+  ([ADR 0063](decisions/0063-command-time-limits.md), chosen by the operator on 2026-10-14): `run_command`'s
+  `timeoutSeconds`, `respond`'s `commandTimeoutSeconds` when a thread starts, both clamped to the operator's
+  `commandMaxTimeoutSeconds` (1,800 s), and a default of 120 s instead of 60. A `git commit` through `respond`, whose
+  hook ran the gate, was killed at 60 s twice on 2026-10-13.
 
 ## Not scheduled
 

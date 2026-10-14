@@ -41,6 +41,8 @@ public struct ToolRegistry: Sendable {
     ///   - disabled: Built-in tools to leave out (`tools.disabled`).
     ///   - custom: The user's own tools (`tools.custom`), appended after the built-ins; each runs through
     ///     `run_command`'s runner and gate.
+    ///   - commandTimeout: The conversation's own limit for `run_command`, in seconds (`respond`'s
+    ///     `commandTimeoutSeconds`, ADR 0063); nil takes `runner`'s default. `run_command` alone reads it.
     public init(
         runner: CommandRunner.Options = CommandRunner.Options(), reader: FileReader = FileReader(),
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
@@ -48,7 +50,7 @@ public struct ToolRegistry: Sendable {
         host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil, ask: AskTool? = nil,
         budget: ToolBudget = ToolBudget(), store: OutputStore? = nil, condenser: OutputCondenser? = nil,
         disabled: Set<String> = [],
-        custom: [CustomTool.Definition] = []
+        custom: [CustomTool.Definition] = [], commandTimeout: Int? = nil
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
         let ledger = CallLedger()
@@ -58,7 +60,8 @@ public struct ToolRegistry: Sendable {
         reader.budget = budget
         let builtIns: [any WispTool] = [
             AuditedTool(CurrentDateTool(), audit: audit, ledger: ledger),
-            AuditedTool(RunCommandTool(runner: commandRunner), audit: audit, ledger: ledger),
+            AuditedTool(
+                RunCommandTool(runner: commandRunner, threadTimeout: commandTimeout), audit: audit, ledger: ledger),
             AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit, ledger: ledger),
             AuditedTool(
                 EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit,

@@ -143,7 +143,9 @@ extension AuditEvent {
         }
 
         /// `command.outcome`; `origin` is written only for a command the person typed, and `stopped` (true) only for
-        /// one the person stopped (ADR 0049, amended 2026-10-09).
+        /// one the person stopped (ADR 0049, amended 2026-10-09). A model's command records the limit it ran under
+        /// (ADR 0063): `timeoutSource` (`call`, `thread`, or `default`), `timeoutSeconds` when there was one, and
+        /// `timeoutClamped` (true) only when a request above `commandMaxTimeoutSeconds` was cut to it.
         public static func commandOutcome(
             command: String, outcome: CommandRunner.Outcome, seconds: TimeInterval,
             origin: CommandRunner.Origin = .model
@@ -157,6 +159,11 @@ extension AuditEvent {
             ]
             if origin == .person { details["origin"] = .string(origin.rawValue) }
             if outcome.stopped { details["stopped"] = true }
+            if let limit = outcome.limit {
+                details["timeoutSource"] = .string(limit.source.rawValue)
+                if let limitSeconds = limit.seconds { details["timeoutSeconds"] = .int(limitSeconds) }
+                if limit.clamped { details["timeoutClamped"] = true }
+            }
             if let refusal = outcome.sandboxRefusal {
                 details["sandboxRefusal"] = .string(refusal.name)
                 if !refusal.paths.isEmpty { details["sandboxPaths"] = .array(refusal.paths.map { .string($0) }) }
@@ -884,7 +891,7 @@ extension AuditEvent {
         case .sessionStart:
             [
                 "entryPoint", "systemPromptExtension", "instructions", "tools", "model", "unsafe", "autoApprove",
-                "resume", "parent", "reason", "carriedFrom",
+                "resume", "parent", "reason", "carriedFrom", "commandTimeoutSeconds",
             ]
         case .sessionEnd: ["reason"]
         case .modelResolved:
@@ -901,7 +908,7 @@ extension AuditEvent {
         case .commandOutcome:
             [
                 "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin", "stopped",
-                "sandboxRefusal", "sandboxPaths",
+                "timeoutSource", "timeoutSeconds", "timeoutClamped", "sandboxRefusal", "sandboxPaths",
             ]
         case .commandTyped:
             [

@@ -110,7 +110,7 @@ extension Doctor {
 
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,
     /// `facts.share` and `facts.summaryShare` must be between 0 and 0.5, and `context.target`,
-    /// `context.headroomTurns`, and `context.outputDays` within their ranges, which loading the config enforces; a `context.target` above the
+    /// `context.headroomTurns`, `context.outputDays`, and `commandMaxTimeoutSeconds` within their ranges, which loading the config enforces; a `context.target` above the
     /// budget less `ContextComposer.targetMargin` is accepted and reported as used at that cap.
     func settingsInRange() -> Finding {
         let name = "settings"
@@ -144,12 +144,18 @@ extension Doctor {
             problems.append(
                 "context.outputDays \(days) must be between 0 and 3650; wisp refuses to load this config")
         }
+        if let seconds = config.commandMaxTimeoutSeconds, !Config.commandMaxTimeoutRange.contains(seconds) {
+            problems.append(
+                "commandMaxTimeoutSeconds \(seconds) must be between 1 and 86400; wisp refuses to load this config")
+        }
         guard problems.isEmpty else { return Finding(name: name, ok: false, detail: problems.joined(separator: "; ")) }
         let resolved = resolvedConfig
         let state =
             "inlineOutputBytes \(resolved.inlineOutputBytes), shownOutputLines \(resolved.shownOutputLines), "
             + "facts.share \(resolved.factsShare), facts.summaryShare \(resolved.summaryShare), "
-            + "context.target \(resolved.contextTarget.share), context.headroomTurns \(resolved.contextTarget.headroomTurns)"
+            + "context.target \(resolved.contextTarget.share), context.headroomTurns \(resolved.contextTarget.headroomTurns), "
+            + "commandTimeoutSeconds \(resolved.runner.timeout.components.seconds), "
+            + "commandMaxTimeoutSeconds \(resolved.runner.maxTimeout.components.seconds)"
         let composer = ContextComposer()
         let configured = config.context?.target ?? resolved.contextTarget.share
         let effective = composer.effectiveShare(of: ContextTarget(share: configured))

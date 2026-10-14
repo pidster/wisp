@@ -10,6 +10,7 @@ machine.
 | --- | --- | --- | --- |
 | `command` | string | yes | A POSIX shell command line, executed with `/bin/sh -c`. |
 | `workingDirectory` | string | no | Absolute path to run in. Default: wisp's current directory. A missing directory is an error. |
+| `timeoutSeconds` | integer | no | Seconds this command may run, for a long build or test. Default: the thread's limit (MCP `respond`'s `commandTimeoutSeconds`), else `commandTimeoutSeconds` (120). Above `commandMaxTimeoutSeconds` (1,800) it is cut to that; below 1 the result is `error: timeoutSeconds must be at least 1 …` and nothing runs ([ADR 0063](../decisions/0063-command-time-limits.md)). |
 
 ## Result
 
@@ -21,7 +22,8 @@ stderr:
 <tail of stderr>
 ```
 
-Extra lines appear when relevant: `timed out: the command was killed`, `stopped: the person stopped the command`,
+Extra lines appear when relevant: `timed out: the command was killed after 120 s; ask for up to 1800 s with
+timeoutSeconds` (or `…, the most allowed` when the limit was the cap), `stopped: the person stopped the command`,
 a `sandbox:` line (below), and, when more was printed than fits, a `held back:` note. Empty streams are omitted. A
 killed process reports its signal negated (for example `-15` for SIGTERM).
 
@@ -60,7 +62,8 @@ stream was then discarded.
 
 | Limit | Default | Configure |
 | --- | --- | --- |
-| Timeout | 60 s, then SIGTERM, then SIGKILL after 2 s | `commandTimeoutSeconds` in `config.json` |
+| Timeout | 120 s, then SIGTERM, then SIGKILL after 2 s; 0 is none | `commandTimeoutSeconds` in `config.json`; per call `timeoutSeconds`; per MCP thread `respond`'s `commandTimeoutSeconds` |
+| Longest timeout a call or thread may ask for | 1,800 s; a request above it is cut to it | `commandMaxTimeoutSeconds` in `config.json` (1 to 86,400), the operator's alone |
 | The result, as a whole | The tool-output budget: an eighth of the model's window, 4 KiB at least (the on-device model), 64 KiB at most; the first and last lines shown, the rest held back and kept whole | `commandMaxOutputBytes` in `config.json` replaces the budget for this tool |
 | Output kept whole | 16 MiB per command, in the output store; cut past that, and the cut is stated | not configurable |
 | stdin | `/dev/null` | not configurable |
@@ -195,6 +198,21 @@ command starts outlives it, neither a background job (`sleep 30 &`, a server the
 ignores SIGTERM. Before 0.21.1 the watchdog stopped when the shell was reaped, so both lived on. A descendant that
 left the group (`setsid`) is beyond this; output capture after exit is bounded by one second in case one holds the
 pipe.
+
+Which limit a model's command runs under ([ADR 0063](../decisions/0063-command-time-limits.md)), first that applies:
+
+| Source | Set by | Clamped to `commandMaxTimeoutSeconds` |
+| --- | --- | --- |
+| The call's `timeoutSeconds` | the model, per command | yes |
+| The thread's `commandTimeoutSeconds` | an MCP caller, when the thread starts (`respond`, [mcp.md](../mcp.md)) | yes |
+| `commandTimeoutSeconds` in `config.json` | the operator; 120 s by default, 0 for none | no: it is the operator's own setting |
+
+The cap is the operator's: no tool changes `config.json`, so neither the model nor an MCP caller can raise it. A
+timed-out result names the limit and, under the cap, how to ask for more; `command.outcome` records the limit as
+`timeoutSource` (`call`, `thread`, or `default`), `timeoutSeconds`, and `timeoutClamped` ([logging.md](../logging.md)).
+Before 0.24.2 every model's command had the operator's one limit, 60 s by default, which killed a `git commit` whose pre-commit hook ran
+the full gate (2026-10-13), and a `commandTimeoutSeconds` of 0, documented as no limit, set a watchdog of zero
+seconds instead, which fires at once. Custom tools keep their own `timeoutSeconds` and `system_info` its floor of 30 s; neither reads the thread's.
 
 The timeout and the two-second grace are timers on a dispatch queue of wisp's own, not Swift tasks, so they fire on
 time whatever else the process is doing. Until 2026-10-10 they were `Task.sleep`s on Swift's cooperative pool, and

@@ -43,7 +43,7 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let runner = CommandRunner(
             options: .init(writableRoot: dir.path, timeout: .seconds(1)), audit: AuditLog(session: "s", sink: sink))
-        #expect(runner.timeout(for: .person) == nil && runner.timeout(for: .model) == .seconds(1))
+        #expect(runner.limit(for: .person) == nil && runner.limit(for: .model)?.seconds == 1)
         // Twice the timeout: the person's command finishes.
         let typed = try await runner.run("sleep 2; echo done", in: dir.path, origin: .person)
         #expect(typed.exitStatus == 0 && typed.stdout == "done\n" && !typed.timedOut && !typed.stopped)

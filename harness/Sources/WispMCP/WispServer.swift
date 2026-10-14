@@ -28,11 +28,12 @@ public struct WispServer: Sendable {
     private let client = ClientCapabilityFlags()
     /// The approval dialogs in flight, so one answered another way can be withdrawn.
     private let tracker = ElicitationTracker()
-    /// Builds the record for a new `thread_id` from the conversation the session sets up for it.
+    /// Builds the record for a new `thread_id` from the conversation the session sets up for it; `commandTimeout` is
+    /// `respond`'s `commandTimeoutSeconds`, the thread's own limit for `run_command` (ADR 0063).
     public typealias ThreadFactory =
         @Sendable (
             _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?,
-            _ tools: ToolSelection, _ model: ModelSelection?, _ think: OllamaThink?
+            _ tools: ToolSelection, _ model: ModelSelection?, _ think: OllamaThink?, _ commandTimeout: Int?
         ) throws -> OpenThread
     private let makeThread: ThreadFactory
     /// The MCP face's effects (ADR 0044): commands are asked through elicitation (`--yes` sessions approve
@@ -58,12 +59,12 @@ public struct WispServer: Sendable {
     ///     scripted model.
     public init(
         session: Session, inquiryHold: Duration = OutOfBandAsker.hold,
-        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model, think in
+        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model, think, commandTimeout in
             // One audit session per opening, so a reused thread_id does not mix an earlier thread's history into
             // its resources (ADR 0050's review items); the directory records which is which.
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model, think: think,
-                auditSession: ThreadDirectory.auditSession(for: id))
+                auditSession: ThreadDirectory.auditSession(for: id), commandTimeout: commandTimeout)
             let actor = ThreadActor(id: id, agent: try thread.openAgent())
             // An answer taken after the turn parked is the thread's fact when it is taken (ADR 0062, D14).
             thread.inquiries.onAnswer { question, answer in await actor.recordAnswer(to: question, answer: answer) }
@@ -377,7 +378,8 @@ public struct WispServer: Sendable {
         do {
             opened = try await threads.findOrCreate(id: id) {
                 try makeThread(
-                    session, host, id, request.instructions, request.tools, request.model, request.think)
+                    session, host, id, request.instructions, request.tools, request.model, request.think,
+                    request.commandTimeoutSeconds)
             }
         } catch {
             return failure(String(describing: error))
@@ -400,11 +402,10 @@ public struct WispServer: Sendable {
             }
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
-        if !opened.created,
-            request.instructions != nil || request.tools != .all || request.model != nil || request.think != nil
-        {
+        if !opened.created, request.startsThread {
             return failure(
-                "instructions, tools, model, and think apply only when a thread is created; \(id) already exists")
+                "instructions, tools, model, think, and commandTimeoutSeconds apply only when a thread is created; "
+                    + "\(id) already exists")
         }
         let schema: OutputSchema?
         do {

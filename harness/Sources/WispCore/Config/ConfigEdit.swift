@@ -75,8 +75,12 @@ public enum ConfigSettings {
             path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
             kind: .model),
         Setting(
-            path: "commandTimeoutSeconds", summary: "seconds a command may run; 0 waits forever",
+            path: "commandTimeoutSeconds", summary: "seconds a command may run unless asked otherwise; 0 waits forever",
             kind: .integer(0...86_400)),
+        Setting(
+            path: "commandMaxTimeoutSeconds",
+            summary: "the most seconds a command's timeoutSeconds or a thread's commandTimeoutSeconds may ask for",
+            kind: .integer(Config.commandMaxTimeoutRange)),
         Setting(
             path: "commandMaxOutputBytes",
             summary: "bytes of a command's result the model is shown; unset takes the tool-output budget",
@@ -260,6 +264,7 @@ public enum ConfigSettings {
         case "routing.ladder": return .array(d.routingLadder.map { .string($0.description) })
         case "routing.tasks.secrets": return d.taskModels["secrets"].map { .string($0.description) }
         case "commandTimeoutSeconds": return .int(Int(d.runner.timeout.components.seconds))
+        case "commandMaxTimeoutSeconds": return .int(Int(d.runner.maxTimeout.components.seconds))
         case "commandMaxOutputBytes": return d.runner.maxOutputBytes.map { .int($0) } ?? .null
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
         case "tools.models": return .bool(d.toolsModels)

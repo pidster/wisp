@@ -18,9 +18,13 @@ public struct CommandRunner: Sendable {
         /// from a per-command working directory, so a caller cannot widen the sandbox by choosing where
         /// to run.
         public var writableRoot: String
-        /// Wall-clock limit after which the command's process group is sent SIGTERM, then SIGKILL. A command the person
-        /// typed (`Origin.person`) has none.
+        /// The operator's wall-clock limit for a model's command that asks for none (`commandTimeoutSeconds`), after
+        /// which its process group is sent SIGTERM, then SIGKILL; zero means none. Not clamped to `maxTimeout`: it is
+        /// the operator's own setting. A command the person typed (`Origin.person`) has none (ADR 0063).
         public var timeout: Duration
+        /// The most a requested limit may be, from `run_command`'s `timeoutSeconds` or the thread's
+        /// `commandTimeoutSeconds` (`commandMaxTimeoutSeconds`); a request above it is clamped to it (ADR 0063).
+        public var maxTimeout: Duration
         /// The most bytes of a command's result the model is shown, its notes included, set by the operator
         /// (`commandMaxOutputBytes`); nil, the default, takes the conversation's tool-output budget (`ToolBudget`),
         /// an eighth of the model's window. Whatever the bound, the whole output is kept in the output store when
@@ -32,17 +36,106 @@ public struct CommandRunner: Sendable {
         /// facts, configuration, and pending answers live. `edit_file` refuses them too.
         public var protectedPaths: [String]
 
-        /// Creates options. Defaults are a 60-second timeout, the tool-output budget as the bound, the default
-        /// policy, the current directory as the writable root, and wisp's home (`Home.resolve()`) protected.
+        /// Creates options. Defaults are a 120-second timeout, requests capped at 1,800 seconds, the tool-output
+        /// budget as the bound, the default policy, the current directory as the writable root, and wisp's home
+        /// (`Home.resolve()`) protected.
         public init(
-            writableRoot: String? = nil, timeout: Duration = .seconds(60), maxOutputBytes: Int? = nil,
-            policy: CommandPolicy = .default, protectedPaths: [String]? = nil
+            writableRoot: String? = nil, timeout: Duration = .seconds(120), maxTimeout: Duration = .seconds(1800),
+            maxOutputBytes: Int? = nil, policy: CommandPolicy = .default, protectedPaths: [String]? = nil
         ) {
             self.writableRoot = writableRoot ?? FileManager.default.currentDirectoryPath
             self.timeout = timeout
+            self.maxTimeout = maxTimeout
             self.maxOutputBytes = maxOutputBytes
             self.policy = policy
             self.protectedPaths = protectedPaths ?? [Home.resolve().root.path]
+        }
+    }
+
+    /// The wall-clock limit one command ran under, and where it came from (ADR 0063).
+    public struct TimeLimit: Sendable, Equatable {
+        /// Who set the limit.
+        public enum Source: String, Sendable, Equatable {
+            /// The model, with `run_command`'s `timeoutSeconds` for this call.
+            case call
+            /// The MCP caller, with `respond`'s `commandTimeoutSeconds` when the thread started.
+            case thread
+            /// The operator's `commandTimeoutSeconds`: nothing was asked for.
+            case `default`
+        }
+
+        /// What a caller asks for in place of the operator's default.
+        public struct Request: Sendable, Equatable {
+            /// Seconds asked for; nil asks for the default (the caller could have asked, so a timed-out result says
+            /// how).
+            public var seconds: Int?
+            /// Who asks; `.default` when `seconds` is nil.
+            public var source: Source
+
+            /// Creates a request.
+            ///
+            /// - Parameters:
+            ///   - seconds: Seconds asked for; nil for the default.
+            ///   - source: Who asks; taken as `.default` when `seconds` is nil.
+            public init(seconds: Int?, source: Source) {
+                self.seconds = seconds
+                self.source = seconds == nil ? .default : source
+            }
+        }
+
+        /// How long the command may run; nil for no limit (the operator's `commandTimeoutSeconds` of 0).
+        public var duration: Duration?
+        /// Who set it.
+        public var source: Source
+        /// Whether a request above `cap` was cut to it.
+        public var clamped: Bool
+        /// The most a request may be (`commandMaxTimeoutSeconds`).
+        public var cap: Int
+        /// Whether the caller could ask for another limit (`run_command` can), so a timed-out result says how.
+        public var askable: Bool
+
+        /// Creates a limit.
+        ///
+        /// - Parameters:
+        ///   - duration: How long the command may run; nil for none.
+        ///   - source: Who set it.
+        ///   - clamped: Whether a request was cut to `cap`.
+        ///   - cap: The most a request may be, in seconds.
+        ///   - askable: Whether the caller could ask for another.
+        public init(duration: Duration?, source: Source, clamped: Bool = false, cap: Int, askable: Bool = false) {
+            self.duration = duration
+            self.source = source
+            self.clamped = clamped
+            self.cap = cap
+            self.askable = askable
+        }
+
+        /// Creates a limit of whole seconds.
+        ///
+        /// - Parameters:
+        ///   - seconds: Seconds the command may run; nil for none.
+        ///   - source: Who set it.
+        ///   - clamped: Whether a request was cut to `cap`.
+        ///   - cap: The most a request may be, in seconds.
+        ///   - askable: Whether the caller could ask for another.
+        public init(seconds: Int?, source: Source, clamped: Bool = false, cap: Int, askable: Bool = false) {
+            self.init(
+                duration: seconds.map { .seconds($0) }, source: source, clamped: clamped, cap: cap, askable: askable)
+        }
+
+        /// The limit in whole seconds, a fraction rounded up (an operator's sub-second default, in tests); nil for
+        /// none.
+        public var seconds: Int? {
+            duration.map { Int($0.components.seconds) + ($0.components.attoseconds > 0 ? 1 : 0) }
+        }
+
+        /// The line a timed-out result opens with: the limit, and for a caller that can ask, how to ask for more.
+        var timedOutLine: String {
+            guard let seconds else { return "timed out: the command was killed" }
+            let killed = "timed out: the command was killed after \(seconds) s"
+            guard askable else { return killed }
+            return seconds < cap
+                ? killed + "; ask for up to \(cap) s with timeoutSeconds" : killed + ", the most allowed"
         }
     }
 
@@ -93,13 +186,16 @@ public struct CommandRunner: Sendable {
         public var stored: OutputStore.Kept? = nil
         /// Whether the conversation has `memory`, so the note on held-back output names the calls that page it.
         public var recallable: Bool = false
+        /// The wall-clock limit it ran under (ADR 0063); nil for a command the person typed, which has none.
+        public var limit: TimeLimit? = nil
 
         /// Creates an outcome.
         public init(
             exitStatus: Int32, stdout: String, stderr: String, timedOut: Bool, truncated: Bool, stopped: Bool = false,
             sandboxRefusal: SandboxRefusal? = nil, sandboxNote: String? = nil, held: [Held] = [],
-            stored: OutputStore.Kept? = nil, recallable: Bool = false
+            stored: OutputStore.Kept? = nil, recallable: Bool = false, limit: TimeLimit? = nil
         ) {
+            self.limit = limit
             self.exitStatus = exitStatus
             self.stdout = stdout
             self.stderr = stderr
@@ -117,7 +213,7 @@ public struct CommandRunner: Sendable {
         /// its own. The same in the result and in the stored output, so the held-back line numbers agree.
         var header: [String] {
             var lines = ["exit status: \(exitStatus)"]
-            if timedOut { lines.append("timed out: the command was killed") }
+            if timedOut { lines.append(limit?.timedOutLine ?? "timed out: the command was killed") }
             if stopped { lines.append("stopped: the person stopped the command") }
             return lines
         }
@@ -243,24 +339,40 @@ public struct CommandRunner: Sendable {
     ///     2026-10-09). It is marked as theirs in the audit; everything else is the same.
     ///   - stop: Stops the command when asked: its process group is sent SIGTERM, then SIGKILL after
     ///     `CommandStop.grace`, or SIGKILL at once on a second request; nil cannot be stopped but by the timeout.
+    ///   - requested: The limit the caller asks for in place of `Options.timeout`, clamped to `Options.maxTimeout`;
+    ///     nil when the caller cannot ask (ADR 0063). Not consulted for a command the person typed.
     /// - Returns: The exit status and bounded output.
     /// - Throws: `Failure` if the policy rejects the command or it cannot be started.
     public func run(
-        _ command: String, in directory: String? = nil, origin: Origin = .model, stop: CommandStop? = nil
+        _ command: String, in directory: String? = nil, origin: Origin = .model, stop: CommandStop? = nil,
+        requested: TimeLimit.Request? = nil
     ) async throws -> Outcome {
         let workingDirectory = try Self.existingDirectory(directory)
         try await admit(command, in: workingDirectory, gate: origin == .person ? nil : approval, origin: origin)
         decide(.allowed, command: command, in: workingDirectory, origin: origin)
-        return try await execute(command, in: workingDirectory, origin: origin, stop: stop)
+        return try await execute(
+            command, in: workingDirectory, origin: origin, stop: stop, limit: limit(for: origin, requested: requested))
     }
 
-    /// The wall-clock limit for a command from `origin`: `Options.timeout` for the model's, none for one the person
-    /// typed, who stops it themselves (ADR 0049, amended 2026-10-09).
+    /// The wall-clock limit for a command from `origin` (ADR 0063): none for one the person typed, who stops it
+    /// themselves (ADR 0049, amended 2026-10-09); for the model's, the seconds `requested` asks for, at least 1 and
+    /// clamped to `Options.maxTimeout`, else the operator's `Options.timeout` as it is, zero meaning none.
     ///
-    /// - Parameter origin: Who chose the command.
-    /// - Returns: The limit, or nil for none.
-    func timeout(for origin: Origin) -> Duration? {
-        origin == .person ? nil : options.timeout
+    /// - Parameters:
+    ///   - origin: Who chose the command.
+    ///   - requested: What the caller asks for; nil when it cannot ask.
+    /// - Returns: The limit, or nil for a typed command.
+    func limit(for origin: Origin, requested: TimeLimit.Request? = nil) -> TimeLimit? {
+        guard origin == .model else { return nil }
+        let cap = max(1, Int(options.maxTimeout.components.seconds))
+        if let request = requested, let seconds = request.seconds {
+            let asked = max(1, seconds)
+            return TimeLimit(
+                seconds: min(asked, cap), source: request.source, clamped: asked > cap, cap: cap, askable: true)
+        }
+        return TimeLimit(
+            duration: options.timeout > .zero ? options.timeout : nil, source: .default, cap: cap,
+            askable: requested != nil)
     }
 
     /// Whether commands run under Seatbelt here: the policy's sandbox is on and wisp is not already inside
@@ -378,13 +490,13 @@ public struct CommandRunner: Sendable {
 
     /// Launches an admitted command and records its outcome, marked as the person's when they typed it.
     private func execute(
-        _ command: String, in workingDirectory: String, origin: Origin = .model, stop: CommandStop? = nil
+        _ command: String, in workingDirectory: String, origin: Origin = .model, stop: CommandStop? = nil,
+        limit: TimeLimit?
     ) async throws
         -> Outcome
     {
         let started = Date()
-        var outcome = try await launch(
-            command, in: workingDirectory, sandboxed: sandboxed, timeout: timeout(for: origin), stop: stop)
+        var outcome = try await launch(command, in: workingDirectory, sandboxed: sandboxed, limit: limit, stop: stop)
         if let refusal = sandboxRefusal(outcome, in: workingDirectory) {
             outcome.sandboxRefusal = refusal
             outcome.sandboxNote = refusal.note(roots: writableRoots)
@@ -412,12 +524,12 @@ public struct CommandRunner: Sendable {
     ///   - command: The command line.
     ///   - workingDirectory: Where it runs.
     ///   - sandboxed: Whether to confine it.
-    ///   - timeout: When the watchdog stops it; nil never.
+    ///   - limit: When the watchdog stops it; nil, or a limit of no seconds, never.
     ///   - stop: Stops it when the person asks; nil cannot.
     /// - Returns: The outcome.
     /// - Throws: `Failure.launchFailed`.
     private func launch(
-        _ command: String, in workingDirectory: String, sandboxed: Bool, timeout: Duration?, stop: CommandStop?
+        _ command: String, in workingDirectory: String, sandboxed: Bool, limit: TimeLimit?, stop: CommandStop?
     ) async throws -> Outcome {
         var argv = ["/bin/sh", "-c", command]
         if sandboxed {
@@ -445,7 +557,7 @@ public struct CommandRunner: Sendable {
         // The watchdog is a safety bound, so it runs on an `Alarm`, not a `Task.sleep`: blocked cooperative threads
         // must not be able to hold it off (docs/design.md, "Concurrency"). Once the leader is reaped the group sends
         // nothing, so a SIGKILL alarm left pending after the command ends is harmless.
-        let watchdog = timeout.map { timeout in
+        let watchdog = limit?.duration.map { timeout in
             Alarm(after: timeout) {
                 group.end(.timedOut)
                 _ = Alarm(after: CommandStop.grace) { group.signal(SIGKILL) }
@@ -482,7 +594,7 @@ public struct CommandRunner: Sendable {
         return Self.outcome(
             exitStatus: status, timedOut: group.ending == .timedOut, stopped: group.ending == .stopped,
             stdout: stdoutBuffer.contents, stderr: stderrBuffer.contents, bound: bound, store: store, id: id,
-            recallable: budget?.memory ?? false)
+            recallable: budget?.memory ?? false, limit: limit)
     }
 
     /// Room the notes on a result take out of the bound: the header, the frames, and the held-back note.
@@ -514,14 +626,15 @@ public struct CommandRunner: Sendable {
     ///   - store: Where the whole output is kept; nil keeps nothing.
     ///   - id: The id to keep it under.
     ///   - recallable: Whether the note names `memory`.
+    ///   - limit: The wall-clock limit it ran under, which a timed-out header names.
     /// - Returns: The outcome.
     static func outcome(
         exitStatus: Int32, timedOut: Bool, stopped: Bool, stdout: OutputBuffer.Capture, stderr: OutputBuffer.Capture,
-        bound: Int, store: OutputStore?, id: String, recallable: Bool
+        bound: Int, store: OutputStore?, id: String, recallable: Bool, limit: TimeLimit? = nil
     ) -> Outcome {
         var outcome = Outcome(
             exitStatus: exitStatus, stdout: "", stderr: "", timedOut: timedOut, truncated: false, stopped: stopped,
-            recallable: recallable)
+            recallable: recallable, limit: limit)
         let header = outcome.header
         let streams = [("stdout", stdout), ("stderr", stderr)].filter { $0.1.total > 0 }
         let total = streams.reduce(0) { $0 + $1.1.total }
