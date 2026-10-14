@@ -22,6 +22,12 @@ Added:
   In `wisp-tui`, `!` typed at the start of a command steps the input box from command mode's amber to a muted red,
   and Backspace at the start steps back one mode at a time (ADR 0064, amended 2026-10-14).
 
+Fixed:
+
+- A Homebrew command the sandbox refused (`brew install`, `brew upgrade`) was not flagged as the sandbox's refusal,
+  because Homebrew reports its directories as not writable instead of failing with `Operation not permitted`; it now
+  is, for you and the model, and the model is told it may ask to run it outside the sandbox (ADR 0054).
+
 ## 0.24.2
 
 Commands the model runs may ask for a longer time limit, under a cap you set, and the default rises to 120 s.

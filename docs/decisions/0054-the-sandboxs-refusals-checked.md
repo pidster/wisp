@@ -3,7 +3,11 @@
 Date: 2026-10-04. Status: accepted. Amends [ADR 0049](0049-commands-typed-in-chat.md) (the note for a typed command
 the sandbox refuses) and the default deny list of [ADR 0009](0009-command-policy-and-sandbox.md). Amended by
 [ADR 0064](0064-an-approved-run-outside-the-sandbox.md): the model's note on a refusal ends by saying it may ask to run
-the command outside the sandbox, when the operator allows that.
+the command outside the sandbox, when the operator allows that. Amended 2026-10-14: a failed command's `not writable`
+lines are read as well as `Operation not permitted`, because Homebrew checks its directories before writing and
+reports the sandbox's refusal only as `The following directories are not writable by your user:` and its list
+(`brew install portop` typed after `!` was not flagged in a hand test that day); the paths are checked against the
+roots as any others.
 
 ## Context
 

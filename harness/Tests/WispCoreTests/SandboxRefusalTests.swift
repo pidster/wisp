@@ -36,6 +36,46 @@ import WispTestSupport
         #expect(SandboxRefusal.paths(in: several) == ["/a/1", "/a/2"])
     }
 
+    /// `brew upgrade --dry-run` under wisp's profile, 2026-10-14, shortened: Homebrew checks its directories before it
+    /// writes, so the sandbox's refusal shows only as its list, with no `Operation not permitted`.
+    static let homebrew = """
+        Error: The following directories are not writable by your user:
+          /Users/p/Library/Logs/Homebrew
+          /opt/homebrew
+          /opt/homebrew/Cellar
+
+        You should change the ownership of these directories to your user,
+        and make sure that you have write permission.
+          sudo chown -R p /Users/p/Library/Logs/Homebrew /opt/homebrew /opt/homebrew/Cellar
+          chmod u+w /Users/p/Library/Logs/Homebrew /opt/homebrew /opt/homebrew/Cellar
+        """
+
+    @Test func homebrewsUnwritableDirectoriesAreReadAsTheSandboxsRefusal() {
+        #expect(
+            SandboxRefusal.unwritable(in: Self.homebrew)
+                == ["/Users/p/Library/Logs/Homebrew", "/opt/homebrew", "/opt/homebrew/Cellar"])
+        #expect(SandboxRefusal.unwritable(in: "Error: /opt/homebrew/lib is not writable.") == ["/opt/homebrew/lib"])
+        #expect(SandboxRefusal.unwritable(in: "/opt/homebrew/lib is not writable.") == ["/opt/homebrew/lib"])
+        // Not a path, or not the shape: nothing.
+        #expect(SandboxRefusal.unwritable(in: "Error: HOMEBREW_CACHE is not writable.").isEmpty)
+        #expect(SandboxRefusal.unwritable(in: "the following directories are fine:\n  /opt/homebrew").isEmpty)
+        let roots = ["/Users/p/project", "/private/tmp"]
+        func check(_ stderr: String, status: Int32 = 1, sandboxed: Bool = true) -> SandboxRefusal? {
+            SandboxRefusal.check(
+                stderr: stderr, exitStatus: status, sandboxed: sandboxed, roots: roots, directory: "/Users/p/project")
+        }
+        #expect(
+            check(Self.homebrew)
+                == .refused(paths: ["/Users/p/Library/Logs/Homebrew", "/opt/homebrew", "/opt/homebrew/Cellar"]))
+        #expect(
+            check("Error: /Users/p/project/out is not writable.")
+                == .notTheSandbox(paths: ["/Users/p/project/out"]))
+        #expect(check(Self.homebrew, sandboxed: false) == nil)
+        #expect(check(Self.homebrew, status: 0) == nil)
+        // Neither shape nor the marker: nothing to say, not a guess.
+        #expect(check("Error: portop not installed") == nil)
+    }
+
     @Test func aPathOutsideEveryRootIsTheSandboxsAndOneInsideIsNot() {
         let roots = ["/Users/p/project", "/private/tmp", "/private/var/folders/xy/T"]
         func check(_ stderr: String, status: Int32 = 1, sandboxed: Bool = true) -> SandboxRefusal? {

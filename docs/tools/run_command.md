@@ -98,7 +98,11 @@ When a confined command fails with `Operation not permitted`, wisp checks whethe
 ([ADR 0054](../decisions/0054-the-sandboxs-refusals-checked.md)) and adds one line to the result, after the
 output. It reads the paths the error names (`sh: PATH: …`, `touch: PATH: …`, `cp`, `mkdir`, `rm`, `mv … to PATH`,
 GNU's `cannot create regular file 'PATH'`, Python's `[Errno 1] Operation not permitted: 'PATH'`), resolves each to
-its real path as the profile does (`/tmp` is `/private/tmp`), and compares it with the writable roots:
+its real path as the profile does (`/tmp` is `/private/tmp`), and compares it with the writable roots. A tool that
+checks its directories before it writes never reaches `Operation not permitted`, so a failed command's
+`not writable` lines are read too: Homebrew's `The following directories are not writable by your user:` with its
+indented list (`brew install` and `brew upgrade` under the sandbox print it for `/opt/homebrew` and
+`~/Library/Logs/Homebrew`), and a line `PATH is not writable.`. Either way:
 
 | The error names | The model is told |
 | --- | --- |

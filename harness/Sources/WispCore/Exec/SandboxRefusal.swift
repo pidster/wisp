@@ -1,7 +1,8 @@
 import Foundation
 
-/// Whether the sandbox refused a command that failed with `Operation not permitted`: checked against the writable
-/// roots where its error output names a path, a guess where it names none
+/// Whether the sandbox refused a command that failed with `Operation not permitted`, or that refused to start
+/// because a directory it would write is not writable (Homebrew checks its prefix first and names every directory):
+/// checked against the writable roots where its error output names a path, a guess where it names none
 /// ([ADR 0054](../../../../docs/decisions/0054-the-sandboxs-refusals-checked.md)).
 ///
 /// Seatbelt is passive: a refused operation fails with `EPERM` and the kernel says nothing (probed on macOS 27 on
@@ -20,6 +21,11 @@ public enum SandboxRefusal: Equatable, Sendable {
 
     /// The error text whose lines are read.
     static let marker = "Operation not permitted"
+    /// The line before Homebrew's list of the directories it cannot write, one per indented line after it
+    /// (`brew install`, `brew upgrade`; Homebrew's `diagnostic.rb`).
+    static let unwritableList = "The following directories are not writable by your user:"
+    /// The end of a line that names one directory a tool cannot write, `PATH is not writable.` (Homebrew's `keg.rb`).
+    static let unwritableSuffix = " is not writable."
     /// The most paths kept from one command's error output.
     static let pathLimit = 8
 
@@ -46,7 +52,7 @@ public enum SandboxRefusal: Equatable, Sendable {
     }
 
     /// The verdict on a failed command, or nil when there is nothing to say: it ran unconfined, succeeded, or its
-    /// error output has no `Operation not permitted`.
+    /// error output has neither `Operation not permitted` nor a directory it says is not writable.
     ///
     /// - Parameters:
     ///   - stderr: The command's error output.
@@ -58,9 +64,9 @@ public enum SandboxRefusal: Equatable, Sendable {
     public static func check(
         stderr: String, exitStatus: Int32, sandboxed: Bool, roots: [String], directory: String
     ) -> SandboxRefusal? {
-        guard sandboxed, exitStatus != 0, stderr.contains(marker) else { return nil }
-        let named = paths(in: stderr)
-        guard !named.isEmpty else { return .guess }
+        guard sandboxed, exitStatus != 0 else { return nil }
+        let named = paths(in: stderr) + unwritable(in: stderr)
+        guard !named.isEmpty else { return stderr.contains(marker) ? .guess : nil }
         let real = named.map { resolved($0, in: directory) }
         var seen: Set<String> = []
         let unique = real.filter { seen.insert($0).inserted }.prefix(pathLimit)
@@ -97,6 +103,33 @@ public enum SandboxRefusal: Equatable, Sendable {
             let words = segment.split(separator: " ").map { unquoted(String($0)) }
             return words.last(where: looksLikePath)
         }
+    }
+
+    /// The directories `stderr` says are not writable, in order, as written: each indented path after Homebrew's
+    /// `The following directories are not writable by your user:`, up to the first line that is not one, and the
+    /// path of a line `[Error: ]PATH is not writable.`. A tool checks its directories before it writes, so the
+    /// sandbox's refusal shows only as these lines, with no `Operation not permitted` (probed with `brew upgrade
+    /// --dry-run` under wisp's profile on 2026-10-14).
+    ///
+    /// - Parameter stderr: The error output.
+    /// - Returns: The paths.
+    static func unwritable(in stderr: String) -> [String] {
+        var found: [String] = []
+        var listing = false
+        for line in stderr.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if listing, looksLikePath(text) {
+                found.append(text)
+                continue
+            }
+            listing = text.hasSuffix(unwritableList)
+            guard !listing, text.hasSuffix(unwritableSuffix) else { continue }
+            var subject = String(text.dropLast(unwritableSuffix.count))
+            if subject.hasPrefix("Error: ") { subject.removeFirst("Error: ".count) }
+            subject = unquoted(subject)
+            if looksLikePath(subject) { found.append(subject) }
+        }
+        return found
     }
 
     /// `text` without one pair of surrounding quotes (`'`, `"`, or GNU's curly ones).
