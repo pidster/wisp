@@ -7,7 +7,7 @@
     --mono-font: var(--web-mono);
     --code-font-size: 0.86em;
     --content-max-width: 780px;
-    --menu-bar-height: 56px;
+    --menu-bar-height: 60px;
     --sidebar-target-width: 290px;
 }
 
@@ -186,28 +186,128 @@ pre > code { padding: 1em 1.1em; line-height: 1.6; }
 
 blockquote { border-radius: 8px; border-inline-start: 3px solid var(--links); }
 
-/* The menu bar: the mark and name, linked home by wisp.js; the theme picker hidden. */
+/* The bar: mdBook's menu bar made the site's own, as on the homepage. It is fixed across the whole width, above
+   the sidebar, with the mark in a column the sidebar's width, so the sidebar's edge runs up through it; then the
+   contents and search buttons, and on the right the homepage's links (added by wisp.js) and the repository and
+   edit icons. mdBook's script still moves the bar as the page scrolls; the position here overrides it. */
 
-#mdbook-menu-bar { border-bottom: 1px solid var(--w-rule); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-#mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
-.menu-title { font-family: var(--web-display); font-weight: 650; font-size: 2rem; color: var(--w-strong); letter-spacing: -0.01em; }
-.menu-title a.wisp-home { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+:root { --w-bar: 60px; }
+
+#mdbook-menu-bar,
+#mdbook-menu-bar.sticky,
+html.sidebar-visible #mdbook-menu-bar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0;
+    right: 0;
+    margin: 0 !important;
+    height: var(--w-bar);
+    flex-wrap: nowrap;
+    align-items: center;
+    padding-inline-end: 12px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--w-rule) !important;
+}
+#mdbook-menu-bar-hover-placeholder { display: none; }
+/* mdBook pulls the page up by the bar's height, to sit under a bar in its flow; this one is out of it. */
+.page { margin-block-start: 0 !important; padding-top: var(--w-bar); }
+.sidebar { top: var(--w-bar); border-right: 1px solid var(--w-rule); }
+.nav-chapters { top: var(--w-bar); }
+
+#mdbook-theme-toggle, #mdbook-theme-list, #mdbook-menu-bar a[href$="print.html"] { display: none !important; }
+
+.menu-title {
+    order: -1;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: var(--sidebar-width);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding-inline-start: 22px;
+    text-align: start;
+    font-family: var(--web-display);
+    font-weight: 650;
+    font-size: 2rem;
+    color: var(--w-strong);
+    letter-spacing: -0.01em;
+    cursor: default;
+}
+html.sidebar-visible .menu-title { border-right: 1px solid var(--w-rule); }
+html:not(.sidebar-visible) .menu-title { width: auto; padding-inline-end: 14px; }
+.menu-title a { text-decoration: none !important; }
+.menu-title a.wisp-home { color: inherit; display: inline-flex; align-items: center; gap: 9px; }
 .menu-title a.wisp-home img { display: block; }
+.menu-title .wisp-section { color: var(--w-muted); font-weight: 500; margin-inline-start: 10px; }
+.menu-title .wisp-section:hover { color: var(--w-strong); }
+.menu-title .wisp-section::before { content: "/"; margin-inline-end: 10px; color: var(--w-rule); font-weight: 400; }
+
+#mdbook-menu-bar .left-buttons { margin: 0 0 0 10px; display: flex; align-items: center; gap: 6px; flex: 1 1 auto; }
+#mdbook-menu-bar .right-buttons { margin: 0; display: flex; align-items: center; gap: 2px; }
+#mdbook-menu-bar .icon-button, #mdbook-menu-bar .right-buttons a { line-height: 1; padding: 8px; border-radius: 8px; color: var(--w-muted); }
+#mdbook-menu-bar .icon-button:hover, #mdbook-menu-bar .right-buttons a:hover { color: var(--w-strong); background: var(--theme-hover); }
+#mdbook-menu-bar .fa-svg { line-height: 1; padding: 0; }
+
+/* The search button as a field, as a reader expects one to look. */
+#mdbook-search-toggle.wisp-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: min(320px, 100%);
+    padding: 8px 10px 8px 12px;
+    border: 1px solid var(--w-rule);
+    background: var(--w-raised);
+    color: var(--w-muted);
+    font: 0.9em var(--web-sans);
+    text-align: start;
+}
+#mdbook-search-toggle.wisp-search:hover { border-color: var(--links); background: var(--w-raised); }
+.wisp-search .wisp-search-label { flex: 1 1 auto; }
+.wisp-search kbd {
+    font: 0.85em var(--web-mono);
+    padding: 1px 6px;
+    border: 1px solid var(--w-rule);
+    border-radius: 5px;
+    color: var(--w-muted);
+    background: var(--bg);
+}
+
+.wisp-nav { display: flex; align-items: center; gap: 2px; margin-inline-end: 6px; }
+.wisp-nav a { color: var(--w-muted) !important; font: 500 0.92em var(--web-sans); padding: 8px 10px !important; }
+.wisp-nav a:hover { text-decoration: none; }
+
+@media only screen and (max-width: 1100px) { .wisp-nav { display: none; } }
+@media only screen and (max-width: 760px) {
+    .menu-title, html.sidebar-visible .menu-title { width: auto; border-right: none; padding-inline-start: 14px; padding-inline-end: 4px; }
+    .menu-title .wisp-section { display: none; }
+    #mdbook-search-toggle.wisp-search { width: auto; }
+    .wisp-search .wisp-search-label, .wisp-search kbd { display: none; }
+}
 
 /* The sidebar */
 
-.sidebar { border-right: 1px solid var(--w-rule); font-size: 0.92em; }
+/* Below 620px mdBook pushes the page, bar and all, aside to show the sidebar, which took the bar's button off the
+   screen; here the sidebar slides over the page instead, under the bar. */
+@media only screen and (max-width: 619px) {
+    #mdbook-sidebar-toggle-anchor:checked ~ .page-wrapper { transform: none !important; }
+    .sidebar { z-index: 110; box-shadow: 0 0 40px rgba(0, 0, 0, 0.25); }
+}
+
+.sidebar { font-size: 0.92em; }
 .sidebar .sidebar-scrollbox { padding: 18px 14px 18px 18px; }
 .chapter li.part-title { color: var(--w-attention); font-size: 0.75em; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 1.6em 0 0.4em; }
 .chapter li a { border-radius: 6px; padding: 3px 6px; }
 .chapter li a:hover { color: var(--w-strong); background: var(--theme-hover); text-decoration: none; }
 .chapter li a.active { color: var(--sidebar-active); font-weight: 600; background: var(--theme-hover); }
 
+/* Previous and next: quiet at the page's edges, not a column of their own. */
+
+.nav-chapters { font-size: 1.6em; color: var(--w-muted); min-width: 64px; max-width: 64px; }
+.nav-chapters:hover { color: var(--w-strong); background: transparent; }
+
 /* Search */
 
 #mdbook-searchbar { border-radius: 10px; padding: 10px 14px; }
-
-/* Previous and next */
-
-.nav-chapters { color: var(--w-muted); }
-.nav-chapters:hover { color: var(--w-strong); }

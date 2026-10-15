@@ -135,8 +135,14 @@ spirit over a laptop at night, set on GitHub by the owner, is the character the 
   `wisp.css` sets mdBook's variables from the palette, so its five themes become two (`light` and `rust` read as
   wisp's light, `navy`, `coal`, and `ayu` as its dark, so a theme a reader stored before is still one of ours);
   the theme picker is hidden, and the reader's system setting chooses (`default-theme`, `preferred-dark-theme`).
-  `wisp.js` makes the menu bar's title a link home, with the mark. `fonts/fonts.css` is empty, so mdBook copies and
-  loads no web fonts.
+  mdBook's menu bar becomes the site's bar, as on the homepage: fixed across the full width above the sidebar,
+  with the mark and "wisp / Docs" in a column the sidebar's width, so the sidebar's edge runs up through it; the
+  contents button and the search button, drawn as a search field; and on the right the homepage's links and the
+  repository and edit icons (the print icon is hidden). `wisp.js` adds the mark, the links, and the field's label;
+  without JavaScript the bar is mdBook's own and still works. On a phone the sidebar slides over the page rather than
+  pushing it, bar and all, aside. A first version, which kept mdBook's centred title and floating icons, was judged
+  by the owner on 2026-10-15 to look apart from the layout. `fonts/fonts.css` is empty, so mdBook copies and loads
+  no web fonts.
 - **The system's own faces, and no third-party request from the homepage.** The pages set the system font stack
   (SF Pro and SF Mono on a Mac) and load nothing from another host; the book still loads mermaid from jsDelivr on a
   page with a diagram, as above.
