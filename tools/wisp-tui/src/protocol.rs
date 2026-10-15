@@ -96,6 +96,9 @@ pub struct Status {
     pub removed: Option<u64>,
     /// The approval mode.
     pub approval: String,
+    /// The version control the directory is under (`git`, `svn`), when it is under one.
+    #[serde(default)]
+    pub vcs: Option<String>,
     /// Fraction of the context window used, when known.
     #[serde(rename = "contextUsed")]
     pub context_used: Option<f64>,
@@ -527,6 +530,7 @@ mod tests {
                 assert_eq!(s.dirty, Some(true));
                 assert_eq!(s.context_used, Some(0.25));
                 assert_eq!(s.think, None, "absent from an older wisp");
+                assert_eq!(s.vcs, None, "absent from an older wisp");
             }
             other => panic!("not a status: {other:?}"),
         }

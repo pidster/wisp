@@ -135,3 +135,39 @@ items, each opening a view or a dialog that already exists; none is a new way to
 No protocol change: the counts are what `wisp-tui` already holds. Tested without a terminal: the key routing, the
 items and their order, the counts at zero, activation and the grace, the parked draft, and widths down to zero with
 wide characters (`tools/wisp-tui/src/main.rs`, `app.rs`, `editor.rs`); the `/model` picker in `ChatLoopTests`.
+
+## Amendment, 2026-10-15: the status line's left half, and version control by detection
+
+The owner asked for the left half to read `$model ($think) $n% used · $path $vcs($branch)`, and for the version
+control to be detected rather than assumed: git and Subversion now, others (Jujutsu) later. It now reads
+`ollama:granite4.2:8b (off) 15% used · ~/src/wisp git(main)+12-3`, in both the plain chat and `wisp-tui`.
+
+- **The model's part.** The thinking (ADR 0053, amended the same day) moves from a separate `· think off` to the
+  model's own brackets, the value alone, `(off)`, as the owner chose over `(think off)`; the gauge follows after a
+  space, where a colon was. A model with no thinking to set has no brackets. In `wisp-tui` the value is an item of
+  the bar, as the model is, between the model and the gauge in the bar's order, and Enter on it sends `/think`.
+- **The place.** The directory, then the system's name and its branch in brackets, then the line counts after the
+  bracket, `git(main)+12-3`, or a star for a dirty tree without counts, as the owner chose over counts inside. A
+  system that cannot tell its branch shows its name alone, `svn`. Outside a working copy only the directory shows.
+- **Detection.** `VersionControl` walks up from the directory to the nearest ancestor holding a system's marker,
+  `.git` (a directory, or the file of a worktree or a submodule) or `.svn` (Subversion 1.7 and later keep one at
+  the working copy's root); where one directory holds two, the first system in its list wins, so a colocated
+  Jujutsu repository, which keeps `.jj` beside `.git`, can be put ahead of git when it is added. Each system has a
+  reader: git's is the one `GitState` had (the branch from `HEAD`, the counts from `git diff --numstat HEAD`);
+  Subversion's takes the branch from `svn info --show-item relative-url` by the standard layout (`trunk`, or the
+  name under `branches/` or `tags/`), whether anything changed from `svn status --quiet`, and only then the counts
+  from `svn diff`'s `+` and `-` lines. The `svn` tool is not on this project's Mac, so its reader is tested on
+  sample output through a stand-in for the tool, not live.
+- **Time limits that hold.** The owner pointed out that one fixed limit could cost `svn diff`, which reads every
+  changed file against its pristine copy. Looking at it showed the limit never held at all: the runner read the
+  command's output to its end before it checked the clock, so a slow command stalled the status line for as long as
+  it ran, git's included. The output is now read on another thread and the command stopped at its limit: two
+  seconds for what reads only the working copy's own records (git's branch and counts, `svn info`, `svn status`),
+  five for `svn diff`, and only when `svn status` found a change. A part past its limit is left out rather than
+  waited for, so a tree too slow to count still shows its star, `svn(trunk)*`, since the line is drawn before
+  every prompt.
+- **Protocol.** `status` gains `vcs` (`git`, `svn`, or null); `wisp-tui` reads it as absent from an older wisp.
+
+Tested without a terminal or a model: detection by marker for both systems, Subversion's branch and counts from
+sample output, the plain line and `wisp-tui`'s row with and without thinking, a system, and a branch, the bar's
+order and the item's `/think`, and the protocol field.

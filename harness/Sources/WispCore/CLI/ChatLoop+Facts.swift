@@ -1,9 +1,9 @@
 extension ChatLoop {
-    /// Records the directory chat started in and its git branch as facts, without a model (decision D2 of the
+    /// Records the directory chat started in and its branch as facts, without a model (decision D2 of the
     /// layered-context proposal: the working directory and the branch are versioned dynamic facts).
     func observeWorkplace() {
         agent.observe(
-            directory: context.directory, branch: context.git(context.directory).branch, observer: "chat")
+            directory: context.directory, branch: context.vcs(context.directory).branch, observer: "chat")
     }
 
     /// Carries out `/fact`: states a fact as the person, moves one to a scope, or deletes one,

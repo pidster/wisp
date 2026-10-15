@@ -44,7 +44,7 @@ import WispTestSupport
     /// A context with a fixed git answer and an inspect view that echoes its argument.
     static let context = ChatLoop.Context(
         directory: "/repo", approval: "approve at moderate",
-        git: { _ in GitState.Summary(branch: "main", dirty: true, added: 12, removed: 3) },
+        vcs: { _ in VersionControl.Summary(system: .git, branch: "main", dirty: true, added: 12, removed: 3) },
         inspect: { what in "inspected \(what)" }, banner: "wisp test")
 
     private func scratch() throws -> URL {
@@ -111,7 +111,7 @@ import WispTestSupport
         // The status line is drawn before every prompt, from the context and the agent.
         let status = capture.shownStatus
         #expect(status.count == 16)
-        #expect(status.first?.rendered(style: .plain) == "system · /repo:main+12-3 · approve at moderate")
+        #expect(status.first?.rendered(style: .plain) == "system · /repo git(main)+12-3 · approve at moderate")
         #expect(notes.contains("usage: /save <name>"))
         #expect(notes.contains("saved 'first'"))
         #expect(notes.contains("unknown command /bogus; /help lists commands"))

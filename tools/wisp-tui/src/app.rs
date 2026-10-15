@@ -868,11 +868,11 @@ impl App {
             return Vec::new();
         };
         let mut items = vec![BarItem::Model];
-        if status.context_used.is_some() {
-            items.push(BarItem::Context);
-        }
         if status.think.is_some() {
             items.push(BarItem::Think);
+        }
+        if status.context_used.is_some() {
+            items.push(BarItem::Context);
         }
         if self.questions_waiting() > 0 {
             items.push(BarItem::Questions);
@@ -2297,24 +2297,20 @@ impl App {
             palette::muted()
         };
         Some(vec![
-            Span::styled(":", palette::muted()),
+            Span::raw(" "),
             item_span(focus, BarItem::Context, format!("{percent}% used"), style),
         ])
     }
 
-    /// Whether the model thinks, after the gauge, for a model that can: ` · think off`.
+    /// Whether the model thinks, after its name, for a model that can: ` (off)`.
     fn think_spans(&self, focus: Option<BarItem>) -> Vec<Span<'static>> {
         let Some(think) = self.status.as_ref().and_then(|status| status.think.clone()) else {
             return Vec::new();
         };
         vec![
-            separator(),
-            item_span(
-                focus,
-                BarItem::Think,
-                format!("think {think}"),
-                palette::wisp(),
-            ),
+            Span::styled(" (", palette::muted()),
+            item_span(focus, BarItem::Think, think, palette::wisp()),
+            Span::styled(")", palette::muted()),
         ]
     }
 
@@ -2438,11 +2434,11 @@ impl App {
         let mut chosen = (Vec::new(), Vec::new());
         for (with_gauge, place, rest) in layouts {
             let mut left = vec![model.clone()];
-            if with_gauge && let Some(gauge) = &gauge {
-                left.extend(gauge.iter().cloned());
-            }
             if with_gauge {
                 left.extend(think.iter().cloned());
+            }
+            if with_gauge && let Some(gauge) = &gauge {
+                left.extend(gauge.iter().cloned());
             }
             left.extend(place);
             let mut right = waiting.clone();
@@ -2486,13 +2482,18 @@ fn item_span(focus: Option<BarItem>, which: BarItem, text: String, style: Style)
     Span::styled(text, style)
 }
 
-/// Where the chat is, after the model: ` · ` and the directory as given, the branch, and the line changes or a
-/// star for a dirty tree.
+/// Where the chat is, after the model: ` · ` and the directory as given, its version control and branch as
+/// `git(main)`, and the line changes or a star for a dirty tree.
 fn place_spans(status: &Status, directory: String) -> Vec<Span<'static>> {
     let mut spans = vec![separator(), Span::styled(directory, palette::wisp())];
+    if let Some(vcs) = &status.vcs {
+        spans.push(Span::styled(format!(" {vcs}"), palette::muted()));
+    }
     if let Some(branch) = &status.branch {
-        spans.push(Span::styled(":", palette::muted()));
+        let open = if status.vcs.is_some() { "(" } else { " (" };
+        spans.push(Span::styled(open, palette::muted()));
         spans.push(Span::styled(branch.clone(), palette::glow()));
+        spans.push(Span::styled(")", palette::muted()));
     }
     match (status.added, status.removed) {
         (Some(added), Some(removed)) if added + removed > 0 => {
@@ -4530,6 +4531,7 @@ mod tests {
                     approval: "moderate".into(),
                     context_used: None,
                     think: None,
+                    vcs: None,
                 }),
                 turn: Some(TurnState::Ended {
                     seconds: 3.1,
@@ -4562,23 +4564,24 @@ mod tests {
             approval: "approve at moderate".into(),
             context_used: Some(0.15),
             think: None,
+            vcs: Some("git".into()),
         };
         let app = App {
             status: Some(status.clone()),
             ..Default::default()
         };
-        let line = app.status_line(80);
+        let line = app.status_line(90);
         let text: String = line
             .spans
             .iter()
             .map(|span| span.content.to_string())
             .collect();
         assert!(
-            text.starts_with("system:15% used · ~/src/github.com/pidster/wisp:main+12-3   "),
+            text.starts_with("system 15% used · ~/src/github.com/pidster/wisp git(main)+12-3   "),
             "{text}"
         );
         assert!(
-            text.ends_with("approve at moderate") && line.width() == 80,
+            text.ends_with("approve at moderate") && line.width() == 90,
             "{text}"
         );
         let branch = line.spans.iter().find(|span| span.content == "main");
@@ -4614,7 +4617,7 @@ mod tests {
             .map(|span| span.content.to_string())
             .collect();
         assert!(
-            narrow.starts_with("system:15% used · …/wisp:main+12-3"),
+            narrow.starts_with("system 15% used · …/wisp git(main)+12-3"),
             "{narrow}"
         );
         // Dirty without counts, as before a first commit, is a star.
@@ -4632,7 +4635,7 @@ mod tests {
             .iter()
             .map(|span| span.content.to_string())
             .collect();
-        assert!(text.contains("wisp:main*"), "{text}");
+        assert!(text.contains("wisp git(main)*"), "{text}");
     }
 
     #[test]
@@ -4648,6 +4651,7 @@ mod tests {
                 approval: "--yes".into(),
                 context_used: Some(0.137),
                 think: None,
+                vcs: Some("git".into()),
             }),
             editor: {
                 let mut editor = Editor::default();
@@ -4675,7 +4679,7 @@ mod tests {
         assert_eq!(row(INPUT_ROW), " › hello");
         assert_eq!(
             row(STATUS_ROW),
-            format!(" system:14% used · ~/x:main{}--yes", " ".repeat(27))
+            format!(" system 14% used · ~/x git(main){}--yes", " ".repeat(22))
         );
         // The input row's tint runs edge to edge, with half-block strips above and below in the tint.
         assert_eq!(buffer[(0, INPUT_ROW)].bg, palette::DEEP);
@@ -5439,6 +5443,7 @@ mod tests {
             status: Some(Status {
                 model: model.into(),
                 directory: "~/src/github.com/pidster/wisp".into(),
+                vcs: Some("git".into()),
                 branch: Some("main".into()),
                 approval: "ask".into(),
                 context_used: Some(0.2),
@@ -5497,7 +5502,7 @@ mod tests {
     }
 
     #[test]
-    fn a_model_that_can_think_shows_it_after_the_gauge_as_an_item_that_sends_think() {
+    fn a_model_that_can_think_shows_it_after_its_name_as_an_item_that_sends_think() {
         let mut app = App {
             status: Some(Status {
                 model: "ollama:q".into(),
@@ -5510,13 +5515,10 @@ mod tests {
             ..Default::default()
         };
         let text = status_text(&app, 100);
-        assert!(
-            text.starts_with("ollama:q:15% used · think off · ~/w"),
-            "{text}"
-        );
+        assert!(text.starts_with("ollama:q (off) 15% used · ~/w"), "{text}");
         assert_eq!(
             app.bar_items(),
-            vec![BarItem::Model, BarItem::Context, BarItem::Think]
+            vec![BarItem::Model, BarItem::Think, BarItem::Context]
         );
         app.bar = Some(BarItem::Think);
         assert_eq!(app.focused(), Some(BarItem::Think));
@@ -5531,7 +5533,12 @@ mod tests {
         if let Some(status) = app.status.as_mut() {
             status.think = None;
         }
-        assert!(!status_text(&app, 100).contains("think"));
+        assert!(!status_text(&app, 100).contains('('));
+        // Another system names itself; one that cannot tell its branch (svn without its tool) shows its name alone.
+        if let Some(status) = app.status.as_mut() {
+            status.vcs = Some("svn".into());
+        }
+        assert!(status_text(&app, 100).starts_with("ollama:q 15% used · ~/w svn "));
         assert_eq!(app.bar_items(), vec![BarItem::Model, BarItem::Context]);
     }
 
@@ -5580,11 +5587,11 @@ mod tests {
             tokens: Some((1200, 30)),
         });
         // Wide: everything.
-        assert!(status_text(&app, 140).contains("~/src/github.com/pidster/wisp:main"));
+        assert!(status_text(&app, 140).contains("~/src/github.com/pidster/wisp git(main)"));
         // Narrower: the last folder, then the mode and the turn go, then the place, then the gauge.
         let at_70 = status_text(&app, 70);
         assert!(
-            at_70.contains("…/wisp:main") && !at_70.contains("last:"),
+            at_70.contains("…/wisp git(main)") && !at_70.contains("last:"),
             "{at_70}"
         );
         assert!(at_70.contains("questions: 1 · approvals: 1"), "{at_70}");

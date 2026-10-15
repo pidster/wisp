@@ -393,7 +393,7 @@ struct Chat: AsyncParsableCommand {
             context: .init(
                 directory: directory,
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
-                git: GitState.read(in:),
+                vcs: VersionControl.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: banner,
                 models: ModelActions(session: session, face: .chat),
@@ -624,7 +624,7 @@ struct Chat: AsyncParsableCommand {
             context: .init(
                 directory: FileManager.default.currentDirectoryPath,
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
-                git: GitState.read(in:),
+                vcs: VersionControl.read(in:),
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
                 models: ModelActions(session: session, face: .chat),

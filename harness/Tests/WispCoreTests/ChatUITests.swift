@@ -23,19 +23,21 @@ import WispTestSupport
 
     @Test func statusLineRendersWhatIsKnown() {
         let full = ChatStatus(
-            model: "ollama:q", directory: "~/src/x", branch: "main", dirty: false, approval: "--yes", contextUsed: 0.137
-        )
-        #expect(full.rendered(style: .plain) == "ollama:q:14% used · ~/src/x:main · --yes")
+            model: "ollama:q", directory: "~/src/x", vcs: "git", branch: "main", dirty: false, approval: "--yes",
+            contextUsed: 0.137)
+        #expect(full.rendered(style: .plain) == "ollama:q 14% used · ~/src/x git(main) · --yes")
         #expect(
-            full.rendered(style: .plain, width: 50) == "ollama:q:14% used · ~/src/x:main"
-                + String(repeating: " ", count: 13) + "--yes")
+            full.rendered(style: .plain, width: 50) == "ollama:q 14% used · ~/src/x git(main)"
+                + String(repeating: " ", count: 8) + "--yes")
         #expect(full.rendered(style: .plain, width: 20) == full.rendered(style: .plain))
         let bare = ChatStatus(model: "system", directory: "/tmp", approval: "never asks")
         #expect(bare.rendered(style: .plain) == "system · /tmp · never asks")
-        // A model that can think says whether it does, between the model and the place.
+        // A model that can think says whether it does, after its name; another system names itself as git does.
         var thinking = full
         thinking.thinking = "off"
-        #expect(thinking.rendered(style: .plain) == "ollama:q:14% used · think off · ~/src/x:main · --yes")
+        thinking.vcs = "svn"
+        thinking.branch = "trunk"
+        #expect(thinking.rendered(style: .plain) == "ollama:q (off) 14% used · ~/src/x svn(trunk) · --yes")
         let styled = full.rendered(style: Style(enabled: true))
         #expect(Style.stripped(styled) == full.rendered(style: .plain))
         #expect(styled.contains("\u{1B}[38;2;143;211;244mollama:q") && styled.contains("38;2;134;174;200m14% used"))
@@ -51,8 +53,12 @@ import WispTestSupport
             model: "m", directory: "~/w", branch: "main", dirty: true, added: 12, removed: 3, approval: "x"
         ).rendered(style: Style(enabled: true))
         #expect(changed.contains("38;2;126;217;143m+12") && changed.contains("38;2;255;107;107m-3"))
-        let unborn = ChatStatus(model: "m", directory: "~/w", branch: "main", dirty: true, approval: "x")
-        #expect(unborn.rendered(style: .plain) == "m · ~/w:main* · x")
+        let unborn = ChatStatus(model: "m", directory: "~/w", vcs: "git", branch: "main", dirty: true, approval: "x")
+        #expect(unborn.rendered(style: .plain) == "m · ~/w git(main)* · x")
+        // A system that cannot tell its branch (svn without its tool) is still named.
+        #expect(
+            ChatStatus(model: "m", directory: "~/w", vcs: "svn", approval: "x").rendered(style: .plain)
+                == "m · ~/w svn · x")
         #expect(ChatStatus.abbreviated("/Users/me/src", home: "/Users/me") == "~/src")
         #expect(ChatStatus.abbreviated("/Users/me", home: "/Users/me") == "~")
         #expect(ChatStatus.abbreviated("/Users/meg/src", home: "/Users/me") == "/Users/meg/src")
@@ -69,30 +75,99 @@ import WispTestSupport
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data("ref: refs/heads/chat-config\n".utf8).write(to: gitdir.appending(path: "HEAD"))
         try Data("gitdir: \(gitdir.path)\n".utf8).write(to: dir.appending(path: "wt/.git"))
-        #expect(GitState.read(in: dir.appending(path: "wt").path).branch == "chat-config")
+        #expect(VersionControl.read(in: dir.appending(path: "wt").path).branch == "chat-config")
         // A relative gitdir is taken from the root.
         try Data("gitdir: ../main/.git/worktrees/wt\n".utf8).write(to: dir.appending(path: "wt/.git"))
         #expect(GitState.gitDirectory(of: dir.appending(path: "wt").path).hasSuffix("main/.git/worktrees/wt"))
     }
 
-    @Test func gitStateReadsThisRepositoryAndNothingElsewhere() throws {
+    @Test func versionControlReadsThisRepositoryAsGitAndNothingElsewhere() throws {
         let here = FileManager.default.currentDirectoryPath
-        let state = GitState.read(in: here)
-        #expect(state.branch != nil && state.dirty != nil && state.added != nil, "\(state)")
+        let state = VersionControl.read(in: here)
+        #expect(state.system == .git && state.branch != nil && state.dirty != nil && state.added != nil, "\(state)")
         #expect(GitState.lineCounts("12\t3\ta.swift\n-\t-\tlogo.png\n0\t0\tscript.sh\n") == (12, 3, 3))
         #expect(GitState.lineCounts("") == (0, 0, 0))
-        #expect(GitState.repositoryRoot(of: here + "/Sources") == GitState.repositoryRoot(of: here))
+        #expect(
+            VersionControl.workingCopy(of: here + "/Sources")?.1 == VersionControl.workingCopy(of: here)?.1)
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-nogit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        #expect(GitState.read(in: dir.path) == GitState.Summary())
+        #expect(VersionControl.read(in: dir.path) == VersionControl.Summary())
         // A detached HEAD shows a short hash; a branch its name.
         let fake = dir.appending(path: ".git")
         try FileManager.default.createDirectory(at: fake, withIntermediateDirectories: true)
         try Data("ref: refs/heads/feature/x\n".utf8).write(to: fake.appending(path: "HEAD"))
-        #expect(GitState.read(in: dir.path).branch == "feature/x")
+        #expect(VersionControl.read(in: dir.path).branch == "feature/x")
         try Data("0123456789abcdef\n".utf8).write(to: fake.appending(path: "HEAD"))
-        #expect(GitState.read(in: dir.path).branch == "01234567")
+        #expect(VersionControl.read(in: dir.path).branch == "01234567")
+    }
+
+    @Test func subversionIsFoundByItsMarkerAndReadFromItsOutput() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-svn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appending(path: ".svn"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir.appending(path: "src"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let found = try #require(VersionControl.workingCopy(of: dir.appending(path: "src").path))
+        #expect(
+            found.0 == .svn
+                && URL(fileURLWithPath: found.1).resolvingSymlinksInPath() == dir.resolvingSymlinksInPath())
+        // With or without the svn tool, the system is named; this Mac's tool, if any, cannot read a fake working copy.
+        #expect(VersionControl.read(in: dir.path).system == .svn)
+        #expect(SubversionState.branch(fromRelativeURL: "^/trunk/src\n") == "trunk")
+        #expect(SubversionState.branch(fromRelativeURL: "^/branches/release-2/docs") == "release-2")
+        #expect(SubversionState.branch(fromRelativeURL: "^/tags/v1.0") == "v1.0")
+        #expect(SubversionState.branch(fromRelativeURL: "^/project") == "project")
+        #expect(SubversionState.branch(fromRelativeURL: "^/") == nil)
+        let diff = """
+            Index: a.c
+            ===================================================================
+            --- a.c\t(revision 4)
+            +++ a.c\t(working copy)
+            @@ -1,3 +1,4 @@
+             keep
+            -old
+            +new
+            +more
+            Index: b.c
+            ===================================================================
+            --- b.c\t(revision 4)
+            +++ b.c\t(working copy)
+            @@ -1 +0,0 @@
+            -gone
+            """
+        #expect(SubversionState.lineCounts(diff) == (2, 2, 2))
+        #expect(SubversionState.lineCounts("") == (0, 0, 0))
+        // A clean tree is told by status alone, with no diff; a dirty one is counted, or, when the diff is too slow,
+        // shown dirty without counts. Without the tool, only the system is known.
+        func read(status: String?, diff: String?) -> (VersionControl.Summary, [String]) {
+            let asked = Mutex<[String]>([])
+            let summary = SubversionState.read(root: dir.path) { arguments, _, timeout in
+                asked.withLock { $0.append("\(arguments[0]) \(Int(timeout))") }
+                switch arguments[0] {
+                case "info": return "^/branches/release-2\n"
+                case "status": return status
+                default: return diff
+                }
+            }
+            return (summary, asked.withLock { $0 })
+        }
+        let clean = read(status: "\n", diff: nil)
+        #expect(clean.0 == .init(branch: "release-2", dirty: false, added: 0, removed: 0))
+        #expect(clean.1 == ["info 2", "status 2"], "no diff for a clean tree")
+        let counted = read(status: "M       a.c\n", diff: diff)
+        #expect(counted.0 == .init(branch: "release-2", dirty: true, added: 2, removed: 2))
+        #expect(counted.1 == ["info 2", "status 2", "diff 5"], "the diff has longer")
+        #expect(read(status: "M       a.c\n", diff: nil).0 == .init(branch: "release-2", dirty: true))
+        #expect(read(status: nil, diff: nil).0 == .init(branch: "release-2"))
+    }
+
+    @Test func aVersionControlCommandIsStoppedAtItsLimit() throws {
+        let dir = FileManager.default.temporaryDirectory.path
+        let started = Date()
+        #expect(VersionControl.run("sleep", ["5"], in: dir, timeout: 0.2) == nil)
+        #expect(Date().timeIntervalSince(started) < 2, "stopped at the limit, not when it ended")
+        #expect(VersionControl.run("echo", ["hello"], in: dir) == "hello\n")
+        #expect(VersionControl.run("false", [], in: dir) == nil)
     }
 
     @Test func theGatesDecisionsAndRoutingAreShownToo() {

@@ -147,8 +147,8 @@ public struct ChatLoop {
         public var directory: String
         /// The approval mode, from `ChatStatus.approvalMode`.
         public var approval: String
-        /// Reads the git branch and changes of a directory; the CLI passes `GitState.read`.
-        public var git: @Sendable (String) -> GitState.Summary
+        /// Reads the version control, branch, and changes of a directory; the CLI passes `VersionControl.read`.
+        public var vcs: @Sendable (String) -> VersionControl.Summary
         /// Answers `/inspect <what>`; nil makes the command unavailable.
         public var inspect: (@Sendable (String) async -> String)?
         /// A banner line for the start of the session.
@@ -193,7 +193,7 @@ public struct ChatLoop {
         /// Creates a context.
         public init(
             directory: String, approval: String,
-            git: @escaping @Sendable (String) -> GitState.Summary = { _ in GitState.Summary() },
+            vcs: @escaping @Sendable (String) -> VersionControl.Summary = { _ in VersionControl.Summary() },
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
             models: ModelActions? = nil,
             width: @escaping @Sendable () -> Int? = { nil }, notices: [String] = [],
@@ -214,7 +214,7 @@ public struct ChatLoop {
             self.configOptions = configOptions
             self.directory = directory
             self.approval = approval
-            self.git = git
+            self.vcs = vcs
             self.inspect = inspect
             self.banner = banner
             self.models = models
@@ -253,7 +253,7 @@ public struct ChatLoop {
     ///   - store: Where transcripts are saved.
     ///   - saveName: The default name for `/save` and the save on exit; nil for none.
     ///   - tap: The sink the conversation's events reach; the loop sets its handler.
-    ///   - context: Directory, approval mode, git reader, inspect views, banner.
+    ///   - context: Directory, approval mode, version control reader, inspect views, banner.
     ///   - style: Styling; `.plain` when piped.
     ///   - io: Input and output.
     public init(
@@ -284,14 +284,15 @@ public struct ChatLoop {
 
     /// The status line for the next prompt.
     public func status() async -> ChatStatus {
-        let git = context.git(context.directory)
+        let vcs = context.vcs(context.directory)
         var used: Double?
         if let size = agent.contextSize, size > 0, let tokens = try? await agent.contextTokens() {
             used = min(1, Double(tokens) / Double(size))
         }
         return ChatStatus(
             model: agent.model.selection.description, directory: ChatStatus.abbreviated(context.directory),
-            branch: git.branch, dirty: git.dirty, added: git.added, removed: git.removed, approval: context.approval,
+            vcs: vcs.system?.rawValue, branch: vcs.branch, dirty: vcs.dirty, added: vcs.added, removed: vcs.removed,
+            approval: context.approval,
             contextUsed: used, thinking: Self.thinkingShown(agent.model, chosen: agent.thinking))
     }
 
