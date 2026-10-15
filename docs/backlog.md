@@ -47,6 +47,15 @@ agreed work that is not yet scheduled, and what has shipped, marked done and dat
   deletion, or a write.
 - Done 2026-10-12: project approvals whose folder is gone marked in `wisp approvals`, `/approvals`, and
   `wisp://approvals`, and removed by `wisp approvals clear --gone`.
+- Done 2026-10-14: command time limits: `run_command`'s `timeoutSeconds` and `respond`'s `commandTimeoutSeconds`,
+  clamped to the operator's `commandMaxTimeoutSeconds`, with the default raised to 120 s
+  ([ADR 0063](decisions/0063-command-time-limits.md)).
+- Done 2026-10-14: an approved run outside the sandbox, for the chores it refuses (`brew upgrade`, `cargo install`,
+  `rustup update`): `run_command`'s `outsideSandbox`, asked of the person every time for that exact line and
+  remembered by nothing, behind `commandPolicy.sandbox.allowOutsideSandbox`; and the person's own run outside it,
+  typed after `!!` ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)). Done the same day: Homebrew's
+  `not writable` lines read as the sandbox's refusal ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md),
+  amended 2026-10-14).
 
 ## Enabling other harnesses (see the objective)
 
@@ -142,6 +151,16 @@ Tables and links in replies are shown as typed.
 Done 2026-10-12: Ctrl-C during a model's turn stops the turn and the command it started, in both front ends, and a
 second Ctrl-C quits ([ADR 0049](decisions/0049-commands-typed-in-chat.md) and
 [ADR 0029](decisions/0029-tui-front-end.md), amended 2026-10-11).
+Done 2026-10-14: `wisp-tui`'s outside mode, a muted red input box for a line run outside the sandbox, entered with a
+second `!` at the start in command mode and left one mode at a time with Backspace
+([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), amended 2026-10-14); its colours are a first
+proposal, open to the operator's choice from renders.
+
+## Documentation
+
+- Done 2026-10-14: the documentation site, https://wisp.pidster.com, an mdBook over `docs/` with guides first, the
+  reference, then the internals and every decision record, checked in the gate by `scripts/check docs-links` and
+  built by `scripts/check docs-site` ([ADR 0065](decisions/0065-documentation-site.md)).
 
 ## When wisp can be signed
 

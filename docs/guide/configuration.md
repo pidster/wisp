@@ -36,8 +36,9 @@ the file is written readable by you alone. Changes apply from the next session: 
 it started with. A change that weakens the gate or the audit (the threshold at `never` or `dangerous`, the
 classifier at `rules`, the audit off) prints a note. Every change is audited as `config.change`.
 
-wisp's model cannot change its configuration: there is no tool for it, and its commands cannot write `~/.wisp`
-([ADR 0040](../decisions/0040-config-from-chat.md)).
+wisp's model cannot change its configuration: there is no tool for it, and its sandboxed commands cannot write
+`~/.wisp` ([ADR 0040](../decisions/0040-config-from-chat.md)). A command you approve to run outside the sandbox
+could, which is why you are asked about each one ([ADR 0064](../decisions/0064-an-approved-run-outside-the-sandbox.md)).
 
 ## The settings worth knowing
 

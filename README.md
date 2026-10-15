@@ -77,7 +77,8 @@ once, for the session, for this project, or always, and `/model` switches models
 long conversation keeps short facts (a codename, the task, whether the tests pass) and a summary of the
 turns it had to drop; `/inspect facts` and `/inspect summary` show them and `/fact` corrects one. A line
 that starts with `!` (`! git status`) runs the command yourself, in the sandbox and without asking, and the
-model is told what you ran on its next request. On a
+model is told what you ran on its next request; `!!` (`!!brew upgrade`) runs it outside the sandbox, for the chores
+the sandbox refuses. On a
 terminal the chat runs in `wisp-tui`, installed beside `wisp`: the conversation scrolls in your
 terminal's own history above a pinned input and status line, with the model's tool calls shown as they
 happen.
@@ -160,7 +161,9 @@ models disable` hides one you do not want offered.
 **Every command passes a gate, and the gate is fast.** Before a command runs it must clear a deny list
 (`sudo`, `rm -rf /`, piping into a shell, disk tools, starting a wisp of its own), and it runs under a Seatbelt sandbox that
 confines writes to the directory wisp was launched in, the temporary directory, and configured build
-caches. Then a classifier rates each simple command in the line `safe`, `moderate`, or `dangerous`.
+caches; a chore the sandbox refuses, such as `brew upgrade`, runs outside it only when you approve that exact
+line, every time ([ADR 0064](docs/decisions/0064-an-approved-run-outside-the-sandbox.md)). Then a classifier rates
+each simple command in the line `safe`, `moderate`, or `dangerous`.
 Rules set the floor and a Core ML text classifier, shipped with each release and trained on 2,135
 labelled commands, 1,075 of them real, can only raise the level; it answers in under a millisecond
 however busy the Mac is. On 996 real commands it rated 817 exactly, against 664 for the on-device
@@ -200,11 +203,12 @@ and delete.
 | | A reasoning model's thinking shown while it thinks, on Ollama and MLX, kept for you and never sent back to the model; `ollama.think` and `mlx.think`, or per model; wisp's own side calls do not think | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md), [backends.md](docs/backends.md) |
 | | Which local model suits which work, as measured: the local-model and Falcon comparisons | [measurements.md](docs/measurements.md#comparing-models) |
 | Safety | The policy's deny and allow lists, the Seatbelt sandbox, and what a refused write is reported as | [tools/run_command.md](docs/tools/run_command.md), [ADR 0054](docs/decisions/0054-the-sandboxs-refusals-checked.md) |
+| | One command run outside the sandbox (`brew upgrade`, `cargo install`): the model's, approved by you every time, or yours, typed after `!!` | [tools/run_command.md](docs/tools/run_command.md#running-outside-the-sandbox), [ADR 0064](docs/decisions/0064-an-approved-run-outside-the-sandbox.md) |
 | | Risk classifiers: rules, the shipped Core ML classifier, or the on-device model | [approval.md](docs/approval.md#classifiers) |
 | | **Custom classifiers**: train one on your own audit log or labelled commands, measure it, and switch to it | [wisp.md](docs/wisp.md#wisp-classifier), [approval.md](docs/approval.md#training-and-measuring-a-classifier) |
 | | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal or from chat | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
-| Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
+| Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself, `!!command` outside the sandbox; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
 | | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | The model asks you a question mid-turn with its `ask` tool (off by default), in chat, `wisp-tui`, or from an MCP session through `wisp questions`; never for a secret | [tools/ask.md](docs/tools/ask.md), [ADR 0062](docs/decisions/0062-the-inquiry-verb.md) |
@@ -245,11 +249,12 @@ with `brew upgrade pidster/tap/wisp`; remove with `brew uninstall wisp` and `rm 
 ## Documentation
 
 Everything is under [docs/](docs/README.md), which is also published, with guides and search, as the
-documentation site at wisp.pidster.com ([ADR 0065](docs/decisions/0065-documentation-site.md)). Start with the row
+documentation site at [wisp.pidster.com](https://wisp.pidster.com) ([ADR 0065](docs/decisions/0065-documentation-site.md)). Start with the row
 that matches your question.
 
 | If you want to… | Read |
 | --- | --- |
+| Install it, make a first run, and learn it step by step | the guides, from [guide/install.md](docs/guide/install.md) |
 | Understand what wisp is for and what is out of scope | [objective.md](docs/objective.md) |
 | Use the command line: subcommands, flags, `config.json`, exit codes | [wisp.md](docs/wisp.md) |
 | See what the model can do and the limits on each tool | [tools/](docs/tools/README.md) |
@@ -306,7 +311,7 @@ check, not a measurement; `scripts/check eval` measures the model.
 | `harness/` | The Swift package: the `wisp` binary, `WispCore`, `WispMCP`, and the model backends |
 | `harness/Evals/` | The model evaluations, a package of their own that `scripts/check eval` runs |
 | `tools/` | The Cargo workspace: `wisp-tui`, the terminal front end over `wisp chat --json` |
-| `docs/` | Documentation and decision records |
+| `docs/` | Documentation and decision records, and the source of the documentation site (an mdBook; `scripts/check docs-site` builds it) |
 | `training/` | Labelled training sets for the fast classifiers, with their reviews |
 | `scripts/check` | The quality gate: lint, warnings-as-errors build, tests, hygiene, coverage, model eval |
 

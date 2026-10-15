@@ -14,8 +14,8 @@ Added:
   and your threshold, and approve it once or not at all: nothing remembers it, and `--yes` does not answer it. Every
   dialog, notification, and listing says `OUTSIDE the sandbox`, and the audit records it. Approved, the command runs
   with your privileges and no confinement, `~/.wisp` included. Turn it off with
-  `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`. When the sandbox refuses a write, the model is
-  told it may ask (ADR 0064).
+  `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`; `wisp doctor`'s `settings` line shows it. When
+  the sandbox refuses a write, the model is told it may ask (ADR 0064).
 - You can run a command outside the sandbox yourself in chat: `!!brew upgrade` (two marks together; `! !x` runs `!x`
   in the sandbox). Typing it is the approval, as for `!`; the deny list and
   `commandPolicy.sandbox.allowOutsideSandbox` still apply, and chat says it runs OUTSIDE the sandbox before it starts.

@@ -90,7 +90,7 @@ directory is the one it may change.
 
 ### A refused write
 
-A write outside the set fails with `Operation not permitted`. wisp then checks the paths the error names against
+A write outside the set fails with `Operation not permitted`, or, from Homebrew, with a list of directories that are `not writable`. wisp then checks the paths the error names against
 the writable roots and adds one line to what the model sees ([ADR 0054](../decisions/0054-the-sandboxs-refusals-checked.md)):
 
 | The error names | The model is told |

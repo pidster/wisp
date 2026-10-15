@@ -144,7 +144,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "verification": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`

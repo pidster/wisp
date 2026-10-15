@@ -6,7 +6,7 @@ result format) and the limits that protect the context window. `wisp tools` prin
 | Tool | Purpose |
 | --- | --- |
 | [current_date](current_date.md) | The date and time; the model has no clock. |
-| [run_command](run_command.md) | Run a shell command with a timeout and bounded output. |
+| [run_command](run_command.md) | Run a shell command in the sandbox, with a timeout and bounded output; with `outsideSandbox`, one command the sandbox refuses, run without it once the person approves that run. |
 | [read_file](read_file.md) | Read a text file one page at a time. |
 | [edit_file](edit_file.md) | Write, append to, or replace text in a file, inside the sandbox's writable set. |
 | [inspect](inspect.md) | wisp's own config, status, approvals, recent audit events (by turn too), and a turn's tool calls one line each; read-only. |

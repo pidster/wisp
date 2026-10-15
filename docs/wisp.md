@@ -211,6 +211,10 @@ says how to answer:
   answer with /questions answer ID, which prompts for the answer, or /questions decline ID
 ```
 
+A command the model asked to run outside the sandbox is noted as `run brew upgrade OUTSIDE THE SANDBOX, this
+once, in ~/src/wisp, moderate`, and `/approvals approve` approves it once whatever scope you give, as `wisp
+approvals approve` does ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)).
+
 `/approvals approve`, `/approvals deny`, `/facts keep`, `/facts drop`, `/questions answer`, and `/questions
 decline` answer one (without an id, they offer what waits to choose from), and `/approvals pending` lists
 everything waiting. `/questions answer` shows the question as `wisp questions answer` does and reads your answer at
@@ -910,6 +914,9 @@ wisp config unset approval.timeoutSeconds
 | `commandMaxOutputBytes` | Bytes, 256 to 1,048,576; unset takes the tool-output budget. |
 | `tools.disabled` | Built-in tool names. |
 | `tools.models` | `true` or `false` (the default): whether a conversation given every tool gets the model's `models` tool, to list models and ask to pull, enable, disable, or check one ([tools/models.md](tools/models.md)). A tool list that names `models` gets it either way. |
+| `tools.ask` | `true` or `false` (the default): whether a conversation given every tool gets the model's `ask` tool, to ask you one question mid-turn ([tools/ask.md](tools/ask.md)). A tool list that names `ask` gets it either way. |
+| `inquiry.timeoutSeconds` | Seconds, 0 to 86,400; 0 (the default) waits until you answer the model's question, and a deadline below 10 is taken as 10. |
+| `inquiry.elicitation` | `true` or `false` (the default): under `wisp mcp`, whether the model's question is also asked through the client's elicitation form ([mcp.md](mcp.md), "Questions"). |
 | `shownOutputLines` | 0 to 10,000; 0 shows a tool call's note alone. |
 | `notifications.enabled`, `notifications.viaTerminalApp`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
 | `notifications.perMinute` | 1 to 60. |

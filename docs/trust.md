@@ -39,10 +39,12 @@ tools, answering an approval, keeping a permanent fact, fetching a model, and st
 `chat`, `mcp`, or `wisp "prompt"`) and a risk check.
 
 **What the model is told when the sandbox refuses.** The sandbox fails a refused operation with `Operation not
-permitted` and says nothing else. wisp checks the paths in that error against the writable roots and tells the
+permitted` and says nothing else; Homebrew checks its directories first and reports the same refusal as directories
+that are `not writable`. wisp checks the paths in either error against the writable roots and tells the
 model plainly: that the sandbox refused writing to a path and where it may write; that a path inside the roots was
 refused by something else; or, when the error names no path, that the sandbox may have refused it and no policy
-rule did, since the policy let the command run
+rule did, since the policy let the command run. When the sandbox refused it or may have, and running outside the
+sandbox is allowed, the note adds that the model may ask to run it outside the sandbox (below)
 ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md), [run_command](tools/run_command.md)).
 
 **A command run outside the sandbox, with your approval.** Some chores cannot run sandboxed at all: `brew upgrade`
@@ -60,10 +62,11 @@ turn both off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
 **Commands you type yourself.** In `wisp chat` and `wisp-tui`, a line that starts with `!` (`! git status`)
 runs that command as yours, through the same runner as `run_command`
 ([ADR 0049](decisions/0049-commands-typed-in-chat.md)). It passes the same deny and allow lists and runs
-under the same sandbox, with the same bounds and timeout, so it can change only what the model's commands
+under the same sandbox, with the same output bounds, so it can change only what the model's commands
 can: files under the sandbox's writable directories, and the network unless you turned it off. It skips the
 risk check and is never put to you for approval, since typing it is the approval, so it runs at once
-whatever its level. The deny list includes a nested wisp agent here too: `! wisp respond …` is refused with
+whatever its level. It has no time limit: Ctrl-C stops it. A line typed after `!!` runs outside the sandbox
+instead (above). The deny list includes a nested wisp agent here too: `! wisp respond …` is refused with
 its reason, where under the sandbox it would only fail, unable to write `~/.wisp`; run it in another terminal.
 It is audited (`command.typed`, and `policy.decision` and `command.outcome` marked
 `origin: "person"`), and the model is told on its next request that you ran it, never that it did. `--unsafe`
@@ -124,8 +127,9 @@ judged and remembered by the commands inside it (`for f in *; do git add "$f"; d
 its keyword, so an approval of one loop's body covers that command in the next loop and nothing else. When only
 the whole line shows the risk (`curl … | python3`) you are asked once, about the line, and your answer covers
 its parts for that line alone. `wisp approvals` lists them, marking a project approval whose folder is gone,
-which can never match again; `wisp approvals revoke <id>`, `clear`, and `clear --gone` remove them. A dialog
-nobody answers within ten minutes counts as a refusal.
+which can never match again; `wisp approvals revoke <id>`, `clear`, and `clear --gone` remove them. A request to
+run a command outside the sandbox has no scope: whatever you choose it is approved once, and nothing held covers it
+(above). A dialog nobody answers within ten minutes counts as a refusal.
 
 **Who keeps a permanent fact, and where.** Only you. A permanent fact (a codename, a settled decision, a
 preference) is written to `~/.wisp/facts.json` and given to every conversation, so wisp never writes one on
@@ -203,9 +207,9 @@ server, and what passes is written under `llamacpp.models.<name>`.
 
 | Switch | Removes | Leaves |
 | --- | --- | --- |
-| `--yes` | every human approval | deny list, sandbox, classification, audit |
+| `--yes` | every human approval (a request to run outside the sandbox is refused instead) | deny list, sandbox, classification, audit |
 | `--unsafe` | the deny list and the sandbox, for the model's commands and the ones you type after `!` | approval, classification, audit |
-| `approval.threshold: "never"` | approval prompts | everything else |
+| `approval.threshold: "never"` | approval prompts, but not for a command run outside the sandbox | everything else |
 | `--model private-cloud` | on-device only | approval, sandbox, audit |
 
 Both flags print a warning on stderr. There is no switch that turns off the audit log except
@@ -242,9 +246,10 @@ not judge whether a conclusion follows from the output, and misses a result put 
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
 - Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
-  writable set, except the models you pulled into the Hugging Face cache, which Hugging Face's own tools share
-  (delete `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions
-  install` wrote for your shell (delete the file it named).
+  writable set, except what a command run outside the sandbox wrote (one you approved, or typed after `!!`), the
+  models you pulled into the Hugging Face cache, which Hugging Face's own tools share (delete
+  `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions install`
+  wrote for your shell (delete the file it named).
 - Uninstall: `brew uninstall wisp`.
 
 ## Files wisp writes

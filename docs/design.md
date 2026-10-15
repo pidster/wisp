@@ -22,6 +22,7 @@ flowchart TD
     tools -->|"read_file, edit_file"| gate
     runner -->|"policy passed"| gate["ApprovalGate: classifier, then Approver"]
     runner -->|"cleared"| sandbox["sandbox-exec /bin/sh -c"]
+    runner -->|"outsideSandbox approved, or typed after !!"| plain["/bin/sh -c, unconfined"]
     audited -.-> audit["AuditLog"]
     gate -.-> audit
     runner -.-> audit
@@ -40,9 +41,9 @@ availability, composes the transcript each request carries, and shapes the API. 
 | `harness/` | Swift package: the `wisp` binary, `WispCore`, `WispMCP`, and the model backends |
 | `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`), which `scripts/check eval` runs and the gate never builds |
 | `tools/` | Cargo workspace: one crate per Rust tool binary |
-| `docs/` | This documentation and the ADRs |
+| `docs/` | This documentation and the ADRs, and the source of the documentation site (an mdBook, `book.toml` at the root; ADR 0065) |
 | `training/` | Labelled train, dev, and test sets for the fast classifiers; only `risk/train.tsv` is built in, as `Resources/risk-examples.tsv` |
-| `scripts/check` | The quality gate for both toolchains |
+| `scripts/check` | The quality gate for both toolchains; `scripts/docs-links` is its check of the site's sources |
 
 ## Targets
 
@@ -401,8 +402,8 @@ suffix, binding, and answers, and the relay shows a front end only the kinds it 
 `approval.outOfBand` off, `ElicitationOnly` asks through the dialog alone.
 `CommandRunner` consults the gate after the policy check, for the model's commands: `run(_:in:origin:)` takes
 the command's `Origin`, and a command the person typed in chat (`.person`, ADR 0049) skips the gate, its
-classifier and its question, since typing it is the approval, while the policy, the sandbox, the bounds, and the
-audit (marked `origin: "person"`) apply as before. That one parameter is the seam: there is no second runner. See [approval.md](approval.md) and
+classifier and its question, since typing it is the approval, while the policy, the sandbox (unless it was typed
+after `!!`, ADR 0064), the output bounds, and the audit (marked `origin: "person"`) apply as before. That one parameter is the seam: there is no second runner. See [approval.md](approval.md) and
 [ADR 0011](decisions/0011-risk-classifier-and-approval.md). The model beside the rules is
 `CoreMLRiskClassifier` (a Core ML text classifier under contract 1 or 2; the default, with the version
 the release ships, ADR 0041) or `ModelRiskClassifier` (the on-device language model), chosen by
@@ -592,10 +593,13 @@ renders the result within the budget as a whole: each stream's head and tail wit
 marker between them, and a `held back:` note naming the stored output's lines (`CommandRunner.outcome`). The
 rendering (`Outcome.rendered`) is what the model sees; policy denials and refusals are rendered too rather
 than thrown. See [ADR 0009](decisions/0009-command-policy-and-sandbox.md). A confined command that fails with
-`Operation not permitted` is checked by `SandboxRefusal`: the paths its error output names, resolved to real paths,
-against `CommandPolicy.writableRoots`; the verdict (`refused`, `not-the-sandbox`, or a `guess` when no path is
-named) is recorded on `command.outcome` and told to the model as one `sandbox:` line after the output
-([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). The default deny list also refuses a nested wisp
+`Operation not permitted`, or names a directory that is not writable (Homebrew's `The following directories are not
+writable by your user:` list and `PATH is not writable.`, ADR 0054 amended 2026-10-14), is checked by
+`SandboxRefusal`: the paths its error output names, resolved to real paths, against `CommandPolicy.writableRoots`;
+the verdict (`refused`, `not-the-sandbox`, or a `guess` when no path is named) is recorded on `command.outcome` and
+told to the model as one `sandbox:` line after the output, which for `refused` or `guess` ends with the hint that it
+may ask again with `outsideSandbox` when the switch allows it (`CommandRunner.outsideHint`)
+([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md)). A command run outside the sandbox is not checked. The default deny list also refuses a nested wisp
 agent (`CommandPolicy.nestedWisp`).
 
 ### MCP server
@@ -697,7 +701,7 @@ thread from the store. The overview diagram above shows the rest of the path.
 `/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`; `ChatInput.helpEntries` is the
 list `/help` prints and the table the parser looks each command word up in), `--resume <name>`, and `--save <name>`.
 `wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`. A line starting with `!` parses as
-`ChatInput.command`, a command the person runs ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): the loop
+`ChatInput.command`, a command the person runs (with `!!`, outside the sandbox: "A run outside the sandbox", above) ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): the loop
 calls `Agent.runTyped` in the conversation's directory with no turn, its audit events show the output through the
 tap as a tool's do, `ChatActivity.begin(doing:)` says what runs, and `ChatLoop.IO.command` lets the terminal colour
 the line's prompt marker (`ChatLoop.commandMarker`, the palette's `command`). Over `--json` the front end sends the

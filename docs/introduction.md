@@ -27,7 +27,7 @@ Both open the same kind of session, with one configuration, one set of approvals
 ## The safety model, in five lines
 
 1. **A policy** refuses what should never run (`sudo`, `rm -rf /`, piping into a shell, disk tools, a wisp agent of its own).
-2. **A Seatbelt sandbox** confines every command's writes to the directory wisp was started in, the temporary directories, and the build caches you configure; it can never write `~/.wisp`.
+2. **A Seatbelt sandbox** confines every command's writes to the directory wisp was started in, the temporary directories, and the build caches you configure; it can never write `~/.wisp`. A command that cannot run sandboxed (`brew upgrade`) runs outside it only when you approve that one run, every time, or type it yourself after `!!`.
 3. **A risk classifier** rates each simple command `safe`, `moderate`, or `dangerous`, rules first and a fast Core ML model beside them.
 4. **You** are asked at `moderate` and above, and your answer has a scope you choose; silence is a refusal, and the agent that called wisp can never answer for you.
 5. **The audit log** records every prompt, tool call, verdict, approval, and command outcome, verbatim, and every reply says what the turn actually ran.
