@@ -4,6 +4,11 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+- `wisp-tui` sets each part of a turn apart with a blank line: the thinking, each tool call with its output, the
+  reply, and the `ran:` line, which ran together before.
+
 ## 0.26.1
 
 `wisp-tui` has a help mode: `?` at the start of the box turns it grey, and a word after it finds the commands that

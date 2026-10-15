@@ -123,6 +123,27 @@ pub enum LineKind {
     ToolOutput,
 }
 
+/// Whether a line begins a new part of a turn, to be set apart by a blank line from the line before it: a tool call
+/// (`⚙`) or a stretch of thinking (`∴`), the reply's first line, or the `ran:` line under it. Not straight after a
+/// sent line, whose tinted strip already sets it apart, nor at the very start.
+fn starts_part(previous: Option<LineKind>, kind: LineKind, text: &str) -> bool {
+    let reply = |kind| matches!(kind, LineKind::Reply | LineKind::Code | LineKind::Fence);
+    let Some(previous) = previous else {
+        return false;
+    };
+    if matches!(
+        previous,
+        LineKind::User | LineKind::Command | LineKind::Outside | LineKind::Help
+    ) {
+        return false;
+    }
+    match kind {
+        LineKind::Tool => text.starts_with('⚙') || text.starts_with('∴'),
+        LineKind::Note => text.starts_with("ran:"),
+        kind => reply(kind) && !reply(previous),
+    }
+}
+
 /// What the input box sends: a message, a command run in the sandbox (`!`, ADR 0049), a command run outside it
 /// (`!!`, ADR 0064, amended 2026-10-14), or a request for the help (`?`). `!` typed at the start of the line steps up
 /// one mode, `?` there in the normal box enters help mode, and Backspace there (or Delete in an empty box) steps down
@@ -608,6 +629,9 @@ pub struct App {
     /// stoppable work it reports (a `/models pull`, ADR 0059) is shown and stopped as a running command, while
     /// a message's stoppable activity is the model's turn (ADR 0049, amended 2026-10-11).
     pub slash_sent: bool,
+    /// The kind of the line pushed last, so a new part of a turn (a tool call, a stretch of thinking, the reply, the
+    /// `ran:` line) can be set apart from the one before it by a blank line.
+    pub last_pushed: Option<LineKind>,
     /// The input box's mode: normal, command mode (`!` typed at the start of the line, so what is typed runs as a
     /// shell command, ADR 0049, and the box takes the command colour), or outside mode (`!` typed again at the start,
     /// so it runs outside the sandbox, ADR 0064 amended 2026-10-14, and the box takes the outside colour), or help
@@ -1430,6 +1454,13 @@ impl App {
     }
 
     fn push(&mut self, text: &str, kind: LineKind) {
+        if starts_part(self.last_pushed, kind, text) {
+            self.pending.push(HistoryLine {
+                text: String::new(),
+                kind: LineKind::Note,
+            });
+        }
+        self.last_pushed = Some(kind);
         self.pending.push(HistoryLine {
             text: text.to_string(),
             kind,
@@ -3263,6 +3294,7 @@ mod tests {
             texts(&mut app),
             vec![
                 ("Removed it.".to_string(), LineKind::Reply),
+                (String::new(), LineKind::Note),
                 ("ran: no tools".to_string(), LineKind::Note)
             ]
         );
@@ -3276,6 +3308,7 @@ mod tests {
         assert_eq!(
             texts(&mut app),
             vec![
+                (String::new(), LineKind::Note),
                 ("ran: inspect".to_string(), LineKind::Note),
                 (
                     "cited but not in this conversation: entries 19–30 (12)".to_string(),
@@ -3292,6 +3325,7 @@ mod tests {
         assert_eq!(
             texts(&mut app),
             vec![
+                (String::new(), LineKind::Note),
                 ("ran: no tools".to_string(), LineKind::Note),
                 (
                     "unsupported: \"Removed the scratch file.\" (no rm, rmdir, unlink, or trash command ran in this turn)"
@@ -3323,6 +3357,60 @@ mod tests {
         assert_eq!(app.take_pending()[0].text, "is");
         assert_eq!(app.partial, "");
         assert!(!app.busy);
+    }
+
+    #[test]
+    fn each_part_of_a_turn_after_the_first_is_set_apart_by_a_blank_line() {
+        let mut app = App::default();
+        app.push("› check the network", LineKind::User);
+        app.handle(Outbound::Event(event(
+            "model.reasoning",
+            Some("∴ thought for 1.1 s"),
+        )));
+        app.handle(Outbound::Event(event(
+            "tool.call",
+            Some("⚙ system_info network"),
+        )));
+        app.handle(Outbound::Event(event("tool.result", Some("  ↳ exit 0"))));
+        app.handle(Outbound::Event(event("tool.call", Some("⚙ read_file a"))));
+        app.handle(Outbound::Event(event(
+            "model.reasoning",
+            Some("∴ thought for 0.2 s"),
+        )));
+        app.handle(Outbound::Delta {
+            text: "Network interface en0:\n• IPv4\n".into(),
+        });
+        let mut ended = turn("end", 1, Some(1.0), Some("ok"));
+        ended.ran = Some("ran: system_info".into());
+        app.handle(Outbound::Turn(ended));
+        app.handle(Outbound::Note {
+            text: "1 new fact".into(),
+        });
+        let lines: Vec<String> = app
+            .take_pending()
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "› check the network",
+                "∴ thought for 1.1 s",
+                "",
+                "⚙ system_info network",
+                "  ↳ exit 0",
+                "",
+                "⚙ read_file a",
+                "",
+                "∴ thought for 0.2 s",
+                "",
+                "Network interface en0:",
+                "• IPv4",
+                "",
+                "ran: system_info",
+                "1 new fact",
+            ]
+        );
     }
 
     #[test]
@@ -3361,7 +3449,14 @@ mod tests {
             text: "done".into(),
         });
         app.handle(Outbound::Turn(turn("end", 3, Some(2.25), Some("ok"))));
-        assert_eq!(app.take_pending()[0].text, "done");
+        // The reply is set apart from the tool's lines by a blank one.
+        assert_eq!(
+            app.take_pending()
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            ["", "done"]
+        );
         assert_eq!(
             app.turn,
             Some(TurnState::Ended {

@@ -133,6 +133,9 @@ last question answered elsewhere) passes the focus to the model.
 
 A line you send goes into the scrollback styled like the input it came from, a shade darker: its tint
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
+The turn that answers it is in parts, each set apart from the one before by a blank line: a stretch of thinking
+(`∴`), each tool call (`⚙`, with its `↳` result and output), the reply, and the `ran:` line under it with the notes
+that follow. The first part sits straight under your line, whose strip already sets it apart.
 
 Command mode is a state of `wisp-tui`'s input box ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
 Typing `!` at the start of the line, into an empty box or in front of what you have typed, switches it to
