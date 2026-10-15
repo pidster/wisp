@@ -1,9 +1,11 @@
 extension ChatLoop {
     /// Records the directory chat started in and its branch as facts, without a model (decision D2 of the
-    /// layered-context proposal: the working directory and the branch are versioned dynamic facts).
-    func observeWorkplace() {
-        agent.observe(
-            directory: context.directory, branch: context.vcs(context.directory).branch, observer: "chat")
+    /// layered-context proposal: the working directory and the branch are versioned dynamic facts). The branch is the
+    /// version control's first read, waited for only as briefly as the first prompt waits; a read too slow for that
+    /// records the directory alone.
+    func observeWorkplace() async {
+        let branch = await vcsWatch.latest()?.branch
+        agent.observe(directory: context.directory, branch: branch, observer: "chat")
     }
 
     /// Carries out `/fact`: states a fact as the person, moves one to a scope, or deletes one,

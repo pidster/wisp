@@ -149,6 +149,9 @@ public struct ChatLoop {
         public var approval: String
         /// Reads the version control, branch, and changes of a directory; the CLI passes `VersionControl.read`.
         public var vcs: @Sendable (String) -> VersionControl.Summary
+        /// Told when a read off the prompt's path finds the version control changed since the status line was drawn,
+        /// for a face that can redraw it (`VersionControlWatch`); nil leaves it to the next prompt.
+        public var vcsChanged: (@Sendable (VersionControl.Summary) -> Void)?
         /// Answers `/inspect <what>`; nil makes the command unavailable.
         public var inspect: (@Sendable (String) async -> String)?
         /// A banner line for the start of the session.
@@ -194,6 +197,7 @@ public struct ChatLoop {
         public init(
             directory: String, approval: String,
             vcs: @escaping @Sendable (String) -> VersionControl.Summary = { _ in VersionControl.Summary() },
+            vcsChanged: (@Sendable (VersionControl.Summary) -> Void)? = nil,
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
             models: ModelActions? = nil,
             width: @escaping @Sendable () -> Int? = { nil }, notices: [String] = [],
@@ -215,6 +219,7 @@ public struct ChatLoop {
             self.directory = directory
             self.approval = approval
             self.vcs = vcs
+            self.vcsChanged = vcsChanged
             self.inspect = inspect
             self.banner = banner
             self.models = models
@@ -243,6 +248,8 @@ public struct ChatLoop {
     /// The thinking `/think` chose this session, by model (`ModelSelection.description`): applied to the conversation
     /// whenever that model is in use, since the saved default it also writes is read only as a session starts.
     var thinkChoices: [String: OllamaThink] = [:]
+    /// The directory's version control, read off the prompt's path.
+    let vcsWatch: VersionControlWatch
     let context: Context
     let io: IO
 
@@ -265,6 +272,7 @@ public struct ChatLoop {
         self.saveName = saveName
         self.tap = tap
         self.context = context
+        vcsWatch = VersionControlWatch(directory: context.directory, read: context.vcs, changed: context.vcsChanged)
         self.style = style
         self.io = io
         let note = io.note
@@ -282,9 +290,9 @@ public struct ChatLoop {
         }
     }
 
-    /// The status line for the next prompt.
+    /// The status line for the next prompt, with the version control as last read (`VersionControlWatch`).
     public func status() async -> ChatStatus {
-        let vcs = context.vcs(context.directory)
+        let vcs = await vcsWatch.latest() ?? VersionControl.Summary()
         var used: Double?
         if let size = agent.contextSize, size > 0, let tokens = try? await agent.contextTokens() {
             used = min(1, Double(tokens) / Double(size))
@@ -310,11 +318,13 @@ public struct ChatLoop {
     public mutating func run() async throws {
         if let banner = context.banner { io.note(style.bold(banner)) }
         for notice in context.notices { io.note(style.ember(notice)) }
-        observeWorkplace()
+        await observeWorkplace()
         io.note(style.muted("/help for commands, /quit or Ctrl-D to exit."))
         loop: while true {
             notePending()
             io.prompt(await status())
+            // Read again once the line is drawn, so the answer, sent when it differs, comes after this status.
+            vcsWatch.refresh()
             guard let line = io.readLine() else { break loop }
             remember(line)
             switch ChatInput(line: line) {
@@ -443,7 +453,7 @@ public struct ChatLoop {
                 }
             case .new:
                 agent.reset()
-                observeWorkplace()
+                await observeWorkplace()
                 io.note("new conversation")
             case .config(let request):
                 await config(request)

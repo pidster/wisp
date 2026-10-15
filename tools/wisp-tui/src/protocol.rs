@@ -24,6 +24,9 @@ pub enum Outbound {
     },
     /// The status before a prompt: the turn is over and input is wanted.
     Status(Status),
+    /// The version control as a read after the status found it: replaces those parts of the status line and nothing
+    /// else, so it never says a turn is over.
+    Vcs(VcsUpdate),
     /// A turn's start or end.
     Turn(Turn),
     /// What the turn under way is doing; `doing` is `None` when it has ended.
@@ -77,6 +80,21 @@ pub enum Outbound {
     /// Anything this version does not know.
     #[serde(other)]
     Unknown,
+}
+
+/// The version control's part of the status line, as a `vcs` line carries it.
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct VcsUpdate {
+    /// The system (`git`, `svn`), when the directory is under one.
+    pub vcs: Option<String>,
+    /// The branch, when known.
+    pub branch: Option<String>,
+    /// Whether tracked files have changes, when known.
+    pub dirty: Option<bool>,
+    /// Lines added in tracked files since the last commit, when known.
+    pub added: Option<u64>,
+    /// Lines removed, when known.
+    pub removed: Option<u64>,
 }
 
 /// The status line's facts.
@@ -519,6 +537,18 @@ mod tests {
         assert_eq!(
             Outbound::parse(r#"{"type":"delta","text":"hi"}"#),
             Outbound::Delta { text: "hi".into() }
+        );
+        assert_eq!(
+            Outbound::parse(
+                r#"{"type":"vcs","vcs":"svn","branch":"trunk","dirty":true,"added":null,"removed":null}"#
+            ),
+            Outbound::Vcs(VcsUpdate {
+                vcs: Some("svn".into()),
+                branch: Some("trunk".into()),
+                dirty: Some(true),
+                added: None,
+                removed: None,
+            })
         );
         let status = Outbound::parse(
             r#"{"type":"status","model":"system","directory":"~","branch":null,"dirty":true,"approval":"--yes","contextUsed":0.25}"#,

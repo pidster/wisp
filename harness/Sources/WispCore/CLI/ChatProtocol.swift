@@ -115,6 +115,17 @@ public enum ChatProtocol {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The `vcs` line's fields: the version control as a read off the prompt's path found it, after the `status` line
+    /// was drawn with the read before (`VersionControlWatch`): `vcs`, `branch`, `dirty`, `added`, and `removed`, as
+    /// `status` carries them.
+    public static func vcs(_ summary: VersionControl.Summary) -> [String: JSONValue] {
+        [
+            "vcs": summary.system.map { .string($0.rawValue) } ?? .null,
+            "branch": summary.branch.map { .string($0) } ?? .null, "dirty": summary.dirty.map { .bool($0) } ?? .null,
+            "added": summary.added.map { .int($0) } ?? .null, "removed": summary.removed.map { .int($0) } ?? .null,
+        ]
+    }
+
     /// The `status` line's fields.
     public static func status(_ status: ChatStatus) -> [String: JSONValue] {
         [

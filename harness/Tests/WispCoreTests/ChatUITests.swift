@@ -161,6 +161,59 @@ import WispTestSupport
         #expect(read(status: nil, diff: nil).0 == .init(branch: "release-2"))
     }
 
+    @Test func theWatchNeverHoldsThePromptForASlowRead() async throws {
+        let reads = Mutex(0)
+        let told = Mutex<[VersionControl.Summary]>([])
+        let answer = Mutex(VersionControl.Summary(system: .svn, branch: "trunk", dirty: false))
+        let release = Mutex(false)
+        let watch = VersionControlWatch(
+            directory: "/w",
+            read: { _ in
+                reads.withLock { $0 += 1 }
+                // Held until the test lets it finish, so its timing is the test's, not the machine's.
+                while !release.withLock({ $0 }) { Thread.sleep(forTimeInterval: 0.005) }
+                return answer.withLock { $0 }
+            },
+            changed: { summary in told.withLock { $0.append(summary) } })
+        /// Waits up to five seconds for `condition`.
+        func eventually(_ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        }
+        // The first prompt waits a moment for a first read, then is drawn without it; later ones do not wait.
+        #expect(await watch.latest(wait: .milliseconds(50)) == nil)
+        let started = ContinuousClock.now
+        #expect(await watch.latest() == nil)
+        #expect(ContinuousClock.now - started < .milliseconds(150), "only the first call waits")
+        // A second read is not started while the first runs.
+        watch.refresh()
+        release.withLock { $0 = true }
+        try await eventually { !told.withLock { $0 }.isEmpty }
+        #expect(reads.withLock { $0 } == 1)
+        // The read's answer is told, and drawn at the next prompt.
+        #expect(told.withLock { $0 } == [answer.withLock { $0 }])
+        #expect(await watch.latest() == answer.withLock { $0 })
+        // The same answer again tells nobody; a different one is told.
+        watch.refresh()
+        try await eventually { reads.withLock { $0 } == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(told.withLock { $0 }.count == 1, "the same answer tells nobody")
+        answer.withLock { $0.dirty = true }
+        watch.refresh()
+        try await eventually { told.withLock { $0 }.count == 2 }
+        #expect(told.withLock { $0 }.last?.dirty == true && reads.withLock { $0 } == 3)
+    }
+
+    @Test func aFirstReadThePromptWaitedForIsNotToldAgain() async throws {
+        let told = Mutex(0)
+        let watch = VersionControlWatch(
+            directory: "/w", read: { _ in VersionControl.Summary(system: .git, branch: "main") },
+            changed: { _ in told.withLock { $0 += 1 } })
+        #expect(await watch.latest(wait: .seconds(5))?.branch == "main")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(told.withLock { $0 } == 0, "the first status carries it")
+    }
+
     @Test func aVersionControlCommandIsStoppedAtItsLimit() throws {
         let dir = FileManager.default.temporaryDirectory.path
         let started = Date()

@@ -249,3 +249,99 @@ enum SubversionState {
         return (added, removed, files)
     }
 }
+
+/// Reads a directory's version control off the prompt's path (ADR 0029, amended 2026-10-15): the status line is drawn
+/// with the last read's answer, and a fresh read starts once it has been, so a slow `svn diff` or `git diff` never
+/// holds up the prompt. A read that finishes with a different answer tells `changed`, which a face with a status line
+/// it can redraw (`wisp-tui`, through `wisp chat --json`'s `vcs` line) uses; the plain chat shows it at its next prompt.
+public final class VersionControlWatch: Sendable {
+    /// What the watch knows.
+    private struct State: Sendable {
+        /// The last read's answer; nil before one has finished.
+        var known: VersionControl.Summary?
+        /// Whether a read is under way, so only one runs at a time.
+        var reading = false
+        /// Whether a caller has waited for the first read already: only the first waits, so a read slower than that
+        /// wait never holds a later prompt either.
+        var waited = false
+        /// Whether the first call is waiting now: a read that finishes meanwhile is that call's to draw, not told.
+        var waiting = false
+    }
+
+    private let state = Mutex(State())
+    /// The directory watched.
+    private let directory: String
+    /// Reads it: `VersionControl.read`, or a stand-in in tests.
+    private let read: @Sendable (String) -> VersionControl.Summary
+    /// Told when a read finishes with a different answer; nil tells nobody.
+    private let changed: (@Sendable (VersionControl.Summary) -> Void)?
+
+    /// Creates a watch over `directory`.
+    ///
+    /// - Parameters:
+    ///   - directory: The directory.
+    ///   - read: Reads its version control.
+    ///   - changed: Told when a read finishes with a different answer from the last.
+    public init(
+        directory: String, read: @escaping @Sendable (String) -> VersionControl.Summary,
+        changed: (@Sendable (VersionControl.Summary) -> Void)? = nil
+    ) {
+        self.directory = directory
+        self.read = read
+        self.changed = changed
+    }
+
+    /// The answer to draw now: the last read's. The first call, before any read has finished, starts one and waits for
+    /// it up to `wait`; every call after returns at once, nil while no read has finished, so the line is drawn without.
+    ///
+    /// - Parameter wait: How long the first call waits for a first read.
+    /// - Returns: The answer, or nil.
+    public func latest(wait: Duration = .milliseconds(200)) async -> VersionControl.Summary? {
+        let (known, waits) = state.withLock { state in
+            defer { state.waited = true }
+            let waits = state.known == nil && !state.waited
+            state.waiting = waits
+            return (state.known, waits)
+        }
+        if let known { return known }
+        guard waits else { return nil }
+        refresh()
+        let deadline = ContinuousClock.now + wait
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+            if let known = state.withLock({ $0.known }) { return known }
+        }
+        // Too slow for the wait: the line is drawn without it, so the read is told when it finishes.
+        return state.withLock { state in
+            state.waiting = false
+            return state.known
+        }
+    }
+
+    /// Starts a read on a thread of its own, unless one is under way; when it finishes with a different answer from the
+    /// last, `changed` is told.
+    public func refresh() {
+        let starts = state.withLock { state in
+            guard !state.reading else { return false }
+            state.reading = true
+            return true
+        }
+        guard starts else { return }
+        // A thread of its own, not the shared queues, which a busy process can keep it waiting on past the first
+        // prompt's wait; a read is two or three short commands, at most one at a time.
+        let thread = Thread { [self] in
+            let summary = read(directory)
+            let (previous, awaited) = state.withLock { state in
+                defer {
+                    state.known = summary
+                    state.reading = false
+                    state.waiting = false
+                }
+                return (state.known, state.waiting)
+            }
+            if summary != previous, !awaited { changed?(summary) }
+        }
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+}

@@ -10,7 +10,9 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   at once and as the model's saved default. The status line shows it after the model, `(off)`, for a model that
   can think; in `wisp-tui` it is an item of the status bar that opens the choices.
 - The status line's left half reads `ollama:granite4.2:8b (off) 15% used · ~/src/wisp git(main)+12-3`, and names
-  the version control it found: git, or now Subversion, `svn(trunk)`.
+  the version control it found: git, or now Subversion, `svn(trunk)`. Reading it never holds up the prompt: the line
+  shows the last answer and `wisp-tui` redraws it when a fresh read differs; a command past its time limit is now
+  stopped, where before the limit never applied.
 - `wisp-tui`'s status line says `turn 3` while a turn runs, not `turn 3…`, which read as cut off.
 
 ## 0.25.0

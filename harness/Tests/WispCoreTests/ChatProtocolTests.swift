@@ -31,6 +31,12 @@ import WispTestSupport
         var thinking = status
         thinking.thinking = "high"
         #expect(ChatProtocol.status(thinking)["think"] == "high")
+        let vcs = ChatProtocol.vcs(.init(system: .git, branch: "main", dirty: true, added: 2, removed: 1))
+        #expect(vcs == ["vcs": "git", "branch": "main", "dirty": true, "added": 2, "removed": 1])
+        #expect(
+            ChatProtocol.vcs(.init()) == [
+                "vcs": .null, "branch": .null, "dirty": .null, "added": .null, "removed": .null,
+            ])
         let event = AuditEvent(session: "s", kind: .toolCall, turn: 2, call: "c1", details: ["tool": "read_file"])
         let fields = ChatProtocol.event(event)
         #expect(fields["kind"] == "tool.call" && fields["call"] == "c1" && fields["turn"] == 2)

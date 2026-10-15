@@ -53,6 +53,36 @@ import WispTestSupport
         return dir
     }
 
+    @Test func aSlowVersionControlReadIsToldAfterThePromptItMissed() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let capture = Capture(lines: ["/history"])
+        let shownWhenTold = Mutex<[Int]>([])
+        let release = Mutex(false)
+        var context = Self.context
+        // A read that cannot finish until the loop has run: were the prompts held for it, the run would never end.
+        context.vcs = { _ in
+            while !release.withLock({ $0 }) { Thread.sleep(forTimeInterval: 0.005) }
+            return VersionControl.Summary(system: .git, branch: "main", dirty: false)
+        }
+        context.vcsChanged = { _ in shownWhenTold.withLock { $0.append(capture.shownStatus.count) } }
+        let agent = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        #expect(capture.shownStatus.count == 2)
+        #expect(capture.shownStatus.allSatisfy { $0.vcs == nil && $0.branch == nil }, "drawn without the read")
+        release.withLock { $0 = true }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while shownWhenTold.withLock({ $0.isEmpty }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        // Told once, after the statuses it missed had been drawn; the next prompt draws it.
+        #expect(shownWhenTold.withLock { $0 } == [2])
+        #expect(await loop.status().branch == "main")
+    }
+
     @Test func contextSavesWhatTheNextRequestCarriesOrSaysWhyNot() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

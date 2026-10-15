@@ -666,6 +666,19 @@ impl App {
         })
     }
 
+    /// A `vcs` line: the version control's part of the status line as a read after the status found it. Only that part
+    /// changes, so a turn under way, or the input held, stays as it is; before the first status there is nothing to
+    /// redraw.
+    fn redraw_place(&mut self, vcs: crate::protocol::VcsUpdate) {
+        if let Some(status) = self.status.as_mut() {
+            status.vcs = vcs.vcs;
+            status.branch = vcs.branch;
+            status.dirty = vcs.dirty;
+            status.added = vcs.added;
+            status.removed = vcs.removed;
+        }
+    }
+
     /// A turn's start or end: the status line's turn state, and at the end the line of what the turn ran
     /// (ADR 0051), under the reply as a muted note.
     fn turned(&mut self, turn: &Turn) {
@@ -731,6 +744,7 @@ impl App {
                 self.push(&text, kind);
                 self.context_asked = false;
             }
+            Outbound::Vcs(vcs) => self.redraw_place(vcs),
             Outbound::Status(status) => {
                 self.flush_partial();
                 self.status = Some(status);
@@ -5540,6 +5554,37 @@ mod tests {
         }
         assert!(status_text(&app, 100).starts_with("ollama:q 15% used · ~/w svn "));
         assert_eq!(app.bar_items(), vec![BarItem::Model, BarItem::Context]);
+    }
+
+    #[test]
+    fn a_vcs_line_redraws_the_place_and_leaves_the_turn_and_the_input_alone() {
+        let vcs = crate::protocol::VcsUpdate {
+            vcs: Some("git".into()),
+            branch: Some("main".into()),
+            dirty: Some(true),
+            added: Some(4),
+            removed: Some(1),
+        };
+        // Before the first status there is nothing to redraw.
+        let mut app = App::default();
+        app.handle(Outbound::Vcs(vcs.clone()));
+        assert_eq!(app.status, None);
+        app.handle(Outbound::Status(Status {
+            model: "system".into(),
+            directory: "~/w".into(),
+            approval: "ask".into(),
+            ..Status::default()
+        }));
+        app.handle(Outbound::Turn(turn("start", 2, None, None)));
+        assert!(app.busy);
+        app.handle(Outbound::Vcs(vcs));
+        assert!(
+            status_text(&app, 100).starts_with("system · ~/w git(main)+4-1"),
+            "{}",
+            status_text(&app, 100)
+        );
+        assert!(app.busy, "the turn is still under way");
+        assert_eq!(app.turn, Some(TurnState::Running(2)));
     }
 
     #[test]

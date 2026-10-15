@@ -171,3 +171,22 @@ control to be detected rather than assumed: git and Subversion now, others (Juju
 Tested without a terminal or a model: detection by marker for both systems, Subversion's branch and counts from
 sample output, the plain line and `wisp-tui`'s row with and without thinking, a system, and a branch, the bar's
 order and the item's `/think`, and the protocol field.
+
+## Amendment, 2026-10-15: the version control read off the prompt's path
+
+The owner asked whether the version control check was asynchronous, with an updater that does not block the status
+line. It was not: the loop read it before drawing each prompt, and `wisp-tui` holds its input until the `status`
+line comes, so a slow read held both, up to nine seconds for Subversion's three commands at their limits.
+`VersionControlWatch` now keeps the last read's answer for the chat's directory and runs one read at a time on
+another thread. Each prompt is drawn with the last answer; only the first call waits, up to 200 ms, for a first read
+(the branch fact recorded as chat starts is that call), and every prompt after returns at once. A fresh read starts
+once the status has been sent, so its answer always comes after it; the first read, when it finishes within the first
+call's wait, is that status's to carry and is not sent again. When the answer differs from the last, `wisp chat
+--json` sends a `vcs` line with the version control's fields, which `wisp-tui` puts into the status line it holds,
+leaving the turn, the held input, and everything else as they were. A `status` line could not carry it: it tells the
+front end the turn is over, and a late one would release the input during the next turn. The plain chat cannot
+redraw a printed line, so it shows the answer at its next prompt, at most one prompt behind. The context gauge is
+still worked out before the prompt; for the on-device model its count is a framework call, which this change leaves
+as it was. Tested without a terminal: the watch's single wait, one read at a time, and telling only a change; the
+loop's prompts not held by a slow read and the update told after the status it missed; the protocol line; and
+`wisp-tui` redrawing the place and leaving a running turn alone.

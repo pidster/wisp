@@ -625,6 +625,7 @@ struct Chat: AsyncParsableCommand {
                 directory: FileManager.default.currentDirectoryPath,
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
                 vcs: VersionControl.read(in:),
+                vcsChanged: { send(ChatProtocol.encode("vcs", ChatProtocol.vcs($0))) },
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
                 models: ModelActions(session: session, face: .chat),
