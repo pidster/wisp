@@ -44,6 +44,9 @@ pub const COMMAND_PLACEHOLDER: &str =
 /// amended 2026-10-14).
 pub const OUTSIDE_PLACEHOLDER: &str =
     "Run a command yourself OUTSIDE the sandbox: it may write anywhere you can";
+/// The placeholder in help mode, where Enter shows the help.
+pub const HELP_PLACEHOLDER: &str =
+    "Enter for every command, or a word to find the ones that mention it";
 /// How many submitted lines Up and Down can recall; the same bound as the chat's `/history`.
 pub const RECALL_LIMIT: usize = 100;
 /// How long the keyboard must be quiet after an approval dialog appears before a key answers it. A key
@@ -118,9 +121,10 @@ pub enum LineKind {
     ToolOutput,
 }
 
-/// What the input box sends: a message, a command run in the sandbox (`!`, ADR 0049), or a command run outside it
-/// (`!!`, ADR 0064, amended 2026-10-14). `!` typed at the start of the line steps up one mode, Backspace there (or
-/// Delete in an empty box) steps down one.
+/// What the input box sends: a message, a command run in the sandbox (`!`, ADR 0049), a command run outside it
+/// (`!!`, ADR 0064, amended 2026-10-14), or a request for the help (`?`). `!` typed at the start of the line steps up
+/// one mode, `?` there in the normal box enters help mode, and Backspace there (or Delete in an empty box) steps down
+/// one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InputMode {
     /// The normal prompt: a message for the model, or a chat command.
@@ -130,26 +134,31 @@ pub enum InputMode {
     Command,
     /// Outside mode: what is typed runs as a shell command outside the sandbox, and the box takes the outside colour.
     Outside,
+    /// Help mode: Enter shows `/help`, only the lines that mention what is typed when something is, and the box
+    /// turns grey.
+    Help,
 }
 
 impl InputMode {
-    /// The marks the line wisp is sent starts with in this mode: none, `!`, or `!!`.
+    /// The marks the line wisp is sent starts with in this mode: none, `!`, `!!`, or `?`.
     #[must_use]
     pub fn marks(self) -> &'static str {
         match self {
             InputMode::Normal => "",
             InputMode::Command => "!",
             InputMode::Outside => "!!",
+            InputMode::Help => "?",
         }
     }
 
-    /// The mode a `!` typed at the start of the line switches to, or `None` in outside mode, where it is text.
+    /// The mode a `!` typed at the start of the line switches to, or `None` in outside and help mode, where it is
+    /// text.
     #[must_use]
     pub fn up(self) -> Option<Self> {
         match self {
             InputMode::Normal => Some(InputMode::Command),
             InputMode::Command => Some(InputMode::Outside),
-            InputMode::Outside => None,
+            InputMode::Outside | InputMode::Help => None,
         }
     }
 
@@ -158,17 +167,20 @@ impl InputMode {
     pub fn down(self) -> Self {
         match self {
             InputMode::Outside => InputMode::Command,
-            InputMode::Command | InputMode::Normal => InputMode::Normal,
+            InputMode::Command | InputMode::Help | InputMode::Normal => InputMode::Normal,
         }
     }
 
-    /// The mode a line's marks put the box in, and the text after them: `!!` outside, `!` command, else normal.
+    /// The mode a line's marks put the box in, and the text after them: `!!` outside, `!` command, `?` help, else
+    /// normal.
     #[must_use]
     pub fn split(line: &str) -> (Self, &str) {
         if let Some(rest) = line.strip_prefix("!!") {
             (InputMode::Outside, rest)
         } else if let Some(rest) = line.strip_prefix('!') {
             (InputMode::Command, rest)
+        } else if let Some(rest) = line.strip_prefix('?') {
+            (InputMode::Help, rest)
         } else {
             (InputMode::Normal, line)
         }
@@ -596,7 +608,8 @@ pub struct App {
     pub slash_sent: bool,
     /// The input box's mode: normal, command mode (`!` typed at the start of the line, so what is typed runs as a
     /// shell command, ADR 0049, and the box takes the command colour), or outside mode (`!` typed again at the start,
-    /// so it runs outside the sandbox, ADR 0064 amended 2026-10-14, and the box takes the outside colour).
+    /// so it runs outside the sandbox, ADR 0064 amended 2026-10-14, and the box takes the outside colour), or help
+    /// mode (`?` typed at the start of the normal box, so Enter shows the help, and the box turns grey).
     pub mode: InputMode,
     /// Keys typed while a turn runs, or in a dialog's grace, in order: not shown as accepted, and applied to the
     /// input box when it next takes typing (the turn has ended and no dialog or choice is open), as if typed
@@ -1496,8 +1509,18 @@ impl App {
     }
 
     /// A character for the input box: `!` at the start of the line steps up a mode (normal to command mode,
-    /// command mode to outside mode), anything else is an edit.
+    /// command mode to outside mode), `?` there in the normal box enters help mode, anything else is an edit.
     fn type_into_box(&mut self, c: char) {
+        if c == '?'
+            && self.mode == InputMode::Normal
+            && self.typing()
+            && self.picker.is_none()
+            && self.editor.cursor() == 0
+        {
+            self.mode = InputMode::Help;
+            self.suggestions = None;
+            return;
+        }
         // `!` at the start of the line is the switch, not text, whatever follows it; after other text, or in
         // outside mode, it is text.
         if c == '!'
@@ -1543,7 +1566,7 @@ impl App {
                 .strip_prefix(' ')
                 .filter(|t| t.starts_with('!'))
                 .unwrap_or(text),
-            InputMode::Normal | InputMode::Outside => text,
+            InputMode::Normal | InputMode::Outside | InputMode::Help => text,
         };
         self.mode = mode;
         self.editor.set(text);
@@ -1734,6 +1757,11 @@ impl App {
         // starts with `!!` would run outside the sandbox without the box having shown it, so it is put into outside
         // mode instead, unsent, for the person to see and send with a second Enter.
         let typed = self.editor.text().trim().to_string();
+        // Help mode sends `?` and what is typed, which wisp reads as `/help` filtered by it; a bare `?` is the whole
+        // list.
+        if self.mode == InputMode::Help {
+            return self.send_help(&typed);
+        }
         let (mode, command) = match self.mode {
             InputMode::Normal => match InputMode::split(&typed) {
                 (InputMode::Outside, rest) => {
@@ -1743,7 +1771,7 @@ impl App {
                     return Action::None;
                 }
                 (InputMode::Command, rest) => (InputMode::Command, Some(rest.trim().to_string())),
-                (InputMode::Normal, _) => (InputMode::Normal, None),
+                (InputMode::Normal | InputMode::Help, _) => (InputMode::Normal, None),
             },
             mode => (mode, Some(typed.clone())),
         };
@@ -1781,6 +1809,27 @@ impl App {
         Action::Send(Inbound::Message { text })
     }
 
+    /// Enter in help mode: echoes and sends `?` with what was typed, and returns the box to normal.
+    fn send_help(&mut self, typed: &str) -> Action {
+        let text = format!("?{typed}");
+        self.editor.take();
+        self.mode = InputMode::Normal;
+        self.suggestions = None;
+        self.push(&format!("› {text}"), LineKind::User);
+        self.slash_sent = true;
+        if self.recall.last() != Some(&text) {
+            self.recall.push(text.clone());
+            if self.recall.len() > RECALL_LIMIT {
+                self.recall.remove(0);
+            }
+        }
+        self.recall_at = None;
+        self.draft.clear();
+        self.busy = true;
+        self.show_next();
+        Action::Send(Inbound::Message { text })
+    }
+
     /// Cells of text across the input's rows, as `input_lines` lays them out for the band's width.
     fn input_width(&self) -> usize {
         usize::from(self.panel_width().saturating_sub(MARGIN * 2))
@@ -1791,7 +1840,7 @@ impl App {
     fn prompt_cells(&self) -> usize {
         match self.mode {
             InputMode::Outside => PROMPT_CELLS + 1,
-            InputMode::Normal | InputMode::Command => PROMPT_CELLS,
+            InputMode::Normal | InputMode::Command | InputMode::Help => PROMPT_CELLS,
         }
     }
 
@@ -2112,6 +2161,7 @@ impl App {
         let (background, edge) = match self.mode {
             InputMode::Command => (palette::command_background(), palette::command_edge()),
             InputMode::Outside => (palette::outside_background(), palette::outside_edge()),
+            InputMode::Help => (palette::help_background(), palette::help_edge()),
             InputMode::Normal => (palette::input_background(), palette::input_edge()),
         };
         let strip = |frame: &mut Frame, index: u16, glyph: &str| {
@@ -2174,6 +2224,7 @@ impl App {
         let (prompt, prompt_style, text_style) = match self.mode {
             InputMode::Command => ("!", palette::command_prompt(), palette::command_text()),
             InputMode::Outside => ("!!", palette::command_prompt(), palette::command_text()),
+            InputMode::Help => ("?", palette::command_prompt(), palette::command_text()),
             InputMode::Normal => ("›", palette::prompt(), palette::user()),
         };
         let cells = self.prompt_cells();
@@ -2186,6 +2237,9 @@ impl App {
                     }
                     InputMode::Outside => {
                         Span::styled(OUTSIDE_PLACEHOLDER, palette::command_placeholder())
+                    }
+                    InputMode::Help => {
+                        Span::styled(HELP_PLACEHOLDER, palette::command_placeholder())
                     }
                     InputMode::Normal => Span::styled(PLACEHOLDER, palette::muted()),
                 },
@@ -4726,6 +4780,62 @@ mod tests {
         let column = u16::try_from(row3[..at].chars().count()).unwrap_or(0);
         assert!(at > 0, "no context part in {row3}");
         assert_eq!(buffer[(column, STATUS_ROW)].fg, palette::AMBER);
+    }
+
+    #[test]
+    fn a_question_mark_at_the_start_enters_help_mode_and_enter_sends_it_with_the_word() {
+        let mut app = App {
+            status: Some(Status::default()),
+            ..Default::default()
+        };
+        assert_eq!(app.type_char('?'), Action::None);
+        assert!(app.mode == InputMode::Help && app.editor.is_empty());
+        // `!` in help mode is text, and Backspace at the start returns to the normal box.
+        app.type_char('!');
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("!", InputMode::Help)
+        );
+        app.edit(&Edit::Backspace);
+        app.edit(&Edit::Backspace);
+        assert_eq!(app.mode, InputMode::Normal);
+        // A bare `?` sends the whole help; a word after it filters it.
+        app.type_char('?');
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message { text: "?".into() })
+        );
+        assert_eq!(app.mode, InputMode::Normal);
+        app.busy = false;
+        app.type_char('?');
+        for c in "think".chars() {
+            app.type_char(c);
+        }
+        assert_eq!(
+            app.submit(),
+            Action::Send(Inbound::Message {
+                text: "?think".into()
+            })
+        );
+        assert!(app.slash_sent);
+        // Recalled, it comes back in help mode.
+        app.busy = false;
+        app.recall_previous();
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("think", InputMode::Help)
+        );
+        // After other text, `?` is text.
+        app.edit(&Edit::Backspace);
+        let _ = app.editor.take();
+        app.mode = InputMode::Normal;
+        for c in "why?".chars() {
+            app.type_char(c);
+        }
+        assert_eq!(
+            (app.editor.text().as_str(), app.mode),
+            ("why?", InputMode::Normal)
+        );
     }
 
     #[test]

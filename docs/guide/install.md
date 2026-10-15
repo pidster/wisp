@@ -90,7 +90,7 @@ What to try first:
 | Type | What happens |
 | --- | --- |
 | A message | The model answers, calling tools when they help |
-| `/help` | Every chat command |
+| `/help`, or `?` | Every chat command; `?think` only those that mention a word, and in `wisp-tui` `?` turns the box grey first |
 | `! git status` | Runs `git status` yourself, in the sandbox, without asking; the model is told what you ran on its next request ([ADR 0049](../decisions/0049-commands-typed-in-chat.md)) |
 | `!!brew upgrade` | Runs it yourself outside the sandbox, for a chore the sandbox refuses; chat says so before it starts ([Approvals and the sandbox](approvals-and-sandbox.md#outside-the-sandbox-one-command-at-a-time)) |
 | `/model [name]` | With no name, the model in use and what it can do; with one, switches the conversation to it |

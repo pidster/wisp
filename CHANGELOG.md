@@ -6,6 +6,9 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+- `?` at the start of `wisp-tui`'s input box enters help mode: the box turns grey, Enter shows the help, and a word
+  typed after it, `?think`, shows only the commands and keys that mention it. `/help WORD` and `?WORD` filter the
+  help in the plain chat too.
 - The website and the docs are dark blue by default on every device, rather than following the system's light
   or dark setting; a small sun or moon at the end of the bar switches to light and back, and the choice holds on
   both.

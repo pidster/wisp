@@ -330,8 +330,8 @@ public struct ChatLoop {
             switch ChatInput(line: line) {
             case .quit:
                 break loop
-            case .help:
-                io.print(ChatInput.helpText(frontEnd: io.view != nil))
+            case .help(let word):
+                io.print(ChatInput.helpText(frontEnd: io.view != nil, matching: word))
             case .tools:
                 let width = agent.tools.map(\.name.count).max() ?? 0
                 for tool in agent.tools {

@@ -75,10 +75,28 @@ import WispTestSupport
         }
         for alias in ["/?", "/q", "/exit", "help", "?", "exit", "quit"] {
             let parsed = ChatInput(line: alias)
-            #expect(parsed == .help || parsed == .quit, "\(alias)")
+            #expect(parsed == .help(nil) || parsed == .quit, "\(alias)")
         }
         #expect(
-            ChatInput.helpText.contains("a bare help or ?") && ChatInput.helpText.contains("a bare exit, quit, or q"))
+            ChatInput.helpText.contains("a bare help") && ChatInput.helpText.contains("a bare exit, quit, or q"))
+    }
+
+    @Test func aQuestionMarkOrAWordAfterHelpFiltersTheHelp() {
+        #expect(ChatInput(line: "?") == .help(nil))
+        #expect(ChatInput(line: " ? ") == .help(nil))
+        #expect(ChatInput(line: "?think") == .help("think"))
+        #expect(ChatInput(line: "? Think ") == .help("Think"))
+        #expect(ChatInput(line: "/help think") == .help("think"))
+        #expect(ChatInput(line: "/? model") == .help("model"))
+        #expect(ChatInput(line: "what is ?") == .message("what is ?"))
+
+        let think = ChatInput.helpText(matching: "THINK")
+        #expect(think.contains("/think [on|off|LEVEL]") && !think.contains("/quit"), "\(think)")
+        // Under wisp-tui a word finds its keys too, under their heading; the plain chat has none.
+        let keys = ChatInput.helpText(frontEnd: true, matching: "Ctrl-O")
+        #expect(keys.contains("In wisp-tui:") && keys.contains("Ctrl-O") && !keys.contains("Ctrl-T"), "\(keys)")
+        #expect(ChatInput.helpText(matching: "Ctrl-O").hasPrefix("nothing in the help mentions"))
+        #expect(ChatInput.helpText(frontEnd: true, matching: "help mode").contains("?  "))
     }
 
     @Test func theHelpsTableIsTheParser() {
@@ -100,7 +118,8 @@ import WispTestSupport
         }
         #expect(ChatInput(line: "/") == .unknown(""))
         // What a word produces comes from its entry: aliases share one, and arguments reach the closure.
-        #expect(ChatInput(line: "/q") == .quit && ChatInput(line: "/exit") == .quit && ChatInput(line: "/?") == .help)
+        #expect(ChatInput(line: "/q") == .quit && ChatInput(line: "/exit") == .quit)
+        #expect(ChatInput(line: "/?") == .help(nil))
         #expect(ChatInput(line: "/save  notes ") == .save("notes") && ChatInput(line: "/save") == .save(nil))
         #expect(ChatInput(line: "/inspect") == .inspect("status") && ChatInput(line: "/status") == .inspect("status"))
         #expect(ChatInput(line: "/inspect Context") == .context)
@@ -169,8 +188,8 @@ import WispTestSupport
         #expect(ChatInput(line: " Quit ") == .quit)
         #expect(ChatInput(line: "q") == .quit)
         #expect(ChatInput(line: "exit now") == .message("exit now"))
-        #expect(ChatInput(line: "/help") == .help)
-        #expect(ChatInput(line: "/?") == .help)
+        #expect(ChatInput(line: "/help") == .help(nil))
+        #expect(ChatInput(line: "/?") == .help(nil))
         #expect(ChatInput(line: "/tools") == .tools)
         #expect(ChatInput(line: "/tokens") == .tokens)
         #expect(ChatInput(line: "/new") == .new)

@@ -2,8 +2,8 @@
 public enum ChatInput: Equatable, Sendable {
     /// End the session.
     case quit
-    /// Show the command list.
-    case help
+    /// Show the command list; with a word (`/help think`, `?think`), only its lines that mention it.
+    case help(String?)
     /// List the tools the model can call.
     case tools
     /// Save the transcript, under the given name or the session's default.
@@ -67,8 +67,9 @@ public enum ChatInput: Equatable, Sendable {
 
     /// Parses a raw line. Leading and trailing whitespace is ignored; a line
     /// starting with `!!` is a command the person runs outside the sandbox, one starting with `!` a command they run
-    /// in it, one starting with `/` a chat command, a bare `exit`, `quit`, or `q` ends the session, and anything
-    /// else is a message, a `!` inside it included. `!!` is not the shell's history: `sh -c` keeps none.
+    /// in it, one starting with `?` the help (filtered by what follows), one starting with `/` a chat command, a bare
+    /// `exit`, `quit`, or `q` ends the session, and anything else is a message, a `!` or `?` inside it included.
+    /// `!!` is not the shell's history: `sh -c` keeps none.
     public init(line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("!!") {
@@ -84,8 +85,13 @@ public enum ChatInput: Equatable, Sendable {
             self = .quit
             return
         }
-        if ["help", "?"].contains(trimmed.lowercased()) {
-            self = .help
+        if trimmed.hasPrefix("?") {
+            let word = String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            self = .help(word.isEmpty ? nil : word)
+            return
+        }
+        if trimmed.lowercased() == "help" {
+            self = .help(nil)
             return
         }
         guard trimmed.hasPrefix("/") else {
@@ -160,8 +166,9 @@ public enum ChatInput: Equatable, Sendable {
     /// parser in `init(line:)`, so a command cannot be parsed without being listed.
     static let helpEntries: [HelpEntry] = [
         HelpEntry(
-            usage: "/help, /?", about: "this list (also a bare help or ?)", names: ["help", "?"],
-            command: { _ in .help }),
+            usage: "/help [WORD], ?[WORD]",
+            about: "this list, or only its lines that mention WORD (also a bare help)", names: ["help", "?"],
+            command: { .help($0) }),
         HelpEntry(
             usage: "!COMMAND",
             about:
@@ -294,6 +301,7 @@ public enum ChatInput: Equatable, Sendable {
     private static let frontEndKeys = """
 
         In wisp-tui:
+          ?                           at the start of the line, help mode (grey): Enter shows this, a word filters it
           !                           at the start of the line, command mode; Backspace there leaves it
           ! in command mode           at its start, outside the sandbox (red); Backspace there steps back
           Ctrl-O                      the last tool output in full; again to close
@@ -306,17 +314,31 @@ public enum ChatInput: Equatable, Sendable {
 
     /// The text shown for `/help`.
     ///
-    /// - Parameter frontEnd: Whether the chat runs under `wisp-tui`, whose keys are listed after the commands.
+    /// - Parameters:
+    ///   - frontEnd: Whether the chat runs under `wisp-tui`, whose keys are listed after the commands.
+    ///   - word: When given, only the commands and keys whose lines mention it, in any case.
     /// - Returns: One line per command in a column, the description on the next line for a usage that is too
-    ///   long for it.
-    public static func helpText(frontEnd: Bool = false) -> String {
-        let lines = helpEntries.map { entry -> String in
+    ///   long for it; for a word nothing mentions, a line that says so.
+    public static func helpText(frontEnd: Bool = false, matching word: String? = nil) -> String {
+        let entries = helpEntries.filter { entry in
+            word.map { (entry.usage + " " + entry.about).localizedCaseInsensitiveContains($0) } ?? true
+        }
+        let lines = entries.map { entry -> String in
             guard entry.usage.count < helpColumn else {
                 return entry.usage + "\n" + String(repeating: " ", count: helpColumn) + entry.about
             }
             return entry.usage.padding(toLength: helpColumn, withPad: " ", startingAt: 0) + entry.about
         }
-        return lines.joined(separator: "\n") + (frontEnd ? frontEndKeys : "")
+        guard let word else { return lines.joined(separator: "\n") + (frontEnd ? frontEndKeys : "") }
+        let keys =
+            frontEnd
+            ? frontEndKeys.split(separator: "\n").dropFirst().map(String.init).filter {
+                $0.localizedCaseInsensitiveContains(word)
+            } : []
+        guard !lines.isEmpty || !keys.isEmpty else {
+            return "nothing in the help mentions \"\(word)\"; ? alone lists it all"
+        }
+        return (lines + (keys.isEmpty ? [] : ["", "In wisp-tui:"] + keys)).joined(separator: "\n")
     }
 
     /// The text shown for `/help` in the plain terminal chat.

@@ -161,6 +161,13 @@ mode with the rest, and a second Enter sends it. A command mode line whose text 
 it runs in the sandbox as the amber box showed. The colours are a first proposal, not yet chosen from renders as
 command mode's were.
 
+Help mode is `?` typed at the start of the line in the normal box: the `?` is the switch, the box turns grey (`help`,
+#9AA3A9, `wisp-tui`'s alone) with black text, and the placeholder reads `Enter for every command, or a word to find
+the ones that mention it`. Enter on an empty box shows `/help`; a word, `think`, sends `?think`, which shows only the
+commands and keys whose lines mention it, in any case. A `!` in help mode is text, and Backspace at the start of the
+line (Delete in an empty box) returns to the normal box. A `?` after other text is text, so a question can end with
+one. Up and Down bring `?think` back in help mode.
+
 While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
 place of the cursor, `… working: read_file README.md` or `… working: waiting for the model`; for a command you
 typed, which has no time limit, what it runs, for how long, and how to stop it, `… running ollama pull
@@ -430,7 +437,7 @@ What a session shows, and where it goes:
 
 | Command | Effect |
 | --- | --- |
-| `/help`, `/?`, a bare `help` or `?` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`!` for command mode, and again for outside mode, Ctrl-O, Ctrl-T, Left and Right in the context panel, Up and Down in a long message, Down to the status bar). |
+| `/help [WORD]`, `/? [WORD]`, `?[WORD]`, a bare `help` | List every command with its arguments; the IDs `/fact` and `/show` take are explained there. Under `wisp-tui` the list ends with its keys (`?` for help mode, `!` for command mode, and again for outside mode, Ctrl-O, Ctrl-T, Left and Right in the context panel, Up and Down in a long message, Down to the status bar). With a word, only the lines that mention it, in any case, or a line saying nothing does. Any line that starts with `?` is this, `?think` or `? think`; a `?` later in a line is part of the message. |
 | `!COMMAND` | Run a shell command yourself, in the sandbox and without asking, with no time limit (Ctrl-C stops it); the model is told on its next request. See "Commands you run yourself". |
 | `!!COMMAND` | The same, outside the sandbox: it may write anywhere you can, `~/.wisp` included; typing it is the approval. `! !COMMAND`, with a space, runs `!COMMAND` in the sandbox. See "Commands you run yourself". |
 | `/tools` | List the tools the model can call. |
