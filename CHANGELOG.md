@@ -4,7 +4,10 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.26.1
+
+`wisp-tui` has a help mode: `?` at the start of the box turns it grey, and a word after it finds the commands that
+mention it. The website and the docs are dark blue by default, with a toggle for light.
 
 - `?` at the start of `wisp-tui`'s input box enters help mode: the box turns grey, Enter shows the help, and a word
   typed after it, `?think`, shows only the commands and keys that mention it. `/help WORD` and `?WORD` filter the
