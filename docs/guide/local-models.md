@@ -41,11 +41,17 @@ made no calls in that comparison.
 
 A thinking model can be told not to think, which is often much faster: on 2026-10-10 `granite4.2:8b` without
 thinking ran at `granite4.1:8b`'s speed, where thinking made it 4 to 15 times slower, and still got every draft
-right.
+right. To install it, turn its thinking off, and use it:
 
 ```bash
+ollama pull granite4.2:8b                                 # 5.35 GB
 wisp config set ollama.models.granite4.2:8b.think false
+wisp models                                               # ollama:granite4.2:8b … thinking (false)
+wisp --model ollama:granite4.2:8b "What is today's date?"
 ```
+
+`think false` holds for this one model wherever it is used; other Ollama models keep their own setting. An MCP
+thread can choose instead, with `"think": false` (or `true`) on the `respond` call that starts it.
 
 ## The shortest path: Ollama
 

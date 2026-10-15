@@ -111,11 +111,17 @@ Avoid these for tool work:
 
 **A thinking model can be told not to think.** That is often much faster. On 2026-10-10, `granite4.2:8b` without
 thinking ran at `granite4.1:8b`'s speed, where thinking made it 4 to 15 times slower. It still got every draft
-right, though it dropped two `system_info` cases (14/16):
+right, though it dropped two `system_info` cases (14/16). To install it, turn its thinking off, and use it:
 
 ```bash
+ollama pull granite4.2:8b                                 # 5.35 GB
 wisp config set ollama.models.granite4.2:8b.think false
+wisp models                                               # ollama:granite4.2:8b … thinking (false)
+wisp --model ollama:granite4.2:8b "What is today's date?"
 ```
+
+The setting holds for this one model wherever it is used. An MCP thread can choose for itself instead, with
+`"think": false` or `true` on the `respond` call that starts it ([mcp.md](mcp.md)).
 
 wisp's own internal calls, such as the classifier and summaries, never ask a model to think
 ([backends.md](backends.md), "Thinking, per model and per call").
