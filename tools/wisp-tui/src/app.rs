@@ -2321,7 +2321,7 @@ impl App {
         let mut spans = Vec::new();
         match self.turn {
             Some(TurnState::Running(number)) => {
-                spans.push(Span::styled(format!("turn {number}…"), palette::wisp()));
+                spans.push(Span::styled(format!("turn {number}"), palette::wisp()));
                 if let Some(label) = self.working_label(Instant::now()) {
                     spans.push(separator());
                     spans.push(Span::styled(label, palette::muted()));
@@ -3240,6 +3240,12 @@ mod tests {
         app.handle(Outbound::Turn(turn("start", 3, None, None)));
         assert!(app.busy);
         assert_eq!(app.turn, Some(TurnState::Running(3)));
+        app.status = Some(Status::default());
+        let running = status_text(&app, 80);
+        assert!(
+            running.ends_with("turn 3") && !running.contains('…'),
+            "{running:?}"
+        );
         app.handle(Outbound::Delta {
             text: "done".into(),
         });
