@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>wisp: a small AI agent that stays on your Mac</title>
+    <meta name="description" content="wisp is an on-device AI agent for macOS: a CLI and an MCP server on Apple's Foundation Models or your own local models, with every command it runs checked, sandboxed, approved when it matters, and audited.">
+    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#0A1219" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#F5F8FA" media="(prefers-color-scheme: light)">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://wisp.pidster.com/">
+    <meta property="og:title" content="wisp: a small AI agent that stays on your Mac">
+    <meta property="og:description" content="On-device AI for macOS. Every command checked, sandboxed, approved when it matters, and audited.">
+    <meta property="og:image" content="https://wisp.pidster.com/social.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="600">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="palette.css">
+    <link rel="stylesheet" href="home.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+
+<header class="bar">
+    <div class="wrap bar-inner">
+        <a class="brand" href="./" aria-label="wisp, home">
+            <img src="mark.svg" alt="" width="28" height="28">
+            <span>wisp</span>
+        </a>
+        <nav aria-label="Site">
+            <a href="docs/guide/install.html">Guides</a>
+            <a href="docs/wisp.html">Reference</a>
+            <a href="docs/changelog.html">Changelog</a>
+            <a href="https://github.com/pidster/wisp">GitHub</a>
+        </nav>
+    </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+    <div class="wrap hero-inner">
+        <div class="hero-copy">
+            <p class="eyebrow">On-device AI for macOS</p>
+            <h1>A small agent that runs on your Mac, and stays there.</h1>
+            <p class="lede">wisp drives Apple's on-device Foundation Model, or a model you run in Ollama, MLX, llama.cpp,
+                or LM Studio, and gives it tools: it runs commands, reads and edits files, and reports on the machine.
+                No prompt, file, or output leaves the Mac. There is no key, account, or bill.</p>
+            <div class="install" aria-label="Install">
+                <pre><code><span class="dim">$</span> brew install pidster/tap/wisp
+<span class="dim">$</span> wisp chat</code></pre>
+                <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the install command">Copy</button>
+            </div>
+            <div class="actions">
+                <a class="button primary" href="docs/guide/install.html">Install and first run</a>
+                <a class="button" href="docs/">Read the docs</a>
+            </div>
+            <p class="needs">Needs an Apple silicon Mac on macOS 27 or later. Open source, MIT licensed.</p>
+        </div>
+        <figure class="hero-art">
+            <img src="wisp.jpg" alt="The wisp: a small glowing spirit, white and pale blue, floating above an open laptop on a desk at night." width="720" height="600">
+        </figure>
+    </div>
+</section>
+
+<section class="session" aria-labelledby="session-title">
+    <div class="wrap">
+        <h2 id="session-title" class="visually-hidden">A conversation in wisp-tui</h2>
+        <div class="terminal" role="img" aria-label="A wisp-tui session. The person asks what changed since the last release; the model runs git log, which needed no approval, and answers. Then it asks to push, and wisp asks the person first, rating the command moderate.">
+            <div class="term-top" aria-hidden="true"><i></i><i></i><i></i><span>wisp chat</span></div>
+<pre class="term-body" aria-hidden="true"><span class="t-user">› what changed since the last release? then push it</span>
+<span class="t-tool">⚙ run_command git log --oneline v0.24.2..HEAD</span>
+<span class="t-tool">  ↳ ok</span>
+<span class="t-out">    a7347f5 Bring the docs up to date for 0.25.0</span>
+<span class="t-out">    ca79483 Escape the include ADR 0065 quotes, and check include names by case</span>
+<span class="t-out">    … 4 more lines · ctrl-o shows all</span>
+<span class="t-body">Six commits: a command can run outside the sandbox when you approve it, !! runs</span>
+<span class="t-body">one yourself, Homebrew's refusals are recognised, and the docs are a site.</span>
+<span class="t-note">ran: run_command</span>
+
+<span class="t-amber">╭ approve · moderate ───────────────────────────────────────╮</span>
+<span class="t-amber">│</span> <span class="t-user">git push origin main</span>                                      <span class="t-amber">│</span>
+<span class="t-amber">│</span> <span class="t-note">in ~/src/wisp</span>                                             <span class="t-amber">│</span>
+<span class="t-amber">│</span> <span class="t-note">remembered as git push *</span>                                  <span class="t-amber">│</span>
+<span class="t-amber">│</span>                                                           <span class="t-amber">│</span>
+<span class="t-amber">│</span> <span class="t-body">[y]once [s]ession [p]roject 30d [a]lways 30d [n]o</span>         <span class="t-amber">│</span>
+<span class="t-amber">╰───────────────────────────────────────────────────────────╯</span>
+<span class="t-input"><span class="t-prompt">›</span>                                                            </span>
+<span class="t-status"><span class="t-wisp">system</span><span class="t-note">:12% used · ~/src/wisp:</span><span class="t-glow">main</span>              <span class="t-note">approve at moderate</span></span></pre>
+        </div>
+        <p class="caption">What a conversation looks like in <code>wisp-tui</code>, the terminal front end. A reading command runs
+            at once; a push waits for you, and your answer has a scope you choose.</p>
+    </div>
+</section>
+
+<section class="faces" aria-labelledby="faces-title">
+    <div class="wrap">
+        <p class="eyebrow">Two faces, one session</p>
+        <h2 id="faces-title">For you at a terminal, and for the agent you already use.</h2>
+        <div class="cards two">
+            <article class="card">
+                <h3>At the terminal</h3>
+                <p>Ask a question, hand over a task, or keep a conversation. Type <code>!</code> to run a command yourself;
+                    the model is told what you ran.</p>
+<pre><code><span class="dim">$</span> wisp "Use run_command to run: uname -m"
+<span class="dim">$</span> wisp chat
+<span class="dim">$</span> git diff --cached | wisp scan</code></pre>
+                <a class="more" href="docs/guide/install.html">Install and first run</a>
+            </article>
+            <article class="card">
+                <h3>Under Claude Code or Codex</h3>
+                <p>Register <code>wisp mcp</code> and your agent hands the local chores to something cheaper than itself:
+                    run the tests and return the failures, condense a log, summarise a diff.</p>
+<pre><code>{ "mcpServers": { "wisp": {
+    "command": "/opt/homebrew/bin/wisp",
+    "args": ["mcp"] } } }</code></pre>
+                <a class="more" href="docs/guide/delegating.html">Delegating from Claude Code and Codex</a>
+            </article>
+        </div>
+    </div>
+</section>
+
+<section class="gate" aria-labelledby="gate-title">
+    <div class="wrap">
+        <p class="eyebrow">The gate</p>
+        <h2 id="gate-title">Nothing runs that has not passed it.</h2>
+        <p class="section-lede">Every command the model asks for goes through the same steps, in order, and every step
+            is written down.</p>
+        <ol class="steps">
+            <li>
+                <span class="step-n">1</span>
+                <h3>Policy</h3>
+                <p>A deny list refuses what should never run: <code>sudo</code>, <code>rm -rf /</code>, piping into a
+                    shell, disk tools, a wisp of its own.</p>
+            </li>
+            <li>
+                <span class="step-n">2</span>
+                <h3>Classifier</h3>
+                <p>Each simple command is rated <code>safe</code>, <code>moderate</code>, or <code>dangerous</code>: rules
+                    first, a Core ML model beside them, in under a millisecond.</p>
+            </li>
+            <li class="you">
+                <span class="step-n">3</span>
+                <h3>You</h3>
+                <p>Asked at <code>moderate</code> and above, for once, the session, the project, or always. Silence is
+                    a refusal, and the calling agent can never answer for you.</p>
+            </li>
+            <li>
+                <span class="step-n">4</span>
+                <h3>Sandbox</h3>
+                <p>Seatbelt confines writes to the project, the temporary directories, and your build caches. A chore
+                    it refuses runs outside only when you approve that one run.</p>
+            </li>
+            <li>
+                <span class="step-n">5</span>
+                <h3>Audit</h3>
+                <p>Every prompt, tool call, verdict, approval, and outcome, verbatim, in a log on your Mac. Every reply
+                    says what the turn actually ran.</p>
+            </li>
+        </ol>
+        <a class="more" href="docs/guide/approvals-and-sandbox.html">Approvals and the sandbox</a>
+    </div>
+</section>
+
+<section class="tools" aria-labelledby="tools-title">
+    <div class="wrap">
+        <p class="eyebrow">Over MCP</p>
+        <h2 id="tools-title">Read something large on the Mac, return something small.</h2>
+        <p class="section-lede">Besides <code>respond</code>, which runs a task on the local model on a named thread,
+            the server has ten tools that do one job each, so the large thing never reaches a remote model.</p>
+        <dl class="tool-grid">
+            <div><dt>triage</dt><dd>Build or test output to a list of failures</dd></div>
+            <div><dt>summarise_diff</dt><dd>A diff to one line a file, with review flags</dd></div>
+            <div><dt>draft_change</dt><dd>A commit message, PR, or changelog line from a diff</dd></div>
+            <div><dt>scan_secrets</dt><dd>Credentials and personal data, by rule, then the model</dd></div>
+            <div><dt>redact</dt><dd>The same, replaced with numbered markers</dd></div>
+            <div><dt>condense_log</dt><dd>A log to its distinct messages, without a model</dd></div>
+            <div><dt>json_shape</dt><dd>A JSON document to its structure, without its data</dd></div>
+            <div><dt>dependency_audit</dt><dd>An npm or Cargo audit to what needs action</dd></div>
+            <div><dt>flaky_tests</dt><dd>Tests that pass in one run and fail in another</dd></div>
+            <div><dt>hot_paths</dt><dd>A profile to where the time goes</dd></div>
+        </dl>
+        <a class="more" href="docs/mcp.html">The MCP server</a>
+    </div>
+</section>
+
+<section class="models" aria-labelledby="models-title">
+    <div class="wrap models-inner">
+        <div>
+            <p class="eyebrow">Models</p>
+            <h2 id="models-title">Apple's model by default. Yours when you want more.</h2>
+            <p class="section-lede">The on-device Foundation Model is always there. Add a larger one you run yourself, and
+                pick per conversation, or per thread over MCP.</p>
+            <a class="more" href="docs/guide/local-models.html">Local models</a>
+        </div>
+        <ul class="chips" aria-label="Model runtimes">
+            <li><code>system</code> Apple, on device</li>
+            <li><code>ollama:</code> Ollama</li>
+            <li><code>mlx:</code> MLX, in process</li>
+            <li><code>llamacpp:</code> llama.cpp</li>
+            <li><code>lmstudio:</code> LM Studio</li>
+            <li><code>coreai:</code> Core AI</li>
+        </ul>
+    </div>
+</section>
+
+<section class="closing">
+    <div class="wrap closing-inner">
+        <img src="mark.svg" alt="" width="56" height="56">
+        <h2>Start with one command.</h2>
+        <div class="install small">
+            <pre><code><span class="dim">$</span> brew install pidster/tap/wisp</code></pre>
+            <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the install command">Copy</button>
+        </div>
+        <div class="actions">
+            <a class="button primary" href="docs/guide/install.html">Install and first run</a>
+            <a class="button" href="docs/trust.html">What wisp can do to your Mac</a>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<footer class="foot">
+    <div class="wrap foot-inner">
+        <p><a class="brand small" href="./"><img src="mark.svg" alt="" width="20" height="20"><span>wisp</span></a></p>
+        <nav aria-label="Footer">
+            <a href="docs/">Docs</a>
+            <a href="docs/design.html">Design</a>
+            <a href="docs/decisions/0001-swift-and-foundationmodels.html">Decisions</a>
+            <a href="docs/changelog.html">Changelog</a>
+            <a href="https://github.com/pidster/wisp">GitHub</a>
+        </nav>
+        <p class="fine">MIT licensed. Made for macOS 27 on Apple silicon.</p>
+    </div>
+</footer>
+
+<script>
+    document.querySelectorAll("button.copy").forEach(function (button) {
+        button.addEventListener("click", function () {
+            var text = button.getAttribute("data-copy");
+            var done = function () {
+                button.textContent = "Copied";
+                setTimeout(function () { button.textContent = "Copy"; }, 1600);
+            };
+            if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
+        });
+    });
+</script>
+</body>
+</html>

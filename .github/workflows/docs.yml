@@ -1,6 +1,6 @@
 name: Docs
 
-# The documentation site, https://wisp.pidster.com (ADR 0065): mdBook over docs/, built on Linux (the docs need no
+# The documentation site, https://wisp.pidster.com (ADR 0065): the homepage from site/, and mdBook over docs/ under /docs/, built on Linux (the docs need no
 # macOS, unlike ci.yml) and deployed to GitHub Pages. Pages, its source (GitHub Actions), and the custom domain
 # are set in the repository's settings by the owner; until then the deploy job fails and the build still checks.
 on:
@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "site/**"
       - "book.toml"
       - "CHANGELOG.md"
       - "scripts/docs-links"

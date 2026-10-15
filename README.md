@@ -312,6 +312,7 @@ check, not a measurement; `scripts/check eval` measures the model.
 | `harness/Evals/` | The model evaluations, a package of their own that `scripts/check eval` runs |
 | `tools/` | The Cargo workspace: `wisp-tui`, the terminal front end over `wisp chat --json` |
 | `docs/` | Documentation and decision records, and the source of the documentation site (an mdBook; `scripts/check docs-site` builds it) |
+| `site/` | The website around the docs: its homepage, the docs' theme, and the colours they share with `wisp-tui` |
 | `training/` | Labelled training sets for the fast classifiers, with their reviews |
 | `scripts/check` | The quality gate: lint, warnings-as-errors build, tests, hygiene, coverage, model eval |
 

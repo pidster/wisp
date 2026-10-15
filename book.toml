@@ -9,7 +9,9 @@ language = "en"
 src = "docs"
 
 [build]
-build-dir = "book"
+# The site is book/: the homepage, from site/home, at its root, and this book under docs/ (scripts/check docs-site
+# puts them together).
+build-dir = "book/docs"
 # Fail, rather than write an empty page, when SUMMARY.md names a file that does not exist.
 create-missing = false
 # The default preprocessors are links ({{#include}}) and index, which renames every README.md to index.md. That
@@ -20,13 +22,19 @@ use-default-preprocessors = false
 [preprocessor.links]
 
 [output.html]
-site-url = "/"
+site-url = "/docs/"
+# wisp's theme (site/theme): only the files it holds replace mdBook's, and wisp.css restyles the rest from
+# site/palette.css, the colours the homepage uses too.
+theme = "site/theme"
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["site/palette.css", "site/theme/wisp.css"]
 git-repository-url = "https://github.com/pidster/wisp"
 edit-url-template = "https://github.com/pidster/wisp/edit/main/{path}"
 # The ADRs carry their own numbers; mdBook's chapter numbers would sit beside them.
 no-section-label = true
 # GitHub draws the ```mermaid blocks; mdBook shows them as code unless this script draws them.
-additional-js = ["docs/assets/mermaid-init.js"]
+additional-js = ["docs/assets/mermaid-init.js", "site/theme/wisp.js"]
 
 [output.html.search]
 enable = true

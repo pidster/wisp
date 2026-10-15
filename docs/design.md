@@ -43,6 +43,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 | `tools/` | Cargo workspace: one crate per Rust tool binary |
 | `docs/` | This documentation and the ADRs, and the source of the documentation site (an mdBook, `book.toml` at the root; ADR 0065) |
 | `training/` | Labelled train, dev, and test sets for the fast classifiers; only `risk/train.tsv` is built in, as `Resources/risk-examples.tsv` |
+| `site/` | The website around the docs (ADR 0065): the homepage, the book's theme, and `palette.css`, `wisp-tui`'s colours on the web |
 | `scripts/check` | The quality gate for both toolchains; `scripts/docs-links` is its check of the site's sources |
 
 ## Targets

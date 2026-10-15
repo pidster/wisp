@@ -107,3 +107,54 @@ repository's settings, and ignores such a file. Nothing here calls GitHub's API 
 - The guides restate facts the reference owns (defaults, commands, messages). Where they disagree, the reference
   and the code win, and the guide is fixed.
 - Until the owner enables Pages, the workflow's build job still checks every push and its deploy job fails.
+
+## Amendment, 2026-10-15: a homepage, and a theme of wisp's own
+
+**Context.** The site went live on 2026-10-14 as mdBook's default theme, with the Introduction as its front page.
+The owner judged it not fit to release under: a reader arriving at `wisp.pidster.com` met a book's first chapter in
+a generic theme, with nothing of wisp's identity. Two choices were the owner's, on 2026-10-15: a homepage of its
+own with the book under it, rather than a homepage inside the book or another generator; and `wisp-tui`'s
+palette as the visual direction, dark first with a matching light theme. The repository's social image, a glowing
+spirit over a laptop at night, set on GitHub by the owner, is the character the site carries.
+
+**Decision.**
+
+- **The site is a homepage with the book under `/docs/`.** `site/home/` holds a hand-written page (`index.html`,
+  `home.css`, the picture `wisp.jpg` cut from the social image, and `social.jpg`, the whole image, for links
+  shared elsewhere). `book.toml` builds the book into `book/docs/` with `site-url = "/docs/"`, and
+  `scripts/check docs-site` copies the homepage, `site/palette.css`, and `site/mark.svg` to `book/`, with mdBook's
+  `404.html`, whose assets are named from `/docs/`, so it serves for a missing page anywhere. The workflow deploys
+  `book/` as before, and also runs on a change under `site/`. The pages the book served at the root on 2026-10-14
+  (`/guide/install.html`) moved to `/docs/`; the site was a day old, and nothing outside it linked deeper than its
+  root, so there are no redirects.
+- **One palette.** `site/palette.css` holds the colours both pages use: `wisp-tui`'s, as `--tui-*` in kebab case,
+  and the web's own (`--web-*`: the night ground, below the terminal's `SENT`, and the light theme's paper and
+  inks, each at least 4.5:1 on paper). `scripts/check palette`, in the gate, now reads it too, and fails when a
+  `--tui-*` colour differs from the Rust, as it already did for the Swift.
+- **The book's theme** is `site/theme/`, named by `book.toml`'s `theme`: only the files it holds replace mdBook's.
+  `wisp.css` sets mdBook's variables from the palette, so its five themes become two (`light` and `rust` read as
+  wisp's light, `navy`, `coal`, and `ayu` as its dark, so a theme a reader stored before is still one of ours);
+  the theme picker is hidden, and the reader's system setting chooses (`default-theme`, `preferred-dark-theme`).
+  `wisp.js` makes the menu bar's title a link home, with the mark. `fonts/fonts.css` is empty, so mdBook copies and
+  loads no web fonts.
+- **The system's own faces, and no third-party request from the homepage.** The pages set the system font stack
+  (SF Pro and SF Mono on a Mac) and load nothing from another host; the book still loads mermaid from jsDelivr on a
+  page with a diagram, as above.
+- **The mark** (`site/mark.svg`, also the favicon) is a small vector wisp drawn from the character: a round body
+  with two eyes and a tail that curls, in the palette's glow-to-wisp blues. The picture is the character itself;
+  the mark is what stands for it at 20 pixels.
+- **The homepage says only what the docs say.** Its sentences come from the Introduction, the guides, and the
+  reference: the install line, the requirements, the gate's five steps, the MCP tools, the runtimes. The terminal
+  it shows is `wisp-tui`'s own text, from its source: the `⚙` tool line and `↳ ok` note, the fold line, `ran:`, the
+  approval dialog's title, `remembered as git push *`, and its keys. `scripts/docs-links` now reads the homepage
+  too: every link into `docs/` must name a page in `SUMMARY.md`, and every other relative link a file the site puts
+  beside it.
+
+**Consequences.**
+
+- A change to `wisp-tui`'s colours is a change to `site/palette.css` in the same commit, or the gate fails.
+- A page the homepage links to cannot be renamed without the homepage, or the gate fails.
+- When the docs say something new that the homepage restates (a tool, a requirement, the dialog's wording), the
+  release's docs sweep reads the homepage against them (`docs/release.md`, step 0).
+- Checked by eye on 2026-10-15 at 1440 and 390 pixels wide, in the light and dark themes, with headless Chrome:
+  the homepage and the book's pages, with no horizontal scroll at phone width.

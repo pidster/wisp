@@ -1,0 +1,44 @@
+/*
+ * wisp's colours on the web, shared by the homepage (site/home) and the docs theme (site/theme), ADR 0065.
+ *
+ * The --tui-* values are wisp-tui's palette (tools/wisp-tui/src/palette.rs), the same names in kebab case;
+ * `scripts/check palette`, in the gate, fails when one differs from the Rust. The --web-* values exist only here:
+ * the page grounds the terminal colours stand on, and the light theme's inks, each at least 4.5:1 on --web-paper.
+ */
+:root {
+    /* palette: wisp-tui */
+    --tui-glow: #CFF1FF;
+    --tui-wisp: #8FD3F4;
+    --tui-mist: #86AEC8;
+    --tui-deep: #253B4E;
+    --tui-sent: #121D27;
+    --tui-amber: #F2B950;
+    --tui-ember: #FF6B6B;
+    --tui-white: #E6EDF0;
+    --tui-added: #7ED98F;
+    --tui-command: #E8B577;
+    --tui-outside: #D27068;
+    --tui-black: #000000;
+    /* end palette */
+
+    /* The dark ground: below SENT, so the terminal's own rows stand on it as they do in a terminal. */
+    --web-night: #0A1219;
+    --web-night-raised: #0F1922;
+    --web-night-rule: #1C2C3A;
+
+    /* The light theme: paper, ink, and the palette's hues darkened until they read on paper. */
+    --web-paper: #F5F8FA;
+    --web-paper-raised: #FFFFFF;
+    --web-paper-sunk: #EAF0F4;
+    --web-rule: #D3DFE7;
+    --web-ink: #0E1C26;
+    --web-slate: #4A6474;
+    --web-blue: #17618A;
+    --web-blue-deep: #0D3F5C;
+    --web-amber-ink: #8A5606;
+    --web-ember-ink: #B33030;
+
+    --web-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+    --web-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
+    --web-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}

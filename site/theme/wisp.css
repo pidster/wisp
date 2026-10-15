@@ -1,0 +1,213 @@
+/* The docs' theme over mdBook 0.5.4's (ADR 0065): its variables set from site/palette.css, so the docs and the
+   homepage are one site. mdBook's five themes become two: light and rust read as wisp's light, navy, coal, and
+   ayu as wisp's dark, so a theme a reader chose before is still one of ours. The theme picker is hidden; the
+   reader's system setting chooses (book.toml's default-theme and preferred-dark-theme). */
+
+:root {
+    --mono-font: var(--web-mono);
+    --code-font-size: 0.86em;
+    --content-max-width: 780px;
+    --menu-bar-height: 56px;
+    --sidebar-target-width: 290px;
+}
+
+.light, .rust, html:not(.js) {
+    --bg: var(--web-paper);
+    --fg: var(--web-ink);
+    --w-strong: var(--web-blue-deep);
+    --w-muted: var(--web-slate);
+    --w-raised: var(--web-paper-raised);
+    --w-code-bg: var(--web-paper-sunk);
+    --w-rule: var(--web-rule);
+    --w-attention: var(--web-amber-ink);
+
+    --sidebar-bg: var(--web-paper-raised);
+    --sidebar-fg: var(--web-slate);
+    --sidebar-non-existant: #8DA2AF;
+    --sidebar-active: var(--web-blue);
+    --sidebar-spacer: var(--web-rule);
+    --sidebar-header-border-color: var(--web-blue);
+
+    --scrollbar: #B9C9D3;
+    --icons: var(--web-slate);
+    --icons-hover: var(--web-blue-deep);
+    --links: var(--web-blue);
+    --inline-code-color: var(--web-blue-deep);
+
+    --theme-popup-bg: var(--web-paper-raised);
+    --theme-popup-border: var(--web-rule);
+    --theme-hover: var(--web-paper-sunk);
+
+    --quote-bg: var(--web-paper-sunk);
+    --quote-border: var(--web-rule);
+    --warning-border: var(--web-amber-ink);
+
+    --table-border-color: var(--web-rule);
+    --table-header-bg: var(--web-paper-sunk);
+    --table-alternate-bg: #FAFCFD;
+
+    --searchbar-border-color: var(--web-rule);
+    --searchbar-bg: var(--web-paper-raised);
+    --searchbar-fg: var(--web-ink);
+    --searchbar-shadow-color: rgba(23, 97, 138, 0.25);
+    --searchresults-header-fg: var(--web-slate);
+    --searchresults-border-color: var(--web-rule);
+    --searchresults-li-bg: var(--web-paper-raised);
+    --search-mark-bg: #FBE3B0;
+
+    --color-scheme: light;
+    --copy-button-filter: invert(38%) sepia(14%) saturate(682%) hue-rotate(158deg) brightness(92%) contrast(88%);
+    --copy-button-filter-hover: invert(27%) sepia(63%) saturate(1145%) hue-rotate(175deg) brightness(91%) contrast(92%);
+    --footnote-highlight: var(--web-blue);
+    --overlay-bg: rgba(14, 28, 38, 0.25);
+
+    --blockquote-note-color: var(--web-blue);
+    --blockquote-tip-color: #2E7D46;
+    --blockquote-important-color: #6550B8;
+    --blockquote-warning-color: var(--web-amber-ink);
+    --blockquote-caution-color: var(--web-ember-ink);
+}
+
+.navy, .coal, .ayu {
+    --bg: var(--web-night);
+    --fg: var(--tui-white);
+    --w-strong: var(--tui-glow);
+    --w-muted: var(--tui-mist);
+    --w-raised: var(--web-night-raised);
+    --w-code-bg: var(--tui-sent);
+    --w-rule: var(--web-night-rule);
+    --w-attention: var(--tui-amber);
+
+    --sidebar-bg: var(--web-night-raised);
+    --sidebar-fg: var(--tui-mist);
+    --sidebar-non-existant: #4F6B80;
+    --sidebar-active: var(--tui-glow);
+    --sidebar-spacer: var(--web-night-rule);
+    --sidebar-header-border-color: var(--tui-wisp);
+
+    --scrollbar: var(--tui-deep);
+    --icons: var(--tui-mist);
+    --icons-hover: var(--tui-glow);
+    --links: var(--tui-wisp);
+    --inline-code-color: var(--tui-glow);
+
+    --theme-popup-bg: var(--web-night-raised);
+    --theme-popup-border: var(--web-night-rule);
+    --theme-hover: var(--tui-sent);
+
+    --quote-bg: var(--tui-sent);
+    --quote-border: var(--tui-deep);
+    --warning-border: var(--tui-amber);
+
+    --table-border-color: var(--web-night-rule);
+    --table-header-bg: var(--tui-sent);
+    --table-alternate-bg: #0D161E;
+
+    --searchbar-border-color: var(--tui-deep);
+    --searchbar-bg: var(--tui-sent);
+    --searchbar-fg: var(--tui-white);
+    --searchbar-shadow-color: rgba(143, 211, 244, 0.25);
+    --searchresults-header-fg: var(--tui-mist);
+    --searchresults-border-color: var(--tui-deep);
+    --searchresults-li-bg: var(--web-night-raised);
+    --search-mark-bg: #6B5222;
+
+    --color-scheme: dark;
+    --copy-button-filter: invert(71%) sepia(12%) saturate(593%) hue-rotate(163deg) brightness(89%) contrast(86%);
+    --copy-button-filter-hover: invert(93%) sepia(9%) saturate(1203%) hue-rotate(171deg) brightness(103%) contrast(101%);
+    --footnote-highlight: var(--tui-wisp);
+    --overlay-bg: rgba(0, 0, 0, 0.45);
+
+    --blockquote-note-color: var(--tui-wisp);
+    --blockquote-tip-color: var(--tui-added);
+    --blockquote-important-color: #B4A6FF;
+    --blockquote-warning-color: var(--tui-amber);
+    --blockquote-caution-color: var(--tui-ember);
+}
+
+/* Type */
+
+html { font-family: var(--web-sans); -webkit-font-smoothing: antialiased; }
+body { font-size: 1.6rem; line-height: 1.65; }
+.content { line-height: 1.65; }
+.content h1, .content h2, .content h3, .content h4 {
+    font-family: var(--web-display);
+    color: var(--w-strong);
+    letter-spacing: -0.012em;
+    line-height: 1.2;
+}
+.content h1 { font-size: 2.15em; letter-spacing: -0.02em; margin-block-end: 0.6em; }
+.content h2 { font-size: 1.45em; padding-block-end: 0.3em; border-bottom: 1px solid var(--w-rule); }
+.content h3 { font-size: 1.15em; }
+.content a:link, .content a:visited { color: var(--links); text-decoration: none; }
+.content a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.content h1 a:link, .content h2 a:link, .content h3 a:link, .content h4 a:link,
+.content h1 a:visited, .content h2 a:visited, .content h3 a:visited, .content h4 a:visited { color: inherit; }
+
+/* Code */
+
+:not(pre) > code {
+    background: var(--w-code-bg);
+    border: 1px solid var(--w-rule);
+    border-radius: 5px;
+    padding: 0.08em 0.36em;
+}
+pre > code.hljs, pre > .hljs, .content pre {
+    background: var(--w-code-bg) !important;
+}
+.content pre {
+    border: 1px solid var(--w-rule);
+    border-radius: 10px;
+}
+pre > code { padding: 1em 1.1em; line-height: 1.6; }
+.hljs { color: var(--fg); }
+
+/* Syntax colours from the palette, in both themes. */
+.light .hljs-keyword, .rust .hljs-keyword, .light .hljs-selector-tag, .rust .hljs-selector-tag { color: var(--web-blue-deep); font-weight: 600; }
+.light .hljs-string, .rust .hljs-string, .light .hljs-attr, .rust .hljs-attr { color: #2D6B3E; }
+.light .hljs-number, .rust .hljs-number, .light .hljs-literal, .rust .hljs-literal { color: var(--web-amber-ink); }
+.light .hljs-comment, .rust .hljs-comment { color: #6F8796; font-style: italic; }
+.light .hljs-title, .rust .hljs-title, .light .hljs-built_in, .rust .hljs-built_in, .light .hljs-section, .rust .hljs-section { color: var(--web-blue); }
+.navy .hljs-keyword, .coal .hljs-keyword, .ayu .hljs-keyword, .navy .hljs-selector-tag, .coal .hljs-selector-tag, .ayu .hljs-selector-tag { color: var(--tui-wisp); font-weight: 600; }
+.navy .hljs-string, .coal .hljs-string, .ayu .hljs-string, .navy .hljs-attr, .coal .hljs-attr, .ayu .hljs-attr { color: var(--tui-added); }
+.navy .hljs-number, .coal .hljs-number, .ayu .hljs-number, .navy .hljs-literal, .coal .hljs-literal, .ayu .hljs-literal { color: var(--tui-amber); }
+.navy .hljs-comment, .coal .hljs-comment, .ayu .hljs-comment { color: #6F8CA2; font-style: italic; }
+.navy .hljs-title, .coal .hljs-title, .ayu .hljs-title, .navy .hljs-built_in, .coal .hljs-built_in, .ayu .hljs-built_in, .navy .hljs-section, .coal .hljs-section, .ayu .hljs-section { color: var(--tui-glow); }
+
+/* Tables: the docs are full of them. */
+
+.content table { border-collapse: separate; border-spacing: 0; border: 1px solid var(--w-rule); border-radius: 10px; overflow: hidden; margin: 1.4em 0; font-size: 0.92em; }
+.content table thead th { background: var(--table-header-bg); color: var(--w-strong); font-weight: 600; text-align: left; }
+.content table td, .content table th { border: none; border-bottom: 1px solid var(--w-rule); padding: 0.6em 0.9em; vertical-align: top; }
+.content table tbody tr:last-child td { border-bottom: none; }
+.content table td + td, .content table th + th { border-left: 1px solid var(--w-rule); }
+
+/* Quotes and notes */
+
+blockquote { border-radius: 8px; border-inline-start: 3px solid var(--links); }
+
+/* The menu bar: the mark and name, linked home by wisp.js; the theme picker hidden. */
+
+#mdbook-menu-bar { border-bottom: 1px solid var(--w-rule); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+#mdbook-theme-toggle, #mdbook-theme-list { display: none !important; }
+.menu-title { font-family: var(--web-display); font-weight: 650; font-size: 2rem; color: var(--w-strong); letter-spacing: -0.01em; }
+.menu-title a.wisp-home { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.menu-title a.wisp-home img { display: block; }
+
+/* The sidebar */
+
+.sidebar { border-right: 1px solid var(--w-rule); font-size: 0.92em; }
+.sidebar .sidebar-scrollbox { padding: 18px 14px 18px 18px; }
+.chapter li.part-title { color: var(--w-attention); font-size: 0.75em; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 1.6em 0 0.4em; }
+.chapter li a { border-radius: 6px; padding: 3px 6px; }
+.chapter li a:hover { color: var(--w-strong); background: var(--theme-hover); text-decoration: none; }
+.chapter li a.active { color: var(--sidebar-active); font-weight: 600; background: var(--theme-hover); }
+
+/* Search */
+
+#mdbook-searchbar { border-radius: 10px; padding: 10px 14px; }
+
+/* Previous and next */
+
+.nav-chapters { color: var(--w-muted); }
+.nav-chapters:hover { color: var(--w-strong); }

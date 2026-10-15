@@ -1,0 +1,2 @@
+/* Present so mdBook does not copy and load its default web fonts (Open Sans, Source Code Pro): the site uses the
+   system's own faces, from site/palette.css, and makes no font request (ADR 0065). */

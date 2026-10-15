@@ -32,6 +32,7 @@ made stale elsewhere. Read each against the code as it stands:
 | `docs/README.md` | Every page, ADR, and proposal has a row with a current description (the preflight checks presence, not accuracy) |
 | `docs/introduction.md`, `docs/guide/*.md` | The site's landing page and guides restate the reference: the commands, flags, defaults, messages, and `wisp doctor` output they quote, and the tool lists, against the binary's `--help` and the pages they link to |
 | `docs/SUMMARY.md` and the site | Every new page in its part, the ADRs in number order; `scripts/check docs-site` builds the site with no warning ([ADR 0065](decisions/0065-documentation-site.md)) |
+| `site/home/index.html` | The homepage restates the docs: the install line, the requirements, the gate's steps, the MCP tools, the runtimes, and `wisp-tui`'s text in its terminal picture, against the pages and source they come from |
 | `docs/wisp.md` | Every subcommand, flag, chat command, and config field the binary has; `wisp --help` and `/help` are the source |
 | `docs/mcp.md` | Every MCP tool, argument, result field, and resource `ToolCatalog` declares |
 | `docs/tools/README.md`, `docs/trust.md` | The model's tools, and what each can change on the Mac |

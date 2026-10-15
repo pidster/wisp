@@ -728,7 +728,7 @@ EOF
 # Swift colour must exist in Rust with the same value; Rust may have extras (DEEP, SENT, WHITE are
 # TUI-only). An alias on either side (`tokensOut = glow`, `TOKENS_OUT: Color = GLOW`) is resolved first.
 palette() {
-    echo "==> palette (Swift and Rust agree)"
+    echo "==> palette (Swift, Rust, and the site agree)"
     awk '
         function num(h,   i, n) {
             h = toupper(h); sub(/^0X/, "", h); n = 0
@@ -748,7 +748,17 @@ palette() {
             while (!((side, name) in val) && ((side, name) in alias) && ++guard < 10) name = alias[side, name]
             return ((side, name) in val) ? val[side, name] : ""
         }
-        FNR == 1 { side = (FILENAME ~ /\.swift$/) ? "swift" : "rust" }
+        FNR == 1 { side = (FILENAME ~ /\.swift$/) ? "swift" : (FILENAME ~ /\.css$/) ? "css" : "rust" }
+        # The site (site/palette.css, ADR 0065): each --tui-<name> between its palette markers is the Rust colour of
+        # that name, in kebab case.
+        side == "css" && /\/\* palette: wisp-tui \*\// { incss = 1; next }
+        side == "css" && /\/\* end palette \*\// { incss = 0 }
+        side == "css" && incss && match($0, /--tui-[a-z-]+: *#[0-9A-Fa-f]{6};/) {
+            entry = substr($0, RSTART, RLENGTH); name = entry; sub(/^--tui-/, "", name); sub(/:.*/, "", name)
+            colour = entry; sub(/.*#/, "#", colour); sub(/;$/, "", colour)
+            key = toupper(name); gsub(/-/, "_", key)
+            cssorder[++cn] = key; css[key] = toupper(colour)
+        }
         side == "swift" && /enum Palette/ { inside = 1 }
         side == "swift" && inside && /^    }/ { inside = 0 }
         side == "swift" && inside && /static let [a-zA-Z]+ = / {
@@ -780,9 +790,20 @@ palette() {
                     bad = 1
                 }
             }
+            if (cn == 0) { print "palette: found no --tui- colours in site/palette.css" > "/dev/stderr"; bad = 1 }
+            for (i = 1; i <= cn; i++) {
+                k = cssorder[i]; r = resolve("rust", k)
+                if (r == "") {
+                    printf "palette mismatch: --tui-%s is %s in site/palette.css, missing in Rust\n", tolower(k), css[k] > "/dev/stderr"
+                    bad = 1
+                } else if (css[k] != r) {
+                    printf "palette mismatch: --tui-%s is %s in site/palette.css, %s in Rust (%s)\n", tolower(k), css[k], r, k > "/dev/stderr"
+                    bad = 1
+                }
+            }
             exit bad
         }
-    ' harness/Sources/WispCore/CLI/Style.swift tools/wisp-tui/src/palette.rs
+    ' harness/Sources/WispCore/CLI/Style.swift tools/wisp-tui/src/palette.rs site/palette.css
 }
 
 # docs-links: the documentation site's sources, checked without mdBook (scripts/docs-links, ADR 0065): every page
@@ -796,7 +817,8 @@ docs_links() {
 # The mdBook release the site is built with; .github/workflows/docs.yml installs the same one.
 MDBOOK_VERSION=0.5.4
 
-# docs-site: the link check, then the site itself, built with mdBook into book/ (git ignores it). Not in the gate:
+# docs-site: the link check, then the site itself into book/ (git ignores it): the homepage from site/home at its
+# root, and the book, built with mdBook, under book/docs/. Not in the gate:
 # it needs mdBook, which the gate does not; the docs workflow runs it on every push to main that touches the docs.
 docs_site() {
     docs_links
@@ -810,8 +832,9 @@ docs_site() {
         *"v$MDBOOK_VERSION") ;;
         *) echo "note: $version; the site is built with mdBook $MDBOOK_VERSION" ;;
     esac
-    echo "==> docs site (mdbook build into book/)"
+    echo "==> docs site (the homepage into book/, mdbook build into book/docs/)"
     log="$LOCK_SAVED/mdbook.log"
+    rm -rf book
     mdbook build >"$log" 2>&1 || { cat "$log" >&2; echo "mdbook build failed" >&2; exit 1; }
     # mdBook warns, and still builds, on an unclosed HTML tag (a bare <name> in prose, which GitHub hides too).
     if grep -q 'WARN' "$log"; then
@@ -819,6 +842,10 @@ docs_site() {
         echo "mdbook build warned; fix the pages it names (a bare <placeholder> belongs in backticks)" >&2
         exit 1
     fi
+    # The homepage (site/home) at the root, with the palette and mark it shares with the book, and mdBook's 404 page,
+    # which names its assets from /docs/, so it serves for a missing page anywhere on the site.
+    cp site/home/* site/palette.css site/mark.svg book/
+    cp book/docs/404.html book/404.html
     echo "docs site: built in book/; open book/index.html"
 }
 

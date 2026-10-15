@@ -21,8 +21,9 @@ Added:
   `commandPolicy.sandbox.allowOutsideSandbox` still apply, and chat says it runs OUTSIDE the sandbox before it starts.
   In `wisp-tui`, `!` typed at the start of a command steps the input box from command mode's amber to a muted red,
   and Backspace at the start steps back one mode at a time (ADR 0064, amended 2026-10-14).
-- A documentation site, https://wisp.pidster.com, built from `docs/` with search and an edit link on every page. It
-  opens with new guides: installing and a first run, delegating from Claude Code and Codex, approvals and the
+- A website, https://wisp.pidster.com: a homepage, and the documentation under `/docs/`, built from `docs/` with
+  search and an edit link on every page, in `wisp-tui`'s colours, dark or light as your system is. The docs open
+  with new guides: installing and a first run, delegating from Claude Code and Codex, approvals and the
   sandbox, local models, configuration, and troubleshooting; then the reference, then the internals, every decision
   record among them, and this changelog (ADR 0065).
 

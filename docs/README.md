@@ -1,6 +1,6 @@
 # wisp documentation
 
-These pages are also the documentation site, https://wisp.pidster.com, an mdBook whose table of contents is
+These pages are also the documentation site, https://wisp.pidster.com/docs/ under the homepage, an mdBook whose table of contents is
 [SUMMARY.md](https://github.com/pidster/wisp/blob/main/docs/SUMMARY.md) ([ADR 0065](decisions/0065-documentation-site.md)).
 
 | Document | Purpose |
@@ -14,7 +14,7 @@ These pages are also the documentation site, https://wisp.pidster.com, an mdBook
 | [guide/troubleshooting.md](guide/troubleshooting.md) | Guide: `wisp doctor`'s findings, restarting `modelmanagerd`, refused commands and the sandbox, an MCP server that does not connect, a stuck approval, the lockfile's MLX pins |
 | [SUMMARY.md](https://github.com/pidster/wisp/blob/main/docs/SUMMARY.md) | The site's table of contents, which mdBook reads; every page here is listed in it (`scripts/check docs-links`) |
 | [changelog.md](changelog.md) | The site's changelog page, which includes the repository's `CHANGELOG.md` |
-| [decisions/0065-documentation-site.md](decisions/0065-documentation-site.md) | The documentation site: an mdBook over `docs/` (users first, internals after), built on Linux and deployed to GitHub Pages at wisp.pidster.com by `.github/workflows/docs.yml`; links that leave `docs/` go to GitHub; `scripts/check docs-links` in the gate and `docs-site` beside it |
+| [decisions/0065-documentation-site.md](decisions/0065-documentation-site.md) | The documentation site: an mdBook over `docs/` (users first, internals after), built on Linux and deployed to GitHub Pages at wisp.pidster.com by `.github/workflows/docs.yml`; links that leave `docs/` go to GitHub; `scripts/check docs-links` in the gate and `docs-site` beside it; amended 2026-10-15: a homepage of its own at the root with the book under `/docs/`, and a theme in `wisp-tui`'s palette, held to it by `scripts/check palette` |
 | [trust.md](trust.md) | What wisp can do to your Mac, what leaves it, what it remembers, how to see and undo |
 | [objective.md](objective.md) | What wisp is for and what "done" looks like |
 | [install-local-models.md](install-local-models.md) | How to install a local model (Ollama, MLX, llama.cpp, LM Studio, Core AI), choose it, and which to choose, as measured |

@@ -13,6 +13,9 @@
 #     https://github.com/pidster/wisp/blob/main/<path> (tree/main for a directory). A path from the root (/…) is
 #     refused too: GitHub reads it from the repository's root and the site from its own.
 #
+# It also reads the homepage, site/home/*.html, served at the site's root with the book under docs/: a link into
+# docs/ must name a page in SUMMARY.md, and any other relative link a file beside it.
+#
 # Links are Markdown inline links and images, reference definitions, and HTML href, src, and srcset; fenced
 # code blocks and code spans are skipped. Anchors (#…) are not checked. Prints each problem as
 # docs/<page>:<line>: <target>: <why>, and exits 1 when there is one.
@@ -37,6 +40,7 @@ find "$SRC" -type f | sed "s|^$SRC/||" >"$work/files"
 find "$SRC" -mindepth 1 -type d | sed "s|^$SRC/||" >"$work/dirs"
 printf '%s\n' "$EXCLUDED" >"$work/excluded"
 
+status=0
 awk -v src="$SRC" -v blob="$BLOB" -v files="$work/files" -v dirs="$work/dirs" -v excluded="$work/excluded" '
     # normalize(path): path with "." and ".." resolved; "\001" when ".." climbs above its start.
     function normalize(path,   n, parts, out, i, k, res) {
@@ -180,4 +184,46 @@ awk -v src="$SRC" -v blob="$BLOB" -v files="$work/files" -v dirs="$work/dirs" -v
         if (bad) { printf "docs-links: %d problem(s) in %d pages\n", bad, pageCount > "/dev/stderr"; exit 1 }
         printf "docs-links: %d pages in SUMMARY.md, %d links, all resolve on the site\n", pageCount, links
     }
-'
+' || status=1
+
+# The homepage (site/home, ADR 0065), which the site serves at its root with the book under docs/: a link into
+# docs/ names a page in SUMMARY.md (docs/x.html is docs/x.md; docs/ is the book's first page), and any other
+# relative link or image names a file the site puts beside the homepage (site/home's own, palette.css, mark.svg).
+for home in site/home/*.html; do
+    [ -f "$home" ] || continue
+    awk -v home="$home" -v summary="$SRC/SUMMARY.md" '
+        function problem(line, target, why) { printf "%s:%d: %s: %s\n", home, line, target, why; bad++ }
+        BEGIN {
+            while ((getline l < summary) > 0) {
+                while (match(l, /\]\([^)]*\)/)) {
+                    t = substr(l, RSTART + 2, RLENGTH - 3); l = substr(l, RSTART + RLENGTH)
+                    if (t != "") inSummary[t] = 1
+                }
+            }
+            close(summary)
+            dir = home; sub(/\/[^\/]*$/, "", dir)
+        }
+        {
+            s = $0
+            while (match(s, /(href|src)="[^"]*"/)) {
+                t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+                sub(/^[a-z]+="/, "", t); sub(/"$/, "", t); sub(/[#?].*$/, "", t)
+                links++
+                if (t == "" || t == "./" || t == "docs/" || t ~ /^[A-Za-z][A-Za-z0-9+.-]*:/) continue
+                if (t ~ /^docs\//) {
+                    page = substr(t, 6); sub(/\.html$/, ".md", page)
+                    if (!(page in inSummary)) problem(FNR, t, "not a page in SUMMARY.md")
+                    continue
+                }
+                if (t == "palette.css" || t == "mark.svg") continue
+                if ((getline probe < (dir "/" t)) < 0) problem(FNR, t, "no such file in " dir)
+                else close(dir "/" t)
+            }
+        }
+        END {
+            if (bad) { printf "docs-links: %d problem(s) in %s\n", bad, home > "/dev/stderr"; exit 1 }
+            printf "docs-links: %s, %d links, all resolve on the site\n", home, links
+        }
+    ' "$home" || status=1
+done
+exit "$status"
