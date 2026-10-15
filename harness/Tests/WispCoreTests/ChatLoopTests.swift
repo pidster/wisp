@@ -394,6 +394,61 @@ import WispTestSupport
         #expect(bare.noted.contains("the configuration cannot be changed here"))
     }
 
+    @Test func thinkSavesTheModelsDefaultAndAppliesItToTheConversation() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "config.json")
+        let sink = MemoryAuditSink()
+        let agent = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(
+                selection: .ollama("q"), custom: OllamaModel(name: "q", reported: ["completion", "thinking"])),
+            audit: AuditLog(session: "chat", sink: sink))
+        var context = Self.context
+        context.configFile = file
+        let capture = Capture(lines: ["/think", "/think extreme", "/think high", "/think off"])
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        // Nothing asked yet: the runtime decides, which the status line and a bare /think call the default.
+        #expect(capture.output.contains("thinking: default (ollama.models.q.think)"))
+        #expect(capture.shownStatus.first?.thinking == "default")
+        let notes = capture.noted.joined(separator: "\n")
+        #expect(notes.contains("usage: /think on|off|LEVEL (levels: low, medium, high, max)"))
+        #expect(
+            notes.contains(
+                "ollama.models.q.think: (default) → high; saved to \(file.path), and used in this conversation from now on"
+            ))
+        #expect(notes.contains("ollama.models.q.think: high → false"))
+        // Saved as the model's default, applied to the conversation at once, and shown.
+        #expect(try Config.load(from: file).resolved.ollama.configuredThink(for: "q") == .off)
+        #expect(loop.agent.thinking == .off)
+        #expect(capture.shownStatus.map(\.thinking).contains("high"))
+        #expect(await loop.status().thinking == "off")
+        #expect(sink.events.filter { $0.kind == .configChange }.count == 2)
+    }
+
+    @Test func thinkRefusesAModelWithNoThinkingToSet() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "config.json")
+        var context = Self.context
+        context.configFile = file
+        let system = Agent(
+            instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
+        let capture = Capture(lines: ["/think on"])
+        var loop = ChatLoop(
+            agent: system, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+        try await loop.run()
+        #expect(capture.noted.contains("system has no thinking to turn on or off"))
+        #expect(capture.shownStatus.first?.thinking == nil, "no thinking to show")
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        let silent = ResolvedModel(selection: .ollama("q"), custom: OllamaModel(name: "q", reported: ["completion"]))
+        #expect(ChatLoop.thinkSetting(for: silent) == nil, "a model that cannot think")
+        #expect(ChatLoop.thinkChoice("on") == .on && ChatLoop.thinkChoice("FALSE") == .off)
+        #expect(ChatLoop.thinkChoice("max") == .level("max") && ChatLoop.thinkChoice("hard") == nil)
+    }
+
     @Test func configSetAsksForWhatIsLeftOutWithNumberedLists() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

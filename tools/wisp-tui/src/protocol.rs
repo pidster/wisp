@@ -99,6 +99,9 @@ pub struct Status {
     /// Fraction of the context window used, when known.
     #[serde(rename = "contextUsed")]
     pub context_used: Option<f64>,
+    /// Whether the model thinks (`on`, `off`, a level, or `default`), for a model that can; `None` otherwise.
+    #[serde(default)]
+    pub think: Option<String>,
 }
 
 /// One edge of a turn: a message to the model and everything it does to answer it.
@@ -523,6 +526,7 @@ mod tests {
                 assert_eq!(s.branch, None);
                 assert_eq!(s.dirty, Some(true));
                 assert_eq!(s.context_used, Some(0.25));
+                assert_eq!(s.think, None, "absent from an older wisp");
             }
             other => panic!("not a status: {other:?}"),
         }

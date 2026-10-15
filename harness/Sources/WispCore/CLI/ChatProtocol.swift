@@ -122,6 +122,7 @@ public enum ChatProtocol {
             "branch": status.branch.map { .string($0) } ?? .null, "dirty": status.dirty.map { .bool($0) } ?? .null,
             "added": status.added.map { .int($0) } ?? .null, "removed": status.removed.map { .int($0) } ?? .null,
             "approval": .string(status.approval), "contextUsed": status.contextUsed.map { .double($0) } ?? .null,
+            "think": status.thinking.map { .string($0) } ?? .null,
         ]
     }
 

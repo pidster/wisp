@@ -32,6 +32,10 @@ import WispTestSupport
         #expect(full.rendered(style: .plain, width: 20) == full.rendered(style: .plain))
         let bare = ChatStatus(model: "system", directory: "/tmp", approval: "never asks")
         #expect(bare.rendered(style: .plain) == "system · /tmp · never asks")
+        // A model that can think says whether it does, between the model and the place.
+        var thinking = full
+        thinking.thinking = "off"
+        #expect(thinking.rendered(style: .plain) == "ollama:q:14% used · think off · ~/src/x:main · --yes")
         let styled = full.rendered(style: Style(enabled: true))
         #expect(Style.stripped(styled) == full.rendered(style: .plain))
         #expect(styled.contains("\u{1B}[38;2;143;211;244mollama:q") && styled.contains("38;2;134;174;200m14% used"))

@@ -16,6 +16,8 @@ import Testing
         #expect(complete("/con") == .init(from: 0, candidates: ["/config"]))
         #expect(complete("/inspect con").candidates == ["config", "context"])
         #expect(complete("/inspect context t").candidates == ["turns"])
+        #expect(complete("/think o").candidates == ["off", "on"])
+        #expect(complete("/think m").candidates == ["max", "medium"])
         #expect(complete("/m").candidates == ["/model", "/models"])
         #expect(complete("/config s") == .init(from: 8, candidates: ["set", "show"]))
         #expect(

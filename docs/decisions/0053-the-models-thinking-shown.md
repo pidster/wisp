@@ -142,3 +142,22 @@ decides for itself and takes no per-call choice. Tests without a model: the reso
 request bodies (FakeOllama, FakeChatServer, the MLX engine's rendered prompt) for a turn, a side call, a draft, and a
 model that cannot think, the scripted model's record of what each request asked, `respond`'s `think` on a new thread
 and refused on an existing one, the listing's note, and the audit fields.
+
+**Amendment, 2026-10-15: `/think` in chat, and thinking in the status line.** A person in `wisp chat` or `wisp-tui`
+could set a model's thinking only with `/config set <runtime>.models.<name>.think`, which is read as a session starts,
+so a running conversation kept what it began with; and nothing on screen said whether the model was thinking. The
+owner asked for a command that sets the current model's default, and for the status line to show it between the model
+and the directory. `/think on|off|LEVEL` writes `<runtime>.models.<name>.think` through the same path `/config set`
+takes (validated, audited as `config.change` with `source` `chat`), and sets the conversation's own choice, the one
+`respond`'s `think` sets for an MCP thread, so it applies from the next turn; the loop keeps each model's choice for
+the session and gives it back when `/model` returns to that model, since the session's configuration is still the one
+it started with. It is refused, with nothing written, for a model with no thinking to set: one that cannot think
+(`thinkSent` sends nothing), or whose runtime has no such setting (Apple's models; LM Studio, which sets it in its
+app). A level is checked against the runtime first (`checkThink`), so `/think high` on an MLX model is refused as
+`respond` refuses it. A bare `/think` shows the value and, where the face has a chooser, offers `on`, `off`, and the
+runtime's levels. The status carries `think`: what the next turn's request sends (`on`, `off`, a level), `default`
+when it sends nothing and the runtime decides, or null for a model with no thinking to set; the plain chat writes it
+after the gauge as `think off`, and `wisp-tui` draws it there as a status-bar item whose Enter sends `/think`. Choosing
+the conversation's thinking also keeps a schema reply's thinking as chosen, as it does for an MCP thread. Tests without
+a model: the command's save, its effect on the conversation and the status, its refusals, the completion, the plain
+status line, the protocol field, and `wisp-tui`'s item.

@@ -240,6 +240,9 @@ public struct ChatLoop {
     public private(set) var history: [String] = []
     /// How many lines `history` keeps.
     public static let historyLimit = 100
+    /// The thinking `/think` chose this session, by model (`ModelSelection.description`): applied to the conversation
+    /// whenever that model is in use, since the saved default it also writes is read only as a session starts.
+    var thinkChoices: [String: OllamaThink] = [:]
     let context: Context
     let io: IO
 
@@ -289,7 +292,7 @@ public struct ChatLoop {
         return ChatStatus(
             model: agent.model.selection.description, directory: ChatStatus.abbreviated(context.directory),
             branch: git.branch, dirty: git.dirty, added: git.added, removed: git.removed, approval: context.approval,
-            contextUsed: used)
+            contextUsed: used, thinking: Self.thinkingShown(agent.model, chosen: agent.thinking))
     }
 
     /// Adds a typed line to `history`, trimmed, unless it is blank or repeats the line before it.
@@ -413,6 +416,8 @@ public struct ChatLoop {
                 await showModel()
             case .model(let name?):
                 switchModel(to: name)
+            case .think(let argument):
+                await think(argument)
             case .tokens:
                 do {
                     let tokens = try await agent.contextTokens().map(String.init) ?? "unknown"
@@ -578,6 +583,7 @@ public struct ChatLoop {
         do {
             let selection = try context.models?.switchTarget(name) ?? ModelSelection(parsing: name)
             agent = try openModel(selection, agent.store)
+            agent.thinking = thinkChoices[selection.description]
             io.note(style.muted("model: \(selection); the transcript continues"))
         } catch {
             io.note(style.ember("error: \(error)"))

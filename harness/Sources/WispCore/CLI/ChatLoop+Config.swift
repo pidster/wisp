@@ -164,10 +164,20 @@ extension ChatLoop {
     }
 
     /// Applies an edit to the config file, audits it, and says what changed and when it takes effect.
-    mutating func change(_ path: String, _ edit: (Data?) throws -> ConfigEdit.Outcome) {
+    ///
+    /// - Parameters:
+    ///   - path: The setting, as the note names it.
+    ///   - effect: When the change takes effect, as the note ends.
+    ///   - edit: The edit, given the file's contents.
+    /// - Returns: Whether the file was written.
+    @discardableResult
+    mutating func change(
+        _ path: String, effect: String = "and used from the next session on",
+        _ edit: (Data?) throws -> ConfigEdit.Outcome
+    ) -> Bool {
         guard let url = context.configFile else {
             io.note("the configuration cannot be changed here")
-            return
+            return false
         }
         do {
             let outcome = try edit(try ConfigEdit.existing(at: url))
@@ -175,10 +185,12 @@ extension ChatLoop {
             agent.audit?.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: "chat"))
             let old = outcome.old.map(Self.shown) ?? "(default)"
             let new = outcome.new.map(Self.shown) ?? "(default)"
-            io.note("\(path): \(old) → \(new); saved to \(url.path), and used from the next session on")
+            io.note("\(path): \(old) → \(new); saved to \(url.path), \(effect)")
             if let warning = outcome.warning { io.note(style.amber("note: \(warning)")) }
+            return true
         } catch {
             io.note(style.ember("error: \(error)"))
+            return false
         }
     }
 }

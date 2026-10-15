@@ -441,6 +441,8 @@ pub enum BarItem {
     Model,
     /// The context gauge (`15% used`): the model's context in the panel, as Ctrl-T opens it.
     Context,
+    /// Whether the model thinks (`think off`): sends `/think`, which offers the choices in a picker.
+    Think,
     /// `questions: N`, the model's questions waiting for the person: the first one's picker.
     Questions,
     /// `approvals: N`, the approvals (commands, and facts to keep) waiting: the first one's dialog.
@@ -455,6 +457,7 @@ impl BarItem {
         match self {
             Self::Model => "switch the model",
             Self::Context => "show the context",
+            Self::Think => "set the thinking",
             Self::Questions => "answer the question",
             Self::Approvals => "answer the approval",
             Self::Turn => "list the turns",
@@ -868,6 +871,9 @@ impl App {
         if status.context_used.is_some() {
             items.push(BarItem::Context);
         }
+        if status.think.is_some() {
+            items.push(BarItem::Think);
+        }
         if self.questions_waiting() > 0 {
             items.push(BarItem::Questions);
         }
@@ -952,6 +958,14 @@ impl App {
                 })
             }
             BarItem::Context => self.show_context(),
+            BarItem::Think => {
+                // As the model's item: the box is held until wisp's status, and `/think`'s choice opens as typed.
+                self.busy = true;
+                self.slash_sent = true;
+                Action::Send(Inbound::Message {
+                    text: "/think".into(),
+                })
+            }
             BarItem::Turn => {
                 if self.context_asked {
                     return Action::None;
@@ -2288,6 +2302,22 @@ impl App {
         ])
     }
 
+    /// Whether the model thinks, after the gauge, for a model that can: ` · think off`.
+    fn think_spans(&self, focus: Option<BarItem>) -> Vec<Span<'static>> {
+        let Some(think) = self.status.as_ref().and_then(|status| status.think.clone()) else {
+            return Vec::new();
+        };
+        vec![
+            separator(),
+            item_span(
+                focus,
+                BarItem::Think,
+                format!("think {think}"),
+                palette::wisp(),
+            ),
+        ]
+    }
+
     /// What waits for the person, so it never waits unseen (a question or an approval from `wisp mcp` waits behind
     /// a line being typed, and opens from here): `questions: N · approvals: N`, each only when there are some.
     fn waiting_spans(&self, focus: Option<BarItem>) -> Vec<Span<'static>> {
@@ -2356,8 +2386,8 @@ impl App {
         spans
     }
 
-    /// The status row for a band `width` cells wide: on the left the model and its context use, the directory
-    /// with its branch and line changes; on the right the questions and approvals waiting, the approval mode, the
+    /// The status row for a band `width` cells wide: on the left the model, its context use, and whether it
+    /// thinks, the directory with its branch and line changes; on the right the questions and approvals waiting, the approval mode, the
     /// turn, and its tokens, pushed to the right edge. The item with the focus is drawn in black on its own colour.
     /// When it does not all fit, parts go in turn: the directory shortens to its last folder, then the approval
     /// mode and the turn go (the turn stays while it has the focus), then the directory, then the context gauge
@@ -2369,6 +2399,7 @@ impl App {
         let focus = self.focused();
         let model = item_span(focus, BarItem::Model, status.model.clone(), palette::wisp());
         let gauge = self.gauge_spans(focus);
+        let think = self.think_spans(focus);
         let waiting = self.waiting_spans(focus);
         let turn = self.turn_spans(focus);
         let mut rest = vec![Span::styled(status.approval.clone(), palette::muted())];
@@ -2409,6 +2440,9 @@ impl App {
             let mut left = vec![model.clone()];
             if with_gauge && let Some(gauge) = &gauge {
                 left.extend(gauge.iter().cloned());
+            }
+            if with_gauge {
+                left.extend(think.iter().cloned());
             }
             left.extend(place);
             let mut right = waiting.clone();
@@ -4495,6 +4529,7 @@ mod tests {
                     removed: None,
                     approval: "moderate".into(),
                     context_used: None,
+                    think: None,
                 }),
                 turn: Some(TurnState::Ended {
                     seconds: 3.1,
@@ -4526,6 +4561,7 @@ mod tests {
             removed: Some(3),
             approval: "approve at moderate".into(),
             context_used: Some(0.15),
+            think: None,
         };
         let app = App {
             status: Some(status.clone()),
@@ -4611,6 +4647,7 @@ mod tests {
                 removed: Some(0),
                 approval: "--yes".into(),
                 context_used: Some(0.137),
+                think: None,
             }),
             editor: {
                 let mut editor = Editor::default();
@@ -5457,6 +5494,45 @@ mod tests {
         app.handle(Outbound::Choice(question("q1", &["a", "b"], false)));
         assert_eq!(app.questions_waiting(), 1);
         assert!(status_text(&app, 100).contains("questions: 1"));
+    }
+
+    #[test]
+    fn a_model_that_can_think_shows_it_after_the_gauge_as_an_item_that_sends_think() {
+        let mut app = App {
+            status: Some(Status {
+                model: "ollama:q".into(),
+                directory: "~/w".into(),
+                approval: "ask".into(),
+                context_used: Some(0.15),
+                think: Some("off".into()),
+                ..Status::default()
+            }),
+            ..Default::default()
+        };
+        let text = status_text(&app, 100);
+        assert!(
+            text.starts_with("ollama:q:15% used · think off · ~/w"),
+            "{text}"
+        );
+        assert_eq!(
+            app.bar_items(),
+            vec![BarItem::Model, BarItem::Context, BarItem::Think]
+        );
+        app.bar = Some(BarItem::Think);
+        assert_eq!(app.focused(), Some(BarItem::Think));
+        assert_eq!(
+            app.activate(),
+            Action::Send(Inbound::Message {
+                text: "/think".into()
+            })
+        );
+        assert!(app.busy && app.slash_sent);
+        // A model with no thinking to set shows none, and the bar has no such item.
+        if let Some(status) = app.status.as_mut() {
+            status.think = None;
+        }
+        assert!(!status_text(&app, 100).contains("think"));
+        assert_eq!(app.bar_items(), vec![BarItem::Model, BarItem::Context]);
     }
 
     #[test]

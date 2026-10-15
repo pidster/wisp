@@ -27,7 +27,10 @@ import WispTestSupport
         let decoded = try JSONDecoder().decode(JSONValue.self, from: Data(encoded.utf8)).objectValue
         #expect(decoded?["branch"] == "main" && decoded?["dirty"] == true && decoded?["contextUsed"] == .double(0.5))
         let bare = ChatProtocol.status(ChatStatus(model: "m", directory: "/", approval: "never asks"))
-        #expect(bare["branch"] == .null && bare["contextUsed"] == .null)
+        #expect(bare["branch"] == .null && bare["contextUsed"] == .null && bare["think"] == .null)
+        var thinking = status
+        thinking.thinking = "high"
+        #expect(ChatProtocol.status(thinking)["think"] == "high")
         let event = AuditEvent(session: "s", kind: .toolCall, turn: 2, call: "c1", details: ["tool": "read_file"])
         let fields = ChatProtocol.event(event)
         #expect(fields["kind"] == "tool.call" && fields["call"] == "c1" && fields["turn"] == 2)

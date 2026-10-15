@@ -6,6 +6,9 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+- `/think on|off|LEVEL` in chat turns the model's thinking on or off, or sets Ollama's level, for the conversation
+  at once and as the model's saved default. The status line shows it after the model, `think off`, for a model that
+  can think; in `wisp-tui` it is an item of the status bar that opens the choices.
 - `wisp-tui`'s status line says `turn 3` while a turn runs, not `turn 3…`, which read as cut off.
 
 ## 0.25.0

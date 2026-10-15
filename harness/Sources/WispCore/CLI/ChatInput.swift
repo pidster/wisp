@@ -40,6 +40,9 @@ public enum ChatInput: Equatable, Sendable {
     case models(ModelsRequest)
     /// Switch the conversation to a model, or show the current one when nil.
     case model(String?)
+    /// Set whether the conversation's model thinks, `on`, `off`, or a level, saved as its default; nil shows it and,
+    /// in a face with a chooser, offers the choices.
+    case think(String?)
     /// Show the recent model turns and classifier calls, with their timings.
     case stats
     /// List the lines typed this session, oldest first.
@@ -260,6 +263,10 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
             names: ["model"], command: { .model($0) }),
+        HelpEntry(
+            usage: "/think [on|off|LEVEL]",
+            about: "whether the model thinks, for this conversation and saved as its default; no argument shows it",
+            names: ["think"], command: { .think($0) }),
         HelpEntry(
             usage: "/stats", about: "timings of recent model turns and classifier calls",
             names: ["stats"], command: { _ in .stats }),
