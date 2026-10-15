@@ -6,8 +6,20 @@
     <title>wisp: a small AI agent that stays on your Mac</title>
     <meta name="description" content="wisp is an on-device AI agent for macOS: a CLI and an MCP server on Apple's Foundation Models or your own local models, with every command it runs checked, sandboxed, approved when it matters, and audited.">
     <meta name="color-scheme" content="dark light">
-    <meta name="theme-color" content="#0A1219" media="(prefers-color-scheme: dark)">
-    <meta name="theme-color" content="#F5F8FA" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0A1219">
+    <script>
+        // Dark by default; light when the reader chose it, here or in the docs (mdBook's "mdbook-theme", the same
+        // origin, where light and rust are wisp's light). Set before the page draws, so it never flashes.
+        (function () {
+            var html = document.documentElement, theme = null;
+            html.classList.add("js");
+            try { theme = localStorage.getItem("mdbook-theme"); } catch (e) { }
+            if (theme === "light" || theme === "rust") {
+                html.classList.add("light");
+                document.querySelector('meta[name="theme-color"]').content = "#F5F8FA";
+            }
+        })();
+    </script>
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://wisp.pidster.com/">
     <meta property="og:title" content="wisp: a small AI agent that stays on your Mac">
@@ -34,6 +46,7 @@
             <a href="docs/wisp.html">Reference</a>
             <a href="docs/changelog.html">Changelog</a>
             <a href="https://github.com/pidster/wisp">GitHub</a>
+            <button class="theme-toggle" type="button"></button>
         </nav>
     </div>
 </header>
@@ -244,6 +257,33 @@
 </footer>
 
 <script>
+    (function () {
+        var html = document.documentElement;
+        var toggle = document.querySelector(".theme-toggle");
+        var meta = document.querySelector('meta[name="theme-color"]');
+        var svg = function (path) {
+            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+                'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + "</svg>";
+        };
+        var sun = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4' +
+            'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+        var moon = svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
+        var show = function () {
+            var light = html.classList.contains("light");
+            toggle.innerHTML = light ? moon : sun;
+            toggle.title = light ? "Dark theme" : "Light theme";
+            toggle.setAttribute("aria-label", toggle.title);
+            meta.content = light ? "#F5F8FA" : "#0A1219";
+        };
+        toggle.addEventListener("click", function () {
+            var light = html.classList.toggle("light");
+            // The docs' names for the two: mdBook's light, and the navy that wisp.css draws as its dark.
+            try { localStorage.setItem("mdbook-theme", light ? "light" : "navy"); } catch (e) { }
+            show();
+        });
+        show();
+    })();
+
     document.querySelectorAll("button.copy").forEach(function (button) {
         button.addEventListener("click", function () {
             var text = button.getAttribute("data-copy");

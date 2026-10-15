@@ -1,7 +1,8 @@
 /* The docs' theme over mdBook 0.5.4's (ADR 0065): its variables set from site/palette.css, so the docs and the
    homepage are one site. mdBook's five themes become two: light and rust read as wisp's light, navy, coal, and
-   ayu as wisp's dark, so a theme a reader chose before is still one of ours. The theme picker is hidden; the
-   reader's system setting chooses (book.toml's default-theme and preferred-dark-theme). */
+   ayu as wisp's dark, so a theme a reader chose before is still one of ours. Dark is the default whatever the
+   system's setting (book.toml's default-theme and preferred-dark-theme are both navy), and without JavaScript.
+   mdBook's theme picker is hidden; wisp.js puts a light/dark toggle at the end of the bar in its place. */
 
 :root {
     --mono-font: var(--web-mono);
@@ -11,7 +12,7 @@
     --sidebar-target-width: 290px;
 }
 
-.light, .rust, html:not(.js) {
+.light, .rust {
     --bg: var(--web-paper);
     --fg: var(--web-ink);
     --w-strong: var(--web-blue-deep);
@@ -68,7 +69,7 @@
     --blockquote-caution-color: var(--web-ember-ink);
 }
 
-.navy, .coal, .ayu {
+.navy, .coal, .ayu, html:not(.js) {
     --bg: var(--web-night);
     --fg: var(--tui-white);
     --w-strong: var(--tui-glow);
@@ -250,6 +251,9 @@ html:not(.sidebar-visible) .menu-title { width: auto; padding-inline-end: 14px; 
 #mdbook-menu-bar .icon-button, #mdbook-menu-bar .right-buttons a { line-height: 1; padding: 8px; border-radius: 8px; color: var(--w-muted); }
 #mdbook-menu-bar .icon-button:hover, #mdbook-menu-bar .right-buttons a:hover { color: var(--w-strong); background: var(--theme-hover); }
 #mdbook-menu-bar .fa-svg { line-height: 1; padding: 0; }
+#mdbook-menu-bar .wisp-theme { display: inline-flex; background: none; border: 0; cursor: pointer; opacity: 0.7; }
+#mdbook-menu-bar .wisp-theme:hover, #mdbook-menu-bar .wisp-theme:focus-visible { opacity: 1; }
+#mdbook-menu-bar .wisp-theme svg { width: 16px; height: 16px; }
 
 /* The search button as a field, as a reader expects one to look. */
 #mdbook-search-toggle.wisp-search {

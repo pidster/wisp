@@ -4,6 +4,12 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+- The website and the docs are dark blue by default on every device, rather than following the system's light
+  or dark setting; a small sun or moon at the end of the bar switches to light and back, and the choice holds on
+  both.
+
 ## 0.26.0
 
 You can turn a model's thinking on and off from chat with `/think`, and the status line now shows it, with the

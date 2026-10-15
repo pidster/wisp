@@ -168,3 +168,23 @@ spirit over a laptop at night, set on GitHub by the owner, is the character the 
   release's docs sweep reads the homepage against them (`docs/release.md`, step 0).
 - Checked by eye on 2026-10-15 at 1440 and 390 pixels wide, in the light and dark themes, with headless Chrome:
   the homepage and the book's pages, with no horizontal scroll at phone width.
+
+## Amendment, 2026-10-15: dark by default, with a toggle
+
+**Context.** Both pages followed the reader's system setting, so the owner saw the site light on a Mac and dark
+blue on a phone. The owner chose, on 2026-10-15, dark blue as the default on every device, with a discreet way
+to choose light.
+
+**Decision.** Dark is the default whatever the system's setting. `book.toml`'s `default-theme` and
+`preferred-dark-theme` are both `navy`, and `wisp.css` draws a page without JavaScript dark; the homepage's
+`home.css` is dark unless `html` has the class `light`. mdBook's theme picker stays hidden. In its place, a small
+light/dark toggle, a sun or a moon, sits at the end of each page's bar. In the docs `wisp.js` adds it and it presses
+mdBook's own hidden theme buttons, so mdBook stores the choice and switches its code highlighting; on the homepage
+a script stores the same key, `mdbook-theme` (`light` or `navy`), which both pages read, the homepage before it
+draws. The Introduction's overview picture, whose `<picture>` chooses by the system's setting for GitHub, follows
+the page's theme on the site instead (`wisp.js`).
+
+**Consequences.** A reader who prefers light sees dark until they press the toggle, once, in either page. The
+choice lives in the browser's storage for the site, so it does not follow the reader to another browser.
+Checked with headless Chrome, whose setting is light, on 2026-10-15: both pages open dark, the toggle switches
+each to light and back, and the choice made in the docs holds on the homepage.

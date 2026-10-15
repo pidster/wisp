@@ -40,4 +40,40 @@
         });
         right.insertBefore(nav, right.firstChild);
     }
+
+    // Light or dark, dark by default (book.toml). The toggle presses mdBook's own hidden theme buttons, so mdBook
+    // stores the choice ("mdbook-theme", which the homepage reads too) and switches its highlighting with it.
+    // light and rust are wisp's light; every other theme is its dark.
+    var html = document.documentElement;
+    var isLight = function () { return html.classList.contains("light") || html.classList.contains("rust"); };
+    var svg = function (path) {
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + "</svg>";
+    };
+    var sun = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4' +
+        'M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+    var moon = svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
+    // The overview picture chooses by the system's setting; it follows the page's theme instead.
+    var darkSources = document.querySelectorAll('picture source[media*="prefers-color-scheme: dark"]');
+    var pictures = function () {
+        darkSources.forEach(function (source) { source.media = isLight() ? "not all" : "all"; });
+    };
+    if (right && document.getElementById("mdbook-theme-light") && document.getElementById("mdbook-theme-navy")) {
+        var toggle = make("button", { "class": "icon-button wisp-theme", type: "button" });
+        var show = function () {
+            var light = isLight();
+            toggle.innerHTML = light ? moon : sun;
+            toggle.title = light ? "Dark theme" : "Light theme";
+            toggle.setAttribute("aria-label", toggle.title);
+            pictures();
+        };
+        toggle.addEventListener("click", function () {
+            document.getElementById(isLight() ? "mdbook-theme-navy" : "mdbook-theme-light").click();
+        });
+        new MutationObserver(show).observe(html, { attributes: true, attributeFilter: ["class"] });
+        show();
+        right.appendChild(toggle);
+    } else {
+        pictures();
+    }
 })();
