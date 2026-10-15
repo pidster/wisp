@@ -303,7 +303,33 @@ html:not(.sidebar-visible) .menu-title { width: auto; padding-inline-end: 14px; 
 .chapter li a:hover { color: var(--w-strong); background: var(--theme-hover); text-decoration: none; }
 .chapter li a.active { color: var(--sidebar-active); font-weight: 600; background: var(--theme-hover); }
 
-/* Previous and next: quiet at the page's edges, not a column of their own. */
+/* The frame: on a screen wider than the homepage's column (1120px, home.css's .wrap), the sidebar and the page
+   sit in that column, centred, as the homepage does; the bar's ground still runs the whole width, its contents
+   inside the column. --w-gutter is the margin either side, 0 on a narrower screen. */
+
+:root { --w-frame: 1120px; --w-gutter: max(0px, (100vw - var(--w-frame)) / 2); }
+
+#mdbook-menu-bar,
+#mdbook-menu-bar.sticky,
+html.sidebar-visible #mdbook-menu-bar {
+    padding-inline-start: var(--w-gutter);
+    padding-inline-end: calc(var(--w-gutter) + 12px);
+}
+.sidebar { left: var(--w-gutter); background: var(--bg); }
+html:not(.sidebar-visible) .sidebar { visibility: hidden; }
+/* mdBook sets the page's margin on the sidebar toggle's state, so these use its selectors. */
+.page-wrapper { margin-inline-end: var(--w-gutter); }
+#mdbook-sidebar-toggle-anchor:not(:checked) ~ .page-wrapper { margin-inline-start: var(--w-gutter); }
+@media only screen and (min-width: 620px) {
+    #mdbook-sidebar-toggle-anchor:checked ~ .page-wrapper {
+        margin-inline-start: calc(var(--w-gutter) + var(--sidebar-width) + var(--sidebar-resize-indicator-width));
+    }
+}
+/* Previous and next go below the page, not at the screen's edges, which would be outside the frame. */
+.nav-wide-wrapper { display: none; }
+.nav-wrapper { display: block; }
+
+/* Previous and next: quiet, not a column of their own. */
 
 .nav-chapters { font-size: 1.6em; color: var(--w-muted); min-width: 64px; max-width: 64px; }
 .nav-chapters:hover { color: var(--w-strong); background: transparent; }

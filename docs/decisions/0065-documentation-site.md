@@ -141,7 +141,11 @@ spirit over a laptop at night, set on GitHub by the owner, is the character the 
   repository and edit icons (the print icon is hidden). `wisp.js` adds the mark, the links, and the field's label;
   without JavaScript the bar is mdBook's own and still works. On a phone the sidebar slides over the page rather than
   pushing it, bar and all, aside. A first version, which kept mdBook's centred title and floating icons, was judged
-  by the owner on 2026-10-15 to look apart from the layout. `fonts/fonts.css` is empty, so mdBook copies and loads
+  by the owner on 2026-10-15 to look apart from the layout. On a screen wider than the homepage's 1,120-pixel
+  column, the sidebar, the page, and the bar's contents sit in that column, centred, as the homepage's do, the
+  bar's ground still running the full width; previous and next go below the page, since the screen's edges are
+  outside the column. The owner preferred the homepage's fixed width to the docs' full width (2026-10-15).
+  `fonts/fonts.css` is empty, so mdBook copies and loads
   no web fonts.
 - **The system's own faces, and no third-party request from the homepage.** The pages set the system font stack
   (SF Pro and SF Mono on a Mac) and load nothing from another host; the book still loads mermaid from jsDelivr on a
