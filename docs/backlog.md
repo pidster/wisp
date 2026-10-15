@@ -155,6 +155,12 @@ Done 2026-10-14: `wisp-tui`'s outside mode, a muted red input box for a line run
 second `!` at the start in command mode and left one mode at a time with Backspace
 ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), amended 2026-10-14); its colours are a first
 proposal, open to the operator's choice from renders.
+Done 2026-10-15, in both front ends: `/think on|off|LEVEL` and the model's thinking in the status line, an item of
+`wisp-tui`'s bar ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-15); the status line's
+left half as `model (think) N% used · path vcs(branch)`, with git or Subversion found by its marker and read off the
+prompt's path ([ADR 0029](decisions/0029-tui-front-end.md), amended 2026-10-15). Planned for 0.27.0: the
+conversation as a log pane of `wisp-tui`'s own, with long outputs folded and each element reachable
+([roadmap.md](roadmap.md)).
 
 ## Documentation
 

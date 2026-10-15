@@ -1,33 +1,35 @@
 # Roadmap
 
 The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-01, have all shipped, and so have
-0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, and 0.24.1, a patch of small items, and 0.24.2, command time
-limits, on 2026-10-14. What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main/CHANGELOG.md). An approved run outside the sandbox,
-chosen by the operator on 2026-10-14, and the documentation site are built for the next release, which the operator
-has chosen to call 0.25.0 rather than a patch, 0.24.3. Each
-release carries one or two larger items and a few smaller ones; a small item sits with the larger one it touches.
-These are plans, not commitments: an item may move when its work shows it should, and the page is edited when it
-does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays in
-[backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
+0.23.1 and 0.24.0 (the inquiry verb), on 2026-10-12, 0.24.1, a patch of small items, and 0.24.2, command time
+limits, on 2026-10-14, and 0.25.0, an approved run outside the sandbox and the documentation site, on 2026-10-15.
+What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main/CHANGELOG.md). 0.26.0, the model's
+thinking set from chat and a status line that reads the version control off the prompt's path, is being released on
+2026-10-15. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
+edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
+in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.25.0 | An approved run outside the sandbox, for `brew upgrade`, `cargo install`, and `rustup update`; the documentation site | `!!COMMAND` in chat; Homebrew's `not writable` refusals read as the sandbox's |
+| 0.27.0 | `wisp-tui`'s conversation as a log pane of its own, with long outputs folded and each element reachable | Copying from the pane |
 
-## 0.25.0
+## 0.27.0
 
-- **An approved run outside the sandbox**
-  ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md), chosen by the operator on 2026-10-14):
-  `run_command`'s `outsideSandbox`, asked of the person every time for that exact line, once, behind the operator's
-  `commandPolicy.sandbox.allowOutsideSandbox`. Probed on 2026-10-14: `cargo install`, `rustup update`, and every
-  Homebrew write are refused by the sandbox, and no profile can fix Homebrew, whose own sandbox cannot nest in
-  wisp's. Amended the same day: the person runs one such command in chat as `!!COMMAND`, which `wisp-tui` shows
-  in a muted red input mode.
-- **The documentation site** ([ADR 0065](decisions/0065-documentation-site.md)): an mdBook over `docs/`, at
-  https://wisp.pidster.com, with new guides ahead of the reference.
-- Homebrew's `not writable` lines read as the sandbox's refusal, so the model is told it may ask to run the command
-  outside the sandbox ([ADR 0054](decisions/0054-the-sandboxs-refusals-checked.md), amended 2026-10-14).
+- **A foldable conversation in `wisp-tui`** (asked for by the owner on 2026-10-15; planned, not built). Today the
+  conversation is printed into the terminal's own scrollback ([ADR 0029](decisions/0029-tui-front-end.md)), where
+  nothing can fold a line once it is printed. The plan: `wisp-tui` draws the conversation itself, in a log pane
+  above the input, on the alternate screen. Output streams in as now; once an element has finished, a long tool
+  output or a stretch of thinking folds to its last lines and an info line (`▸ 248 lines · 12 KB · exit 0`).
+  Shift-Up and Shift-Down leave the input and step through the elements (prompts, commands, tool calls, thinking,
+  replies); Shift-Right unfolds the one selected and Shift-Left folds it; the pane scrolls on its own keys; Esc or
+  typing returns to the input. Whole outputs come from wisp a page at a time, as the expanded view's do (ADR 0050).
+  The cost, which a new ADR records: the terminal's own scrollback, search, and selection no longer hold the
+  conversation, so the pane scrolls and copies itself, and on quitting the conversation leaves the screen (the
+  transcript and the audit log keep it). Built in stages: the pane and its scrolling; folding; navigation and
+  unfolding; copying. The alternative kept in view: the same navigation and folding inside the Ctrl-O panel,
+  leaving the scrollback as it is.
 
 ## Not scheduled
 

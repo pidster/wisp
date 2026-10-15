@@ -725,7 +725,10 @@ what the tool returned, under a header saying which and why. On a terminal `Term
 at a time as a `view` of kind `output` (`ChatProtocol.outputView`), which `wisp-tui`'s Ctrl-O view loads as it
 scrolls ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), "The person's views");
 `ChatView` carries a view shown whole (`/inspect context next`, `N`, `turns`),
-which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt; `Style` applies colour only on a
+which the plain chat prints and `--json` sends as a `view` line through `ChatLoop.IO.view`; `ChatStatus` draws the status line above each prompt, its place from `VersionControl` (git or Subversion, found by
+its marker), which `VersionControlWatch` reads on a thread of its own after each prompt is drawn, so a slow read never
+holds one up, and `--json` sends a changed answer as a `vcs` line ([ADR 0029](decisions/0029-tui-front-end.md),
+amended 2026-10-15); `Style` applies colour only on a
 terminal. `TextTable` pads chat output such as `/models` and `/stats` into columns, because tabs drift
 in a terminal and in the TUI. `TerminalTable` and `ListingLayout` lay out `wisp tools`, `models`, and
 `approvals` like `wisp --help` when standard output is a terminal, wrapped to its width, and keep the
@@ -800,7 +803,8 @@ a 200 ms command watchdog never fired during a 30 s command.
   task executor of its own, a serial dispatch queue with a thread of its own, so a blocked caller waits only for
   the operation's own work. The caller still holds its pool thread while it waits, so a bridged operation stays
   local and short (a tags request against a configured timeout, a model compile), never generation. Other
-  blocking waits in async code are bounded to seconds (`ChatStatus`'s git, the notifier's `osascript`), or are
+  blocking waits in async code are bounded to seconds (`VersionControl`'s commands, on a thread of their own, the
+  notifier's `osascript`), or are
   the chat's read of the person's next line, one thread for the one chat a process runs.
 - **A bound that must hold is not a `Task.sleep`.** The command watchdog and its SIGKILL grace, the person's stop
   grace, the deadline in `Timeout.run` (an approval's wait, the model checks' probes), and the delay before an

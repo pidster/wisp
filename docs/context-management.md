@@ -277,7 +277,7 @@ rule's shape gives no fact, so there are few, and they are right:
 | `edit_file` | `file`, by path: the tool's line saying what changed, or that it failed |
 | `system_info` | `service` per listening port (`ports`); `machine` per other topic, its first line |
 
-Chat also records the directory it starts in and its git branch as `workdir` and `branch` facts from
+Chat also records the directory it starts in and its branch (git or Subversion) as `workdir` and `branch` facts from
 `chat` (again after `/new`).
 
 **Distilled when turns leave the window** (D1). Before a condensation drops turns, the conversation's own

@@ -50,8 +50,10 @@ wisp models                                               # ollama:granite4.2:8b
 wisp --model ollama:granite4.2:8b "What is today's date?"
 ```
 
-`think false` holds for this one model wherever it is used; other Ollama models keep their own setting. An MCP
-thread can choose instead, with `"think": false` (or `true`) on the `respond` call that starts it.
+`think false` holds for this one model wherever it is used; other Ollama models keep their own setting. In chat,
+`/think off` (or `on`, or for Ollama a level, `low` to `max`) saves the same setting for the model in use and applies
+it from the next turn; the status line shows it after the model, as `ollama:granite4.2:8b (off)`. An MCP thread can
+choose instead, with `"think": false` (or `true`) on the `respond` call that starts it.
 
 ## The shortest path: Ollama
 
@@ -69,7 +71,7 @@ wisp --model ollama:granite4.1:8b "What is listening on port 8080?"
 | --- | --- |
 | One command | `wisp --model ollama:granite4.1:8b "…"` |
 | Every session from now on | `wisp config set model ollama:granite4.1:8b`; `wisp doctor` then checks it is available |
-| In chat | `/model ollama:granite4.1:8b`, mid-conversation; `/models` lists what this Mac can run |
+| In chat | `/model ollama:granite4.1:8b`, mid-conversation; `/models` lists what this Mac can run; `/think on\|off` sets a thinking model's thinking |
 | An MCP thread | `"model": "ollama:granite4.1:8b"` on the `respond` call that starts it |
 
 If chat's configured model is unavailable as it starts (Ollama not running, say), chat starts on `system` and
