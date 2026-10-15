@@ -1,5 +1,5 @@
 // The docs' bar as the site's own (ADR 0065), with wisp.css: the menu bar's title becomes the mark and name, linked
-// home, with "Docs" beside it; the search button reads as a search field; and the homepage's links join the icons
+// home, with "docs" beside it; the search button reads as a search field; and the homepage's links join the icons
 // on the right. mdBook renders none of this; without JavaScript the bar is mdBook's own, still working.
 // path_to_root is the book's root, set by mdBook on every page; the homepage is one level above it.
 (function () {
@@ -19,7 +19,7 @@
         var icon = document.querySelector('link[rel="icon"][href$=".svg"]');
         if (icon) home.appendChild(make("img", { src: icon.href, alt: "", width: "24", height: "24" }));
         home.appendChild(make("span", {}, "wisp"));
-        var docs = make("a", { "class": "wisp-section", href: path_to_root + "index.html" }, "Docs");
+        var docs = make("a", { "class": "wisp-section", href: path_to_root + "index.html" }, "docs");
         title.textContent = "";
         title.appendChild(home);
         title.appendChild(docs);
