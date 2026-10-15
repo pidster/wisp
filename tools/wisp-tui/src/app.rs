@@ -103,6 +103,8 @@ pub enum LineKind {
     Command,
     /// A command the user ran outside the sandbox, echoed with its `!!` (ADR 0064, amended 2026-10-14).
     Outside,
+    /// A request for the help from help mode, echoed with its `?`.
+    Help,
     /// The model's reply, in the little Markdown `markdown::spans` renders.
     Reply,
     /// A line inside a fenced block of a reply, shown as it is.
@@ -1809,13 +1811,19 @@ impl App {
         Action::Send(Inbound::Message { text })
     }
 
-    /// Enter in help mode: echoes and sends `?` with what was typed, and returns the box to normal.
+    /// Enter in help mode: echoes `?` and what was typed on the help colour's darker shade, sends them, and returns
+    /// the box to normal.
     fn send_help(&mut self, typed: &str) -> Action {
         let text = format!("?{typed}");
         self.editor.take();
         self.mode = InputMode::Normal;
         self.suggestions = None;
-        self.push(&format!("› {text}"), LineKind::User);
+        let echo = if typed.is_empty() {
+            "?".to_string()
+        } else {
+            format!("? {typed}")
+        };
+        self.push(&echo, LineKind::Help);
         self.slash_sent = true;
         if self.recall.last() != Some(&text) {
             self.recall.push(text.clone());
@@ -4818,6 +4826,14 @@ mod tests {
             })
         );
         assert!(app.slash_sent);
+        // Each is echoed as `?` and the word, apart, on the help line.
+        let echoed: Vec<_> = app
+            .take_pending()
+            .into_iter()
+            .filter(|line| line.kind == LineKind::Help)
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(echoed, ["?", "? think"]);
         // Recalled, it comes back in help mode.
         app.busy = false;
         app.recall_previous();

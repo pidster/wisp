@@ -166,7 +166,8 @@ Help mode is `?` typed at the start of the line in the normal box: the `?` is th
 the ones that mention it`. Enter on an empty box shows `/help`; a word, `think`, sends `?think`, which shows only the
 commands and keys whose lines mention it, in any case. A `!` in help mode is text, and Backspace at the start of the
 line (Delete in an empty box) returns to the normal box. A `?` after other text is text, so a question can end with
-one. Up and Down bring `?think` back in help mode.
+one. Its scrollback line is `? think` (or `?` alone) on the help colour's darker shade, a dark grey (`helpSent`,
+#4D5254). Up and Down bring `?think` back in help mode.
 
 While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
 place of the cursor, `… working: read_file README.md` or `… working: waiting for the model`; for a command you

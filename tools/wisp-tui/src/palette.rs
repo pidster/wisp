@@ -42,6 +42,9 @@ pub const OUTSIDE_SENT: Color = Color::Rgb(0x69, 0x38, 0x34);
 /// Help mode: the input box's background while `?` is typed, a neutral grey, so asking for help reads as neither
 /// a message nor a command. wisp-tui's alone, as `DEEP` is.
 pub const HELP: Color = Color::Rgb(0x9A, 0xA3, 0xA9);
+/// A help request's line in the scrollback: `HELP` at half its brightness, a dark grey, as `COMMAND_SENT` is of
+/// `COMMAND`.
+pub const HELP_SENT: Color = Color::Rgb(0x4D, 0x52, 0x54);
 /// The text on `COMMAND`, on `OUTSIDE`, and on `HELP`.
 pub const BLACK: Color = Color::Rgb(0x00, 0x00, 0x00);
 
@@ -176,6 +179,14 @@ pub fn help_background() -> Style {
 /// The half-block strips above and below the input in help mode.
 pub fn help_edge() -> Style {
     Style::default().fg(HELP)
+}
+/// A help request's line's background in the scrollback.
+pub fn help_sent_background() -> Style {
+    Style::default().bg(HELP_SENT)
+}
+/// The half-block strips above and below a help request's line.
+pub fn help_sent_edge() -> Style {
+    Style::default().fg(HELP_SENT)
 }
 /// The input while a turn runs: dimmed, so it reads as inactive.
 pub fn busy() -> Style {
