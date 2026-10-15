@@ -4,7 +4,10 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.25.0
+
+A command the sandbox refuses, such as `brew upgrade`, can now run outside it when you approve that one run, or
+when you type it yourself after `!!`; and wisp has a website, https://wisp.pidster.com, with guides and the docs.
 
 Added:
 
