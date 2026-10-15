@@ -119,6 +119,8 @@ plain terminal chat, and `wisp chat --json`, which maps it onto JSON Lines (`Cha
 - **Audit new behaviour.** New event kinds go in `AuditEvent.Kind` and `docs/logging.md`.
 - **Commits** are small and single-purpose; subject says what, body says why. Do not pass an explicit
   `user.email` to git; the configured noreply identity is required for pushes.
+- **Releases** end with the docs site: once `scripts/release` is done, check that the `Docs` workflow deployed the
+  bump commit and the site's changelog shows the version (`docs/release.md`, step 7).
 - **Releases** run the full test suite and `scripts/check coverage-gate` in preflight. Line coverage
   must not fall below `harness/coverage-baseline`; after adding tests, record the new figure with
   `scripts/check coverage-baseline` and commit it (`docs/release.md`).

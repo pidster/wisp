@@ -90,6 +90,12 @@ every local step and prints the remote ones instead of executing them.
    `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library
    and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
 6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`.
+7. Docs site: check that the site at https://wisp.pidster.com carries the release. The `Docs` workflow
+   (`.github/workflows/docs.yml`, [ADR 0065](decisions/0065-documentation-site.md)) deploys it on every push to `main`
+   that touches `docs/`, `site/`, `book.toml`, or `CHANGELOG.md`, so the version bump's push, which renames the
+   changelog's section, starts it. `gh run list --workflow docs.yml --limit 3` shows that run; wait for it to succeed,
+   then open https://wisp.pidster.com/docs/changelog.html and see the `## X.Y.Z` section. If no run started, or it
+   failed, start one with `gh workflow run docs.yml` and check again. The script does not do this step.
 
 Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.
 
