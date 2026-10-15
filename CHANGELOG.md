@@ -4,7 +4,10 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.26.0
+
+You can turn a model's thinking on and off from chat with `/think`, and the status line now shows it, with the
+version control your directory is under, git or Subversion, read without ever holding up the prompt.
 
 - `/think on|off|LEVEL` in chat turns the model's thinking on or off, or sets Ollama's level, for the conversation
   at once and as the model's saved default. The status line shows it after the model, `(off)`, for a model that
