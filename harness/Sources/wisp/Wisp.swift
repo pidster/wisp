@@ -445,7 +445,7 @@ struct Chat: AsyncParsableCommand {
                     else { return }
                     Self.onScreen { FileHandle.standardError.write(Data(marker.utf8)) }
                 },
-                showOutput: Self.pagerShow()))
+                showOutput: Self.pagerShow(), separatesParts: true))
         let ticker =
             isatty(FileHandle.standardError.fileDescriptor) != 0 ? Self.showWorking(activity, style: style) : nil
         defer { ticker?.cancel() }

@@ -135,7 +135,10 @@ A line you send goes into the scrollback styled like the input it came from, a s
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
 The turn that answers it is in parts, each set apart from the one before by a blank line: a stretch of thinking
 (`∴`), each tool call (`⚙`, with its `↳` result and output), the reply, and the `ran:` line under it with the notes
-that follow. The first part sits straight under your line, whose strip already sets it apart.
+that follow. The first part sits straight under your line, whose strip already sets it apart. The plain chat spaces
+a turn the same way: the first part under the line you typed, a blank line before each later tool call or stretch of
+thinking, before the reply, and before the footer (what the turn ran, its time, and its tokens). `wisp chat --json`
+sends no blank lines; a front end lays out its own.
 
 Command mode is a state of `wisp-tui`'s input box ([ADR 0049](decisions/0049-commands-typed-in-chat.md)).
 Typing `!` at the start of the line, into an empty box or in front of what you have typed, switches it to

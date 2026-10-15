@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 
 /// The edges of one turn: a message to the model and everything it does to answer it.
 public enum ChatTurn: Equatable, Sendable {
@@ -119,6 +120,9 @@ public struct ChatLoop {
         /// its pager when standard output is a terminal, a front end in its expanded view (ADR 0050). Returns false
         /// when it did not, and the loop notes the header and prints the text; nil always prints.
         public var showOutput: ((ChatOutput) -> Bool)?
+        /// Whether the loop sets each part of a turn apart with a blank line (`TurnParts`): the plain terminal chat's.
+        /// A front end lays out its own scrollback, so `wisp chat --json` leaves it false.
+        public var separatesParts: Bool
 
         /// Creates an IO.
         public init(
@@ -126,8 +130,9 @@ public struct ChatLoop {
             note: @escaping @Sendable (String) -> Void, prompt: @escaping (ChatStatus) -> Void,
             turn: @escaping (ChatTurn) -> Void = { _ in }, choose: ((ChatChoice) async -> String?)? = nil,
             view: ((ChatView) -> Void)? = nil, command: @escaping (String) -> Void = { _ in },
-            showOutput: ((ChatOutput) -> Bool)? = nil
+            showOutput: ((ChatOutput) -> Bool)? = nil, separatesParts: Bool = false
         ) {
+            self.separatesParts = separatesParts
             self.showOutput = showOutput
             self.choose = choose
             self.view = view
@@ -250,6 +255,8 @@ public struct ChatLoop {
     var thinkChoices: [String: OllamaThink] = [:]
     /// The directory's version control, read off the prompt's path.
     let vcsWatch: VersionControlWatch
+    /// Which part of the turn on screen came last, for the blank line between parts (`IO.separatesParts`).
+    let parts = TurnParts()
     let context: Context
     let io: IO
 
@@ -278,9 +285,13 @@ public struct ChatLoop {
         let note = io.note
         let activity = context.activity
         let shown = context.shownOutputLines
+        let parts = io.separatesParts ? parts : nil
         tap.onEvent { event in
             activity?.apply(event)
-            if let line = ChatEvents.render(event, style: style) { note(line) }
+            if let line = ChatEvents.render(event, style: style) {
+                if parts?.enter(.tool, starting: ChatEvents.startsPart(event)) == true { note("") }
+                note(line)
+            }
             if let output = ChatEvents.shownOutput(event, lines: shown, style: style) { note(output) }
         }
         // A note for this conversation, such as a background pull's end (ADR 0059), is shown as it arrives; the model
@@ -469,6 +480,7 @@ public struct ChatLoop {
                 let started = Date()
                 let before = agent.tokensUsed
                 io.turn(.start(turn: number))
+                parts.reset()
                 // Ctrl-C stops the turn: its request, and a command the model started (ADR 0049, amended 2026-10-11).
                 let stop = TurnStop()
                 let activity = context.activity
@@ -477,7 +489,10 @@ public struct ChatLoop {
                 var failed = false
                 var reply: Agent.Reply?
                 do {
-                    reply = try await agent.stream(text, stop: context.interrupt == nil ? nil : stop) { io.write($0) }
+                    reply = try await agent.stream(text, stop: context.interrupt == nil ? nil : stop) { delta in
+                        if io.separatesParts, parts.enter(.reply, starting: true) { io.note("") }
+                        io.write(delta)
+                    }
                     io.print("")
                 } catch TurnStop.Failure.stopped {
                     failed = true
@@ -490,6 +505,7 @@ public struct ChatLoop {
                 }
                 context.interrupt?.disarmTurn()
                 context.activity?.end()
+                if io.separatesParts, parts.enter(.footer, starting: true) { io.note("") }
                 io.turn(
                     .end(
                         turn: number, seconds: Date().timeIntervalSince(started), failed: failed,
@@ -617,5 +633,44 @@ public struct ChatLoop {
         let outside = line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("!!")
         let marker = outside ? style.outside("›") : style.command("›")
         return "\u{1B}[\(rows)A\r" + marker + "\u{1B}[\(rows)B\r"
+    }
+}
+
+/// The parts of a turn as the plain chat shows them, so it can set each apart from the one before with a blank line:
+/// a stretch of thinking or a tool call with its result and output, the reply, and the footer with `ran:`. Nothing
+/// comes before the first part after the prompt, the line typed already sets it apart. Tool events arrive from the tool
+/// loop, so the state is behind a lock.
+final class TurnParts: Sendable {
+    /// A part of a turn.
+    enum Part: Equatable, Sendable {
+        /// Thinking, or a tool call with what follows it.
+        case tool
+        /// The model's reply.
+        case reply
+        /// The turn's footer: what it ran, its time, and its tokens.
+        case footer
+    }
+
+    /// The part shown last since the prompt, nil before any.
+    private let current = Mutex<Part?>(nil)
+
+    /// Forgets the parts shown, as a new turn starts.
+    func reset() { current.withLock { $0 = nil } }
+
+    /// Notes that a line of `part` is about to be shown, and says whether a blank line goes before it: when the line
+    /// is `starting` a part, something was shown since the prompt, and the line begins another part than the last,
+    /// or another tool call or stretch of thinking.
+    ///
+    /// - Parameters:
+    ///   - part: The part the line belongs to.
+    ///   - starting: Whether the line begins a part (`⚙`, `∴`, the reply's first text, the footer) rather than
+    ///     continuing one (`↳`, an output's lines).
+    /// - Returns: Whether to show a blank line first.
+    func enter(_ part: Part, starting: Bool) -> Bool {
+        current.withLock { current in
+            defer { current = part }
+            guard let previous = current, starting else { return false }
+            return part == .tool || part != previous
+        }
     }
 }

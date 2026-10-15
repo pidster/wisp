@@ -198,4 +198,62 @@ import WispTestSupport
         // second ran none and names none.
         #expect(ends == ["ran: read_file (1 failed) · run_command (1 denied)", nil])
     }
+
+    @Test func thePlainChatSetsEachPartOfATurnApartWithABlankLine() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-turn-parts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let home = Home(root: dir.appending(path: "home"))
+        try home.ensure()
+        let session = try Session.begin(
+            .init(entryPoint: .chat), home: home, dependencies: .testing(sink: MemoryAuditSink()))
+        let tap = ChatEvents.Tap()
+        let thread = try WispThread.setUp(
+            session: session, audit: session.audit,
+            host: session.host(approver: DenyingApprover(reason: "not in tests")),
+            prompting: session.prompting, toolNames: ["read_file"], model: .system, observer: tap)
+        let missing = dir.appending(path: "missing.txt").path
+        let model = ScriptedModel(steps: [
+            .call(name: "read_file", arguments: #"{"path":"\#(missing)"}"#),
+            .call(name: "read_file", arguments: #"{"path":"\#(missing)"}"#),
+            .say("Neither file is there."),
+        ])
+        let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
+        // Every channel into one list, in the order shown, each line tagged by what it is.
+        let shown = Mutex<[String]>([])
+        let lines = Mutex(["look", "/quit"])
+        let io = ChatLoop.IO(
+            readLine: { lines.withLock { $0.isEmpty ? nil : $0.removeFirst() } },
+            print: { _ in },
+            write: { _ in shown.withLock { if $0.last != "reply" { $0.append("reply") } } },
+            note: { text in
+                shown.withLock { list in
+                    if text.isEmpty {
+                        list.append("blank")
+                    } else if text.hasPrefix("⚙") {
+                        list.append("call")
+                    } else if text.contains("↳") {
+                        list.append("result")
+                    }
+                }
+            },
+            prompt: { _ in },
+            turn: { mark in if case .end = mark { shown.withLock { $0.append("footer") } } },
+            separatesParts: true)
+        var loop = ChatLoop(
+            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap,
+            context: ChatLoopTests.context, io: io)
+        try await loop.run()
+        // The first part sits under the typed line; each later one, the reply, and the footer follow a blank line.
+        #expect(
+            shown.withLock { $0 } == ["call", "result", "blank", "call", "result", "blank", "reply", "blank", "footer"])
+        // The rule on its own: no blank line before the first part, nor inside one; one before each later part.
+        let parts = TurnParts()
+        #expect(!parts.enter(.tool, starting: true))
+        #expect(!parts.enter(.tool, starting: false))
+        #expect(parts.enter(.tool, starting: true) && parts.enter(.reply, starting: true))
+        #expect(!parts.enter(.reply, starting: true) && parts.enter(.footer, starting: true))
+        parts.reset()
+        #expect(!parts.enter(.reply, starting: true))
+    }
 }

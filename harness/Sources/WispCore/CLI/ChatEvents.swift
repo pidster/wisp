@@ -4,6 +4,16 @@ import Synchronization
 /// Shows the model's tool activity in chat as it happens: one dim line per call and result, drawn
 /// from the same audit events the log records, so what the user sees is what was audited.
 public enum ChatEvents {
+    /// Whether `event`'s line begins a part of a turn, set apart from the one before in the plain chat (`TurnParts`):
+    /// a tool call (`⚙`) or the end of a stretch of thinking (`∴`).
+    static func startsPart(_ event: AuditEvent) -> Bool {
+        switch event.kind {
+        case .toolCall: true
+        case .modelReasoning: event.details["phase"]?.stringValue == "end"
+        default: false
+        }
+    }
+
     /// The line for `event`, or nil for an event chat does not show.
     public static func render(_ event: AuditEvent, style: Style) -> String? {
         let d = event.details
