@@ -68,9 +68,9 @@
 <section class="session" aria-labelledby="session-title">
     <div class="wrap">
         <h2 id="session-title" class="visually-hidden">A conversation in wisp-tui</h2>
-        <div class="terminal" role="img" aria-label="A wisp-tui session. The person asks what changed since the last release; the model runs git log, which needed no approval, and answers. Then it asks to push, and wisp asks the person first, rating the command moderate.">
+        <div class="terminal" role="img" aria-label="A wisp-tui session. The person asks what changed since the last release; the model runs git log, which needed no approval, and answers. Then the person asks it to commit those changes and push: the commit was approved for this turn and ran, and for the push wisp asks the person, rating the command moderate.">
             <div class="term-top" aria-hidden="true"><i></i><i></i><i></i><span>wisp chat</span></div>
-<pre class="term-body" aria-hidden="true"><span class="t-user">› what changed since the last release? then push it</span>
+<pre class="term-body" aria-hidden="true"><span class="t-user">› what changed since the last release?</span>
 <span class="t-tool">⚙ run_command git log --oneline v0.24.2..HEAD</span>
 <span class="t-tool">  ↳ ok</span>
 <span class="t-out">    a7347f5 Bring the docs up to date for 0.25.0</span>
@@ -80,6 +80,12 @@
 <span class="t-body">one yourself, Homebrew's refusals are recognised, and the docs are a site.</span>
 <span class="t-note">ran: run_command</span>
 
+<span class="t-user">› commit those changes and then push</span>
+<span class="t-tool">⚙ run_command git commit -am "Widen the granite4.2 example"</span>
+<span class="t-note">⚠ approved for this turn: git commit -am "Widen the granite4.2 example"</span>
+<span class="t-tool">  ↳ ok</span>
+<span class="t-out">    [main 2b7c1e9] Widen the granite4.2 example</span>
+<span class="t-tool">⚙ run_command git push origin main</span>
 <span class="t-amber">╭ approve · moderate ───────────────────────────────────────╮</span>
 <span class="t-amber">│</span> <span class="t-user">git push origin main</span>                                      <span class="t-amber">│</span>
 <span class="t-amber">│</span> <span class="t-note">in ~/src/wisp</span>                                             <span class="t-amber">│</span>
@@ -88,7 +94,7 @@
 <span class="t-amber">│</span> <span class="t-body">[y]once [s]ession [p]roject 30d [a]lways 30d [n]o</span>         <span class="t-amber">│</span>
 <span class="t-amber">╰───────────────────────────────────────────────────────────╯</span>
 <span class="t-input"><span class="t-prompt">›</span>                                                            </span>
-<span class="t-status"><span class="t-wisp">system</span><span class="t-note">:12% used · ~/src/wisp:</span><span class="t-glow">main</span>              <span class="t-note">approve at moderate</span></span></pre>
+<span class="t-status"><span><span class="t-wisp">system</span><span class="t-note">:12% used · ~/src/wisp:</span><span class="t-glow">main</span></span><span class="t-note">approve at moderate</span></span></pre>
         </div>
         <p class="caption">What a conversation looks like in <code>wisp-tui</code>, the terminal front end. A reading command runs
             at once; a push waits for you, and your answer has a scope you choose.</p>
