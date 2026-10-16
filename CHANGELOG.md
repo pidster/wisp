@@ -4,6 +4,12 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+- `scripts/check eval` runs its suites one after another: in parallel they took no less time on the on-device
+  model and scored lower under the load. Each floor line now gives this run's rate, the expected count and its rate,
+  and the floor.
+
 ## 0.26.3
 
 The plain chat sets each part of a turn apart with a blank line, as `wisp-tui` does, and four fixes to MCP threads,

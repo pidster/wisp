@@ -125,11 +125,31 @@ enum EvalModels {
         }
         let floor = EvalFloor.minimum(cases: total, rate: rate.value)
         print(
-            "floor eval: \(suite) on \(selection): \(passed)/\(total) against a floor of \(floor) "
-                + "(\(rate.passed)/\(rate.total) historically\(floorsApply(to: selection) ? "" : ", not asserted"))")
+            "floor eval: \(suite) on \(selection): \(floorLine(passed: passed, total: total, rate: rate, floor: floor))"
+                + (floorsApply(to: selection) ? "" : "; not asserted"))
         if floorsApply(to: selection) {
             #expect(passed >= floor, "\(suite) on \(selection) passed \(passed)/\(total), below its floor of \(floor)")
         }
+    }
+
+    /// A floor's result in words: this run's count and rate, what the suite's history makes of a run this size, where
+    /// that history comes from, and the floor, such as `12/24 (50%) this run; about 17/24 (72%) expected, the rate
+    /// over 258 earlier cases (185 passed); floor 12`. The history pools every recorded run, whole sets and the release's
+    /// subsets alike, so its count of cases is not this run's.
+    ///
+    /// - Parameters:
+    ///   - passed: Cases passed.
+    ///   - total: Cases run.
+    ///   - rate: The suite's historical pass rate.
+    ///   - floor: The fewest passes the run needs.
+    /// - Returns: The line, without its `floor eval: <suite> on <model>:` prefix.
+    static func floorLine(passed: Int, total: Int, rate: EvalFloor.Rate, floor: Int) -> String {
+        let percent = { (part: Double) in "\(Int((part * 100).rounded()))%" }
+        let observed = total > 0 ? Double(passed) / Double(total) : 0
+        let expected = Int((rate.value * Double(total)).rounded())
+        return
+            "\(passed)/\(total) (\(percent(observed))) this run; about \(expected)/\(total) (\(percent(rate.value))) "
+            + "expected, the rate over \(rate.total) earlier cases (\(rate.passed) passed); floor \(floor)"
     }
 
     /// The models `WISP_EVAL_MODELS` names, or nil when it is unset.

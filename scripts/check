@@ -228,12 +228,14 @@ eval_() {
     record=""
     compare=""
     checkpoint=""
-    scope="--skip ContextEvalTests"
+    # The suites one after another: the on-device model serves one request at a time, so running them in parallel
+    # saves almost nothing and its load lowered the scores (docs/measurements.md, 2026-10-16).
+    scope="--no-parallel --skip ContextEvalTests"
     label="every suite but the context eval"
     for arg in "$@"; do
         case "$arg" in
             record) record="$ROOT/harness/Sources/WispCore/Resources/measurements.json" ;;
-            context) scope="--filter ContextEvalTests"; label="the context eval only" ;;
+            context) scope="--no-parallel --filter ContextEvalTests"; label="the context eval only" ;;
             compare) compare=1 ;;
             checkpoint)
                 checkpoint="${WISP_CHECKPOINT:-all}"

@@ -51,8 +51,8 @@ scripts/check eval record
 
 runs the evaluations (the `ModelEvalTests` target of the `harness/Evals` package) on the configured model with `WISP_EVAL_RECORD` pointing at
 `harness/Sources/WispCore/Resources/measurements.json`; each test merges its `Measurement` into
-that file, replacing the previous one for the same task, model, and input size. The suites run in parallel, so the
-merge holds a lock for the process and an advisory `flock` on the file's directory for other processes, and replaces
+that file, replacing the previous one for the same task, model, and input size. The suites run one after another
+since 0.26.4, but tests within a suite and other processes can still merge at once, so the merge holds a lock for the process and an advisory `flock` on the file's directory for other processes, and replaces
 the file atomically: every suite's measurement lands, which a plain `eval record` could not promise before 0.21.1
 (two merges could interleave and one be lost). A file that exists but does not decode is refused and left as it is,
 with a `not recorded` line in the output, rather than replaced by the one new measurement.
@@ -194,9 +194,12 @@ WISP_EVAL_FULL=1 scripts/check eval record
 Run the whole sets to record measurements, after a change to `edit_file`, `system_info`, `draft_change`, or the
 system prompt, and when a subset's result is close to its floor.
 
-The 128-minute figure assumed the suites ran one after another. They do not: the suites run in parallel, and the
-first full run, `WISP_EVAL_FULL=1 scripts/check eval record` on the on-device model on 2026-10-12 (11:02 to 11:43, at
-commit `7c93dcc`), took 41 minutes for everything, the classifier and chat suites included.
+The 128-minute figure assumed the suites ran one after another. Until 0.26.4 they ran in parallel, and the first full
+run, `WISP_EVAL_FULL=1 scripts/check eval record` on the on-device model on 2026-10-12 (11:02 to 11:43, at commit
+`7c93dcc`), took 41 minutes for everything, the classifier and chat suites included. Since 0.26.4 `scripts/check eval`
+runs them one after another (`--no-parallel`): the on-device model answers one request at a time, so the serial
+release run took 29 minutes against about 28 in parallel, and parallel load had been lowering the scores
+([below](#system_info-under-parallel-load-2026-10-16)).
 
 ### `system_info` on its floor, 2026-10-13
 
@@ -210,6 +213,28 @@ Lined up, every run on the 54-case set, full or subset, scored about 0.72 (185/2
 16-case set scored higher: the rate was set too high by pooling the two sets, not lowered by a change in the model.
 The rate was re-set from the new set alone ([The floors](#the-floors)): floors of 31 of 54 and 12 of 24. No
 measurement was recorded from these runs.
+
+### `system_info` under parallel load, 2026-10-16
+
+0.26.3's release eval passed `system_info` at its floor again, 12 of 24. The release runs since the floors were re-set
+had fallen run by run: 20, 20, 18, 14, 13, and 12 of 24 (13 to 16 October), and from 15 October between 2 and 6 cases
+of a run called `memory`, where the earlier runs had none. Four runs
+on the same Mac, each by itself, told load from a change in the code or the model:
+
+| Run | `system_info` | Cases calling `memory` |
+| --- | --- | --- |
+| The whole set, 54 cases, at 0.26.3's code | 38/54 | 0 |
+| The whole set, 54 cases, at 0.24.2 | 38/54 | 0 |
+| The release's subset, `system_info` alone, three times | 17, 18, 18 of 24 | 0 |
+| The release's eval, every suite one after another | 17/24 | 0 |
+
+The two versions scored the same, so the code did not cause it, and every run made alone scored at the rate, about
+17 of 24 (0.72). In the serial run the other suites scored at their rates too: `edit_file` 25 of 36 (22 in the
+parallel run of the same day), whitespace 7 of 8 (5), small drafts 11 of 12 (10). The serial run took 29 minutes,
+about what the parallel one took, since the on-device model answers one request at a time; the suites' requests were
+queued on it, and under that load it scored lower. `scripts/check eval` runs the suites one after another from
+0.26.4. Its one failure was `summarise_diff`'s exact case, five of six files summarised, which had passed in every
+earlier logged run. No measurement was recorded from these runs.
 
 ### The full run of 2026-10-12
 
@@ -248,8 +273,8 @@ on-device model's place), and one context scenario. Add `record` to merge the me
 - **One model at a time.** `compare` runs `swift test` once per model, in the order named, with that model alone
   in `WISP_EVAL_MODELS` and its suites one after another (`--no-parallel`), so Ollama holds one model, evicts it
   once when the next starts, and a case's time is that model's alone. Setting `WISP_EVAL_MODELS` on a plain
-  `scripts/check eval` also measures every named model, but its suites run in parallel, each looping over the
-  models, so a local runtime switches between them and the times include the queue: use it for two or three
+  `scripts/check eval` also measures every named model, but each suite loops over the
+  models, so a local runtime switches between them and loads each model once a suite: use it for two or three
   quick models, `compare` for a comparison.
 - **The context scenario** (`ContextEvalTests/comparisonOnEachModel`, which runs only when
   `WISP_EVAL_MODELS` is set): the baseline, the shortest scenario (14 turns, then six questions), through the
