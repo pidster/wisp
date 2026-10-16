@@ -5,7 +5,7 @@ The releases planned from 0.16.0 to 0.23.0, agreed with the operator on 2026-10-
 limits, on 2026-10-14, and 0.25.0, an approved run outside the sandbox and the documentation site, on 2026-10-15.
 What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main/CHANGELOG.md). 0.26.0, the model's
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
-2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, on 2026-10-15 and 2026-10-16. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a

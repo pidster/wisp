@@ -94,7 +94,8 @@ every local step and prints the remote ones instead of executing them.
    (`.github/workflows/docs.yml`, [ADR 0065](decisions/0065-documentation-site.md)) deploys it on every push to `main`
    that touches `docs/`, `site/`, `book.toml`, or `CHANGELOG.md`, so the version bump's push, which renames the
    changelog's section, starts it. `gh run list --workflow docs.yml --limit 3` shows that run; wait for it to succeed,
-   then open https://wisp.pidster.com/docs/changelog.html and see the `## X.Y.Z` section. If no run started, or it
+   then open https://wisp.pidster.com/docs/changelog.html and see the `## X.Y.Z` section, and the homepage's "Latest
+   release" line, which the build fills from that section and the bump commit's date. If no run started, or it
    failed, start one with `gh workflow run docs.yml` and check again. The script does not do this step.
 
 Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.

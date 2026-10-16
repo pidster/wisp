@@ -111,6 +111,11 @@ html:not(.js) .theme-toggle { display: none; }
 .lede { font-size: 1.12rem; color: var(--muted); max-width: 56ch; margin: 0 0 1.8rem; }
 .needs { color: var(--muted); font-size: 0.88rem; margin: 1.2rem 0 0; }
 .needs strong { color: var(--strong); font-weight: 600; }
+.release { font-size: 0.88rem; margin: 1.4rem 0 0; font-variant-numeric: tabular-nums; }
+.release a { color: var(--muted); text-decoration: none; }
+.release a:hover, .release a:focus-visible { color: var(--accent); text-decoration: underline; }
+.release strong { color: var(--attention); font-weight: 600; }
+.release + .needs { margin-top: 0.35rem; }
 
 .hero-art { margin: 0; position: relative; order: -1; }
 @media (min-width: 900px) { .hero-art { order: 0; margin-right: -80px; } }

@@ -34,6 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The whole history, so the homepage can date its latest release by the commit that added it.
+          fetch-depth: 0
       - name: Install mdBook
         run: |
           set -eu
