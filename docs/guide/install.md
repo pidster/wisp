@@ -7,7 +7,7 @@ This guide takes you from nothing to a first answer, a first approval, and a con
 
 | Requirement | Why |
 | --- | --- |
-| An Apple silicon Mac on macOS 27 or later | wisp is built on the Foundation Models framework of macOS 27 ([ADR 0002](../decisions/0002-macos-27-baseline.md)); the on-device model needs Apple silicon |
+| An Apple silicon Mac on **macOS 27** or later; M4 or above is recommended | wisp is built on the Foundation Models framework of macOS 27 ([ADR 0002](../decisions/0002-macos-27-baseline.md)); the on-device model needs Apple silicon |
 | Apple Intelligence turned on in System Settings, and its model downloaded | The default model is Apple's on-device model; until it is ready, wisp has no model to run unless you add one of your own ([Local models](local-models.md)) |
 | Homebrew | wisp is released through a Homebrew tap ([ADR 0012](../decisions/0012-homebrew-release.md)) |
 

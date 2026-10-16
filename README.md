@@ -227,7 +227,8 @@ and delete.
 
 ## Install
 
-An Apple silicon Mac on macOS 27 or later with Apple Intelligence enabled, and Homebrew.
+An Apple silicon Mac on **macOS 27** or later (M4 or above is recommended) with Apple Intelligence enabled, and
+Homebrew.
 
 ```bash
 brew install pidster/tap/wisp   # installs wisp, wisp-tui, and MLX's Metal library

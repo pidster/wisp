@@ -110,6 +110,7 @@ html:not(.js) .theme-toggle { display: none; }
 .hero h1 { font-size: clamp(2.2rem, 5.6vw, 3.6rem); margin: 0 0 1.2rem; max-width: 15ch; letter-spacing: -0.025em; }
 .lede { font-size: 1.12rem; color: var(--muted); max-width: 56ch; margin: 0 0 1.8rem; }
 .needs { color: var(--muted); font-size: 0.88rem; margin: 1.2rem 0 0; }
+.needs strong { color: var(--strong); font-weight: 600; }
 
 .hero-art { margin: 0; position: relative; order: -1; }
 @media (min-width: 900px) { .hero-art { order: 0; margin-right: -80px; } }
