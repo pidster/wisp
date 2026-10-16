@@ -122,6 +122,7 @@
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)
   - [Layered context, composed for each request (2026-09-29)](proposals/2026-09-29-layered-context.md)
   - [Plan: context checkpoint 2 (2026-10-06)](proposals/2026-10-06-context-checkpoint-2.md)
+  - [One thread store: every thread saved, and resumed by any face (2026-10-16)](proposals/2026-10-16-one-thread-store.md)
 - [Reviews]()
   - [Quality review, 2026-09-17](reviews/2026-09-17-quality-review.md)
   - [Architecture review, 2026-09-19](reviews/2026-09-19-architecture-review.md)
