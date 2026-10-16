@@ -116,6 +116,9 @@ html:not(.js) .theme-toggle { display: none; }
 .release a:hover, .release a:focus-visible { color: var(--accent); text-decoration: underline; }
 .release strong { color: var(--attention); font-weight: 600; }
 .release + .needs { margin-top: 0.35rem; }
+.release-arrow { display: inline-block; margin-left: 0.1em; transition: transform 0.15s ease; }
+.release a:hover .release-arrow, .release a:focus-visible .release-arrow { transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) { .release-arrow { transition: none; } }
 
 .hero-art { margin: 0; position: relative; order: -1; }
 @media (min-width: 900px) { .hero-art { order: 0; margin-right: -80px; } }
