@@ -305,7 +305,9 @@ in a sentence, with the figures, and the call still answers. A request that cann
 fails with `the request does not fit the model's context window: …` and what to do
 ([context-management.md](context-management.md), "Condensing"). Threads live in memory for
 the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
-`session.end` with reason `evicted`. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
+`session.end` with reason `evicted`; a thread still open when its client disconnects ends with reason
+`disconnected`. A call refused for its own arguments (start settings on an existing thread, a `schema` the model
+cannot take) is refused before any thread is made or evicted. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
 in order, one turn at a time: a second `respond` on a thread whose turn is under way (waiting on the model or an
 approval) waits for it to end, then runs, and each result carries its own turn's receipt and refusals; different
 threads run concurrently. `close_thread`, or eviction, waits for the turn under way to end before it records
