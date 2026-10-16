@@ -77,8 +77,10 @@ Found while mapping, and fixed first whatever is decided (phase 0):
    session (`<thread_id>-<suffix>`); the counts `respond` returns may always be zero.
 2. A client that disconnects leaves its open threads without a `session.end`.
 3. A `thread_id` of 64 characters makes an audit session longer than `SafeName`'s 64.
-4. A call that passes start settings on an existing thread is refused only after `findOrCreate`, so a refused call
-   can still evict another thread.
+4. A call that passes start settings on an existing thread is refused only after `findOrCreate`, and a `schema` the
+   model cannot take only after it too, so a refused call can still evict another thread. (Corrected while fixing it:
+   the start-settings refusal only marks its thread used; the schema refusal on a new `thread_id` is the one that
+   creates a thread and can evict another.)
 
 ## Decisions
 

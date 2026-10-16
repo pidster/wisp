@@ -120,13 +120,24 @@ public struct WispServer: Sendable {
         Diagnostics.mcp.info("client disconnected")
         // Facts asked about stay filed for the person (ADR 0048, amended 2026-10-12); the sweep below leaves them.
         factKeeper.stop()
-        // A question waiting on any thread is withdrawn: only its thread could take the answer (ADR 0062).
-        for id in await threads.ids {
-            if let open = await threads.peek(id) { open.inquiries.withdraw(audit: open.audit) }
-        }
+        await endThreads()
         // Commands this process filed and never settled (a call still waiting at disconnect) are stale now.
         let pid = getpid()
         PendingApprovals(home: session.home).sweep { $0 != pid && PendingApprovals.isAlive($0) }
+    }
+
+    /// Ends every thread still open when the client has gone: a question waiting on one is withdrawn, since only
+    /// its thread could take the answer (ADR 0062); the turn under way finishes; and each thread's audit session
+    /// ends with `session.end` `disconnected`, so no thread's history is left without an end. `run` calls this once
+    /// the client disconnects; tests call it after `stop`.
+    func endThreads() async {
+        for id in await threads.ids {
+            guard let open = try? await threads.close(id) else { continue }
+            open.inquiries.withdraw(audit: open.audit)
+            directory.ended(id: id, as: .closed)
+            await open.turns.close()
+            open.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "disconnected"))
+        }
     }
 
     /// Registers the method handlers and starts the server on `transport`, wrapped in
@@ -374,6 +385,17 @@ public struct WispServer: Sendable {
     /// (D9 of the layered-context proposal), and `ran`, the line of what the turn ran (ADR 0051).
     private func respond(_ request: RespondRequest) async -> CallTool.Result {
         let id = request.threadID ?? UUID().uuidString.lowercased()
+        // A call refused for its own arguments is refused before the registry is touched, so it neither creates a
+        // thread (evicting another at capacity) nor marks one used.
+        let schema: OutputSchema?
+        do {
+            schema = try request.schema.map { try OutputSchema(json: $0) }
+        } catch {
+            return failure(String(describing: error))
+        }
+        if request.startsThread, await threads.peek(id) != nil {
+            return startSettingsRefusal(id)
+        }
         let opened: ThreadRegistry<OpenThread>.Opened
         do {
             opened = try await threads.findOrCreate(id: id) {
@@ -402,17 +424,8 @@ public struct WispServer: Sendable {
             }
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
-        if !opened.created, request.startsThread {
-            return failure(
-                "instructions, tools, model, think, and commandTimeoutSeconds apply only when a thread is created; "
-                    + "\(id) already exists")
-        }
-        let schema: OutputSchema?
-        do {
-            schema = try request.schema.map { try OutputSchema(json: $0) }
-        } catch {
-            return failure(String(describing: error))
-        }
+        // Another call may have created the thread since the check above.
+        if !opened.created, request.startsThread { return startSettingsRefusal(id) }
         do {
             return try await opened.thread.turns.run {
                 await turn(request, schema: schema, on: opened, id: id)
@@ -420,6 +433,13 @@ public struct WispServer: Sendable {
         } catch {
             return failure("\(id): \(error)")
         }
+    }
+
+    /// The refusal of start settings on a thread that already exists.
+    private func startSettingsRefusal(_ id: String) -> CallTool.Result {
+        failure(
+            "instructions, tools, model, think, and commandTimeoutSeconds apply only when a thread is created; "
+                + "\(id) already exists")
     }
 
     /// One turn of `respond` on an open thread, run while it holds the thread's `TurnQueue`: sets the task,

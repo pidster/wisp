@@ -177,4 +177,18 @@ func json(_ server: WispServer, _ uri: String) async throws -> [String: JSONValu
         directory.ended(id: "c", as: .evicted)
         #expect(directory.record("c")?.state == .evicted && directory.record("a") == nil)
     }
+
+    @Test func aProposalsConversationIsTracedToItsThreadByTheAuditSession() {
+        let directory = ThreadDirectory()
+        directory.opened(id: "git", auditSession: "git-abcd1234", model: nil, tools: [], instructions: false)
+        directory.opened(id: "git-abcd", auditSession: "git-abcd-0000ffff", model: nil, tools: [], instructions: false)
+        // The audit session itself, and the same conversation after a model switch (`.1`).
+        #expect(directory.thread(ofConversation: "git-abcd1234") == "git")
+        #expect(directory.thread(ofConversation: "git-abcd1234.1") == "git")
+        #expect(directory.thread(ofConversation: "git-abcd-0000ffff") == "git-abcd")
+        // A bare thread_id, a prefix of a session, or a conversation of another face is no thread's.
+        #expect(directory.thread(ofConversation: "git") == nil)
+        #expect(directory.thread(ofConversation: "git-abcd12") == nil)
+        #expect(directory.thread(ofConversation: "chat-1f2e3d4c") == nil)
+    }
 }

@@ -99,7 +99,8 @@ extension WispServer {
     func factsProposed(thread: String) -> JSONValue {
         let awaiting = session.factProposals.awaiting
         return .object([
-            "count": .int(awaiting.count), "thread": .int(awaiting.filter { $0.threadID == thread }.count),
+            "count": .int(awaiting.count),
+            "thread": .int(awaiting.filter { directory.thread(ofConversation: $0.threadID) == thread }.count),
             "uri": .string(ToolCatalog.proposedFactsResourceURI),
         ])
     }

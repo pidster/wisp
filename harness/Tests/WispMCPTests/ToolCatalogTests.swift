@@ -102,10 +102,18 @@ import WispCore
         #expect(try RespondRequest(arguments: ["prompt": .string("x")]).threadID == nil)
         #expect(
             try RespondRequest(arguments: ["prompt": .string("x"), "thread_id": .string("t-1.a")]).threadID == "t-1.a")
-        for bad: Value in [.string(""), .string("has space"), .string(String(repeating: "x", count: 65)), .int(1)] {
+        // 48 at most, so the audit session each opening gets, `<thread_id>-<8 characters>`, is a name too.
+        let longest = String(repeating: "x", count: 48)
+        #expect(
+            try RespondRequest(arguments: ["prompt": .string("x"), "thread_id": .string(longest)]).threadID == longest)
+        #expect(SafeName.isValid(ThreadDirectory.auditSession(for: longest)))
+        for bad: Value in [.string(""), .string("has space"), .string(String(repeating: "x", count: 49)), .int(1)] {
             #expect(throws: MCPError.self) {
                 try RespondRequest(arguments: ["prompt": .string("x"), "thread_id": bad])
             }
+        }
+        #expect(throws: MCPError.invalidParams("'thread_id' must be 1-48 characters from [A-Za-z0-9._-]")) {
+            try CloseThreadRequest(arguments: ["thread_id": .string(String(repeating: "x", count: 64))])
         }
     }
 

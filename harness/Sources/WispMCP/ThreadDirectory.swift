@@ -107,6 +107,20 @@ public final class ThreadDirectory: Sendable {
     /// The audit session of thread `id`: its record's, or `id` itself for a thread the directory does not know.
     public func auditSession(of id: String) -> String { record(id)?.auditSession ?? id }
 
+    /// The `thread_id` of the thread whose conversation `conversation` is: a fact proposal names its conversation
+    /// by the audit session (`Agent.threadID`, `<thread_id>-<suffix>`, with `.N` after a model switch), not by the
+    /// `thread_id` a caller uses. Nil for a conversation that is not a thread this directory knows.
+    ///
+    /// - Parameter conversation: The conversation's name, as `FactProposal.threadID` holds it.
+    /// - Returns: The thread's id, or nil.
+    public func thread(ofConversation conversation: String) -> String? {
+        records.withLock { records in
+            records.values.first { record in
+                conversation == record.auditSession || conversation.hasPrefix(record.auditSession + ".")
+            }?.id
+        }
+    }
+
     /// Whether `session` is the audit session of a thread this directory knows, by id or by suffix.
     public func isThreadSession(_ session: String) -> Bool {
         records.withLock { records in records[session] != nil || records.values.contains { $0.auditSession == session }

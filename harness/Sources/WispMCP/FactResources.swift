@@ -194,12 +194,12 @@ extension WispServer {
         let view = FactView([])
         let rows = session.factProposals.awaiting.map { proposal -> JSONValue in
             var row = FactReport.json(proposal.fact, view: view).objectValue ?? [:]
-            row["thread_id"] = .string(proposal.threadID)
+            // A proposal names its conversation by the audit session; a thread of this server is shown by its id.
+            let thread = directory.thread(ofConversation: proposal.threadID)
+            row["thread_id"] = .string(thread ?? proposal.threadID)
             row["reference"] = .string(proposal.reference)
-            row["request"] = keepRequest(thread: proposal.threadID, fact: proposal.fact.id)
-            row["uri"] =
-                directory.record(proposal.threadID) == nil
-                ? .null : .string("\(ToolCatalog.threadURI(proposal.threadID))/facts/\(proposal.fact.id)")
+            row["request"] = thread.map { keepRequest(thread: $0, fact: proposal.fact.id) } ?? .null
+            row["uri"] = thread.map { .string("\(ToolCatalog.threadURI($0))/facts/\(proposal.fact.id)") } ?? .null
             return .object(row)
         }
         return try Self.paged(rows, page: page, base: ToolCatalog.proposedFactsResourceURI, key: "facts")

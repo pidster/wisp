@@ -8,6 +8,13 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 - The plain chat (`wisp chat --plain`) sets each part of a turn apart with a blank line, as `wisp-tui` does: the
   thinking, each tool call with its result, the reply, and the footer.
+- `respond`'s `factsProposed.thread` counts the thread's own proposals; it was always 0. `wisp://facts/proposed`
+  names each proposal's thread by its `thread_id`, with its URI and its keep request, where it gave the audit session
+  and neither.
+- A thread still open when its MCP client disconnects ends with `session.end` `disconnected` in the audit log; it
+  had no end.
+- A `thread_id` is at most 48 characters, so the audit session made from it is a valid name; a longer one is refused.
+- A `respond` call refused for a bad `schema` no longer creates its thread first, which could evict another.
 
 ## 0.26.2
 

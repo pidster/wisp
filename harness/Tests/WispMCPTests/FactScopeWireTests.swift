@@ -59,8 +59,10 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try session(sink)
         let server = WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
+            // Each opening gets its own audit session, `<thread_id>-<suffix>`, as the server's own factory gives it.
             let thread = try session.thread(
-                id: id, host: host, instructions: instructions, tools: .none, model: model)
+                id: id, host: host, instructions: instructions, tools: .none, model: model,
+                auditSession: ThreadDirectory.auditSession(for: id))
             let agent = try thread.openAgent(
                 on: ResolvedModel(
                     selection: .system, custom: ScriptedModel(steps: Array(repeating: .say("ok"), count: 6))))

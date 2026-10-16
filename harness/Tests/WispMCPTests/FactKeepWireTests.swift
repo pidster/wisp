@@ -63,6 +63,8 @@ import WispTestSupport
         let proposed = try await FactScopeWireTests.read(pair.client, "wisp://facts/proposed")
         let row = try #require(proposed["facts"]?.arrayValue?.first { $0.objectValue?["id"] == "c1" }?.objectValue)
         #expect(row["request"]?.objectValue?["state"] == "pending" && row["request"]?.objectValue?["id"] == .string(id))
+        // It names the thread by the caller's thread_id, not the audit session its proposal carries.
+        #expect(row["thread_id"] == "git" && row["uri"] == "wisp://threads/git/facts/c1")
 
         // The person keeps it, as `wisp facts keep` does.
         try channel.answer(id, decision: "keep", via: "cli")

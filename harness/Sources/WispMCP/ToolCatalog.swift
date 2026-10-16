@@ -760,12 +760,20 @@ public enum ToolCatalog {
     ]
 }
 
-/// Validates a client-supplied thread id: 1 to 64 characters from `[A-Za-z0-9._-]`.
+/// Validates a client-supplied thread id: 1 to 48 characters from `[A-Za-z0-9._-]`.
 ///
 /// - Throws: `MCPError.invalidParams` otherwise.
 func validateThreadID(_ id: String) throws {
-    guard SafeName.isValid(id) else { throw MCPError.invalidParams("'thread_id' must be \(SafeName.rule)") }
+    guard SafeName.isValid(id), id.unicodeScalars.count <= threadIDLimit else {
+        throw MCPError.invalidParams("'thread_id' must be 1-\(threadIDLimit) characters from [A-Za-z0-9._-]")
+    }
 }
+
+/// The longest `thread_id`. Each opening's audit session is `<thread_id>-<8 characters>`
+/// (`ThreadDirectory.auditSession(for:)`) and must itself be a `SafeName`, at most 64, or its output directory is
+/// neither read nor swept; 48 leaves that room with some to spare (the thread store plan, D2). A generated id, a
+/// UUID, is 36.
+let threadIDLimit = 48
 
 /// Decoded arguments for the `respond` tool.
 public struct RespondRequest: Equatable, Sendable {

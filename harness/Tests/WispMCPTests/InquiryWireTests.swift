@@ -322,6 +322,40 @@ import WispTestSupport
         await cancelling.server.stop()
     }
 
+    @Test func aClientThatDisconnectsEndsEachOpenThreadsSession() async throws {
+        let pair = try await connected(steps: [Self.ask("Which?", options: ["a", "b"]), .say("{tool}"), .say("hi")])
+        _ = try await respond(pair.client, "waiting")
+        let id = try #require(pair.channel.waiting(.question).first?.id)
+        _ = try await call(pair.client, "respond", ["prompt": .string("hi"), "thread_id": .string("quiet")])
+        await pair.client.disconnect()
+        await pair.server.stop()
+        await pair.server.endThreads()
+        // Each thread's session ends, after its last turn, and the question waiting on one is withdrawn with it.
+        for thread in ["waiting", "quiet"] {
+            let ended = try #require(events(pair.sink, .sessionEnd, thread: thread).first, "\(thread)")
+            #expect(ended.details["reason"] == "disconnected")
+        }
+        let settled = try #require(events(pair.sink, .inquirySettled, thread: "waiting").first)
+        #expect(settled.details["outcome"] == "withdrawn" && settled.details["inquiry"] == .string(id))
+        #expect(pair.channel.waiting(.question).isEmpty)
+    }
+
+    @Test func aCallRefusedForItsArgumentsNeitherCreatesNorEvictsAThread() async throws {
+        let pair = try await connected(steps: [.say("hello"), .say("again")], config: #"{"maxThreads":1}"#)
+        _ = try await respond(pair.client, "old")
+        // A schema the model cannot take, on a new thread_id: refused before a thread is made, so the only slot
+        // stays the old thread's.
+        let refused = try await call(
+            pair.client, "respond",
+            ["prompt": .string("hi"), "thread_id": .string("new"), "schema": .object(["type": .string("string")])])
+        #expect(refused.isError == true && text(refused).contains("the root must be an object schema"))
+        #expect(events(pair.sink, .sessionStart, thread: "new").isEmpty)
+        #expect(events(pair.sink, .sessionEnd, thread: "old").isEmpty)
+        #expect(text(try await respond(pair.client, "old", new: false)) == "again")
+        await pair.client.disconnect()
+        await pair.server.stop()
+    }
+
     @Test func evictingAThreadWithAWaitingQuestionWithdrawsItAndEndsTheThreadsSession() async throws {
         let pair = try await connected(
             steps: [Self.ask("Which?", options: ["a", "b"]), .say("{tool}"), .say("hello")],
