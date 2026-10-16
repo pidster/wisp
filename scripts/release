@@ -59,7 +59,17 @@ unchanged() {
 }
 grep -q "^version = \"$VERSION\"" tools/wisp-tui/Cargo.toml || { echo "tools/wisp-tui/Cargo.toml version is not $VERSION" >&2; exit 1; }
 command -v cargo >/dev/null || { echo "cargo is needed to build wisp-tui" >&2; exit 1; }
-xcrun -f metal >/dev/null 2>&1 || { echo "the Metal toolchain is needed to build MLX: xcodebuild -downloadComponent MetalToolchain" >&2; exit 1; }
+# The Metal toolchain, by compiling a one-line kernel: `xcrun -f metal` finds Xcode's stub even when the toolchain, a
+# separate download, is missing (an Xcode update drops it), and 0.26.3's first run then failed at the MLX build, after
+# the whole test run.
+METAL_PROBE="$(mktemp -d)"
+printf '%s\n' 'kernel void probe(device float *a [[buffer(0)]]) { a[0] = 1; }' >"$METAL_PROBE/probe.metal"
+if ! xcrun metal -c "$METAL_PROBE/probe.metal" -o "$METAL_PROBE/probe.air" >/dev/null 2>&1; then
+    rm -rf "$METAL_PROBE"
+    echo "the Metal toolchain is needed to build MLX and cannot compile: xcodebuild -downloadComponent MetalToolchain" >&2
+    exit 1
+fi
+rm -rf "$METAL_PROBE"
 CURRENT="$(sed -n 's/.*public static let current = "\([^"]*\)".*/\1/p' harness/Sources/WispCore/Audit/AuditEvent.swift)"
 [ "$CURRENT" = "$VERSION" ] || { echo "WispVersion.current is $CURRENT, not $VERSION; bump it first" >&2; exit 1; }
 SHIPPED="$(sed -n 's/^ *"version" : "\([^"]*\)",*$/\1/p' harness/Sources/WispCore/Resources/risk-default.json | head -1)"

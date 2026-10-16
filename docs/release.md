@@ -47,7 +47,7 @@ Commit it as "Bring the docs up to date for X.Y.Z", or "Docs sweep for X.Y.Z: no
 `scripts/release X.Y.Z` does all of it and refuses to continue at the first problem. `--dry-run` performs
 every local step and prints the remote ones instead of executing them.
 
-1. Preflight: the version is exactly three numbers, `X.Y.Z`; every `docs/*.md`, decision, and proposal is linked from `docs/README.md` (but `docs/SUMMARY.md`, the site's table of contents, which `scripts/check docs-links` checks instead); clean tree on `main`, the Metal toolchain present (`xcrun -f metal`), `WispVersion.current` equals `X.Y.Z`, no existing tag here or on `origin`
+1. Preflight: the version is exactly three numbers, `X.Y.Z`; every `docs/*.md`, decision, and proposal is linked from `docs/README.md` (but `docs/SUMMARY.md`, the site's table of contents, which `scripts/check docs-links` checks instead); clean tree on `main`, the Metal toolchain present (a one-line kernel compiles with `xcrun metal`; `xcrun -f metal` finds a stub even when the toolchain, a separate download that an Xcode update can drop, is missing), `WispVersion.current` equals `X.Y.Z`, no existing tag here or on `origin`
    (`git ls-remote`), `origin/main` is `HEAD` (pushed, and nothing on origin left out), `gh` is
    authenticated, `CHANGELOG.md` has a non-empty `## X.Y.Z` section, `scripts/check` passes (the full
    test run, and the evaluations compiled), `scripts/check mlx-build` passes (the harness and its tests with the MLX
