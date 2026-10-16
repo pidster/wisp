@@ -4,7 +4,10 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.26.3
+
+The plain chat sets each part of a turn apart with a blank line, as `wisp-tui` does, and four fixes to MCP threads,
+found while planning threads that outlive their server.
 
 - The plain chat (`wisp chat --plain`) sets each part of a turn apart with a blank line, as `wisp-tui` does: the
   thinking, each tool call with its result, the reply, and the footer.
