@@ -193,9 +193,10 @@ extension OpenAICompatibleModel {
             http.setValue("text/event-stream", forHTTPHeaderField: "Accept")
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            let think = model.think
             http.httpBody = try encoder.encode(
                 Self.body(
-                    for: request, model: model.serverID, think: model.think, budget: model.settings.thinkingBudget,
+                    for: request, model: model.serverID, think: think, budget: model.settings.thinkingBudget,
                     effort: model.takesReasoningEffort))
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
@@ -254,6 +255,11 @@ extension OpenAICompatibleModel {
             }
             await relay.finish()
             await report(stream.usage, thought: relay.thinkingTokens, model: model, channel: channel)
+            if case .level(let level) = think, let budget = model.settings.thinkingBudget[level] {
+                ThinkingBudgetCheck.note(
+                    model, level: level, budget: budget,
+                    thinking: stream.usage?.completion_tokens_details?.reasoning_tokens ?? relay.thinkingTokens)
+            }
         }
 
         /// Sends the request's usage: the server's counts, and, when it gives no count of the thinking, the chunks

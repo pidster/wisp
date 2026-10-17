@@ -13,6 +13,9 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
   wisp's own calls, the risk classifier's among them, now ask such a model not to think: a risk verdict that thought
   for 58 s on `Ternary-Bonsai-2-9B` comes at once. A config with a level there does not load in wisp 0.26.3 or earlier.
 - `wisp models` shows a llama.cpp model's quantisation, as it shows an Ollama model's.
+- `wisp doctor` checks that the configured llama.cpp server keeps a think level to its budget, and a reply that
+  thinks past its budget is logged, so a llama.cpp update that stopped taking per-request budgets does not go
+  unnoticed.
 
 - `scripts/check eval` runs its suites one after another: in parallel they took no less time on the on-device
   model and scored lower under the load. Each floor line now gives this run's rate, the expected count and its rate,

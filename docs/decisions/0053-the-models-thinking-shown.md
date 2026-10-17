@@ -196,3 +196,10 @@ Tests without a model: the template's reading from `/props`, the fields each val
 through a turn and a schema reply against the fake server, the listing's quantisation, the settings' kinds, defaults,
 and validation. Measured live on llama.cpp 0.7.0: off answered at once, a budget of 64 ended a sum's thinking at 64
 tokens with the same answer, 1 s instead of 4 ([backends.md](../backends.md), "llama.cpp").
+
+Later the same day: since the per-request budget is the one undocumented field, a build that dropped it would let
+every level think without a limit and say nothing. A reply that thinks past its budget, beyond the end of the block
+(16 tokens or a twentieth of the budget), is now logged as an error once per model and server in a process, and
+`wisp doctor` asks a llama.cpp server whose model thinks to keep to 32 tokens (the `llama.cpp thinking budget`
+finding; 0.7.0 used 37). The executor does not stop such a reply, which is the model's own answer, nor turn the
+level into `true` silently; the log and the doctor say what happened.

@@ -289,7 +289,11 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
     `max` by default, 0 setting no limit. The server ends the thinking there and the model answers. A template that
     takes `reasoning_effort` (`gpt-oss`'s) is sent the level too, `max` as `high`. llama.cpp 0.7.0 takes the budget
     per request although its README documents only the server's `--reasoning-budget`, which applies to every
-    request and which a request's budget replaces.
+    request and which a request's budget replaces. So that a build that stops taking it does not go unnoticed,
+    a reply that thinks past its budget (by more than 16 tokens or a twentieth of it, the end of the block) is logged
+    as an error, once per model and server in a process (`WISP_LOG=error`, or Console), and `wisp doctor` asks a
+    server whose model thinks to keep to 32 tokens and says whether it did (the `llama.cpp thinking budget`
+    finding; 37 used on 0.7.0, 2026-10-17). After updating llama.cpp, run `wisp doctor`.
 
   Measured on `Ternary-Bonsai-2-9B-Q2_0` (2026-10-17), a model whose template thinks by default: a one-word risk
   verdict thought for 3,088 tokens (58 s) left to the template and none with `false`, at once, with the same verdict;

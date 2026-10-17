@@ -42,6 +42,9 @@ public struct Doctor: Sendable {
         public var osascriptPresent: @Sendable () -> Bool
         /// Findings the registered backends report about themselves (MLX's Metal library), in scheme order.
         public var backends: @Sendable () -> [Finding]
+        /// Whether the configured llama.cpp server keeps a think level to its budget, asked of a server whose model
+        /// thinks; nil when none answers, or its model does not think (`ThinkingBudgetCheck.probe(_:)`).
+        public var thinkingBudget: @Sendable (Config.Resolved) async -> Finding?
         /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
         public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
 
@@ -79,6 +82,7 @@ public struct Doctor: Sendable {
             environment: { ProcessInfo.processInfo.environment }, terminalOpens: TerminalNotification.ttyOpens,
             osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") },
             backends: { ModelBackends.all.compactMap { $0.doctorFinding() } },
+            thinkingBudget: { await ThinkingBudgetCheck.probe($0.llamacpp) },
             frontEnd: {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
                 return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
@@ -97,6 +101,7 @@ public struct Doctor: Sendable {
             terminalOpens: @escaping @Sendable () -> Bool = { false },
             osascriptPresent: @escaping @Sendable () -> Bool = { true },
             backends: @escaping @Sendable () -> [Finding] = { [] },
+            thinkingBudget: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) }
         ) {
             self.systemModel = systemModel
@@ -108,6 +113,7 @@ public struct Doctor: Sendable {
             self.terminalOpens = terminalOpens
             self.osascriptPresent = osascriptPresent
             self.backends = backends
+            self.thinkingBudget = thinkingBudget
             self.frontEnd = frontEnd
         }
     }
@@ -174,6 +180,10 @@ public struct Doctor: Sendable {
     public func check() async -> [Finding] {
         var findings = run()
         guard let index = findings.firstIndex(where: { $0.name == "model" && $0.ok }) else { return findings }
+        // A llama.cpp server whose model thinks is asked to keep to a budget, after the backends' own findings.
+        if let budget = await probes.thinkingBudget(resolvedConfig) {
+            findings.insert(budget, at: findings.firstIndex { $0.name == "sandbox" } ?? findings.endIndex)
+        }
         if let problem = await probes.systemModelAnswers() {
             findings[index] = Finding(name: "model", ok: false, detail: problem)
         } else {
