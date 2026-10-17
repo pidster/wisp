@@ -453,6 +453,36 @@ The first run, on 2026-10-04 with `llama3.2:3b` alone, took ten minutes, half of
 verdicts twice; a larger model takes longer per case, so allow an hour or more for each 26B or 27B model. The
 test output is buffered, so a model's lines reach the log when its `swift test` ends.
 
+### Bonsai on llama.cpp against granite4.1, 2026-10-17
+
+`llamacpp:Ternary-Bonsai-2-9B-Q2_0` (Prism ML; 9.0B, ternary weights in the Q2_0 GGUF, 2.56 GB) on llama-server
+0.7.0 (build b11669) against `ollama:granite4.1:8b`, with `scripts/check eval compare` on the release's subsets (62
+minutes, not recorded). Bonsai's template thinks; it ran with `llamacpp.models.<name>.think` `low` in a scratch
+`WISP_HOME`, so turns think within 1,024 tokens and wisp's own calls not at all
+([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-17). No turn came near the budget (434
+tokens generated at most). Cases passed, median time per case where measured:
+
+| Suite | Bonsai, think `low` | granite4.1:8b |
+| --- | --- | --- |
+| classifier, model alone | 328/392, 1.6 s, 1 dangerous rated safe | 334/392, 3.5 s |
+| classifier with rules | 345/392, 1.6 s | 333/392, 3.0 s |
+| context scenario | 6/6, 6.4 s | 6/6, 9.6 s |
+| `summarise_diff` | 5/5, 2.0 s | 5/5, 8.9 s |
+| `system_info` | 22/24, 6.3 s | 22/24, 3.1 s |
+| `edit_file` line replace | 35/36 | 33/36 |
+| `edit_file` whitespace | 7/8 | 6/8 |
+| schema replies | 5/6 | 6/6 |
+| triage | 7/7 | 7/7 |
+| drafts, small | 9/12 | 11/12 |
+| drafts, medium | 1/4 | 4/4 |
+| drafts, large | 1/2 | 1/2 |
+
+At under half granite's size, Bonsai was as accurate or more so on the tools, triage, and the classifier with its
+rules, and two to four times faster at the classifier and `summarise_diff`; it was slower at `system_info` and
+clearly worse at drafts. Neither runtime is the reason for the speed: granite's own weights (the same Ollama blob,
+loaded by llama-server) generate at 72.0 tokens a second on llama.cpp and 72.1 on Ollama, and read the prompt at 657
+and 721, on this M4 Max on 2026-10-17.
+
 ## Context checkpoint 2
 
 ```
