@@ -56,7 +56,7 @@ could, which is why you are asked about each one ([ADR 0064](../decisions/0064-a
 | Add house style to every conversation | `systemPromptExtension` | none |
 | Turn notifications off | `notifications.enabled` | `true` |
 | Check replies with a model too, or not at all | `verification.mode`: `off`, `readers`, or `model` | `readers` |
-| Keep a thinking model from thinking | `ollama.models.<name>.think false`, or `ollama.think` for every model | unset |
+| Keep a thinking model from thinking, or set its level | `ollama.models.<name>.think false` (or `low` to `max`), or `ollama.think` for every model; the same under `llamacpp` and, `true` or `false` only, `mlx` | unset |
 | Hold a model to a window | `ollama.models.<name>.contextLength` | sized from memory |
 
 ## Editing the file by hand

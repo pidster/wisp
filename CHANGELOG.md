@@ -6,6 +6,9 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+llama.cpp models think as Ollama's do, with levels and budgets, and `wisp doctor` checks that the server keeps
+to them.
+
 - llama.cpp models think as Ollama's do. A model whose chat template thinks is found from the server, listed as
   thinking, and offered `/think`'s levels; `llamacpp.think` and `llamacpp.models.<name>.think` take `true`, `false`,
   or `low`, `medium`, `high`, `max`. `false` turns thinking off whatever the template calls its switch, and a level
@@ -16,7 +19,6 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 - `wisp doctor` checks that the configured llama.cpp server keeps a think level to its budget, and a reply that
   thinks past its budget is logged, so a llama.cpp update that stopped taking per-request budgets does not go
   unnoticed.
-
 - `scripts/check eval` runs its suites one after another: in parallel they took no less time on the on-device
   model and scored lower under the load. Each floor line now gives this run's rate, the expected count and its rate,
   and the floor.

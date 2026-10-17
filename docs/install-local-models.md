@@ -11,13 +11,14 @@ each runtime: how the window is sized, what each declares, and every error.
 
 | Runtime | Choose it when | How wisp names a model |
 | --- | --- | --- |
-| [Ollama](#ollama) | You want the simplest start. The models measured with wisp are all Ollama models | `ollama:<name>` |
+| [Ollama](#ollama) | You want the simplest start. Most models measured with wisp are Ollama models | `ollama:<name>` |
 | [MLX](#mlx) | You want the model in wisp's own process, with nothing else to run. wisp fetches it for you | `mlx:<name>` |
 | [llama.cpp](#llamacpp-and-lm-studio) | You already serve GGUF files with `llama-server` | `llamacpp:<name>` |
 | [LM Studio](#llamacpp-and-lm-studio) | You already use LM Studio | `lmstudio:<name>` |
 | [Core AI](#core-ai) | You want to try Apple's Core AI framework with a model you export yourself | `coreai:<name>` |
 
-wisp has never been run against a real llama.cpp or LM Studio server; it was tested against fake ones
+llama.cpp was first run live on 2026-10-17, against Homebrew's `llama-server` 0.7.0; LM Studio has been tested only
+against a fake server
 ([backends.md](backends.md), "llama.cpp and LM Studio").
 
 ## Ollama

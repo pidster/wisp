@@ -93,7 +93,10 @@ whether it takes `think`, whether its models' capabilities are declared). Its ex
 onto OpenAI's messages (positional call ids, each tool output answering its call's id), reads the server-sent
 events, gathers tool-call fragments by `index`, and, like Ollama's executor, hands thinking, text, and calls to a
 `ReplyRelay`, which owns the `ThinkingStretch`, the argument completion, and the hold on calls written as text for
-both. A connection's failure is named by `ConnectionFailure` for both, and a server's refusal of a request larger
+both. On llama.cpp, whether a model thinks comes from its chat template in `/props`, and the think choice is sent
+as `chat_template_kwargs.enable_thinking`, `reasoning_effort`, and a level's `thinking_budget_tokens`;
+`ThinkingBudgetCheck` logs a reply that ran past its budget and gives `wisp doctor` its probe ([ADR
+0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-17). A connection's failure is named by `ConnectionFailure` for both, and a server's refusal of a request larger
 than its window becomes `contextSizeExceeded`, which `Agent` condenses for. The window is the one the server reports
 it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
 

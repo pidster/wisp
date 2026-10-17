@@ -17,13 +17,14 @@ astray; or when you delegate repeated work from a coding agent and want a thread
 
 | Runtime | Choose it when | A model is named |
 | --- | --- | --- |
-| Ollama | You want the simplest start; every model measured with wisp is an Ollama model | `ollama:<name>` |
+| Ollama | You want the simplest start; most models measured with wisp are Ollama models | `ollama:<name>` |
 | MLX | You want the model in wisp's own process, with nothing else to run; `wisp models pull` fetches it | `mlx:<name>` |
 | llama.cpp | You already serve GGUF files with `llama-server` | `llamacpp:<name>` |
 | LM Studio | You already use LM Studio | `lmstudio:<name>` |
 | Core AI | You want to try a model you exported yourself with Apple's Core AI tools | `coreai:<name>` |
 
-wisp has been tested against fake llama.cpp and LM Studio servers, not yet a real one
+llama.cpp was first run live on 2026-10-17, against Homebrew's `llama-server` 0.7.0; LM Studio has been tested only
+against a fake server
 ([Model backends](../backends.md)).
 
 ## Which model, as measured
@@ -51,7 +52,7 @@ wisp --model ollama:granite4.2:8b "What is today's date?"
 ```
 
 `think false` holds for this one model wherever it is used; other Ollama models keep their own setting. In chat,
-`/think off` (or `on`, or for Ollama a level, `low` to `max`) saves the same setting for the model in use and applies
+`/think off` (or `on`, or for Ollama and llama.cpp a level, `low` to `max`) saves the same setting for the model in use and applies
 it from the next turn; the status line shows it after the model, as `ollama:granite4.2:8b (off)`. An MCP thread can
 choose instead, with `"think": false` (or `true`) on the `respond` call that starts it.
 
