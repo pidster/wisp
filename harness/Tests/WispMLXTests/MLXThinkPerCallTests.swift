@@ -24,7 +24,7 @@ import WispTestSupport
         // Nothing declared, nothing configured, no tags: nothing is sent.
         #expect(MLXModel(engine: engine, window: 64, capabilities: []).thinkSent(.off) == nil)
         // A model's own `mlx.models.<name>.think` is resolved ahead of `mlx.think`.
-        let config = Config(mlx: .init(models: ["m": .init(think: false)], think: true)).resolved
+        let config = Config(mlx: .init(models: ["m": .init(think: .off)], think: true)).resolved
         #expect(config.mlxModelThinks["m"] == false && config.mlxThink == true)
     }
 

@@ -99,7 +99,7 @@ extension OpenAICompatibleExecutorTests {
         #expect(!(try await body(thinking, schema: nil).contains("chat_template_kwargs")))
         // The model's own setting comes ahead of the runtime's.
         let own = Config.OpenAICompatibleConfig(
-            baseURL: "http://\(Self.llama):1", think: true, models: ["Qwen3-8B-Q4_K_M": .init(think: false)])
+            baseURL: "http://\(Self.llama):1", think: .on, models: ["Qwen3-8B-Q4_K_M": .init(think: .off)])
         #expect(try await body(own, schema: nil).contains(off))
         // Not known to think and nothing configured: nothing is sent, not even for a side call.
         let unknown = Config.OpenAICompatibleConfig(baseURL: "http://\(Self.llama):1")

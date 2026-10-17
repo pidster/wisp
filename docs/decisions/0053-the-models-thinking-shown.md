@@ -161,3 +161,38 @@ after the gauge as `think off`, and `wisp-tui` draws it there as a status-bar it
 the conversation's thinking also keeps a schema reply's thinking as chosen, as it does for an MCP thread. Tests without
 a model: the command's save, its effect on the conversation and the status, its refusals, the completion, the plain
 status line, the protocol field, and `wisp-tui`'s item.
+
+**Amendment, 2026-10-17: llama.cpp's thinking on a par with Ollama's.** The owner asked for the same experience on
+llama.cpp as on Ollama: users expect a setting to mean the same whatever serves the model, and experts to be able to
+set the behaviour they want. Three things fell short, found running `Ternary-Bonsai-2-9B-Q2_0` (Qwen3.5-9B, whose
+template thinks by default) on llama.cpp 0.7.0. wisp never knew a llama.cpp model thinks unless it was declared by
+hand, since only LM Studio's listing says so; so wisp's own calls sent it nothing, and the model classifier thought
+for up to 4,000 tokens before each one-word verdict, about 24 s each, where the same verdict without thinking came at
+once. `/think` and `respond` refused levels, which Ollama takes. And `false` reached only a template that reads
+`enable_thinking`.
+
+- **A template that thinks is found from `/props`**, which wisp reads already: one that takes `enable_thinking`,
+  writes a `<think>` block, or takes `reasoning_effort` (`chat_template_caps.supports_reasoning_effort`; 0.7.0's caps
+  have no flag for thinking itself) is reported `reasoning`, so the listing says `thinking`, `/think` offers the
+  levels, and wisp's own calls ask for none. A matching word in a template that does not think would make wisp send
+  a switch the template ignores, harmless; a template that thinks under another word is reached by configuring it.
+- **Ollama's values, meaning what they mean to Ollama.** `llamacpp.think` and `llamacpp.models.<name>.think` take
+  `true`, `false`, or a level. `false` sends `enable_thinking: false` and `reasoning_effort: "none"`, which the server
+  turns into no thinking whatever the template's switch is called. A level sends `enable_thinking: true` with
+  `thinking_budget_tokens`, the level's budget from `llamacpp.thinkingBudget.<level>` (1,024, 4,096, 16,384, no limit
+  at `max`), and the level as `reasoning_effort` to a template that takes one (`max` as `high`). A budget rather than
+  a word because most templates take no effort: Bonsai's thought the same 3,088 tokens with `reasoning_effort: "low"`
+  as without, and 261 with a budget of 256. The per-request budget works on 0.7.0 though the server's README names
+  only `--reasoning-budget`, so it is the one field here that a later llama.cpp could drop; a request's budget
+  replaces the server's.
+- **MLX keeps `true` and `false`**, and a level in `mlx.models.<name>.think` is refused as the file loads rather than
+  read as on without saying so. Its template flag has no levels; a budget there would be wisp's own executor ending
+  the block, which is not built.
+- **Compatibility.** A level in `llamacpp.think` or `llamacpp.models.<name>.think` is refused by wisp 0.26.3 and
+  earlier, which read them as booleans (checked on 2026-10-17), so a config written with one does not load in an
+  older wisp.
+
+Tests without a model: the template's reading from `/props`, the fields each value sends, the levels and budgets
+through a turn and a schema reply against the fake server, the listing's quantisation, the settings' kinds, defaults,
+and validation. Measured live on llama.cpp 0.7.0: off answered at once, a budget of 64 ended a sum's thinking at 64
+tokens with the same answer, 1 s instead of 4 ([backends.md](../backends.md), "llama.cpp").

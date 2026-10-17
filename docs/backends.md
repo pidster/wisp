@@ -76,7 +76,8 @@ call tools badly, and only an evaluation says how well.
 ## Thinking, per model and per call
 
 A model that can think is asked to, or not, per request ([ADR 0053](decisions/0053-the-models-thinking-shown.md),
-amended 2026-10-11). What each request sends is decided in this order:
+amended 2026-10-11 and 2026-10-17). The values mean the same on every runtime that takes them: `false` is no thinking,
+`true` thinking as long as the model wants, and a level thinking within that level's measure. What each request sends is decided in this order:
 
 1. **The call.** wisp's own calls that gain nothing from thinking ask a model that can think not to: the model
    classifier's verdict, a schema reply (`respond` with a `schema`, `triage`, `summarise_diff`, the thorough passes
@@ -94,7 +95,7 @@ How each runtime takes it:
 | Runtime | Sent as | Values | Sent to |
 | --- | --- | --- | --- |
 | Ollama | `/api/chat`'s `think` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose `/api/show` capabilities include `thinking` |
-| llama.cpp | `chat_template_kwargs.enable_thinking` | `true` or `false` (a level is on) | every model when configured; a call's choice only to a model declared or reported `reasoning`, or whose thinking is configured |
+| llama.cpp | `chat_template_kwargs.enable_thinking`; off adds `reasoning_effort: "none"`; a level adds `thinking_budget_tokens` (`llamacpp.thinkingBudget`) and, to a template that takes one, `reasoning_effort` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose chat template thinks (`/props`) or is declared `reasoning`; a configured value to every model |
 | MLX | the chat template's `enable_thinking` | `true` or `false` (a level is on) | a model whose template marks thinking and takes the flag; one that does not keeps its default |
 | LM Studio, Core AI, Apple's models | nothing | | LM Studio sets thinking per model in its app |
 
@@ -239,8 +240,11 @@ for what differs ([ADR 0058](decisions/0058-a-shared-http-executor.md)). What th
   `inspect` show only `set (…)` or `unset`. The environment keeps it out of `config.json`, which a tool that reads
   files could otherwise read.
 
-None of this has been run against a real `llama-server` or LM Studio: neither was installed on this Mac when it was
-built (2026-10-09). The executor was checked live against Ollama 0.35.1's own OpenAI-compatible endpoint (a tool
+LM Studio has not been run against: it was not installed on this Mac when this was built (2026-10-09). llama.cpp
+was, on 2026-10-17 (Homebrew's 0.7.0, build 11669): listing, tool calls, thinking, its levels and budgets, and the
+prompt cache, with `granite4.1:8b`'s own weights served by both Ollama and `llama-server` at the same speed (72
+tokens a second generated on an M4 Max; prompts read at 657 and 721 a second; both reuse the prompt's cached
+prefix). The executor was first checked live against Ollama 0.35.1's own OpenAI-compatible endpoint (a tool
 call through the loop, and thinking streamed as `delta.reasoning`), and every behaviour above is tested against a
 fake server for each dialect (`OpenAICompatibleExecutorTests`, `OpenAICompatibleBackendTests`).
 
@@ -268,11 +272,33 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   calls (`chat_template_caps`), that declares it, unless wisp's recorded check found the model calls no tool: the
   check outranks the server's report, which describes the template rather than the model, so such a model is text
   only, as the check said (a capability the operator declared by hand is kept). Schema replies need nothing.
-- **Thinking.** `llamacpp.think` `true` or `false` is sent as the chat template's `enable_thinking`
-  (`chat_template_kwargs`) for every model, and `llamacpp.models.<name>.think` for one model ahead of it; unset sends
-  nothing. wisp's own calls send `false` to a model declared or reported `reasoning`, or whose thinking is configured
-  ("Thinking, per model and per call", above). The server separates thinking from the reply with
-  `--reasoning-format` (`auto` by default); with `none`, thinking stays in the reply's text.
+- **Format.** `/v1/models` `meta.ftype`, the quantisation (`Q4_K_M`, `Q2_0`), shown where Ollama's listing shows
+  its family and quantisation; llama.cpp reports no family.
+- **Thinking.** A model thinks when its chat template does: `/props` gives the template, and one that takes
+  `enable_thinking` (Qwen3's, Qwen3.5's), writes a `<think>` block, or takes a `reasoning_effort`
+  (`chat_template_caps.supports_reasoning_effort`) is reported `reasoning`, so `wisp models` lists it as thinking,
+  `/think` offers its levels, and wisp's own calls ask it not to think. `llamacpp.think` takes Ollama's values, `true`,
+  `false`, or a level, for every model, and `llamacpp.models.<name>.think` for one model ahead of it; a configured
+  value is sent even to a model whose template wisp does not recognise, and unset sends nothing, leaving the
+  template's default. Each is sent so it means what it means to Ollama:
+  - `false`: `enable_thinking: false` and `reasoning_effort: "none"`, which the server turns into no thinking
+    whatever the template calls its switch.
+  - `true`: `enable_thinking: true`, thinking as long as the model wants.
+  - A level: `enable_thinking: true` and `thinking_budget_tokens`, the most it thinks for, from
+    `llamacpp.thinkingBudget.<level>`: 1,024 tokens at `low`, 4,096 at `medium`, 16,384 at `high`, and no limit at
+    `max` by default, 0 setting no limit. The server ends the thinking there and the model answers. A template that
+    takes `reasoning_effort` (`gpt-oss`'s) is sent the level too, `max` as `high`. llama.cpp 0.7.0 takes the budget
+    per request although its README documents only the server's `--reasoning-budget`, which applies to every
+    request and which a request's budget replaces.
+
+  Measured on `Ternary-Bonsai-2-9B-Q2_0` (2026-10-17), a model whose template thinks by default: a one-word risk
+  verdict thought for 3,088 tokens (58 s) left to the template and none with `false`, at once, with the same verdict;
+  a budget of 64 at `low` ended a timetable sum's thinking at 64 tokens and gave the same answer in 1 s instead of 4.
+  Before this, wisp asked no llama.cpp model not to think unless it was declared `reasoning` by hand, so the model
+  classifier's every verdict on such a model took about 24 s.
+
+  The server separates thinking from the reply with `--reasoning-format` (`auto` by default); with `none`, thinking
+  stays in the reply's text.
 
 ### LM Studio
 

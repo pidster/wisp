@@ -42,148 +42,165 @@ public enum ConfigSettings {
     }
 
     /// Every setting, in the order a list shows them.
-    public static let all: [Setting] = [
-        Setting(path: "model", summary: "the model new sessions run on", kind: .model),
-        Setting(
-            path: "models.disabled", summary: "models hidden from /model and refused; wisp models enable|disable",
-            kind: .models),
-        Setting(
-            path: "approval.threshold", summary: "ask before commands rated at this level or above",
-            kind: .choice(["safe", "moderate", "dangerous", "never"])),
-        Setting(
-            path: "approval.classifier", summary: "what judges each command beside the rules",
-            kind: .choice(RiskClassifierChoice.allCases.map(\.rawValue))),
-        Setting(
-            path: "approval.coremlModel", summary: "the Core ML model for classifier coreml", kind: .coremlModel),
-        Setting(
-            path: "approval.coremlMinimumConfidence", summary: "below this a Core ML verdict asks anyway",
-            kind: .number(0...1)),
-        Setting(
-            path: "approval.timeoutSeconds", summary: "seconds to wait for an approval; 0 waits forever",
-            kind: .integer(0...86_400)),
-        Setting(
-            path: "approval.persistDays", summary: "days a project or always approval lasts", kind: .integer(1...365)),
-        Setting(
-            path: "approval.outOfBand",
-            summary: "under wisp mcp, also ask through wisp approvals and wisp-tui, with a notification", kind: .flag),
-        Setting(
-            path: "approval.bannerDelaySeconds",
-            summary: "under wisp mcp, seconds the client's dialog may go unanswered before the notification; 0 at once",
-            kind: .integer(Config.ApprovalConfig.bannerDelayRange)),
-        Setting(
-            path: "routing.ladder", summary: "models to route to by input size, least capable first", kind: .models),
-        Setting(
-            path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
-            kind: .model),
-        Setting(
-            path: "commandTimeoutSeconds", summary: "seconds a command may run unless asked otherwise; 0 waits forever",
-            kind: .integer(0...86_400)),
-        Setting(
-            path: "commandMaxTimeoutSeconds",
-            summary: "the most seconds a command's timeoutSeconds or a thread's commandTimeoutSeconds may ask for",
-            kind: .integer(Config.commandMaxTimeoutRange)),
-        Setting(
-            path: "commandPolicy.sandbox.allowOutsideSandbox",
-            summary:
-                "let the model ask to run one command outside the sandbox, which you approve each time, and you run one after !!",
-            kind: .flag),
-        Setting(
-            path: "commandMaxOutputBytes",
-            summary: "bytes of a command's result the model is shown; unset takes the tool-output budget",
-            kind: .integer(256...1_048_576)),
-        Setting(path: "tools.disabled", summary: "built-in tools the model does not get", kind: .tools),
-        Setting(
-            path: "tools.models",
-            summary:
-                "give a conversation with every tool the models tool, to list models and ask to pull or enable one",
-            kind: .flag),
-        Setting(
-            path: "tools.ask",
-            summary: "give a conversation with every tool the ask tool, so the model can ask you a question mid-turn",
-            kind: .flag),
-        Setting(
-            path: "inquiry.timeoutSeconds",
-            summary: "seconds you have to answer the model's question; 0 waits until you do",
-            kind: .integer(0...86_400)),
-        Setting(
-            path: "inquiry.elicitation",
-            summary: "under wisp mcp, also ask the model's question through the client's dialog (untested; off)",
-            kind: .flag),
-        Setting(
-            path: "shownOutputLines", summary: "lines of each tool's output chat shows before folding; 0 for none",
-            kind: .integer(0...10_000)),
-        Setting(path: "notifications.enabled", summary: "whether wisp posts notifications", kind: .flag),
-        Setting(path: "notifications.perMinute", summary: "notifications allowed a minute", kind: .integer(1...60)),
-        Setting(
-            path: "notifications.viaTerminalApp",
-            summary: "whether to post through the terminal app by bundle identifier", kind: .flag),
-        Setting(path: "audit.enabled", summary: "whether the audit log is written", kind: .flag),
-        Setting(path: "ollama.baseURL", summary: "where Ollama serves", kind: .text),
-        Setting(
-            path: "ollama.contextLength",
-            summary: "the context window asked of every Ollama model; unset sizes each from memory",
-            kind: .integer(windowRange)),
-        Setting(
-            path: "ollama.think",
-            summary:
-                "whether a model that can think is asked to: true, false, or a level; unset leaves it to the model",
-            kind: .choice(OllamaThink.choices)),
-        Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
-        Setting(
-            path: "llamacpp.think",
-            summary: "the chat template's enable_thinking for llama.cpp models; unset leaves it to the template",
-            kind: .flag),
-        Setting(path: "lmstudio.baseURL", summary: "where LM Studio's server serves", kind: .text),
-        Setting(
-            path: "mlx.contextLength",
-            summary: "the context window of every MLX model; unset sizes each from memory",
-            kind: .integer(windowRange)),
-        Setting(
-            path: "mlx.executor", summary: "what runs MLX models: wisp's executor, or the bridge (no prefix reuse)",
-            kind: .choice(MLXExecutorChoice.allCases.map(\.rawValue))),
-        Setting(
-            path: "mlx.think",
-            summary: "whether an MLX model thinks (enable_thinking); unset, declared reasoning or its template's",
-            kind: .flag),
-        Setting(
-            path: TrustedPublishers.setting,
-            summary: "Hugging Face organisations wisp models pull fetches from without asking; mlx-community always",
-            kind: .publishers),
-        Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
-        Setting(
-            path: "assessment.enabled",
-            summary: "assess each request: its tools, task, and relevant facts (adds a model call)", kind: .flag),
-        Setting(
-            path: "assessment.tools", summary: "which tools an assessed request registers",
-            kind: .choice(AssessmentSettings.ToolSets.allCases.map(\.rawValue))),
-        Setting(
-            path: "assessment.taskChanges",
-            summary: "when an assessed request may change the inferred task: any request, or one that states a task",
-            kind: .choice(AssessmentSettings.TaskChanges.allCases.map(\.rawValue))),
-        Setting(
-            path: "context.target", summary: "the share of the window condensing brings the context down to",
-            kind: .number(Config.ContextConfig.targetRange)),
-        Setting(
-            path: "context.headroomTurns",
-            summary: "the latest turns whose average size is kept free for the next turn; 0 for none",
-            kind: .integer(Config.ContextConfig.headroomRange)),
-        Setting(
-            path: "context.memory",
-            summary: "give a conversation with every tool the memory tool, to recall what condensing left out",
-            kind: .flag),
-        Setting(
-            path: "context.outputDays",
-            summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
-            kind: .integer(Config.ContextConfig.outputDaysRange)),
-        Setting(
-            path: "verification.mode",
-            summary: "how a reply's result claims are checked against the turn's calls: off, readers, or model",
-            kind: .choice(VerificationMode.allCases.map(\.rawValue))),
-        Setting(
-            path: "watch.settle",
-            summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
-            kind: .number(Config.WatchConfig.settleRange)),
-    ]
+    public static let all: [Setting] =
+        [
+            Setting(path: "model", summary: "the model new sessions run on", kind: .model),
+            Setting(
+                path: "models.disabled", summary: "models hidden from /model and refused; wisp models enable|disable",
+                kind: .models),
+            Setting(
+                path: "approval.threshold", summary: "ask before commands rated at this level or above",
+                kind: .choice(["safe", "moderate", "dangerous", "never"])),
+            Setting(
+                path: "approval.classifier", summary: "what judges each command beside the rules",
+                kind: .choice(RiskClassifierChoice.allCases.map(\.rawValue))),
+            Setting(
+                path: "approval.coremlModel", summary: "the Core ML model for classifier coreml", kind: .coremlModel),
+            Setting(
+                path: "approval.coremlMinimumConfidence", summary: "below this a Core ML verdict asks anyway",
+                kind: .number(0...1)),
+            Setting(
+                path: "approval.timeoutSeconds", summary: "seconds to wait for an approval; 0 waits forever",
+                kind: .integer(0...86_400)),
+            Setting(
+                path: "approval.persistDays", summary: "days a project or always approval lasts",
+                kind: .integer(1...365)),
+            Setting(
+                path: "approval.outOfBand",
+                summary: "under wisp mcp, also ask through wisp approvals and wisp-tui, with a notification",
+                kind: .flag),
+            Setting(
+                path: "approval.bannerDelaySeconds",
+                summary:
+                    "under wisp mcp, seconds the client's dialog may go unanswered before the notification; 0 at once",
+                kind: .integer(Config.ApprovalConfig.bannerDelayRange)),
+            Setting(
+                path: "routing.ladder", summary: "models to route to by input size, least capable first", kind: .models),
+            Setting(
+                path: "routing.tasks.secrets", summary: "the model for the thorough pass of scan and redact",
+                kind: .model),
+            Setting(
+                path: "commandTimeoutSeconds",
+                summary: "seconds a command may run unless asked otherwise; 0 waits forever",
+                kind: .integer(0...86_400)),
+            Setting(
+                path: "commandMaxTimeoutSeconds",
+                summary: "the most seconds a command's timeoutSeconds or a thread's commandTimeoutSeconds may ask for",
+                kind: .integer(Config.commandMaxTimeoutRange)),
+            Setting(
+                path: "commandPolicy.sandbox.allowOutsideSandbox",
+                summary:
+                    "let the model ask to run one command outside the sandbox, which you approve each time, and you run one after !!",
+                kind: .flag),
+            Setting(
+                path: "commandMaxOutputBytes",
+                summary: "bytes of a command's result the model is shown; unset takes the tool-output budget",
+                kind: .integer(256...1_048_576)),
+            Setting(path: "tools.disabled", summary: "built-in tools the model does not get", kind: .tools),
+            Setting(
+                path: "tools.models",
+                summary:
+                    "give a conversation with every tool the models tool, to list models and ask to pull or enable one",
+                kind: .flag),
+            Setting(
+                path: "tools.ask",
+                summary:
+                    "give a conversation with every tool the ask tool, so the model can ask you a question mid-turn",
+                kind: .flag),
+            Setting(
+                path: "inquiry.timeoutSeconds",
+                summary: "seconds you have to answer the model's question; 0 waits until you do",
+                kind: .integer(0...86_400)),
+            Setting(
+                path: "inquiry.elicitation",
+                summary: "under wisp mcp, also ask the model's question through the client's dialog (untested; off)",
+                kind: .flag),
+            Setting(
+                path: "shownOutputLines", summary: "lines of each tool's output chat shows before folding; 0 for none",
+                kind: .integer(0...10_000)),
+            Setting(path: "notifications.enabled", summary: "whether wisp posts notifications", kind: .flag),
+            Setting(path: "notifications.perMinute", summary: "notifications allowed a minute", kind: .integer(1...60)),
+            Setting(
+                path: "notifications.viaTerminalApp",
+                summary: "whether to post through the terminal app by bundle identifier", kind: .flag),
+            Setting(path: "audit.enabled", summary: "whether the audit log is written", kind: .flag),
+            Setting(path: "ollama.baseURL", summary: "where Ollama serves", kind: .text),
+            Setting(
+                path: "ollama.contextLength",
+                summary: "the context window asked of every Ollama model; unset sizes each from memory",
+                kind: .integer(windowRange)),
+            Setting(
+                path: "ollama.think",
+                summary:
+                    "whether a model that can think is asked to: true, false, or a level; unset leaves it to the model",
+                kind: .choice(OllamaThink.choices)),
+            Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
+            Setting(
+                path: "llamacpp.think",
+                summary:
+                    "whether a llama.cpp model that can think is asked to: true, false, or a level; unset leaves it to the "
+                    + "template",
+                kind: .choice(OllamaThink.choices)),
+        ]
+        + OllamaThink.levels.map { level in
+            Setting(
+                path: "llamacpp.thinkingBudget.\(level)",
+                summary: "the most tokens a llama.cpp model thinks for at think \(level); 0 sets no limit",
+                kind: .integer(0...1_048_576))
+        } + [
+            Setting(path: "lmstudio.baseURL", summary: "where LM Studio's server serves", kind: .text),
+            Setting(
+                path: "mlx.contextLength",
+                summary: "the context window of every MLX model; unset sizes each from memory",
+                kind: .integer(windowRange)),
+            Setting(
+                path: "mlx.executor", summary: "what runs MLX models: wisp's executor, or the bridge (no prefix reuse)",
+                kind: .choice(MLXExecutorChoice.allCases.map(\.rawValue))),
+            Setting(
+                path: "mlx.think",
+                summary: "whether an MLX model thinks (enable_thinking); unset, declared reasoning or its template's",
+                kind: .flag),
+            Setting(
+                path: TrustedPublishers.setting,
+                summary:
+                    "Hugging Face organisations wisp models pull fetches from without asking; mlx-community always",
+                kind: .publishers),
+            Setting(path: "systemPromptExtension", summary: "text added to wisp's system prompt", kind: .text),
+            Setting(
+                path: "assessment.enabled",
+                summary: "assess each request: its tools, task, and relevant facts (adds a model call)", kind: .flag),
+            Setting(
+                path: "assessment.tools", summary: "which tools an assessed request registers",
+                kind: .choice(AssessmentSettings.ToolSets.allCases.map(\.rawValue))),
+            Setting(
+                path: "assessment.taskChanges",
+                summary:
+                    "when an assessed request may change the inferred task: any request, or one that states a task",
+                kind: .choice(AssessmentSettings.TaskChanges.allCases.map(\.rawValue))),
+            Setting(
+                path: "context.target", summary: "the share of the window condensing brings the context down to",
+                kind: .number(Config.ContextConfig.targetRange)),
+            Setting(
+                path: "context.headroomTurns",
+                summary: "the latest turns whose average size is kept free for the next turn; 0 for none",
+                kind: .integer(Config.ContextConfig.headroomRange)),
+            Setting(
+                path: "context.memory",
+                summary: "give a conversation with every tool the memory tool, to recall what condensing left out",
+                kind: .flag),
+            Setting(
+                path: "context.outputDays",
+                summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
+                kind: .integer(Config.ContextConfig.outputDaysRange)),
+            Setting(
+                path: "verification.mode",
+                summary: "how a reply's result claims are checked against the turn's calls: off, readers, or model",
+                kind: .choice(VerificationMode.allCases.map(\.rawValue))),
+            Setting(
+                path: "watch.settle",
+                summary: "seconds file changes must be quiet before wisp watch runs; 0 runs on every change",
+                kind: .number(Config.WatchConfig.settleRange)),
+        ]
 
     /// The setting at `path`, or nil: one of `all`, or a model's own setting, `<runtime>.models.<name>.contextLength`
     /// or `<runtime>.models.<name>.think`, whose name may hold dots.
@@ -192,11 +209,12 @@ public enum ConfigSettings {
         guard let named = perModel(path) else { return nil }
         switch named.field {
         case "think":
-            // As the runtime's own `think` takes it: Ollama's values, a flag for a template's `enable_thinking`.
+            // As the runtime's own `think` takes it: Ollama's values for Ollama and llama.cpp, a flag for MLX's
+            // template switch.
             return Setting(
                 path: path,
                 summary: "whether this model is asked to think, ahead of \(named.runtime).think (ADR 0053)",
-                kind: named.runtime == "ollama" ? .choice(OllamaThink.choices) : .flag)
+                kind: named.runtime == "mlx" ? .flag : .choice(OllamaThink.choices))
         default:
             return Setting(
                 path: path,
@@ -287,7 +305,7 @@ public enum ConfigSettings {
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
         case "llamacpp.baseURL": return .string(d.llamacpp.baseURL.absoluteString)
-        case "llamacpp.think": return d.llamacpp.think.map { .bool($0) } ?? .string("the template's default")
+        case "llamacpp.think": return d.llamacpp.think.map { .string($0.text) } ?? .string("the template's default")
         case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)
         case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
         case "mlx.executor": return .string(d.mlxExecutor.rawValue)
@@ -302,6 +320,10 @@ public enum ConfigSettings {
         case "context.outputDays": return .int(d.contextOutputDays)
         case "watch.settle": return .double(d.watchSettle)
         case "verification.mode": return .string(d.verificationMode.rawValue)
+        case let budget where budget.hasPrefix("llamacpp.thinkingBudget."):
+            return d.llamacpp.thinkingBudget[String(budget.dropFirst("llamacpp.thinkingBudget.".count))].map {
+                $0 == 0 ? .string("no limit") : .int($0)
+            }
         default:
             // A model's own window falls back to the runtime's, then to sizing; its thinking to the runtime's.
             guard let named = perModel(path) else { return nil }

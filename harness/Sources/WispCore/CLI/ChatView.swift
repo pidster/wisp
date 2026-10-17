@@ -92,8 +92,8 @@ public struct ChatView: Equatable, Sendable {
         if entries.isEmpty {
             sections.append(
                 turn == nil
-                    ? "The model has not thought aloud in this conversation. A reasoning model served by Ollama "
-                        + "reports its thinking; others say nothing of it."
+                    ? "The model has not thought aloud in this conversation. A model that thinks reports its thinking "
+                        + "(Ollama, llama.cpp, MLX, and LM Studio show it); others say nothing of it."
                     : "The model did not think aloud in that turn.")
         }
         for entry in entries {

@@ -365,7 +365,7 @@ extension OpenAICompatibleExecutorTests {
         #expect(OpenAICompatibleSettings.defaults(for: .lmStudio).baseURL.absoluteString == "http://127.0.0.1:1234")
         // LM Studio takes neither `think` nor declarations.
         let studio = OpenAICompatibleSettings.resolve(
-            .init(think: true, models: ["m": .init(capabilities: ["toolCalling"])]), dialect: .lmStudio,
+            .init(think: .on, models: ["m": .init(capabilities: ["toolCalling"])]), dialect: .lmStudio,
             environment: [:])
         #expect(studio.think == nil && studio.declared.isEmpty)
     }

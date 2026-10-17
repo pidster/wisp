@@ -116,6 +116,9 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
     public let reported: [CapabilityName]
     /// What `config.json` declares it can do (`llamacpp.models.<name>`), or nil when nothing is declared.
     public let declared: [String]?
+    /// Whether the chat template takes a level of thinking as `reasoning_effort` (llama.cpp's `/props`
+    /// `chat_template_caps.supports_reasoning_effort`), so a level is sent as one as well as a budget.
+    public let takesReasoningEffort: Bool
     /// The context window wisp condenses against: what the server reported it holds, or the floor.
     public let window: Int
     /// Why the window is what it is, for the `model.resolved` audit event.
@@ -126,9 +129,11 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
     /// Creates a model; `checked()` asks the server about it first.
     public init(
         dialect: OpenAICompatibleDialect, name: String, settings: OpenAICompatibleSettings, serverID: String? = nil,
-        reported: [CapabilityName] = [], window: Int? = nil, windowReason: String? = nil
+        reported: [CapabilityName] = [], takesReasoningEffort: Bool = false, window: Int? = nil,
+        windowReason: String? = nil
     ) {
         self.dialect = dialect
+        self.takesReasoningEffort = takesReasoningEffort
         self.name = name
         self.serverID = serverID ?? name
         self.settings = settings
@@ -173,9 +178,9 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
             apiKey: settings.apiKey)
     }
 
-    /// The `chat_template_kwargs.enable_thinking` value a request sends now (`thinkSent(_:)` for what its scope asks);
-    /// nil sends none.
-    var think: Bool? { thinkSent(RequestThinking.current)?.enabled }
+    /// The thinking a request sends now (`thinkSent(_:)` for what its scope asks), as the executor writes it into the
+    /// body (`Executor.thinking(_:budget:effort:)`); nil sends none.
+    var think: OllamaThink? { thinkSent(RequestThinking.current) }
 
     // MARK: - Asking the server
 
@@ -276,12 +281,19 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         }
     }
 
-    /// What llama.cpp's `/props` says: the slot's window and whether the chat template takes tool calls.
+    /// What llama.cpp's `/props` says: the slot's window, whether the chat template takes tool calls, and whether
+    /// it thinks.
     public struct Props: Equatable, Sendable {
         /// The window of a slot, which one request gets (`default_generation_settings.n_ctx`).
         public var window: Int?
         /// Whether the chat template supports tool calls (`chat_template_caps`), or nil when not reported.
         public var toolCalls: Bool?
+        /// Whether the chat template thinks: it takes `enable_thinking`, writes a `<think>` block, or takes a
+        /// `reasoning_effort`. llama.cpp 0.7.0's `chat_template_caps` has no flag for thinking itself, so the
+        /// template's own text says it (Qwen3's and Qwen3.5's take `enable_thinking`; ADR 0053, amended 2026-10-17).
+        public var thinks = false
+        /// Whether the chat template takes a `reasoning_effort` (`chat_template_caps.supports_reasoning_effort`).
+        public var takesReasoningEffort = false
 
         /// Reads the response.
         ///
@@ -292,7 +304,14 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
                 object["default_generation_settings"]?.objectValue?["n_ctx"]?.intValue ?? object["n_ctx"]?.intValue
             let caps = object["chat_template_caps"]?.objectValue
             toolCalls = caps?["supports_tool_calls"]?.boolValue ?? caps?["supports_tools"]?.boolValue
+            takesReasoningEffort = caps?["supports_reasoning_effort"]?.boolValue ?? false
+            let template = object["chat_template"]?.stringValue ?? ""
+            thinks = takesReasoningEffort || Self.thinkingMarks.contains { template.contains($0) }
         }
+
+        /// What a chat template that thinks contains: the switch Qwen3's and its successors take, or the block a
+        /// template opens for thinking.
+        static let thinkingMarks = ["enable_thinking", "<think>", "reasoning_content"]
     }
 
     /// Asks llama.cpp's `/props` about the model, naming it when a router serves it among others.
@@ -327,11 +346,14 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         if entry.toolCalling == true { reported.append(.toolCalling) }
         if entry.reasoning { reported.append(.reasoning) }
         let window: (size: Int, reason: String)
+        var takesEffort = false
         switch dialect.catalog {
         case .llamaServer:
             do {
                 let props = try Blocking.run { try await Self.props(of: entry, at: settings) }
                 if props.toolCalls == true { reported.append(.toolCalling) }
+                if props.thinks, !reported.contains(.reasoning) { reported.append(.reasoning) }
+                takesEffort = props.takesReasoningEffort
                 window = Self.window(llamaServer: props.window, problem: nil)
             } catch {
                 window = Self.window(llamaServer: nil, problem: "\(error)")
@@ -341,7 +363,7 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         }
         return OpenAICompatibleModel(
             dialect: dialect, name: name, settings: settings, serverID: entry.id, reported: reported,
-            window: window.size, windowReason: window.reason)
+            takesReasoningEffort: takesEffort, window: window.size, windowReason: window.reason)
     }
 
     /// llama.cpp's window: the slot's, which the server allocated when it loaded the model, so it is the server's to
@@ -392,6 +414,8 @@ enum Catalogs {
             served.parameters = meta?["n_params"]?.intValue.map(parameterCount)
             served.bytes = meta?["size"]?.intValue
             served.maximumContext = meta?["n_ctx_train"]?.intValue
+            // The quantisation, as Ollama's listing shows it beside the family; llama.cpp reports no family.
+            served.format = meta?["ftype"]?.stringValue
             served.routed = entry["status"] != nil
             return served
         }
@@ -482,16 +506,27 @@ enum Catalogs {
 }
 
 extension OpenAICompatibleModel: ThinkingControl {
-    /// For a dialect that takes `enable_thinking` (llama.cpp): what is asked, for a model that reports or is declared
-    /// `reasoning` or whose thinking is configured, a level taken as on; else the configured default, this model's own
-    /// `llamacpp.models.<name>.think` ahead of `llamacpp.think`. Nothing for LM Studio, which sets thinking in the app.
+    /// For a dialect that takes thinking (llama.cpp): what is asked, level and all, for a model that reports or is
+    /// declared `reasoning` or whose thinking is configured; else the configured default, this model's own
+    /// `llamacpp.models.<name>.think` ahead of `llamacpp.think`, sent even to a model not known to think, so an
+    /// operator can reach a template wisp does not recognise. Nothing for LM Studio, which sets thinking in the app.
     ///
     /// - Parameter requested: The thinking asked of the request; nil asks nothing.
     /// - Returns: The value sent, or nil.
     public func thinkSent(_ requested: OllamaThink?) -> OllamaThink? {
         guard dialect.takesThink else { return nil }
-        let configured = (settings.declared[name]?.think ?? settings.think).map { $0 ? OllamaThink.on : .off }
+        let configured = settings.declared[name]?.think ?? settings.think
         guard let requested, configured != nil || capabilities.contains(.reasoning) else { return configured }
-        return requested.enabled ? .on : .off
+        return requested
+    }
+
+    /// Ollama's levels, `low`, `medium`, `high`, and `max`, for a llama.cpp model that thinks: each is sent as a
+    /// thinking budget (`llamacpp.thinkingBudget`), and as `reasoning_effort` to a template that takes one; none for
+    /// LM Studio or a model not known to think.
+    public var thinkLevels: [String] {
+        dialect.takesThink
+            && (capabilities.contains(.reasoning) || settings.declared[name]?.think != nil
+                || settings.think != nil)
+            ? OllamaThink.levels : []
     }
 }

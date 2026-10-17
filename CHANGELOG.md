@@ -6,6 +6,14 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+- llama.cpp models think as Ollama's do. A model whose chat template thinks is found from the server, listed as
+  thinking, and offered `/think`'s levels; `llamacpp.think` and `llamacpp.models.<name>.think` take `true`, `false`,
+  or `low`, `medium`, `high`, `max`. `false` turns thinking off whatever the template calls its switch, and a level
+  thinks within a budget, `llamacpp.thinkingBudget.<level>` (1,024, 4,096, 16,384 tokens, no limit at `max`).
+  wisp's own calls, the risk classifier's among them, now ask such a model not to think: a risk verdict that thought
+  for 58 s on `Ternary-Bonsai-2-9B` comes at once. A config with a level there does not load in wisp 0.26.3 or earlier.
+- `wisp models` shows a llama.cpp model's quantisation, as it shows an Ollama model's.
+
 - `scripts/check eval` runs its suites one after another: in parallel they took no less time on the on-device
   model and scored lower under the load. Each floor line now gives this run's rate, the expected count and its rate,
   and the floor.

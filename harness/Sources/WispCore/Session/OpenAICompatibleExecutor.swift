@@ -110,10 +110,13 @@ extension OpenAICompatibleModel {
         /// - Parameters:
         ///   - request: The framework's request.
         ///   - model: What the server calls the model.
-        ///   - think: `enable_thinking` for the chat template, or nil to send none.
+        ///   - think: The thinking asked, or nil to send none (`thinking(_:budget:effort:)`).
+        ///   - budget: The most tokens each level thinks for; 0 or none sets no limit.
+        ///   - effort: Whether the chat template takes `reasoning_effort`.
         /// - Returns: The body.
         static func body(
-            for request: LanguageModelExecutorGenerationRequest, model: String, think: Bool? = nil
+            for request: LanguageModelExecutorGenerationRequest, model: String, think: OllamaThink? = nil,
+            budget: [String: Int] = [:], effort: Bool = false
         ) -> JSONValue {
             var body: [String: JSONValue] = [
                 "model": .string(model), "messages": .array(messages(from: request.transcript)), "stream": true,
@@ -137,8 +140,35 @@ extension OpenAICompatibleModel {
             }
             if let temperature = request.generationOptions.temperature { body["temperature"] = .double(temperature) }
             if let tokens = request.generationOptions.maximumResponseTokens { body["max_tokens"] = .int(tokens) }
-            if let think { body["chat_template_kwargs"] = ["enable_thinking": .bool(think)] }
+            if let think { body.merge(thinking(think, budget: budget, effort: effort)) { _, new in new } }
             return .object(body)
+        }
+
+        /// The fields that ask llama.cpp for `think` (ADR 0053, amended 2026-10-17), so a choice means the same as it
+        /// does to Ollama. Off sends the template's `enable_thinking: false` and `reasoning_effort: "none"`, which
+        /// the server turns into no thinking whatever the template calls its switch. On sends `enable_thinking: true`
+        /// and leaves how long to the model. A level thinks too, within its budget, sent as `thinking_budget_tokens`
+        /// (the server ends the thinking there; llama.cpp 0.7.0 takes it per request, though its README names only
+        /// the server's `--reasoning-budget`), and as `reasoning_effort` to a template that takes one, where `max` is
+        /// sent as `high`, the most such templates name.
+        ///
+        /// - Parameters:
+        ///   - think: The thinking asked.
+        ///   - budget: The most tokens each level thinks for; 0 or none sets no limit.
+        ///   - effort: Whether the chat template takes `reasoning_effort`.
+        /// - Returns: The fields.
+        static func thinking(_ think: OllamaThink, budget: [String: Int], effort: Bool) -> [String: JSONValue] {
+            var fields: [String: JSONValue] = ["chat_template_kwargs": ["enable_thinking": .bool(think.enabled)]]
+            switch think {
+            case .off:
+                fields["reasoning_effort"] = "none"
+            case .on:
+                break
+            case .level(let level):
+                if effort { fields["reasoning_effort"] = .string(level == "max" ? "high" : level) }
+                if let tokens = budget[level], tokens > 0 { fields["thinking_budget_tokens"] = .int(tokens) }
+            }
+            return fields
         }
 
         /// Sends the request and streams the reply back as events.
@@ -163,7 +193,10 @@ extension OpenAICompatibleModel {
             http.setValue("text/event-stream", forHTTPHeaderField: "Accept")
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            http.httpBody = try encoder.encode(Self.body(for: request, model: model.serverID, think: model.think))
+            http.httpBody = try encoder.encode(
+                Self.body(
+                    for: request, model: model.serverID, think: model.think, budget: model.settings.thinkingBudget,
+                    effort: model.takesReasoningEffort))
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {

@@ -384,14 +384,14 @@ final class FakeChatServer: URLProtocol {
             _ = try await Agent(instructions: "x", tools: [], model: model).respond(to: "hi")
             return FakeChatServer.bodies(Self.host(dialect), Self.chat).last ?? ""
         }
-        let off = Config(llamacpp: .init(baseURL: "http://\(Self.llama):1", think: false))
+        let off = Config(llamacpp: .init(baseURL: "http://\(Self.llama):1", think: .off))
         #expect(
             try await body(off, .llamaCpp, "Qwen3-8B-Q4_K_M").contains(
                 #""chat_template_kwargs":{"enable_thinking":false}"#))
         let unset = Config(llamacpp: .init(baseURL: "http://\(Self.llama):1"))
         #expect(!(try await body(unset, .llamaCpp, "Qwen3-8B-Q4_K_M").contains("chat_template_kwargs")))
         // LM Studio sets thinking per model in the app; a `think` in its section is not sent.
-        let studio = Config(lmstudio: .init(baseURL: "http://\(Self.studio):1", think: true))
+        let studio = Config(lmstudio: .init(baseURL: "http://\(Self.studio):1", think: .on))
         #expect(!(try await body(studio, .lmStudio, "qwen/qwen3-8b").contains("chat_template_kwargs")))
     }
 

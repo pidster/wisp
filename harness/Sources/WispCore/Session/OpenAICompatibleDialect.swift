@@ -86,24 +86,34 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     public var apiKey: String?
     /// Where the key came from: the environment variable's name, or `config.json`.
     public var apiKeySource: String?
-    /// Whether a model is asked to think, for a dialect that takes it (`chat_template_kwargs.enable_thinking`); nil
-    /// sends nothing and leaves it to the template.
-    public var think: Bool?
+    /// Whether a model is asked to think, for a dialect that takes it (llama.cpp): `true`, `false`, or a level, as
+    /// `ollama.think` takes it; nil sends nothing and leaves it to the template.
+    public var think: OllamaThink?
+    /// The most tokens a model thinks for at each level, for a dialect that takes thinking; a level without one, or
+    /// with 0, thinks without a limit.
+    public var thinkingBudget: [String: Int]
     /// What `config.json` declares each model can do (`llamacpp.models.<name>`), by the operator or wisp's check.
     public var declared: [String: Config.MLXModelConfig]
 
     /// Creates settings.
     public init(
         baseURL: URL, timeout: Duration = .seconds(120), apiKey: String? = nil, apiKeySource: String? = nil,
-        think: Bool? = nil, declared: [String: Config.MLXModelConfig] = [:]
+        think: OllamaThink? = nil, thinkingBudget: [String: Int] = defaultThinkingBudget,
+        declared: [String: Config.MLXModelConfig] = [:]
     ) {
         self.baseURL = baseURL
         self.timeout = timeout
         self.apiKey = apiKey
         self.apiKeySource = apiKey == nil ? nil : (apiKeySource ?? "config.json")
         self.think = think
+        self.thinkingBudget = thinkingBudget
         self.declared = declared
     }
+
+    /// The budgets a level thinks within when `llamacpp.thinkingBudget` does not set its own: `low` 1,024 tokens,
+    /// `medium` 4,096, `high` 16,384, and `max` without a limit. A reply from a thinking model at its template's
+    /// default ran past 3,000 tokens of thinking for a one-word verdict (2026-10-17, docs/backends.md, "Thinking").
+    public static let defaultThinkingBudget = ["low": 1024, "medium": 4096, "high": 16_384, "max": 0]
 
     /// The defaults for `dialect`: its own port on this Mac, two minutes, no key.
     ///
@@ -130,6 +140,8 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
             timeout: .seconds(section?.timeoutSeconds ?? 120), apiKey: fromEnvironment ?? fromFile,
             apiKeySource: fromEnvironment != nil ? dialect.apiKeyVariable : "config.json",
             think: dialect.takesThink ? section?.think : nil,
+            thinkingBudget: defaultThinkingBudget.merging(section?.thinkingBudget ?? [:]) { _, configured in configured
+            },
             declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:])
     }
 

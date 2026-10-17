@@ -31,19 +31,31 @@ import WispTestSupport
         // Setting only its thinking declares nothing: the model stays undeclared, as a window alone leaves it.
         #expect(mlx.mlxModels["Qwen3-1.7B-4bit"] == nil)
         let llama = try config(#"{"llamacpp":{"models":{"Qwen3-8B":{"think":false}}}}"#).resolved.llamacpp
-        #expect(llama.declared["Qwen3-8B"]?.think == false && llama.declared["Qwen3-8B"]?.capabilities == nil)
+        #expect(llama.declared["Qwen3-8B"]?.think == .off && llama.declared["Qwen3-8B"]?.capabilities == nil)
     }
 
     @Test func aModelsThinkIsValidatedAsTheRuntimesIs() throws {
         #expect(throws: DecodingError.self) { try config(#"{"ollama":{"models":{"q":{"think":"extreme"}}}}"#) }
-        #expect(throws: DecodingError.self) { try config(#"{"mlx":{"models":{"m":{"think":"high"}}}}"#) }
-        // LM Studio sets thinking per model in the app, so a model's `think` there is refused at load.
         let dir = FileManager.default.temporaryDirectory.appending(path: "wisp-think-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appending(path: "config.json")
-        try Data(#"{"lmstudio":{"models":{"qwen/qwen3-8b":{"think":false}}}}"#.utf8).write(to: file)
-        #expect(throws: DecodingError.self) { try Config.load(from: file) }
+        func load(_ json: String) throws -> Config {
+            let file = dir.appending(path: "config.json")
+            try Data(json.utf8).write(to: file)
+            return try Config.load(from: file)
+        }
+        // MLX's template switch is only on or off, so a level there is refused at load.
+        #expect(throws: DecodingError.self) { try load(#"{"mlx":{"models":{"m":{"think":"high"}}}}"#) }
+        // LM Studio sets thinking per model in the app, so a model's `think` there is refused at load.
+        #expect(throws: DecodingError.self) { try load(#"{"lmstudio":{"models":{"qwen/qwen3-8b":{"think":false}}}}"#) }
+        // llama.cpp takes Ollama's values, and a budget for each level, never a negative one or for another word.
+        let llama = try load(
+            #"{"llamacpp":{"think":"low","thinkingBudget":{"low":512},"models":{"q":{"think":"max"}}}}"#)
+        #expect(llama.resolved.llamacpp.think == .level("low"))
+        #expect(llama.resolved.llamacpp.declared["q"]?.think == .level("max"))
+        #expect(llama.resolved.llamacpp.thinkingBudget == ["low": 512, "medium": 4096, "high": 16_384, "max": 0])
+        #expect(throws: DecodingError.self) { try load(#"{"llamacpp":{"thinkingBudget":{"extreme":1}}}"#) }
+        #expect(throws: DecodingError.self) { try load(#"{"llamacpp":{"thinkingBudget":{"low":-1}}}"#) }
     }
 
     @Test func wispConfigSetsListsAndDefaultsAModelsThink() throws {
@@ -66,6 +78,13 @@ import WispTestSupport
         #expect(ConfigSettings.defaultValue("ollama.models.q.think") == ConfigSettings.defaultValue("ollama.think"))
         #expect(ConfigSettings.setting("ollama.models.q.think")?.kind == .choice(OllamaThink.choices))
         #expect(ConfigSettings.setting("mlx.models.m.think")?.kind == .flag)
+        // llama.cpp's take Ollama's values, the runtime's and each model's, and each level has its budget.
+        #expect(ConfigSettings.setting("llamacpp.think")?.kind == .choice(OllamaThink.choices))
+        #expect(ConfigSettings.setting("llamacpp.models.q.think")?.kind == .choice(OllamaThink.choices))
+        let budget = try ConfigEdit.set("llamacpp.thinkingBudget.low", to: "512", in: nil)
+        #expect(try ConfigEdit.current(keys: ["llamacpp", "thinkingBudget", "low"], in: budget.data) == 512)
+        #expect(ConfigSettings.defaultValue("llamacpp.thinkingBudget.medium") == 4096)
+        #expect(ConfigSettings.defaultValue("llamacpp.thinkingBudget.max") == "no limit")
         // A window and thinking for one model are two settings of it.
         let both = try ConfigEdit.set("ollama.models.granite4.2:8b.contextLength", to: "16384", in: set.data)
         let decoded = try JSONDecoder().decode(Config.self, from: both.data).resolved.ollama

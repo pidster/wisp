@@ -423,14 +423,15 @@ public struct Config: Codable, Equatable, Sendable {
         public var verified: CapabilityCheck?
         /// This model's context window, ahead of `mlx.contextLength` and sizing from memory; nil leaves it to them.
         public var contextLength: Int?
-        /// Whether this model is asked to think (its template's `enable_thinking`), ahead of `mlx.think` or
-        /// `llamacpp.think`; nil leaves it to them (ADR 0053, amended 2026-10-11). Declares no capability.
-        public var think: Bool?
+        /// Whether this model is asked to think, ahead of `mlx.think` or `llamacpp.think`; nil leaves it to them
+        /// (ADR 0053, amended 2026-10-11 and 2026-10-17). `true` or `false` for MLX, whose template flag is only on
+        /// or off; for llama.cpp also a level, as Ollama takes. Declares no capability.
+        public var think: OllamaThink?
 
         /// Creates a declaration.
         public init(
             capabilities: [String]? = nil, verified: CapabilityCheck? = nil, contextLength: Int? = nil,
-            think: Bool? = nil
+            think: OllamaThink? = nil
         ) {
             self.capabilities = capabilities
             self.verified = verified
@@ -523,20 +524,26 @@ public struct Config: Codable, Equatable, Sendable {
         /// The server's API key, sent as a bearer token; `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY` wins
         /// over it. Never logged or shown.
         public var apiKey: String?
-        /// llama.cpp only: the chat template's `enable_thinking` for every request; unset sends nothing.
-        public var think: Bool?
+        /// llama.cpp only: whether a model that can think is asked to, as `ollama.think` takes it: `true`, `false`,
+        /// or a level; unset leaves it to the chat template (ADR 0053, amended 2026-10-17).
+        public var think: OllamaThink?
+        /// llama.cpp only: the most tokens a model thinks for at each level (`low`, `medium`, `high`, `max`), sent
+        /// as each request's `thinking_budget_tokens`; 0 sets no limit. Unset levels take
+        /// `OpenAICompatibleSettings.defaultThinkingBudget`.
+        public var thinkingBudget: [String: Int]?
         /// llama.cpp only: what each model can do, declared by the operator or recorded by wisp's check (ADR 0056).
         public var models: [String: MLXModelConfig]?
 
         /// Creates settings; nil fields take defaults.
         public init(
-            baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: Bool? = nil,
-            models: [String: MLXModelConfig]? = nil
+            baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: OllamaThink? = nil,
+            thinkingBudget: [String: Int]? = nil, models: [String: MLXModelConfig]? = nil
         ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
             self.apiKey = apiKey
             self.think = think
+            self.thinkingBudget = thinkingBudget
             self.models = models
         }
     }
@@ -751,6 +758,29 @@ public struct Config: Codable, Equatable, Sendable {
                     ("models.\($0.key).contextLength", $0.value.contextLength)
                 })
         }
+        // MLX's template flag is only on or off; a level there would be read as on without saying so.
+        if let model = (mlx?.models ?? [:]).keys.sorted().first(where: {
+            if case .level = mlx?.models?[$0]?.think { true } else { false }
+        }) {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "mlx: models.\(model).think must be true or false"))
+        }
+        if let budget = llamacpp?.thinkingBudget {
+            if let level = budget.keys.sorted().first(where: { !OllamaThink.levels.contains($0) }) {
+                throw DecodingError.dataCorrupted(
+                    .init(
+                        codingPath: [],
+                        debugDescription:
+                            "llamacpp: thinkingBudget.\(level) is not a level; the levels are "
+                            + OllamaThink.levels.joined(separator: ", ")))
+            }
+            if let level = budget.keys.sorted().first(where: { (budget[$0] ?? 0) < 0 }) {
+                throw DecodingError.dataCorrupted(
+                    .init(
+                        codingPath: [],
+                        debugDescription: "llamacpp: thinkingBudget.\(level) must be 0 (no limit) or more tokens"))
+            }
+        }
         // LM Studio sets thinking per model in the app; a model's `think` there would be read past.
         if let model = (lmstudio?.models ?? [:]).keys.sorted().first(where: { lmstudio?.models?[$0]?.think != nil }) {
             throw DecodingError.dataCorrupted(
@@ -817,7 +847,7 @@ public struct Config: Codable, Equatable, Sendable {
             mlxContextLength: mlx?.contextLength,
             mlxModelContextLengths: (mlx?.models ?? [:]).compactMapValues(\.contextLength),
             mlxExecutor: mlx?.executor ?? .wisp, mlxThink: mlx?.think,
-            mlxModelThinks: (mlx?.models ?? [:]).compactMapValues(\.think),
+            mlxModelThinks: (mlx?.models ?? [:]).compactMapValues { $0.think?.enabled },
             mlxTrustedPublishers: TrustedPublishers.resolve(mlx?.trustedPublishers),
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
