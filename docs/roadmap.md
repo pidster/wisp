@@ -6,7 +6,8 @@ limits, on 2026-10-14, and 0.25.0, an approved run outside the sandbox and the d
 What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main/CHANGELOG.md). 0.26.0, the model's
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
-fixes found while mapping the thread store, on 2026-10-16. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
+on 2026-10-18. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
@@ -14,7 +15,6 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.26.4 | llama.cpp's thinking on a par with Ollama's: found, levelled, budgeted, and checked by `wisp doctor` | |
 | 0.27.0 | One thread store: every thread saved, and resumed by any face | |
 | 0.28.0 | `wisp-tui`'s conversation as a log pane of its own, with long outputs folded and each element reachable | Copying from the pane |
 
