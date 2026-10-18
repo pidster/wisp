@@ -13,7 +13,11 @@ import WispTestSupport
     /// A server whose threads run on a scripted model, opened as the faces open them, keeping facts.
     private func server(steps: [ScriptedModel.Step]) throws -> WispServer {
         let session = try scratchSession()
-        return WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
+        return WispServer(session: session) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let model = start.model
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model)
             // The faces' own path, so the agent keeps facts as the config says and links its tool events.
@@ -80,7 +84,8 @@ import WispTestSupport
 
     @Test func aThreadWithoutFactsRefusesATask() async throws {
         let session = try scratchSession()
-        let server = WispServer(session: session) { session, host, id, _, _, _, _, _ in
+        let server = WispServer(session: session) { session, host, start in
+            let id = start.id
             let thread = try session.thread(id: id, host: host, tools: .none)
             return OpenThread(
                 thread: ThreadActor(

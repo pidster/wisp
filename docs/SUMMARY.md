@@ -117,6 +117,7 @@
   - [0063: Command time limits a call or a thread may ask for](decisions/0063-command-time-limits.md)
   - [0064: An approved run outside the sandbox](decisions/0064-an-approved-run-outside-the-sandbox.md)
   - [0065: The documentation site, an mdBook over docs/ on GitHub Pages](decisions/0065-documentation-site.md)
+  - [0066: One thread store: every MCP thread saved, and resumed by a later server](decisions/0066-one-thread-store.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

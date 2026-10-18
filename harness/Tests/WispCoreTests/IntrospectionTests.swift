@@ -25,7 +25,7 @@ import Testing
         "llamacpp": ["backends", "llamacpp"], "lmstudio": ["backends", "lmstudio"],
         "notifications": ["notifications"], "tools": ["tools"], "routing": ["routing"], "facts": ["facts"],
         "assessment": ["assessment"], "context": ["context"], "watch": ["watch"], "verification": ["verification"],
-        "inquiry": ["inquiry"],
+        "inquiry": ["inquiry"], "threads": ["threads"],
         "models": ["models", "disabled"],
     ]
 

@@ -193,6 +193,10 @@ public enum ConfigSettings {
                 summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
                 kind: .integer(Config.ContextConfig.outputDaysRange)),
             Setting(
+                path: "threads.keepDays",
+                summary: "days after its last use a saved thread and its stored outputs are deleted; 0 keeps them",
+                kind: .integer(Config.ThreadsConfig.keepDaysRange)),
+            Setting(
                 path: "verification.mode",
                 summary: "how a reply's result claims are checked against the turn's calls: off, readers, or model",
                 kind: .choice(VerificationMode.allCases.map(\.rawValue))),
@@ -318,6 +322,7 @@ public enum ConfigSettings {
         case "context.headroomTurns": return .int(d.contextTarget.headroomTurns)
         case "context.memory": return .bool(d.contextMemory)
         case "context.outputDays": return .int(d.contextOutputDays)
+        case "threads.keepDays": return .int(d.threadsKeepDays)
         case "watch.settle": return .double(d.watchSettle)
         case "verification.mode": return .string(d.verificationMode.rawValue)
         case let budget where budget.hasPrefix("llamacpp.thinkingBudget."):

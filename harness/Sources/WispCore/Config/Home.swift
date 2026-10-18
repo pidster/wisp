@@ -48,6 +48,8 @@ public struct Home: Sendable, Equatable {
     /// Where tool output larger than the tool-output budget is kept whole, one directory per audit session
     /// (`OutputStore`, ADR 0050).
     public var outputs: URL { root.appending(path: "output", directoryHint: .isDirectory) }
+    /// Where every thread is saved as it goes, one directory per thread (`ThreadStore`, ADR 0066).
+    public var threads: URL { root.appending(path: "threads", directoryHint: .isDirectory) }
 
     /// Creates the directory tree if it does not exist.
     ///

@@ -70,11 +70,11 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON: every session's audit events as the audit file holds them, oldest first, paged (`events`, 100 a page by default; `?page=N&limit=M`, `last` names the newest page). |
 | `wisp://audit/{session}` | JSON: every event of one session that is not a `respond` thread, paged the same way: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here, by its `thread_id` or its `auditSession`, with a pointer to its `…/audit` below. |
-| `wisp://threads` | JSON: the server's threads, most recently active first, open or not: `thread_id`, `auditSession` (the session its events carry, `<thread_id>-<suffix>`, one per opening), `model`, `think` (as `respond`'s `think` set it, `true`, `false`, or a level; null for the model's default), `turns`, `created`, `lastActive`, `state` (`open`, `closed`, `evicted`), and `uri`. Paged. |
-| `wisp://threads/{thread_id}` | JSON: one thread's `auditSession`, `model`, `think` (as in `wisp://threads`), `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below, including `summary`, and the facts resources the thread is given (`sessionFacts`, `permanentFacts`, `proposedFacts`). |
-| `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. |
+| `wisp://threads` | JSON: the threads this client may open, most recently active first: this server's, open or not, and those saved in the thread store under this client's name ("Saved and resumed threads", below): `thread_id`, `auditSession` (the session its events carry now or last, `<thread_id>-<suffix>`, one per opening), `model`, `think` (as `respond`'s `think` set it, `true`, `false`, or a level; null for the model's default), `turns` (over every opening), `created`, `lastActive`, `state` (`open`; `saved`, in the store and held by no process; `open elsewhere`, held by another wisp; `closed`; or `evicted`, dropped from memory and not saved), `owner` (the client's name), and `uri`. Paged. |
+| `wisp://threads/{thread_id}` | JSON: one thread's `auditSession`, `sessions` (every audit session it has had, oldest first), `owner`, `model`, `think` (as in `wisp://threads`), `tools`, `instructions` (whether the caller gave it an instructions layer), `turns`, `created`, `lastActive`, `state`, `task` (the current task's `text`, `source`, and fact `id`, or null; set with `respond`'s `task`), and `resources`, the URIs below, including `summary`, and the facts resources the thread is given (`sessionFacts`, `permanentFacts`, `proposedFacts`). A saved thread is summarised from its files; another client's is refused. |
+| `wisp://threads/{thread_id}/context` | JSON: the thread's turns, each with `turn`, `time`, `prompt` (its start), `tokens` (composed for the turn's first request, estimated at four bytes a token, tool definitions not counted), `changed` (`condensed`, `cut`, `referenced`: entries changed in the model's context since the turn before), and `uri`; and `next_request`. Paged. For a saved thread, no turns, `saved: true`, and `next_request`: the contexts of its earlier turns did not carry over. |
 | `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
-| `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves. Paged at 16 KiB. |
+| `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves; for a saved thread, its record as a resumed turn's request would carry it, before the facts that turn adds. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/facts` | JSON: the thread's own facts (ids `c…`): its task, the state of the work, and its proposed permanent facts. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `supersededBy`, `approved`, `conflict` (the winning head and the ones that disagree, when they do, including a permanent or session fact), and `uri`; plus `conflicts`, the count of its facts in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. The running summary is not here; it has its own resource, below. The session's and the permanent facts are in the resources below; all of them, as the model is given them, are in `…/context/next`. |
 | `wisp://threads/{thread_id}/summary` | JSON: the thread's running summary of earlier turns, the one the model is given in place of the turns condensing dropped: `thread_id`, `versions` (how many have been written), and `summary` (`version`, `text`, `covered` turns, the `turns`, store `entries`, and audit `sources` it added, `through`, `recorded`, `turn`, `model`), or null before the first (one is written when condensing has dropped three or more turns not yet summarised). `?all=true` adds `summaries`, every version, oldest first. Served while the thread is open, like the facts; a thread that keeps no facts has no summary and is refused, as is an unknown thread. |
 | `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one of the thread's facts (`fact`) and every version the thread holds of what it is about (`history`), oldest first, and `request`, the latest request to keep it as a permanent fact and its outcome (`set_fact_scope`, below), or null. A `p…` or `s…` id is refused with a pointer to where it is served. |
@@ -82,11 +82,11 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://facts/{fact_id}` | JSON: one permanent fact (`fact`) and every version the shared store holds of what it is about (`history`), oldest first. `fact_id` starts with `p`, so `wisp://facts/proposed` is never taken for one. |
 | `wisp://facts/proposed` | JSON: the permanent facts a tool or the model proposed in any conversation of this server, awaiting the person: not yet moved to another scope. Each has the fact's fields, `thread_id` (its conversation), `reference` (`thread_id/fact_id`, which chat's `/fact` takes), and `uri` (the thread's fact, or null for a conversation that is not a thread), and `request`, the latest request to keep it and its outcome, or null. Paged. Nothing asks about them on its own: chat lists them and moves them (`/fact git/c3 permanent`), `respond`'s `facts` and `factsProposed` report them, and `set_fact_scope` moves a thread's own or asks the person to keep it. |
 | `wisp://session/facts` | JSON: the session's ephemeral facts (ids `s…`): the machine now, such as a listening port, shared by every thread of this server and gone with it. Current only; `?all=true` adds superseded versions. Paged. |
-| `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log: `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes` (what the model was given), `id`, and `uri`; for a call whose output was larger than the tool-output budget and kept whole in the output store ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)), `stored` (the output's id, the audit call id), `storedBytes`, and `storedLines`. Paged. |
+| `wisp://threads/{thread_id}/output` | JSON: the thread's tool calls, oldest first, from the audit log, over every opening: `session` (the opening's audit session; turns are numbered per opening), `turn`, `tool`, `arguments`, `command` and `exitStatus` for `run_command`, `bytes` (what the model was given), `id`, and `uri`; for a call whose output was larger than the tool-output budget and kept whole in the output store ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)), `stored` (the output's id, the audit call id), `storedBytes`, and `storedLines`. Paged. |
 | `wisp://threads/{thread_id}/output/{id}` | Plain text: one tool call's output, by the `id` a `respond` result's `calls` give it (see `respond` below): the whole stored output when the model saw only part of it, else what the tool returned, verbatim. Paged at 16 KiB with `?page=N`; a page after the first begins with a line saying which page it is. |
-| `wisp://threads/{thread_id}/reasoning` | JSON: each stretch a reasoning model thought aloud in the thread, oldest first, from its `model.reasoning` events ([ADR 0053](decisions/0053-the-models-thinking-shown.md)): `turn`, `id`, `tokens`, `seconds`, `bytes`, and `uri`. Paged. The thinking is kept for the person and the caller to read; the thread's model never gets it back. |
+| `wisp://threads/{thread_id}/reasoning` | JSON: each stretch a reasoning model thought aloud in the thread, oldest first, from its `model.reasoning` events ([ADR 0053](decisions/0053-the-models-thinking-shown.md)), over every opening: `session`, `turn`, `id`, `tokens`, `seconds`, `bytes`, and `uri`. Paged. The thinking is kept for the person and the caller to read; the thread's model never gets it back. |
 | `wisp://threads/{thread_id}/reasoning/{id}` | Plain text: one stretch of thinking, verbatim, by the `id` the list gives it. |
-| `wisp://threads/{thread_id}/audit` | JSON: every event of the thread, oldest first, for reconstructing what a delegated task did; paged like `wisp://audit`. A thread's events are read under its `auditSession`, so a `thread_id` reused after `close_thread` shows only the thread it names now, never an earlier one's history. |
+| `wisp://threads/{thread_id}/audit` | JSON: every event of the thread, oldest first, for reconstructing what a delegated task did; paged like `wisp://audit`. A thread's events are read under every audit session its `thread.json` records, so a resumed thread's cover its whole life, from every server that held it ([ADR 0066](decisions/0066-one-thread-store.md)); a thread closed here is read under its one `auditSession`, so a `thread_id` reused after `close_thread` shows only the thread it names now, never an earlier one's history. |
 
 Collections are paged at 50 rows: append `?page=N` (from 1); each page gives `page`, `pages`, `total`, and
 `next`, the next page's URI or null. The audit collections (`wisp://audit`, `wisp://audit/{session}`,
@@ -97,16 +97,17 @@ same way, and each page after the first begins with a line saying which page it 
 the thread has not had, and a malformed URI are protocol errors (`invalidParams`).
 
 The context resources compose the view from the thread's store, in memory, at no cost to the model
-(decision D12 of the [layered-context proposal](proposals/2026-09-29-layered-context.md)). They are
-served only while the thread is open: a closed or evicted thread's context went with it, and reading it
-says so, while its summary, output, and audit remain. A thread's turns are numbered as its audit events
-number them, from 1. A thread resumed from a saved conversation (chat's `--resume`; MCP threads are not
-resumed today) shows its earlier session's entries as carried into every turn of its own, with the
-references and cuts the saving session last sent; the contexts of the saving session's own turns can be
-composed only as far as the saved sidecar allows, and are not addressable here.
+(decision D12 of the [layered-context proposal](proposals/2026-09-29-layered-context.md)). A saved thread's
+are read from its files in the thread store, without loading a model: its next request's context, but not the
+contexts of its earlier turns, which did not carry over. A closed thread's context went with it, and reading it
+says so, while its output and audit remain. A thread's turns are numbered as its audit events number them, from
+1, in each opening. A thread resumed from the store, or a chat resumed with `--resume`, shows its earlier
+openings' entries as carried into every turn of its own, with the references and cuts the saving opening last
+sent; the contexts of the saving opening's own turns are not addressable here.
 
-The facts resources read the stores in memory, likewise at no model cost; a thread's own only while the
-thread is open. A thread keeps facts unless `facts.enabled` is false in the config, in which case reading
+The facts resources read the stores in memory, likewise at no model cost: a live thread's own, or a saved
+thread's from its files (its own facts and the permanent ones; session facts are the server's and do not
+carry). A thread keeps facts unless `facts.enabled` is false in the config, in which case reading
 its facts is an `invalidParams` error saying so ([context-management.md](context-management.md), "Facts").
 
 The audit and output resources read the audit file, so they are empty (and an output reference is not
@@ -132,19 +133,19 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 | Argument | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `prompt` | string | yes | The task. Keep it short; the on-device model's window is about 8k tokens. |
-| `thread_id` | string | no | Omit to start a thread (an id is generated). Supply an unused id to name a new thread. Supply a known id to continue it. `[A-Za-z0-9._-]{1,48}`, so the audit session each opening is given, `<thread_id>-<8 characters>`, stays within 64. |
-| `instructions` | string | no | Instructions for this thread, added under wisp's own system prompt and the server's configured extension; replaces the server's `--instructions` for the thread. Only when a thread starts; an error afterwards. |
-| `tools` | string[] | no | Names of wisp tools to enable. Only when a thread starts. Omitted: all but `memory`, which recalls earlier material the thread's context holds only as a reference and notes facts, and joins them when `context.memory` is on ([tools/memory.md](tools/memory.md), [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)), `models`, which lists the models wisp can run and asks the person to pull, enable, disable, or check one, and joins them when `tools.models` is on ([tools/models.md](tools/models.md), [ADR 0059](decisions/0059-one-set-of-model-actions.md)), and `ask`, with which the model asks the person one question mid-turn, and which joins them when `tools.ask` is on ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md), and "Questions" below); a list that names any of them gets it either way. The `models` tool is reachable only here, through the thread's model: there is no MCP tool of its own. A list is exactly that list: `["run_command"]` gives `run_command` alone, and its references say the output is not repeated and not to run the command again to see it (a tool that only reads, such as `read_file`, is told to call it again). `[]`: a text-only thread, which a model that declares no tool calling can still run; a thread that needs tools on such a model is refused with a hint before generation. |
-| `model` | string | no | `system` (default), `private-cloud` (alias `pcc`; data leaves the Mac), or `<backend>:<name>` such as `ollama:<name>`, `llamacpp:<name>`, or `lmstudio:<name>` (a model a local Ollama, llama.cpp, or LM Studio server serves), `mlx:<name>`, or `coreai:<name>` (a model wisp loads itself); `wisp models` lists them. Only when a thread starts. A model the operator disabled is refused (`model 'X' is disabled; enable it with wisp models enable X, …`), and one that is unavailable fails the call with the backend's reason; `respond` never falls back to another model, as chat does when it starts ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
-| `think` | boolean or string | no | Whether a model that can think does, for every turn of the thread: `true`, `false`, or, for an Ollama or llama.cpp model, `low`, `medium`, `high`, or `max` ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11 and 2026-10-17). Omitted: the model's configured default (`<runtime>.models.<name>.think`, else `<runtime>.think`, else the runtime's own). `false` suits a thread of fixed, quick tasks (`granite4.2:8b` matched `granite4.1:8b`'s speed on the tools with thinking off, and was 4 to 15 times slower with it on, [measurements.md](measurements.md)); `true` or a level, a complex task. Only when a thread starts; an error afterwards, as for `model`. A level is refused as the thread opens on a runtime whose switch is only on or off (MLX); a model that cannot think is sent nothing. A `schema` reply on the thread asks for the thread's choice, and for no thinking when the thread made none. Shown as `think` in `wisp://threads` and `wisp://threads/{thread_id}`, and audited on each turn's `prompt`. |
-| `commandTimeoutSeconds` | integer | no | Seconds each `run_command` of the thread may run when the model's call asks for none (its own `timeoutSeconds` wins), such as `600` for a thread that commits through a pre-commit hook running the tests ([ADR 0063](decisions/0063-command-time-limits.md)). Omitted: the operator's `commandTimeoutSeconds`, 120 by default. At least 1, else an argument error; above the operator's `commandMaxTimeoutSeconds` (1,800 by default) it is cut to that, which `command.outcome`'s `timeoutClamped` records. Applies to that thread's `run_command` alone, never another thread's, a custom tool's, or `system_info`'s. Only when a thread starts; an error afterwards, as for `model`. Recorded on the thread's `session.start`. |
+| `thread_id` | string | no | Omit to start a thread (an id is generated). Supply an unused id to name a new thread. Supply a known id to continue it, or the id of a thread saved in the thread store to resume it ("Saved and resumed threads", below). `[A-Za-z0-9._-]{1,48}`, not starting with `.` (it names the thread's directory in the store), so the audit session each opening is given, `<thread_id>-<8 characters>`, stays within 64. |
+| `instructions` | string | no | Instructions for this thread, added under wisp's own system prompt and the server's configured extension; replaces the server's `--instructions` for the thread. Only when a thread starts; afterwards accepted only when it equals the thread's own ("Saved and resumed threads", below). |
+| `tools` | string[] | no | Names of wisp tools to enable. Only when a thread starts, as for `instructions`. Omitted: all but `memory`, which recalls earlier material the thread's context holds only as a reference and notes facts, and joins them when `context.memory` is on ([tools/memory.md](tools/memory.md), [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)), `models`, which lists the models wisp can run and asks the person to pull, enable, disable, or check one, and joins them when `tools.models` is on ([tools/models.md](tools/models.md), [ADR 0059](decisions/0059-one-set-of-model-actions.md)), and `ask`, with which the model asks the person one question mid-turn, and which joins them when `tools.ask` is on ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md), and "Questions" below); a list that names any of them gets it either way. The `models` tool is reachable only here, through the thread's model: there is no MCP tool of its own. A list is exactly that list: `["run_command"]` gives `run_command` alone, and its references say the output is not repeated and not to run the command again to see it (a tool that only reads, such as `read_file`, is told to call it again). `[]`: a text-only thread, which a model that declares no tool calling can still run; a thread that needs tools on such a model is refused with a hint before generation. |
+| `model` | string | no | `system` (default), `private-cloud` (alias `pcc`; data leaves the Mac), or `<backend>:<name>` such as `ollama:<name>`, `llamacpp:<name>`, or `lmstudio:<name>` (a model a local Ollama, llama.cpp, or LM Studio server serves), `mlx:<name>`, or `coreai:<name>` (a model wisp loads itself); `wisp models` lists them. Only when a thread starts, as for `instructions`. A model the operator disabled is refused (`model 'X' is disabled; enable it with wisp models enable X, …`), and one that is unavailable fails the call with the backend's reason; `respond` never falls back to another model, as chat does when it starts ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). |
+| `think` | boolean or string | no | Whether a model that can think does, for every turn of the thread: `true`, `false`, or, for an Ollama or llama.cpp model, `low`, `medium`, `high`, or `max` ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11 and 2026-10-17). Omitted: the model's configured default (`<runtime>.models.<name>.think`, else `<runtime>.think`, else the runtime's own). `false` suits a thread of fixed, quick tasks (`granite4.2:8b` matched `granite4.1:8b`'s speed on the tools with thinking off, and was 4 to 15 times slower with it on, [measurements.md](measurements.md)); `true` or a level, a complex task. Only when a thread starts, as for `instructions`. A level is refused as the thread opens on a runtime whose switch is only on or off (MLX); a model that cannot think is sent nothing. A `schema` reply on the thread asks for the thread's choice, and for no thinking when the thread made none. Shown as `think` in `wisp://threads` and `wisp://threads/{thread_id}`, and audited on each turn's `prompt`. |
+| `commandTimeoutSeconds` | integer | no | Seconds each `run_command` of the thread may run when the model's call asks for none (its own `timeoutSeconds` wins), such as `600` for a thread that commits through a pre-commit hook running the tests ([ADR 0063](decisions/0063-command-time-limits.md)). Omitted: the operator's `commandTimeoutSeconds`, 120 by default. At least 1, else an argument error; above the operator's `commandMaxTimeoutSeconds` (1,800 by default) it is cut to that, which `command.outcome`'s `timeoutClamped` records. Applies to that thread's `run_command` alone, never another thread's, a custom tool's, or `system_info`'s. Only when a thread starts, as for `instructions`. Recorded on the thread's `session.start`. |
 | `task` | string | no | The thread's task, in a sentence. Kept as a dynamic fact of the thread with source `caller` and shown to the model next to each request, labelled as a record ([context-management.md](context-management.md), "Facts"). Given when a thread starts or on any later call to revise it; the earlier wording stays as history in `wisp://threads/{thread_id}/facts`. A thread without it has no task, unless its model distils one from turns that leave its window or notes one with `memory "task …"`. With `assessment.enabled` on, the per-request assessment never infers a thread's task (that is chat's), never replaces the caller's, and never widens the thread's `tools`; it can register fewer of them for a request ([context-management.md](context-management.md), "The assessment per request"). An empty string is an error, as is a task for a thread that keeps no facts (`facts.enabled` false). |
 | `schema` | object | no | A JSON Schema for this reply. The reply is JSON of that shape through the framework's guided generation, also parsed into `structuredContent.output`. Per call, on any thread; see "Structured output" below. |
 
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "verification": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "resumed": false, "resumedTurns": null, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "verification": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
@@ -298,21 +299,64 @@ in this version. Deleting a fact is chat's, and making one permanent is the pers
 fact between `thread` and `session` with `set_fact_scope` (below), and can ask the person to keep one as
 `permanent`, but never keeps one itself.
 
+`created` is true when this call started the thread, and `resumed` when it resumed one from the thread store,
+with `resumedTurns`, the turns the thread had, and a first line in the text,
+`resumed thread git4 (12 turns, saved 2026-10-16 09:12)` (the time is local); both are false, and
+`resumedTurns` null, on a thread the server already held.
+
 `condensed` is true when older turns were dropped to fit the window on this call. `contextNote` is null
 unless condensing could not bring the thread's context to its target even with only the last turn left
 (the instructions, the last turn, and the request are too large for the window's target): then it says so
 in a sentence, with the figures, and the call still answers. A request that cannot fit the window at all
 fails with `the request does not fit the model's context window: …` and what to do
-([context-management.md](context-management.md), "Condensing"). Threads live in memory for
-the server's lifetime; the least recently used is evicted beyond `maxThreads` (32), which is audited as a
-`session.end` with reason `evicted`; a thread still open when its client disconnects ends with reason
-`disconnected`. A call refused for its own arguments (start settings on an existing thread, a `schema` the model
-cannot take) is refused before any thread is made or evicted. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
+([context-management.md](context-management.md), "Condensing"). The server keeps at most `maxThreads` (32)
+threads in memory; the least recently used is evicted beyond it, which is audited as a `session.end` with reason
+`evicted`, and stays saved; a thread still open when its client disconnects is saved and ends with reason
+`disconnected`. A call refused for its own arguments (start settings that differ from a live thread's, a `schema`
+the model cannot take) is refused before any thread is made or evicted. Naming a new `thread_id` from two concurrent calls creates it once. Calls on one thread run
 in order, one turn at a time: a second `respond` on a thread whose turn is under way (waiting on the model or an
 approval) waits for it to end, then runs, and each result carries its own turn's receipt and refusals; different
 threads run concurrently. `close_thread`, or eviction, waits for the turn under way to end before it records
 `session.end`, and refuses calls still waiting their turn with `the thread was closed while this call waited for
 the turn before it`.
+
+### Saved and resumed threads
+
+Every `respond` thread is saved as it goes in the thread store, `~/.wisp/threads/<thread_id>/`, so it survives
+its server: a restart, a reconnect, a new build, or a crash after its last turn
+([ADR 0066](decisions/0066-one-thread-store.md)). The directory is user-only and holds `thread.json` (the owner,
+the start settings, created, last used, turns, the audit sessions it has had, the facts the person dropped for it,
+and `open` or `saved`) beside `record.json` and `record.store`, the record chat's `/save` writes. It is saved after
+every turn, inside the thread's turn order, so a crash loses at most the turn under way; and when it is evicted or
+its client goes.
+
+A call naming a thread this server does not hold and the store has resumes it, with its saved model, tools,
+instructions, `think`, and `commandTimeoutSeconds`, under a new audit session whose `session.start` carries
+`resume` and `carriedFrom` (the thread's earlier sessions). The result says so (`resumed`, above). The model, tools,
+and thinking are checked as for a new thread: a model since disabled or unavailable fails the call naming it, with
+no fallback, and the thread stays saved. What a thread carries is its entries and references, its facts and task,
+its summary, its settings, and the facts the person dropped; not its "This session" approvals (it asks again), the
+session's facts, a question parked when its server stopped, or the contexts and receipts of earlier turns.
+
+Start settings on a thread that exists, live or saved, are accepted when each one the call gives equals the
+thread's own, so a caller that sends the same settings on every call continues its thread; settings it leaves out
+are not compared. Different ones are refused, naming them:
+
+```
+git4 was saved with model ollama:granite4.1:8b, tools run_command; these settings differ: model. Leave them out to continue it, or choose another thread_id
+```
+
+(`git4 is open with …` on a live thread.) Other refusals, each before the thread is locked or anything evicted:
+
+| Refusal | When |
+| --- | --- |
+| `thread git4 is open in another wisp (pid 4242, claude-code)` | Another process holds the thread: a thread is held by one process at a time, by an `flock` on `threads/<id>/lock`, released when it is closed, evicted, or saved at its client's end, and by the kernel when the process ends. |
+| `thread git4 belongs to codex, and this client is claude-code; only codex can resume it, so choose another thread_id` | The thread was opened by another client: its owner is the client's `clientInfo.name`, which the client reports itself, so this keeps agents from colliding over a name like `git`, not from each other. Another client's threads are not listed, read, or closed. |
+| `thread git4 cannot be resumed: …; close_thread git4 deletes it` | Its files cannot be read, or are of a format this wisp does not read (then resume it with the wisp that saved it). |
+
+`close_thread` deletes a thread from the store. A saved thread unused for `threads.keepDays` (30 by default; 0 keeps
+it until closed) is deleted at a later session's start with its stored outputs, unless a process holds it, and
+audited as `thread.swept`; until then its outputs are kept, so a reference in a resumed thread still resolves.
 
 ### Facts a turn recorded, and their scope
 
@@ -932,9 +976,12 @@ they were the innermost frame) with their total time (samples in which they were
 
 ### `close_thread`
 
-Free a thread's model session, once the turn under way on it, if any, has ended; calls still waiting their turn
-on it are refused. Its requests to keep facts that are still waiting stay filed for the person, and a keep
-that comes later goes to the shared store ("`set_fact_scope`", above).
+Free a thread's model session, once the turn under way on it, if any, has ended, and delete it from the thread
+store ("Saved and resumed threads", above); calls still waiting their turn on it are refused. A thread the server
+does not hold but the store has is deleted from the store (`closed git4: deleted it from the thread store`),
+unless another process holds it or another client owns it. Its history stays in the audit log. Its requests to keep
+facts that are still waiting stay filed for the person, and a keep that comes later goes to the shared store
+("`set_fact_scope`", above).
 
 | Argument | Type | Required |
 | --- | --- | --- |
@@ -974,7 +1021,8 @@ lists what its turn posted in `notifications`, above.
 
 Every request and result is recorded in `~/.wisp/logs/audit.jsonl` under the server's session, and each
 thread's turns under a session of its own, `<thread_id>-<suffix>` (its `auditSession`, one per opening, so a
-reused `thread_id` is not mixed with an earlier thread's history). See [logging.md](logging.md).
+reused `thread_id` is not mixed with an earlier thread's history). A resumed thread's opening names the thread in
+`session.start`'s `resume` and its earlier sessions in `carriedFrom`. See [logging.md](logging.md).
 
 ## Errors
 

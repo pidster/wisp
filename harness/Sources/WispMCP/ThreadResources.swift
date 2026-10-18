@@ -5,8 +5,10 @@ import WispCore
 /// The resources about `respond` threads, all under `wisp://threads` (`docs/mcp.md`, "Resources"): the
 /// list of threads, one thread's summary, its tool calls and each call's output, and its audit events.
 /// Collections are JSON and paged with `?page=N` (and `&limit=M` for the audit); each row names the URI that
-/// reads it. A thread's events are read under its audit session (`ThreadDirectory.Record.auditSession`), one
-/// per opening, so a reused `thread_id` shows only the thread it names now.
+/// reads it. A thread's events are read under its audit sessions, one per opening: every one a saved thread's
+/// `thread.json` records, so a resumed thread's resources cover its whole life (ADR 0066, D7), and the one session of
+/// a thread closed here (`ThreadDirectory.Record.auditSession`), so a `thread_id` reused after `close_thread` shows
+/// only the thread it names now.
 extension WispServer {
     /// Rows a collection's page holds.
     static let rowsPerPage = 50
@@ -61,21 +63,22 @@ extension WispServer {
         guard let parsed = ThreadURI(uri) else { return nil }
         guard parsed.page >= 1 else { throw MCPError.invalidParams("page must be a whole number from 1") }
         let path = parsed.path
-        guard let id = path.first else { return try json(threadList(page: parsed.page), uri: uri) }
+        guard let id = path.first else { return try json(await threadList(page: parsed.page), uri: uri) }
         guard SafeName.isValid(id) else { throw MCPError.invalidParams("thread id must be \(SafeName.rule)") }
+        let sessions = await auditSessions(of: id)
         switch Array(path.dropFirst()) {
         case []:
             return try json(await threadSummary(id), uri: uri)
         case ["output"]:
-            return try json(outputList(id, page: parsed.page), uri: uri)
+            return try json(outputList(id, sessions: sessions, page: parsed.page), uri: uri)
         case let parts where parts.count == 2 && parts[0] == "output":
-            return try output(thread: id, id: parts[1], page: parsed.page, uri: uri)
+            return try output(thread: id, id: parts[1], sessions: sessions, page: parsed.page, uri: uri)
         case ["reasoning"]:
-            return try json(reasoningList(id, page: parsed.page), uri: uri)
+            return try json(reasoningList(id, sessions: sessions, page: parsed.page), uri: uri)
         case let parts where parts.count == 2 && parts[0] == "reasoning":
-            return try reasoning(thread: id, id: parts[1], uri: uri)
+            return try reasoning(thread: id, id: parts[1], sessions: sessions, uri: uri)
         case ["audit"]:
-            let events = try session.introspection.audit(AuditQuery(session: directory.auditSession(of: id)))
+            let events = try session.introspection.audit(AuditQuery(sessions: Set(sessions)))
             return try json(
                 Self.pagedEvents(
                     events, page: parsed.page, limit: parsed.limit ?? Self.auditEventsPerPage,
@@ -130,36 +133,103 @@ extension WispServer {
         ])
     }
 
-    /// `wisp://threads`: the server's threads, most recently active first, open or not.
-    private func threadList(page: Int) throws -> JSONValue {
-        let rows = directory.all.map { record -> JSONValue in
-            .object([
-                "thread_id": .string(record.id), "auditSession": .string(record.auditSession),
-                "model": record.model.map { .string($0) } ?? .null,
-                "think": record.think.map { .string($0) } ?? .null,
-                "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
-                "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
-                "uri": .string(ToolCatalog.threadURI(record.id)),
-            ])
+    /// `wisp://threads`: the threads this client may open, most recently active first: this server's, open or not,
+    /// and those saved in the thread store under this client's name (ADR 0066, D8). `state` is `open`, `saved`,
+    /// `open elsewhere` (another process holds it), `closed`, or `evicted` (dropped from memory and not saved).
+    private func threadList(page: Int) async throws -> JSONValue {
+        let live = Set(await threads.ids)
+        let owner = clientName
+        var rows: [(lastActive: Date, id: String, row: JSONValue)] = []
+        var listed: Set<String> = []
+        for record in directory.all {
+            listed.insert(record.id)
+            let saved = live.contains(record.id) ? nil : try? threadStore.settings(record.id)
+            let state = live.contains(record.id) ? "open" : saved.map { savedState($0) } ?? record.state.rawValue
+            rows.append(
+                (
+                    record.lastActive, record.id,
+                    threadRow(
+                        id: record.id, auditSession: record.auditSession, model: record.model, think: record.think,
+                        turns: record.turns, created: record.created, lastActive: record.lastActive, state: state,
+                        owner: record.owner ?? owner)
+                ))
         }
-        return try Self.paged(rows, page: page, base: ToolCatalog.threadsResourceURI, key: "threads")
+        for settings in threadStore.all where settings.owner == owner && !listed.contains(settings.id) {
+            rows.append(
+                (
+                    settings.lastUsed, settings.id,
+                    threadRow(
+                        id: settings.id, auditSession: settings.sessions.last ?? settings.id, model: settings.model,
+                        think: settings.think, turns: settings.turns, created: settings.created,
+                        lastActive: settings.lastUsed, state: savedState(settings), owner: settings.owner)
+                ))
+        }
+        let sorted = rows.sorted { ($0.lastActive, $0.id) > ($1.lastActive, $1.id) }.map(\.row)
+        return try Self.paged(sorted, page: page, base: ToolCatalog.threadsResourceURI, key: "threads")
     }
 
-    /// `wisp://threads/{thread_id}`: one thread's summary and the URIs of what can be read about it.
+    /// `saved`, or `open elsewhere` when another process holds the saved thread.
+    private func savedState(_ settings: ThreadStore.Settings) -> String {
+        threadStore.holder(of: settings.id) == nil ? "saved" : "open elsewhere"
+    }
+
+    /// One row of `wisp://threads`.
+    ///
+    /// - Parameters:
+    ///   - id: The thread.
+    ///   - auditSession: Its latest audit session.
+    ///   - model: Its model.
+    ///   - think: Its thinking.
+    ///   - turns: Its turns.
+    ///   - created: When it was created.
+    ///   - lastActive: When it was last used.
+    ///   - state: Its state.
+    ///   - owner: Its owner.
+    /// - Returns: The row.
+    private func threadRow(
+        id: String, auditSession: String, model: String?, think: String?, turns: Int, created: Date, lastActive: Date,
+        state: String, owner: String
+    ) -> JSONValue {
+        .object([
+            "thread_id": .string(id), "auditSession": .string(auditSession),
+            "model": model.map { .string($0) } ?? .null, "think": think.map { .string($0) } ?? .null,
+            "turns": .int(turns), "created": .string(created.ISO8601Format()),
+            "lastActive": .string(lastActive.ISO8601Format()), "state": .string(state), "owner": .string(owner),
+            "uri": .string(ToolCatalog.threadURI(id)),
+        ])
+    }
+
+    /// `wisp://threads/{thread_id}`: one thread's summary and the URIs of what can be read about it; a thread saved in
+    /// the thread store is summarised from its `thread.json` (ADR 0066).
     private func threadSummary(_ id: String) async throws -> JSONValue {
-        guard let record = directory.record(id) else {
+        let live = await threads.peek(id)
+        let saved = live == nil && ThreadStore.isValid(id) ? try? threadStore.settings(id) : nil
+        if let saved, saved.owner != clientName {
+            throw MCPError.invalidParams(
+                ThreadStore.Failure.owned(id, owner: saved.owner, client: clientName).description)
+        }
+        let record = directory.record(id)
+        guard record != nil || saved != nil else {
             throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
         }
+        let settings = live?.kept?.settings ?? saved
+        let state = live != nil ? "open" : saved.map { savedState($0) } ?? record?.state.rawValue ?? "saved"
+        let sessions = await auditSessions(of: id)
         let base = ToolCatalog.threadURI(id)
         // The model's questions to the person (ADR 0062), waiting and settled, while the thread is open.
-        let questions = await threads.peek(id)?.inquiries.records.map(\.json) ?? []
+        let questions = live?.inquiries.records.map(\.json) ?? []
+        let created = record?.created ?? saved?.created ?? Date()
+        let lastActive = record?.lastActive ?? saved?.lastUsed ?? created
         return .object([
-            "thread_id": .string(id), "auditSession": .string(record.auditSession),
-            "model": record.model.map { .string($0) } ?? .null,
-            "think": record.think.map { .string($0) } ?? .null,
-            "tools": .array(record.tools.map { .string($0) }), "instructions": .bool(record.instructions),
-            "turns": .int(record.turns), "created": .string(record.created.ISO8601Format()),
-            "lastActive": .string(record.lastActive.ISO8601Format()), "state": .string(record.state.rawValue),
+            "thread_id": .string(id), "auditSession": .string(record?.auditSession ?? sessions.last ?? id),
+            "sessions": .array(sessions.map { .string($0) }),
+            "owner": .string(settings?.owner ?? record?.owner ?? clientName),
+            "model": (record?.model ?? settings?.model).map { .string($0) } ?? .null,
+            "think": (record?.think ?? settings?.think).map { .string($0) } ?? .null,
+            "tools": .array((record?.tools ?? settings?.tools ?? []).map { .string($0) }),
+            "instructions": .bool(record?.instructions ?? (settings?.instructions != nil)),
+            "turns": .int(record?.turns ?? settings?.turns ?? 0), "created": .string(created.ISO8601Format()),
+            "lastActive": .string(lastActive.ISO8601Format()), "state": .string(state),
             "task": await threadTask(id),
             "questions": .array(questions),
             "resources": .object([
@@ -174,36 +244,40 @@ extension WispServer {
         ])
     }
 
-    /// The output store of thread `id`, where its tools kept outputs past the budget.
-    private func outputStore(of id: String) -> OutputStore {
-        OutputStore(
-            directory: session.home.outputs.appending(path: directory.auditSession(of: id), directoryHint: .isDirectory)
-        )
+    /// The output store of audit session `session`, where a thread's tools kept outputs past the budget in that
+    /// opening.
+    private func outputStore(ofSession session: String) -> OutputStore {
+        OutputStore(directory: self.session.home.outputs.appending(path: session, directoryHint: .isDirectory))
     }
 
-    /// `wisp://threads/{thread_id}/output`: the thread's tool calls, oldest first, from the audit log; a call whose
-    /// output was kept whole in the output store says so (`stored`, its size in `storedBytes`).
-    private func outputList(_ id: String, page: Int) throws -> JSONValue {
-        let events = try session.introspection.audit(AuditQuery(session: directory.auditSession(of: id)))
-        let turns = Set(events.compactMap(\.turn)).sorted()
-        let store = outputStore(of: id)
+    /// `wisp://threads/{thread_id}/output`: the thread's tool calls, oldest first, from the audit log, over every
+    /// opening (`session` says which; turns are numbered per opening); a call whose output was kept whole in the output
+    /// store says so (`stored`, its size in `storedBytes`).
+    private func outputList(_ id: String, sessions: [String], page: Int) throws -> JSONValue {
+        let all = try session.introspection.audit(AuditQuery(sessions: Set(sessions)))
         var rows: [JSONValue] = []
-        for turn in turns {
-            for call in TurnCalls(events: events, turn: turn).calls {
-                var row: [String: JSONValue] = [
-                    "turn": .int(turn), "tool": .string(call.tool), "arguments": .string(call.arguments),
-                    "id": call.id.map { .string($0) } ?? .null, "bytes": call.bytes.map { .int($0) } ?? .null,
-                    "uri": call.id.map { .string(ToolCatalog.outputURI(thread: id, id: $0)) } ?? .null,
-                ]
-                if let command = call.command { row["command"] = .string(command) }
-                if let status = call.exitStatus { row["exitStatus"] = .int(status) }
-                if let error = call.error { row["error"] = .string(error) }
-                if let callID = call.call, let kept = store.kept(callID) {
-                    row["stored"] = .string(callID)
-                    row["storedBytes"] = .int(kept.bytes)
-                    row["storedLines"] = .int(kept.lines)
+        for opening in sessions {
+            let events = all.filter { $0.session == opening }
+            let turns = Set(events.compactMap(\.turn)).sorted()
+            let store = outputStore(ofSession: opening)
+            for turn in turns {
+                for call in TurnCalls(events: events, turn: turn).calls {
+                    var row: [String: JSONValue] = [
+                        "session": .string(opening), "turn": .int(turn), "tool": .string(call.tool),
+                        "arguments": .string(call.arguments), "id": call.id.map { .string($0) } ?? .null,
+                        "bytes": call.bytes.map { .int($0) } ?? .null,
+                        "uri": call.id.map { .string(ToolCatalog.outputURI(thread: id, id: $0)) } ?? .null,
+                    ]
+                    if let command = call.command { row["command"] = .string(command) }
+                    if let status = call.exitStatus { row["exitStatus"] = .int(status) }
+                    if let error = call.error { row["error"] = .string(error) }
+                    if let callID = call.call, let kept = store.kept(callID) {
+                        row["stored"] = .string(callID)
+                        row["storedBytes"] = .int(kept.bytes)
+                        row["storedLines"] = .int(kept.lines)
+                    }
+                    rows.append(.object(row))
                 }
-                rows.append(.object(row))
             }
         }
         return try Self.paged(rows, page: page, base: ToolCatalog.threadURI(id) + "/output", key: "calls")
@@ -212,21 +286,22 @@ extension WispServer {
     /// `wisp://threads/{thread_id}/output/{id}`: one output verbatim: the whole output from the output store when
     /// the model saw only part of it, paged at `Paging.pageBytes` with `?page=N`; else what the tool returned, from
     /// the audit log.
-    private func output(thread: String, id: String, page: Int, uri: String) throws -> ReadResource.Result {
+    private func output(
+        thread: String, id: String, sessions: [String], page: Int, uri: String
+    ) throws -> ReadResource.Result {
         guard Self.isEventID(Substring(id)) else {
             throw MCPError.invalidParams(
                 "expected wisp://threads/{thread_id}/output/{id} with an id from a respond result")
         }
-        let auditSession = directory.auditSession(of: thread)
         guard
-            let event = try session.introspection.audit(AuditQuery(session: auditSession, kinds: [.toolResult])).last(
+            let event = try session.introspection.audit(AuditQuery(kinds: [.toolResult], sessions: Set(sessions))).last(
                 where: { $0.id == id })
         else {
             throw MCPError.invalidParams(
                 "no tool output \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
         }
         let text: String
-        if let call = event.call, let whole = outputStore(of: thread).text(call) {
+        if let call = event.call, let whole = outputStore(ofSession: event.session).text(call) {
             text = whole
         } else {
             text = event.details["output"]?.stringValue ?? ""
@@ -244,17 +319,18 @@ extension WispServer {
     }
 
     /// The `model.reasoning` events of `thread` that ended a stretch of thinking (ADR 0053), oldest first.
-    private func thoughts(_ thread: String) throws -> [AuditEvent] {
-        try session.introspection.audit(
-            AuditQuery(session: directory.auditSession(of: thread), kinds: [.modelReasoning])
-        ).filter { $0.details["phase"]?.stringValue == "end" }
+    private func thoughts(_ sessions: [String]) throws -> [AuditEvent] {
+        try session.introspection.audit(AuditQuery(kinds: [.modelReasoning], sessions: Set(sessions))).filter {
+            $0.details["phase"]?.stringValue == "end"
+        }
     }
 
     /// `wisp://threads/{thread_id}/reasoning`: each stretch of the model's thinking, oldest first, from the audit log.
-    private func reasoningList(_ id: String, page: Int) throws -> JSONValue {
-        let rows = try thoughts(id).map { event -> JSONValue in
+    private func reasoningList(_ id: String, sessions: [String], page: Int) throws -> JSONValue {
+        let rows = try thoughts(sessions).map { event -> JSONValue in
             .object([
-                "turn": event.turn.map { .int($0) } ?? .null, "id": event.id.map { .string($0) } ?? .null,
+                "session": .string(event.session), "turn": event.turn.map { .int($0) } ?? .null,
+                "id": event.id.map { .string($0) } ?? .null,
                 "tokens": event.details["tokens"] ?? .null, "seconds": event.details["seconds"] ?? .null,
                 "bytes": event.details["bytes"] ?? .null,
                 "uri": event.id.map { .string(ToolCatalog.reasoningURI(thread: id, id: $0)) } ?? .null,
@@ -264,11 +340,11 @@ extension WispServer {
     }
 
     /// `wisp://threads/{thread_id}/reasoning/{id}`: one stretch of thinking verbatim, from the audit log.
-    private func reasoning(thread: String, id: String, uri: String) throws -> ReadResource.Result {
+    private func reasoning(thread: String, id: String, sessions: [String], uri: String) throws -> ReadResource.Result {
         guard Self.isEventID(Substring(id)) else {
             throw MCPError.invalidParams("expected wisp://threads/{thread_id}/reasoning/{id} with an id from its list")
         }
-        guard let event = try thoughts(thread).last(where: { $0.id == id }) else {
+        guard let event = try thoughts(sessions).last(where: { $0.id == id }) else {
             throw MCPError.invalidParams(
                 "no thinking \(id) in thread \(thread)\(config.auditEnabled ? "" : "; audit.enabled is false")")
         }

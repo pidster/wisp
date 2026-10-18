@@ -242,6 +242,8 @@ not judge whether a conclusion follows from the output, and misses a result put 
 - Forget a conversation: delete `~/.wisp/transcripts/<name>.json` and `<name>.store`. Its large tool outputs are
   in `~/.wisp/output/<session>/` until swept, `context.outputDays` after their last use; delete the directory to
   forget them sooner.
+- Forget an MCP thread: `close_thread` from its client, or delete `~/.wisp/threads/<id>/` while no wisp has it open.
+  Its large tool outputs go with it when it is swept; delete `~/.wisp/output/<id>-*/` to forget them sooner.
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
@@ -264,6 +266,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | saved chats, and each one's links to the audit log | user-only |
+| `~/.wisp/threads/<id>/` | every MCP `respond` thread, saved after each turn so a later server can resume it: its start settings and its record, tool output included; deleted by `close_thread`, or 30 days after its last use (`threads.keepDays`) | user-only (directory 0700, files 0600) |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |
 | `~/.wisp/output/<session>/` | tool outputs too large for the model to see at once, kept whole so it can page or question them; removed 30 days after the session's last use (`context.outputDays`) | user-only |

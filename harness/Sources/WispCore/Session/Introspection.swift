@@ -119,6 +119,7 @@ public struct Introspection: Sendable {
                 "memory": .bool(config.contextMemory),
                 "outputDays": .int(config.contextOutputDays),
             ]),
+            "threads": .object(["keepDays": .int(config.threadsKeepDays)]),
             "watch": .object(["settle": .double(config.watchSettle)]),
             "verification": .object(["mode": .string(config.verificationMode.rawValue)]),
             "backends": .object(

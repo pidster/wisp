@@ -7,9 +7,9 @@ import WispCore
 
 /// Serves wisp's capabilities to MCP clients over stdio.
 ///
-/// Conversations are kept as threads in a `ThreadRegistry` for the life of the
-/// process. Stdout is the protocol channel; nothing else in the process may
-/// write to it while the server runs.
+/// Conversations are kept as threads in a `ThreadRegistry` while the process holds them, and saved in the thread
+/// store after every turn, so a later server resumes them (ADR 0066). Stdout is the protocol channel; nothing else in
+/// the process may write to it while the server runs.
 public struct WispServer: Sendable {
     /// Server name reported during the MCP handshake.
     public static let name = "wisp"
@@ -28,13 +28,12 @@ public struct WispServer: Sendable {
     private let client = ClientCapabilityFlags()
     /// The approval dialogs in flight, so one answered another way can be withdrawn.
     private let tracker = ElicitationTracker()
-    /// Builds the record for a new `thread_id` from the conversation the session sets up for it; `commandTimeout` is
-    /// `respond`'s `commandTimeoutSeconds`, the thread's own limit for `run_command` (ADR 0063).
+    /// Builds the record for a `thread_id` the server opens, new or resumed from the thread store (ADR 0066), from
+    /// the conversation the session sets up for it: `start` carries the start settings (a resumed thread's saved ones),
+    /// the opening's audit session, and what was saved; `start.commandTimeout` is the thread's own limit for
+    /// `run_command` (ADR 0063).
     public typealias ThreadFactory =
-        @Sendable (
-            _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?,
-            _ tools: ToolSelection, _ model: ModelSelection?, _ think: OllamaThink?, _ commandTimeout: Int?
-        ) throws -> OpenThread
+        @Sendable (_ session: Session, _ host: SessionHost, _ start: ThreadStart) throws -> OpenThread
     private let makeThread: ThreadFactory
     /// The MCP face's effects (ADR 0044): commands are asked through elicitation (`--yes` sessions approve
     /// inside the gate instead); notifications take the process routes, since the client owns the terminal
@@ -59,19 +58,20 @@ public struct WispServer: Sendable {
     ///     scripted model.
     public init(
         session: Session, inquiryHold: Duration = OutOfBandAsker.hold,
-        makeThread: @escaping ThreadFactory = { session, host, id, instructions, tools, model, think, commandTimeout in
+        makeThread: @escaping ThreadFactory = { session, host, start in
             // One audit session per opening, so a reused thread_id does not mix an earlier thread's history into
-            // its resources (ADR 0050's review items); the directory records which is which.
-            let thread = try session.thread(
-                id: id, host: host, instructions: instructions, tools: tools, model: model, think: think,
-                auditSession: ThreadDirectory.auditSession(for: id), commandTimeout: commandTimeout)
-            let actor = ThreadActor(id: id, agent: try thread.openAgent())
+            // its resources (ADR 0050's review items); the directory records which is which, and a resumed thread's
+            // thread.json every one it has had (ADR 0066).
+            let thread = try start.thread(on: session, host: host)
+            let actor = ThreadActor(
+                id: start.id,
+                agent: try thread.openAgent(transcript: start.resumed?.transcript, links: start.resumed?.links))
             // An answer taken after the turn parked is the thread's fact when it is taken (ADR 0062, D14).
             thread.inquiries.onAnswer { question, answer in await actor.recordAnswer(to: question, answer: answer) }
             return OpenThread(
                 thread: actor, gate: thread.gate,
                 audit: thread.audit, receipts: thread.receipts, relay: thread.relay,
-                model: thread.model.description, tools: thread.tools.map(\.name), think: think?.text,
+                model: thread.model.description, tools: thread.tools.map(\.name), think: start.think?.text,
                 inquiries: thread.inquiries)
         },
         makeTriageAgent: @escaping @Sendable (WispThread, ModelSelection?) throws -> Agent = {
@@ -109,6 +109,10 @@ public struct WispServer: Sendable {
 
     var config: Config.Resolved { session.config }
     private var audit: AuditLog { session.audit }
+    /// Where every thread is saved as it goes (ADR 0066).
+    var threadStore: ThreadStore { ThreadStore(home: session.home) }
+    /// The client's name from `initialize`, which owns the threads it opens (ADR 0066, D3); `mcp` before it is known.
+    var clientName: String { client.name.withLock { $0 } ?? "mcp" }
 
     /// Starts serving on stdin/stdout and returns when the client disconnects.
     ///
@@ -136,6 +140,9 @@ public struct WispServer: Sendable {
             open.inquiries.withdraw(audit: open.audit)
             directory.ended(id: id, as: .closed)
             await open.turns.close()
+            // Saved and let go, so a later server resumes it (ADR 0066, D4).
+            await save(open, state: .saved)
+            open.kept?.release()
             open.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "disconnected"))
         }
     }
@@ -380,9 +387,10 @@ public struct WispServer: Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Finds or creates the thread, runs the prompt, and reports the thread id, whether it was condensed,
-    /// the gate's refusals, the turn's receipt, its tool calls with their output inline or by reference
-    /// (D9 of the layered-context proposal), and `ran`, the line of what the turn ran (ADR 0051).
+    /// Finds, resumes, or creates the thread, runs the prompt, saves the thread, and reports the thread id, whether it
+    /// was created or resumed (ADR 0066), whether it was condensed, the gate's refusals, the turn's receipt, its tool
+    /// calls with their output inline or by reference (D9 of the layered-context proposal), and `ran`, the line of
+    /// what the turn ran (ADR 0051).
     private func respond(_ request: RespondRequest) async -> CallTool.Result {
         let id = request.threadID ?? UUID().uuidString.lowercased()
         // A call refused for its own arguments is refused before the registry is touched, so it neither creates a
@@ -393,59 +401,172 @@ public struct WispServer: Sendable {
         } catch {
             return failure(String(describing: error))
         }
-        if request.startsThread, await threads.peek(id) != nil {
-            return startSettingsRefusal(id)
+        if request.startsThread, let live = await threads.peek(id), let refusal = liveSettingsRefusal(request, live) {
+            return refusal
         }
+        let owner = clientName
         let opened: ThreadRegistry<OpenThread>.Opened
         do {
-            opened = try await threads.findOrCreate(id: id) {
-                try makeThread(
-                    session, host, id, request.instructions, request.tools, request.model, request.think,
-                    request.commandTimeoutSeconds)
-            }
+            opened = try await threads.findOrCreate(id: id) { try open(id, request: request, owner: owner) }
         } catch {
             return failure(String(describing: error))
         }
         if opened.created {
             directory.opened(
                 id: id, auditSession: opened.thread.audit.session, model: opened.thread.model,
-                tools: opened.thread.tools, instructions: request.instructions != nil, think: opened.thread.think)
+                tools: opened.thread.tools, instructions: opened.thread.kept?.settings.instructions != nil,
+                think: opened.thread.think, turns: opened.thread.kept?.earlierTurns ?? 0, owner: owner)
         }
         if let evicted = opened.evicted {
+            // What the person dropped is saved with the thread before the keeper forgets it.
+            let dropped = factKeeper.droppedFacts(thread: evicted.id)
             factKeeper.release(thread: evicted.id)
             evicted.thread.inquiries.withdraw(audit: evicted.thread.audit)
             directory.ended(id: evicted.id, as: .evicted)
             // A turn under way on the evicted thread finishes first, so session.end stays its last event; the
-            // wait is its own task so the call that made room is not held up by it.
+            // wait is its own task so the call that made room is not held up by it. The thread stays saved and
+            // resumable (ADR 0066, D4).
             let evictedThread = evicted.thread
             Task {
                 await evictedThread.turns.close()
+                await save(evictedThread, state: .saved, dropped: dropped)
+                evictedThread.kept?.release()
                 evictedThread.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "evicted"))
             }
             Diagnostics.mcp.info("evicted thread \(evicted.id) to make room for \(id)")
         }
         // Another call may have created the thread since the check above.
-        if !opened.created, request.startsThread { return startSettingsRefusal(id) }
+        if !opened.created, request.startsThread, let refusal = liveSettingsRefusal(request, opened.thread) {
+            return refusal
+        }
+        let resumed = opened.created && opened.thread.kept?.resumed == true
         do {
             return try await opened.thread.turns.run {
-                await turn(request, schema: schema, on: opened, id: id)
+                let result = await turn(request, schema: schema, on: opened, id: id, resumed: resumed)
+                // Saved inside the queue, so a snapshot is never taken mid-turn (ADR 0066, D4).
+                await save(opened.thread, state: .open)
+                return result
             }
         } catch {
             return failure("\(id): \(error)")
         }
     }
 
-    /// The refusal of start settings on a thread that already exists.
-    private func startSettingsRefusal(_ id: String) -> CallTool.Result {
-        failure(
-            "instructions, tools, model, think, and commandTimeoutSeconds apply only when a thread is created; "
-                + "\(id) already exists")
+    /// Opens thread `id` for `request` inside the registry's step: resumes it from the thread store when it is saved
+    /// there, or creates it; takes its lock either way (ADR 0066). A saved thread another client owns, or one saved
+    /// with settings the call's differ from, is refused before it is locked.
+    ///
+    /// - Parameters:
+    ///   - id: The `thread_id`.
+    ///   - request: The call.
+    ///   - owner: The client's name.
+    /// - Returns: The thread, with its place in the store.
+    /// - Throws: `ThreadStore.Failure` (unreadable, owned, held), `ThreadRefusal.settings`, or what the factory throws,
+    ///   such as a disabled or unavailable model.
+    private func open(_ id: String, request: RespondRequest, owner: String) throws -> OpenThread {
+        let saved = try threadStore.load(id)
+        if let saved {
+            guard saved.settings.owner == owner else {
+                throw ThreadStore.Failure.owned(id, owner: saved.settings.owner, client: owner)
+            }
+            let differing = Self.differences(request, from: saved.settings, defaultTools: session.toolNames)
+            if !differing.isEmpty {
+                throw ThreadRefusal.settings(id, saved.settings.described, differing: differing, live: false)
+            }
+        }
+        let lock = try threadStore.lock(id, owner: owner)
+        do {
+            let start =
+                try saved.map(ThreadStart.init(resuming:))
+                ?? ThreadStart(
+                    id: id, instructions: request.instructions, tools: request.tools, model: request.model,
+                    think: request.think, commandTimeout: request.commandTimeoutSeconds)
+            var open = try makeThread(session, host, start)
+            let settings =
+                saved?.settings.reopened(as: open.audit.session)
+                ?? ThreadStore.Settings(
+                    id: id, owner: owner, model: (start.model ?? config.model).description,
+                    tools: start.tools.resolved(or: session.toolNames), instructions: start.instructions,
+                    think: start.think?.text, commandTimeoutSeconds: start.commandTimeout,
+                    session: open.audit.session)
+            if let saved {
+                // The new session is linked at once, so the resources find it even if this opening ends in a crash.
+                try? threadStore.save(settings, record: nil)
+                factKeeper.restoreDropped(saved.settings.droppedFacts, thread: id)
+            }
+            open.kept = KeptThread(
+                store: threadStore, lock: lock, settings: settings, savedAt: saved?.settings.lastUsed)
+            return open
+        } catch {
+            lock.release()
+            throw error
+        }
+    }
+
+    /// Saves `open` to the thread store: its record, turns, and the facts the person dropped for it (ADR 0066).
+    ///
+    /// - Parameters:
+    ///   - open: The thread.
+    ///   - state: `open` while the server holds it, `saved` when it lets it go.
+    ///   - dropped: The dropped facts, when the keeper has already forgotten them; the keeper's otherwise.
+    func save(_ open: OpenThread, state: ThreadStore.State, dropped: [ThreadStore.DroppedFact]? = nil) async {
+        guard let kept = open.kept else { return }
+        kept.save(
+            record: await open.thread.record(), turns: open.audit.currentTurn,
+            dropped: dropped ?? factKeeper.droppedFacts(thread: kept.id), state: state)
+    }
+
+    /// The start settings `request` gives that differ from `settings`: each of `instructions`, `tools`, `model`,
+    /// `think`, and `commandTimeoutSeconds` the call gives and the thread has otherwise. Settings the call does not give
+    /// are not compared, so a caller that always sends its own resumes its thread (ADR 0066, D5).
+    ///
+    /// - Parameters:
+    ///   - request: The call.
+    ///   - settings: The thread's.
+    ///   - defaultTools: The session's tools, which `.all` would take.
+    /// - Returns: The names of the settings that differ, in that order.
+    static func differences(
+        _ request: RespondRequest, from settings: ThreadStore.Settings, defaultTools: [String]
+    ) -> [String] {
+        var differing: [String] = []
+        if let instructions = request.instructions, instructions != settings.instructions {
+            differing.append("instructions")
+        }
+        if request.tools != .all, request.tools.resolved(or: defaultTools) != settings.tools {
+            differing.append("tools")
+        }
+        if let model = request.model, model.description != settings.model { differing.append("model") }
+        if let think = request.think, think.text != settings.think { differing.append("think") }
+        if let timeout = request.commandTimeoutSeconds, timeout != settings.commandTimeoutSeconds {
+            differing.append("commandTimeoutSeconds")
+        }
+        return differing
+    }
+
+    /// The refusal of start settings on a live thread that differ from its own, or nil when they are equal; a thread
+    /// with no place in the store (one built outside the server) refuses any.
+    ///
+    /// - Parameters:
+    ///   - request: The call.
+    ///   - live: The thread.
+    /// - Returns: The refusal, or nil.
+    private func liveSettingsRefusal(_ request: RespondRequest, _ live: OpenThread) -> CallTool.Result? {
+        guard let settings = live.kept?.settings else {
+            return failure(
+                "instructions, tools, model, think, and commandTimeoutSeconds apply only when a thread is created; "
+                    + "\(request.threadID ?? "this thread") already exists")
+        }
+        let differing = Self.differences(request, from: settings, defaultTools: session.toolNames)
+        guard !differing.isEmpty else { return nil }
+        return failure(
+            ThreadRefusal.settings(settings.id, settings.described, differing: differing, live: true).description)
     }
 
     /// One turn of `respond` on an open thread, run while it holds the thread's `TurnQueue`: sets the task,
     /// runs the prompt, and folds the turn's refusals and receipt into the result.
     private func turn(
-        _ request: RespondRequest, schema: OutputSchema?, on opened: ThreadRegistry<OpenThread>.Opened, id: String
+        _ request: RespondRequest, schema: OutputSchema?, on opened: ThreadRegistry<OpenThread>.Opened, id: String,
+        resumed: Bool
     ) async -> CallTool.Result {
         if let task = request.task {
             do {
@@ -466,41 +587,69 @@ public struct WispServer: Sendable {
             let refusals = await opened.thread.gate.takeRefusals()
             let turn = opened.thread.audit.currentTurn
             let questions = opened.thread.inquiries.records(turn: turn)
-            directory.used(id: id, turns: turn)
+            directory.used(id: id, turns: opened.thread.kept?.total(turn) ?? turn)
             let events = opened.thread.receipts.takeEvents(turn: turn)
             let receipt = Receipt(events: events, turn: turn)
             let auditEnabled = config.auditEnabled
             let calls = TurnCalls(events: events, turn: turn).json(inlineBytes: config.inlineOutputBytes) {
                 auditEnabled ? ToolCatalog.outputURI(thread: id, id: $0) : nil
             }
+            // The call that resumed a saved thread says so, in the text and in structuredContent (ADR 0066, D5).
+            let kept = resumed ? opened.thread.kept : nil
+            let resumedTurns = kept?.earlierTurns
+            let resumedLine =
+                kept.flatMap { kept in
+                    kept.savedAt.map { Self.resumedLine(id, turns: kept.earlierTurns, savedAt: $0) + "\n\n" }
+                } ?? ""
+            let opening: [String: Value] = [
+                "created": .bool(opened.created && !resumed), "resumed": .bool(resumed),
+                "resumedTurns": resumedTurns.map { .int($0) } ?? .null,
+            ]
+            let fields: [String: Value] = [
+                "thread_id": .string(id), "condensed": .bool(reply.condensed),
+                "text": .string(reply.text),
+                "questions": .array(questions.map { Value(json: $0.json) }),
+                "refusals": .array(
+                    refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
+                "receipt": Value(json: receipt.json), "calls": Value(json: calls),
+                "ran": reply.ran.map { .string($0) } ?? .null,
+                "unknownEntries": .array(reply.unknownEntries.map { .int($0) }),
+                "cited": reply.cited.map { .string($0) } ?? .null,
+                "verification": reply.verification.map { Value(json: $0.json) } ?? .null,
+                "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
+                "notifications": Value(json: Self.notifications(in: events)),
+                "factsProposed": Value(json: factsProposed(thread: id)),
+                "output": schema == nil ? .null : Self.parse(reply.text),
+                "contextNote": reply.contextNote.map { .string($0) } ?? .null,
+            ]
             return .init(
                 content: [
-                    .text(text: reply.text + Self.waitingText(questions, thread: id), annotations: nil, _meta: nil)
+                    .text(
+                        text: resumedLine + reply.text + Self.waitingText(questions, thread: id), annotations: nil,
+                        _meta: nil)
                 ],
-                structuredContent: .object([
-                    "thread_id": .string(id), "created": .bool(opened.created), "condensed": .bool(reply.condensed),
-                    "text": .string(reply.text),
-                    "questions": .array(questions.map { Value(json: $0.json) }),
-                    "refusals": .array(
-                        refusals.map { .object(["command": .string($0.command), "reason": .string($0.reason)]) }),
-                    "receipt": Value(json: receipt.json), "calls": Value(json: calls),
-                    "ran": reply.ran.map { .string($0) } ?? .null,
-                    "unknownEntries": .array(reply.unknownEntries.map { .int($0) }),
-                    "cited": reply.cited.map { .string($0) } ?? .null,
-                    "verification": reply.verification.map { Value(json: $0.json) } ?? .null,
-                    "facts": Value(json: Self.turnFacts(reply.facts, thread: id)),
-                    "notifications": Value(json: Self.notifications(in: events)),
-                    "factsProposed": Value(json: factsProposed(thread: id)),
-                    "output": schema == nil ? .null : Self.parse(reply.text),
-                    "contextNote": reply.contextNote.map { .string($0) } ?? .null,
-                ]),
-                isError: false
-            )
+                structuredContent: .object(fields.merging(opening) { _, opening in opening }), isError: false)
         } catch LanguageModelError.contextSizeExceeded {
             return failure("thread \(id) has exhausted the model's context window; close it and start a new one")
         } catch {
             return failure(String(describing: error))
         }
+    }
+
+    /// The first line of the result of the call that resumed a saved thread (ADR 0066, D5): `resumed thread git4 (12
+    /// turns, saved 2026-10-16 09:12)`, the time in the local time zone.
+    ///
+    /// - Parameters:
+    ///   - id: The thread.
+    ///   - turns: The turns it had.
+    ///   - savedAt: When it was last saved.
+    /// - Returns: The line.
+    static func resumedLine(_ id: String, turns: Int, savedAt: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: savedAt)
+        let time = String(
+            format: "%04d-%02d-%02d %02d:%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0,
+            parts.minute ?? 0)
+        return "resumed thread \(id) (\(turns) turn\(turns == 1 ? "" : "s"), saved \(time))"
     }
 
     /// What follows the reply's text when a question of the turn still waits for the person (ADR 0062): what was
@@ -833,7 +982,7 @@ public struct WispServer: Sendable {
     /// is not open, an unknown fact, or a fact already there are tool errors.
     private func setFactScope(_ request: SetFactScopeRequest) async -> CallTool.Result {
         guard let open = await threads.peek(request.threadID) else {
-            return failure("no open thread \(request.threadID); respond starts one")
+            return failure("no open thread \(request.threadID); respond starts or resumes one")
         }
         if request.scope == .permanent { return await askToKeep(request, open: open) }
         do {
@@ -854,10 +1003,13 @@ public struct WispServer: Sendable {
         }
     }
 
-    /// Frees a thread once the turn under way on it ends; calls still waiting for their turn are refused. Its
-    /// requests to keep facts stay filed for the person, and a keep that comes later goes to the shared store
-    /// (ADR 0048, amended 2026-10-12). Unknown ids are tool errors.
+    /// Frees a thread once the turn under way on it ends, and deletes it from the thread store (ADR 0066, D4); calls
+    /// still waiting for their turn are refused. Its requests to keep facts stay filed for the person, and a keep that
+    /// comes later goes to the shared store (ADR 0048, amended 2026-10-12). A thread this server does not hold but the
+    /// store has is deleted from the store, unless another client owns it or another process holds it. Unknown ids are
+    /// tool errors.
     private func closeThread(_ request: CloseThreadRequest) async -> CallTool.Result {
+        guard await threads.peek(request.threadID) != nil else { return closeSaved(request.threadID) }
         do {
             let closed = try await threads.close(request.threadID)
             factKeeper.release(thread: request.threadID)
@@ -867,11 +1019,41 @@ public struct WispServer: Sendable {
             directory.ended(id: request.threadID, as: .closed)
             // The turn under way finishes first and calls still queued are refused, so session.end comes last.
             await closed.turns.close()
+            do {
+                try closed.kept?.delete()
+            } catch {
+                Diagnostics.mcp.error("could not delete thread \(request.threadID) from the store: \(error)")
+            }
             closed.audit.record(.sessionEnd, details: AuditEvent.Details.sessionEnd(reason: "closed"))
             return success("closed \(request.threadID)")
         } catch {
             return failure(String(describing: error))
         }
+    }
+
+    /// `close_thread` on a thread this server does not hold: deletes it from the thread store under its lock, so a
+    /// process holding it is not pulled from under; refused for another client's thread. Its history stays in the
+    /// audit log.
+    ///
+    /// - Parameter id: The thread.
+    /// - Returns: The result.
+    private func closeSaved(_ id: String) -> CallTool.Result {
+        let store = threadStore
+        guard ThreadStore.isValid(id), FileManager.default.fileExists(atPath: store.directory(of: id).path) else {
+            return failure(ThreadRegistry<OpenThread>.Failure.notFound(id).description)
+        }
+        let owner = clientName
+        if let settings = try? store.settings(id), settings.owner != owner {
+            return failure(ThreadStore.Failure.owned(id, owner: settings.owner, client: owner).description)
+        }
+        do {
+            let lock = try store.lock(id, owner: owner)
+            defer { lock.release() }
+            try store.delete(id)
+        } catch {
+            return failure(String(describing: error))
+        }
+        return success("closed \(id): deleted it from the thread store")
     }
 
     /// A text result with `isError: false`.

@@ -15,7 +15,12 @@ import WispTestSupport
     private func server(command: String, sink: MemoryAuditSink) throws -> WispServer {
         let session = try scratchSession(
             dependencies: .testing(sink: sink), config: #"{"commandTimeoutSeconds":1,"commandMaxTimeoutSeconds":5}"#)
-        return WispServer(session: session) { session, host, id, instructions, tools, model, _, commandTimeout in
+        return WispServer(session: session) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let model = start.model
+            let commandTimeout = start.commandTimeout
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model,
                 commandTimeout: commandTimeout)
@@ -56,13 +61,13 @@ import WispTestSupport
         // The thread started with it says so in its session.start.
         let start = sink.events.first { $0.kind == .sessionStart && $0.session == "long" }
         #expect(start?.details["commandTimeoutSeconds"] == 4)
-        // On a thread that exists it is refused, as model and tools are.
+        // On a thread that exists a different one is refused, as a different model or tools are.
         let again = try await server.call(
             .init(name: "respond", arguments: ["prompt": "again", "thread_id": "long", "commandTimeoutSeconds": 3]))
         #expect(again.isError == true)
         #expect(
-            again.content.description.contains("commandTimeoutSeconds apply only when a thread is created"),
-            "\(again.content)")
+            again.content.description.contains(
+                "commandTimeoutSeconds 4; these settings differ: commandTimeoutSeconds"), "\(again.content)")
     }
 
     @Test func aThreadsLimitAboveTheCapIsClampedToIt() async throws {

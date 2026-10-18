@@ -13,7 +13,12 @@ import WispTestSupport
     /// A server whose threads open their agent as the real factory does, through the thread's own `openAgent`, on one
     /// scripted model, so what each turn asked is in its script.
     private func server(_ model: ScriptedModel) throws -> WispServer {
-        WispServer(session: try scratchSession()) { session, host, id, instructions, tools, selection, think, _ in
+        WispServer(session: try scratchSession()) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let selection = start.model
+            let think = start.think
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: selection, think: think)
             let agent = try thread.openAgent(on: ResolvedModel(selection: .system, custom: model))
@@ -52,7 +57,7 @@ import WispTestSupport
         let again = try await server.call(
             .init(name: "respond", arguments: ["prompt": "again", "thread_id": "t", "think": .bool(true)]))
         #expect(again.isError == true)
-        #expect(again.content.description.contains("apply only when a thread is created"))
+        #expect(again.content.description.contains("these settings differ: think"), "\(again.content)")
         // A level only Ollama takes, on a model whose runtime has no levels: refused as the thread opens.
         let level = try await server.call(
             .init(name: "respond", arguments: ["prompt": "hi", "thread_id": "u", "think": .string("high")]))

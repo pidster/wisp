@@ -17,6 +17,7 @@ public enum ToolCatalog {
             + "of about 8k tokens, so keep prompts short and delegate only self-contained tasks such as "
             + "summarising a passage, classifying text, or driving a build or test through its own run_command tool. "
             + "Omit thread_id to start a new conversation; the result's structuredContent.thread_id continues it. "
+            + "A thread is saved after every turn, so naming it after a reconnect resumes it with its own settings. "
             + "Read the resource wisp://tools for the tools the model can use and how to prompt for them.",
         inputSchema: .object([
             "type": .string("object"),
@@ -28,9 +29,10 @@ public enum ToolCatalog {
                 "thread_id": .object([
                     "type": .string("string"),
                     "description": .string(
-                        "Conversation to continue. Omit to start a new one (an id is generated), or supply an unused "
-                            + "id to start one under that name. instructions, tools, model, think, and "
-                            + "commandTimeoutSeconds apply only when a thread starts."
+                        "Conversation to continue or resume. Omit to start a new one (an id is generated), or supply "
+                            + "an unused id to start one under that name. instructions, tools, model, think, and "
+                            + "commandTimeoutSeconds apply only when a thread starts; on an existing or saved thread "
+                            + "they are refused unless they equal its own."
                     ),
                 ]),
                 "instructions": .object([
@@ -479,7 +481,7 @@ public enum ToolCatalog {
     /// Ends a conversation thread and frees its model session.
     public static let closeThread = Tool(
         name: "close_thread",
-        description: "End a respond conversation thread and free its model session.",
+        description: "End a respond conversation thread, free its model session, and delete it from the thread store.",
         inputSchema: .object([
             "type": .string("object"),
             "properties": .object([
@@ -621,9 +623,10 @@ public enum ToolCatalog {
                 + "approvals in force.",
             mimeType: "application/json"),
         Resource(
-            name: "wisp threads", uri: threadsResourceURI, title: "The server's respond threads",
+            name: "wisp threads", uri: threadsResourceURI, title: "The respond threads this client may open",
             description:
-                "Each thread's id, model, turns, when it was created and last active, whether it is open, and its "
+                "This server's threads and those saved under this client's name: each one's id, owner, model, turns, "
+                + "when it was created and last active, its state (open, saved, open elsewhere, closed, evicted), and its "
                 + "URI; most recently active first, paged with ?page=N.",
             mimeType: "application/json"),
         Resource(
@@ -760,13 +763,15 @@ public enum ToolCatalog {
     ]
 }
 
-/// Validates a client-supplied thread id: 1 to 48 characters from `[A-Za-z0-9._-]`.
+/// Validates a client-supplied thread id: 1 to 48 characters from `[A-Za-z0-9._-]`, not starting with a dot, since the
+/// id names the thread's directory in the thread store (`ThreadStore.isValid`, ADR 0066).
 ///
 /// - Throws: `MCPError.invalidParams` otherwise.
 func validateThreadID(_ id: String) throws {
     guard SafeName.isValid(id), id.unicodeScalars.count <= threadIDLimit else {
         throw MCPError.invalidParams("'thread_id' must be 1-\(threadIDLimit) characters from [A-Za-z0-9._-]")
     }
+    guard ThreadStore.isValid(id) else { throw MCPError.invalidParams("'thread_id' must not start with '.'") }
 }
 
 /// The longest `thread_id`. Each opening's audit session is `<thread_id>-<8 characters>`

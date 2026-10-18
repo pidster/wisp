@@ -354,6 +354,40 @@ public final class FactKeeper: Sendable {
         }
     }
 
+    /// The facts the person dropped for `thread`, for its `thread.json` (ADR 0066, D9): a resumed thread does not ask
+    /// about them again.
+    ///
+    /// - Parameter thread: The MCP `thread_id`.
+    /// - Returns: Each dropped fact with the request that dropped it, oldest request first.
+    public func droppedFacts(thread: String) -> [ThreadStore.DroppedFact] {
+        let records = contents.withLock { Array(($0.dropped[thread] ?? [:]).values) }
+        return records.compactMap { record in
+            record.request.fact.map {
+                ThreadStore.DroppedFact(
+                    fact: $0, request: record.request.id, asked: record.request.createdAt, settled: record.settledAt)
+            }
+        }.sorted { ($0.asked, $0.request) < ($1.asked, $1.request) }
+    }
+
+    /// Remembers the facts a saved thread's person dropped, as its `thread.json` holds them, when the thread is resumed
+    /// (ADR 0066, D9), so it is not asked about them again; replaces what this keeper held for `thread`.
+    ///
+    /// - Parameters:
+    ///   - dropped: The dropped facts.
+    ///   - thread: The MCP `thread_id`.
+    public func restoreDropped(_ dropped: [ThreadStore.DroppedFact], thread: String) {
+        let client = client()
+        var restored: [String: Record] = [:]
+        for fact in dropped {
+            var request = PendingApprovals.request(
+                keeping: fact.fact, thread: thread, client: client, now: fact.asked, timeout: nil)
+            request.id = fact.request
+            restored[Self.dropKey(fact.fact)] = Record(
+                request: request, thread: thread, fact: fact.fact.id, state: .dropped, settledAt: fact.settled)
+        }
+        contents.withLock { $0.dropped[thread] = restored.isEmpty ? nil : restored }
+    }
+
     /// The server is stopping: every watch ends, and every request waiting stays filed, settled here as
     /// `handed-over`. The person can still answer each; the face they answer in applies it (`settleUnwatched`).
     public func stop() {

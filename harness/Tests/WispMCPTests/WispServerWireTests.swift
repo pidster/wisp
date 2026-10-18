@@ -38,7 +38,11 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
                 }) : .testing(sink: sink)
         let session = try scratchSession(dependencies: dependencies, config: config)
         let triageModel = ScriptedModel(steps: triageSteps, capabilities: [.guidedGeneration])
-        let server = WispServer(session: session) { session, _, id, instructions, tools, model, _, _ in
+        let server = WispServer(session: session) { session, _, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let model = start.model
             let thread = try session.thread(
                 id: id, host: session.host(approver: approver), instructions: instructions, tools: tools, model: model)
             let scripted = ScriptedModel(steps: steps, reportsUsage: reportsUsage)
@@ -386,7 +390,11 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
                 arguments: #"{"command":"touch marker.txt && echo approved","workingDirectory":"\#(dir.path)"}"#),
             .say("{tool}"),
         ]
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
+        let server = WispServer(session: session) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let model = start.model
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model)
             let agent = Agent(

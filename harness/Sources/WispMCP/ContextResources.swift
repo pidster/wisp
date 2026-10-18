@@ -24,6 +24,10 @@ extension WispServer {
         -> ReadResource.Result
     {
         guard let open = await threads.peek(id) else {
+            // A saved thread is read from its files (ADR 0066, D8).
+            if let record = try savedRecord(id) {
+                return try savedContext(thread: id, record: record, parts, page: page, uri: uri)
+            }
             if let record = directory.record(id) {
                 throw MCPError.invalidParams(
                     "thread \(id) is \(record.state.rawValue); its context went with it, and its output and audit "

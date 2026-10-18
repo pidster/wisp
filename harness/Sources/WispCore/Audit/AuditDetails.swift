@@ -998,6 +998,7 @@ extension AuditEvent {
         case .factScopeChanged:
             ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed", "request"]
         case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
+        case .threadSwept: ["thread", "owner", "lastUsed", "turns", "sessions", "outputBytes"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

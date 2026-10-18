@@ -26,6 +26,9 @@ public struct OpenThread: Sendable {
     public let turns = TurnQueue()
     /// The thread's questions to the person (ADR 0062): the one waiting, parked or not, and the records.
     public let inquiries: InquiryBox
+    /// Its place in the thread store (ADR 0066), which the server sets when it opens the thread; nil only for a record
+    /// built outside the server.
+    public internal(set) var kept: KeptThread?
 
     /// Creates the record.
     public init(

@@ -60,6 +60,35 @@ public struct Config: Codable, Equatable, Sendable {
     public var verification: VerificationConfig?
     /// The model's questions to the person (`ask`, ADR 0062): the deadline, and the client's dialog under MCP.
     public var inquiry: InquiryConfig?
+    /// The thread store (ADR 0066): how long a saved thread is kept after its last use.
+    public var threads: ThreadsConfig?
+
+    /// Settings for the thread store ([ADR 0066](../../../../docs/decisions/0066-one-thread-store.md)).
+    public struct ThreadsConfig: Codable, Equatable, Sendable {
+        /// Days after its last use a saved thread, and its stored outputs, are deleted at a later session's start;
+        /// default 30, as stored outputs are kept, from 0 (kept until closed) to 3,650.
+        public var keepDays: Int?
+
+        /// Creates settings; nil fields take defaults.
+        public init(keepDays: Int? = nil) {
+            self.keepDays = keepDays
+        }
+
+        /// The range `keepDays` must be in, as `context.outputDays`'s.
+        public static let keepDaysRange = 0...3650
+        /// How long saved threads are kept when `keepDays` is not set.
+        public static let defaultKeepDays = 30
+
+        /// Checks the field's range.
+        ///
+        /// - Throws: `DecodingError.dataCorrupted` naming the problem.
+        public func validate() throws {
+            if let keepDays, !Self.keepDaysRange.contains(keepDays) {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: [], debugDescription: "threads: keepDays must be between 0 and 3650"))
+            }
+        }
+    }
 
     /// Settings for the model's questions ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)).
     public struct InquiryConfig: Codable, Equatable, Sendable {
@@ -644,8 +673,9 @@ public struct Config: Codable, Equatable, Sendable {
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
         watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
         lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil,
-        inquiry: InquiryConfig? = nil, commandMaxTimeoutSeconds: Int? = nil
+        inquiry: InquiryConfig? = nil, commandMaxTimeoutSeconds: Int? = nil, threads: ThreadsConfig? = nil
     ) {
+        self.threads = threads
         self.commandMaxTimeoutSeconds = commandMaxTimeoutSeconds
         self.verification = verification
         self.inquiry = inquiry
@@ -685,6 +715,7 @@ public struct Config: Codable, Equatable, Sendable {
         try config.tools?.validate()
         try config.facts?.validate()
         try config.context?.validate()
+        try config.threads?.validate()
         try config.watch?.validate()
         try config.approval?.validate()
         try config.validateServers()
@@ -868,6 +899,7 @@ public struct Config: Codable, Equatable, Sendable {
                 headroomTurns: context?.headroomTurns ?? ContextTarget.default.headroomTurns),
             contextMemory: context?.memory ?? false,
             contextOutputDays: context?.outputDays ?? ContextConfig.defaultOutputDays,
+            threadsKeepDays: threads?.keepDays ?? ThreadsConfig.defaultKeepDays,
             watchSettle: watch?.settle ?? WatchConfig.defaultSettle,
             verificationMode: verification?.mode ?? .readers,
             inquiryTimeout: (inquiry?.timeoutSeconds ?? 0) == 0
@@ -998,6 +1030,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var contextMemory = false
         /// Days after its last use a session's stored outputs are swept (`context.outputDays`); 0 never.
         public var contextOutputDays = ContextConfig.defaultOutputDays
+        /// Days after its last use a saved thread is deleted (`threads.keepDays`, ADR 0066); 0 never.
+        public var threadsKeepDays = ThreadsConfig.defaultKeepDays
         /// Seconds file changes must be quiet before `wisp watch` runs; 0 runs on every batch.
         public var watchSettle = WatchConfig.defaultSettle
         /// How each reply's result claims are checked against the turn's calls (`verification.mode`, ADR 0060):

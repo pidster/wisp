@@ -96,27 +96,41 @@ public struct TranscriptStore: Sendable {
     public func save(_ store: ThreadRecord, as name: String) throws {
         let file = try url(for: name)
         let links = try linksURL(for: name)
-        let pendingLinks = try staged(store.snapshot, for: links)
+        let pendingLinks = try Self.staged(store.snapshot, for: links)
         defer { try? FileManager.default.removeItem(at: pendingLinks) }
-        let pendingFile = try staged(store.active, for: file)
+        let pendingFile = try Self.staged(store.active, for: file)
         defer { try? FileManager.default.removeItem(at: pendingFile) }
-        try place(pendingLinks, at: links)
-        try place(pendingFile, at: file)
+        try Self.place(pendingLinks, at: links)
+        try Self.place(pendingFile, at: file)
     }
 
     /// Encodes `value` to `file` atomically, mode 0600.
     private func write(_ value: some Encodable, to file: URL) throws {
-        try place(try staged(value, for: file), at: file)
+        try Self.place(try Self.staged(value, for: file), at: file)
     }
 
     /// Encodes `value` into a new file, mode 0600, beside `file`, under a name `list` never shows.
     ///
+    /// - Parameters:
+    ///   - value: What to encode.
+    ///   - file: The file it will become.
     /// - Returns: The new file.
     /// - Throws: Encoding or file-system errors.
-    private func staged(_ value: some Encodable, for file: URL) throws -> URL {
+    static func staged(_ value: some Encodable, for file: URL) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(value)
+        return try staged(data: try encoder.encode(value), for: file)
+    }
+
+    /// Writes `data` into a new file, mode 0600, beside `file`, under a name `list` never shows; `ThreadStore`
+    /// stages its `thread.json` this way.
+    ///
+    /// - Parameters:
+    ///   - data: The bytes.
+    ///   - file: The file it will become.
+    /// - Returns: The new file.
+    /// - Throws: File-system errors.
+    static func staged(data: Data, for file: URL) throws -> URL {
         let pending = file.deletingLastPathComponent().appending(
             path: ".\(file.lastPathComponent).\(UUID().uuidString).tmp")
         guard
@@ -127,8 +141,11 @@ public struct TranscriptStore: Sendable {
 
     /// Gives `pending` the name `file`, replacing what was there in one step (`rename(2)`).
     ///
+    /// - Parameters:
+    ///   - pending: The staged file.
+    ///   - file: Its name.
     /// - Throws: The file system's error.
-    private func place(_ pending: URL, at file: URL) throws {
+    static func place(_ pending: URL, at file: URL) throws {
         guard rename(pending.path, file.path) == 0 else {
             throw CocoaError(
                 .fileWriteUnknown,

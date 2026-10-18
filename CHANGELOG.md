@@ -4,6 +4,30 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+MCP threads outlive their server: every `respond` thread is saved as it goes and resumed, with its own settings, by
+the next server that is asked for it.
+
+- Every `respond` thread is saved after each turn under `~/.wisp/threads/<thread_id>/`, so a reconnect, a new build,
+  or a crash no longer loses it. Naming it again resumes it with its saved model, tools, instructions, `think`, and
+  `commandTimeoutSeconds`, and the result says so: `resumed: true`, `resumedTurns`, and a first line,
+  `resumed thread git (12 turns, saved 2026-10-16 09:12)`. An evicted thread stays saved and is resumed the same way.
+- Start settings sent again on an existing or saved thread are accepted when they equal its own and refused naming
+  the ones that differ (`git was saved with model ollama:granite4.1:8b, tools run_command; these settings differ:
+  model`), so a client that always sends its settings continues its thread instead of getting a new one on the
+  defaults.
+- A thread is held by one wisp at a time; another is refused with `thread git is open in another wisp (pid 4242,
+  claude-code)`. A thread belongs to the client that opened it, and another client's is refused and not listed.
+- `close_thread` deletes the thread from the store. A saved thread unused for `threads.keepDays` (30 by default, 0
+  to keep them) is deleted with its stored outputs at a later start and audited as `thread.swept`; until then the
+  output store's sweep keeps its outputs.
+- `wisp://threads` lists the client's saved threads beside the server's, with `owner` and a `state` of `open`,
+  `saved`, or `open elsewhere`; a saved thread's summary, facts, and context are read from its files, and a thread's
+  audit, output, and reasoning cover every server that held it. A resumed thread's `session.start` records `resume`
+  and `carriedFrom`.
+- A `thread_id` starting with `.` is refused.
+
 ## 0.26.4
 
 llama.cpp models think as Ollama's do, with levels and budgets, and `wisp doctor` checks that the server keeps

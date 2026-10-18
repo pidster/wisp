@@ -287,19 +287,26 @@ public struct AuditQuery: Equatable, Sendable {
     public var tool: String?
     /// Keep only the last N matching events; nil means all.
     public var last: Int?
+    /// Only these sessions, as one thread's openings are (ADR 0066); nil means any. Applies with `session`.
+    public var sessions: Set<String>?
 
     /// Creates a query.
-    public init(session: String? = nil, kinds: [AuditEvent.Kind] = [], tool: String? = nil, last: Int? = nil) {
+    public init(
+        session: String? = nil, kinds: [AuditEvent.Kind] = [], tool: String? = nil, last: Int? = nil,
+        sessions: Set<String>? = nil
+    ) {
         self.session = session
         self.kinds = kinds
         self.tool = tool
         self.last = last
+        self.sessions = sessions
     }
 
     /// Applies the query to events already in order.
     public func filter(_ events: [AuditEvent]) -> [AuditEvent] {
         var matched = events.filter { event in
             if let session, event.session != session { return false }
+            if let sessions, !sessions.contains(event.session) { return false }
             if !kinds.isEmpty, !kinds.contains(event.kind) { return false }
             if let tool, event.details["tool"]?.stringValue != tool { return false }
             return true

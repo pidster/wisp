@@ -64,6 +64,9 @@ public protocol RespondingThread: Sendable {
     ///   - question: The question.
     ///   - answer: The answer.
     func recordAnswer(to question: Question, answer: String) async
+
+    /// The thread's store as it stands, for saving it (ADR 0066); nil when the thread has none to save.
+    func record() async -> ThreadRecord?
 }
 
 extension RespondingThread {
@@ -97,6 +100,9 @@ extension RespondingThread {
 
     /// Nothing: a thread without a thread record keeps no facts.
     public func recordAnswer(to question: Question, answer: String) async {}
+
+    /// None: a thread without a thread record is never saved.
+    public func record() async -> ThreadRecord? { nil }
 }
 
 /// One thread with the on-device model, addressable by id across MCP calls.
@@ -152,6 +158,9 @@ public actor ThreadActor: RespondingThread {
     public func recordAnswer(to question: Question, answer: String) async {
         agent.recordAnswer(to: question, answer: answer)
     }
+
+    /// The agent's store, for saving.
+    public func record() async -> ThreadRecord? { agent.store }
 
     /// The agent's running summary's versions, or nil when it keeps no facts.
     public func summaries() async -> [RunningSummary]? {

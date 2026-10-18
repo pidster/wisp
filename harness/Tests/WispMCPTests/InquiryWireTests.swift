@@ -24,7 +24,10 @@ import WispTestSupport
         let session = try scratchSession(dependencies: .testing(sink: sink), config: config)
         let model = ScriptedModel(steps: steps)
         let server = WispServer(session: session, inquiryHold: hold) {
-            session, host, id, instructions, tools, _, _, _ in
+            session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools,
                 auditSession: ThreadDirectory.auditSession(for: id))

@@ -59,10 +59,15 @@ terminal), which gives each tool's arguments, limits, and a prompt shape that wo
 
 `respond` runs on a thread. Name one with `thread_id` and pass the same id to continue it; omit it and wisp makes
 one up and returns it. A thread is a conversation of its own, with its own facts, summary, and record; the server
-holds up to 32 (`maxThreads`), dropping the least recently used, and `close_thread` frees one when the work is
-done.
+holds up to 32 (`maxThreads`) in memory, dropping the least recently used, and `close_thread` frees one when the
+work is done. Every thread is saved after each turn, so naming it again after a reconnect, a new build, or a
+dropped thread resumes it with its own settings, and the result says `resumed: true`
+([mcp.md](../mcp.md), "Saved and resumed threads"). A thread belongs to the client that opened it, and one wisp
+holds it at a time.
 
-Five arguments shape a thread and are taken only when it starts; on an existing thread they are an error:
+Five arguments shape a thread and are taken only when it starts; on an existing or saved thread they are accepted
+only when they equal the thread's own, so a client may send them on every call, and different ones are an error
+naming them:
 
 | Argument | Use it for |
 | --- | --- |
@@ -151,7 +156,8 @@ Later calls pass only `thread_id` and `prompt`. Put a commit message in a file a
 `set -o pipefail; git commit -q -F /tmp/msg 2>&1 | tail -3`, so a hook's output does not fill the reply, and keep
 `pipefail` wherever output is piped: without it the exit status is `tail`'s, and a failed push reports 0. The
 first `git commit` or `git push` on the thread asks for approval; answering "This session" covers the same shape
-for the rest of the server's life. `close_thread` with `thread_id: "git"` ends it.
+for the rest of the server's life; a resumed thread asks again. `close_thread` with `thread_id: "git"` ends it and
+deletes it from the thread store.
 
 ## When the server does not connect
 

@@ -58,7 +58,10 @@ import WispTestSupport
     ) async throws -> (client: Client, server: WispServer, sink: MemoryAuditSink) {
         let sink = MemoryAuditSink()
         let session = try session(sink)
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
+        let server = WispServer(session: session) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let model = start.model
             // Each opening gets its own audit session, `<thread_id>-<suffix>`, as the server's own factory gives it.
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: .none, model: model,

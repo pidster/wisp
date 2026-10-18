@@ -66,7 +66,7 @@ extension WispServer {
     /// - Throws: `MCPError.invalidParams` for a thread that is not open or keeps no facts, an unknown fact, or
     ///   a page out of range.
     func readFacts(thread id: String, fact: String?, page: Int, all: Bool) async throws -> JSONValue {
-        guard let open = await threads.peek(id) else {
+        guard let thread = try await viewedThread(id) else {
             if let record = directory.record(id) {
                 throw MCPError.invalidParams(
                     "thread \(id) is \(record.state.rawValue); its facts went with it, and its audit remains under "
@@ -74,7 +74,7 @@ extension WispServer {
             }
             throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
         }
-        guard let seen = await open.thread.facts() else {
+        guard let seen = await thread.facts() else {
             throw MCPError.invalidParams("thread \(id) keeps no facts (facts.enabled is false)")
         }
         let view = FactView(seen)
@@ -108,7 +108,7 @@ extension WispServer {
     /// - Returns: The JSON.
     /// - Throws: `MCPError.invalidParams` for a thread that is not open or keeps no facts (so no summary).
     func readSummary(thread id: String, all: Bool) async throws -> JSONValue {
-        guard let open = await threads.peek(id) else {
+        guard let thread = try await viewedThread(id) else {
             if let record = directory.record(id) {
                 throw MCPError.invalidParams(
                     "thread \(id) is \(record.state.rawValue); its summary went with it, and its audit remains under "
@@ -116,7 +116,7 @@ extension WispServer {
             }
             throw MCPError.invalidParams("no thread \(id) on this server; wisp://threads lists them")
         }
-        guard let summaries = await open.thread.summaries() else {
+        guard let summaries = await thread.summaries() else {
             throw MCPError.invalidParams("thread \(id) keeps no summary (facts.enabled is false)")
         }
         var result: [String: JSONValue] = [
@@ -129,7 +129,7 @@ extension WispServer {
 
     /// The thread's current task and who set it, or null when it has none or keeps no facts.
     func threadTask(_ id: String) async -> JSONValue {
-        guard let open = await threads.peek(id), let facts = await open.thread.facts(),
+        guard let thread = try? await viewedThread(id), let facts = await thread.facts(),
             let task = facts.last(where: { $0.identity.subject == "task" && $0.state == .current })
         else { return .null }
         return .object(["text": .string(task.value), "source": .string(task.source.rawValue), "id": .string(task.id)])

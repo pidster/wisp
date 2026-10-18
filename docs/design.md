@@ -634,7 +634,22 @@ Everything else about a thread is under `wisp://threads` too (`ThreadResources`,
 `ThreadDirectory` remembers each thread the server opened (model, tools, turns, open or closed, bounded
 at 256 records) so its summary, tool calls, and audit stay readable after it closes, and the context
 resources compose a live thread's context from its agent's store through `RespondingThread.context`, at
-no model cost (the proposal's D12). `ThreadRegistry.peek` reads a thread without marking it used. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
+no model cost (the proposal's D12). `ThreadRegistry.peek` reads a thread without marking it used.
+
+Every thread is also saved in the thread store, `~/.wisp/threads/<id>/` ([ADR 0066](decisions/0066-one-thread-store.md)).
+`ThreadStore` (in `WispCore/Config`) writes `thread.json` (`ThreadStore.Settings`: owner, start settings, turns,
+audit sessions, dropped facts, `open` or `saved`) beside the record `TranscriptStore` writes, staged and renamed,
+`thread.json` last, and `ThreadLock` holds its `flock`. The server opens a thread inside the registry's
+`findOrCreate` step, so two calls naming one new id cannot both lock it: it loads what the store has, refuses
+another client's thread or start settings that differ (`WispServer.differences`), takes the lock, and calls the
+`ThreadFactory` with a `ThreadStart` (the settings, the opening's audit session, and the saved transcript and links
+when resuming), whose `thread(on:host:)` is `Session.thread` with `resume` and `carriedFrom`. The `OpenThread` it
+returns carries a `KeptThread`, which saves through `RespondingThread.record` after every turn inside the
+`TurnQueue`, at eviction once the queue drains, and at the client's end, and deletes at `close_thread`. A saved
+thread's resources are read from its files by `SavedThread`, a `RespondingThread` over the restored record that
+answers no prompt, and its audit, output, and reasoning across every session `thread.json` lists
+(`AuditQuery.sessions`). At `Session.begin`, `ThreadSweep` deletes threads unused for `threads.keepDays` with their
+outputs, bounded as `OutputSweep` is, and hands `OutputSweep` the sessions of the threads it keeps. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
 `DynamicGenerationSchema`, `Agent.respond(to:schema:)` runs guided generation after checking the model
 declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and
@@ -693,9 +708,9 @@ sandbox, audit) or reads a file after the gate clears it, chunks it, judges each
 schema-shaped turn on a conversation of its own, and merges the findings
 ([ADR 0023](decisions/0023-condensing-tools.md)).
 
-A `respond` call goes from `WispServer` to the `ThreadRegistry`, which finds or creates the
-`ThreadActor` for its `thread_id`, and on to that thread's `Agent`; `close_thread` removes the
-thread from the store. The overview diagram above shows the rest of the path.
+A `respond` call goes from `WispServer` to the `ThreadRegistry`, which finds, resumes from the thread store, or
+creates the `ThreadActor` for its `thread_id`, and on to that thread's `Agent`; the thread is saved after the turn,
+and `close_thread` removes it from the registry and the thread store. The overview diagram above shows the rest of the path.
 
 ### CLI
 
@@ -789,7 +804,7 @@ and must not interleave with another caller's, as a thread's turn does, hold an 
 holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`, `ToolBudget`, `OutputStore.Writer`,
-`CallLedger`, `OutputCondenser`, `ThreadDirectory`.
+`CallLedger`, `OutputCondenser`, `ThreadDirectory`, `KeptThread`, `ThreadLock`.
 
 Swift's cooperative pool, where every task runs, has one thread per core and does not add one when a thread
 blocks. Two rules follow, both from a measurement. On 2026-10-10 a `sample` of the gate's parallel test run, taken

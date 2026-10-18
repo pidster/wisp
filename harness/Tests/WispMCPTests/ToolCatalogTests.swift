@@ -115,6 +115,12 @@ import WispCore
         #expect(throws: MCPError.invalidParams("'thread_id' must be 1-48 characters from [A-Za-z0-9._-]")) {
             try CloseThreadRequest(arguments: ["thread_id": .string(String(repeating: "x", count: 64))])
         }
+        // The id names a directory in the thread store (ADR 0066), so `..` and hidden names are refused.
+        for dotted in ["..", ".", ".git"] {
+            #expect(throws: MCPError.invalidParams("'thread_id' must not start with '.'")) {
+                try RespondRequest(arguments: ["prompt": .string("x"), "thread_id": .string(dotted)])
+            }
+        }
     }
 
     @Test func respondRequestModel() throws {

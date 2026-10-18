@@ -20,12 +20,14 @@ measurement.
 
 ## 0.27.0
 
-- **One thread store** (asked for by the owner on 2026-10-16; the plan accepted the same day, not built). Every
+- **One thread store** (asked for by the owner on 2026-10-16; the plan accepted the same day; phase 1, MCP threads
+  saved and resumed with the retention sweep, built 2026-10-18 and recorded in
+  [ADR 0066](decisions/0066-one-thread-store.md); phase 2, chat on the store, not built). Every
   thread, from chat or MCP, is saved after each turn under `~/.wisp/threads/<id>/` with its start settings, and a
   face that names one it does not hold resumes it, under a new audit session linked to the old ones. One process
   holds a thread at a time; an MCP caller resumes only its own client's threads and those handed to it;
   `close_thread` deletes; a thread unused for 30 days is swept. Chat's `/save` and `--resume` become names in the
-  same store. ADR 0066 records it. The plan, with every decision and its phases:
+  same store. The plan, with every decision and its phases:
   [proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md). Phase 3 (`wisp threads`,
   the picker) is later.
 

@@ -45,6 +45,8 @@ public final class ThreadDirectory: Sendable {
         public var turns: Int
         /// Open, closed, or evicted.
         public var state: State
+        /// Who owns it: the MCP client's name (ADR 0066, D3); nil when unknown.
+        public var owner: String? = nil
     }
 
     /// The records, by id.
@@ -74,15 +76,17 @@ public final class ThreadDirectory: Sendable {
     ///   - tools: Its tools.
     ///   - instructions: Whether the caller gave it instructions.
     ///   - think: The thinking `respond`'s `think` set for it, as text; nil for the model's default.
+    ///   - turns: The turns a resumed thread had before (ADR 0066); 0 for a new one.
+    ///   - owner: The client that owns it.
     ///   - now: The time.
     public func opened(
         id: String, auditSession: String? = nil, model: String?, tools: [String], instructions: Bool,
-        think: String? = nil, now: Date = Date()
+        think: String? = nil, turns: Int = 0, owner: String? = nil, now: Date = Date()
     ) {
         records.withLock { records in
             records[id] = Record(
                 id: id, auditSession: auditSession ?? id, model: model, tools: tools, instructions: instructions,
-                think: think, created: now, lastActive: now, turns: 0, state: .open)
+                think: think, created: now, lastActive: now, turns: turns, state: .open, owner: owner)
             let closed = records.values.filter { $0.state != .open }.sorted { $0.lastActive < $1.lastActive }
             for record in closed.prefix(max(0, records.count - capacity)) { records[record.id] = nil }
         }

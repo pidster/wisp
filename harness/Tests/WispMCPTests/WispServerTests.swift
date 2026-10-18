@@ -9,13 +9,11 @@ import WispTestSupport
 /// A thread factory whose threads run a `ScriptedModel` through the real `ThreadActor` and
 /// `Agent`, so the server is tested over the same objects it uses in production, with no model. Each
 /// new thread says its id, then "again", then "done".
-func scriptedThreads(
-    _ session: Session, _ host: SessionHost, _ id: String, _ instructions: String?, _ tools: ToolSelection,
-    _ model: ModelSelection?, _ think: OllamaThink?, _ commandTimeout: Int? = nil
-) throws -> OpenThread {
+func scriptedThreads(_ session: Session, _ host: SessionHost, _ start: ThreadStart) throws -> OpenThread {
+    let (id, think) = (start.id, start.think)
     let thread = try session.thread(
-        id: id, host: host, instructions: instructions, tools: tools, model: model, think: think,
-        commandTimeout: commandTimeout)
+        id: id, host: host, instructions: start.instructions, tools: start.tools, model: start.model, think: think,
+        commandTimeout: start.commandTimeout)
     let agent = Agent(
         instructions: thread.prompting.rendered, tools: thread.tools,
         model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("\(id):"), .say("again")])),
@@ -77,16 +75,30 @@ func scratchSession(
         #expect(result.structuredContent?.objectValue?["refusals"] == .array([]))
     }
 
-    @Test func settingsOnAnExistingThreadAreRefused() async throws {
+    @Test func settingsOnAnExistingThreadAreRefusedUnlessTheyAreItsOwn() async throws {
         _ = try await fakeServer.call(
-            .init(name: "respond", arguments: ["prompt": .string("hi"), "thread_id": .string("u")]))
+            .init(
+                name: "respond",
+                arguments: ["prompt": .string("hi"), "thread_id": .string("u"), "tools": ["current_date"]]))
         let result = try await fakeServer.call(
             .init(
                 name: "respond",
                 arguments: ["prompt": .string("x"), "thread_id": .string("u"), "instructions": .string("new")]))
         #expect(result.isError == true)
         guard case .text(let text, _, _)? = result.content.first else { Issue.record("no text"); return }
-        #expect(text.contains("only when a thread is created"))
+        #expect(
+            text.hasPrefix("u is open with model system, tools current_date; these settings differ: instructions"),
+            "\(text)")
+        // The thread's own settings, sent again as a caller that always sends them does, continue it (ADR 0066, D5).
+        let same = try await fakeServer.call(
+            .init(
+                name: "respond",
+                arguments: [
+                    "prompt": .string("again"), "thread_id": .string("u"), "tools": ["current_date"],
+                    "model": "system",
+                ]))
+        #expect(same.isError == false, "\(same.content)")
+        #expect(same.structuredContent?.objectValue?["created"] == .bool(false))
         let closed = try await fakeServer.call(.init(name: "close_thread", arguments: ["thread_id": .string("u")]))
         #expect(closed.isError == false)
     }

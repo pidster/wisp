@@ -245,8 +245,9 @@ public struct Session: Sendable {
     }
 
     /// Loads config, applies the request's overrides, opens the audit log and the approval store,
-    /// checks the tool selection, sweeps the output store of sessions unused for `context.outputDays`
-    /// (`OutputSweep`, bounded), and records `session.start`.
+    /// checks the tool selection, sweeps the thread store of threads unused for `threads.keepDays` (`ThreadSweep`,
+    /// ADR 0066) and the output store of sessions unused for `context.outputDays` (`OutputSweep`, ADR 0050), both
+    /// bounded, records `session.start`, and then a `thread.swept` for each thread the sweep deleted.
     ///
     /// - Parameters:
     ///   - request: Flags and arguments from the entry point.
@@ -287,8 +288,12 @@ public struct Session: Sendable {
         let audit = AuditLog(session: sessionID, sink: sink)
         let stats = CallStats()
         let classifier = dependencies.makeClassifier(config, home)
-        // Stored outputs of sessions unused for `context.outputDays` go now, within a bound start-up does not feel.
-        let swept = OutputSweep(home: home, days: config.contextOutputDays).run(current: sessionID)
+        // Saved threads unused for `threads.keepDays` go now with their outputs, and stored outputs of other sessions
+        // unused for `context.outputDays`, sparing a saved thread's (ADR 0066, D10); each within a bound start-up does
+        // not feel.
+        let threadSweep = ThreadSweep(home: home, days: config.threadsKeepDays).run()
+        let swept = OutputSweep(home: home, days: config.contextOutputDays).run(
+            current: sessionID, keep: threadSweep.kept)
         var details = AuditEvent.Details.sessionStart(
             entryPoint: request.entryPoint,
             prompting: Prompting(
@@ -297,6 +302,7 @@ public struct Session: Sendable {
             resume: request.resume, carriedFrom: request.carriedFrom)
         if !swept.isEmpty { details["outputSweep"] = swept.details }
         audit.record(.sessionStart, details: details)
+        for thread in threadSweep.swept { audit.record(.threadSwept, details: thread.details) }
         return Session(
             request: request, home: home, config: config, audit: audit,
             store: ApprovalStore(url: home.approvalsFile, lifetime: config.approvalLifetime),
@@ -477,12 +483,16 @@ public struct Session: Sendable {
     ///   - commandTimeout: The thread's own limit for `run_command`, in seconds, at least 1 (`respond`'s
     ///     `commandTimeoutSeconds`, ADR 0063), clamped to `commandMaxTimeoutSeconds` when a command runs; nil takes
     ///     the operator's `commandTimeoutSeconds`. Only this thread's `run_command` reads it.
+    ///   - resume: The saved thread this opening resumes, by id, recorded on `session.start` as `resume` (ADR 0066);
+    ///     nil for a new thread.
+    ///   - carriedFrom: The audit sessions the resumed thread had before, oldest first, recorded on `session.start`
+    ///     as `carriedFrom`.
     /// - Returns: The conversation, ready to open.
     /// - Throws: `Failure.unknownTools`.
     public func thread(
         id: String, host: SessionHost, instructions: String? = nil, tools: ToolSelection = .all,
         model: ModelSelection? = nil, think: OllamaThink? = nil, auditSession: String? = nil,
-        commandTimeout: Int? = nil
+        commandTimeout: Int? = nil, resume: String? = nil, carriedFrom: [String] = []
     ) throws -> WispThread {
         let audit = self.audit.log(forSession: auditSession ?? id)
         var prompting = self.prompting
@@ -494,7 +504,7 @@ public struct Session: Sendable {
         var details = AuditEvent.Details.sessionStart(
             entryPoint: entryPoint.thread, prompting: thread.prompting,
             tools: thread.tools.map(\.name), model: thread.model, unsafe: request.unsafe,
-            autoApprove: request.autoApprove, resume: nil, parent: self.audit.session)
+            autoApprove: request.autoApprove, resume: resume, parent: self.audit.session, carriedFrom: carriedFrom)
         // The thread's own limit as asked for; each command's outcome records the limit it ran under (ADR 0063).
         if let commandTimeout { details["commandTimeoutSeconds"] = .int(commandTimeout) }
         audit.record(.sessionStart, details: details)

@@ -152,8 +152,10 @@ diff, add, commit, push. There is no direct `run_command` MCP tool by decision; 
 approved, and audited as a turn. The tool is named by your harness's convention for the `wisp` server
 (Claude Code: `mcp__wisp__respond`; Codex: the `respond` tool of the `wisp` server).
 
-Open one thread for git and reuse it. When the thread starts, pass all five of these; they are refused on
-an existing thread:
+Open one thread for git and reuse it. When the thread starts, pass all five of these. The thread is saved after
+every turn, so after a reconnect or a new build the same call resumes it with its saved settings; on an existing
+thread, live or saved, settings equal to its own are accepted and different ones refused, naming the field
+(ADR 0066):
 
 - `thread_id`: `git` (or `git2`, `git3` if the thread was closed).
 - `tools`: `["run_command"]`, so the model has nothing else to reach for.

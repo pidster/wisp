@@ -13,7 +13,12 @@ import WispTestSupport
         let sink = MemoryAuditSink()
         let session = try scratchSession(
             dependencies: .testing(sink: sink), config: #"{"approval":{"outOfBand":false}}"#)
-        let server = WispServer(session: session) { session, host, id, instructions, tools, model, _, commandTimeout in
+        let server = WispServer(session: session) { session, host, start in
+            let id = start.id
+            let instructions = start.instructions
+            let tools = start.tools
+            let model = start.model
+            let commandTimeout = start.commandTimeout
             let thread = try session.thread(
                 id: id, host: host, instructions: instructions, tools: tools, model: model,
                 commandTimeout: commandTimeout)

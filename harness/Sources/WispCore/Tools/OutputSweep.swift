@@ -82,22 +82,26 @@ struct OutputSweep: Sendable {
     /// Sessions last used before this are removed; nil when nothing is.
     var cutoff: Date? { days > 0 ? now.addingTimeInterval(-Double(days) * 86_400) : nil }
 
-    /// Removes the sessions last used more than `days` ago, other than `current`, within the bound.
+    /// Removes the sessions last used more than `days` ago, other than `current` and those in `keep`, within the bound.
     ///
     /// - Parameters:
     ///   - current: The session starting now, never removed.
+    ///   - keep: The sessions of saved threads, kept while their thread is and removed with it by the thread store's
+    ///     sweep (`ThreadSweep`, ADR 0066, D10), so a reference in a resumed thread still resolves.
     ///   - limit: The most sessions removed.
     ///   - deadline: How long sessions may be examined.
     /// - Returns: What was removed and what was left for later.
     func run(
-        current: String, limit: Int = OutputSweep.removalLimit, deadline: Duration = OutputSweep.deadline
+        current: String, keep: Set<String> = [], limit: Int = OutputSweep.removalLimit,
+        deadline: Duration = OutputSweep.deadline
     ) -> Outcome {
         guard let cutoff else { return Outcome() }
         let clock = ContinuousClock()
         let start = clock.now
         var outcome = Outcome()
         // The directory's own time is in the listing; a session written to since the cutoff is not examined further.
-        let candidates = topLevel().filter { $0.name != current && $0.time < cutoff }.sorted { $0.time < $1.time }
+        let candidates = topLevel().filter { $0.name != current && !keep.contains($0.name) && $0.time < cutoff }
+            .sorted { $0.time < $1.time }
         for (index, candidate) in candidates.enumerated() {
             guard outcome.removed.count < limit, clock.now - start < deadline else {
                 outcome.deferred = candidates.count - index

@@ -21,7 +21,11 @@ func threadServer(steps: [ScriptedModel.Step]) throws -> WispServer {
             TeeAuditSink([sink, try FileAuditSink(url: home.auditFile, limits: config.auditLimits)])
         })
     let session = try scratchSession(dependencies: dependencies)
-    return WispServer(session: session) { session, host, id, instructions, tools, model, _, _ in
+    return WispServer(session: session) { session, host, start in
+        let id = start.id
+        let instructions = start.instructions
+        let tools = start.tools
+        let model = start.model
         let thread = try session.thread(
             id: id, host: host, instructions: instructions, tools: tools, model: model,
             auditSession: ThreadDirectory.auditSession(for: id))

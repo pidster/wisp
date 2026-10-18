@@ -113,6 +113,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case factScopeChanged
         case factConflict
         case factResolved
+        case threadSwept
         case mcpRequest
         case mcpResult
         case error
@@ -171,6 +172,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .factScopeChanged,
             .factConflict,
             .factResolved,
+            .threadSwept,
             .mcpRequest,
             .mcpResult,
             .error,
@@ -229,6 +231,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .factScopeChanged: "fact.scope.changed"
             case .factConflict: "fact.conflict.raised"
             case .factResolved: "fact.conflict.resolved"
+            case .threadSwept: "thread.swept"
             case .mcpRequest: "mcp.request"
             case .mcpResult: "mcp.result"
             case .error: "error"
