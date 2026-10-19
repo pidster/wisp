@@ -4,7 +4,7 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
-## Unreleased
+## 0.27.0
 
 Every thread is saved as it goes and resumed by any face: an agent's `respond` threads outlive their server, every
 chat is saved without `/save`, and `wisp chat --resume` opens any thread, an agent's included.
