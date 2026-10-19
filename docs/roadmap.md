@@ -7,7 +7,7 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
@@ -15,22 +15,7 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.27.0 | One thread store: every thread saved, and resumed by any face | |
 | 0.28.0 | `wisp-tui`'s conversation as a log pane of its own, with long outputs folded and each element reachable | Copying from the pane |
-
-## 0.27.0
-
-- **One thread store** (asked for by the owner on 2026-10-16; the plan accepted the same day; phase 1, MCP threads
-  saved and resumed with the retention sweep, built 2026-10-18 and recorded in
-  [ADR 0066](decisions/0066-one-thread-store.md); phase 2, chat on the store, built 2026-10-19 and recorded in the
-  ADR's amendment of that date). Every
-  thread, from chat or MCP, is saved after each turn under `~/.wisp/threads/<id>/` with its start settings, and a
-  face that names one it does not hold resumes it, under a new audit session linked to the old ones. One process
-  holds a thread at a time; an MCP caller resumes only its own client's threads (handing one to another client is phase 3);
-  `close_thread` deletes; a thread unused for 30 days is swept. Chat's `/save` and `--resume` are names in the
-  same store, `/threads` lists every thread, and an agent's thread opens in chat with its settings. The plan, with every decision and its phases:
-  [proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md). Phase 3 (`wisp threads`,
-  the picker) is later.
 
 ## 0.28.0
 
@@ -61,13 +46,19 @@ Waiting on data:
   process speaking JSON Lines; and classifiers for other tasks: personal data for `redact`, log-line
   categories.
 
+Waiting on a choice of release:
+
+- the thread store's phase 3: `wisp threads` to list, hand to another client, and delete threads, the store in
+  `wisp doctor`'s report, and a thread picker in `wisp-tui`
+  ([proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md)).
+
 Waiting on a measurement run:
 
 - the rest of what [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must
   measure", beyond the `Qwen3-1.7B-4bit` comparison 0.20.0 ran: prefix reuse, the cache's real cost per token,
   the windows sized for common models, the pull against the real Hub, and Core AI past its bundle's window;
-- llama.cpp and LM Studio against a real `llama-server` and LM Studio, neither installed here
-  ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
+- LM Studio against a real LM Studio server ([ADR 0058](decisions/0058-a-shared-http-executor.md)); llama.cpp's
+  executor was measured against a real `llama-server` on 2026-10-17 ([measurements.md](measurements.md)).
 - the verification pass's model step (`verification.mode: model`), built and off by default: it is turned on only
   when, on the default model, it flags no honest reply and a verdict takes under 3 s; on the on-device model on
   2026-10-12 it flagged 6 of 14 honest replies (p50 1.9 s). It waits on a more capable model, or a narrower prompt
