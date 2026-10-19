@@ -2,8 +2,8 @@ import Foundation
 
 /// The per-user wisp directory: `$WISP_HOME`, or `~/.wisp` by default.
 ///
-/// Holds `config.json`, `logs/`, and `transcripts/`. Nothing is created until
-/// `ensure()` is called, so read-only commands never touch the file system.
+/// Holds `config.json`, `logs/`, and `threads/`, among others. Nothing is created until `ensure()` is called, so
+/// read-only commands never touch the file system.
 public struct Home: Sendable, Equatable {
     /// Environment variable that overrides the default location.
     public static let environmentKey = "WISP_HOME"
@@ -41,7 +41,8 @@ public struct Home: Sendable, Equatable {
     /// Model assets kept under the home, one subdirectory per backend.
     public var models: URL { root.appending(path: "models", directoryHint: .isDirectory) }
 
-    /// Where saved conversation transcripts go.
+    /// Where chats were saved before 0.27.0: read by `wisp chat --resume` and listed by `/threads`, never written
+    /// (ADR 0066).
     public var transcripts: URL { root.appending(path: "transcripts", directoryHint: .isDirectory) }
     /// Where the exact context a model saw is saved: by `/inspect context`, and before and after each condensation.
     public var contexts: URL { root.appending(path: "context", directoryHint: .isDirectory) }
@@ -55,7 +56,7 @@ public struct Home: Sendable, Equatable {
     ///
     /// - Throws: File-system errors from `FileManager`.
     public func ensure() throws {
-        for directory in [root, logs, transcripts] {
+        for directory in [root, logs] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
     }

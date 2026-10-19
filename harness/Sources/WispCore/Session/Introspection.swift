@@ -36,7 +36,7 @@ public struct Introspection: Sendable {
                 "configFile": .string(home.configFile.path),
                 "configFileExists": .bool(FileManager.default.fileExists(atPath: home.configFile.path)),
                 "auditFile": .string(home.auditFile.path), "approvalsFile": .string(home.approvalsFile.path),
-                "transcripts": .string(home.transcripts.path),
+                "threads": .string(home.threads.path),
             ]),
             "model": .string(config.model.description),
             "models": .object(["disabled": .array(config.disabledModels.map { .string($0.description) })]),

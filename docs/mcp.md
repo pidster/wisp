@@ -352,7 +352,7 @@ git4 was saved with model ollama:granite4.1:8b, tools run_command; these setting
 | --- | --- |
 | `thread git4 is open in another wisp (pid 4242, claude-code)` | Another process holds the thread: a thread is held by one process at a time, by an `flock` on `threads/<id>/lock`, released when it is closed, evicted, or saved at its client's end, and by the kernel when the process ends. The person opening it in chat holds it too, named `chat`, until they leave it (`/new`, `/quit`). |
 | `thread git4 belongs to codex, and this client is claude-code; only codex can resume it, so choose another thread_id` | The thread was opened by another client: its owner is the client's `clientInfo.name`, which the client reports itself, so this keeps agents from colliding over a name like `git`, not from each other. Another client's threads are not listed, read, or closed. |
-| `thread git4 cannot be resumed: …; close_thread git4 deletes it` | Its files cannot be read, or are of a format this wisp does not read (then resume it with the wisp that saved it). |
+| `thread git4 cannot be resumed: …; close_thread git4 deletes it, or delete threads/git4/ in wisp's home (~/.wisp by default)` | Its files cannot be read, or are of a format this wisp does not read (then resume it with the wisp that saved it). |
 
 The person may open any thread in chat (`wisp chat --resume git4`, [wisp.md](wisp.md), "Saved threads") to read or
 continue it. Chat runs it with its saved settings and keeps its owner, so its agent resumes it afterwards with the

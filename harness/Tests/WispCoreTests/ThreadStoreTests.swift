@@ -90,7 +90,7 @@ import WispTestSupport
             try store.load("bare")
         } throws: { error in
             (error as? ThreadStore.Failure)?.description
-                == "thread bare cannot be resumed: its record, record.json, is missing; close_thread bare deletes it"
+                == "thread bare cannot be resumed: its record, record.json, is missing; close_thread bare deletes it, or delete threads/bare/ in wisp's home (~/.wisp by default)"
         }
     }
 

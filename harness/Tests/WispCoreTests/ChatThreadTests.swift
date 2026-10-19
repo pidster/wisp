@@ -212,6 +212,8 @@ import WispTestSupport
     @Test func anOlderTranscriptIsResumedAndSavedIntoTheStoreUnderItsName() async throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        // An older wisp made the directory; this one only reads it.
+        try FileManager.default.createDirectory(at: fixture.home.transcripts, withIntermediateDirectories: true)
         try fixture.transcripts.save(try await record("the old way"), as: "notes")
         let long = String(repeating: "n", count: 60)
         try fixture.transcripts.save(try await record("too long a name"), as: long)

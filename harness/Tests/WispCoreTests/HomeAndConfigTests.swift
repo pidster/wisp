@@ -24,11 +24,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let home = Home(root: root)
         try home.ensure()
-        for directory in [home.root, home.logs, home.transcripts] {
+        for directory in [home.root, home.logs] {
             var isDirectory: ObjCBool = false
             #expect(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
             #expect(isDirectory.boolValue)
         }
+        // The legacy transcripts directory is read, never written, so it is not created (ADR 0066).
+        #expect(!FileManager.default.fileExists(atPath: home.transcripts.path))
     }
 }
 

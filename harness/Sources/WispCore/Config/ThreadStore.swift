@@ -2,8 +2,8 @@ import Foundation
 import FoundationModels
 
 /// Every thread saved as it goes, one directory per thread under wisp's home, `threads/<id>/`
-/// ([ADR 0066](../../../../docs/decisions/0066-one-thread-store.md)): its start settings in `thread.json`, beside the
-/// record chat's `/save` writes (`record.json` and `record.store`, `TranscriptStore`'s format unchanged), and the
+/// ([ADR 0066](../../../../docs/decisions/0066-one-thread-store.md)): its start settings in `thread.json`, beside its
+/// record (`record.json` and `record.store`, in the format `TranscriptStore` wrote for chat's `/save` before 0.27.0), and the
 /// lock that keeps it to one process (`ThreadLock`).
 ///
 /// The directory is user-only, and so is every file: a record holds tool output, which may hold secrets, as the
@@ -166,13 +166,12 @@ public struct ThreadStore: Sendable {
             case .invalidID(let id):
                 "thread id '\(id)' cannot be saved: use 1-48 of [A-Za-z0-9._-], not starting with '.'"
             case .unreadable(let id, let reason):
-                "thread \(id) cannot be resumed: its thread.json cannot be read (\(reason)); close_thread \(id) "
-                    + "deletes it"
+                "thread \(id) cannot be resumed: its thread.json cannot be read (\(reason)); \(ThreadStore.deleting(id))"
             case .version(let id, let version):
                 "thread \(id) cannot be resumed: its thread.json is format \(version), and this wisp reads format "
                     + "\(Settings.currentVersion); resume it with the wisp that saved it"
             case .record(let id, let reason):
-                "thread \(id) cannot be resumed: \(reason); close_thread \(id) deletes it"
+                "thread \(id) cannot be resumed: \(reason); \(ThreadStore.deleting(id))"
             case .owned(let id, let owner, let client):
                 "thread \(id) belongs to \(owner), and this client is \(client); only \(owner) can resume it, so "
                     + "choose another thread_id"
@@ -182,6 +181,15 @@ public struct ThreadStore: Sendable {
             case .unlockable(let id, let reason): "thread \(id) cannot be locked: \(reason)"
             }
         }
+    }
+
+    /// How to delete a thread that cannot be resumed, from either face: `close_thread` for an MCP caller, or the
+    /// directory for the person.
+    ///
+    /// - Parameter id: The thread.
+    /// - Returns: The advice.
+    static func deleting(_ id: String) -> String {
+        "close_thread \(id) deletes it, or delete threads/\(id)/ in wisp's home (~/.wisp by default)"
     }
 
     /// The longest id the store takes: an audit session is `<id>-<8 characters>`, and must itself be a `SafeName`.
