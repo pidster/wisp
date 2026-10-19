@@ -370,8 +370,7 @@ private struct VerifyingBackend: ModelBackend {
         actions.now = { day }
         let context = ChatLoop.Context(directory: "/r", approval: "--yes", models: actions)
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: home.root.appending(path: "saved")), saveName: nil,
-            context: context, io: io)
+            agent: agent, context: context, io: io)
         try await loop.run()
         return capture
     }

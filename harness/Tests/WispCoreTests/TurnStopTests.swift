@@ -75,7 +75,7 @@ import WispTestSupport
         let interrupt = ChatInterrupt()
         context.interrupt = interrupt
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         let presser = Task { () -> (pid: pid_t?, press: ChatInterrupt.Press?) in
             guard let pid = await pid(in: file) else { return (nil, nil) }
@@ -136,7 +136,7 @@ import WispTestSupport
         let interrupt = ChatInterrupt()
         context.interrupt = interrupt
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         let presser = Task { () -> ChatInterrupt.Press? in
             // Pressed once the request is under way.
             for _ in 0..<1000 where model.script.requests.withLock({ $0.isEmpty }) {
@@ -175,7 +175,7 @@ import WispTestSupport
         context.activity = activity
         context.interrupt = interrupt
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+            agent: agent, context: context, io: io)
         let sender = Task {
             for _ in 0..<1000 where model.script.requests.withLock({ $0.isEmpty }) {
                 try? await Task.sleep(for: .milliseconds(10))

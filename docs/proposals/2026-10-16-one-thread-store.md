@@ -2,7 +2,8 @@
 
 Date: 2026-10-16. Status: accepted 2026-10-16, every recommendation taken; phase 0 built for 0.26.3; phase 1 built
 2026-10-18 for 0.27.0, recorded in [ADR 0066](../decisions/0066-one-thread-store.md), with the retention sweep
-(`threads.keepDays`, `thread.swept`) in it; phases 2 (chat) and 3 not yet built.
+(`threads.keepDays`, `thread.swept`) in it; phase 2 (chat) built 2026-10-19 for 0.27.0, recorded in the ADR's
+amendment of that date; phase 3 not yet built.
 
 ## The problem
 

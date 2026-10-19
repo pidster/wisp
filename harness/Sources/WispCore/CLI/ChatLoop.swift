@@ -237,10 +237,9 @@ public struct ChatLoop {
 
     /// The conversation; replaced by `/model`, which resumes the transcript on another model.
     public private(set) var agent: Agent
-    /// Where `/save` and the exit save go.
-    public let store: TranscriptStore
-    /// The name the transcript saves under on exit and for a bare `/save`; nil saves nothing on exit.
-    public private(set) var saveName: String?
+    /// The conversation's thread in the thread store, saved after every turn and held while the chat runs (ADR 0066,
+    /// D11); nil keeps nothing, as in tests that do not look at it.
+    public let thread: ChatThread?
     /// The tap the conversation was opened with; its events are rendered as they arrive.
     public let tap: ChatEvents.Tap
     /// The styling in force.
@@ -264,19 +263,17 @@ public struct ChatLoop {
     ///
     /// - Parameters:
     ///   - agent: The conversation, already resumed if it should be, opened with `tap` observing.
-    ///   - store: Where transcripts are saved.
-    ///   - saveName: The default name for `/save` and the save on exit; nil for none.
+    ///   - thread: Its thread in the thread store, opened and locked; nil saves nothing.
     ///   - tap: The sink the conversation's events reach; the loop sets its handler.
     ///   - context: Directory, approval mode, version control reader, inspect views, banner.
     ///   - style: Styling; `.plain` when piped.
     ///   - io: Input and output.
     public init(
-        agent: Agent, store: TranscriptStore, saveName: String?, tap: ChatEvents.Tap = ChatEvents.Tap(),
-        context: Context, style: Style = .plain, io: IO
+        agent: Agent, thread: ChatThread? = nil, tap: ChatEvents.Tap = ChatEvents.Tap(), context: Context,
+        style: Style = .plain, io: IO
     ) {
         self.agent = agent
-        self.store = store
-        self.saveName = saveName
+        self.thread = thread
         self.tap = tap
         self.context = context
         vcsWatch = VersionControlWatch(directory: context.directory, read: context.vcs, changed: context.vcsChanged)
@@ -323,7 +320,8 @@ public struct ChatLoop {
         if history.count > Self.historyLimit { history.removeFirst(history.count - Self.historyLimit) }
     }
 
-    /// Runs until `/quit` or end of input, then saves the transcript under `saveName` if there is one.
+    /// Runs until `/quit` or end of input, saving the thread after every turn and command the person runs, then saves
+    /// it as `saved` and lets it go (ADR 0066, D11).
     ///
     /// - Throws: Only the exit save can throw; everything inside the loop is reported as a note.
     public mutating func run() async throws {
@@ -451,27 +449,21 @@ public struct ChatLoop {
                     io.note("error: \(error)")
                 }
             case .save(let name):
-                guard let name = name ?? saveName else {
-                    io.note("usage: /save <name>")
-                    continue
-                }
-                do {
-                    try store.save(agent.store, as: name)
-                    saveName = name
-                    io.note("saved '\(name)'")
-                } catch {
-                    io.note("error: \(error)")
-                }
+                save(as: name)
+            case .threads:
+                for line in threadListing() { io.print(line) }
             case .new:
+                let record = agent.store
                 agent.reset()
                 await observeWorkplace()
-                io.note("new conversation")
+                io.note(renewThread(after: record).map { "new conversation, thread \($0)" } ?? "new conversation")
             case .config(let request):
                 await config(request)
             case .unknown(let command):
                 io.note("unknown command /\(command); /help lists commands")
             case .command(let command, let outsideSandbox):
                 await run(typed: command, outsideSandbox: outsideSandbox, as: line)
+                saveThread()
             case .message(let text):
                 guard !text.isEmpty else { continue }
                 // The agent advances the clock as the prompt arrives, so this is the number the turn's
@@ -512,12 +504,10 @@ public struct ChatLoop {
                         tokens: .between(before, agent.tokensUsed), facts: reply?.facts ?? [], ran: reply?.ran,
                         cited: reply?.cited, verified: reply?.verified))
                 if let note = FactReport.newFacts(reply?.facts ?? []) { io.note(style.muted(note)) }
+                saveThread(turn: true)
             }
         }
-        if let saveName {
-            try store.save(agent.store, as: saveName)
-            io.note("saved '\(saveName)'")
-        }
+        try thread?.finish(record: agent.store, model: agent.model.selection.description, think: agent.thinking?.text)
     }
 
     /// The output `/show <argument>` asks for (`ChatEvents.outputEntry`), or with no argument the last tool result,
@@ -603,6 +593,10 @@ public struct ChatLoop {
     ///
     /// - Parameter name: The model, as `--model` spells it.
     mutating func switchModel(to name: String) {
+        if let refusal = agentsThreadRefusal("model") {
+            io.note(refusal)
+            return
+        }
         guard let openModel = context.openModel else {
             io.note("the model cannot be switched here")
             return

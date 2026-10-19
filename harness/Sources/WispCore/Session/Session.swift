@@ -453,15 +453,20 @@ public struct Session: Sendable {
     ///   - observer: A sink that also sees every event of this conversation as it is recorded; chat
     ///     shows tool activity through it.
     ///   - model: A model other than the configured one; chat's `/model` switches this way.
+    ///   - think: The thinking its turns ask of the model; nil leaves the model's default. Chat passes an agent's
+    ///     thread's (ADR 0066, D11).
+    ///   - commandTimeout: Its own limit for `run_command`, in seconds (ADR 0063); nil takes the operator's default.
     /// - Returns: The agent over the session's tools, recording to the session's audit log.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
     public func openAgent(
         host: SessionHost, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
-        store: ThreadRecord? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil
+        store: ThreadRecord? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil,
+        think: OllamaThink? = nil, commandTimeout: Int? = nil
     ) throws -> Agent {
-        let thread = try WispThread.setUp(
+        var thread = try WispThread.setUp(
             session: self, audit: audit, host: host, prompting: prompting, toolNames: toolNames,
-            model: model ?? config.model, observer: observer)
+            model: model ?? config.model, observer: observer, commandTimeout: commandTimeout)
+        thread.thinking = think
         return try thread.openAgent(transcript: transcript, links: links, store: store)
     }
 

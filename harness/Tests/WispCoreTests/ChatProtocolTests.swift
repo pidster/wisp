@@ -131,7 +131,7 @@ import WispTestSupport
             instructions: "x", tools: [AuditedTool(CurrentDateTool(), audit: audit)],
             model: ResolvedModel(selection: .system, custom: ScriptedModel()), audit: audit)
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap,
+            agent: agent, tap: tap,
             context: .init(directory: "/r", approval: "--yes", banner: "wisp test"),
             io: .init(
                 readLine: { router.nextMessage() },

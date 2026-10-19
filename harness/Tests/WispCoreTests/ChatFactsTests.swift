@@ -59,7 +59,7 @@ import WispTestSupport
             "/fact s1 permanent", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: capture.io)
         try await loop.run()
         // Chat's start recorded where it works: the directory and the branch, as the chat's own observation.
@@ -86,7 +86,7 @@ import WispTestSupport
         var io = ChatLoopTests.Capture(lines: ["/inspect facts", "quit"]).io
         io.view = { view in shown.withLock { $0.append(view) } }
         var front = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context, io: io)
+            agent: agent, context: ChatLoopTests.context, io: io)
         try await front.run()
         #expect(shown.withLock { $0.first?.kind } == .facts)
     }

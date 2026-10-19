@@ -158,6 +158,9 @@ extension Session {
     ///   - transcript: A saved conversation to resume, or nil to start fresh.
     ///   - links: The store links saved with `transcript`, if any.
     ///   - observer: A sink that also sees every event of the conversation.
+    ///   - think: The thinking its turns ask of the model; nil leaves the model's default (an agent's thread's, ADR
+    ///     0066, D11).
+    ///   - commandTimeout: Its own limit for `run_command`, in seconds; nil takes the operator's default.
     ///   - resolveFallback: Resolves the fallback model; nil resolves it as the session would. Tests pass a scripted
     ///     one.
     /// - Returns: The agent, and the fallback when there was one.
@@ -165,12 +168,16 @@ extension Session {
     ///   unavailable or disabled too.
     public func openChatAgent(
         host: SessionHost, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
-        observer: (any AuditSink)? = nil,
+        observer: (any AuditSink)? = nil, think: OllamaThink? = nil, commandTimeout: Int? = nil,
         resolveFallback: ((ModelSelection) throws -> ResolvedModel)? = nil
     ) throws -> (agent: Agent, fallback: ModelFallback?) {
         let resolve = resolveFallback ?? { [config, home] in try $0.resolve(config: config, home: home) }
         do {
-            return (try openAgent(host: host, transcript: transcript, links: links, observer: observer), nil)
+            return (
+                try openAgent(
+                    host: host, transcript: transcript, links: links, observer: observer, think: think,
+                    commandTimeout: commandTimeout), nil
+            )
         } catch let failure as ModelSelection.Failure {
             guard let fallback = ModelFallback.after(failure, configured: config.model, named: request.model != nil),
                 !disabledModels.contains(fallback.fallback),
@@ -178,7 +185,7 @@ extension Session {
             else { throw failure }
             let thread = try WispThread.setUp(
                 session: self, audit: audit, host: host, prompting: prompting, toolNames: toolNames,
-                model: fallback.fallback, observer: observer)
+                model: fallback.fallback, observer: observer, commandTimeout: commandTimeout)
             thread.audit.record(.modelFallback, details: AuditEvent.Details.modelFallback(fallback))
             return (try thread.openAgent(on: resolved, transcript: transcript, links: links), fallback)
         }

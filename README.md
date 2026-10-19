@@ -243,7 +243,7 @@ Homebrew also installs shell completions for zsh, bash, and fish; with any other
 writes them for your shell ([wisp.md](docs/wisp.md), "`wisp completions`").
 
 State lives in `~/.wisp`: an optional `config.json` (change it with `wisp config set` or `/config set`
-in chat), saved transcripts, remembered approvals, the facts you keep (`facts.json`), the audit log, and
+in chat), every chat and MCP thread saved as it goes (`threads/`), remembered approvals, the facts you keep (`facts.json`), the audit log, and
 the classifier versions. Upgrade
 with `brew upgrade pidster/tap/wisp`; remove with `brew uninstall wisp` and `rm -rf ~/.wisp`.
 

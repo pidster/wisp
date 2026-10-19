@@ -50,7 +50,7 @@ availability, composes the transcript each request carries, and shapes the API. 
 
 | Target | Kind | Responsibility |
 | --- | --- | --- |
-| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session and session host, thread, agent and its condensing, assessment, and the commands the person types in chat, thread record, context composer, target condensing, output references, context view and archive, the presentational-text finder, memory and recall, model selection, listing, routing, and context sizing, the model service fault (`ModelServiceFault`, Apple's `modelmanagerd` refusing requests, recognised for `wisp doctor` and the evals), context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold, the out-of-band approver and the pending channel), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, the agent's fact and summary operations, and `FactKeeper`, which applies the person's answer to a caller's request to keep a fact), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts), `CLI/` (the chat loop, its input, completion, events, status, and JSON Lines protocol, the pending relay, doctor, and the table layouts, here so they are testable), `Support/` (timeout, ids, names, paging, the notifier and its routes, the file watcher, process and memory state). |
+| `WispCore` | library | All model-facing logic, grouped by folder: `Session/` (session and session host, thread, agent and its condensing, assessment, and the commands the person types in chat, thread record, context composer, target condensing, output references, context view and archive, the presentational-text finder, memory and recall, model selection, listing, routing, and context sizing, the model service fault (`ModelServiceFault`, Apple's `modelmanagerd` refusing requests, recognised for `wisp doctor` and the evals), context policy, tool registry and catalogue), `Exec/` (command runner, policy, splitter, regex cache), `Approval/` (gate, classifiers, store, threshold, the out-of-band approver and the pending channel), `Audit/` (events, details, log, turn clock, diagnostics, receipts and turn calls, call statistics, the event relay, the tool event trail, the log tail), `Condense/` (the condensers, the secret rules, redaction and the model sweep, the personal-data classifier and its training), `Facts/` (facts: the model, the book, subject kinds and normalisers, extraction, distillation, composition, the shared stores, the report, the running summary and its writer, the agent's fact and summary operations, and `FactKeeper`, which applies the person's answer to a caller's request to keep a fact), `Tools/` (the tools, the file reader, and the audit wrapper), `Config/` (config, home, transcripts, the thread store and its lock, sweep, and chat's thread), `CLI/` (the chat loop, its input, completion, events, status, and JSON Lines protocol, the pending relay, doctor, and the table layouts, here so they are testable), `Support/` (timeout, ids, names, paging, the notifier and its routes, the file watcher, process and memory state). |
 | `WispCoreAI` | library | `CoreAIBackend`: models exported to Apple's Core AI format, through the bridge in `apple/coreai-models`. Registered by the executable at launch so `WispCore` never links it. |
 | `WispMLX` | library | `MLXBackend`: models in MLX or Hugging Face layout, compiled in only under the `MLX` package trait (Metal toolchain), which the release is built with; otherwise registered but refusing with the reason. It sizes each model's window from `config.json` (ADR 0043's rule) and runs it through `MLXModel`, wisp's own executor, or, with `mlx.executor: "bridge"`, through `mlx-swift-lm`'s bridge. `MLXModel` hands each request to the model directory's `PrefixEngine`, an actor that owns the tokenizer, the weights, and a `PromptCachePool` of one processed prompt per thread, reusing the longest common prefix (`PrefixPlan`); the engine is generic over `PromptRuntime`, so everything but `MLXPromptRuntime` and `MLXPromptTokenizer` (the one file under `#if MLX`) is tested over a fake runtime. The engine splits a reply's text into thinking and reply by the chat template's tags (`ThinkingFormat`, `ThinkingSplitter`), and `MLXModel` sends the thinking through a `ThinkingStretch` as Ollama's executor does (ADR 0053). `ModelPull` fetches MLX models for `wisp models pull` into the Hugging Face cache (`HubCache`, `huggingface_hub`'s layout, reusing what is there) and links the models directory to the snapshot (ADR 0052); `PublisherCheck` decides whether the repository's publisher may be pulled: one in `mlx.trustedPublishers` (`TrustedPublishers` in `WispCore`; `mlx-community` always) at once, any other only after the person answers once or trust, or with `--trust-publisher` (ADR 0052, amended 2026-10-09). `MetalLibrary` repeats MLX's search for its Metal library for `wisp doctor`'s `MLX` finding (ADR 0047). |
 | `WispMCP` | library | `WispServer` and `ToolCatalog`: exposes wisp over MCP. Depends on `WispCore` and the official MCP Swift SDK. |
@@ -226,7 +226,7 @@ composing never reads the audit files, and the audit log remains the only verbat
 presentational text (`cutsPresentation`) and sends outputs as references (`referencesOutput`), both on by
 default; `ContextEquivalenceTests` runs with both off to prove phase 2's structure unchanged. Cuts,
 times, and the turns entries were dropped or referenced from are saved with the store's links
-(`transcripts/<name>.store`), so a resumed conversation composes them again; the saved transcript holds
+(`threads/<id>/record.store`), so a resumed conversation composes them again; the saved transcript holds
 the replies and outputs whole. Because the store knows the turn of each change,
 `ContextComposer.composition(_:atTurn:)` rebuilds the context of any earlier turn; `ContextView` renders
 a composition, or the list of turns, as Markdown for chat's `/inspect context next|N|turns`, `wisp-tui`, and the MCP context
@@ -506,14 +506,15 @@ supplies (session id, turn, tools, model, session approvals); the MCP server add
 `wisp://threads`, and the standing-approval count to the status resource. Audit reads go through the same file walk `logs`
 uses. See [ADR 0018](decisions/0018-introspection.md).
 
-### Home, config, transcripts
+### Home, config, threads
 
 `Home` resolves `$WISP_HOME` or `~/.wisp` and lays out `config.json`, `approvals.json`, `facts.json`, `logs/`,
-`transcripts/`, `context/`, `pending/`, `models/`, `output/` (the output store, ADR 0050), and `classifiers/`.
+`threads/` (the thread store, ADR 0066), `transcripts/` (chat's saves before 0.27.0, read only), `context/`,
+`pending/`, `models/`, `output/` (the output store, ADR 0050), and `classifiers/`.
 `Config` is optional JSON (system prompt extension, model, `run_command` limits, MCP thread capacity) with defaults applied by
 `resolved`. `TranscriptStore` saves and loads transcripts as `<name>.json`, with the store's links to the audit log in
-`<name>.store`, which resuming requires. Commands that write (audit log,
-transcripts, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` never create the directory.
+`<name>.store`, which resuming requires; the thread store writes each thread's record through it as `record`.
+Commands that write (audit log, threads, the doctor's write probe) call `Home.ensure()`; `tools` and `logs` never create the directory.
 
 ### `ToolRegistry`
 
@@ -649,7 +650,19 @@ returns carries a `KeptThread`, which saves through `RespondingThread.record` af
 thread's resources are read from its files by `SavedThread`, a `RespondingThread` over the restored record that
 answers no prompt, and its audit, output, and reasoning across every session `thread.json` lists
 (`AuditQuery.sessions`). At `Session.begin`, `ThreadSweep` deletes threads unused for `threads.keepDays` with their
-outputs, bounded as `OutputSweep` is, and hands `OutputSweep` the sessions of the threads it keeps. A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
+outputs, bounded as `OutputSweep` is, and hands `OutputSweep` the sessions of the threads it keeps.
+
+Chat uses the same store through `ChatThread` (in `WispCore/Config`, ADR 0066, D11). The CLI takes a
+`ChatThread.Opening` before `Session.begin`, so the lock is held before the start-up sweep runs and `session.start` can
+carry `resume` and `carriedFrom`: `reserve` for a new thread (`chat-` and a `ShortID`, or `--save`'s name), `find` for
+`--resume`, which looks in the store, any owner's thread, then in `~/.wisp/transcripts` through `TranscriptStore`.
+`Opening.applied(to:)` makes an agent's thread's model, tools, and instructions the session request's and refuses
+flags that differ; its thinking and command limit go to `openChatAgent`. `ChatLoop` holds the `ChatThread` and saves
+through it after every turn and typed command (`ChatLoop+Threads.swift`); `/save NAME` is `rename` (a new directory
+saved and locked, the old one deleted), `/new` is `renew`, and the loop's end is `finish`, which deletes a thread that
+never had anything to save. A chat's own thread takes the model and thinking it runs with at each save; an agent's
+keeps its settings and owner, and `/model`, `/think`, and `/save NAME` refuse to change them. `ChatThread.listing` is
+`/threads` and `wisp chat --list`, its state from the lock (`ThreadStore.holder`). A call may give a JSON Schema; `OutputSchema` converts the accepted subset to a
 `DynamicGenerationSchema`, `Agent.respond(to:schema:)` runs guided generation after checking the model
 declares it, and the reply's JSON is parsed into `structuredContent.output`
 ([ADR 0022](decisions/0022-structured-output.md)). `scan_secrets` and `redact` share `SecretScanner` (the rules), `Redactor` (numbered markers), and
@@ -717,8 +730,9 @@ and `close_thread` removes it from the registry and the thread store. The overvi
 `wisp` mirrors `fm respond` where semantics match: positional prompt or stdin, `--instructions`,
 `--[no-]stream`, repeatable `--tool`. `wisp chat` is a line-oriented REPL with slash commands parsed by
 `ChatInput` (`/help`, `/tools`, `/tokens`, `/inspect`, `/status`, `/approvals`, `/audit`, `/fact`, `/task`, `/last`,
-`/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/new`, `/quit`; `ChatInput.helpEntries` is the
-list `/help` prints and the table the parser looks each command word up in), `--resume <name>`, and `--save <name>`.
+`/show`, `/models`, `/model`, `/stats`, `/history`, `/config`, `/save`, `/threads`, `/new`, `/quit`;
+`ChatInput.helpEntries` is the list `/help` prints and the table the parser looks each command word up in),
+`--resume <id>`, `--save <name>`, and `--list`, over the thread store (`ChatThread`, above).
 `wisp tools` lists the registry. `wisp mcp` serves MCP on stdio. Instructions default to `config.json`. A line starting with `!` parses as
 `ChatInput.command`, a command the person runs (with `!!`, outside the sandbox: "A run outside the sandbox", above) ([ADR 0049](decisions/0049-commands-typed-in-chat.md)): the loop
 calls `Agent.runTyped` in the conversation's directory with no turn, its audit events show the output through the
@@ -804,7 +818,7 @@ and must not interleave with another caller's, as a thread's turn does, hold an 
 holding a `Mutex` when every operation is a short
 synchronous critical section that callers must not have to `await`: `SessionApprovals`, `TurnClock`,
 `AuditLog`, the sinks, `OutputBuffer`, `ClientCapabilityFlags`, `ToolBudget`, `OutputStore.Writer`,
-`CallLedger`, `OutputCondenser`, `ThreadDirectory`, `KeptThread`, `ThreadLock`.
+`CallLedger`, `OutputCondenser`, `ThreadDirectory`, `KeptThread`, `ThreadLock`, `ChatThread`.
 
 Swift's cooperative pool, where every task runs, has one thread per core and does not add one when a thread
 blocks. Two rules follow, both from a measurement. On 2026-10-10 a `sample` of the gate's parallel test run, taken

@@ -1,7 +1,8 @@
 # ADR 0066: One thread store: every MCP thread saved, and resumed by a later server
 
 Date: 2026-10-18. Status: accepted 2026-10-16 (the [one-thread-store proposal](../proposals/2026-10-16-one-thread-store.md),
-every recommendation taken); phase 1 built 2026-10-18 for 0.27.0. Chat on the store (D11) is phase 2 and is not built.
+every recommendation taken); phase 1 built 2026-10-18 for 0.27.0; phase 2, chat on the store (D2, D11), built 2026-10-19
+for 0.27.0 (the amendment below).
 
 ## Context
 
@@ -91,3 +92,56 @@ Phase 1 of the proposal, for MCP threads:
   `session.start`, `disconnected` at the client's end, the resources spanning both sessions, and the sweep.
 - Not built here: chat on the store (D11, phase 2: chat's `/save` and `--resume` still use `~/.wisp/transcripts`), and
   `wisp threads` (list, show, delete, hand), the sweep in `wisp doctor`, and `wisp-tui`'s picker (phase 3).
+
+## Amendment, 2026-10-19: chat on the store (phase 2)
+
+Phase 2 of the proposal, D2 and D11, built for 0.27.0:
+
+1. **Every chat is a thread.** Plain chat and `wisp chat --json` (and so `wisp-tui`) open their conversation as a
+   thread in the store through `ChatThread`: a new one as `chat-<8 characters>`, owned by `chat`, its lock taken before
+   `Session.begin` so the start-up sweep cannot take it and no other wisp opens it. It is saved after every turn, a
+   failed one included, and after every command the person runs with `!`; at the end of the loop it is saved as
+   `saved` and its lock released. A chat that never had anything to save (a record of instructions alone) leaves no
+   directory behind. The chat's audit session is the session's own, so `thread.json` lists it as is, not as
+   `<id>-<suffix>`.
+2. **`/save NAME` renames** the thread: saved under the new id, locked there, deleted under the old. Refused for a name
+   another thread has (`a thread named 'git4' is already saved`), one the store cannot take, and an agent's thread,
+   whose agent names it by its id. A bare `/save` saves now. `--save NAME` names a new chat's thread, or renames a
+   resumed one of the person's own; nothing writes to `~/.wisp/transcripts` any more.
+3. **`--resume ID` opens any thread** from the store, an MCP agent's included (D3), then falls back to
+   `~/.wisp/transcripts/<ID>.json` and saves what it finds into the store under that name at once, leaving the
+   transcript in place. A transcript whose name the store cannot take (over 48 characters, or starting with a dot) is
+   saved under a generated `chat-` id; the proposal did not say.
+4. **An agent's thread keeps its settings in chat.** Its model, tools, and instructions become the session request's
+   (`ChatThread.Opening.applied`), so `session.start` records them, and its thinking and command limit go to the agent;
+   flags that differ are refused naming them, as D5 refuses an MCP caller. Chat shows them first:
+   `git4: ollama:granite4.1:8b, tools run_command, instructions set (an agent's thread: claude-code's, 12 turns); its
+   settings hold here, and /new starts a thread of your own`. Each save writes its record, turns, and last use under its
+   own settings and owner, so the agent resumes it afterwards with the person's turns in it and its own settings still
+   equal. Not in the proposal, and needed to keep that true: `/model`, `/think`, and `/save NAME` are refused on it.
+5. **`/new` starts the chat's own thread** with the same instructions, tools, and command limit, the existing meaning
+   of `/new`, which on an agent's thread is a thread of the person's own with that agent's tools. The proposal's "starts
+   a fresh thread instead" does not say with which settings; carrying the conversation's keeps `/model` correct after
+   it, since the session's tools are the ones it began with.
+6. **A chat's own thread resumes on the flags and configuration as given**, `--model` included, as chat resumed a
+   transcript before, and its saved model and thinking follow `/model` and `/think` at each save. The proposal's D5
+   (saved settings on resume) is for agents; the person's own thread is theirs to change. A fallback to `system`
+   (ADR 0056) applies to it as to any chat.
+7. **The lock between chat and agents** (D6): while chat holds a thread an agent naming it is refused with
+   `thread git4 is open in another wisp (pid 4242, chat)`, and chat refuses to open one another wisp holds the same way,
+   naming its holder. A resumed chat's `session.start` carries `resume` (the id as typed) and `carriedFrom` (the
+   thread's sessions from `thread.json`, or a transcript's store links' sessions) (D7).
+8. **`/threads`** and `wisp chat --list` list every thread in the store, any owner's, most recently used first: id,
+   owner, model, turns, last used, and state (`open` here, `open elsewhere` from the lock, `saved`), then the
+   transcripts in `~/.wisp/transcripts` not yet in the store. Chat's commands reach `wisp-tui` as message lines and
+   their answers as `output` and `note` lines, so neither `ChatProtocol` nor `wisp-tui` changed; the picker is phase 3.
+
+Tested without the model (`ChatThreadTests`, `ChatLoopTests`, and `ThreadResumeWireTests.chatAndAnAgentHoldAThreadInTurn`):
+every turn saved before the next prompt, `/save` renaming and its refusals, an agent's thread opened with its settings,
+refusing flags, `/model`, and `/save NAME`, and saved under its owner, `/new` on it, a transcript read and saved into
+the store, the generated id for a name the store cannot take, `/threads`' states, `session.start`'s `resume` and
+`carriedFrom`, and the lock refusing a server while chat holds a thread and chat while a server does, the server then
+resuming chat's turn. `ContextEquivalenceTests`' chat snapshot was recorded again: its requests, events, and saved
+contexts are unchanged but for the renumbering of ids, and only its `/save` and `/new` notes and the saved transcript
+differ, as the change intends. Checked live on 2026-10-19 on `system` in a scratch home: a turn saved as `chat-…`,
+`/save first` renaming, `--resume first`, `--list`, and a chat quit at once leaving nothing.

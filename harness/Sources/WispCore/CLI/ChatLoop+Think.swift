@@ -29,6 +29,10 @@ extension ChatLoop {
             await think(answer)
             return
         }
+        if let refusal = agentsThreadRefusal("thinking") {
+            io.note(refusal)
+            return
+        }
         guard let chosen = Self.thinkChoice(argument) else {
             io.note("usage: /think on|off|LEVEL (levels: \(model.thinkLevels.joined(separator: ", ")))")
             return

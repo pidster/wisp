@@ -28,6 +28,23 @@ the next server that is asked for it.
   and `carriedFrom`.
 - A `thread_id` starting with `.` is refused.
 
+Chat is on the same store: every chat is saved as it goes, and any thread, an agent's included, can be opened in
+chat.
+
+- Every chat is a thread, saved after each turn under `~/.wisp/threads/chat-<id>/`, so nothing is lost to a crash or a
+  forgotten `/save`. `/save NAME` renames it (refused for a name another thread has), and `/new` starts another,
+  leaving the last one saved. A chat quit before it had anything to save leaves nothing behind.
+- `/threads` (and `wisp chat --list`) lists every saved thread, yours and your agents': its owner, model, turns, when
+  it was last used, and whether it is open here, open in another wisp, or saved.
+- `wisp chat --resume ID` opens any of them. An agent's thread is shown with its settings first
+  (`git4: ollama:granite4.1:8b, tools run_command, instructions set (an agent's thread: claude-code's, 12 turns)`)
+  and runs with them: flags, `/model`, and `/think` that would change them are refused, so the agent resumes it as it
+  left it, with your turns in it.
+- A thread open in chat is held there: an agent naming it is told `thread git4 is open in another wisp (pid 4242,
+  chat)`, and chat refuses one another wisp holds the same way.
+- Chats saved with `/save` before this release, in `~/.wisp/transcripts`, still open with `--resume NAME`, which saves
+  them into the thread store; the old files are left for you to delete. `--save NAME` now names the chat's thread.
+
 ## 0.26.4
 
 llama.cpp models think as Ollama's do, with levels and budgets, and `wisp doctor` checks that the server keeps

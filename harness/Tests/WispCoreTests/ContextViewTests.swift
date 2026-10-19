@@ -35,7 +35,7 @@ import WispTestSupport
             "/quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: capture.io)
         try await loop.run()
         let noted = capture.noted
@@ -63,7 +63,7 @@ import WispTestSupport
         var io = capture.io
         io.view = { view in views.views.withLock { $0.append(view) } }
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context, io: io)
+            agent: agent, context: ChatLoopTests.context, io: io)
         try await loop.run()
         let seen = views.views.withLock { $0 }
         #expect(seen.map(\.kind) == [.context, .turns] && seen.first?.turn == 1 && seen.first?.turns == 1)

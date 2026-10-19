@@ -268,6 +268,10 @@ extension Wisp {
             throw ValidationError("\(failure)")
         } catch let failure as TranscriptStore.Failure {
             throw ValidationError("\(failure)")
+        } catch let failure as ThreadStore.Failure {
+            throw ValidationError("\(failure)")
+        } catch let failure as ChatThread.Failure {
+            throw ValidationError("\(failure)")
         }
     }
 }
@@ -302,20 +306,21 @@ struct Mcp: AsyncParsableCommand {
 struct Chat: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Start an interactive chat session.",
-        discussion: "Type /help for commands. Transcripts save to ~/.wisp/transcripts and resume with --resume.")
+        discussion: "Type /help for commands. Every chat is saved as a thread in ~/.wisp/threads after each turn; "
+            + "--resume opens one, an agent's too, or a transcript an earlier wisp saved in ~/.wisp/transcripts.")
 
     @OptionGroup var options: SessionOptions
 
     @Flag(name: [.short, .customLong("yes")], help: "Approve risky commands without asking.")
     var yes = false
 
-    @Option(name: [.short, .long], help: "Resume a saved transcript by name.")
+    @Option(name: [.short, .long], help: "Open a saved thread by id, an agent's too, or an older saved transcript.")
     var resume: String?
 
-    @Option(name: .long, help: "Save the transcript under this name on exit. Defaults to the resumed name.")
+    @Option(name: .long, help: "Name the chat's thread, as /save NAME does. A new one is named chat-XXXXXXXX.")
     var save: String?
 
-    @Flag(name: .long, help: "List saved transcripts (for --resume) and exit.")
+    @Flag(name: .long, help: "List the saved threads (for --resume) and exit.")
     var list = false
 
     @Flag(name: .long, help: "Headless: JSON Lines on stdin and stdout, for a front end such as wisp-tui.")
@@ -345,9 +350,10 @@ struct Chat: AsyncParsableCommand {
     }
 
     mutating func run() async throws {
-        let store = TranscriptStore(directory: Wisp.home.transcripts)
+        let transcripts = TranscriptStore(directory: Wisp.home.transcripts)
+        let threads = ThreadStore(home: Wisp.home)
         if list {
-            for name in try store.list() { print(name) }
+            for line in ChatThread.listing(store: threads, transcripts: transcripts, current: nil) { print(line) }
             return
         }
         let interactive =
@@ -359,15 +365,23 @@ struct Chat: AsyncParsableCommand {
             Self.handOff(to: frontEnd, executable: executable)
             Self.note("could not start \(frontEnd.path); continuing with the plain chat")
         }
-        // Read before the session starts, so `session.start` can name the sessions the transcript links to.
-        let saved = try resume.map { name in try Wisp.usage { try store.loadThread(name) } }
-        let session = try Wisp.begin(
-            try options.request(
-                entryPoint: .chat, autoApprove: yes, resume: resume, carriedFrom: saved?.links.sessions ?? []))
+        // Taken before the session starts, so no other wisp opens the thread meanwhile, and `session.start` can name
+        // what it resumes and the sessions it had (ADR 0066, D6, D7).
+        let opening = try Wisp.usage {
+            try resume.map { try ChatThread.find($0, store: threads, transcripts: transcripts) }
+                ?? ChatThread.reserve(save, store: threads)
+        }
+        let session: Session
+        do {
+            session = try Wisp.begin(try request(for: opening))
+        } catch {
+            opening.abandon(in: threads)
+            throw error
+        }
         defer { session.end() }
         try Wisp.home.ensure()
         if json {
-            try await runJSON(session: session, store: store, saved: saved)
+            try await runJSON(session: session, opening: opening, threads: threads, transcripts: transcripts)
             return
         }
         let style = Style.detect(isTerminal: isatty(FileHandle.standardOutput.fileDescriptor) != 0)
@@ -376,9 +390,8 @@ struct Chat: AsyncParsableCommand {
         let host = session.host(
             approver: TerminalApprover(style: style), face: .terminal, asker: TerminalAsker(style: style))
         // The configured model falls back to system when it is unavailable, so the person reaches /model (ADR 0056).
-        let (agent, fallback) = try session.openChatAgent(
-            host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
-        if let resume, saved != nil { Self.note("resumed '\(resume)' (\(agent.transcript.turnCount) turns)") }
+        let (agent, thread, notices) = try open(
+            opening, session: session, host: host, observer: tap, threads: threads, transcripts: transcripts)
         let directory = FileManager.default.currentDirectoryPath
         let views = session.introspection
         let activity = ChatActivity()
@@ -389,7 +402,7 @@ struct Chat: AsyncParsableCommand {
             "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools · "
             + "audit \(ChatStatus.abbreviated(Wisp.home.auditFile.path)) session \(session.audit.session)"
         var loop = ChatLoop(
-            agent: agent, store: store, saveName: save ?? resume, tap: tap,
+            agent: agent, thread: thread, tap: tap,
             context: .init(
                 directory: directory,
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
@@ -397,9 +410,11 @@ struct Chat: AsyncParsableCommand {
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: banner,
                 models: ModelActions(session: session, face: .chat),
-                width: { TerminalTable.detectWidth() }, notices: fallback.map { [$0.message] } ?? [],
+                width: { TerminalTable.detectWidth() }, notices: notices,
                 openModel: { selection, store in
-                    try session.openAgent(host: host, store: store, observer: tap, model: selection)
+                    try session.openAgent(
+                        host: host, store: store, observer: tap, model: selection,
+                        commandTimeout: opening.settings?.commandTimeoutSeconds)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
@@ -546,7 +561,9 @@ struct Chat: AsyncParsableCommand {
     }
 
     /// The headless face: JSON Lines in and out, for `wisp-tui` and other front ends (`docs/wisp.md`).
-    private func runJSON(session: Session, store: TranscriptStore, saved: TranscriptStore.Saved?) async throws {
+    private func runJSON(
+        session: Session, opening: ChatThread.Opening, threads: ThreadStore, transcripts: TranscriptStore
+    ) async throws {
         let router = LineRouter()
         let out = Mutex(FileHandle.standardOutput)
         let send: @Sendable (String) -> Void = { line in
@@ -614,13 +631,13 @@ struct Chat: AsyncParsableCommand {
                     declared: { router.declares("notify") },
                     send: { send(ChatProtocol.encode("notify", ChatProtocol.notify($0))) })),
             asker: JSONAsker(router: router, send: send))
-        let (agent, fallback) = try session.openChatAgent(
-            host: host, transcript: saved?.transcript, links: saved?.links, observer: tap)
+        let (agent, thread, notices) = try open(
+            opening, session: session, host: host, observer: tap, threads: threads, transcripts: transcripts)
         let views = session.introspection
         let activity = ChatActivity()
         activity.onChange { send(ChatProtocol.encode("activity", ChatProtocol.activity($0))) }
         var loop = ChatLoop(
-            agent: agent, store: store, saveName: save ?? resume, tap: tap,
+            agent: agent, thread: thread, tap: tap,
             context: .init(
                 directory: FileManager.default.currentDirectoryPath,
                 approval: ChatStatus.approvalMode(threshold: session.config.approvalThreshold, autoApprove: yes),
@@ -629,9 +646,11 @@ struct Chat: AsyncParsableCommand {
                 inspect: { what in await InspectTool(introspection: views).show(what) },
                 banner: "wisp \(WispVersion.display) · \(agent.model.selection) · \(agent.tools.count) tools",
                 models: ModelActions(session: session, face: .chat),
-                notices: fallback.map { [$0.message] } ?? [],
+                notices: notices,
                 openModel: { selection, store in
-                    try session.openAgent(host: host, store: store, observer: tap, model: selection)
+                    try session.openAgent(
+                        host: host, store: store, observer: tap, model: selection,
+                        commandTimeout: opening.settings?.commandTimeoutSeconds)
                 }, stats: session.stats, configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
@@ -677,6 +696,61 @@ struct Chat: AsyncParsableCommand {
         }
         try await loop.run()
         send(ChatProtocol.encode("exit"))
+    }
+
+    /// The session request for opening `opening`: the person's flags, with an agent's thread's own settings
+    /// (`ChatThread.Opening.applied`, ADR 0066, D11).
+    ///
+    /// - Parameter opening: The thread being opened.
+    /// - Returns: The request.
+    /// - Throws: A usage error for a model that does not parse or flags an agent's thread refuses.
+    func request(for opening: ChatThread.Opening) throws -> Session.Request {
+        let flags = try options.request(entryPoint: .chat, autoApprove: yes)
+        return try Wisp.usage { try opening.applied(to: flags, resume: resume, save: save) }
+    }
+
+    /// Opens the chat's agent on `opening` and its thread in the store: the saved record when it resumes one, an
+    /// agent's thread with its thinking and command limit, a resumed one saved at once (a transcript into the store
+    /// under its name), and renamed when `--save` names it otherwise.
+    ///
+    /// - Parameters:
+    ///   - opening: The thread, locked.
+    ///   - session: The session.
+    ///   - host: The face's effects.
+    ///   - observer: The tap.
+    ///   - threads: The store.
+    ///   - transcripts: The transcripts of earlier wisps.
+    /// - Returns: The agent, its thread, and the notes the chat shows first.
+    /// - Throws: As `openChatAgent`, and usage errors for a save or rename that fails.
+    private func open(
+        _ opening: ChatThread.Opening, session: Session, host: SessionHost, observer: ChatEvents.Tap,
+        threads: ThreadStore, transcripts: TranscriptStore
+    ) throws -> (Agent, ChatThread, [String]) {
+        let (agent, fallback): (Agent, ModelFallback?)
+        do {
+            (agent, fallback) = try session.openChatAgent(
+                host: host, transcript: opening.saved?.transcript, links: opening.saved?.links, observer: observer,
+                think: opening.isAgents ? opening.settings?.think.flatMap(OllamaThink.init) : nil,
+                commandTimeout: opening.settings?.commandTimeoutSeconds)
+        } catch {
+            opening.abandon(in: threads)
+            throw error
+        }
+        let thread = ChatThread(
+            opening, store: threads, transcripts: transcripts, session: session.audit.session,
+            model: agent.model.selection.description, tools: agent.tools.map(\.name),
+            instructions: session.request.instructions, think: agent.thinking?.text)
+        let model = agent.model.selection.description
+        try Wisp.usage {
+            if opening.saved != nil {
+                try thread.save(record: agent.store, model: model, think: agent.thinking?.text)
+            }
+            if let save, save != thread.id {
+                try thread.rename(to: save, record: agent.store, model: model, think: agent.thinking?.text)
+            }
+        }
+        let shown = opening.announcement(transcripts: ChatStatus.abbreviated(transcripts.directory.path))
+        return (agent, thread, (fallback.map { [$0.message] } ?? []) + (shown.map { [$0] } ?? []))
     }
 
     /// The answers `/config set` offers beyond a setting's own: the models this Mac can run, and the Core

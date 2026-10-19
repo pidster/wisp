@@ -389,22 +389,23 @@ import WispTestSupport
                 return switched
             })
         let long = " This sentence makes the prompt long enough to pass the budget."
-        try FileManager.default.createDirectory(
-            at: dir.appending(path: "transcripts"), withIntermediateDirectories: true)
+        // The chat's thread in a store under the scratch directory (ADR 0066, D11): `/save one` renames it, and `/new`
+        // saves it and starts another, whose generated id the fingerprint names `<new thread>`.
+        let thread = try ChatLoopTests.thread(dir, agent: agent)
+        canon.literals.append((thread.id, "<thread>"))
         let capture = ChatLoopTests.Capture(lines: [
             "remember BLUE HERON", "read \(a) with read_file" + long, "third" + long, "/tokens", "/model ollama:q",
             "fourth" + long, "fifth" + long, "sixth" + long, "/tokens", "/inspect context", "/save one", "/new",
             "after new", "/tokens",
             "/quit",
         ])
-        var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir.appending(path: "transcripts")), saveName: nil,
-            context: context, io: capture.io)
+        var loop = ChatLoop(agent: agent, thread: thread, context: context, io: capture.io)
         try await loop.run()
+        canon.literals.append((thread.id, "<new thread>"))
         var fingerprint = Fingerprint()
         fingerprint.output = [canon.text(capture.output)] + capture.noted.map { canon.text($0) }
         fingerprint.output.append(canon.json(loop.agent.transcript))
-        let saved = try TranscriptStore(directory: dir.appending(path: "transcripts")).load("one")
+        let saved = try #require(try thread.store.load("one")).transcript
         fingerprint.output.append(canon.json(saved))
         try finish(&fingerprint, &canon, models: [first, second], sink: sink, archive: dir.appending(path: "context"))
         try check(fingerprint, "chat-model-switch")

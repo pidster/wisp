@@ -187,7 +187,7 @@ import WispTestSupport
         var context = ChatLoopTests.context
         context.directory = dir.path
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         try await loop.run()
         let ends = capture.turns.withLock { $0 }.compactMap { mark -> String?? in
@@ -241,7 +241,7 @@ import WispTestSupport
             turn: { mark in if case .end = mark { shown.withLock { $0.append("footer") } } },
             separatesParts: true)
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap,
+            agent: agent, tap: tap,
             context: ChatLoopTests.context, io: io)
         try await loop.run()
         // The first part sits under the typed line; each later one, the reply, and the footer follow a blank line.

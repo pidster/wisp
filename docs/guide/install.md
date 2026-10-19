@@ -97,7 +97,9 @@ What to try first:
 | `/think on\|off` | For a model that can think, whether it does, from the next turn and as its saved default; the status line shows it after the model, `(off)` |
 | `/inspect context next` | What the model's next request carries, entry by entry, at no model cost |
 | Ctrl-C during a reply | Stops the turn and any command it started |
-| `/quit` | Leaves, saving the transcript when it has a name (`--save`, `--resume`) |
+| `/threads` | Every saved thread, yours and your agents'; `wisp chat --resume ID` opens one |
+| `/save NAME` | Renames this chat's thread, which is saved after every turn anyway, so `--resume NAME` opens it |
+| `/quit` | Leaves; the thread stays saved |
 
 When the model asks to run a risky command, chat shows the level, the command, the directory, and the reasons,
 and asks once: `[y]once [s]ession [p]roject 30d [a]lways 30d [n]o`. What each answer covers is in
@@ -106,7 +108,7 @@ and asks once: `[y]once [s]ession [p]roject 30d [a]lways 30d [n]o`. What each an
 ## Where wisp keeps things
 
 Everything wisp keeps is in `~/.wisp`, or in `$WISP_HOME` when it is set: an optional `config.json`, saved
-transcripts, remembered approvals, permanent facts, the audit log (`logs/audit.jsonl`), large tool outputs, and
+threads, remembered approvals, permanent facts, the audit log (`logs/audit.jsonl`), large tool outputs, and
 classifier versions. The [reference](../wisp.md#home-directory-and-configuration) lists every path. To try wisp
 without touching your real state, point `WISP_HOME` at a scratch directory:
 

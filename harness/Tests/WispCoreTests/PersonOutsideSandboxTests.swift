@@ -234,7 +234,7 @@ import WispTestSupport
         activity.onChange { state in doing.withLock { $0.append(state?.doing) } }
         context.activity = activity
         var loop = ChatLoop(
-            agent: made.agent, store: TranscriptStore(directory: dir), saveName: nil, tap: made.tap,
+            agent: made.agent, tap: made.tap,
             context: context, io: io)
         try await loop.run()
         let noted = capture.noted

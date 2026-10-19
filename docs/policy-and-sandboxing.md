@@ -21,7 +21,7 @@ Read from the macOS 27 SDK interface.
 | `Tool` protocol | wisp implements `call(arguments:)` itself | **This is the policy point.** The framework never executes anything; every tool call passes through our code, so allow, deny, confirm, or sandbox all happen here. |
 | `LanguageModelSession(tools:)` binding | Tools are fixed per session | Per-session least privilege is free: give a session only the tools its task needs (already exposed as `--tool` and the MCP `tools` argument). |
 | `Tool.includesSchemaInInstructions` | Whether the tool's schema is put in the prompt | Cost control, not policy. |
-| `Transcript.ToolCalls` / `ToolOutput` entries | Every call and result is in the transcript | Free audit trail once transcripts are saved to `~/.wisp/transcripts`. |
+| `Transcript.ToolCalls` / `ToolOutput` entries | Every call and result is in the transcript | Free audit trail: every thread's transcript is saved in `~/.wisp/threads`. |
 
 Conclusion: the framework gives content guardrails and nothing else. Tool policy is entirely wisp's job, and
 the `Tool.call` boundary is the natural place for it.

@@ -78,7 +78,7 @@ import WispTestSupport
             "/fact git/c2 thread", "/fact git/c3 session", "quit",
         ])
         var loop = ChatLoop(
-            agent: chat, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: chat, context: ChatLoopTests.context,
             io: capture.io)
         try await loop.run()
         let out = capture.output

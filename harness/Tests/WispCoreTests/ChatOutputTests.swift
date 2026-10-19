@@ -98,7 +98,7 @@ import WispTestSupport
         var context = ChatLoopTests.context
         context.shownOutputLines = 5
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         try await loop.run()
         let noted = capture.noted

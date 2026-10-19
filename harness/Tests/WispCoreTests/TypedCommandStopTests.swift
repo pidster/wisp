@@ -80,7 +80,7 @@ import WispTestSupport
         context.interrupt = interrupt
         #expect(interrupt.press() == .idle, "nothing runs yet")
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         let presser = Task { () -> (pid: pid_t?, press: ChatInterrupt.Press?) in
             guard let pid = await pid(in: file) else { return (nil, nil) }

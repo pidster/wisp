@@ -162,7 +162,7 @@ import WispTestSupport
         defer { try? FileManager.default.removeItem(at: dir) }
         let plain = ChatLoopTests.Capture(lines: ["/help", "/quit"])
         var plainLoop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: plain.io)
         try await plainLoop.run()
         #expect(plain.output.contains(ChatInput.helpText) && !plain.output.contains("In wisp-tui:"))
@@ -170,7 +170,7 @@ import WispTestSupport
         var io = front.io
         io.view = { _ in }
         var frontLoop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context, io: io)
+            agent: agent, context: ChatLoopTests.context, io: io)
         try await frontLoop.run()
         #expect(front.output.contains(ChatInput.helpText(frontEnd: true)))
     }

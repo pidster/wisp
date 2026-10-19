@@ -6,9 +6,11 @@ public enum ChatInput: Equatable, Sendable {
     case help(String?)
     /// List the tools the model can call.
     case tools
-    /// Save the transcript, under the given name or the session's default.
+    /// Save the thread now, or with a name rename it to that name (ADR 0066, D2).
     case save(String?)
-    /// Start a fresh session with the same instructions and tools.
+    /// List the threads the person may open: every thread in the store, any owner's (ADR 0066, D11).
+    case threads
+    /// Start a fresh thread with the same instructions and tools, the one before saved.
     case new
     /// Report how many tokens the transcript occupies.
     case tokens
@@ -284,11 +286,15 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/config [list|get KEY|set KEY VALUE|unset KEY]", about: "show or change ~/.wisp/config.json",
             names: ["config"], command: { .config(ConfigRequest($0)) }),
         HelpEntry(
-            usage: "/save [name]", about: "save the transcript to ~/.wisp/transcripts", names: ["save"],
-            command: { .save($0) }),
+            usage: "/save [NAME]",
+            about: "the thread is saved after every turn; NAME renames it, so wisp chat --resume NAME opens it",
+            names: ["save"], command: { .save($0) }),
         HelpEntry(
-            usage: "/new", about: "start a fresh conversation with the same instructions and tools", names: ["new"],
-            command: { _ in .new }),
+            usage: "/threads", about: "every saved thread, any agent's too: owner, model, turns, last used, state",
+            names: ["threads"], command: { _ in .threads }),
+        HelpEntry(
+            usage: "/new", about: "start a fresh thread with the same instructions and tools; the last stays saved",
+            names: ["new"], command: { _ in .new }),
         HelpEntry(
             usage: "/quit, /exit, /q", about: "exit (also a bare exit, quit, or q, and Ctrl-D)",
             names: ["quit", "exit", "q"], command: { _ in .quit }),

@@ -163,7 +163,7 @@ import WispTestSupport
         context.outputs = home.outputs
         let capture = ChatLoopTests.Capture(lines: ["count", "/last", "/quit"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         try await loop.run()
         let whole = (1...3000).map { "\($0)\n" }.joined()
@@ -177,7 +177,7 @@ import WispTestSupport
         let event = try #require(entry.sources.first?.event)
         let shown = ChatLoopTests.Capture(lines: ["/show \(entry.id)", "/show \(event.prefix(8))", "/quit"])
         var third = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: shown.io)
         try await third.run()
         #expect(shown.output.components(separatedBy: "\n1500\n").count == 3, "both print the whole")
@@ -186,7 +186,7 @@ import WispTestSupport
         try FileManager.default.removeItem(at: home.outputs)
         let again = ChatLoopTests.Capture(lines: ["/show \(entry.id)", "/last", "/quit"])
         var second = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: again.io)
         try await second.run()
         #expect(again.noted.filter { $0.contains("is no longer in the output store") }.count == 2)
@@ -213,7 +213,7 @@ import WispTestSupport
             return true
         }
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context, io: io)
+            agent: agent, tap: tap, context: context, io: io)
         try await loop.run()
         #expect(shown.withLock { $0 } == ["small output"] && presses.withLock { $0 } == [.paging])
         #expect(interrupt.press() == .idle && !capture.output.contains("small output"))
@@ -222,7 +222,7 @@ import WispTestSupport
         var declining = printed.io
         declining.showOutput = { _ in false }
         var plain = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: declining)
         try await plain.run()
         #expect(printed.output.contains("small output\n") && printed.noted.contains { $0.contains("nothing was held") })

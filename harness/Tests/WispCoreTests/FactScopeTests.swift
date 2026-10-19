@@ -212,7 +212,7 @@ import WispTestSupport
             "What is the codename?" + long, "/fact c3 permanent", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: capture.io)
         try await loop.run()
         let facts = capture.noted.filter { $0.contains(" new fact") }

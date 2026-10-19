@@ -320,7 +320,7 @@ final class FakePuller: ModelPuller {
             return "once"
         }
         var loop = ChatLoop(
-            agent: agent(), store: TranscriptStore(directory: dir), saveName: nil,
+            agent: agent(),
             context: .init(
                 directory: "/r", approval: "--yes", models: actions, activity: activity, interrupt: ChatInterrupt()),
             io: io)
@@ -356,7 +356,7 @@ final class FakePuller: ModelPuller {
             #expect(interrupt.press() == .stopping("models pull mlx-community/q"))
         }
         var loop = ChatLoop(
-            agent: agent(), store: TranscriptStore(directory: dir), saveName: nil,
+            agent: agent(),
             context: .init(
                 directory: "/r", approval: "--yes", models: actions, activity: activity, interrupt: interrupt),
             io: io)
@@ -383,8 +383,7 @@ final class FakePuller: ModelPuller {
             return choice.toggles ? ModelTable.pullRow : "mlx-community/q"
         }
         var loop = ChatLoop(
-            agent: agent(), store: TranscriptStore(directory: dir), saveName: nil,
-            context: .init(directory: "/r", approval: "--yes", models: actions), io: io)
+            agent: agent(), context: .init(directory: "/r", approval: "--yes", models: actions), io: io)
         try await loop.run()
         let choices = asked.withLock { $0 }
         let row = try #require(choices.first?.options.last)

@@ -326,7 +326,7 @@ Every `respond` thread is saved as it goes in the thread store, `~/.wisp/threads
 its server: a restart, a reconnect, a new build, or a crash after its last turn
 ([ADR 0066](decisions/0066-one-thread-store.md)). The directory is user-only and holds `thread.json` (the owner,
 the start settings, created, last used, turns, the audit sessions it has had, the facts the person dropped for it,
-and `open` or `saved`) beside `record.json` and `record.store`, the record chat's `/save` writes. It is saved after
+and `open` or `saved`) beside `record.json` and `record.store`, the record a chat's thread is saved with too. It is saved after
 every turn, inside the thread's turn order, so a crash loses at most the turn under way; and when it is evicted or
 its client goes.
 
@@ -350,9 +350,14 @@ git4 was saved with model ollama:granite4.1:8b, tools run_command; these setting
 
 | Refusal | When |
 | --- | --- |
-| `thread git4 is open in another wisp (pid 4242, claude-code)` | Another process holds the thread: a thread is held by one process at a time, by an `flock` on `threads/<id>/lock`, released when it is closed, evicted, or saved at its client's end, and by the kernel when the process ends. |
+| `thread git4 is open in another wisp (pid 4242, claude-code)` | Another process holds the thread: a thread is held by one process at a time, by an `flock` on `threads/<id>/lock`, released when it is closed, evicted, or saved at its client's end, and by the kernel when the process ends. The person opening it in chat holds it too, named `chat`, until they leave it (`/new`, `/quit`). |
 | `thread git4 belongs to codex, and this client is claude-code; only codex can resume it, so choose another thread_id` | The thread was opened by another client: its owner is the client's `clientInfo.name`, which the client reports itself, so this keeps agents from colliding over a name like `git`, not from each other. Another client's threads are not listed, read, or closed. |
 | `thread git4 cannot be resumed: …; close_thread git4 deletes it` | Its files cannot be read, or are of a format this wisp does not read (then resume it with the wisp that saved it). |
+
+The person may open any thread in chat (`wisp chat --resume git4`, [wisp.md](wisp.md), "Saved threads") to read or
+continue it. Chat runs it with its saved settings and keeps its owner, so its agent resumes it afterwards with the
+person's turns in it, and the settings the agent sends still equal the thread's. Chat's own threads are owned by
+`chat`, so an agent naming one is refused as for another client's.
 
 `close_thread` deletes a thread from the store. A saved thread unused for `threads.keepDays` (30 by default; 0 keeps
 it until closed) is deleted at a later session's start with its stored outputs, unless a process holds it, and

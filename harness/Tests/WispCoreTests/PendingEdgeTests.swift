@@ -31,7 +31,7 @@ import WispTestSupport
             channel: channel, facts: nil, auditFile: nil, canAnswer: canAnswer, patience: .milliseconds(200))
         let capture = ChatLoopTests.Capture(lines: lines + ["quit"])
         var loop = ChatLoop(
-            agent: agent(sink), store: TranscriptStore(directory: dir), saveName: nil, context: context,
+            agent: agent(sink), context: context,
             io: capture.io)
         try await loop.run()
         return capture

@@ -36,8 +36,10 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
   is active or was dropped, and by which `context.condensation` event.
 - **In memory, and saved with the transcript.** The store also keeps the framework's value of each entry,
   as a cache of the conversation's own entries, so composing a request never reads the audit files.
-  `/save` (and the save on exit) writes the active transcript to `transcripts/<name>.json` and
-  the store's link data beside it, in `transcripts/<name>.store`, both readable by the user only. The
+  Every thread, chat's after each turn and an MCP thread's after each of its turns, is saved in the thread store
+  ([ADR 0066](decisions/0066-one-thread-store.md)): the active transcript to `threads/<id>/record.json` and the
+  store's link data beside it, in `record.store`, both readable by the user only, through `TranscriptStore`, whose
+  format chat's `/save` wrote to `transcripts/<name>.json` and `<name>.store` before 0.27.0. The
   link data holds, for every entry, active or dropped: its position, framework entry id, kind, origin,
   turn, whether it is active and, if not, the `context.condensation` event that dropped it, its
   `sources`, a reply's `cuts` (absent when it has none), and, when the entry was recorded (`time`), the turn during which a condensation dropped it
@@ -47,15 +49,16 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
   builds and other readers ignore it, `--list` does not show it, and a transcript named `x.store`
   (`x.store.json`) cannot collide with the links of `x`. Saving a transcript alone (no store) removes a
   stale sidecar of that name.
-- **Resuming.** `--resume` reads both files. When the link data decodes, is version 1, and matches the
+- **Resuming.** `--resume`, and a resumed MCP thread, read both files. When the link data decodes, is version 1, and matches the
   transcript (its active entries are the transcript's entries, in order, by id and kind), the store is
   rebuilt with every entry's sources, state, and dropped entries; an entry a turn produced comes back with
   origin `resumed` (its `turn` and `sources` belong to the session that saved it), and one that was
   carried stays `carried`. `droppedAt` and `referencedAt` become 0 on resume, since both happened before
   the resuming session's first turn. The active view is the saved transcript, and the first request
   composes it with the same cuts and references the saving session last sent. A transcript without a sidecar (saved before wisp kept one), or with one that does not decode,
-  is not version 1, or does not match, cannot be resumed: `--resume` stops with `transcript 'x' was saved
-  by an older wisp and cannot be resumed; start a new conversation` (exit 64) and starts nothing.
+  is not version 1, or does not match, cannot be resumed: `--resume` of an older transcript stops with
+  `transcript 'x' was saved by an older wisp and cannot be resumed; start a new conversation` (exit 64), and of a
+  thread in the store with `thread x cannot be resumed: …`, and starts nothing.
   `session.start` on a resume lists `carriedFrom`, the sessions whose audit events the
   entries refer to, so the chain can be followed from the log alone.
 - **The composer** sends the store's active entries in order, with presentational text cut and tool output
@@ -79,7 +82,7 @@ build on, reproducing the behaviour below exactly. Phases 3 and 3b add output ha
 - **`/model`** opens the new model's agent over the old agent's store, so its first request carries the
   same active view and the store keeps its history and references (the proposal's D10, which will
   recompose for the new window once the composer does more than literal turns).
-- **`/new`** starts a new store over the instructions alone.
+- **`/new`** starts a new store over the instructions alone, as a new thread; the one before stays saved.
 
 Equivalence is tested, with cutting off: `ContextEquivalenceTests` drives scripted conversations (tools, condensing ahead
 and on overflow, a failed turn, fail-fast, a model that counts, reset and resume, a chat with `/model`,
@@ -201,7 +204,7 @@ unless `facts.enabled` is false; an `Agent` made directly keeps none, and compos
 
 | Class | For | Held in | Saved |
 | --- | --- | --- | --- |
-| `dynamic` | The state of the work: the task, tests, files, the branch, the working directory | The conversation's store (`ThreadRecord.facts`, ids `c…`) | With the store in `transcripts/<name>.store`; `--resume` restores them |
+| `dynamic` | The state of the work: the task, tests, files, the branch, the working directory | The conversation's store (`ThreadRecord.facts`, ids `c…`) | With the store in `threads/<id>/record.store`; `--resume` restores them |
 | `ephemeral` | The machine now: services, ports, memory | The session (`Session.sessionFacts`, ids `s…`), shared by every conversation of one process, so an MCP server's threads share them | Never; gone when the process ends |
 | `permanent` | Names, codenames, settled decisions, preferences | The shared store `~/.wisp/facts.json` (ids `p…`), user-only (0600), read at start and when it changes, and written on each change to the file as it then is, under a lock shared by every `wisp` process; one that does not decode is moved aside (`facts.json.unreadable-<time>`), never overwritten | Always |
 

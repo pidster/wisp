@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import Synchronization
 import Testing
 import WispCore
 import WispTestSupport
@@ -258,6 +259,66 @@ import WispTestSupport
         #expect(text(closed) == "closed r: deleted it from the thread store")
         #expect(try ThreadStore(home: home).settings("r") == nil)
         #expect(try await call(second.client, "close_thread", ["thread_id": "r"]).isError == true)
+        await end(second)
+    }
+
+    /// Chat on the store (ADR 0066, D6, D11): a thread an agent holds is refused to chat, saying who holds it; one open
+    /// in chat is refused to an agent the same way; and the agent resumes what chat added once chat lets it go.
+    @Test func chatAndAnAgentHoldAThreadInTurn() async throws {
+        let home = try home()
+        let store = ThreadStore(home: home)
+        let transcripts = TranscriptStore(directory: home.transcripts)
+        let first = try await connect(home, steps: [.say("one")])
+        _ = try await call(
+            first.client, "respond",
+            [
+                "prompt": "remember the agent's turn", "thread_id": "git4", "tools": ["current_date"],
+                "instructions": "Run git.", "commandTimeoutSeconds": 600,
+            ])
+        #expect(throws: ThreadStore.Failure.held("git4", .init(pid: getpid(), owner: "wire-test"))) {
+            try ChatThread.find("git4", store: store, transcripts: transcripts)
+        }
+        #expect(
+            ThreadStore.Failure.held("git4", .init(pid: getpid(), owner: "wire-test")).description
+                == "thread git4 is open in another wisp (pid \(getpid()), wire-test)")
+        await end(first)
+
+        // Opened in chat, it shows its settings first and holds them; an agent naming it meanwhile is refused.
+        let opening = try ChatThread.find("git4", store: store, transcripts: transcripts)
+        let announced = try #require(opening.announcement())
+        #expect(
+            announced.hasPrefix(
+                "git4: system, tools current_date, instructions set, commandTimeoutSeconds 600 (an agent's thread: "
+                    + "wire-test's, 1 turn)"), "\(announced)")
+        let saved = try #require(opening.saved)
+        let agent = Agent(
+            transcript: saved.transcript, tools: [CurrentDateTool()],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("from chat")])),
+            audit: AuditLog(session: "chat-session", sink: MemoryAuditSink()), links: saved.links)
+        let thread = ChatThread(
+            opening, store: store, transcripts: transcripts, session: "chat-session", model: "system",
+            tools: ["current_date"], instructions: nil, think: nil)
+        let second = try await connect(home, steps: [.say("two")])
+        let refused = try await call(second.client, "respond", ["prompt": "hi", "thread_id": "git4"])
+        #expect(refused.isError == true)
+        #expect(text(refused) == "thread git4 is open in another wisp (pid \(getpid()), chat)", "\(text(refused))")
+        let lines = Mutex(["a turn in chat"])
+        var loop = ChatLoop(
+            agent: agent, thread: thread, context: .init(directory: "/r", approval: "a"),
+            io: .init(
+                readLine: { lines.withLock { $0.isEmpty ? nil : $0.removeFirst() } }, print: { _ in }, write: { _ in },
+                note: { _ in }, prompt: { _ in }))
+        try await loop.run()
+
+        // Let go, the agent resumes it with its own settings and chat's turn.
+        let resumed = try await call(
+            second.client, "respond", ["prompt": "and now?", "thread_id": "git4", "tools": ["current_date"]])
+        #expect(resumed.isError == false && fields(resumed)["resumedTurns"] == 2, "\(text(resumed))")
+        #expect(
+            try await WispMCPTests.text(second.server, "wisp://threads/git4/context/next").contains("a turn in chat"))
+        let settings = try #require(try store.settings("git4"))
+        #expect(settings.owner == "wire-test" && settings.commandTimeoutSeconds == 600 && settings.turns == 3)
+        #expect(settings.sessions.contains("chat-session"))
         await end(second)
     }
 }

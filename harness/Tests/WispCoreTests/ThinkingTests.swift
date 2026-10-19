@@ -135,7 +135,7 @@ import WispTestSupport
             "/inspect thinking x", "/quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, tap: tap, context: context,
+            agent: agent, tap: tap, context: context,
             io: capture.io)
         try await loop.run()
         // The activity said it was thinking, then went back to waiting for the reply.

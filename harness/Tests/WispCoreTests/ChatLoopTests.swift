@@ -69,7 +69,7 @@ import WispTestSupport
         let agent = Agent(
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(capture.shownStatus.count == 2)
         #expect(capture.shownStatus.allSatisfy { $0.vcs == nil && $0.branch == nil }, "drawn without the read")
@@ -91,13 +91,13 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("noted")])))
         let unsaved = Capture(lines: ["/inspect context", "quit"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: unsaved.io)
+            agent: agent, context: Self.context, io: unsaved.io)
         try await loop.run()
         #expect(unsaved.noted.contains("the context is not saved here: audit.enabled is false"))
         agent.archive = ContextArchive(directory: dir.appending(path: "context"), session: "c")
         let saved = Capture(lines: ["remember BLUE HERON", "/inspect context", "quit"])
         loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: saved.io)
+            agent: agent, context: Self.context, io: saved.io)
         try await loop.run()
         let note = saved.noted.first { $0.hasPrefix("saved the context") } ?? ""
         #expect(note.contains("c-turn1.md") && note.contains("1 turn),") && !note.contains("1 turns"), "\(saved.noted)")
@@ -111,20 +111,31 @@ import WispTestSupport
         #expect(ChatInput(line: "/show") == .show(nil) && ChatInput(line: "/show 7") == .show("7"))
     }
 
-    @Test func commandsMessagesAndTheExitSaveOverAScriptedModel() async throws {
+    /// A new chat thread in a thread store under `dir`, over `agent`'s session (ADR 0066, D11).
+    static func thread(_ dir: URL, agent: Agent, name: String? = nil) throws -> ChatThread {
+        let store = ThreadStore(home: Home(root: dir.appending(path: "home", directoryHint: .isDirectory)))
+        return ChatThread(
+            try ChatThread.reserve(name, store: store), store: store, transcripts: nil,
+            session: agent.audit?.session ?? "chat", model: agent.model.selection.description,
+            tools: agent.tools.map(\.name), instructions: nil, think: nil)
+    }
+
+    @Test func commandsMessagesAndTheThreadSavedOverAScriptedModel() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = TranscriptStore(directory: dir)
         let sink = MemoryAuditSink()
         let agent = Agent(
             instructions: "x", tools: [CurrentDateTool()],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("hi there"), .say("second")])),
             audit: AuditLog(session: "chat", sink: sink))
+        let thread = try Self.thread(dir, agent: agent)
+        let first = thread.id
+        #expect(first.hasPrefix("chat-") && first.count == 13, "\(first)")
         let capture = Capture(lines: [
             "/help", "/tools", "/tokens", "", "hello", "/save", "/save first", "/bogus", "/new", "again", "/save",
             "/inspect approvals", "/status", "/last", "help", "quit", "never read",
         ])
-        var loop = ChatLoop(agent: agent, store: store, saveName: nil, context: Self.context, io: capture.io)
+        var loop = ChatLoop(agent: agent, thread: thread, context: Self.context, io: capture.io)
         try await loop.run()
         let out = capture.output
         #expect(out.contains(ChatInput.helpText))
@@ -142,17 +153,25 @@ import WispTestSupport
         let status = capture.shownStatus
         #expect(status.count == 16)
         #expect(status.first?.rendered(style: .plain) == "system · /repo git(main)+12-3 · approve at moderate")
-        #expect(notes.contains("usage: /save <name>"))
-        #expect(notes.contains("saved 'first'"))
+        #expect(notes.contains("saved thread \(first); /save NAME renames it"))
+        #expect(notes.contains("saved thread \(first) as first"))
         #expect(notes.contains("unknown command /bogus; /help lists commands"))
-        #expect(notes.contains("new conversation"))
-        #expect(notes.filter { $0 == "saved 'first'" }.count == 3)  // /save first, bare /save, exit
-        #expect(loop.saveName == "first")
-        #expect(try store.list() == ["first"])
-        #expect(try store.load("first").turnCount == 1)  // after /new only "again" remains
-        // `/save` also writes the store's links, whose sources name this chat's session.
-        let links = try store.loadThread("first").links
-        #expect(links.sessions == ["chat"])
+        let renewed = try #require(notes.first { $0.hasPrefix("new conversation, thread chat-") })
+        let second = String(renewed.dropFirst("new conversation, thread ".count))
+        #expect(notes.contains("saved thread \(second); /save NAME renames it"))
+        // Both threads are saved and let go: the renamed one with the turn before /new, the new one with the turn after.
+        let store = thread.store
+        #expect(store.all.map(\.id).sorted() == ["first", second].sorted())
+        #expect(try store.settings(first) == nil)
+        let named = try #require(try store.settings("first"))
+        #expect(named.turns == 1 && named.state == .saved && named.owner == "chat")
+        #expect(try store.load("first")?.transcript.turnCount == 1)
+        let after = try #require(try store.load(second))
+        #expect(after.settings.turns == 1 && after.settings.state == .saved && after.settings.sessions == ["chat"])
+        #expect(after.transcript.turnCount == 1)  // after /new only "again" remains
+        // The record's links name this chat's session.
+        #expect(after.links.sessions == ["chat"])
+        #expect(store.holder(of: "first") == nil && store.holder(of: second) == nil)
         #expect(sink.events.contains { $0.kind == .sessionStart && $0.details["reason"] == "new" })
         #expect(sink.events.filter { $0.kind == .prompt }.count == 2)
     }
@@ -198,7 +217,7 @@ import WispTestSupport
             "/models", "/model", "one", "/model ollama:q", "/model", "two", "/model gpt-5", "/quit",
         ])
         var loop = ChatLoop(
-            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: first, context: context, io: capture.io)
         try await loop.run()
         let out = capture.output
         #expect(
@@ -217,7 +236,7 @@ import WispTestSupport
         // Without the actions the commands say so.
         let bare = Capture(lines: ["/models", "/model x", "/quit"])
         var plain = ChatLoop(
-            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: bare.io)
+            agent: first, context: Self.context, io: bare.io)
         try await plain.run()
         #expect(
             bare.noted.contains("models are not listed here")
@@ -254,7 +273,7 @@ import WispTestSupport
             return "ollama:q"
         }
         var loop = ChatLoop(
-            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+            agent: first, context: context, io: io)
         try await loop.run()
         let choice = asked.withLock { $0.first }
         #expect(choice?.options.map(\.value) == ["system", "ollama:q"])
@@ -268,7 +287,7 @@ import WispTestSupport
             var io = left.io
             io.choose = { _ in answer }
             var loop = ChatLoop(
-                agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+                agent: first, context: context, io: io)
             try await loop.run()
             #expect(left.noted.contains("model unchanged"))
             #expect(loop.agent.model.selection == .system)
@@ -276,7 +295,7 @@ import WispTestSupport
         // A face without a chooser only prints the model, as before.
         let plain = Capture(lines: ["/model", "/quit"])
         var printed = ChatLoop(
-            agent: first, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: plain.io)
+            agent: first, context: context, io: plain.io)
         try await printed.run()
         #expect(plain.output.contains("model: system (toolCalling, guidedGeneration)\n"))
         #expect(!plain.noted.contains("model unchanged"))
@@ -307,7 +326,7 @@ import WispTestSupport
             "/models check ollama:a", "/quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: typed.io)
+            agent: agent, context: context, io: typed.io)
         try await loop.run()
         #expect(typed.noted.contains("enabled ollama:b"))
         #expect(typed.noted.contains("disabled ollama:a: hidden from /model and refused until enabled"))
@@ -331,7 +350,7 @@ import WispTestSupport
             return ChatChoice.answer(values: ["system", "ollama:b"])
         }
         var picker = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: pickingIO)
+            agent: agent, context: context, io: pickingIO)
         try await picker.run()
         #expect(asked.withLock { $0.first?.toggles } == true)
         #expect(asked.withLock { $0.first?.options.map(\.value) } == ["system", "ollama:a", "ollama:b"])
@@ -344,7 +363,7 @@ import WispTestSupport
             var io = again.io
             io.choose = { _ in answer }
             var loop = ChatLoop(
-                agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: io)
+                agent: agent, context: context, io: io)
             try await loop.run()
             #expect(!sink.events.dropFirst(before).contains { $0.kind == .configChange })
             #expect(again.noted.contains("models unchanged"))
@@ -365,7 +384,7 @@ import WispTestSupport
         context.stats = stats
         let capture = Capture(lines: ["boom", "fine", "fine", "  ", "/stats", "/history", "/quit"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(stats.calls.count == 3)
         #expect(stats.calls.map { $0.failure != nil } == [true, false, false])
@@ -379,7 +398,7 @@ import WispTestSupport
         // Without a store the command says so.
         let bare = Capture(lines: ["/stats"])
         var plain = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: bare.io)
+            agent: agent, context: Self.context, io: bare.io)
         try await plain.run()
         #expect(bare.noted.contains("stats are not kept here"))
     }
@@ -400,7 +419,7 @@ import WispTestSupport
             "/config unset approval.timeoutSeconds", "/config frob", "/config",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let saved = try Config.load(from: file)
         #expect(saved.approval?.classifier == .rules && saved.approval?.timeoutSeconds == nil)
@@ -419,7 +438,7 @@ import WispTestSupport
         // Without a config file the changes are refused and nothing is written.
         let bare = Capture(lines: ["/config set model system"])
         var unavailable = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: bare.io)
+            agent: agent, context: Self.context, io: bare.io)
         try await unavailable.run()
         #expect(bare.noted.contains("the configuration cannot be changed here"))
     }
@@ -438,7 +457,7 @@ import WispTestSupport
         context.configFile = file
         let capture = Capture(lines: ["/think", "/think extreme", "/think high", "/think off"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         // Nothing asked yet: the runtime decides, which the status line and a bare /think call the default.
         #expect(capture.output.contains("thinking: default (ollama.models.q.think)"))
@@ -468,7 +487,7 @@ import WispTestSupport
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
         let capture = Capture(lines: ["/think on"])
         var loop = ChatLoop(
-            agent: system, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: system, context: context, io: capture.io)
         try await loop.run()
         #expect(capture.noted.contains("system has no thinking to turn on or off"))
         #expect(capture.shownStatus.first?.thinking == nil, "no thinking to show")
@@ -500,7 +519,7 @@ import WispTestSupport
             "/config unset", "1",  // the first setting in the file
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let saved = try Config.load(from: file)
         // Unset offered the settings in the file in catalogue order; the first is the model.
@@ -535,7 +554,7 @@ import WispTestSupport
             "/approvals frob",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let out = capture.output
         #expect(out.contains("approval.classifier: rules  (set in config.json)"))
@@ -559,31 +578,41 @@ import WispTestSupport
         let lines = (0..<(ChatLoop.historyLimit + 5)).map { "/last \($0)" } + ["/history"]
         let capture = Capture(lines: lines)
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: Self.context, io: capture.io)
+            agent: agent, context: Self.context, io: capture.io)
         try await loop.run()
         #expect(loop.history.count == ChatLoop.historyLimit)
         #expect(loop.history.first == "/last 6" && loop.history.last == "/history")
         #expect(capture.output.contains("\n  1  /last 6\n") && capture.output.hasSuffix("100  /history\n"))
     }
 
-    @Test func endOfInputSavesUnderTheDefaultNameAndErrorsAreNotes() async throws {
+    @Test func everyTurnIsSavedAndErrorsAreNotes() async throws {
         let dir = try scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = TranscriptStore(directory: dir)
         // Overflow with no condense policy is an error the loop reports and survives.
         let agent = Agent(
             instructions: "x", tools: [],
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("done")], overflowOnce: true)),
             contextPolicy: .failFast)
+        let thread = try Self.thread(dir, agent: agent, name: "session")
+        let saved = Mutex<[Int]>([])
         let capture = Capture(lines: ["boom", "fine"])
-        var loop = ChatLoop(agent: agent, store: store, saveName: "session", context: Self.context, io: capture.io)
+        var io = capture.io
+        // What the store holds as each prompt is drawn: the turns saved so far.
+        let prompt = io.prompt
+        io.prompt = { status in
+            saved.withLock { $0.append((try? thread.store.settings("session"))??.turns ?? -1) }
+            prompt(status)
+        }
+        var loop = ChatLoop(agent: agent, thread: thread, context: Self.context, io: io)
         try await loop.run()
         #expect(capture.noted.contains { $0.hasPrefix("error: ") }, "\(capture.noted)")
         // Each message is one turn, marked at both ends; the failed one says so.
         #expect(capture.marks == ["start 1", "end 1 failed", "start 2", "end 2"], "\(capture.marks)")
         #expect(capture.output.hasSuffix("done\n"), "\(capture.output)")
-        #expect(capture.noted.last == "saved 'session'")
-        #expect(try store.list() == ["session"])
+        // Saved after every turn, the failed one too, before the next prompt; nothing before the first.
+        #expect(saved.withLock { $0 } == [-1, 1, 2], "\(saved.withLock { $0 })")
+        let settings = try #require(try thread.store.settings("session"))
+        #expect(settings.turns == 2 && settings.state == .saved)
         // A condensed turn is announced, through the tap the agent's audit log feeds.
         let tap = ChatEvents.Tap()
         let condensing = Agent(
@@ -591,19 +620,19 @@ import WispTestSupport
             model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("after")], overflowOnce: true)),
             audit: AuditLog(session: "c", sink: tap))
         let second = Capture(lines: ["go", "/quit"])
-        var again = ChatLoop(
-            agent: condensing, store: store, saveName: nil, tap: tap, context: Self.context, io: second.io)
+        var again = ChatLoop(agent: condensing, tap: tap, context: Self.context, io: second.io)
         try await again.run()
         #expect(second.noted.contains { $0.hasPrefix("(context condensed, overflow: ") })
         // A save that cannot happen is a note inside the loop and an error on exit.
-        let unwritable = TranscriptStore(directory: dir.appending(path: "missing"))
-        let third = Capture(lines: ["/save x", "/quit"])
-        var broken = ChatLoop(agent: condensing, store: unwritable, saveName: nil, context: Self.context, io: third.io)
-        try await broken.run()
-        #expect(third.noted.contains { $0.hasPrefix("error: ") })
-        var exiting = ChatLoop(
-            agent: condensing, store: unwritable, saveName: "x", context: Self.context, io: Capture(lines: []).io)
-        await #expect(throws: (any Error).self) { try await exiting.run() }
+        let broken = try Self.thread(dir, agent: condensing, name: "broken")
+        let directory = broken.store.directory(of: "broken")
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        let third = Capture(lines: ["/save", "!true"])
+        var failing = ChatLoop(agent: condensing, thread: broken, context: Self.context, io: third.io)
+        await #expect(throws: (any Error).self) { try await failing.run() }
+        #expect(third.noted.contains { $0.hasPrefix("error: ") }, "\(third.noted)")
+        #expect(third.noted.contains { $0.hasPrefix("error: could not save thread broken: ") }, "\(third.noted)")
     }
 
     @Test func anUnreadableConfigFileRefusesAChangeAndKeepsItsSettings() async throws {
@@ -621,7 +650,7 @@ import WispTestSupport
         context.configFile = file
         let capture = Capture(lines: ["/config set approval.classifier rules"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(capture.noted.contains { $0.contains("error: cannot read \(file.path)") }, "\(capture.noted)")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -648,7 +677,7 @@ import WispTestSupport
             "/config set approval.threshold", "",  // a question left unanswered
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(capture.output.contains("notifications.enabled: true  (the default)"), "\(capture.output)")
         #expect(capture.output.contains("  1  true") && capture.output.contains("  2  false"))
@@ -677,7 +706,7 @@ import WispTestSupport
         context.approvalStore = store
         let capture = Capture(lines: ["/approvals", "/approvals revoke \(entry.id)"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(capture.noted.contains("wisp's own state is not shown here"), "\(capture.noted)")
         // Where the directory stays writable anyway (running as root) the revoke succeeds, which is also honest.

@@ -157,7 +157,7 @@ import WispTestSupport
         var io = ChatLoopTests.Capture(lines: ["/inspect summary", "/inspect facts", "quit"]).io
         io.view = { view in shown.withLock { $0.append(view) } }
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context, io: io)
+            agent: agent, context: ChatLoopTests.context, io: io)
         try await loop.run()
         let empty = shown.withLock { $0 }
         #expect(empty.map(\.kind) == [.summary, .facts])
@@ -167,7 +167,7 @@ import WispTestSupport
         agent.store.summarise(Self.version(1, "The caller read Package.swift first."))
         let capture = ChatLoopTests.Capture(lines: ["/inspect summary", "/inspect facts", "quit"])
         var plain = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: capture.io)
         try await plain.run()
         let out = capture.output

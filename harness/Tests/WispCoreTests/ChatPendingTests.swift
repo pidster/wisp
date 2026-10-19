@@ -122,7 +122,7 @@ import WispTestSupport
         context.pending = watcher(channel)
         let capture = ChatLoopTests.Capture(lines: ["/approvals approve \(request.id) session", "", "quit"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let answer = await server.value
         #expect(answer?.decision == "session" && answer?.via == "chat")
@@ -150,7 +150,7 @@ import WispTestSupport
             "/approvals pending", "/approvals deny", "1", "/approvals pending", "/facts keep", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(await server.value?.decision == "no")
         let out = capture.output
@@ -181,7 +181,7 @@ import WispTestSupport
             "/facts", "/facts drop \(live.id)", "/facts keep \(orphan.id)", "/approvals approve \(orphan.id)", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         #expect(await server.value?.decision == "drop")
         let notes = capture.noted
@@ -254,7 +254,7 @@ import WispTestSupport
             instructions: "x", tools: [], model: ResolvedModel(selection: .system, custom: ScriptedModel()))
         let capture = ChatLoopTests.Capture(lines: ["/approvals pending", "/facts drop", "/facts frob", "quit"])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: ChatLoopTests.context,
+            agent: agent, context: ChatLoopTests.context,
             io: capture.io)
         try await loop.run()
         #expect(capture.noted.filter { $0 == ChatLoop.notWatched }.count == 3)
@@ -280,7 +280,7 @@ import WispTestSupport
             "/approvals pending", "/questions answer \(choice.id)", "neither", "2", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let answer = await server.value
         #expect(answer?.decision == "chose" && answer?.text == "./wisp.json" && answer?.via == "chat")
@@ -322,7 +322,7 @@ import WispTestSupport
             "/questions decline", "1", "/questions", "/questions frob", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let answered = await first.value
         #expect(answered?.decision == "answer" && answered?.text == "BLUE HERON")
@@ -388,7 +388,7 @@ import WispTestSupport
             "/questions answer \(request.id)", "/questions decline \(request.id)", "quit",
         ])
         var loop = ChatLoop(
-            agent: agent, store: TranscriptStore(directory: dir), saveName: nil, context: context, io: capture.io)
+            agent: agent, context: context, io: capture.io)
         try await loop.run()
         let answer = await server.value
         #expect(answer?.decision == "decline" && answer?.via == "tui")
