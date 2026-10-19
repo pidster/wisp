@@ -1,9 +1,11 @@
 import Foundation
+import FoundationModels
 import MCP
 import Testing
 import WispCore
 import WispTestSupport
 
+@testable import WispCore
 @testable import WispMCP
 
 /// A server whose threads run `steps` on a scripted model through the framework's tool loop, with the
@@ -194,5 +196,61 @@ func json(_ server: WispServer, _ uri: String) async throws -> [String: JSONValu
         #expect(directory.thread(ofConversation: "git") == nil)
         #expect(directory.thread(ofConversation: "git-abcd12") == nil)
         #expect(directory.thread(ofConversation: "chat-1f2e3d4c") == nil)
+    }
+}
+
+/// A thread of the bare protocol, which keeps nothing and answers nothing, as a test double does.
+private struct BareThread: RespondingThread {
+    func respond(to prompt: String, schema: OutputSchema?) async throws -> Agent.Reply { throw FactFailure.off }
+}
+
+/// What `RespondingThread` gives a thread that keeps no thread record, and what `ThreadActor` hands its agent.
+@Suite struct RespondingThreadTests {
+    @Test func aThreadWithoutARecordKeepsNothingAndRefusesEveryFactAction() async throws {
+        let thread = BareThread()
+        let turns = await thread.contextTurns()
+        let facts = await thread.facts()
+        let summaries = await thread.summaries()
+        let record = await thread.record()
+        let context = await thread.context("next")
+        #expect(turns == nil && facts == nil && summaries == nil && record == nil && context == nil)
+        let shown = PendingApprovals.ProposedFact(
+            id: "c1", subject: "entity", name: "n", value: "v", source: "model")
+        await #expect(throws: FactFailure.off) { try await thread.setTask("t") }
+        await #expect(throws: FactFailure.off) { _ = try await thread.setFactScope("c1", to: .session) }
+        await #expect(throws: FactFailure.off) { _ = try await thread.keepAsked(shown, request: "r") }
+        await #expect(throws: FactFailure.off) { _ = try await thread.dropAsked(shown, request: "r") }
+        await thread.recordAnswer(to: Question(text: "which?"), answer: "this one")
+    }
+
+    @Test func aThreadActorMovesKeepsAndDropsFactsOnItsAgent() async throws {
+        let agent = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok")])),
+            audit: AuditLog(session: "git", sink: MemoryAuditSink()))
+        agent.facts = FactSettings()
+        try agent.stateFact(subject: "tests", name: "ci", value: "green")
+        for name in ["release codename", "other codename"] {
+            agent.record(
+                FactBook.Assertion(
+                    identity: FactIdentity(scope: .permanent, subject: "entity", name: name), source: .model,
+                    value: "BLUE HERON", temporalClass: .permanent, method: .distilled, turn: 1))
+        }
+        agent.refreshFacts()
+        let actor = ThreadActor(id: "git", agent: agent)
+        let moved = try await actor.setFactScope("c1", to: .session)
+        #expect(moved.id == "s1" && moved.identity.scope == .session)
+        await #expect(throws: FactFailure.noSuchFact("c9")) { _ = try await actor.setFactScope("c9", to: .session) }
+        let proposals = try await #require(actor.facts()).filter(\.proposed)
+        #expect(proposals.count == 2)
+        let keep = try #require(proposals.first { $0.identity.name == "release codename" })
+        let drop = try #require(proposals.first { $0.identity.name == "other codename" })
+        let kept = try await actor.keepAsked(FactKeeper.proposed(keep), request: "a1b2c3d4")
+        #expect(kept.identity.scope == .permanent && kept.approved != nil && kept.value == "BLUE HERON")
+        let dropped = try await actor.dropAsked(FactKeeper.proposed(drop), request: "b2c3d4e5")
+        #expect(dropped.identity.scope == .thread && !dropped.proposed)
+        await #expect(throws: FactFailure.self) {
+            _ = try await actor.keepAsked(FactKeeper.proposed(keep), request: "c3d4e5f6")
+        }
     }
 }

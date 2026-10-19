@@ -124,6 +124,13 @@ import WispTestSupport
         #expect(
             ThreadStore.Failure.held("git", .init(pid: 4242, owner: "claude-code")).description
                 == "thread git is open in another wisp (pid 4242, claude-code)")
+        #expect(ThreadStore.Failure.held("git", nil).description == "thread git is open in another wisp")
+        #expect(
+            ThreadStore.Failure.held("git", .init(pid: 5, owner: nil)).description
+                == "thread git is open in another wisp (pid 5)")
+        #expect(
+            ThreadStore.Failure.held("git", .init(pid: 0, owner: "codex")).description
+                == "thread git is open in another wisp", "a holder whose pid the lock does not say adds nothing")
         first.release()
         first.release()
         #expect(!first.isHeld && store.holder(of: "git") == nil)
@@ -171,6 +178,110 @@ import WispTestSupport
         let outputs = OutputSweep(home: home, days: 30, now: now).run(current: "now", keep: outcome.kept)
         #expect(outputs.removed == ["loose-aaaaaaaa"])
         #expect(Set(outcome.swept.first?.details.keys.map { $0 } ?? []) == AuditEvent.fields(for: .threadSwept))
+    }
+
+    /// Saves `count` threads named `t0`..., `t0` the oldest, each 40 days older than the last by one day, with a session.
+    private func saveAged(_ count: Int, in store: ThreadStore, now: Date) throws {
+        for index in 0..<count {
+            var thread = settings("t\(index)", lastUsed: now.addingTimeInterval(-Double(60 - index) * 86_400))
+            thread.sessions = ["t\(index)-aaaaaaaa"]
+            try store.save(thread, record: nil)
+        }
+    }
+
+    @Test func theSweepLeavesAThreadItCannotReadAndAgesOneWithoutSettingsByItsDirectory() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        // A newer format is another wisp's to judge, however old.
+        try store.ensure("next")
+        try Data(#"{"version":2}"#.utf8).write(to: store.directory(of: "next").appending(path: "thread.json"))
+        // A thread opened and never saved has no thread.json; its directory's age is its age.
+        try store.ensure("unsaved")
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-90 * 86_400)],
+            ofItemAtPath: store.directory(of: "unsaved").path)
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run()
+        #expect(outcome.swept.map(\.id) == ["unsaved"])
+        #expect(outcome.swept.first?.owner == nil && outcome.swept.first?.turns == 0)
+        #expect(outcome.swept.first?.sessions == [] && outcome.swept.first?.details["owner"] == .null)
+        #expect(store.ids == ["next"], "an unreadable thread.json is left alone")
+    }
+
+    @Test func theSweepDeletesAtMostItsLimitOldestFirstAndKeepsTheSessionsOfTheRest() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        try saveAged(4, in: store, now: now)
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run(limit: 2)
+        #expect(outcome.swept.map(\.id) == ["t0", "t1"], "oldest first")
+        #expect(outcome.deferred == 2)
+        #expect(outcome.kept == ["t2-aaaaaaaa", "t3-aaaaaaaa"], "what waits for a later start keeps its outputs")
+        #expect(store.ids == ["t2", "t3"])
+        #expect(ThreadSweep.removalLimit == 16 && ThreadSweep.deadline == .milliseconds(100))
+    }
+
+    @Test func theSweepStopsOnceItsDeadlineHasPassed() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        try saveAged(3, in: store, now: now)
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run(deadline: .zero)
+        #expect(outcome.swept.isEmpty && outcome.deferred == 3)
+        #expect(outcome.kept == ["t0-aaaaaaaa", "t1-aaaaaaaa", "t2-aaaaaaaa"])
+        #expect(store.ids == ["t0", "t1", "t2"])
+        // A thread opened and never saved, old enough, waits too and has no sessions to keep.
+        try store.ensure("unsaved")
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-90 * 86_400)],
+            ofItemAtPath: store.directory(of: "unsaved").path)
+        let later = ThreadSweep(home: home, days: 30, now: now).run(deadline: .zero)
+        #expect(later.swept.isEmpty && later.deferred == 4 && later.kept.count == 3)
+    }
+
+    @Test func aThreadThatCannotBeDeletedIsKeptWithItsSessionsAndANoOutputSessionIsSkipped() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        try saveAged(1, in: store, now: now)
+        // A session that stored nothing and an unsafe session name are skipped without error.
+        var thread = try #require(try store.settings("t0"))
+        thread.sessions = ["t0-aaaaaaaa", "../escape"]
+        try store.save(thread, record: nil)
+        try store.ensure("unsaved")
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-90 * 86_400)],
+            ofItemAtPath: store.directory(of: "unsaved").path)
+        // With threads/ read-only the directory cannot be removed: the thread stays, and so do its outputs' sessions.
+        let threads = store.directory(of: "t0").deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: threads.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: threads.path) }
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run()
+        #expect(outcome.swept.isEmpty)
+        #expect(outcome.kept == ["t0-aaaaaaaa", "../escape"])
+        #expect(store.ids == ["t0", "unsaved"])
+    }
+
+    @Test func aSweptThreadsOutputsThatCannotBeRemovedDoNotStopItsDeletion() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        try saveAged(1, in: store, now: now)
+        let directory = home.outputs.appending(path: "t0-aaaaaaaa", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(repeating: 0x61, count: 7).write(to: directory.appending(path: "3f9a2c1b"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: home.outputs.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: home.outputs.path) }
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run()
+        #expect(outcome.swept.map(\.id) == ["t0"] && outcome.swept.first?.outputBytes == 7)
+        #expect(store.ids.isEmpty)
+        #expect(
+            FileManager.default.fileExists(atPath: directory.path), "the outputs stay for the output sweep's age rule")
     }
 
     @Test func sessionBeginSweepsAndAuditsEachThreadAndKeepDaysIsASetting() throws {

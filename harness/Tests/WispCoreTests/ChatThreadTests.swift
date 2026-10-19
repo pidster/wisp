@@ -79,6 +79,7 @@ import WispTestSupport
         let opening = try ChatThread.reserve(store: fixture.store)
         #expect(opening.id.wholeMatch(of: /chat-[0-9a-f]{8}/) != nil, "\(opening.id)")
         #expect(opening.settings == nil && opening.saved == nil && opening.announcement() == nil)
+        #expect(!opening.isAgents && opening.carriedFrom.isEmpty && opening.tools == nil, "a new thread is nobody's")
         // Locked, but nothing is saved until it has something to save: a chat quit at once leaves nothing behind.
         #expect(fixture.store.holder(of: opening.id) != nil)
         let agent = agent()
@@ -247,6 +248,78 @@ import WispTestSupport
         #expect(renamed.id.hasPrefix("chat-") && renamed.legacy == long)
         renamed.abandon(in: fixture.store)
         #expect(try fixture.store.settings(renamed.id) == nil && !fixture.store.ids.contains(renamed.id))
+    }
+
+    @Test func aChatsOwnThreadResumesAnnouncedAndTakesTheModelAndToolsTheChatRunsWith() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        var settings = ThreadStore.Settings(
+            id: "mine", owner: "chat", model: "system", tools: ["current_date"], instructions: nil, think: nil,
+            session: "mine-0000aaaa")
+        settings.turns = 1
+        settings.state = .saved
+        try fixture.store.save(settings, record: try await record("my own turn", session: "mine-0000aaaa"))
+        let opening = try ChatThread.find("mine", store: fixture.store, transcripts: fixture.transcripts)
+        #expect(!opening.isAgents)
+        let line = try #require(opening.announcement())
+        #expect(line.hasPrefix("resumed thread mine (1 turn, saved "), "\(line)")
+        // The person's own thread follows the flags of this run: its model, tools, and thinking are the chat's now.
+        let thread = ChatThread(
+            opening, store: fixture.store, transcripts: fixture.transcripts, session: "mine-0000bbbb",
+            model: "ollama:granite4.1:8b", tools: ["current_date", "read_file"], instructions: nil, think: "low")
+        #expect(thread.settings.model == "ollama:granite4.1:8b" && thread.settings.think == "low")
+        #expect(thread.settings.tools == ["current_date", "read_file"] && !thread.isAgents)
+        #expect(thread.settings.sessions == ["mine-0000aaaa", "mine-0000bbbb"])
+        #expect(fixture.store.holder(of: "mine") != nil)
+        try thread.finish(record: try await record("again"), model: "system", think: nil)
+        #expect(fixture.store.holder(of: "mine") == nil)
+    }
+
+    @Test func aThreadWhoseRecordIsMissingIsNotOpenedAndItsLockIsReleased() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        try fixture.store.save(
+            ThreadStore.Settings(
+                id: "bare", owner: "claude-code", model: "system", tools: [], instructions: nil,
+                session: "bare-0000aaaa"),
+            record: nil)
+        #expect(throws: ThreadStore.Failure.self) {
+            try ChatThread.find("bare", store: fixture.store, transcripts: fixture.transcripts)
+        }
+        #expect(fixture.store.holder(of: "bare") == nil, "a refused opening does not keep the thread locked")
+    }
+
+    @Test func savingUnderTheCurrentNameSavesInPlaceAndAFailedRenameKeepsTheOldThread() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        let agent = agent([.say("one")])
+        let thread = open(try ChatThread.reserve("first", store: fixture.store), fixture, agent: agent)
+        _ = try await agent.respond(to: "hello")
+        try thread.rename(to: "first", record: agent.store, model: "system", think: nil)
+        #expect(fixture.store.all.map(\.id) == ["first"] && thread.id == "first")
+        // A directory the new name already has, that cannot be written to, makes the save fail: the thread stays as it was.
+        let blocked = fixture.store.directory(of: "second")
+        try FileManager.default.createDirectory(
+            at: blocked, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try Data().write(to: fixture.store.lockFile("second"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: blocked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path) }
+        #expect(throws: (any Error).self) {
+            try thread.rename(to: "second", record: agent.store, model: "system", think: nil)
+        }
+        #expect(thread.id == "first" && fixture.store.holder(of: "second") == nil)
+        let stillThere = try fixture.store.settings("first")
+        #expect(fixture.store.holder(of: "first") != nil && stillThere != nil)
+        try thread.finish(record: agent.store, model: "system", think: nil)
+    }
+
+    @Test func shortTimeIsTheLocalTimeToTheMinute() {
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let expected = String(
+            format: "%04d-%02d-%02d %02d:%02d", parts.year!, parts.month!, parts.day!, parts.hour!, parts.minute!)
+        #expect(ChatThread.shortTime(date) == expected)
+        #expect(ChatThread.shortTime(date).wholeMatch(of: /\d{4}-\d{2}-\d{2} \d{2}:\d{2}/) != nil)
     }
 
     @Test func threadsListsEveryThreadWithItsState() async throws {

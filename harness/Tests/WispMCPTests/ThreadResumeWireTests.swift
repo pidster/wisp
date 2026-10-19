@@ -1,10 +1,12 @@
 import Foundation
+import FoundationModels
 import MCP
 import Synchronization
 import Testing
 import WispCore
 import WispTestSupport
 
+@testable import WispCore
 @testable import WispMCP
 
 /// Threads saved as they go and resumed by a later server (ADR 0066): a turn on a thread, the server torn down, and a
@@ -320,5 +322,221 @@ import WispTestSupport
         #expect(settings.owner == "wire-test" && settings.commandTimeoutSeconds == 600 && settings.turns == 3)
         #expect(settings.sessions.contains("chat-session"))
         await end(second)
+    }
+
+    // MARK: Saved threads read from their files, and the refusals around the store
+
+    /// A thread whose `respond` throws `error`, standing for one a model failed on.
+    private struct FailingThread: RespondingThread {
+        /// What the turn throws.
+        let error: any Error
+
+        func respond(to prompt: String, schema: OutputSchema?) async throws -> Agent.Reply { throw error }
+    }
+
+    /// The factory of a thread built outside the thread store (no `kept`), whose turn throws `error`.
+    private static func failingFactory(_ error: any Error) -> WispServer.ThreadFactory {
+        { session, host, start in
+            let thread = try start.thread(on: session, host: host)
+            return OpenThread(
+                thread: FailingThread(error: error), gate: thread.gate, audit: thread.audit,
+                receipts: thread.receipts, relay: thread.relay, model: thread.model.description,
+                tools: thread.tools.map(\.name), think: start.think?.text, inquiries: thread.inquiries)
+        }
+    }
+
+    /// A server on `home` whose threads are built outside the store and throw `error` on a turn.
+    private func connectFailing(_ home: Home, error: any Error) async throws -> Pair {
+        let sink = MemoryAuditSink()
+        let session = try Session.begin(
+            .init(entryPoint: .mcp), home: home, dependencies: .testing(sink: sink))
+        let server = WispServer(session: session, makeThread: Self.failingFactory(error))
+        let transports = await InMemoryTransport.createConnectedPair()
+        try await server.serve(transport: transports.server)
+        let client = Client(name: "wire-test", version: "0")
+        _ = try await client.connect(transport: transports.client)
+        return Pair(client: client, server: server, sink: sink)
+    }
+
+    /// The message of the protocol error reading `uri` raised.
+    private func refusal(_ server: WispServer, _ uri: String) async -> String? {
+        do {
+            _ = try await server.read(.init(uri: uri))
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    @Test func anotherClientsSavedThreadIsRefusedByItsSummaryAndItsRecordResources() async throws {
+        let home = try home()
+        let codex = try await connect(home, client: "codex")
+        _ = try await call(codex.client, "respond", ["prompt": "hi", "thread_id": "o"])
+        await end(codex)
+        let claude = try await connect(home)
+        let owned = ThreadStore.Failure.owned("o", owner: "codex", client: "wire-test").description
+        for uri in ["wisp://threads/o", "wisp://threads/o/facts", "wisp://threads/o/context/next"] {
+            let message = try #require(await refusal(claude.server, uri), "\(uri)")
+            #expect(message.contains(owned), "\(uri): \(message)")
+        }
+        // Its audit sessions are not disclosed either: they fall back to the directory's own.
+        #expect(await claude.server.auditSessions(of: "o") == [claude.server.directory.auditSession(of: "o")])
+        await end(claude)
+    }
+
+    @Test func aSavedThreadWithoutItsRecordRefusesItsResourcesSayingHowToClearIt() async throws {
+        let home = try home()
+        try ThreadStore(home: home).save(
+            ThreadStore.Settings(
+                id: "bare", owner: "wire-test", model: "system", tools: [], instructions: nil, session: "bare-0000aaaa"),
+            record: nil)
+        let pair = try await connect(home)
+        let message = try #require(await refusal(pair.server, "wisp://threads/bare/facts"))
+        #expect(
+            message.contains("thread bare cannot be resumed") && message.contains("close_thread bare"), "\(message)")
+        // Unsafe ids are no saved thread at all.
+        #expect(try pair.server.savedRecord("bad id") == nil)
+        await end(pair)
+    }
+
+    @Test func aSavedThreadIsNotOpenAndShowsItsSummaryVersionsFromItsRecord() async throws {
+        let home = try home()
+        let first = try await connect(home, steps: [.say("one")])
+        _ = try await call(first.client, "respond", ["prompt": "a saved prompt", "thread_id": "r"])
+        await end(first)
+        let store = ThreadStore(home: home)
+        let record = try #require(try store.record("r"))
+        let saved = SavedThread(id: "r", record: record, permanent: [])
+        await #expect(throws: SavedThread.Failure.notOpen("r")) { _ = try await saved.respond(to: "hi", schema: nil) }
+        #expect(SavedThread.Failure.notOpen("r").description == "thread r is saved, not open; respond resumes it")
+        #expect(await saved.summaries() == record.summaries)
+        #expect(await saved.facts() == record.facts.facts)
+        let withoutFacts = SavedThread(id: "r", record: record, permanent: nil)
+        #expect(await withoutFacts.summaries() == nil && withoutFacts.permanent == nil)
+        let second = try await connect(home)
+        let summary = try await json(second.server, "wisp://threads/r/summary")
+        #expect(summary["thread_id"] == "r" && summary["versions"] == .int(record.summaries.count), "\(summary)")
+        await end(second)
+    }
+
+    @Test func aSavedThreadsStoredOutputsAreListedAndPagedFromTheOutputStore() async throws {
+        let home = try home()
+        let first = try await connect(
+            home, steps: [.call(name: "current_date", arguments: "{}"), .say("done")])
+        _ = try await call(
+            first.client, "respond", ["prompt": "what day is it", "thread_id": "o", "tools": ["current_date"]])
+        let result = try #require(first.sink.events.first { $0.kind == .toolResult && $0.session.hasPrefix("o-") })
+        let callID = try #require(result.call)
+        let big = (1...2500).map { "line \($0) of a long stored output" }.joined(separator: "\n")
+        let outputs = OutputStore(
+            directory: home.outputs.appending(path: result.session, directoryHint: .isDirectory))
+        #expect(outputs.keep(big, id: callID, tool: "current_date") != nil)
+        await end(first)
+
+        let second = try await connect(home)
+        let list = try await json(second.server, "wisp://threads/o/output")
+        let row = try #require(list["calls"]?.arrayValue?.first?.objectValue)
+        #expect(row["stored"] == .string(callID) && row["storedLines"] == .int(2500), "\(row)")
+        #expect((row["storedBytes"]?.intValue ?? 0) == big.utf8.count)
+        let uri = try #require(row["uri"]?.stringValue)
+        let pages = try #require(Paging.page(big, number: 1)).count
+        #expect(pages > 2)
+        let page1 = try await WispMCPTests.text(second.server, uri)
+        #expect(
+            page1.hasPrefix("(page 1 of \(pages); the next is \(uri)?page=2)\nline 1 of a long stored output"),
+            "\(page1.prefix(120))")
+        let last = try await WispMCPTests.text(second.server, uri + "?page=\(pages)")
+        #expect(last.hasPrefix("(page \(pages) of \(pages))\n") && last.hasSuffix("line 2500 of a long stored output"))
+        let past = try #require(await refusal(second.server, uri + "?page=9"))
+        #expect(past.contains("page 9 is past the last"), "\(past)")
+        await end(second)
+    }
+
+    @Test func aCallWithoutAResultIsListedWithoutAnOutputAndAnEmptyResultReadsEmpty() async throws {
+        let home = try home()
+        let first = try await connect(home)
+        _ = try await call(first.client, "respond", ["prompt": "hi", "thread_id": "g"])
+        let opening = try #require(try ThreadStore(home: home).settings("g")?.sessions.first)
+        // A call the turn never got a result for, and a result that carries no output text.
+        let sink = try FileAuditSink(url: home.auditFile, limits: Config().resolved.auditLimits)
+        sink.write(
+            AuditEvent(
+                session: opening, kind: .toolCall, turn: 1, call: "dangling",
+                details: ["tool": "read_file", "arguments": "{}"]))
+        let empty = AuditEvent(session: opening, kind: .toolResult, turn: 1, call: "empty", details: [:])
+        sink.write(empty)
+        await end(first)
+        let second = try await connect(home)
+        let list = try await json(second.server, "wisp://threads/g/output")
+        let rows = try #require(list["calls"]?.arrayValue).compactMap(\.objectValue)
+        let dangling = try #require(rows.first { $0["tool"] == "read_file" })
+        #expect(dangling["id"] == .null && dangling["bytes"] == .null && dangling["uri"] == .null, "\(dangling)")
+        #expect(dangling["stored"] == nil)
+        let emptyID = try #require(empty.id)
+        #expect(try await WispMCPTests.text(second.server, "wisp://threads/g/output/\(emptyID)").isEmpty)
+        await end(second)
+    }
+
+    @Test func aSavedThreadsNextContextIsPagedAndAPageBeyondTheLastIsRefused() async throws {
+        let home = try home()
+        let first = try await connect(home, steps: [.say("one")])
+        let prompt = (1...1500).map { "line \($0) of a long prompt to carry" }.joined(separator: "\n")
+        _ = try await call(first.client, "respond", ["prompt": .string(prompt), "thread_id": "big"])
+        await end(first)
+        let second = try await connect(home)
+        let uri = "wisp://threads/big/context/next"
+        let page1 = try await WispMCPTests.text(second.server, uri)
+        #expect(page1.hasPrefix("(page 1 of "), "\(page1.prefix(80))")
+        #expect(page1.contains("; the next is \(uri)?page=2)"), "\(page1.prefix(120))")
+        let past = try #require(await refusal(second.server, uri + "?page=99"))
+        #expect(past.contains("page 99 is past the last"), "\(past)")
+        await end(second)
+    }
+
+    @Test func differentToolsOnAResumeAreRefusedNamingThem() async throws {
+        let home = try home()
+        let first = try await connect(home)
+        _ = try await call(first.client, "respond", ["prompt": "hi", "thread_id": "t", "tools": ["current_date"]])
+        await end(first)
+        let second = try await connect(home)
+        let refused = try await call(
+            second.client, "respond", ["prompt": "hi", "thread_id": "t", "tools": ["system_info"]])
+        #expect(refused.isError == true)
+        #expect(text(refused).contains("these settings differ: tools"), "\(text(refused))")
+        #expect(ThreadStore(home: home).holder(of: "t") == nil)
+        await end(second)
+    }
+
+    @Test func aTurnThatOverflowsTheContextSaysToCloseTheThreadAndOtherFailuresAreReported() async throws {
+        let home = try home()
+        let overflow = LanguageModelError.contextSizeExceeded(
+            .init(contextSize: 10, tokenCount: 11, debugDescription: "x", metadata: [:]))
+        let full = try await connectFailing(home, error: overflow)
+        let exhausted = try await call(full.client, "respond", ["prompt": "hi", "thread_id": "x"])
+        #expect(exhausted.isError == true)
+        #expect(
+            text(exhausted) == "thread x has exhausted the model's context window; close it and start a new one",
+            "\(text(exhausted))")
+        await end(full)
+        struct Broken: Error, CustomStringConvertible { var description: String { "the model fell over" } }
+        let broken = try await connectFailing(home, error: Broken())
+        let failed = try await call(broken.client, "respond", ["prompt": "hi", "thread_id": "y"])
+        #expect(failed.isError == true && text(failed) == "the model fell over", "\(text(failed))")
+        await end(broken)
+    }
+
+    @Test func closingAThreadWhoseDirectoryCannotBeDeletedStillClosesIt() async throws {
+        let home = try home()
+        let pair = try await connect(home)
+        _ = try await call(pair.client, "respond", ["prompt": "hi", "thread_id": "stuck"])
+        let threads = ThreadStore(home: home).directory(of: "stuck").deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: threads.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: threads.path) }
+        let closed = try await call(pair.client, "close_thread", ["thread_id": "stuck"])
+        #expect(closed.isError == false && text(closed) == "closed stuck", "\(text(closed))")
+        let end = pair.sink.events.last { $0.kind == .sessionEnd && $0.session.hasPrefix("stuck-") }
+        #expect(end?.details["reason"] == "closed")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: threads.path)
+        await self.end(pair)
     }
 }
