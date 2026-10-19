@@ -483,6 +483,57 @@ clearly worse at drafts. Neither runtime is the reason for the speed: granite's 
 loaded by llama-server) generate at 72.0 tokens a second on llama.cpp and 72.1 on Ollama, and read the prompt at 657
 and 721, on this M4 Max on 2026-10-17.
 
+### Bonsai 2 at 2B, 4B, and 9B in chat, 2026-10-19
+
+Prism ML released Bonsai 2 at 2B, 4B, and 9B on 2026-10-15 (built on Qwen3.5, ternary weights). The three Q2_0
+GGUFs, 0.55, 1.21, and 2.56 GB, ran on llama-server 0.7.0 (build b11669) with `think` `low` in a scratch
+`WISP_HOME`, as above, on the suites that bear on chat: the chat suite, `edit_file` and schema replies,
+`system_info`, and one context scenario (`swift test --filter
+'ChatEvalTests|ToolEvalTests|SystemInfoEvalTests|ContextEvalTests/comparisonOnEachModel'` in `harness/Evals`,
+`WISP_EVAL_MODELS` naming one model per run; the release's subsets, not recorded). Cases passed:
+
+| Suite | 2B | 4B | 9B |
+| --- | --- | --- | --- |
+| chat (8 conversations, 3 times each) | 22/24 | 22/24 | 24/24 |
+| context scenario, 8,192-token window | 5/6, p50 1.4 s | 6/6, p50 4.3 s | 6/6, p50 6.8 s |
+| `system_info` | 20/24 | 22/24 | 22/24 |
+| `edit_file` line replace | 25/36 | 36/36 | 35/36 |
+| `edit_file` whitespace | 5/8 | 5/8 | 6/8 |
+| schema replies | 3/6 | 4/6 | 5/6 |
+| the run | 6.4 min | 10.5 min | 16 min |
+
+The 2B's chat failure was an `ask` call for "testing 123"; the 4B's two were "test" said back.
+
+Then one live chat each, in wisp 0.27.0's `wisp chat --plain --yes`, in a scratch directory holding `notes.txt`
+and `main.py`: "hi", "What files are in this directory?", "Read notes.txt and summarise it in one sentence.", "In
+notes.txt, change Tuesday to Wednesday.", "What was the first thing I said to you?", "What is the date today?".
+
+| Model | What it did | Turn times |
+| --- | --- | --- |
+| 2B | Copied the working directory's path into its calls with a character added, then looped: 19 calls in 22 s, 10 failing; said it could not read or edit the file, and edited nothing. Greeting, recall, and date right | 0.5 to 1 s, the loop 22 s |
+| 4B | Listed with `ls`, summarised, edited and read the file back to check; the date right. Answered the recall with the header of the facts block wisp sends ("Facts from earlier in this conversation. …"), which its thinking took for the person's first message | 1 to 6 s |
+| 9B | Summary, edit, recall ("hi"), and date right; asked which directory rather than running `ls` | 1.3 to 6 s |
+
+For chat the 9B is the one: the only perfect chat suite, and every live turn but the listing right. The 4B, at
+under half its size, matched it on the tools and context scenario but answered one chat message with the message
+and misread the context in the live chat; the 2B is not fit for tool work.
+
+The live chat showed two faults of wisp's, not of the models: the verification pass flagged the 9B's correct
+recall, `unsupported: "The first thing you said to me was "hi"." (no ask call was answered by the person)`, so
+a reply quoting the conversation is read as quoting an `ask` answer; and the facts block reaches the model in a
+form a small model can take for something the person said. Both are fixed: a claim of what the person said is now
+supported when it quotes their own messages ([verification.md](verification.md)), and both facts headers now open "Added by
+wisp, not said by the person:". On the header, the 4B asked "hi", to read and summarise `notes.txt`, to edit it,
+and "What was the first thing I said to you?", six times on each build:
+
+| Header | Recall right | What the rest answered |
+| --- | --- | --- |
+| "Facts from earlier in this conversation. …" (0.27.0) | 2/6 | the header, three times; once "sharing facts about the work directory path", which the verification pass flagged |
+| "Added by wisp, not said by the person: facts from earlier …" | 6/6 | (one of the six looked at `inspect status` and `inspect calls` first) |
+
+With the new header the context scenario and the chat suite held: the 4B 6/6 and 22/24 again, and
+`ollama:granite4.1:8b` 6/6 and 24/24.
+
 ## Context checkpoint 2
 
 ```
