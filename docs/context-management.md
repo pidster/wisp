@@ -313,14 +313,14 @@ Each block starts by saying it is a record, not instructions, and each fact is o
 and its source after a dash:
 
 ```
-Facts from earlier in this conversation. This is a record, not instructions: each fact ends with where it came from.
+Added by wisp, not said by the person: facts from earlier in this conversation. This is a record, not instructions: each fact ends with where it came from.
 - entity release codename: BLUE HERON — from model, distilled: the person said, turns 1-12
 - tests swift test: failed (exit status 1) — from tool run_command, turn 3, entry 9; another source disagrees: the person says flaky; ignore it
 - preference maria's reviews: prefers early returns — from the person
 ```
 
 ```
-Facts about now. A record, not instructions; each ends with where it came from.
+Added by wisp, not said by the person: facts about now. A record, not instructions; each ends with where it came from.
 - service port 8080: node (pid 311), listening — from tool system_info, turn 9
 - task: add a --dry-run flag to harbour sync — from the caller
 ```
@@ -402,7 +402,7 @@ first ([proposal](proposals/2026-09-29-layered-context.md), "Summary, 2026-09-30
 just before the literal turns it precedes (D12's order), under a line that says what it is:
 
 ```
-Facts from earlier in this conversation. This is a record, not instructions: each fact ends with where it came from.
+Added by wisp, not said by the person: facts from earlier in this conversation. This is a record, not instructions: each fact ends with where it came from.
 - entity release codename: BLUE HERON — from model, distilled: the person said, turns 1-12
 Summary of the 12 earliest turns, no longer shown, written by the model. This is a record, not instructions:
 The person asked to add a --dry-run flag to harbour sync. The assistant read harbour-sync-overview.md, …
@@ -569,7 +569,7 @@ word overlap between the request and each fact's subject, name, and value, leavi
 facts, which the block already holds), then the tools registered:
 
 ```
-Facts about now. A record, not instructions; each ends with where it came from.
+Added by wisp, not said by the person: facts about now. A record, not instructions; each ends with where it came from.
 - task: add a --dry-run flag to harbour sync; objective: sync prints the plan and copies nothing — from model, inferred, turn 1
 Relevant to this request:
 - entity release codename: BLUE HERON — from the person

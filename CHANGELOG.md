@@ -13,6 +13,8 @@ Fixed:
   answered `ask` question counted. The quote must be one of their messages, or a whole sentence of one; a claim
   without a quote, or a quote they never typed, is still flagged, and a claim that they chose, confirmed, or
   answered something still needs an answered question.
+- The facts blocks wisp adds to a request now open by saying wisp added them, not the person: a small model
+  answered "what was the first thing I said?" with the block's first line.
 
 ## 0.27.0
 
