@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Fixed:
+
+- The verification pass no longer flags a reply that says what the person said when their own messages say it:
+  `The first thing you said to me was "hi".` after the person typed `hi` was marked `unsupported:`, since only an
+  answered `ask` question counted. A quote the person never typed is still flagged, and a claim that they chose,
+  confirmed, or answered something still needs an answered question.
+
 ## 0.27.0
 
 Every thread is saved as it goes and resumed by any face: an agent's `respond` threads outlive their server, every

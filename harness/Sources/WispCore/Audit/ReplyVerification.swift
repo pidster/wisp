@@ -70,11 +70,13 @@ public enum ReplyVerification {
     ///   - earlier: Earlier turns' calls, a second support; empty for the first turn.
     ///   - answered: Whether the person has answered one of the conversation's questions another way than a call
     ///     this list holds (a note after a park, ADR 0062), which supports a claim about their answer.
+    ///   - said: The person's own messages in the conversation, this turn's included, which support a claim about
+    ///     what they said.
     ///   - output: A call's whole output, from the output store when it was kept; nil falls back to the call's own.
     /// - Returns: The unsupported claims.
     public static func claims(
         in reply: String, calls: [TurnCalls.Call], tools: [String], earlier: [TurnCalls.Call] = [],
-        answered: Bool = false, output: (TurnCalls.Call) -> String? = { _ in nil }
+        answered: Bool = false, said: [String] = [], output: (TurnCalls.Call) -> String? = { _ in nil }
     ) -> [Claim] {
         let support = Support(calls: calls, earlier: earlier, output: output)
         let raw = reply.components(separatedBy: "\n")
@@ -89,7 +91,7 @@ public enum ReplyVerification {
         found += removalClaims(lines: lines, support: support)
         found += outputClaims(lines: lines, raw: raw, form: form, support: support)
         found += countClaims(lines: lines, support: support)
-        if !answered { found += answerClaims(lines: lines, support: support) }
+        if !answered { found += answerClaims(lines: lines, support: support, said: said) }
         var seen: Set<String> = []
         return Array(found.filter { seen.insert($0.claim).inserted }.prefix(claimLimit))
     }
@@ -436,19 +438,59 @@ public enum ReplyVerification {
 
     /// The person said to have answered, chosen, said, or confirmed something when no `ask` call of this turn or an
     /// earlier one was answered (ADR 0062, D13): a model claiming the person agreed is the worst fabrication the
-    /// verb makes possible.
-    private static func answerClaims(lines: [String], support: Support) -> [Claim] {
-        let claimed = Pattern(
-            #"\b(?:you|the (?:person|user|operator))\s+(?:chose|picked|selected|said|told me|answered|confirmed|"#
-                + #"replied|opted)\b|\bas you (?:confirmed|said|chose|answered)\b|"#
-                + #"\bper your (?:answer|choice)\b|\byour (?:answer|choice) (?:was|is)\b"#)
+    /// verb makes possible. A claim that the person said or told the model something is also supported by their own
+    /// messages (`spoken`), since in a conversation they say things without being asked.
+    private static func answerClaims(lines: [String], support: Support, said: [String]) -> [Claim] {
+        let chosen = Pattern(
+            #"\b(?:you|the (?:person|user|operator))\s+(?:chose|picked|selected|answered|confirmed|replied|opted)\b|"#
+                + #"\bas you (?:confirmed|chose|answered)\b|\bper your (?:answer|choice)\b|"#
+                + #"\byour (?:answer|choice) (?:was|is)\b"#)
+        let spokenClaim = Pattern(#"\b(?:you|the (?:person|user|operator))\s+(?:said|told me)\b|\bas you said\b"#)
         let answeredCall = support.all.contains { call in
             call.tool == AskTool.toolName && ["answer:", "chose:"].contains { (call.output ?? "").hasPrefix($0) }
         }
         guard !answeredCall else { return [] }
-        return lines.filter(claimed.has).map {
-            Claim(reader: .answer, claim: quote($0), reason: "no ask call was answered by the person")
+        return lines.compactMap { line in
+            if chosen.has(line) {
+                return Claim(reader: .answer, claim: quote(line), reason: "no ask call was answered by the person")
+            }
+            guard spokenClaim.matches(line).contains(where: { !spoken(line, after: $0, said: said) }) else {
+                return nil
+            }
+            return Claim(
+                reader: .answer, claim: quote(line),
+                reason: "no ask call was answered by the person, and their messages do not say it")
         }
+    }
+
+    /// Whether the person's messages support what `line` says they said, after `match`: every quoted span in the
+    /// line is in one of them, word for word; with no quote, at least half the longer words after the claim are.
+    ///
+    /// - Parameters:
+    ///   - line: The reply's line.
+    ///   - match: Where it says the person said something.
+    ///   - said: The person's messages.
+    /// - Returns: Whether they support it.
+    static func spoken(_ line: String, after match: NSTextCheckingResult, said: [String]) -> Bool {
+        guard !said.isEmpty else { return false }
+        let messages = said.map { " " + words($0).joined(separator: " ") + " " }
+        let has = { (phrase: [String]) in
+            let needle = " " + phrase.joined(separator: " ") + " "
+            return messages.contains { $0.contains(needle) }
+        }
+        let quoted = Pattern(#""([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`"#).matches(line).compactMap { found in
+            [1, 2, 3].lazy.compactMap { Range(found.range(at: $0), in: line) }.first.map { words(String(line[$0])) }
+        }.filter { !$0.isEmpty }
+        if !quoted.isEmpty { return quoted.allSatisfy(has) }
+        guard let range = Range(match.range, in: line) else { return false }
+        let content = words(String(line[range.upperBound...])).filter { $0.count >= 4 }
+        guard !content.isEmpty else { return true }
+        return content.filter { has([$0]) }.count * 2 >= content.count
+    }
+
+    /// The words of `text`, lowercased: its runs of letters and digits.
+    static func words(_ text: String) -> [String] {
+        text.lowercased().split { !($0.isLetter || $0.isNumber) }.map(String.init)
     }
 
     /// The lines a command printed, from `run_command`'s rendering: the non-blank lines after the `stdout:` heading.

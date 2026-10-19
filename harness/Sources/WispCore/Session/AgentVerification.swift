@@ -247,8 +247,10 @@ extension Agent {
         let answered = allFacts.contains {
             $0.identity.subject == FactExtraction.answerSubject && $0.source == .person && $0.state == .current
         }
+        // What the person said in their own messages supports a reply that says they said it.
+        let said = store.entries.filter { $0.kind == .prompt }.map { ThreadRecord.text(of: $0.value) }
         let claims = ReplyVerification.claims(
-            in: reply, calls: calls, tools: names, earlier: earlier, answered: answered, output: read)
+            in: reply, calls: calls, tools: names, earlier: earlier, answered: answered, said: said, output: read)
         var result: Verification
         var bytes: Int?
         var model: ModelSelection?

@@ -610,7 +610,7 @@ final class ScriptedAsker: Asker, Sendable {
         ] {
             let claims = ReplyVerification.claims(in: reply, calls: [], tools: tools)
             #expect(claims.count == 1 && claims.first?.reader == .answer, "\(reply)")
-            #expect(claims.first?.reason == "no ask call was answered by the person")
+            #expect(claims.first?.reason.hasPrefix("no ask call was answered by the person") == true)
             #expect(ReplyVerification.claims(in: reply, calls: [asked], tools: tools).isEmpty, "\(reply)")
             #expect(ReplyVerification.claims(in: reply, calls: [], tools: tools, earlier: [asked]).isEmpty)
             // An answer that reached the thread as a note after a park is a fact, not a call.
@@ -620,6 +620,31 @@ final class ScriptedAsker: Asker, Sendable {
         #expect(
             ReplyVerification.claims(in: "You could choose either; tell me which.", calls: [], tools: tools).isEmpty)
         #expect(ReplyVerification.claims(in: "I chose the first file.", calls: [], tools: tools).isEmpty)
+    }
+
+    /// A reply that says what the person said is supported by their own messages: a quote word for word, or without
+    /// one most of the longer words after the claim. A choice is still supported only by an answered question.
+    @Test func theAnswerReaderTakesWhatThePersonSaidFromTheirMessages() {
+        let tools = ["run_command", "ask"]
+        let said = ["hi", "What files are in this directory?", "the codename is BLUE HERON"]
+        let check = { (reply: String) in ReplyVerification.claims(in: reply, calls: [], tools: tools, said: said) }
+        for supported in [
+            #"The first thing you said to me was "hi"."#, "You said “What files are in this directory?”",
+            "You told me the codename is BLUE HERON.", "As you said, the `codename` matters.", "You said so.",
+        ] {
+            #expect(check(supported).isEmpty, "\(supported)")
+        }
+        for unsupported in [
+            #"You said "yes"."#, #"You said "hi" and then "go ahead"."#, "You told me the password is swordfish.",
+            "You chose b, so I used it.",
+        ] {
+            let claims = check(unsupported)
+            #expect(claims.count == 1 && claims.first?.reader == .answer, "\(unsupported)")
+        }
+        // A word inside another is not the word: "hi" is not in "this".
+        #expect(check(#"You said "hi"."#).isEmpty)
+        #expect(
+            ReplyVerification.claims(in: #"You said "hi"."#, calls: [], tools: tools, said: ["this one"]).count == 1)
     }
 
     @Test func chatShowsTheQuestionsEventsAndPausesItsWorkingLine() {

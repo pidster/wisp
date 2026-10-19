@@ -206,6 +206,20 @@ import WispTestSupport
         #expect(direct.verification == nil && direct.verified == nil)
     }
 
+    /// What the person typed in their messages supports a reply that says they said it; a quote they never typed
+    /// is still flagged (found live on Bonsai 2 9B, 2026-10-19: a correct recall of "hi" was flagged).
+    @Test func thePersonsOwnMessagesSupportWhatTheReplySaysTheySaid() async throws {
+        let conversation = try Conversation(steps: [
+            .say("Hello!"), .say(#"The first thing you said to me was "hi"."#), .say(#"You said "yes"."#),
+        ])
+        defer { conversation.remove() }
+        _ = try await conversation.agent.respond(to: "hi")
+        let recall = try await conversation.agent.respond(to: "What was the first thing I said to you?")
+        #expect(recall.verified == nil, "\(String(describing: recall.verification))")
+        let invented = try await conversation.agent.respond(to: "and then?")
+        #expect(invented.verification?.claims.map(\.reader) == [.answer])
+    }
+
     @Test func earlierTurnsCallsAreKeptAsSupportWithinTheBound() async throws {
         let conversation = try Conversation(steps: [
             .say("placeholder"), .say("Done."), .say("Earlier I executed `echo hi`, as you asked."),
