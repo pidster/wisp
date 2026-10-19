@@ -622,27 +622,29 @@ final class ScriptedAsker: Asker, Sendable {
         #expect(ReplyVerification.claims(in: "I chose the first file.", calls: [], tools: tools).isEmpty)
     }
 
-    /// A reply that says what the person said is supported by their own messages: a quote word for word, or without
-    /// one most of the longer words after the claim. A choice is still supported only by an answered question.
-    @Test func theAnswerReaderTakesWhatThePersonSaidFromTheirMessages() {
+    /// A reply that says what the person said is supported when it quotes their own messages: each quote one of them,
+    /// or a whole sentence of one, word for word. A claim without a quote, or a quote that is part of a sentence, is
+    /// flagged: "you said to delete the file" after "don't delete the file" shares its words, not its meaning. A choice
+    /// is still supported only by an answered question.
+    @Test func theAnswerReaderTakesWhatThePersonSaidOnlyFromAQuoteOfThem() {
         let tools = ["run_command", "ask"]
-        let said = ["hi", "What files are in this directory?", "the codename is BLUE HERON"]
+        let said = ["hi", "What files are in this directory?", "The codename is BLUE HERON. Don't delete the file."]
         let check = { (reply: String) in ReplyVerification.claims(in: reply, calls: [], tools: tools, said: said) }
         for supported in [
             #"The first thing you said to me was "hi"."#, "You said “What files are in this directory?”",
-            "You told me the codename is BLUE HERON.", "As you said, the `codename` matters.", "You said so.",
+            #"You told me "the codename is blue heron"."#, "As you said, `don't delete the file`.",
         ] {
             #expect(check(supported).isEmpty, "\(supported)")
         }
         for unsupported in [
-            #"You said "yes"."#, #"You said "hi" and then "go ahead"."#, "You told me the password is swordfish.",
+            #"You said "yes"."#, #"You said "hi" and then "go ahead"."#, "You told me the codename is BLUE HERON.",
+            "You said to delete the file.", #"You said "delete the file"."#, "You said so.",
             "You chose b, so I used it.",
         ] {
             let claims = check(unsupported)
             #expect(claims.count == 1 && claims.first?.reader == .answer, "\(unsupported)")
         }
         // A word inside another is not the word: "hi" is not in "this".
-        #expect(check(#"You said "hi"."#).isEmpty)
         #expect(
             ReplyVerification.claims(in: #"You said "hi"."#, calls: [], tools: tools, said: ["this one"]).count == 1)
     }

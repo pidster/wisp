@@ -8,10 +8,11 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 Fixed:
 
-- The verification pass no longer flags a reply that says what the person said when their own messages say it:
+- The verification pass no longer flags a reply that quotes what the person said in their own messages:
   `The first thing you said to me was "hi".` after the person typed `hi` was marked `unsupported:`, since only an
-  answered `ask` question counted. A quote the person never typed is still flagged, and a claim that they chose,
-  confirmed, or answered something still needs an answered question.
+  answered `ask` question counted. The quote must be one of their messages, or a whole sentence of one; a claim
+  without a quote, or a quote they never typed, is still flagged, and a claim that they chose, confirmed, or
+  answered something still needs an answered question.
 
 ## 0.27.0
 

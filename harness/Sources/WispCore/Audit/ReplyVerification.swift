@@ -438,8 +438,8 @@ public enum ReplyVerification {
 
     /// The person said to have answered, chosen, said, or confirmed something when no `ask` call of this turn or an
     /// earlier one was answered (ADR 0062, D13): a model claiming the person agreed is the worst fabrication the
-    /// verb makes possible. A claim that the person said or told the model something is also supported by their own
-    /// messages (`spoken`), since in a conversation they say things without being asked.
+    /// verb makes possible. A claim that the person said or told the model something is also supported when it quotes
+    /// their own messages (`spoken`), since in a conversation they say things without being asked.
     private static func answerClaims(lines: [String], support: Support, said: [String]) -> [Claim] {
         let chosen = Pattern(
             #"\b(?:you|the (?:person|user|operator))\s+(?:chose|picked|selected|answered|confirmed|replied|opted)\b|"#
@@ -454,38 +454,32 @@ public enum ReplyVerification {
             if chosen.has(line) {
                 return Claim(reader: .answer, claim: quote(line), reason: "no ask call was answered by the person")
             }
-            guard spokenClaim.matches(line).contains(where: { !spoken(line, after: $0, said: said) }) else {
+            guard spokenClaim.has(line), !spoken(line, said: said) else {
                 return nil
             }
             return Claim(
                 reader: .answer, claim: quote(line),
-                reason: "no ask call was answered by the person, and their messages do not say it")
+                reason: "no ask call was answered by the person, and it quotes none of their messages")
         }
     }
 
-    /// Whether the person's messages support what `line` says they said, after `match`: every quoted span in the
-    /// line is in one of them, word for word; with no quote, at least half the longer words after the claim are.
+    /// Whether the person's messages support what `line` says they said: it quotes them, and every quoted span is one
+    /// of their messages or a whole sentence of one, word for word. A part of a sentence is not enough, since it can
+    /// leave out a "don't", and neither is a claim without a quote, which no reader can check against what they wrote.
     ///
     /// - Parameters:
     ///   - line: The reply's line.
-    ///   - match: Where it says the person said something.
     ///   - said: The person's messages.
     /// - Returns: Whether they support it.
-    static func spoken(_ line: String, after match: NSTextCheckingResult, said: [String]) -> Bool {
-        guard !said.isEmpty else { return false }
-        let messages = said.map { " " + words($0).joined(separator: " ") + " " }
-        let has = { (phrase: [String]) in
-            let needle = " " + phrase.joined(separator: " ") + " "
-            return messages.contains { $0.contains(needle) }
-        }
+    static func spoken(_ line: String, said: [String]) -> Bool {
+        let sentences = Set(
+            said.flatMap { message in
+                [message] + message.split(whereSeparator: { ".!?;\n".contains($0) }).map(String.init)
+            }.map { words($0) }.filter { !$0.isEmpty })
         let quoted = Pattern(#""([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`"#).matches(line).compactMap { found in
             [1, 2, 3].lazy.compactMap { Range(found.range(at: $0), in: line) }.first.map { words(String(line[$0])) }
         }.filter { !$0.isEmpty }
-        if !quoted.isEmpty { return quoted.allSatisfy(has) }
-        guard let range = Range(match.range, in: line) else { return false }
-        let content = words(String(line[range.upperBound...])).filter { $0.count >= 4 }
-        guard !content.isEmpty else { return true }
-        return content.filter { has([$0]) }.count * 2 >= content.count
+        return !quoted.isEmpty && quoted.allSatisfy(sentences.contains)
     }
 
     /// The words of `text`, lowercased: its runs of letters and digits.
