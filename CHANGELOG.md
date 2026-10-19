@@ -6,8 +6,21 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
-MCP threads outlive their server: every `respond` thread is saved as it goes and resumed, with its own settings, by
-the next server that is asked for it.
+Every thread is saved as it goes and resumed by any face: an agent's `respond` threads outlive their server, every
+chat is saved without `/save`, and `wisp chat --resume` opens any thread, an agent's included.
+
+Breaking:
+
+- Chat no longer writes `~/.wisp/transcripts`. Every chat is saved in the thread store, `~/.wisp/threads/<id>/`, and
+  `/save NAME` renames it there, so wisp 0.26.4 and earlier cannot resume a chat this release saved. Chats saved
+  before still open with `--resume NAME` (below).
+- A `respond` call naming a `thread_id` that an earlier server saved resumes that thread, with its saved settings,
+  where it used to start a fresh one on the call's. Start settings that differ from the saved ones are refused, and
+  so is a `thread_id` another client saved (`thread git belongs to codex, and this client is claude-code; …`):
+  choose another `thread_id` for a fresh thread, or `close_thread` the old one.
+- A `thread_id` starting with `.` is refused.
+
+Added:
 
 - Every `respond` thread is saved after each turn under `~/.wisp/threads/<thread_id>/`, so a reconnect, a new build,
   or a crash no longer loses it. Naming it again resumes it with its saved model, tools, instructions, `think`, and
@@ -15,22 +28,16 @@ the next server that is asked for it.
   `resumed thread git (12 turns, saved 2026-10-16 09:12)`. An evicted thread stays saved and is resumed the same way.
 - Start settings sent again on an existing or saved thread are accepted when they equal its own and refused naming
   the ones that differ (`git was saved with model ollama:granite4.1:8b, tools run_command; these settings differ:
-  model`), so a client that always sends its settings continues its thread instead of getting a new one on the
-  defaults.
+  model`), so a client that always sends its settings continues its thread instead of getting an error.
 - A thread is held by one wisp at a time; another is refused with `thread git is open in another wisp (pid 4242,
   claude-code)`. A thread belongs to the client that opened it, and another client's is refused and not listed.
-- `close_thread` deletes the thread from the store. A saved thread unused for `threads.keepDays` (30 by default, 0
-  to keep them) is deleted with its stored outputs at a later start and audited as `thread.swept`; until then the
-  output store's sweep keeps its outputs.
+- `close_thread` deletes the thread from the store. A saved thread, chat's or an agent's, unused for
+  `threads.keepDays` (30 by default, 0 to keep them) is deleted with its stored outputs at a later start and audited
+  as `thread.swept`; until then the output store's sweep keeps its outputs.
 - `wisp://threads` lists the client's saved threads beside the server's, with `owner` and a `state` of `open`,
   `saved`, or `open elsewhere`; a saved thread's summary, facts, and context are read from its files, and a thread's
   audit, output, and reasoning cover every server that held it. A resumed thread's `session.start` records `resume`
   and `carriedFrom`.
-- A `thread_id` starting with `.` is refused.
-
-Chat is on the same store: every chat is saved as it goes, and any thread, an agent's included, can be opened in
-chat.
-
 - Every chat is a thread, saved after each turn under `~/.wisp/threads/chat-<id>/`, so nothing is lost to a crash or a
   forgotten `/save`. `/save NAME` renames it (refused for a name another thread has), and `/new` starts another,
   leaving the last one saved. A chat quit before it had anything to save leaves nothing behind.

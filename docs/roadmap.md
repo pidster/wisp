@@ -26,7 +26,7 @@ measurement.
   ADR's amendment of that date). Every
   thread, from chat or MCP, is saved after each turn under `~/.wisp/threads/<id>/` with its start settings, and a
   face that names one it does not hold resumes it, under a new audit session linked to the old ones. One process
-  holds a thread at a time; an MCP caller resumes only its own client's threads and those handed to it;
+  holds a thread at a time; an MCP caller resumes only its own client's threads (handing one to another client is phase 3);
   `close_thread` deletes; a thread unused for 30 days is swept. Chat's `/save` and `--resume` are names in the
   same store, `/threads` lists every thread, and an agent's thread opens in chat with its settings. The plan, with every decision and its phases:
   [proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md). Phase 3 (`wisp threads`,

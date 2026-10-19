@@ -119,7 +119,7 @@ return something small; and two that manage `respond`'s threads:
 
 | Tool | Gives back |
 | --- | --- |
-| `respond` | The model's reply to a task, on a named thread you can continue; with a JSON Schema, a reply of that shape |
+| `respond` | The model's reply to a task, on a named thread you can continue, saved as it goes so a later server resumes it; with a JSON Schema, a reply of that shape |
 | `triage` | Only the failures from a build or test run, read exactly from known formats or judged by the model |
 | `summarise_diff` | A diff as one line per file, with review flags: a deleted test, a credential, a binary |
 | `draft_change` | A commit message, PR description, or changelog line from a diff |
@@ -131,7 +131,7 @@ return something small; and two that manage `respond`'s threads:
 | `flaky_tests` | Tests that pass in some runs and fail in others |
 | `hot_paths` | A profile's folded stacks as where the time goes |
 | `set_fact_scope` | Moves a fact of a `respond` thread to the thread or the session, or asks you to keep it as a permanent fact |
-| `close_thread` | Frees a `respond` thread |
+| `close_thread` | Ends a `respond` thread and deletes it from the thread store |
 
 A failing `swift test` run comes back as a headline and a few `file:line: message` findings; two
 minutes of the unified log, 14,333 lines, came back as its top thirty message templates in about 10 KB. The raw output never
@@ -208,7 +208,8 @@ and delete.
 | | **Custom classifiers**: train one on your own audit log or labelled commands, measure it, and switch to it | [wisp.md](docs/wisp.md#wisp-classifier), [approval.md](docs/approval.md#training-and-measuring-a-classifier) |
 | | Approvals with a scope (turn, session, project, always), and answering an MCP session's request from another terminal or from chat | [approval.md](docs/approval.md#approval-over-mcp-through-another-face) |
 | | One page on what wisp can and cannot do to your Mac, and how to undo it | [trust.md](docs/trust.md) |
-| Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself, `!!command` outside the sandbox; save and resume a conversation | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
+| Conversation | `wisp chat` and the `wisp-tui` front end; `! command` to run something yourself, `!!command` outside the sandbox | [wisp.md](docs/wisp.md#wisp-chat), [ADR 0049](docs/decisions/0049-commands-typed-in-chat.md) |
+| | Every chat and MCP thread saved as it goes in one thread store; `/threads` lists them, and `wisp chat --resume ID` opens any of them, an agent's included | [wisp.md](docs/wisp.md#saved-threads), [mcp.md](docs/mcp.md#saved-and-resumed-threads), [ADR 0066](docs/decisions/0066-one-thread-store.md) |
 | | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | The model asks you a question mid-turn with its `ask` tool (off by default), in chat, `wisp-tui`, or from an MCP session through `wisp questions`; never for a secret | [tools/ask.md](docs/tools/ask.md), [ADR 0062](docs/decisions/0062-the-inquiry-verb.md) |

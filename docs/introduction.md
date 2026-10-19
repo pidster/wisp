@@ -17,7 +17,8 @@ commit for secrets.
 | The command line | `wisp "…"`, `wisp chat` (with `wisp-tui`, its terminal front end), and one-job subcommands: `wisp scan`, `wisp redact`, `wisp watch`, `wisp draft`, `wisp notify` | Asking a question, handing over a task, a conversation, everyday jobs that need no prompt |
 | The MCP server | `wisp mcp`, registered in your agent's MCP configuration | `respond`, which runs a task on the local model on a named thread, and ten condensing tools that read something large on the Mac and return something small |
 
-Both open the same kind of session, with one configuration, one set of approvals, and one audit log.
+Both open the same kind of session, with one configuration, one set of approvals, one audit log, and one store of
+saved threads, so a conversation outlives the process that held it and you can open an agent's thread in chat.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="images/overview-dark.svg">

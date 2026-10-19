@@ -78,7 +78,7 @@ an `OutOfBandApprover` asks through the client's elicitation and files the reque
 (`PendingApprovals`) for `wisp approvals approve|deny`, `wisp-tui`, or plain chat's `/approvals` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048; so is the model's question, by `OutOfBandAsker`, for `wisp questions answer|decline`, the turn parking after 60 s and the answer reaching the thread's next turn, ADR 0062), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout; a command the model asks to run with `outsideSandbox`, approved by the person every time and remembered by nothing, or one the person types after `!!` in chat, runs without `sandbox-exec` (`commandPolicy.sandbox.allowOutsideSandbox`, ADR 0064). `FileReader` pages files. Every tool result is bounded by one
 `ToolBudget`, an eighth of the model's window, and what does not fit is kept whole by `OutputStore` under
 `~/.wisp/output/<session>/`, for `memory` to page, filter, summarise, or condense (ADR 0050).
-`Home`, `Config`, `TranscriptStore`, and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
+`Home`, `Config`, `ThreadStore` (every thread, chat's and MCP's, saved after each turn under `threads/<id>/` and resumed by any face, ADR 0066; `TranscriptStore` writes its record and reads chats saved before 0.27.0), and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
 file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension`, and the caller's instructions (ADR 0017). `AuditLog` writes JSON Lines; `Diagnostics` wraps
 unified logging. `Agent` keeps each conversation in a `ThreadRecord` that refers to the audit log, and
@@ -157,7 +157,7 @@ every turn, so after a reconnect or a new build the same call resumes it with it
 thread, live or saved, settings equal to its own are accepted and different ones refused, naming the field
 (ADR 0066):
 
-- `thread_id`: `git` (or `git2`, `git3` if the thread was closed).
+- `thread_id`: `git` (or `git2`, `git3` if `git` is open in another wisp, another client's, or saved with other settings).
 - `tools`: `["run_command"]`, so the model has nothing else to reach for.
 - `model`: `ollama:granite4.1:8b`, the default local Ollama model (see the model choice below). It
   follows a fixed instruction reliably and its context window is far larger than the on-device model's,
