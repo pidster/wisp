@@ -267,6 +267,12 @@ the fences dimmed; a fence left open closes at the end of the turn. Anything tha
 such as `2 * 3` or `snake_case`, is left as typed. The line still being streamed is shown raw until it
 is complete.
 
+Tool calls, thinking, and approvals stay in the quiet tone, with the words that say what happened in a colour of
+their own: a call's `⚙` and tool name (`⚙ edit_file`) in the wisp blue, a stretch of thinking's `∴ thought` in a
+grey, and an approval's `⚠` and its words up to the colon (`⚠ approved for this turn`, `⚠ waiting in wisp mcp`) in
+the approvals' amber, or red when it was refused. The rest of each line, and every result and output under it, stays
+quiet.
+
 #### Commands you run yourself
 
 A line that starts with `!` is a command you run, not a message: `! git status --short` and `!git status

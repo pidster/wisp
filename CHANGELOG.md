@@ -12,6 +12,9 @@ Changed:
   `commandTimeoutSeconds` or the operator's `commandTimeoutSeconds` gets that limit instead, and `command.outcome`
   records the request as `timeoutAsked`. A git thread started with 600 s had its model ask for 30 s on its own, which
   killed a `git commit` partway through its pre-commit hook (ADR 0067).
+- `wisp-tui` sets apart what happened from the quiet rest of a line: a tool call's `⚙` and tool name in the wisp
+  blue, a stretch of thinking's `∴ thought` in grey, and an approval's `⚠ approved for this turn` (and the like) in
+  amber, or red when refused.
 
 ## 0.27.1
 

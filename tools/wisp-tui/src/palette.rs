@@ -92,6 +92,10 @@ pub fn code() -> Style {
 pub fn amber() -> Style {
     Style::default().fg(AMBER)
 }
+/// The lead of a stretch of thinking's line, `∴ thought`: `HELP`'s grey, quieter than a tool call's.
+pub fn thinking() -> Style {
+    Style::default().fg(HELP)
+}
 /// Danger.
 pub fn ember() -> Style {
     Style::default().fg(EMBER)

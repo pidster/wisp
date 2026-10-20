@@ -621,12 +621,46 @@ fn styled(line: &HistoryLine) -> Line<'static> {
         }
         LineKind::Code => palette::code(),
         LineKind::Output => palette::body(),
-        LineKind::Tool | LineKind::ToolOutput | LineKind::Note | LineKind::Fence => {
+        LineKind::Tool | LineKind::Note => {
+            if let Some((end, lead)) = lead(line.kind, &line.text) {
+                let (head, rest) = line.text.split_at(end);
+                return Line::from(vec![
+                    Span::styled(head.to_string(), lead),
+                    Span::styled(rest.to_string(), palette::muted()),
+                ]);
+            }
             palette::muted()
         }
+        LineKind::ToolOutput | LineKind::Fence => palette::muted(),
         LineKind::Error => palette::ember(),
     };
     Line::from(Span::styled(line.text.clone(), style))
+}
+
+/// Where a line's lead ends, and its colour, so what happened stands apart from the muted rest: a tool call's `⚙` and
+/// tool name in `WISP`, a stretch of thinking's `∴ thought` in `HELP`'s grey, and an answered or waiting approval's
+/// `⚠` and words up to the colon in `AMBER`, or `EMBER` when it was refused. None for any other line.
+fn lead(kind: LineKind, text: &str) -> Option<(usize, Style)> {
+    let word = |glyph: &str| {
+        let after = text.strip_prefix(glyph)?;
+        Some(glyph.len() + after.find(' ').unwrap_or(after.len()))
+    };
+    match kind {
+        LineKind::Tool if text.starts_with("⚙ ") => word("⚙ ").map(|end| (end, palette::wisp())),
+        LineKind::Tool if text.starts_with("∴ ") => {
+            word("∴ ").map(|end| (end, palette::thinking()))
+        }
+        LineKind::Tool | LineKind::Note if text.starts_with("⚠ ") => {
+            let end = text.find(':')?;
+            let style = if text[..end] == *"⚠ refused" {
+                palette::ember()
+            } else {
+                palette::amber()
+            };
+            Some((end, style))
+        }
+        _ => None,
+    }
 }
 
 /// Rows `text` takes at `width`, counting characters (wide glyphs may take one more).
@@ -898,6 +932,65 @@ mod tests {
             ("let **x** = 1".into(), palette::code())
         );
         assert_eq!(text(&styled(&line("`raw`", LineKind::Tool))), "`raw`");
+    }
+
+    #[test]
+    fn what_happened_leads_its_line_in_its_own_colour() {
+        let spans = |text: &str, kind| -> Vec<(String, ratatui::style::Style)> {
+            styled(&HistoryLine {
+                text: text.into(),
+                kind,
+            })
+            .spans
+            .iter()
+            .map(|span| (span.content.to_string(), span.style))
+            .collect()
+        };
+        let muted = palette::muted();
+        assert_eq!(
+            spans("⚙ edit_file append /tmp/a", LineKind::Tool),
+            [
+                ("⚙ edit_file".into(), palette::wisp()),
+                (" append /tmp/a".into(), muted)
+            ]
+        );
+        assert_eq!(
+            spans("∴ thought for 3.3 s, 13 tokens", LineKind::Tool),
+            [
+                ("∴ thought".into(), palette::thinking()),
+                (" for 3.3 s, 13 tokens".into(), muted)
+            ]
+        );
+        assert_eq!(
+            spans("⚠ approved for this turn: git push", LineKind::Note),
+            [
+                ("⚠ approved for this turn".into(), palette::amber()),
+                (": git push".into(), muted)
+            ]
+        );
+        assert_eq!(
+            spans("⚠ refused: git push", LineKind::Note),
+            [
+                ("⚠ refused".into(), palette::ember()),
+                (": git push".into(), muted)
+            ]
+        );
+        assert_eq!(
+            spans("⚙ read_file", LineKind::Tool),
+            [
+                ("⚙ read_file".into(), palette::wisp()),
+                (String::new(), muted)
+            ]
+        );
+        // A result, a step, and a tool's output stay muted throughout.
+        for (text, kind) in [
+            ("  ↳ exit 0", LineKind::Tool),
+            ("   · safe by rules", LineKind::Tool),
+            ("⚙ not a call", LineKind::ToolOutput),
+            ("⚠ no colon here", LineKind::Note),
+        ] {
+            assert_eq!(spans(text, kind), [(text.to_string(), muted)], "{text}");
+        }
     }
 
     #[test]
