@@ -639,7 +639,7 @@ fn styled(line: &HistoryLine) -> Line<'static> {
 
 /// Where a line's lead ends, and its colour, so what happened stands apart from the muted rest: a tool call's `⚙` and
 /// tool name in `WISP`, a stretch of thinking's `∴ thought` in `HELP`'s grey, and an answered or waiting approval's
-/// `⚠` and words up to the colon in `AMBER`, or `EMBER` when it was refused. None for any other line.
+/// `✓` or `⚠` and words up to the colon in `AMBER`, or `EMBER` when it was refused. None for any other line.
 fn lead(kind: LineKind, text: &str) -> Option<(usize, Style)> {
     let word = |glyph: &str| {
         let after = text.strip_prefix(glyph)?;
@@ -650,7 +650,7 @@ fn lead(kind: LineKind, text: &str) -> Option<(usize, Style)> {
         LineKind::Tool if text.starts_with("∴ ") => {
             word("∴ ").map(|end| (end, palette::thinking()))
         }
-        LineKind::Tool | LineKind::Note if text.starts_with("⚠ ") => {
+        LineKind::Tool | LineKind::Note if text.starts_with("⚠ ") || text.starts_with("✓ ") => {
             let end = text.find(':')?;
             let style = if text[..end] == *"⚠ refused" {
                 palette::ember()
@@ -962,9 +962,9 @@ mod tests {
             ]
         );
         assert_eq!(
-            spans("⚠ approved for this turn: git push", LineKind::Note),
+            spans("✓ approved for this turn: git push", LineKind::Note),
             [
-                ("⚠ approved for this turn".into(), palette::amber()),
+                ("✓ approved for this turn".into(), palette::amber()),
                 (": git push".into(), muted)
             ]
         );

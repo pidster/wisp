@@ -200,7 +200,8 @@ An approval takes the input's place in the band: a rounded border in the level's
 the level, around the command (wrapped to four rows), the whole line when the command is one part of
 it, the directory, each reason, the pattern the answer is remembered under, and the keys, as `wisp
 chat` offers them. Lines too long for the dialog end in an ellipsis. The answer is recorded in the
-scrollback as one line, `⚠ approved for this session: git push` or `⚠ refused: …`, and the band gives
+scrollback as one line, `✓ approved for this session: git push` or `⚠ refused: …` (`⚠ approved once, outside the
+sandbox: …` for a run outside it, which deserves the warning), and the band gives
 the rows back to the input. Ctrl-C or Ctrl-D refuses. A dialog takes its keys only once the keyboard has
 been quiet for half a second after it appears: a key pressed sooner was meant for the input (you were
 typing when it came up), so it is held for the box, as keys are while a turn runs, and the half second
@@ -269,7 +270,7 @@ is complete.
 
 Tool calls, thinking, and approvals stay in the quiet tone, with the words that say what happened in a colour of
 their own: a call's `⚙` and tool name (`⚙ edit_file`) in the wisp blue, a stretch of thinking's `∴ thought` in a
-grey, and an approval's `⚠` and its words up to the colon (`⚠ approved for this turn`, `⚠ waiting in wisp mcp`) in
+grey, and an approval's mark and its words up to the colon (`✓ approved for this turn`, `⚠ waiting in wisp mcp`) in
 the approvals' amber, or red when it was refused. The rest of each line, and every result and output under it, stays
 quiet.
 

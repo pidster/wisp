@@ -2775,7 +2775,8 @@ fn fit(text: &str, width: usize) -> String {
     out
 }
 
-/// The scrollback's record of an answered dialog.
+/// The scrollback's record of an answered dialog: `✓` for what was approved or kept, `⚠` for what was refused or
+/// dropped.
 fn answered(command: &str, decision: &str) -> String {
     let what = match decision {
         "once" => "approved for this turn",
@@ -2786,7 +2787,12 @@ fn answered(command: &str, decision: &str) -> String {
         "drop" => "dropped, left in its thread",
         _ => "refused",
     };
-    format!("⚠ {what}: {command}")
+    let mark = if matches!(decision, "once" | "session" | "project" | "always" | "keep") {
+        '✓'
+    } else {
+        '⚠'
+    };
+    format!("{mark} {what}: {command}")
 }
 
 #[cfg(test)]
@@ -2842,6 +2848,22 @@ mod tests {
         })
     }
 
+    #[test]
+    fn an_answer_is_marked_by_whether_it_went_through() {
+        assert_eq!(
+            answered("git push", "once"),
+            "✓ approved for this turn: git push"
+        );
+        assert_eq!(
+            answered("codename", "keep"),
+            "✓ kept as a permanent fact: codename"
+        );
+        assert_eq!(answered("git push", "no"), "⚠ refused: git push");
+        assert_eq!(
+            answered("codename", "drop"),
+            "⚠ dropped, left in its thread: codename"
+        );
+    }
     #[test]
     fn tool_output_folds_after_its_note_and_says_how_many_lines_remain() {
         let mut app = App::default();
@@ -3885,7 +3907,7 @@ mod tests {
         assert!(app.approval.is_none());
         assert_eq!(
             app.take_pending()[0].text,
-            "⚠ approved for this session: git push"
+            "✓ approved for this session: git push"
         );
         // The held keys go into the box when the turn ends.
         app.handle(Outbound::Status(Status::default()));
