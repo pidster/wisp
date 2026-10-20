@@ -3,7 +3,7 @@
 Date: 2026-10-16. Status: accepted 2026-10-16, every recommendation taken; phase 0 built for 0.26.3; phase 1 built
 2026-10-18 for 0.27.0, recorded in [ADR 0066](../decisions/0066-one-thread-store.md), with the retention sweep
 (`threads.keepDays`, `thread.swept`) in it; phase 2 (chat) built 2026-10-19 for 0.27.0, recorded in the ADR's
-amendment of that date; phase 3 not yet built.
+amendment of that date; phase 3 planned for 0.28.0 on 2026-10-20 ([roadmap.md](../roadmap.md)), not yet built.
 
 ## The problem
 
@@ -204,7 +204,7 @@ Each phase is releasable on its own.
 | 0 | The four fixes found while mapping, each with a test | patch, 0.26.3 |
 | 1 | The store, save after each turn, the lock, resume on MCP with settings checks, audit and resources, `close_thread` deleting; ADR 0066; `docs/mcp.md`, `docs/logging.md`, `docs/design.md` | 0.27.0 |
 | 2 | Chat on the store: saved as it goes, ids and `/save` renaming, `--resume` by id, `/threads`, opening an MCP thread, the legacy transcripts read | 0.27.0 or 0.28.0 |
-| 3 | `wisp threads` (list, show, delete, hand), the retention sweep's report in `wisp doctor`, `wisp-tui`'s picker | later |
+| 3 | `wisp threads` (list, show, delete, hand), the retention sweep's report in `wisp doctor`, `wisp-tui`'s picker | 0.28.0 |
 
 The foldable log pane planned for 0.27.0 moves to the release after phase 2.
 
@@ -232,3 +232,10 @@ Answered on 2026-10-16, each as recommended:
 3. D4: retention is 30 days (`threads.keepDays`), matching the output store.
 4. D5: equal start settings are accepted on a live thread too.
 5. Phases: phase 0 is 0.26.3; phases 1 and 2 are 0.27.0; the foldable log pane follows.
+
+Answered on 2026-10-20, for phase 3, each as recommended:
+
+6. Phase 3 is 0.28.0 alone; the foldable log pane moves to 0.29.0.
+7. `wisp threads hand` and `delete` are the person's only: they need a terminal, and the command policy refuses
+   them to wisp's model, as it refuses `wisp approvals approve`.
+8. `wisp-tui`'s picker switches thread in place, through a chat command `/resume ID` that the plain chat has too.
