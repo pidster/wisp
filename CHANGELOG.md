@@ -15,6 +15,8 @@ Changed:
 - `wisp-tui` sets apart what happened from the quiet rest of a line: a tool call's `⚙` and tool name in the wisp
   blue, a stretch of thinking's `∴ thought` in grey, and an approval's `⚠ approved for this turn` (and the like) in
   amber, or red when refused.
+- Chat shows an edit's result once: `edit_file`'s write no longer adds a line repeating its result, and a tool's
+  result line no longer repeats the first line of the output folded under it.
 
 ## 0.27.1
 

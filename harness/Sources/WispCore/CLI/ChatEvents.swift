@@ -15,7 +15,15 @@ public enum ChatEvents {
     }
 
     /// The line for `event`, or nil for an event chat does not show.
-    public static func render(_ event: AuditEvent, style: Style) -> String? {
+    ///
+    /// - Parameters:
+    ///   - event: The audit event.
+    ///   - style: Styling.
+    ///   - shownLines: How many lines of a tool's output the face shows under its result line
+    ///     (`Config.Resolved.shownOutputLines`); above 0 the result line leaves out the output's first line, which the
+    ///     fold under it repeats.
+    /// - Returns: The line, or nil.
+    public static func render(_ event: AuditEvent, style: Style, shownLines: Int = 0) -> String? {
         let d = event.details
         switch event.kind {
         case .toolCall:
@@ -26,8 +34,9 @@ public enum ChatEvents {
             if d["tool"]?.stringValue == "run_command" { return nil }
             let bytes = d["bytes"]?.intValue ?? 0
             let seconds = d["seconds"]?.doubleValue ?? 0
-            let head = firstLine(of: d["output"]?.stringValue ?? "")
-            return style.muted("  ↳ \(bytes) bytes in \(String(format: "%.1f", seconds)) s: \(head)")
+            let output = d["output"]?.stringValue ?? ""
+            let head = shownLines > 0 && !output.isEmpty ? "" : ": " + firstLine(of: output)
+            return style.muted("  ↳ \(bytes) bytes in \(String(format: "%.1f", seconds)) s\(head)")
         case .commandOutcome:
             let status = d["exitStatus"]?.intValue ?? 0
             let mark = status == 0 ? style.wisp("exit \(status)") : style.ember("exit \(status)")
@@ -39,11 +48,6 @@ public enum ChatEvents {
                 + style.muted(extras.isEmpty ? "" : " (\(extras.joined(separator: ", ")))")
         case .commandTyped:
             return typed(d, style: style)
-        case .fileWrite:
-            let mode = d["mode"]?.stringValue ?? "?"
-            let path = d["path"]?.stringValue ?? "?"
-            let after = d["bytesAfter"]?.intValue ?? 0
-            return style.muted("  ↳ \(mode) \(path), now \(after) bytes")
         case .error where event.call != nil:
             return style.ember("  ↳ error: \(d["message"]?.stringValue ?? "")")
         case .classifierVerdict:

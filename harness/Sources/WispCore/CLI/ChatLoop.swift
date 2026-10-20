@@ -285,7 +285,7 @@ public struct ChatLoop {
         let parts = io.separatesParts ? parts : nil
         tap.onEvent { event in
             activity?.apply(event)
-            if let line = ChatEvents.render(event, style: style) {
+            if let line = ChatEvents.render(event, style: style, shownLines: shown) {
                 if parts?.enter(.tool, starting: ChatEvents.startsPart(event)) == true { note("") }
                 note(line)
             }

@@ -159,7 +159,7 @@ public enum ChatProtocol {
         var fields: [String: JSONValue] = [
             "kind": .string(event.kind.rawValue), "call": event.call.map { .string($0) } ?? .null,
             "turn": event.turn.map { .int($0) } ?? .null, "details": .object(event.details),
-            "text": ChatEvents.render(event, style: .plain).map { .string($0) } ?? .null,
+            "text": ChatEvents.render(event, style: .plain, shownLines: shownLines).map { .string($0) } ?? .null,
         ]
         if let output = ChatEvents.shownText(of: event), event.kind == .toolResult || !output.isEmpty {
             let text = Paging.page(output, number: 1)?.text ?? ""

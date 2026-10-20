@@ -369,7 +369,8 @@ What a session shows, and where it goes:
   status bar", above).
 - The model's tool activity as it happens, one dim line per call and result, from the same events the
   audit log records: `⚙ run_command git status`, then `↳ exit 0`; `⚙ read_file README.md`, then
-  `↳ 2048 bytes in 0.0 s: 1\t# wisp`.
+  `↳ 2048 bytes in 0.0 s`, the output folded under it (below). With `shownOutputLines` 0, which shows no output, the
+  result line ends with the output's first line instead: `↳ 2048 bytes in 0.0 s: 1\t# wisp`.
 - Under each result, the output itself, as the tool returned it, indented and in the quiet tone: up to
   `shownOutputLines` lines (20; a [setting](#home-directory-and-configuration)) and at most 2 KiB, then, when there is more,
   `… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`. `/show` with that id (the start of the output's

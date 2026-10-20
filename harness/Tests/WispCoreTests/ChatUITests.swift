@@ -354,6 +354,12 @@ import WispTestSupport
                 event(.toolResult, ["tool": "read_file", "output": "1\tline\n2\tmore", "bytes": 14, "seconds": 0.04]),
                 style: style)
                 == "  ↳ 14 bytes in 0.0 s: 1\tline")
+        // Shown folded under it, the output's first line is not repeated on the result line.
+        #expect(
+            ChatEvents.render(
+                event(.toolResult, ["tool": "read_file", "output": "1\tline\n2\tmore", "bytes": 14, "seconds": 0.04]),
+                style: style, shownLines: 20)
+                == "  ↳ 14 bytes in 0.0 s")
         #expect(
             ChatEvents.render(event(.commandOutcome, ["command": "x", "exitStatus": 0]), style: style) == "  ↳ exit 0")
         #expect(
@@ -361,9 +367,9 @@ import WispTestSupport
                 event(.commandOutcome, ["command": "x", "exitStatus": 1, "timedOut": true, "truncated": true]),
                 style: style)
                 == "  ↳ exit 1 (timed out, output truncated)")
+        // edit_file's result names the path, the mode, and the size; its write adds no line of its own.
         #expect(
-            ChatEvents.render(event(.fileWrite, ["path": "a", "mode": "write", "bytesAfter": 9]), style: style)
-                == "  ↳ write a, now 9 bytes")
+            ChatEvents.render(event(.fileWrite, ["path": "a", "mode": "write", "bytesAfter": 9]), style: style) == nil)
         #expect(ChatEvents.render(event(.error, ["message": "boom"]), style: style) == "  ↳ error: boom")
         #expect(ChatEvents.render(event(.error, call: nil, ["message": "turn failed"]), style: style) == nil)
         #expect(
