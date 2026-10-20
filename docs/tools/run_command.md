@@ -10,7 +10,7 @@ machine.
 | --- | --- | --- | --- |
 | `command` | string | yes | A POSIX shell command line, executed with `/bin/sh -c`. |
 | `workingDirectory` | string | no | Absolute path to run in. Default: wisp's current directory. A missing directory is an error. |
-| `timeoutSeconds` | integer | no | Seconds this command may run, for a long build or test. Default: the thread's limit (MCP `respond`'s `commandTimeoutSeconds`), else `commandTimeoutSeconds` (120). Above `commandMaxTimeoutSeconds` (1,800) it is cut to that; below 1 the result is `error: timeoutSeconds must be at least 1 …` and nothing runs ([ADR 0063](../decisions/0063-command-time-limits.md)). |
+| `timeoutSeconds` | integer | no | Seconds this command may run, only to run longer than the default. Default: the thread's limit (MCP `respond`'s `commandTimeoutSeconds`), else `commandTimeoutSeconds` (120); a request shorter than that gets that instead ([ADR 0067](../decisions/0067-a-call-may-only-lengthen-its-time-limit.md)). Above `commandMaxTimeoutSeconds` (1,800) it is cut to that; below 1 the result is `error: timeoutSeconds must be at least 1 …` and nothing runs ([ADR 0063](../decisions/0063-command-time-limits.md)). |
 | `outsideSandbox` | boolean | no | `true` asks to run this one command without the sandbox, for a command it refuses (`brew upgrade`, `cargo install`). The person is asked every time, whatever the command's risk, and approves that line once or not at all ([below](#running-outside-the-sandbox), [ADR 0064](../decisions/0064-an-approved-run-outside-the-sandbox.md)). Default: sandboxed. |
 
 ## Result
@@ -254,7 +254,9 @@ ignores SIGTERM. Before 0.21.1 the watchdog stopped when the shell was reaped, s
 left the group (`setsid`) is beyond this; output capture after exit is bounded by one second in case one holds the
 pipe.
 
-Which limit a model's command runs under ([ADR 0063](../decisions/0063-command-time-limits.md)), first that applies:
+Which limit a model's command runs under ([ADR 0063](../decisions/0063-command-time-limits.md)), first that applies; the
+call's `timeoutSeconds` applies only when it is longer than the limit below it, else that limit does
+([ADR 0067](../decisions/0067-a-call-may-only-lengthen-its-time-limit.md)):
 
 | Source | Set by | Clamped to `commandMaxTimeoutSeconds` |
 | --- | --- | --- |
@@ -264,7 +266,10 @@ Which limit a model's command runs under ([ADR 0063](../decisions/0063-command-t
 
 The cap is the operator's: no tool changes `config.json`, so neither the model nor an MCP caller can raise it. A
 timed-out result names the limit and, under the cap, how to ask for more; `command.outcome` records the limit as
-`timeoutSource` (`call`, `thread`, or `default`), `timeoutSeconds`, and `timeoutClamped` ([logging.md](../logging.md)).
+`timeoutSource` (`call`, `thread`, or `default`), `timeoutSeconds`, `timeoutClamped`, and `timeoutAsked` for a call's
+shorter request that kept the longer limit ([logging.md](../logging.md)). On 2026-10-19 a git thread's model asked for
+30 s on its own, under a thread limit of 600 s, and its `git commit` was killed mid-hook; since ADR 0067 that request
+keeps the 600 s.
 Before 0.24.2 every model's command had the operator's one limit, 60 s by default, which killed a `git commit` whose pre-commit hook ran
 the full gate (2026-10-13), and a `commandTimeoutSeconds` of 0, documented as no limit, set a watchdog of zero
 seconds instead, which fires at once. Custom tools keep their own `timeoutSeconds` and `system_info` its floor of 30 s; neither reads the thread's.

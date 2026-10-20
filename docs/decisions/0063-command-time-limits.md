@@ -1,6 +1,8 @@
 # ADR 0063: Command time limits a call or a thread may ask for
 
-Date: 2026-10-14. Status: accepted; built 2026-10-14 for 0.24.2. Chosen by the operator on 2026-10-14.
+Date: 2026-10-14. Status: accepted; built 2026-10-14 for 0.24.2. Chosen by the operator on 2026-10-14. Point 5
+amended by [ADR 0067](0067-a-call-may-only-lengthen-its-time-limit.md): a call's request may only lengthen the
+limit it would otherwise get.
 
 ## Context
 

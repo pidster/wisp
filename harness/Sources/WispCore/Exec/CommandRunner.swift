@@ -71,15 +71,20 @@ public struct CommandRunner: Sendable {
             public var seconds: Int?
             /// Who asks; `.default` when `seconds` is nil.
             public var source: Source
+            /// For a call's request, the thread's own limit (`respond`'s `commandTimeoutSeconds`), which the call may
+            /// lengthen but not shorten; nil for the operator's default (ADR 0067).
+            public var thread: Int?
 
             /// Creates a request.
             ///
             /// - Parameters:
             ///   - seconds: Seconds asked for; nil for the default.
             ///   - source: Who asks; taken as `.default` when `seconds` is nil.
-            public init(seconds: Int?, source: Source) {
+            ///   - thread: For a call's request, the thread's limit it may not shorten; nil for the operator's default.
+            public init(seconds: Int?, source: Source, thread: Int? = nil) {
                 self.seconds = seconds
                 self.source = seconds == nil ? .default : source
+                self.thread = thread
             }
         }
 
@@ -93,6 +98,9 @@ public struct CommandRunner: Sendable {
         public var cap: Int
         /// Whether the caller could ask for another limit (`run_command` can), so a timed-out result says how.
         public var askable: Bool
+        /// The seconds a call asked for that were shorter than the limit it would otherwise have had, which it kept
+        /// (ADR 0067); nil when the call asked for none, or for as long or longer.
+        public var shorter: Int? = nil
 
         /// Creates a limit.
         ///
@@ -456,7 +464,9 @@ public struct CommandRunner: Sendable {
 
     /// The wall-clock limit for a command from `origin` (ADR 0063): none for one the person typed, who stops it
     /// themselves (ADR 0049, amended 2026-10-09); for the model's, the seconds `requested` asks for, at least 1 and
-    /// clamped to `Options.maxTimeout`, else the operator's `Options.timeout` as it is, zero meaning none.
+    /// clamped to `Options.maxTimeout`, else the operator's `Options.timeout` as it is, zero meaning none. A call's
+    /// request only lengthens: one shorter than the thread's limit, or the operator's default, gets that limit
+    /// instead, and records what it asked for in `shorter` (ADR 0067).
     ///
     /// - Parameters:
     ///   - origin: Who chose the command.
@@ -465,6 +475,13 @@ public struct CommandRunner: Sendable {
     func limit(for origin: Origin, requested: TimeLimit.Request? = nil) -> TimeLimit? {
         guard origin == .model else { return nil }
         let cap = max(1, Int(options.maxTimeout.components.seconds))
+        if let request = requested, request.source == .call, let seconds = request.seconds,
+            var otherwise = limit(for: origin, requested: .init(seconds: request.thread, source: .thread)),
+            otherwise.seconds.map({ min(max(1, seconds), cap) < $0 }) ?? true
+        {
+            otherwise.shorter = max(1, seconds)
+            return otherwise
+        }
         if let request = requested, let seconds = request.seconds {
             let asked = max(1, seconds)
             return TimeLimit(

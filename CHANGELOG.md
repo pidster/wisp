@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Changed:
+
+- A `run_command` call's `timeoutSeconds` now only lengthens a command's time limit. One shorter than the thread's
+  `commandTimeoutSeconds` or the operator's `commandTimeoutSeconds` gets that limit instead, and `command.outcome`
+  records the request as `timeoutAsked`. A git thread started with 600 s had its model ask for 30 s on its own, which
+  killed a `git commit` partway through its pre-commit hook (ADR 0067).
+
 ## 0.27.1
 
 Fixed:

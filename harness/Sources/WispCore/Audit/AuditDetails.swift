@@ -173,6 +173,7 @@ extension AuditEvent {
                 details["timeoutSource"] = .string(limit.source.rawValue)
                 if let limitSeconds = limit.seconds { details["timeoutSeconds"] = .int(limitSeconds) }
                 if limit.clamped { details["timeoutClamped"] = true }
+                if let shorter = limit.shorter { details["timeoutAsked"] = .int(shorter) }
             }
             if let refusal = outcome.sandboxRefusal {
                 details["sandboxRefusal"] = .string(refusal.name)
@@ -929,7 +930,8 @@ extension AuditEvent {
         case .commandOutcome:
             [
                 "command", "exitStatus", "timedOut", "truncated", "stdout", "stderr", "seconds", "origin", "stopped",
-                "timeoutSource", "timeoutSeconds", "timeoutClamped", "sandboxRefusal", "sandboxPaths", "outsideSandbox",
+                "timeoutSource", "timeoutSeconds", "timeoutClamped", "timeoutAsked", "sandboxRefusal", "sandboxPaths",
+                "outsideSandbox",
             ]
         case .commandTyped:
             [

@@ -4,8 +4,9 @@ import Testing
 @testable import WispCore
 
 /// `run_command`'s time limits (ADR 0063): the call's `timeoutSeconds` over the thread's over the operator's
-/// default, a request clamped to `commandMaxTimeoutSeconds`, the limit recorded in `command.outcome`, and a
-/// timed-out result that says how to ask for longer.
+/// default, the call's only lengthening the limit it would otherwise get (ADR 0067), a request clamped to
+/// `commandMaxTimeoutSeconds`, the limit recorded in `command.outcome`, and a timed-out result that says how to ask
+/// for longer.
 @Suite struct CommandTimeLimitTests {
     /// A runner in a scratch directory with `seconds` as the default and `cap` as the most a request may be.
     private func runner(
@@ -40,6 +41,19 @@ import Testing
         #expect(
             runner.limit(for: .model, requested: .init(seconds: 5_000, source: .call))
                 == .init(seconds: 600, source: .call, clamped: true, cap: 600, askable: true))
+        // A call's request only lengthens: shorter than the thread's limit, or the default, it gets that one.
+        var raised = CommandRunner.TimeLimit(seconds: 300, source: .thread, cap: 600, askable: true)
+        raised.shorter = 30
+        #expect(runner.limit(for: .model, requested: .init(seconds: 30, source: .call, thread: 300)) == raised)
+        raised = .init(seconds: 120, source: .default, cap: 600, askable: true)
+        raised.shorter = 30
+        #expect(runner.limit(for: .model, requested: .init(seconds: 30, source: .call)) == raised)
+        #expect(
+            runner.limit(for: .model, requested: .init(seconds: 400, source: .call, thread: 300))
+                == .init(seconds: 400, source: .call, cap: 600, askable: true))
+        #expect(
+            runner.limit(for: .model, requested: .init(seconds: 300, source: .call, thread: 300))
+                == .init(seconds: 300, source: .call, cap: 600, askable: true))
         // The operator's own default is not clamped, and 0 means no limit.
         var options = runner.options
         options.timeout = .seconds(3_600)
@@ -62,7 +76,7 @@ import Testing
 
     @Test func aRequestAboveTheCapIsClampedToIt() async throws {
         let sink = MemoryAuditSink()
-        let (runner, dir) = try runner(default: .seconds(30), cap: .seconds(1), sink: sink)
+        let (runner, dir) = try runner(default: .seconds(1), cap: .seconds(1), sink: sink)
         defer { try? FileManager.default.removeItem(at: dir) }
         let result = await RunCommandTool(runner: runner).call(
             arguments: .init(command: "sleep 3; echo done", workingDirectory: dir.path, timeoutSeconds: 60))
@@ -97,7 +111,7 @@ import Testing
         #expect(sink.events.isEmpty, "nothing ran")
     }
 
-    @Test func theThreadsLimitIsTheDefaultForItsCallsAndACallsOwnWins() async throws {
+    @Test func theThreadsLimitIsTheDefaultForItsCallsAndACallMayOnlyLengthenIt() async throws {
         let sink = MemoryAuditSink()
         let (runner, dir) = try runner(default: .seconds(1), cap: .seconds(10), sink: sink)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -105,10 +119,17 @@ import Testing
         let outlasted = await tool.call(arguments: .init(command: "sleep 2; echo done", workingDirectory: dir.path))
         #expect(outlasted.contains("done"), "\(outlasted)")
         #expect(lastOutcome(sink)["timeoutSource"] == "thread" && lastOutcome(sink)["timeoutSeconds"] == 5)
-        let cut = await tool.call(
+        // A call asking for less than the thread's limit keeps the thread's, and the audit says what it asked for.
+        let shorter = await tool.call(
             arguments: .init(command: "sleep 2; echo done", workingDirectory: dir.path, timeoutSeconds: 1))
-        #expect(cut.contains("killed after 1 s") && !cut.contains("done"), "\(cut)")
-        #expect(lastOutcome(sink)["timeoutSource"] == "call")
+        #expect(shorter.contains("done"), "\(shorter)")
+        let details = lastOutcome(sink)
+        #expect(details["timeoutSource"] == "thread" && details["timeoutSeconds"] == 5 && details["timeoutAsked"] == 1)
+        let longer = await tool.call(
+            arguments: .init(command: "echo done", workingDirectory: dir.path, timeoutSeconds: 8))
+        #expect(longer.contains("done"), "\(longer)")
+        #expect(lastOutcome(sink)["timeoutSource"] == "call" && lastOutcome(sink)["timeoutSeconds"] == 8)
+        #expect(lastOutcome(sink)["timeoutAsked"] == nil)
         // Another tool over the same runner, as another thread's would be, keeps the default.
         let other = await RunCommandTool(runner: runner).call(
             arguments: .init(command: "sleep 2; echo done", workingDirectory: dir.path))
@@ -146,7 +167,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(
             RunCommandTool(runner: runner).limits.contains(
-                "Timeout 120 s; timeoutSeconds asks for another, up to 1800 s (commandMaxTimeoutSeconds)."))
+                "Timeout 120 s; timeoutSeconds asks for longer, up to 1800 s (commandMaxTimeoutSeconds)."))
         #expect(RunCommandTool(runner: runner, threadTimeout: 600).limits.contains("Timeout 600 s (this thread's)"))
         #expect(RunCommandTool(runner: runner, threadTimeout: 9_999).limits.contains("Timeout 1800 s (this thread's)"))
         let tool = ToolRegistry().descriptions.first { $0.name == "run_command" }
@@ -157,6 +178,6 @@ import Testing
             return
         }
         #expect(timeout["type"] == "integer")
-        #expect(timeout["description"]?.stringValue?.contains("Omit for the default") == true)
+        #expect(timeout["description"]?.stringValue?.contains("longer than the default") == true)
     }
 }

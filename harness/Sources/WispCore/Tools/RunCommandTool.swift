@@ -8,7 +8,8 @@ import FoundationModels
 /// model-chosen working directory changes where it runs, never what it may write.
 /// It runs under a wall-clock limit: the call's `timeoutSeconds`, else the thread's, else the operator's
 /// default, a requested one clamped to `commandMaxTimeoutSeconds`
-/// ([ADR 0063](../../../../docs/decisions/0063-command-time-limits.md)). With `outsideSandbox` it asks to run one
+/// ([ADR 0063](../../../../docs/decisions/0063-command-time-limits.md)); the call's only lengthens the one it would
+/// otherwise get ([ADR 0067](../../../../docs/decisions/0067-a-call-may-only-lengthen-its-time-limit.md)). With `outsideSandbox` it asks to run one
 /// command without the sandbox, which the person approves for that line, once, every time
 /// ([ADR 0064](../../../../docs/decisions/0064-an-approved-run-outside-the-sandbox.md)).
 public struct RunCommandTool: WispTool {
@@ -28,8 +29,9 @@ public struct RunCommandTool: WispTool {
         /// Optional directory to run in; nil means the harness's current directory.
         @Guide(description: "Absolute path of the directory to run in. Omit to use the current directory.")
         public var workingDirectory: String?
-        /// Optional wall-clock limit for this call, in seconds; nil takes the thread's or the default.
-        @Guide(description: "Seconds this command may run, for a long build or test. Omit for the default.")
+        /// Optional wall-clock limit for this call, in seconds; nil, or one shorter than the thread's or the default,
+        /// takes that.
+        @Guide(description: "Only for a build or test that needs longer than the default, in seconds. Omit otherwise.")
         public var timeoutSeconds: Int?
         /// Whether to ask to run it without the sandbox (ADR 0064); nil or false runs it sandboxed.
         @Guide(
@@ -83,7 +85,7 @@ public struct RunCommandTool: WispTool {
         let base = fallback?.seconds.map { "Timeout \($0) s" } ?? "No timeout"
         let whose = fallback?.source == .thread ? " (this thread's)" : ""
         let cap = fallback?.cap ?? 0
-        return "\(base)\(whose); timeoutSeconds asks for another, up to \(cap) s (commandMaxTimeoutSeconds)."
+        return "\(base)\(whose); timeoutSeconds asks for longer, up to \(cap) s (commandMaxTimeoutSeconds)."
     }
 
     /// How to ask for it.
@@ -116,7 +118,7 @@ public struct RunCommandTool: WispTool {
             return "error: timeoutSeconds must be at least 1 (it was \(seconds)); omit it for the default"
         }
         let requested: CommandRunner.TimeLimit.Request =
-            arguments.timeoutSeconds.map { .init(seconds: $0, source: .call) }
+            arguments.timeoutSeconds.map { .init(seconds: $0, source: .call, thread: threadTimeout) }
             ?? .init(seconds: threadTimeout, source: .thread)
         do {
             return try await runner.run(

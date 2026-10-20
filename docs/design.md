@@ -593,7 +593,7 @@ bounded buffers (`OutputBuffer`: the first and last `bound` bytes of each stream
 spilled to the output store as it arrives once a byte would be dropped), kills the whole group on timeout (the
 limit from `CommandRunner.limit(for:requested:)`: the caller's request, `run_command`'s `timeoutSeconds` or the
 thread's `commandTimeoutSeconds` that `RunCommandTool` carries, clamped to `commandMaxTimeoutSeconds`, else the
-operator's `commandTimeoutSeconds`; ADR 0063), and
+operator's `commandTimeoutSeconds`; ADR 0063; a call's request only lengthens the limit below it, ADR 0067), and
 renders the result within the budget as a whole: each stream's head and tail within its share of the room, a
 marker between them, and a `held back:` note naming the stored output's lines (`CommandRunner.outcome`). The
 rendering (`Outcome.rendered`) is what the model sees; policy denials and refusals are rendered too rather
