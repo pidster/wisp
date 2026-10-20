@@ -182,7 +182,7 @@ report for the last request still counted those outputs whole. The equivalence t
 
 | Face | Shown |
 | --- | --- |
-| Chat | A one-line note per result as it happens (`↳ 2048 bytes in 0.0 s: 1\t# wisp`, or a command's exit status), then the output itself, indented and in the quiet tone, up to `shownOutputLines` lines (20) and 2 KiB, with a fold line (`… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`) when there is more; `/show` and `/last` print an output whole, from the output store when the model was given only part of it, through the pager on a terminal; `wisp-tui`'s Ctrl-O panel shows the same a page at a time ([wisp.md](wisp.md)). |
+| Chat | A one-line note per result as it happens (`↳ 2048 bytes in 0.0 s`, or a command's exit status; with `shownOutputLines` 0 it ends with the output's first line), then the output itself, indented and in the quiet tone, up to `shownOutputLines` lines (20) and 2 KiB, with a fold line (`… 84 more lines, 3210 bytes in all: /show 8a7b6c5d`) when there is more; `/show` and `/last` print an output whole, from the output store when the model was given only part of it, through the pager on a terminal; `wisp-tui`'s Ctrl-O panel shows the same a page at a time ([wisp.md](wisp.md)). |
 | `wisp chat --json` and `wisp-tui` | The `tool.result` event carries the output, its size, and the fold size; `wisp-tui` shows it folded and expands the last one in a panel. |
 | MCP `respond` | The reply, and each call's output in `calls`: inline up to `inlineOutputBytes` (1 KiB), a reference to `wisp://threads/{thread_id}/output/{id}` above it (D9; [mcp.md](mcp.md)). |
 

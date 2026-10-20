@@ -87,8 +87,8 @@
         <div class="terminal" role="img" aria-label="A wisp-tui session. The person asks what changed since the last release; the model runs git log, which needed no approval, and answers. Then the person asks it to commit those changes and push: the commit was approved for this turn and ran, and for the push wisp asks the person, rating the command moderate.">
             <div class="term-top" aria-hidden="true"><i></i><i></i><i></i><span>wisp chat</span></div>
 <pre class="term-body" aria-hidden="true"><span class="t-user">› what changed since the last release?</span>
-<span class="t-tool">⚙ run_command git log --oneline v0.24.2..HEAD</span>
-<span class="t-tool">  ↳ ok</span>
+<span class="t-wisp">⚙ run_command</span><span class="t-tool"> git log --oneline v0.24.2..HEAD</span>
+<span class="t-tool">  ↳ exit 0</span>
 <span class="t-out">    a7347f5 Bring the docs up to date for 0.25.0</span>
 <span class="t-out">    ca79483 Escape the include ADR 0065 quotes, and check include names by case</span>
 <span class="t-out">    … 4 more lines · ctrl-o shows all</span>
@@ -97,11 +97,11 @@
 <span class="t-note">ran: run_command</span>
 
 <span class="t-user">› commit those changes and then push</span>
-<span class="t-tool">⚙ run_command git commit -am "Widen the granite4.2 example"</span>
-<span class="t-note">⚠ approved for this turn: git commit -am "Widen the granite4.2 example"</span>
-<span class="t-tool">  ↳ ok</span>
+<span class="t-wisp">⚙ run_command</span><span class="t-tool"> git commit -am "Widen the granite4.2 example"</span>
+<span class="t-amber">✓ approved for this turn</span><span class="t-note">: git commit -am "Widen the granite4.2 example"</span>
+<span class="t-tool">  ↳ exit 0</span>
 <span class="t-out">    [main 2b7c1e9] Widen the granite4.2 example</span>
-<span class="t-tool">⚙ run_command git push origin main</span>
+<span class="t-wisp">⚙ run_command</span><span class="t-tool"> git push origin main</span>
 <span class="t-amber">╭ approve · moderate ───────────────────────────────────────╮</span>
 <span class="t-amber">│</span> <span class="t-user">git push origin main</span>                                      <span class="t-amber">│</span>
 <span class="t-amber">│</span> <span class="t-note">in ~/src/wisp</span>                                             <span class="t-amber">│</span>
