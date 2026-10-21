@@ -239,11 +239,11 @@ not judge whether a conclusion follows from the output, and misses a result put 
 ## Undoing
 
 - Revoke a remembered approval: `wisp approvals revoke <id>` or `wisp approvals clear`.
-- Forget a conversation, chat's or an MCP thread: delete `~/.wisp/threads/<id>/` while no wisp has it open
-  (`/threads` names them; an MCP client can also `close_thread` its own). Its large tool outputs go with it when it is
-  swept; until then they are in `~/.wisp/output/<session>/`, one per audit session `thread.json` lists, which you can
-  delete to forget them sooner. A chat saved before 0.27.0 is `~/.wisp/transcripts/<name>.json` and `<name>.store`,
-  and stays there after `--resume` copies it into the store: delete both.
+- Forget a conversation, chat's or an MCP thread: `wisp threads delete <id>`, which deletes `~/.wisp/threads/<id>/`
+  and the stored outputs in `~/.wisp/output/<session>/` of each audit session it had that no other thread names, and
+  is refused while a wisp has it open (`wisp threads` lists them; an MCP client can also `close_thread` its own). A
+  chat saved before 0.27.0 is `~/.wisp/transcripts/<name>.json` and `<name>.store`, and stays there after `--resume`
+  copies it into the store: delete both.
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
@@ -266,7 +266,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | chats saved before 0.27.0, and each one's links to the audit log; read by `wisp chat --resume`, never written now | user-only |
-| `~/.wisp/threads/<id>/` | every thread, each chat and each MCP `respond` thread, saved after each turn so a later chat or server can resume it: its owner, start settings, and record, tool output included; deleted by `close_thread`, or 30 days after its last use (`threads.keepDays`) | user-only (directory 0700, files 0600) |
+| `~/.wisp/threads/<id>/` | every thread, each chat and each MCP `respond` thread, saved after each turn so a later chat or server can resume it: its owner, start settings, and record, tool output included; deleted by `wisp threads delete`, by `close_thread`, or 30 days after its last use (`threads.keepDays`) | user-only (directory 0700, files 0600) |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |
 | `~/.wisp/output/<session>/` | tool outputs too large for the model to see at once, kept whole so it can page or question them; removed 30 days after the session's last use (`context.outputDays`) | user-only |

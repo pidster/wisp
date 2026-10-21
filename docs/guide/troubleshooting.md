@@ -88,7 +88,7 @@ answer reaches the thread's next turn. The agent cannot answer it for you ([ask]
 | `config` in `doctor` is not ok, or every command exits 64 naming `config.json` | The file does not parse, or a `commandPolicy` pattern is invalid; the message names it. Fix the file, or `wisp config unset` the setting |
 | `facts store` in `doctor` is not ok | `~/.wisp/facts.json` did not parse, was set aside, or is readable by others; the detail says which and how to fix it |
 | `pending approvals` in `doctor` is not ok | `~/.wisp/pending` is open to others or not yours: `chmod 700` it |
-| `--resume` says `thread X is open in another wisp (pid N, …)` | Another chat or `wisp mcp` has the thread open; leave it there, or let that process end. `/threads` shows it as `open elsewhere` |
+| `--resume` says `thread X is open in another wisp (pid N, …)` | Another chat or `wisp mcp` has the thread open; leave it there, or let that process end. `/threads` and `wisp threads` show it as `open elsewhere` |
 | `--resume` says `thread X is an agent's, saved with …; these settings differ` | You gave `--model`, `--tool`, or `--instructions` for an agent's thread, whose settings hold; leave them out |
 | `--resume` refuses a transcript from `~/.wisp/transcripts` | It has no `.store` beside it, or one that does not match; `doctor`'s `saved transcripts` lists them |
 

@@ -97,7 +97,7 @@ What to try first:
 | `/think on\|off` | For a model that can think, whether it does, from the next turn and as its saved default; the status line shows it after the model, `(off)` |
 | `/inspect context next` | What the model's next request carries, entry by entry, at no model cost |
 | Ctrl-C during a reply | Stops the turn and any command it started |
-| `/threads` | Every saved thread, yours and your agents'; `wisp chat --resume ID` opens one |
+| `/threads` | Every saved thread, yours and your agents' (a picker in `wisp-tui`); `/resume ID` opens one in place of this one, as `wisp chat --resume ID` does at the start |
 | `/save NAME` | Renames this chat's thread, which is saved after every turn anyway, so `--resume NAME` opens it |
 | `/quit` | Leaves; the thread stays saved |
 
