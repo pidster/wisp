@@ -9,7 +9,7 @@ one). If you are a different harness, read this file in full and take only your 
 
 An on-device, tool-using AI microharness for macOS, written in Swift on Apple's Foundation Models framework
 (the model behind Apple Intelligence and the `fm` CLI). One binary, `wisp`, with two faces: a CLI
-(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`) and an MCP server over stdio (`mcp`) that other
+(`respond`, `chat`, `tools`, `models`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `threads`, `notify`, `scan`, `redact`, `watch`, `draft`, `classifier`, `completions`) and an MCP server over stdio (`mcp`) that other
 harnesses delegate local work to. Every command the model runs passes a policy, a Seatbelt sandbox, a risk classifier, and,
 when risky, human approval; everything is written to a verbatim audit log.
 
@@ -57,7 +57,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command (?WORD only those that mention WORD): !COMMAND (run it yourself), !!COMMAND (run it yourself outside the sandbox), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /think on|off|LEVEL, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /threads, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command (?WORD only those that mention WORD): !COMMAND (run it yourself), !!COMMAND (run it yourself outside the sandbox), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel], /model, /think on|off|LEVEL, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /threads, /resume, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -78,7 +78,7 @@ an `OutOfBandApprover` asks through the client's elicitation and files the reque
 (`PendingApprovals`) for `wisp approvals approve|deny`, `wisp-tui`, or plain chat's `/approvals` at once, the first answer winning, ADR 0046; a fact a caller asks to keep as permanent is filed there too, for `wisp facts keep|drop`, and `FactKeeper` applies the answer, ADR 0048; so is the model's question, by `OutOfBandAsker`, for `wisp questions answer|decline`, the turn parking after 60 s and the answer reaching the thread's next turn, ADR 0062), then runs `/bin/sh -c` under `sandbox-exec` with a generated profile, bounded output and a timeout; a command the model asks to run with `outsideSandbox`, approved by the person every time and remembered by nothing, or one the person types after `!!` in chat, runs without `sandbox-exec` (`commandPolicy.sandbox.allowOutsideSandbox`, ADR 0064). `FileReader` pages files. Every tool result is bounded by one
 `ToolBudget`, an eighth of the model's window, and what does not fit is kept whole by `OutputStore` under
 `~/.wisp/output/<session>/`, for `memory` to page, filter, summarise, or condense (ADR 0050).
-`Home`, `Config`, `ThreadStore` (every thread, chat's and MCP's, saved after each turn under `threads/<id>/` and resumed by any face, ADR 0066; `TranscriptStore` writes its record and reads chats saved before 0.27.0), and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
+`Home`, `Config`, `ThreadStore` (every thread, chat's and MCP's, saved after each turn under `threads/<id>/` and resumed by any face, ADR 0066; `wisp threads` lists, shows, deletes, and hands them over, the last two the person's only; `TranscriptStore` writes its record and reads chats saved before 0.27.0), and the permanent facts' store are `~/.wisp`. `Prompting` layers wisp's own system prompt (the
 file `harness/Sources/WispCore/Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension`, and the caller's instructions (ADR 0017). `AuditLog` writes JSON Lines; `Diagnostics` wraps
 unified logging. `Agent` keeps each conversation in a `ThreadRecord` that refers to the audit log, and

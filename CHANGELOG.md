@@ -4,6 +4,31 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- `wisp threads` lists the saved threads, chat's and every MCP agent's. `wisp threads show ID` gives one in full: its
+  settings and instructions, turns, audit sessions, size on disk, and when the sweep deletes it.
+  `wisp threads delete ID` removes a thread with its stored outputs. `wisp threads hand ID CLIENT` gives a thread to
+  another client, so that client's agent can resume it. Delete and hand run only from a terminal, are refused while
+  a process holds the thread, are audited as `thread.deleted` and `thread.handed`, and are refused to wisp's model
+  by the default command policy. Each subcommand takes `--json` (ADR 0066, phase 3).
+- `/resume ID` in chat saves the thread open now and opens another saved one in its place. An agent's thread keeps
+  its own model, tools, and command limit. In `wisp-tui`, `/threads` is a picker that switches threads the same way.
+- `wisp doctor` reports the thread store: how many threads are saved, which are open and who holds them, what the
+  next sweep deletes, and any `thread.json` it cannot read.
+
+Fixed:
+
+- The thread store's sweep no longer deletes the stored outputs of a session another thread still uses. A chat's
+  `/new` thread shares its session with the thread before it, and lost those outputs when that thread was swept.
+
+Changed:
+
+- An MCP agent refused another client's thread is told how the person can hand it over:
+  `wisp threads hand ID CLIENT`.
+
 ## 0.27.2
 
 Changed:

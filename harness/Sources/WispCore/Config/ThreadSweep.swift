@@ -113,7 +113,8 @@ struct ThreadSweep: Sendable {
         }
         let clock = ContinuousClock()
         let start = clock.now
-        for (index, candidate) in due.sorted(by: { $0.lastUsed < $1.lastUsed }).enumerated() {
+        let ordered = due.sorted(by: { $0.lastUsed < $1.lastUsed })
+        for (index, candidate) in ordered.enumerated() {
             guard outcome.swept.count < limit, clock.now - start < deadline else {
                 outcome.deferred = due.count - index
                 for kept in due.sorted(by: { $0.lastUsed < $1.lastUsed }).dropFirst(index) {
@@ -121,7 +122,10 @@ struct ThreadSweep: Sendable {
                 }
                 break
             }
-            if let swept = sweep(candidate) {
+            // A session another thread still names keeps its outputs: a chat's `/new` carries its session into the
+            // next thread, which may be kept, or due later in this sweep and left by the bound.
+            let named = outcome.kept.union(ordered.dropFirst(index + 1).flatMap { $0.settings?.sessions ?? [] })
+            if let swept = sweep(candidate, sparing: named) {
                 outcome.swept.append(swept)
             } else {
                 outcome.kept.formUnion(candidate.settings?.sessions ?? [])
@@ -130,17 +134,19 @@ struct ThreadSweep: Sendable {
         return outcome
     }
 
-    /// Deletes one thread and its outputs, holding its lock meanwhile; nil when another process holds it or it could
-    /// not be deleted.
+    /// Deletes one thread and the outputs of its sessions not in `sparing`, holding its lock meanwhile; nil when
+    /// another process holds it or it could not be deleted.
     ///
-    /// - Parameter candidate: The thread.
+    /// - Parameters:
+    ///   - candidate: The thread.
+    ///   - sparing: Sessions another thread names, whose outputs stay.
     /// - Returns: What was deleted, or nil.
-    private func sweep(_ candidate: Candidate) -> Swept? {
+    private func sweep(_ candidate: Candidate, sparing: Set<String>) -> Swept? {
         guard let lock = try? store.lock(candidate.id, owner: "sweep") else { return nil }
         defer { lock.release() }
         let sessions = candidate.settings?.sessions ?? []
         var bytes = 0
-        for session in sessions where SafeName.isValid(session) {
+        for session in sessions where SafeName.isValid(session) && !sparing.contains(session) {
             let directory = outputs.appending(path: session, directoryHint: .isDirectory)
             guard FileManager.default.fileExists(atPath: directory.path) else { continue }
             bytes += size(of: directory)

@@ -12,6 +12,8 @@ public enum ChatInput: Equatable, Sendable {
     case threads
     /// Start a fresh thread with the same instructions and tools, the one before saved.
     case new
+    /// Save the thread and open another saved one in its place, by id (ADR 0066, phase 3); nil asks which.
+    case resume(String?)
     /// Report how many tokens the transcript occupies.
     case tokens
     /// Save the exact context the next request carries, as Markdown and JSON: `/inspect context`.
@@ -290,8 +292,13 @@ public enum ChatInput: Equatable, Sendable {
             about: "the thread is saved after every turn; NAME renames it, so wisp chat --resume NAME opens it",
             names: ["save"], command: { .save($0) }),
         HelpEntry(
-            usage: "/threads", about: "every saved thread, any agent's too: owner, model, turns, last used, state",
+            usage: "/threads",
+            about: "every saved thread, any agent's too: owner, model, turns, last used, state; a picker if offered",
             names: ["threads"], command: { _ in .threads }),
+        HelpEntry(
+            usage: "/resume ID",
+            about: "save this thread and open a saved one in its place, as wisp chat --resume ID would",
+            names: ["resume"], command: { .resume($0) }),
         HelpEntry(
             usage: "/new", about: "start a fresh thread with the same instructions and tools; the last stays saved",
             names: ["new"], command: { _ in .new }),

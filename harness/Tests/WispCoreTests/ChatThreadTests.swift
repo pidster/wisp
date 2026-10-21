@@ -355,4 +355,140 @@ import WispTestSupport
         #expect(ChatCompletion.complete("/thr").candidates == ["/threads"])
         #expect(ChatInput.helpText(matching: "threads").contains("/threads"))
     }
+
+    /// What an opener was asked to open: `<id> <model>`, in order.
+    final class Asked: Sendable {
+        let ids = Mutex<[String]>([])
+    }
+
+    /// An opener for `/resume` over a scripted model saying `steps`, recording to `audit`, as the CLI's opens an agent's
+    /// thread on its own tools and any other on the chat's; what it was asked for is kept in `asked`.
+    private func opener(
+        _ steps: [ScriptedModel.Step], audit: AuditLog, asked: Asked = Asked()
+    ) -> @Sendable (ChatThread.Opening, ModelSelection, OllamaThink?) throws -> Agent {
+        { opening, model, _ in
+            asked.ids.withLock { $0.append("\(opening.id) \(model)") }
+            let saved = try #require(opening.saved)
+            return Agent(
+                transcript: saved.transcript, tools: [CurrentDateTool()],
+                model: ResolvedModel(selection: model, custom: ScriptedModel(steps: steps)), audit: audit,
+                links: saved.links)
+        }
+    }
+
+    @Test func resumeSavesTheThreadOpenHereAndOpensAnotherInItsPlace() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        try await saveAgentsThread("git4", fixture)
+        try await saveAgentsThread("held", fixture, owner: "codex")
+        let elsewhere = try fixture.store.lock("held", owner: "codex")
+        defer { elsewhere.release() }
+        let sink = MemoryAuditSink()
+        let audit = AuditLog(session: "chatsession", sink: sink)
+        let agent = Agent(
+            instructions: "x", tools: [CurrentDateTool()],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("one")])), audit: audit)
+        let thread = open(try ChatThread.reserve("here", store: fixture.store), fixture, agent: agent)
+        let asked = Asked()
+        let capture = Capture(["hi", "/resume here", "/resume nope", "/resume held", "/resume git4", "again"])
+        var loop = ChatLoop(
+            agent: agent, thread: thread,
+            context: .init(
+                directory: "/r", approval: "a", openThread: opener([.say("two")], audit: audit, asked: asked)),
+            io: capture.io)
+        try await loop.run()
+        // The refusals keep the thread open here; only git4 was opened.
+        #expect(asked.ids.withLock { $0 } == ["git4 system"])
+        #expect(capture.noted.contains("thread here is the one open here"))
+        #expect(capture.noted.contains { $0.contains("no saved thread or transcript named 'nope'") })
+        #expect(capture.noted.contains { $0.contains("thread held is open in another wisp") }, "\(capture.noted)")
+        #expect(
+            capture.noted.contains {
+                $0.hasPrefix("git4: system, tools current_date") && $0.hasSuffix("; here is saved")
+            })
+        // The thread left is saved and let go; the one opened is held, keeps its owner, and has the turn after.
+        let here = try #require(try fixture.store.settings("here"))
+        #expect(here.state == .saved && here.turns == 1 && fixture.store.holder(of: "here") == nil)
+        #expect(thread.id == "git4" && thread.isAgents)
+        let git4 = try #require(try fixture.store.settings("git4"))
+        #expect(git4.owner == "claude-code" && git4.turns == 2 && git4.sessions.last == "chatsession", "\(git4)")
+        #expect("\(loop.agent.store.entries.map(\.value))".contains("remember the agent's turn"))
+        let resumed = try #require(
+            sink.events.first { $0.kind == .sessionStart && $0.details["reason"] == "resume" })
+        #expect(resumed.details["resume"] == "git4" && resumed.details["carriedFrom"] == ["git4-0000aaaa"])
+        #expect(ChatInput(line: "/resume git4") == .resume("git4") && ChatInput(line: "/resume") == .resume(nil))
+        #expect(ChatInput.helpText(matching: "resume").contains("/resume ID"))
+    }
+
+    @Test func resumeWithoutAnOpenerIsRefusedAndTheThreadStays() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        try await saveAgentsThread("git4", fixture)
+        let agent = agent([.say("one")])
+        let thread = open(try ChatThread.reserve("here", store: fixture.store), fixture, agent: agent)
+        let capture = Capture(["/resume git4", "/resume"])
+        var loop = ChatLoop(
+            agent: agent, thread: thread, context: .init(directory: "/r", approval: "a"), io: capture.io)
+        try await loop.run()
+        #expect(capture.noted.contains("threads cannot be switched here") && thread.id == "here")
+        // Bare, with no chooser, it lists the threads as /threads does.
+        #expect(capture.printed.contains { $0.hasPrefix("git4 ") }, "\(capture.printed)")
+    }
+
+    @Test func aThreadThatFailsToOpenIsLetGoAndTheThreadOpenHereStays() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        try await saveAgentsThread("git4", fixture)
+        let agent = agent([.say("one")])
+        let thread = open(try ChatThread.reserve("here", store: fixture.store), fixture, agent: agent)
+        let capture = Capture(["/resume git4"])
+        let failing: @Sendable (ChatThread.Opening, ModelSelection, OllamaThink?) throws -> Agent = { _, _, _ in
+            throw ModelSelection.Failure.unknownModel("nowhere")
+        }
+        var loop = ChatLoop(
+            agent: agent, thread: thread, context: .init(directory: "/r", approval: "a", openThread: failing),
+            io: capture.io)
+        try await loop.run()
+        #expect(thread.id == "here" && fixture.store.holder(of: "git4") == nil)
+        #expect(try fixture.store.settings("git4")?.turns == 1)
+        #expect(capture.noted.contains { $0.contains("error:") }, "\(capture.noted)")
+    }
+
+    @Test func theFrontEndsPickerOffersEveryThreadNotHeldElsewhereAndResumesTheOneChosen() async throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.home.root) }
+        try await saveAgentsThread("git4", fixture)
+        try await saveAgentsThread("held", fixture, owner: "codex")
+        let elsewhere = try fixture.store.lock("held", owner: "codex")
+        defer { elsewhere.release() }
+        let audit = AuditLog(session: "chatsession", sink: MemoryAuditSink())
+        let agent = Agent(
+            instructions: "x", tools: [CurrentDateTool()],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("one")])), audit: audit)
+        let thread = open(try ChatThread.reserve("here", store: fixture.store), fixture, agent: agent)
+        let capture = Capture(["hi", "/threads", "/threads"])
+        let choices = Mutex<[ChatChoice]>([])
+        let answers = Mutex(["here", "git4"])
+        let base = capture.io
+        let io = ChatLoop.IO(
+            readLine: base.readLine, print: base.print, write: base.write, note: base.note, prompt: base.prompt,
+            choose: { choice in
+                choices.withLock { $0.append(choice) }
+                return answers.withLock { $0.removeFirst() }
+            })
+        var loop = ChatLoop(
+            agent: agent, thread: thread,
+            context: .init(
+                directory: "/r", approval: "a",
+                openThread: opener([.say("two")], audit: audit)),
+            io: io)
+        try await loop.run()
+        let first = try #require(choices.withLock { $0.first })
+        #expect(first.options.map(\.value).sorted() == ["git4", "here"] && first.current == "here")
+        #expect(first.options.first { $0.value == "git4" }?.detail.hasPrefix("claude-code · system · 1 turn") == true)
+        #expect(capture.noted.contains { $0.contains("open elsewhere, so not offered: held") })
+        // The thread open here chosen leaves it; another resumes it.
+        #expect(capture.noted.contains { $0.contains("thread unchanged") })
+        #expect(thread.id == "git4" && fixture.store.holder(of: "here") == nil)
+    }
 }

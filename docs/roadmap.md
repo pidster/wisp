@@ -21,7 +21,8 @@ measurement.
 ## 0.28.0
 
 The thread store's phase 3 ([proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md),
-"Phases"), planned with the operator on 2026-10-20; not built. Phases 1 and 2 (ADR 0066) save every thread and
+"Phases"), planned with the operator on 2026-10-20; built on 2026-10-20 (ADR 0066, the phase 3 amendment), not yet
+released. Phases 1 and 2 (ADR 0066) save every thread and
 resume it from any face; what is missing is a way for the person to see and manage them outside chat, and to move
 between them inside it.
 

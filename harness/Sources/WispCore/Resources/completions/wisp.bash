@@ -174,13 +174,13 @@ _wisp() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|notify|scan|redact|watch|draft|classifier|completions|help)
+    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|help)
         # Offer subcommand argument completions
         "_wisp_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions notify scan redact watch draft classifier completions help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions threads notify scan redact watch draft classifier completions help' -- "${cur}"))
         ;;
     esac
 }
@@ -232,6 +232,7 @@ _wisp_chat() {
         return
         ;;
     '-r'|'--resume')
+        __wisp_add_completions -W "$(__wisp_custom_complete ---completion chat -- --resume "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
         return
         ;;
     '--save')
@@ -685,6 +686,85 @@ _wisp_questions_decline() {
     case "${positional_number}" in
     1)
         __wisp_add_completions -W "$(__wisp_custom_complete ---completion questions decline -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
+        return
+        ;;
+    esac
+}
+
+_wisp_threads() {
+    repeating_flags=()
+    non_repeating_flags=(--version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 0
+
+    # Offer subcommand / subcommand argument completions
+    local -r subcommand="${unparsed_words[0]}"
+    unset 'unparsed_words[0]'
+    unparsed_words=("${unparsed_words[@]}")
+    case "${subcommand}" in
+    list|show|delete|hand)
+        # Offer subcommand argument completions
+        "_wisp_threads_${subcommand}"
+        ;;
+    *)
+        # Offer subcommand completions
+        COMPREPLY+=($(compgen -W 'list show delete hand' -- "${cur}"))
+        ;;
+    esac
+}
+
+_wisp_threads_list() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 0
+}
+
+_wisp_threads_show() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 1
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -W "$(__wisp_custom_complete ---completion threads show -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
+        return
+        ;;
+    esac
+}
+
+_wisp_threads_delete() {
+    repeating_flags=()
+    non_repeating_flags=(-y --yes --json --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 1
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -W "$(__wisp_custom_complete ---completion threads delete -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
+        return
+        ;;
+    esac
+}
+
+_wisp_threads_hand() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 2
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -W "$(__wisp_custom_complete ---completion threads hand -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
         return
         ;;
     esac

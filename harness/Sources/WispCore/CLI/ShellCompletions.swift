@@ -281,4 +281,12 @@ public enum CompletionCandidates {
     public static func pending(_ kind: PendingApprovals.Kind, home: Home) -> [String] {
         PendingApprovals(home: home).waiting(kind).map(\.id)
     }
+
+    /// Saved threads for `wisp threads show|delete|hand` and `wisp chat --resume`: the store's ids, sorted.
+    ///
+    /// - Parameter home: wisp's home.
+    /// - Returns: The ids.
+    public static func threads(home: Home) -> [String] {
+        ThreadStore(home: home).ids
+    }
 }

@@ -228,13 +228,30 @@ import WispTestSupport
         #expect(refused.isError == true)
         #expect(
             text(refused)
-                == "thread o belongs to codex, and this client is wire-test; only codex can resume it, so choose "
-                + "another thread_id")
+                == "thread o belongs to codex, and this client is wire-test; choose another thread_id, or the person "
+                + "gives it to you with wisp threads hand o wire-test")
         let listed = try await json(claude.server, "wisp://threads")
         #expect(listed["threads"]?.arrayValue?.isEmpty == true)
         #expect(try await call(claude.client, "close_thread", ["thread_id": "o"]).isError == true)
         #expect(try ThreadStore(home: home).settings("o") != nil)
         await end(claude)
+    }
+
+    @Test func anotherClientsThreadHandedOverIsResumedByThisOne() async throws {
+        let home = try home()
+        let codex = try await connect(home, client: "codex")
+        _ = try await call(codex.client, "respond", ["prompt": "hi", "thread_id": "h"])
+        await end(codex)
+        let claude = try await connect(home)
+        #expect(try await call(claude.client, "respond", ["prompt": "hi", "thread_id": "h"]).isError == true)
+        // The person hands it over, as wisp threads hand h wire-test does, while the server runs.
+        #expect(try ThreadAdmin(home: home).hand("h", to: "wire-test")?.from == "codex")
+        let resumed = try await call(claude.client, "respond", ["prompt": "again", "thread_id": "h"])
+        #expect(resumed.isError == false && fields(resumed)["resumed"] == true, "\(text(resumed))")
+        let listed = try await json(claude.server, "wisp://threads")
+        #expect(listed["threads"]?.arrayValue?.contains { $0.objectValue?["thread_id"] == "h" } == true)
+        await end(claude)
+        #expect(try ThreadStore(home: home).settings("h")?.owner == "wire-test")
     }
 
     @Test func aSavedThreadIsReadFromItsFilesAndClosedFromTheStore() async throws {

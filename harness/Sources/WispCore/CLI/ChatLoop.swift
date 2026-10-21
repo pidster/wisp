@@ -172,6 +172,10 @@ public struct ChatLoop {
         /// Opens an agent on another model continuing the thread's record, for `/model`; nil makes it
         /// unavailable.
         public var openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)?
+        /// Opens an agent on a saved thread, for `/resume`: given the thread, locked, and the model and thinking the
+        /// chat runs with now, which a chat's own thread takes and an agent's ignores for its own. Nil makes `/resume`
+        /// unavailable.
+        public var openThread: (@Sendable (ChatThread.Opening, ModelSelection, OllamaThink?) throws -> Agent)?
         /// The session's call store, for `/stats`; nil makes the command unavailable.
         public var stats: CallStats?
         /// The `config.json` that `/config set` and `unset` change; nil makes them unavailable.
@@ -206,7 +210,9 @@ public struct ChatLoop {
             inspect: (@Sendable (String) async -> String)? = nil, banner: String? = nil,
             models: ModelActions? = nil,
             width: @escaping @Sendable () -> Int? = { nil }, notices: [String] = [],
-            openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)? = nil, stats: CallStats? = nil,
+            openModel: (@Sendable (ModelSelection, ThreadRecord) throws -> Agent)? = nil,
+            openThread: (@Sendable (ChatThread.Opening, ModelSelection, OllamaThink?) throws -> Agent)? = nil,
+            stats: CallStats? = nil,
             configFile: URL? = nil,
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
@@ -231,6 +237,7 @@ public struct ChatLoop {
             self.width = width
             self.notices = notices
             self.openModel = openModel
+            self.openThread = openThread
             self.stats = stats
         }
     }
@@ -451,7 +458,13 @@ public struct ChatLoop {
             case .save(let name):
                 save(as: name)
             case .threads:
-                for line in threadListing() { io.print(line) }
+                await threads()
+            case .resume(let id):
+                guard let id else {
+                    await threads()
+                    continue
+                }
+                resume(id)
             case .new:
                 let record = agent.store
                 agent.reset()
@@ -586,6 +599,55 @@ public struct ChatLoop {
         case .ran, .refused:
             if let note = FactReport.newFacts(typed.facts) { io.note(style.muted(note)) }
         }
+    }
+
+    /// `/resume ID`, here since only this file sets `agent`: the thread open now saved and let go, and `id` opened in
+    /// its place as `wisp chat --resume ID` opens one (`ChatThread.find`): an agent's thread with its own model, tools,
+    /// thinking, and command limit, any other on the chat's model and thinking. Refused with the reason, the thread
+    /// open now kept, for the thread already open, one another process holds, and one that cannot be resumed.
+    ///
+    /// - Parameter id: The thread's id, or a transcript's name.
+    mutating func resume(_ id: String) {
+        guard let thread, let openThread = context.openThread else {
+            io.note("threads cannot be switched here")
+            return
+        }
+        guard id != thread.id else {
+            io.note("thread \(id) is the one open here")
+            return
+        }
+        let opening: ChatThread.Opening
+        do {
+            opening = try ChatThread.find(id, store: thread.store, transcripts: thread.transcripts)
+        } catch {
+            io.note(style.ember("error: \(error)"))
+            return
+        }
+        let resumed: Agent
+        do {
+            resumed = try openThread(opening, agent.model.selection, agent.thinking)
+        } catch {
+            opening.abandon(in: thread.store)
+            io.note(style.ember("error: \(error)"))
+            return
+        }
+        let left = thread.id
+        let leaving = thread.resume(
+            opening, leaving: agent.store, model: agent.model.selection.description, think: agent.thinking?.text,
+            tools: resumed.tools.map(\.name), instructions: nil, opened: resumed.model.selection.description,
+            thinking: resumed.thinking?.text)
+        if let leaving { io.note(style.ember("error: could not save thread \(left): \(leaving)")) }
+        agent = resumed
+        if !thread.isAgents, let choice = thinkChoices[agent.model.selection.description] { agent.thinking = choice }
+        agent.audit?.record(
+            .sessionStart,
+            details: AuditEvent.Details.sessionResumed(
+                tools: agent.tools.map(\.name), model: agent.model.selection, resume: id,
+                carriedFrom: opening.carriedFrom))
+        if opening.saved != nil { saveThread() }
+        io.note(
+            opening.announcement(transcripts: ChatStatus.abbreviated(thread.transcripts?.directory.path ?? ""))
+                .map { "\($0); \(left) is saved" } ?? "opened thread \(thread.id); \(left) is saved")
     }
 
     /// `/model NAME`, here since only this file sets `agent`: the conversation moved to `name` through the chat's model actions, which refuse a disabled model,

@@ -31,6 +31,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case questions
     /// `wisp models pull`: the person fetching a model (ADR 0052).
     case models
+    /// `wisp threads delete` or `hand`: the person changing the thread store (ADR 0066, phase 3).
+    case threads
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {

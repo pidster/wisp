@@ -173,8 +173,8 @@ public struct ThreadStore: Sendable {
             case .record(let id, let reason):
                 "thread \(id) cannot be resumed: \(reason); \(ThreadStore.deleting(id))"
             case .owned(let id, let owner, let client):
-                "thread \(id) belongs to \(owner), and this client is \(client); only \(owner) can resume it, so "
-                    + "choose another thread_id"
+                "thread \(id) belongs to \(owner), and this client is \(client); choose another thread_id, or the "
+                    + "person gives it to you with wisp threads hand \(id) \(client)"
             case .held(let id, let holder):
                 "thread \(id) is open in another wisp"
                     + (holder.flatMap { $0.pid > 0 ? " (pid \($0.pid)\($0.owner.map { ", \($0)" } ?? ""))" : nil } ?? "")
@@ -183,13 +183,25 @@ public struct ThreadStore: Sendable {
         }
     }
 
-    /// How to delete a thread that cannot be resumed, from either face: `close_thread` for an MCP caller, or the
-    /// directory for the person.
+    /// How to delete a thread that cannot be resumed, from either face: `wisp threads delete` for the person, or
+    /// `close_thread` for its agent.
     ///
     /// - Parameter id: The thread.
     /// - Returns: The advice.
     static func deleting(_ id: String) -> String {
-        "close_thread \(id) deletes it, or delete threads/\(id)/ in wisp's home (~/.wisp by default)"
+        "wisp threads delete \(id) deletes it, or close_thread \(id) from its agent"
+    }
+
+    /// The ids of the thread directories whose `thread.json` is there but cannot be read by this build, sorted.
+    public var unreadable: [String] {
+        ids.filter { id in
+            do {
+                _ = try settings(id)
+                return false
+            } catch {
+                return true
+            }
+        }
     }
 
     /// The longest id the store takes: an audit session is `<id>-<8 characters>`, and must itself be a `SafeName`.

@@ -90,7 +90,7 @@ import WispTestSupport
             try store.load("bare")
         } throws: { error in
             (error as? ThreadStore.Failure)?.description
-                == "thread bare cannot be resumed: its record, record.json, is missing; close_thread bare deletes it, or delete threads/bare/ in wisp's home (~/.wisp by default)"
+                == "thread bare cannot be resumed: its record, record.json, is missing; wisp threads delete bare deletes it, or close_thread bare from its agent"
         }
     }
 
@@ -178,6 +178,36 @@ import WispTestSupport
         let outputs = OutputSweep(home: home, days: 30, now: now).run(current: "now", keep: outcome.kept)
         #expect(outputs.removed == ["loose-aaaaaaaa"])
         #expect(Set(outcome.swept.first?.details.keys.map { $0 } ?? []) == AuditEvent.fields(for: .threadSwept))
+    }
+
+    @Test func theSweepSparesTheOutputsOfASessionAnotherThreadNames() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let store = ThreadStore(home: home)
+        let now = Date()
+        func output(_ session: String) throws {
+            let directory = home.outputs.appending(path: session, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(repeating: 0x61, count: 10).write(to: directory.appending(path: "3f9a2c1b"))
+        }
+        // A chat's /new carries its session into the next thread: the old one is due, the new one kept.
+        var old = settings("old", lastUsed: now.addingTimeInterval(-40 * 86_400))
+        old.sessions = ["old-aaaaaaaa", "shared"]
+        var new = settings("new", lastUsed: now.addingTimeInterval(-2 * 86_400))
+        new.sessions = ["shared"]
+        // Two due threads sharing one: the first swept leaves it for the second, which then takes it.
+        var first = settings("first", lastUsed: now.addingTimeInterval(-50 * 86_400))
+        first.sessions = ["both"]
+        var second = settings("second", lastUsed: now.addingTimeInterval(-45 * 86_400))
+        second.sessions = ["both"]
+        for thread in [old, new, first, second] { try store.save(thread, record: nil) }
+        for session in ["old-aaaaaaaa", "shared", "both"] { try output(session) }
+        let outcome = ThreadSweep(home: home, days: 30, now: now).run()
+        #expect(outcome.swept.map(\.id) == ["first", "second", "old"])
+        #expect(outcome.swept.map(\.outputBytes) == [0, 10, 10])
+        #expect(FileManager.default.fileExists(atPath: home.outputs.appending(path: "shared").path))
+        #expect(!FileManager.default.fileExists(atPath: home.outputs.appending(path: "both").path))
+        #expect(!FileManager.default.fileExists(atPath: home.outputs.appending(path: "old-aaaaaaaa").path))
     }
 
     /// Saves `count` threads named `t0`..., `t0` the oldest, each 40 days older than the last by one day, with a session.

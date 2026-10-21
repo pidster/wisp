@@ -1,7 +1,7 @@
 # wisp command reference
 
-`wisp` runs Apple's on-device Foundation Model with tools. It has eighteen subcommands (`respond`,
-`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `notify`, `scan`,
+`wisp` runs Apple's on-device Foundation Model with tools. It has nineteen subcommands (`respond`,
+`chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `threads`, `notify`, `scan`,
 `redact`, `watch`, `draft`, `classifier`, `completions`), plus hidden maintainer ones under `classifier`; `respond` is the
 default, so `wisp "<prompt>"` works.
 
@@ -490,7 +490,8 @@ What a session shows, and where it goes:
 | `/config get KEY` | One setting's effective value, and whether `config.json` sets it or it is the default; without a key, offers the settings. |
 | `/config set KEY VALUE`, `/config unset KEY` | Change `~/.wisp/config.json`, as `wisp config set` does (below). Leave out the value and chat offers the setting's choices; leave out the key too and it offers the settings first. `unset` without a key offers the settings set in the file. |
 | `/save [NAME]` | The thread is saved after every turn without it. Bare, save now; with a name, rename the thread to it (`saved thread chat-2189a246 as first`), so `--resume NAME` opens it. Refused for a name another thread has (`a thread named 'git4' is already saved`), one that cannot be an id (1 to 48 of `[A-Za-z0-9._-]`, not starting with a dot), and an agent's thread, which its agent names by its id. |
-| `/threads` | Every saved thread, any owner's: id, owner (`chat` or an MCP client's name), model, turns, last used, and state (`open`, this chat's; `open elsewhere`, held by another wisp; `saved`), most recently used first; then the transcripts in `~/.wisp/transcripts` not yet in the store. |
+| `/threads` | Every saved thread, any owner's: id, owner (`chat` or an MCP client's name), model, turns, last used, and state (`open`, this chat's; `open elsewhere`, held by another wisp; `saved`), most recently used first; then any whose `thread.json` cannot be read here, and the transcripts in `~/.wisp/transcripts` not yet in the store. In `wisp-tui`, a picker over the same threads instead: choosing one opens it as `/resume` does; a thread another wisp holds is named, not offered. |
+| `/resume ID` | Save this thread and let it go, and open the saved thread `ID` in its place, as `--resume ID` would: an agent's thread with its own settings, any other on the model and thinking in use now (`git4: ollama:granite4.1:8b, tools run_command, … ; chat-2189a246 is saved`). Refused with the reason, this thread kept open, for the thread already open, one not saved, one another wisp holds, and one that cannot be resumed. Bare, as `/threads`. |
 | `/new` | Start a fresh thread, `chat-` and a new id, with the same instructions and tools; the one before stays saved. |
 | `/quit`, `/exit`, `/q`, a bare `exit`, `quit`, or `q`, Ctrl-D | Exit; the thread is saved and let go. A chat that had nothing to save leaves nothing behind. |
 
@@ -520,8 +521,9 @@ what the model said. A *turn* is one message from you and everything the model d
 Every chat is a thread in the thread store, `~/.wisp/threads/<id>/`, the one MCP threads are saved in
 ([ADR 0066](decisions/0066-one-thread-store.md), D2 and D11). A chat starts one with a generated id, `chat-` and eight
 characters, owned by `chat`, and saves it after every turn and every command you run with `!`, so a crash loses at most
-the turn under way; at exit it is saved and let go. `/save NAME` renames it, `/threads` lists every thread, and `/new`
-saves it and starts another. A chat quit before it had anything to save leaves nothing behind. Threads unused for
+the turn under way; at exit it is saved and let go. `/save NAME` renames it, `/threads` lists every thread, `/new`
+saves it and starts another, and `/resume ID` saves it and opens another in its place. `wisp threads` lists, shows,
+deletes, and hands over threads outside chat (below). A chat quit before it had anything to save leaves nothing behind. Threads unused for
 `threads.keepDays` days (30) are deleted at a later start, as MCP threads are.
 
 `--resume ID` opens a saved thread with its record, facts, and summary. A chat's own thread runs on the flags and
@@ -1011,7 +1013,7 @@ wisp config unset approval.timeoutSeconds
 | `context.target` | A number from 0.1 to 0.8, 0.6 by default ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)): the share of the window condensing brings the context down to. It is used at no more than the context budget (85%) less 0.2, so 0.65 at most: a target at or near the budget would leave the context just under the point that triggers the next condensation, which would then run on almost every turn, each one distilling. `wisp doctor` says when a configured value is used as the cap. |
 | `context.headroomTurns` | 0 to 64: how many of the latest turns' average size is kept free for the next turn; 0 keeps none. |
 | `context.outputDays` | 0 to 3,650, 30 by default: days after a session's last use (the newest modification time of its directory and files) its stored tool outputs, `output/<session>/`, are removed, at a later session's start ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md), 2026-10-12). 0 never removes them. Each start removes at most 16 sessions and spends at most 100 ms on it, so start-up never waits on a large store; never the current session, and nothing under `output/` that wisp did not write. Audited as `outputSweep` on `session.start`; `wisp doctor` says what the next sweep would remove. |
-| `threads.keepDays` | 0 to 3,650, 30 by default: days after its last use a saved thread, chat's or MCP's, `threads/<id>/`, is deleted with its stored outputs, at a later session's start ([ADR 0066](decisions/0066-one-thread-store.md)). 0 keeps saved threads until `close_thread` deletes an MCP thread, or you delete its directory. A thread a process holds is never deleted; each start deletes at most 16 within 100 ms. Audited as `thread.swept`. Until a thread is deleted, the output store's own sweep (`context.outputDays`) spares its outputs. |
+| `threads.keepDays` | 0 to 3,650, 30 by default: days after its last use a saved thread, chat's or MCP's, `threads/<id>/`, is deleted with its stored outputs, at a later session's start ([ADR 0066](decisions/0066-one-thread-store.md)). 0 keeps saved threads until `close_thread` or `wisp threads delete` deletes one. A thread a process holds is never deleted; each start deletes at most 16 within 100 ms. Audited as `thread.swept`. Until a thread is deleted, the output store's own sweep (`context.outputDays`) spares its outputs. |
 | `context.memory` | `true` or `false` (the default): whether a conversation given every tool gets the model's `memory` tool, to recall what condensing left out or note a fact ([tools/memory.md](tools/memory.md)). A tool list that names `memory` gets it either way. Off by default since [ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md). |
 | `verification.mode` | `off`, `readers` (the default), or `model`: how each reply's result claims are checked against the turn's call list ([verification.md](verification.md)); `model` adds one side call to the conversation's model when the exact readers find nothing and the reply has result language. |
 | `watch.settle` | Seconds, 0 to 60 (decimals allowed): how long file changes must be quiet before `wisp watch` runs; 0 runs on every change batch. |
@@ -1047,6 +1049,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | `facts store` | `~/.wisp/facts.json` does not parse (wisp moves it aside, as `facts.json.unreadable-<time>`, when it next reads it, and starts with no permanent facts), a store wisp set aside is still there (look at it, then mend it into `facts.json` or remove it), or `facts.json` is readable by others (fix: `chmod 600 <path>`). Absent is ok; present, the detail counts the current permanent facts by subject. |
 | `subject kinds` | A kind names an unknown normaliser or temporal class. The detail gives the count and names any kinds `facts.kinds` adds or changes. Config loading already rejects an unknown normaliser or class, so this is a positive confirmation. |
 | `saved transcripts` | A saved transcript has no `.store` beside it, or one that does not decode or match, so it cannot be resumed: the detail lists them. Delete them or start new conversations. |
+| `threads` | A thread's `thread.json` in `~/.wisp/threads` cannot be read by this wisp: the detail names them, with `wisp threads show ID` to see why and `wisp threads delete ID` to remove one. Otherwise it says how many threads are saved and what they take on disk, which are open and who holds them (`open: git4 (pid 4242, claude-code)`), and how many the next session's sweep deletes under `threads.keepDays` (`never swept` at 0); `none saved` when the store is empty. |
 | `notify` | Notifications are on and no route can post one (no terminal sequence, the app route off or without a bundle identifier, and no `/usr/bin/osascript`). Otherwise it names the route `wisp notify` would take here and why, and the routes passed over: `terminal: Ghostty posts OSC 9 notifications`, or `osascript: banners come from Script Editor; terminal: Terminal.app has no notification sequence; app: off (notifications.viaTerminalApp)`. Nothing is posted: the terminal route is judged by whether `/dev/tty` opens. `off (notifications.enabled)` when turned off. `wisp-tui` posts through its own terminal whatever this says. |
 | `front end` | Never; it says where `wisp chat` finds `wisp-tui`, or the folders it looked in and that `wisp chat` is then the plain chat. |
 | `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait, how many facts wait to be kept (`wisp facts pending`, when any do), and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
@@ -1334,6 +1337,52 @@ chat` notes them before its prompt and answers with `/questions answer|decline I
 refuses `wisp questions answer|decline` when the model runs it. Your answer goes to the model, and the agent
 that called wisp can read the thread.
 
+### `wisp threads`
+
+The thread store, `~/.wisp/threads`, outside chat ([ADR 0066](decisions/0066-one-thread-store.md), phase 3): every
+thread, chat's and every MCP agent's, saved after each turn. `list` and `show` only read; `delete` and `hand` change
+what an agent may open, so they run only from a terminal, and the default policy refuses
+`wisp threads delete|hand` when the model runs it. Each takes `--json`.
+
+`wisp threads` (or `list`) prints the threads as `/threads` does, most recently used first; `--json` gives
+`{"threads": [...]}`, each with `id`, `owner`, `model`, `turns`, `lastUsed`, `state` (`saved` or `open elsewhere`),
+and `holder` (`pid` and `owner`) while a process holds it.
+
+`wisp threads show ID` gives one in full:
+
+```
+thread git4
+  owner          claude-code
+  model          ollama:granite4.1:8b
+  tools          run_command
+  command limit  600 s
+  turns          12
+  created        2026-10-19 10:00
+  last used      2026-10-20 09:12
+  state          saved
+  sessions       git4-3f2a91c0, git4-7b10d4e2
+  on disk        48 KB, stored outputs 1.2 MB
+  swept          after 2026-11-19 09:12 unless used again (threads.keepDays 30)
+  instructions:
+    You run git commands for a coding assistant. …
+```
+
+`--json` gives `settings` (`thread.json` as saved), `holder`, `bytes`, `outputBytes`, and `sweepsAfter` (absent when
+`threads.keepDays` is 0). A thread whose `thread.json` cannot be read is refused with the reason.
+
+`wisp threads delete ID` deletes the thread and the stored outputs of its audit sessions that no other thread names
+(a chat's `/new` carries its session into the next thread). It asks first unless `--yes`. Its history stays in the
+audit log. A thread whose `thread.json` cannot be read is deleted the same way, which is how you clear one.
+
+`wisp threads hand ID CLIENT` gives the thread to `CLIENT`, a client's name as `wisp mcp` sees it (its
+`clientInfo.name`: `claude-code`, `codex`) or `chat`, so that client's agent may resume it; its record and settings stay
+as they are. An agent that names another client's thread is told this command
+([mcp.md](mcp.md), "Saved and resumed threads").
+
+Both are refused while a process holds the thread, naming it (`thread git4 is open in another wisp (pid 4242,
+claude-code)`), and are audited under a session of their own (entry point `threads`) as `thread.deleted` and
+`thread.handed` ([logging.md](logging.md)). An unknown id exits 1.
+
 ### `wisp completions`
 
 Shell completion for zsh, bash, and fish: subcommands, flags, and their values. Homebrew installs it with wisp;
@@ -1421,7 +1470,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `transcripts/<name>.json` | Conversations chat saved with `/save` before 0.27.0. Read only: `wisp chat --resume NAME` opens one when the thread store has no thread of that name, and saves it into the store; nothing writes here now, and nothing deletes what is here. |
 | `transcripts/<name>.store` | The conversation store's links to the audit log, saved with the transcript (dropped entries included) so `--resume` keeps them; user-only. Required to resume: `--resume` refuses a transcript without it, or with one that does not decode or match. |
 | `output/<session>/` | Tool outputs larger than the tool-output budget, kept whole for `memory` and `wisp://threads/{thread_id}/output/{id}`: one file per output under its tool call's id, with a `.json` record beside it ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)). User-only. Removed `context.outputDays` days after the session's last use (30 by default), at a later session's start. |
-| `threads/<id>/` | Every thread, chat's and MCP `respond`'s, saved as it goes so a later chat or server resumes it ([ADR 0066](decisions/0066-one-thread-store.md); [mcp.md](mcp.md), "Saved and resumed threads"; "Saved threads" above): `thread.json` (its owner, `chat` or the MCP client's name; start settings, turns, audit sessions, and the facts the person dropped), `record.json` and `record.store` (its record, in the format `transcripts/` uses), and `lock`, held by the process that has the thread open. User-only. Deleted by `close_thread`, or `threads.keepDays` days after its last use (30 by default). |
+| `threads/<id>/` | Every thread, chat's and MCP `respond`'s, saved as it goes so a later chat or server resumes it ([ADR 0066](decisions/0066-one-thread-store.md); [mcp.md](mcp.md), "Saved and resumed threads"; "Saved threads" above): `thread.json` (its owner, `chat` or the MCP client's name; start settings, turns, audit sessions, and the facts the person dropped), `record.json` and `record.store` (its record, in the format `transcripts/` uses), and `lock`, held by the process that has the thread open. User-only. Deleted by `close_thread`, `wisp threads delete`, or `threads.keepDays` days after its last use (30 by default). |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, moved there with `/fact ID permanent`, or kept with `wisp facts keep` (or in `wisp-tui`) when an MCP caller asked. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one, by every `wisp` process in turn under a lock, each change made to the file as it then is, so two processes never lose each other's changes. One wisp cannot read is moved aside as `facts.json.unreadable-<time>`, never overwritten, and wisp says so when it starts. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |

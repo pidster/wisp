@@ -29,6 +29,24 @@ extension AuditEvent {
             ["reason": "new", "tools": .array(tools.map { .string($0) }), "model": .string(model.description)]
         }
 
+        /// `session.start` for a chat's `/resume`: the conversation continues on another saved thread, by id, with the
+        /// audit sessions it had before (ADR 0066, phase 3).
+        ///
+        /// - Parameters:
+        ///   - tools: The tools of the agent opened on it.
+        ///   - model: Its model.
+        ///   - resume: The id as given.
+        ///   - carriedFrom: Its sessions before, oldest first.
+        /// - Returns: The details.
+        public static func sessionResumed(
+            tools: [String], model: ModelSelection, resume: String, carriedFrom: [String]
+        ) -> [String: JSONValue] {
+            [
+                "reason": "resume", "tools": .array(tools.map { .string($0) }), "model": .string(model.description),
+                "resume": .string(resume), "carriedFrom": .array(carriedFrom.map { .string($0) }),
+            ]
+        }
+
         /// `model.resolved`: which model a conversation actually opened on, what it declared, and who
         /// declared it.
         public static func modelResolved(
@@ -1001,6 +1019,8 @@ extension AuditEvent {
             ["fact", "from", "to", "by", "now", "subject", "name", "source", "value", "proposed", "request"]
         case .factConflict, .factResolved: ["subject", "name", "winner", "others"]
         case .threadSwept: ["thread", "owner", "lastUsed", "turns", "sessions", "outputBytes"]
+        case .threadDeleted: ["thread", "owner", "turns", "sessions", "outputSessions", "outputBytes"]
+        case .threadHanded: ["thread", "from", "to"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

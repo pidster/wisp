@@ -1,8 +1,8 @@
 import Foundation
 
 /// The chat's thread in the thread store ([ADR 0066](../../../../docs/decisions/0066-one-thread-store.md), D2, D11):
-/// saved after every turn, renamed by `/save NAME`, listed with every other by `/threads`, and let go by `/new`, which
-/// starts another. An agent's thread opened here keeps its settings: `/model` and `/think` refuse to change them.
+/// saved after every turn, renamed by `/save NAME`, listed with every other by `/threads` (a picker in `wisp-tui`), let
+/// go by `/new`, which starts another, and by `/resume ID`, which opens a saved one in its place. An agent's thread opened here keeps its settings: `/model` and `/think` refuse to change them.
 extension ChatLoop {
     /// Saves the thread as it stands; a failure is a note, never a failed turn.
     ///
@@ -49,6 +49,28 @@ extension ChatLoop {
     func threadListing() -> [String] {
         guard let thread else { return ["threads are not saved here"] }
         return ChatThread.listing(store: thread.store, transcripts: thread.transcripts, current: thread.id)
+    }
+
+    /// `/threads`, and `/resume` with no id: the listing, or in a face with a chooser of its own (`wisp-tui`) a picker
+    /// over the same threads, the one open here marked, and choosing one resumes it as `/resume ID` does. A thread
+    /// another process holds is not offered, and a note names it. No answer, or the thread open here, leaves it.
+    mutating func threads() async {
+        guard let thread, let choose = io.choose, context.openThread != nil else {
+            for line in threadListing() { io.print(line) }
+            return
+        }
+        let (options, held) = ChatThread.choices(store: thread.store, current: thread.id)
+        if !held.isEmpty { io.note(style.muted("open elsewhere, so not offered: " + held.joined(separator: ", "))) }
+        guard !options.isEmpty else {
+            for line in threadListing() { io.print(line) }
+            return
+        }
+        let answer = await choose(ChatChoice(title: "Open which thread?", options: options, current: thread.id))
+        guard let id = answer?.trimmingCharacters(in: .whitespaces), !id.isEmpty, id != thread.id else {
+            io.note(style.muted("thread unchanged"))
+            return
+        }
+        resume(id)
     }
 
     /// `/new`'s thread: the one before saved and let go, another started; a failure is a note.

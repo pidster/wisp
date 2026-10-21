@@ -2,7 +2,7 @@
 
 Date: 2026-10-18. Status: accepted 2026-10-16 (the [one-thread-store proposal](../proposals/2026-10-16-one-thread-store.md),
 every recommendation taken); phase 1 built 2026-10-18 for 0.27.0; phase 2, chat on the store (D2, D11), built 2026-10-19
-for 0.27.0 (the amendment below).
+for 0.27.0; phase 3, the store for the person, built 2026-10-20 for 0.28.0 (the amendments below).
 
 ## Context
 
@@ -145,3 +145,65 @@ resuming chat's turn. `ContextEquivalenceTests`' chat snapshot was recorded agai
 contexts are unchanged but for the renumbering of ids, and only its `/save` and `/new` notes and the saved transcript
 differ, as the change intends. Checked live on 2026-10-19 on `system` in a scratch home: a turn saved as `chat-…`,
 `/save first` renaming, `--resume first`, `--list`, and a chat quit at once leaving nothing.
+
+## Amendment, 2026-10-20: the store for the person (phase 3)
+
+Phase 3 of the proposal, built for 0.28.0, with the three choices the operator made on 2026-10-20 (the proposal's
+answers 6 to 8):
+
+1. **`wisp threads`** (`ThreadAdmin`, `ThreadsCommand`) has four subcommands, each with `--json`. `list`, the default,
+   prints chat's listing (`ChatThread.listing`), and `--json` gives each thread's id, owner, model, turns, last use,
+   state, and holder (pid and owner from its lock). `show ID` gives the start settings with the instructions in full,
+   the turns, the audit sessions, the dropped facts, the bytes the directory and its sessions' stored outputs take, and
+   when the sweep deletes it (`lastUsed` plus `threads.keepDays`; never at 0). `delete ID` removes the directory and
+   the stored outputs of each of its sessions that no other thread names. That last condition is not in the
+   proposal: chat's `/new` carries its session into the next thread, so both threads name it. A thread whose
+   `thread.json` cannot be read is deleted too, with no outputs, which is how the person clears one. `hand ID CLIENT`
+   sets the owner to `CLIENT` and changes nothing else. It says so and records nothing when `CLIENT` owns the thread
+   already, and refuses an empty owner, one over 64 characters, one with spaces at either end, and one with a control
+   character.
+2. **Delete and hand are the person's** (choice 7). Each takes the thread's lock first, so a thread a process holds is
+   refused with D6's message naming the holder. Each runs only with a terminal on standard input, as
+   `wisp approvals approve` does (ADR 0046), and `delete` asks first unless `--yes`. `CommandPolicy.defaultDeny`
+   gains `wisp threads delete|hand` in the same shape as the patterns for approvals, facts, and questions, so no
+   agent takes another's thread through `run_command`, quoted or by path. `list` and `show` stay allowed. Each change
+   is audited under a session of its own (entry point `threads`), as `thread.deleted` (`thread`, `owner`, `turns`,
+   `sessions`, `outputSessions`, `outputBytes`) or `thread.handed` (`thread`, `from`, `to`).
+3. **The owner refusal names the command**, as D3 has it: `thread o belongs to codex, and this client is claude-code;
+   choose another thread_id, or the person gives it to you with wisp threads hand o claude-code`. The advice for a
+   thread that cannot be resumed names `wisp threads delete ID` first, then `close_thread`.
+4. **`/resume ID` in chat**, plain and `wisp-tui` alike (choice 8: switch in place). The thread open now is saved as
+   `saved` and its lock released, as at the chat's end. `ID` is opened as `--resume ID` opens it at start
+   (`ChatThread.find`, then `ChatLoop.Context.openThread`). An agent's thread runs on its own model, tools, thinking,
+   and command limit, and the session's tools give way to the thread's (`Session.openAgent`'s new `tools`). Any other
+   thread runs on the model and thinking the chat has now. A `session.start` with `reason` `resume`, `resume`, and
+   `carriedFrom` records the switch under the chat's audit session, which the opened thread adds to its `sessions`.
+   The current thread stays open, with the reason given, when `ID` is that thread, cannot be found, is held
+   elsewhere, or fails to open; a thread that fails to open is let go. `/model`'s opener now reads the command limit
+   of the thread open at the time, not the one the chat started on.
+5. **The picker in `wisp-tui`**: `/threads`, and a bare `/resume`, ask through the `choice` line `/model` uses, over
+   the threads no other process holds, most recently used first, each with its owner, model, turns, and last use, and
+   the current thread marked. Choosing one resumes it. The threads held elsewhere are named in a note, not offered,
+   since a choice has no disabled rows. The plain chat, which has no chooser, prints the listing. `wisp-tui` did not
+   change: the picker is its existing choice dialog, and its status line takes the model from the `status` line
+   before each prompt.
+6. **The store in `wisp doctor`**, a `threads` finding after `saved transcripts`: how many threads are saved and what
+   the store takes on disk, which threads are open and who holds them, and how many the next session's sweep deletes
+   under `threads.keepDays`. A `thread.json` that cannot be read is a warning naming it, `wisp threads show ID`, and
+   `wisp threads delete ID`; `/threads` and `wisp threads` add the same line under the listing.
+7. **The sweep spares a shared session's outputs**, as `delete` does. Phase 1's sweep removed the outputs of every
+   session a swept thread had, so a thread `/new` started, which names the same session, lost the whole outputs it
+   reached through `memory` when the thread before it aged out. A session that a kept thread names, or a due thread
+   later in the same sweep, now keeps its outputs; the last thread to name it takes them.
+
+Tested without the model:
+- `ThreadStoreTests.theSweepSparesTheOutputsOfASessionAnotherThreadNames`: a session shared with a kept thread
+  spared, and one shared by two due threads removed with the second.
+- `ThreadAdminTests`: `list` and `show` with a holder, the sweep date and both byte counts, and `show`'s lines;
+  `delete` keeping a session another thread names, and deleting an unreadable thread; `hand` and its refusals; both
+  refused while a lock is held; the policy; the owner refusal's text; the doctor's finding.
+- `ChatThreadTests`: `/resume` switching from a chat's thread to an agent's, the first saved and unlocked and the
+  second keeping its owner and taking the next turn, with its `session.start`. Also its four refusals, a failed open
+  letting the thread go, no opener, and the picker offering the free threads, naming the held one, and resuming the
+  one chosen.
+- `ThreadResumeWireTests`: another client's thread refused over the wire, then resumed by this client after `hand`.

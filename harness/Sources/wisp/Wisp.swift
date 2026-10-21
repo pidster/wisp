@@ -17,7 +17,8 @@ struct Wisp: AsyncParsableCommand {
         subcommands: [
             Respond.self, Chat.self, Tools.self, Models.self, Mcp.self, Logs.self, ConfigCommand.self,
             DoctorCommand.self,
-            Approvals.self, FactsCommand.self, QuestionsCommand.self, Notify.self, Scan.self, Redact.self, Watch.self,
+            Approvals.self, FactsCommand.self, QuestionsCommand.self, ThreadsCommand.self, Notify.self, Scan.self,
+            Redact.self, Watch.self,
             Draft.self,
             ClassifierCommand.self, CompletionsCommand.self,
         ],
@@ -314,7 +315,9 @@ struct Chat: AsyncParsableCommand {
     @Flag(name: [.short, .customLong("yes")], help: "Approve risky commands without asking.")
     var yes = false
 
-    @Option(name: [.short, .long], help: "Open a saved thread by id, an agent's too, or an older saved transcript.")
+    @Option(
+        name: [.short, .long], help: "Open a saved thread by id, an agent's too, or an older saved transcript.",
+        completion: DynamicCompletions.threads)
     var resume: String?
 
     @Option(name: .long, help: "Name the chat's thread, as /save NAME does. A new one is named chat-XXXXXXXX.")
@@ -414,8 +417,9 @@ struct Chat: AsyncParsableCommand {
                 openModel: { selection, store in
                     try session.openAgent(
                         host: host, store: store, observer: tap, model: selection,
-                        commandTimeout: opening.settings?.commandTimeoutSeconds)
-                }, stats: session.stats, configFile: Wisp.home.configFile,
+                        commandTimeout: thread.settings.commandTimeoutSeconds)
+                }, openThread: Chat.threadOpener(session: session, host: host, observer: tap), stats: session.stats,
+                configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
                 outputs: session.config.auditEnabled ? Wisp.home.outputs : nil,
@@ -650,8 +654,9 @@ struct Chat: AsyncParsableCommand {
                 openModel: { selection, store in
                     try session.openAgent(
                         host: host, store: store, observer: tap, model: selection,
-                        commandTimeout: opening.settings?.commandTimeoutSeconds)
-                }, stats: session.stats, configFile: Wisp.home.configFile,
+                        commandTimeout: thread.settings.commandTimeoutSeconds)
+                }, openThread: Chat.threadOpener(session: session, host: host, observer: tap), stats: session.stats,
+                configFile: Wisp.home.configFile,
                 configOptions: Chat.configOptions(session: session), approvalStore: session.store,
                 activity: activity, shownOutputLines: session.config.shownOutputLines, interrupt: interrupt,
                 outputs: session.config.auditEnabled ? Wisp.home.outputs : nil,
@@ -751,6 +756,28 @@ struct Chat: AsyncParsableCommand {
         }
         let shown = opening.announcement(transcripts: ChatStatus.abbreviated(transcripts.directory.path))
         return (agent, thread, (fallback.map { [$0.message] } ?? []) + (shown.map { [$0] } ?? []))
+    }
+
+    /// Opens the chat's agent on a saved thread for `/resume` (ADR 0066, phase 3), as `open` does at start: an agent's
+    /// thread on its own model, tools, thinking, and command limit (D11), any other on the model and thinking the chat
+    /// runs with now and the session's tools.
+    ///
+    /// - Parameters:
+    ///   - session: The session.
+    ///   - host: The face's effects.
+    ///   - observer: The tap.
+    /// - Returns: The opener `ChatLoop.Context.openThread` takes.
+    static func threadOpener(
+        session: Session, host: SessionHost, observer: ChatEvents.Tap
+    ) -> @Sendable (ChatThread.Opening, ModelSelection, OllamaThink?) throws -> Agent {
+        { opening, model, think in
+            let settings = opening.isAgents ? opening.settings : nil
+            return try session.openAgent(
+                host: host, transcript: opening.saved?.transcript, links: opening.saved?.links, observer: observer,
+                model: try settings.map { try ModelSelection(parsing: $0.model) } ?? model,
+                think: settings.map { $0.think.flatMap(OllamaThink.init) } ?? think,
+                commandTimeout: opening.settings?.commandTimeoutSeconds, tools: settings?.tools)
+        }
     }
 
     /// The answers `/config set` offers beyond a setting's own: the models this Mac can run, and the Core

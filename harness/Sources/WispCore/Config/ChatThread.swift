@@ -187,18 +187,39 @@ public final class ChatThread: Sendable {
     ) {
         self.store = store
         self.transcripts = transcripts
+        let settings = Self.settings(
+            opening, session: session, model: model, tools: tools, instructions: instructions, think: think, now: now)
+        state = Mutex(State(settings: settings, lock: opening.lock, written: opening.settings != nil))
+    }
+
+    /// The settings `opening` is held with: an agent's thread's own, reopened under `session`; a chat's own with the
+    /// chat's model, tools, and thinking; a new thread's or a transcript's from the chat's.
+    ///
+    /// - Parameters:
+    ///   - opening: The thread.
+    ///   - session: The chat's audit session.
+    ///   - model: The chat's model.
+    ///   - tools: The chat's tools.
+    ///   - instructions: The chat's instructions.
+    ///   - think: The chat's thinking.
+    ///   - now: The time.
+    /// - Returns: The settings.
+    private static func settings(
+        _ opening: Opening, session: String, model: String, tools: [String], instructions: String?, think: String?,
+        now: Date
+    ) -> ThreadStore.Settings {
         var settings =
             opening.settings?.reopened(as: session)
             ?? ThreadStore.Settings(
-                id: opening.id, owner: Self.owner, model: model, tools: tools, instructions: instructions, think: think,
+                id: opening.id, owner: owner, model: model, tools: tools, instructions: instructions, think: think,
                 session: session, now: now)
-        if opening.settings?.owner == Self.owner {
+        if opening.settings?.owner == owner {
             settings.model = model
             settings.tools = tools
             settings.think = think
         }
         if opening.settings == nil, let saved = opening.saved { settings.turns = saved.transcript.turnCount }
-        state = Mutex(State(settings: settings, lock: opening.lock, written: opening.settings != nil))
+        return settings
     }
 
     /// The thread's id.
@@ -247,11 +268,11 @@ public final class ChatThread: Sendable {
     /// - Parameters:
     ///   - name: The thread's id, or the transcript's name.
     ///   - store: The store.
-    ///   - transcripts: The transcripts.
+    ///   - transcripts: The transcripts; nil looks only in the store.
     /// - Returns: The opening.
     /// - Throws: `ThreadStore.Failure` (unreadable, version, record, or `held`, saying who holds it),
     ///   `TranscriptStore.Failure` for a transcript that cannot be resumed, or `Failure.notFound`.
-    public static func find(_ name: String, store: ThreadStore, transcripts: TranscriptStore) throws -> Opening {
+    public static func find(_ name: String, store: ThreadStore, transcripts: TranscriptStore?) throws -> Opening {
         if ThreadStore.isValid(name), try store.settings(name) != nil {
             let lock = try store.lock(name, owner: owner)
             do {
@@ -264,6 +285,7 @@ public final class ChatThread: Sendable {
                 throw error
             }
         }
+        guard let transcripts else { throw Failure.notFound(name) }
         let saved: TranscriptStore.Saved
         do {
             saved = try transcripts.loadThread(name)
@@ -375,6 +397,41 @@ public final class ChatThread: Sendable {
         return opening.id
     }
 
+    /// Lets the thread go and holds `opening` in its place, for `/resume`: the thread open now saved as `saved` (or
+    /// deleted when nothing of it is kept, as `finish` does) and its lock released; `opening`'s settings taken as the
+    /// chat's opening of it takes them, under the same audit session. The switch happens whether or not the save does.
+    ///
+    /// - Parameters:
+    ///   - opening: The thread to hold, locked.
+    ///   - record: The conversation's store, the thread open now's.
+    ///   - model: The model the chat ran it on.
+    ///   - think: The thinking it asked for.
+    ///   - tools: The tools of the agent opened on `opening`.
+    ///   - instructions: The instructions a new thread starts with; nil keeps those the chat's thread had.
+    ///   - opened: The model of the agent opened on `opening`.
+    ///   - thinking: The thinking that agent asks for.
+    /// - Returns: The error saving the thread let go, or nil.
+    public func resume(
+        _ opening: Opening, leaving record: ThreadRecord, model: String, think: String?, tools: [String],
+        instructions: String?, opened: String, thinking: String?
+    ) -> (any Error)? {
+        var failure: (any Error)?
+        do {
+            try finish(record: record, model: model, think: think)
+        } catch {
+            failure = error
+        }
+        state.withLock { state in
+            let session = state.settings.sessions.last ?? ""
+            state.settings = Self.settings(
+                opening, session: session, model: opened, tools: tools,
+                instructions: instructions ?? state.settings.instructions, think: thinking, now: Date())
+            state.lock = opening.lock
+            state.written = opening.settings != nil
+        }
+        return failure
+    }
+
     /// Lets the thread go as the chat ends or starts another: saves it as `saved` when anything of it is in the store or
     /// the record holds more than its instructions, deletes the directory its lock made otherwise, and releases the
     /// lock.
@@ -396,7 +453,8 @@ public final class ChatThread: Sendable {
 
     /// The threads the person may open, for `/threads` and `wisp chat --list`: every thread in the store, any owner's,
     /// most recently used first, with its owner, model, turns, when it was last used, and its state (`open` here,
-    /// `open elsewhere` when another wisp holds it, `saved`); then the transcripts saved by earlier wisps that are not in
+    /// `open elsewhere` when another wisp holds it, `saved`); then the threads whose `thread.json` cannot be read here;
+    /// then the transcripts saved by earlier wisps that are not in
     /// the store, which `--resume` opens and saves into it.
     ///
     /// - Parameters:
@@ -422,6 +480,11 @@ public final class ChatThread: Sendable {
                     ]
                 }, rightAligned: [3])
         }
+        let unreadable = store.unreadable
+        if !unreadable.isEmpty {
+            lines.append(
+                "cannot be read here: \(unreadable.joined(separator: ", ")); wisp threads show ID says why")
+        }
         let ids = Set(store.ids)
         let older = ((try? transcripts?.list()) ?? []).filter { !ids.contains($0) }
         if let transcripts, !older.isEmpty {
@@ -430,6 +493,31 @@ public final class ChatThread: Sendable {
                     + "store then: " + older.joined(separator: ", "))
         }
         return lines
+    }
+
+    /// The threads `wisp-tui`'s picker offers (`/threads`): every saved thread no other process holds, most recently
+    /// used first, the one open here among them, each with its owner, model, turns, and when it was last used; and the
+    /// ids of those another process holds, which are not offered.
+    ///
+    /// - Parameters:
+    ///   - store: The store.
+    ///   - current: The thread open here.
+    /// - Returns: The options, and the ids held elsewhere.
+    public static func choices(store: ThreadStore, current: String?) -> (options: [ChatChoice.Option], held: [String]) {
+        var options: [ChatChoice.Option] = []
+        var held: [String] = []
+        for settings in store.all {
+            if settings.id != current, store.holder(of: settings.id) != nil {
+                held.append(settings.id)
+                continue
+            }
+            options.append(
+                ChatChoice.Option(
+                    value: settings.id,
+                    detail: "\(settings.owner) · \(settings.model) · \(turns(settings.turns)) · "
+                        + shortTime(settings.lastUsed)))
+        }
+        return (options, held)
     }
 
     /// `N turn` or `N turns`.

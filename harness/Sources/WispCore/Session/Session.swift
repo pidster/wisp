@@ -456,15 +456,17 @@ public struct Session: Sendable {
     ///   - think: The thinking its turns ask of the model; nil leaves the model's default. Chat passes an agent's
     ///     thread's (ADR 0066, D11).
     ///   - commandTimeout: Its own limit for `run_command`, in seconds (ADR 0063); nil takes the operator's default.
-    /// - Returns: The agent over the session's tools, recording to the session's audit log.
-    /// - Throws: `ModelSelection.Failure` if the model cannot be used.
+    ///   - tools: Tools other than the session's, by name: chat's `/resume` of an agent's thread passes the thread's.
+    /// - Returns: The agent over the session's tools, or `tools`, recording to the session's audit log.
+    /// - Throws: `ModelSelection.Failure` if the model cannot be used, `Failure.unknownTools` for a tool not known.
     public func openAgent(
         host: SessionHost, transcript: Transcript? = nil, links: ThreadRecord.Snapshot? = nil,
         store: ThreadRecord? = nil, observer: (any AuditSink)? = nil, model: ModelSelection? = nil,
-        think: OllamaThink? = nil, commandTimeout: Int? = nil
+        think: OllamaThink? = nil, commandTimeout: Int? = nil, tools: [String]? = nil
     ) throws -> Agent {
         var thread = try WispThread.setUp(
-            session: self, audit: audit, host: host, prompting: prompting, toolNames: toolNames,
+            session: self, audit: audit, host: host, prompting: prompting,
+            toolNames: try tools.map { try Self.resolve(.named($0), config: config) } ?? toolNames,
             model: model ?? config.model, observer: observer, commandTimeout: commandTimeout)
         thread.thinking = think
         return try thread.openAgent(transcript: transcript, links: links, store: store)

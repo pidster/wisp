@@ -1,7 +1,7 @@
 import Foundation
 
 /// The doctor's checks of what wisp keeps and how it is set: the facts store, the subject kinds, saved
-/// transcripts, numeric settings, and the context window.
+/// transcripts, the thread store, numeric settings, and the context window.
 extension Doctor {
     /// `~/.wisp/facts.json`: no unreadable store set aside beside it, absent or parses, is readable by the owner
     /// only, and how many current facts it holds.
@@ -106,6 +106,43 @@ extension Doctor {
                     + "(in \(home.transcripts.path)) or start new conversations")
         }
         return Finding(name: name, ok: true, detail: "\(names.count) saved, each with a matching .store")
+    }
+
+    /// The thread store (ADR 0066): how many threads are saved, which a process holds and who, what they take on
+    /// disk, and how many the next session's sweep deletes under `threads.keepDays`; a `thread.json` this build cannot
+    /// read is a warning naming `wisp threads delete`.
+    func threads() -> Finding {
+        let name = "threads"
+        let store = ThreadStore(home: home)
+        let unreadable = store.unreadable
+        let saved = store.all
+        var parts: [String] = []
+        if !saved.isEmpty {
+            let held = saved.compactMap { settings in
+                store.holder(of: settings.id).map { holder in
+                    settings.id + (holder.pid > 0 ? " (pid \(holder.pid)\(holder.owner.map { ", \($0)" } ?? ""))" : "")
+                }
+            }
+            parts.append(
+                "\(saved.count) saved, \(ThreadAdmin.bytes(ThreadAdmin.size(of: store.root))) on disk"
+                    + (held.isEmpty ? "" : "; open: " + held.joined(separator: ", ")))
+            let days = resolvedConfig.threadsKeepDays
+            let sweep = ThreadSweep(home: home, days: days)
+            if let cutoff = sweep.cutoff {
+                let due = saved.filter { $0.lastUsed < cutoff && store.holder(of: $0.id) == nil }.count
+                parts.append("the next sweep deletes \(due) (threads.keepDays \(days))")
+            } else {
+                parts.append("never swept (threads.keepDays 0)")
+            }
+        }
+        guard unreadable.isEmpty else {
+            parts.append(
+                "\(unreadable.count) cannot be read here: \(unreadable.joined(separator: ", ")); wisp threads show ID "
+                    + "says why, and wisp threads delete ID removes one")
+            return Finding(name: name, ok: false, detail: parts.joined(separator: "; "))
+        }
+        guard !parts.isEmpty else { return Finding(name: name, ok: true, detail: "none saved") }
+        return Finding(name: name, ok: true, detail: parts.joined(separator: "; "))
     }
 
     /// The numeric settings are in range: `inlineOutputBytes` and `shownOutputLines` are clamped at 0,

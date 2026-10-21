@@ -40,7 +40,7 @@ import WispTestSupport
         #expect(
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
-                "subject kinds", "saved transcripts", "notify", "front end", "home",
+                "subject kinds", "saved transcripts", "threads", "notify", "front end", "home",
                 "pending approvals", "output store",
             ])
         let broken = Doctor.Probes(
@@ -49,7 +49,8 @@ import WispTestSupport
         #expect(
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
-                "settings", "facts store", "subject kinds", "saved transcripts", "notify", "front end", "home",
+                "settings", "facts store", "subject kinds", "saved transcripts", "threads", "notify", "front end",
+                "home",
                 "pending approvals", "output store",
             ])
         #expect(!extra[1].ok && extra[1].detail == "not enabled")
