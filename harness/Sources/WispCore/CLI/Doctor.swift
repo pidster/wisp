@@ -47,6 +47,9 @@ public struct Doctor: Sendable {
         public var thinkingBudget: @Sendable (Config.Resolved) async -> Finding?
         /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
         public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
+        /// The running `wisp` and who signed it, or nil when the executable cannot be found, for the `signature`
+        /// finding.
+        public var signature: @Sendable () -> (executable: URL, signature: CodeSignature)?
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -86,6 +89,10 @@ public struct Doctor: Sendable {
             frontEnd: {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
                 return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
+            },
+            signature: {
+                guard let executable = FrontEnd.runningExecutable else { return nil }
+                return (executable, CodeSignature.of(executable))
             })
 
         /// Creates probes.
@@ -102,7 +109,8 @@ public struct Doctor: Sendable {
             osascriptPresent: @escaping @Sendable () -> Bool = { true },
             backends: @escaping @Sendable () -> [Finding] = { [] },
             thinkingBudget: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
-            frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) }
+            frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) },
+            signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil }
         ) {
             self.systemModel = systemModel
             self.systemModelAnswers = systemModelAnswers
@@ -115,6 +123,7 @@ public struct Doctor: Sendable {
             self.backends = backends
             self.thinkingBudget = thinkingBudget
             self.frontEnd = frontEnd
+            self.signature = signature
         }
     }
 
@@ -155,7 +164,8 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), frontEndFinding(), homeWritable(),
+            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), frontEndFinding(), signatureFinding(),
+            homeWritable(),
             pendingApprovals(),
             outputStore(),
         ]
@@ -234,6 +244,35 @@ public struct Doctor: Sendable {
         return Finding(
             name: "front end", ok: true,
             detail: "no wisp-tui in \(places.isEmpty ? "the places looked" : places); wisp chat is the plain chat")
+    }
+
+    /// Who signed the running `wisp`. Never a failure: a release made with a signing identity is signed with a
+    /// Developer ID and notarised, and an unsigned release or a build from source is signed ad hoc by the linker, and
+    /// both run; it says which this is (ADR 0069).
+    private func signatureFinding() -> Finding {
+        guard let (executable, signature) = probes.signature() else {
+            return Finding(name: "signature", ok: true, detail: "the running executable could not be found")
+        }
+        return Finding(name: "signature", ok: true, detail: Self.signatureDetail(executable, signature))
+    }
+
+    /// The `signature` finding's detail.
+    ///
+    /// - Parameters:
+    ///   - executable: The running `wisp`.
+    ///   - signature: Who signed it.
+    /// - Returns: The detail.
+    static func signatureDetail(_ executable: URL, _ signature: CodeSignature) -> String {
+        switch signature {
+        case .signed(let authority):
+            "\(executable.path) signed by \(authority)"
+        case .adHoc:
+            "\(executable.path) signed ad hoc, with no Developer ID, as a build from source and an unsigned release are"
+        case .unsigned:
+            "\(executable.path) not signed"
+        case .unreadable(let reason):
+            "\(executable.path): its signature could not be read: \(reason)"
+        }
     }
 
     private func classifier() -> Finding {

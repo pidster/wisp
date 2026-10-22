@@ -170,7 +170,9 @@ keyboard, and copying through OSC 52 ([ADR 0068](decisions/0068-the-conversation
 
 ## When wisp can be signed
 
-Three things wait on a Developer ID or App Store signature rather than on code.
+Three things wait on a Developer ID or App Store signature rather than on code. Done 2026-10-22: the release can be
+signed with a Developer ID and notarised, off until the maintainer turns it on
+([ADR 0069](decisions/0069-signed-and-notarised-releases.md)); the first two below now wait on their own work.
 
 - **A notification helper app.** `Wisp Notifier.app`, a tiny agent bundle (`LSUIElement`) in the
   formula's `libexec`, posting through `UserNotifications` instead of `osascript`

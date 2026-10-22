@@ -40,7 +40,7 @@ import WispTestSupport
         #expect(
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
-                "subject kinds", "saved transcripts", "threads", "notify", "front end", "home",
+                "subject kinds", "saved transcripts", "threads", "notify", "front end", "signature", "home",
                 "pending approvals", "output store",
             ])
         let broken = Doctor.Probes(
@@ -50,7 +50,7 @@ import WispTestSupport
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
                 "settings", "facts store", "subject kinds", "saved transcripts", "threads", "notify", "front end",
-                "home",
+                "signature", "home",
                 "pending approvals", "output store",
             ])
         #expect(!extra[1].ok && extra[1].detail == "not enabled")
@@ -234,6 +234,29 @@ import WispTestSupport
         #expect(absent.ok)
         #expect(
             absent.detail.contains("libexec") && absent.detail.contains("/bin") && absent.detail.contains("plain chat"))
+    }
+
+    /// Who signed the running `wisp`, said for each kind of signature, never as a failure.
+    @Test func theSignatureSaysWhoSignedTheExecutable() throws {
+        let home = Home(
+            root: FileManager.default.temporaryDirectory.appending(path: "wisp-doctor-\(UUID().uuidString)"))
+        let wisp = URL(fileURLWithPath: "/opt/homebrew/Cellar/wisp/0.29.1/libexec/wisp")
+        let release = CodeSignature.signed(authority: "Developer ID Application: A Person (ABCDE12345)")
+        let found = Doctor(
+            home: home, model: .system,
+            probes: .init(systemModel: { nil }, configuredModel: { _, _, _ in nil }, signature: { (wisp, release) })
+        ).run()
+        let signed = try #require(found.first { $0.name == "signature" })
+        #expect(signed.ok)
+        #expect(signed.detail == "\(wisp.path) signed by Developer ID Application: A Person (ABCDE12345)")
+        #expect(Doctor.signatureDetail(wisp, .adHoc).contains("signed ad hoc, with no Developer ID"))
+        #expect(Doctor.signatureDetail(wisp, .unsigned).hasSuffix("not signed"))
+        #expect(Doctor.signatureDetail(wisp, .unreadable("no such file")).hasSuffix("could not be read: no such file"))
+        let lost = Doctor(
+            home: home, model: .system, probes: .init(systemModel: { nil }, configuredModel: { _, _, _ in nil })
+        ).run()
+        let unknown = try #require(lost.first { $0.name == "signature" })
+        #expect(unknown.ok && unknown.detail.contains("could not be found"))
     }
 
     @Test func asksTheAvailableModelForAReply() async throws {

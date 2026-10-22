@@ -16,8 +16,10 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
   the shell completions for bash, zsh, and fish into Homebrew's completion directories, so a Homebrew user has
   them with no further step.
 
-The binary is unsigned for now; Homebrew does not quarantine what it downloads, so Gatekeeper does not
-intervene. A signed and notarised `.pkg` is a possible later channel.
+The binaries are unsigned (the linker's ad hoc signature) unless the release is run with a signing identity; Homebrew
+does not quarantine what it downloads, so Gatekeeper does not intervene either way. With `WISP_SIGN_IDENTITY` set, the
+release signs and notarises them, and a tarball downloaded directly runs too (below, "Signing";
+[ADR 0069](decisions/0069-signed-and-notarised-releases.md)).
 
 ## Step 0: the docs sweep, before running the script
 
@@ -71,7 +73,9 @@ every local step and prints the remote ones instead of executing them.
    `tools/wisp-tui/Cargo.toml` is bumped with `WispVersion.current`) and `wisp doctor` passes on the build
    machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle, and that the
    staged `wisp completions zsh|bash|fish` prints the committed scripts in
-   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. MLX
+   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. With `WISP_SIGN_IDENTITY` set, both
+   binaries are signed after `strip` and before those checks, and then notarised; the release stops unless Apple
+   accepts them (`--dry-run` signs and prints the submission instead). MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
    A dry run, often made before the bump is pushed, reports the two remote checks and goes on.
 3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file; and the formula,
@@ -89,7 +93,8 @@ every local step and prints the remote ones instead of executing them.
    `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
    `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library
    and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
-6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`.
+6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`. Its `signature` line names
+   the Developer ID for a signed release, and `signed ad hoc` for an unsigned one.
 7. Docs site: check that the site at https://wisp.pidster.com carries the release. The `Docs` workflow
    (`.github/workflows/docs.yml`, [ADR 0065](decisions/0065-documentation-site.md)) deploys it on every push to `main`
    that touches `docs/`, `site/`, `book.toml`, or `CHANGELOG.md`, so the version bump's push, which renames the
@@ -99,6 +104,28 @@ every local step and prints the remote ones instead of executing them.
    failed, start one with `gh workflow run docs.yml` and check again. The script does not do this step.
 
 Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.
+
+## Signing
+
+Off by default: a release signs only when `WISP_SIGN_IDENTITY` is set
+([ADR 0069](decisions/0069-signed-and-notarised-releases.md)). The certificate's name, for an individual developer
+account the person's legal name, is written into every signed binary, where `codesign -dv` shows it to anyone.
+
+Once, on the Mac that releases:
+
+1. An Apple Developer Program membership. As its Account Holder, in Xcode › Settings › Accounts › the team › Manage
+   Certificates, add a **Developer ID Application** certificate; `security find-identity -v -p codesigning` then lists
+   it. Export it with its key as a `.p12` from Keychain Access, kept somewhere safe: a Mac without the key cannot sign
+   as the team.
+2. A team API key in App Store Connect (Users and Access › Integrations › Team Keys, the Developer role): note its Key
+   ID and the Issuer ID above the list, and download `AuthKey_<KeyID>.p8`, which Apple offers once. Then, in a
+   terminal, `xcrun notarytool store-credentials wisp-notary --key <path>/AuthKey_<KeyID>.p8 --key-id <KeyID>
+   --issuer <IssuerID>`, which checks them with Apple and keeps them in the keychain. `xcrun notarytool history
+   --keychain-profile wisp-notary` signs in with them and changes nothing.
+
+Each signed release: `WISP_SIGN_IDENTITY="Developer ID Application" scripts/release X.Y.Z` (the full name, or any part
+that matches one identity; `WISP_NOTARY_PROFILE` names another profile than `wisp-notary`). Preflight refuses an
+identity that is not a Developer ID Application one or matches none or several, and a profile that cannot sign in.
 
 ## Coverage gate
 
@@ -132,5 +159,5 @@ the shipped classifier's version in preflight make a mismatch impossible to ship
 
 `wisp doctor` checks what a new install needs: the on-device model is available and enabled, macOS
 is 27 or later, `sandbox-exec` exists, MLX's Metal library loads, `~/.wisp/config.json` parses, and the home
-directory is writable.
+directory is writable. It also says who signed the running `wisp`.
 It is the first thing to ask for when someone reports a problem.

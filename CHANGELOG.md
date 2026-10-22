@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- `wisp doctor` says who signed the running `wisp`: the Developer ID's name for a signed release, or `signed ad hoc`
+  for an unsigned release or a build from source.
+- The release can be signed with a Developer ID and notarised by Apple, so a tarball downloaded directly runs too. It
+  is off until the maintainer turns it on; releases stay unsigned and installed through Homebrew for now (ADR 0069).
+
 ## 0.29.0
 
 Added:

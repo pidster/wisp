@@ -1,7 +1,8 @@
 # ADR 0012: Release through a Homebrew tap, unsigned, semver from 0.1.0
 
 Date: 2026-09-17. Status: accepted. Amended by [ADR 0047](0047-mlx-in-the-release.md): the release also carries
-MLX's Metal library, `mlx.metallib`, beside the binary.
+MLX's Metal library, `mlx.metallib`, beside the binary. Amended by [ADR 0069](0069-signed-and-notarised-releases.md):
+the release can be signed with a Developer ID and notarised, unsigned by default.
 
 ## Context
 

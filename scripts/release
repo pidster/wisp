@@ -4,6 +4,9 @@
 # See docs/release.md. Remote steps (tag push, release, tap push) are printed, not run, with --dry-run.
 # --skip-eval leaves out the model eval, for a release whose eval already passed on the same code (a dry
 # run just before, with only docs changed since); say so in the release notes or the commit that follows.
+# WISP_SIGN_IDENTITY, when set, signs wisp and wisp-tui with that Developer ID (a full or unique partial name from
+# `security find-identity -v -p codesigning`) and notarises them with the notarytool keychain profile
+# WISP_NOTARY_PROFILE (default wisp-notary); unset, the release is unsigned, as before (ADR 0069).
 set -eu
 
 VERSION="${1:-}"
@@ -28,6 +31,8 @@ TAG="v$VERSION"
 TARBALL="wisp-$VERSION-arm64.tar.gz"
 TAP_REPO="pidster/homebrew-tap"
 OUT="$ROOT/harness/.build/release-artifacts"
+SIGN_IDENTITY="${WISP_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${WISP_NOTARY_PROFILE:-wisp-notary}"
 
 remote() {
     if [ "$DRY_RUN" = "--dry-run" ]; then
@@ -76,6 +81,21 @@ SHIPPED="$(sed -n 's/^ *"version" : "\([^"]*\)",*$/\1/p' harness/Sources/WispCor
 [ "$SHIPPED" = "$VERSION-default" ] || { echo "the shipped classifier is $SHIPPED, not $VERSION-default; run scripts/check classifier-default after the bump" >&2; exit 1; }
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "tag $TAG exists" >&2; exit 1; fi
 gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated" >&2; exit 1; }
+# Signing, before the slow steps: exactly one Developer ID identity matching the name, and a notary profile that
+# signs in to Apple (history reads the team's submissions and changes nothing).
+if [ -n "$SIGN_IDENTITY" ]; then
+    case "$SIGN_IDENTITY" in
+        "Developer ID Application"*) ;;
+        *) echo "WISP_SIGN_IDENTITY must name a Developer ID Application identity, not '$SIGN_IDENTITY'" >&2; exit 1 ;;
+    esac
+    matches="$(security find-identity -v -p codesigning | grep -cF "\"$SIGN_IDENTITY" || true)"
+    [ "$matches" -eq 1 ] || { echo "$matches valid signing identities match '$SIGN_IDENTITY'; need exactly one (security find-identity -v -p codesigning; docs/release.md, \"Signing\")" >&2; exit 1; }
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
+        || { echo "notarytool cannot sign in with the keychain profile '$NOTARY_PROFILE' (docs/release.md, \"Signing\")" >&2; exit 1; }
+    echo "signing as $SIGN_IDENTITY, notarising with the profile $NOTARY_PROFILE"
+else
+    echo "unsigned: WISP_SIGN_IDENTITY is not set (docs/release.md, \"Signing\")"
+fi
 # The remote, read only, before the slow steps: the tag must not exist on origin (a local check misses one pushed
 # from another clone), and origin/main must be HEAD, so the tag names a commit that is pushed and nothing on origin is
 # left out. A dry run, often made before pushing, reports these and goes on.
@@ -144,6 +164,15 @@ cp "$BIN" "$OUT/stage/wisp"
 cp "$TUI" "$OUT/stage/wisp-tui"
 cp "$METALLIB" "$OUT/stage/mlx.metallib"
 strip "$OUT/stage/wisp" "$OUT/stage/wisp-tui"
+# Signed after strip, which would invalidate a signature, and before the checks below, so they run the signed
+# binaries: the hardened runtime, with no entitlements, and Apple's secure timestamp, so a signature outlives the
+# certificate (ADR 0069).
+if [ -n "$SIGN_IDENTITY" ]; then
+    for exe in wisp wisp-tui; do
+        codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$OUT/stage/$exe"
+        codesign --verify --strict "$OUT/stage/$exe"
+    done
+fi
 cp LICENSE "$OUT/stage/LICENSE"
 [ "$("$OUT/stage/wisp" --version)" = "$VERSION" ] || { echo "built binary reports $("$OUT/stage/wisp" --version)" >&2; exit 1; }
 [ "$("$OUT/stage/wisp-tui" --version)" = "$VERSION" ] || { echo "wisp-tui reports $("$OUT/stage/wisp-tui" --version); set version in tools/wisp-tui/Cargo.toml" >&2; exit 1; }
@@ -158,10 +187,37 @@ for entry in zsh:_wisp bash:wisp.bash fish:wisp.fish; do
         || { echo "the staged wisp's ${entry%%:*} completions differ from the committed ${entry#*:}" >&2; exit 1; }
 done
 
+if [ -n "$SIGN_IDENTITY" ]; then
+    echo "==> notarise"
+    # The two signed binaries, zipped, to Apple's notary service; the release stops unless Apple accepts them. A bare
+    # executable cannot carry a stapled ticket, so Gatekeeper fetches it online the first time it meets one.
+    rm -rf "$OUT/notarise" "$OUT/notarise.zip"; mkdir -p "$OUT/notarise"
+    cp "$OUT/stage/wisp" "$OUT/stage/wisp-tui" "$OUT/notarise/"
+    ditto -c -k --keepParent "$OUT/notarise" "$OUT/notarise.zip"
+    if [ "$DRY_RUN" = "--dry-run" ]; then
+        echo "[dry-run] xcrun notarytool submit $OUT/notarise.zip --keychain-profile $NOTARY_PROFILE --wait"
+    else
+        submitted="$(xcrun notarytool submit "$OUT/notarise.zip" --keychain-profile "$NOTARY_PROFILE" --wait \
+            --timeout 30m --output-format json)" || true
+        verdict="$(printf '%s' "$submitted" | plutil -extract status raw -o - - 2>/dev/null || true)"
+        submission="$(printf '%s' "$submitted" | plutil -extract id raw -o - - 2>/dev/null || true)"
+        if [ "$verdict" != "Accepted" ]; then
+            printf '%s\n' "notarisation ended '${verdict:-without a verdict}': $submitted" >&2
+            [ -z "$submission" ] || xcrun notarytool log "$submission" --keychain-profile "$NOTARY_PROFILE" >&2 || true
+            exit 1
+        fi
+        echo "notarised: submission $submission accepted"
+    fi
+fi
+
 echo "==> package"
 {
     printf '%s\n\n' "$NOTES"
-    printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
+    if [ -n "$SIGN_IDENTITY" ]; then
+        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. The binaries in the tarball are signed with a Developer ID and notarised by Apple, so a direct download runs too.\n'
+    else
+        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
+    fi
 } > "$OUT/notes.md"
 (cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib LICENSE)
 (cd "$OUT" && shasum -a 256 "$TARBALL" > "$TARBALL.sha256")
@@ -253,4 +309,4 @@ remote sh -c "$TAP_PUBLISH"
 STEP=""
 
 echo "==> done"
-echo "verify: brew update && brew install pidster/tap/wisp && wisp doctor"
+echo "verify: brew update && brew install pidster/tap/wisp && wisp doctor (its signature line names the signer)"
