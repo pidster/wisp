@@ -204,9 +204,41 @@ pub fn styled(line: &HistoryLine) -> Line<'static> {
             palette::muted()
         }
         LineKind::ToolOutput | LineKind::Fence => palette::muted(),
+        LineKind::Fold => return fold(&line.text),
         LineKind::Error => palette::ember(),
     };
     Line::from(Span::styled(line.text.clone(), style))
+}
+
+/// An info line in its colours: its `▸` or `▾` in `WISP`, so a fold stands out from the output around it, the rest
+/// muted, and an exit status other than 0 in `EMBER`.
+fn fold(text: &str) -> Line<'static> {
+    let Some(glyph) = text.find(['▸', '▾']) else {
+        return Line::from(Span::styled(text.to_string(), palette::muted()));
+    };
+    let after = glyph + text[glyph..].chars().next().map_or(0, char::len_utf8);
+    let mut spans = vec![
+        Span::styled(text[..glyph].to_string(), palette::muted()),
+        Span::styled(text[glyph..after].to_string(), palette::wisp()),
+    ];
+    let rest = &text[after..];
+    let failed = rest
+        .split(" · ")
+        .position(|part| part.starts_with("exit ") && part != "exit 0");
+    match failed {
+        Some(index) => {
+            let parts: Vec<&str> = rest.split(" · ").collect();
+            let before = parts[..index].join(" · ");
+            let tail = parts[index + 1..].join(" · ");
+            spans.push(Span::styled(before + " · ", palette::muted()));
+            spans.push(Span::styled(parts[index].to_string(), palette::ember()));
+            if !tail.is_empty() {
+                spans.push(Span::styled(format!(" · {tail}"), palette::muted()));
+            }
+        }
+        None => spans.push(Span::styled(rest.to_string(), palette::muted())),
+    }
+    Line::from(spans)
 }
 
 /// Where a line's lead ends, and its colour, so what happened stands apart from the muted rest: a tool call's `⚙` and

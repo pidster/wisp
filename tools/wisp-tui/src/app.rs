@@ -121,8 +121,10 @@ pub enum LineKind {
     Error,
     /// Output of a slash command.
     Output,
-    /// A tool's output, indented under its result line, and the fold line after it.
+    /// A tool's output, or a stretch of thinking, indented under its result line.
     ToolOutput,
+    /// The info line of an output or a stretch of thinking that folds: `▸ 248 lines · 12.0 KiB · exit 0` (ADR 0068).
+    Fold,
 }
 
 /// Whether a line begins a new part of a turn, to be set apart by a blank line from the line before it: a tool call
@@ -826,22 +828,7 @@ impl App {
                 });
             }
             Outbound::Turn(turn) => self.turned(&turn),
-            Outbound::Event(event) => {
-                if event.text.is_some() || event.output.is_some() {
-                    self.flush_partial();
-                }
-                if let Some(line) = event.text {
-                    let kind = if event.kind == "error" {
-                        LineKind::Error
-                    } else {
-                        LineKind::Tool
-                    };
-                    self.push(&line, kind);
-                }
-                if let Some(output) = event.output {
-                    self.show_output(output);
-                }
-            }
+            Outbound::Event(event) => self.event(event),
             Outbound::Approval(approval) => self.arrived(approval),
             Outbound::Withdrawn { id } => self.withdrawn(&id),
             Outbound::Choice(choice) if choice.is_question() => self.asked(choice),
@@ -865,6 +852,33 @@ impl App {
             Outbound::Notify(notice) => self.notices.push(notice),
             Outbound::Exit => self.exited = true,
             Outbound::Unknown => {}
+        }
+    }
+
+    /// An audit event: its line, the exit status of a command it reports, and an output, which the element it ends
+    /// takes.
+    fn event(&mut self, event: crate::protocol::Event) {
+        if event.text.is_some() || event.output.is_some() {
+            self.flush_partial();
+        }
+        if let Some(line) = event.text {
+            let kind = if event.kind == "error" {
+                LineKind::Error
+            } else {
+                LineKind::Tool
+            };
+            self.push(&line, kind);
+        }
+        // A command's exit status, for the info line its output folds to.
+        if let Some(status) = event
+            .details
+            .get("exitStatus")
+            .and_then(serde_json::Value::as_i64)
+        {
+            self.transcript.set_exit(status);
+        }
+        if let Some(output) = event.output {
+            self.show_output(output);
         }
     }
 
@@ -2880,19 +2894,16 @@ mod tests {
         );
     }
     #[test]
-    fn tool_output_folds_after_its_note_and_says_how_many_lines_remain() {
+    fn tool_output_folds_after_its_note_to_an_info_line_and_its_last_lines() {
         let mut app = App::default();
         app.handle(result_with(&numbered(5), 2));
         assert_eq!(
             texts(&mut app),
             vec![
                 ("  ↳ ok".into(), LineKind::Tool),
-                ("    line 1".into(), LineKind::ToolOutput),
-                ("    line 2".into(), LineKind::ToolOutput),
-                (
-                    "    … 3 more lines · ctrl-o shows all".into(),
-                    LineKind::ToolOutput
-                ),
+                ("    ▸ 5 lines · 35 bytes".into(), LineKind::Fold),
+                ("    line 4".into(), LineKind::ToolOutput),
+                ("    line 5".into(), LineKind::ToolOutput),
             ]
         );
         assert_eq!(
@@ -2902,14 +2913,48 @@ mod tests {
         // Everything fits: no fold line.
         app.handle(result_with(&numbered(2), 20));
         assert_eq!(texts(&mut app).len(), 3);
-        // shownLines 0 shows none, only the fold.
+        // shownLines 0 shows none, only the info line.
         app.handle(result_with(&numbered(4), 0));
         let lines = texts(&mut app);
         assert_eq!(lines.len(), 2);
-        assert_eq!(lines[1].0, "    … 4 more lines · ctrl-o shows all");
+        assert_eq!(lines[1].0, "    ▸ 4 lines · 28 bytes");
         // Control characters never reach the terminal.
         app.handle(result_with("a\u{1b}[31mred\tx\n", 5));
         assert_eq!(texts(&mut app)[1].0, "    a[31mred    x");
+    }
+
+    #[test]
+    fn a_commands_exit_status_reaches_the_info_line_of_its_output() {
+        let mut app = App::default();
+        app.handle(Outbound::Event(event(
+            "tool.call",
+            Some("⚙ run_command swift test"),
+        )));
+        let mut outcome = event("command.outcome", Some("  ↳ exit 1"));
+        outcome.details = serde_json::json!({"exitStatus": 1});
+        app.handle(Outbound::Event(outcome));
+        let mut result = event("tool.result", None);
+        result.output = Some(ToolOutput {
+            id: "e".into(),
+            text: numbered(30),
+            lines: 30,
+            bytes: 2048,
+            truncated: false,
+            shown_lines: 20,
+        });
+        app.handle(Outbound::Event(result));
+        let lines: Vec<String> = texts(&mut app).into_iter().map(|line| line.0).collect();
+        assert_eq!(
+            lines,
+            vec![
+                "⚙ run_command swift test",
+                "  ↳ exit 1",
+                "    ▸ 30 lines · 2.0 KiB · exit 1",
+                "    line 28",
+                "    line 29",
+                "    line 30",
+            ]
+        );
     }
 
     #[test]
@@ -2928,10 +2973,8 @@ mod tests {
         );
         app.handle(result_with(&numbered(25), 20));
         let lines = texts(&mut app);
-        assert_eq!(
-            lines.last().map(|l| l.0.as_str()),
-            Some("    … 5 more lines · ctrl-o shows all")
-        );
+        assert_eq!(lines[1].0, "    ▸ 25 lines · 191 bytes");
+        assert_eq!(lines.last().map(|l| l.0.as_str()), Some("    line 25"));
     }
 
     #[test]
@@ -5106,10 +5149,7 @@ mod tests {
             r#"{"type":"event","kind":"command.typed","call":null,"turn":null,"details":{},"text":null,"output":{"id":"e1","text":"a\nb\nc\n","lines":3,"bytes":6,"truncated":false,"shownLines":2}}"#,
         ));
         let lines: Vec<String> = app.take_pending().into_iter().map(|l| l.text).collect();
-        assert_eq!(
-            lines,
-            vec!["    a", "    b", "    … 1 more line · ctrl-o shows all"]
-        );
+        assert_eq!(lines, vec!["    ▸ 3 lines · 6 bytes", "    b", "    c"]);
         assert_eq!(app.last_output.as_ref().map(|o| o.id.as_str()), Some("e1"));
         app.handle(Outbound::Status(Status::default()));
         // Text in the normal box that starts with `!` is what wisp runs as a command, and is shown as one.
@@ -5494,8 +5534,13 @@ mod tests {
             texts.iter().any(|t| t == "∴ thought for 1.2 s, 9 tokens"),
             "{texts:?}"
         );
-        assert!(texts.iter().any(|t| t.contains("one")), "{texts:?}");
-        assert!(!texts.iter().any(|t| t.contains("three")), "{texts:?}");
+        // Folded to its info line and its last line, as an output is.
+        assert!(
+            texts.iter().any(|t| t == "    ▸ 3 lines · 14 bytes"),
+            "{texts:?}"
+        );
+        assert!(texts.iter().any(|t| t == "    three"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("one")), "{texts:?}");
         app.handle(Outbound::parse(
             r##"{"type":"view","kind":"thinking","turn":2,"turns":3,"text":"# The model's thinking in turn 2"}"##,
         ));

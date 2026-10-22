@@ -74,7 +74,12 @@ printed after the conversation, and `wisp-tui` exits with wisp's status when wis
 to be stopped).
 
 The pane follows the end of the conversation. PageUp and PageDown (with no panel open) scroll it; scrolling back to
-the end follows again. The mouse stays the terminal's, so dragging selects text as usual; the wheel does not scroll
+the end follows again. A tool's output, or a stretch of the model's thinking, longer than `shownOutputLines` (20)
+folds to an info line and its last three lines, where a build's or a test run's result is: `▸ 248 lines · 12.0 KiB ·
+exit 0`, the exit status in ember when it is not 0. When wisp held part of the output back (the event carries its
+first 16 KiB), the info line ends `ctrl-o pages it` and no lines follow, since what is here is its start. The bodies
+held are bounded at 32 MiB together; past that the oldest are let go, keeping their info lines. The mouse stays the
+terminal's, so dragging selects text as usual; the wheel does not scroll
 the pane, and `wisp-tui` turns off the terminal's alternate scroll mode while it runs, so the wheel is never sent as
 Up and Down, which would recall earlier input. On quitting, once the alternate screen is left, the conversation is printed into the terminal's
 scrollback as the pane last drew it, in its colours, so the terminal's own search and selection reach it again; the
@@ -100,7 +105,7 @@ it. Typing is held while it is open; an approval or a choice arriving closes it 
 
 | Keys | Panel |
 | --- | --- |
-| Ctrl-O | The last tool output in full. In the pane each output shows its first `shownOutputLines` lines (20), in the quiet tone, then `… 84 more lines · ctrl-o shows all`. The panel opens on what the event carried and asks wisp for the whole (an `output` line, below): when the model was given only part of the output and the output store holds the rest, the whole replaces it under wisp's line saying so (`output 3f9a2c1b from run_command: the whole of it, 30,000 lines, 2.1 MiB, from the output store`), a page of 64 KiB at a time; scrolling to the end of the pages held asks for the next, scrolling to the top for the one before, and the panel holds at most four, so a 16 MiB output is never held whole. Its title says which pages it holds (`output · pages 2–5 of 33`). When the store has nothing, the line says why (nothing was held back, the audit was off, or the output was swept) above what the tool returned. |
+| Ctrl-O | The last tool output in full. In the pane a long output folds to an info line and its last lines (above); this panel shows the whole. The panel opens on what the event carried and asks wisp for the whole (an `output` line, below): when the model was given only part of the output and the output store holds the rest, the whole replaces it under wisp's line saying so (`output 3f9a2c1b from run_command: the whole of it, 30,000 lines, 2.1 MiB, from the output store`), a page of 64 KiB at a time; scrolling to the end of the pages held asks for the next, scrolling to the top for the one before, and the panel holds at most four, so a 16 MiB output is never held whole. Its title says which pages it holds (`output · pages 2–5 of 33`). When the store has nothing, the line says why (nothing was held back, the audit was off, or the output was swept) above what the tool returned. |
 | Ctrl-T | The model's context, live: what the next request carries (`/inspect context next`), at no model cost. Left steps back a turn to the context composed at that turn's start (`/inspect context N`), Right forward and past the latest turn back to the next request. `/inspect context turns` typed shows the turn list in the same panel. Only between turns. |
 
 #### The status bar

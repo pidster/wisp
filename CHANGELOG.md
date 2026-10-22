@@ -13,6 +13,9 @@ Changed:
   scrolled back down. Dragging with the mouse selects text as before; the wheel does not scroll the pane, and no longer
   recalls earlier input. On quitting, the conversation is printed into the scrollback, so the terminal's own search
   and selection reach all of it.
+- A long tool output, or stretch of thinking, in `wisp-tui` folds to an info line and its last three lines, where a
+  build's or a test run's result is: `▸ 248 lines · 12.0 KiB · exit 0`, a failing exit status in red. It used to show
+  its first 20 lines and how many more there were.
 
 ## 0.28.0
 
