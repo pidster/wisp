@@ -7,33 +7,13 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-| Release | Larger | Smaller |
-| --- | --- | --- |
-| 0.29.0 | `wisp-tui`'s conversation as a log pane of its own, with long outputs folded and each element reachable | Copying from the pane |
-
-## 0.29.0
-
-- **A foldable conversation in `wisp-tui`** (asked for by the owner on 2026-10-15; being built; moved from
-  0.27.0 behind the thread store on 2026-10-16, and from 0.28.0 behind its phase 3 on 2026-10-20). Today the
-  conversation is printed into the terminal's own scrollback ([ADR 0029](decisions/0029-tui-front-end.md)), where
-  nothing can fold a line once it is printed. The plan: `wisp-tui` draws the conversation itself, in a log pane
-  above the input, on the alternate screen. Output streams in as now; once an element has finished, a long tool
-  output or a stretch of thinking folds to its last lines and an info line (`▸ 248 lines · 12 KB · exit 0`).
-  Shift-Up and Shift-Down leave the input and step through the elements (prompts, commands, tool calls, thinking,
-  replies); Shift-Right unfolds the one selected and Shift-Left folds it; the pane scrolls on its own keys; Esc or
-  typing returns to the input. Whole outputs come from wisp a page at a time, as the expanded view's do (ADR 0050).
-  The cost, which a new ADR records: the terminal's own scrollback, search, and selection no longer hold the
-  conversation, so the pane scrolls and copies itself, and on quitting the conversation leaves the screen (the
-  transcript and the audit log keep it). Built in stages: the pane and its scrolling; folding; navigation and
-  unfolding; copying. Chosen by the operator on 2026-10-22 ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)):
-  the pane, replacing the inline view outright, with the conversation printed into the scrollback on quitting, and all
-  four stages in 0.29.0. Stage 1, the pane and its scrolling, stage 2, folding, stage 3, navigation and unfolding, and stage 4, copying, built on 2026-10-22, not yet released.
+No release is scheduled after 0.29.0; the next is chosen with the operator from what follows.
 
 ## Not scheduled
 
