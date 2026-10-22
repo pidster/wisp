@@ -15,8 +15,9 @@
     var title = document.querySelector(".menu-title");
     if (title) {
         var home = make("a", { "class": "wisp-home", href: path_to_root + "../", "aria-label": "wisp, home" });
-        // mdBook names its files with a hash of their content, so the mark is found by the page's own icon link.
-        var icon = document.querySelector('link[rel="icon"][href$=".svg"]');
+        // mdBook names its files with a hash of their content, so the mark is found by the page's own icon link:
+        // theme/favicon.png, the homepage's wisp in its rounded tile at 64 pixels, sharp at twice the 24 drawn here.
+        var icon = document.querySelector('link[rel~="icon"][href*="favicon"]');
         if (icon) home.appendChild(make("img", { src: icon.href, alt: "", width: "24", height: "24" }));
         home.appendChild(make("span", {}, "wisp"));
         var docs = make("a", { "class": "wisp-section", href: path_to_root + "index.html" }, "docs");

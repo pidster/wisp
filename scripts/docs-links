@@ -188,7 +188,7 @@ awk -v src="$SRC" -v blob="$BLOB" -v files="$work/files" -v dirs="$work/dirs" -v
 
 # The homepage (site/home, ADR 0065), which the site serves at its root with the book under docs/: a link into
 # docs/ names a page in SUMMARY.md (docs/x.html is docs/x.md; docs/ is the book's first page), and any other
-# relative link or image names a file the site puts beside the homepage (site/home's own, palette.css, mark.svg).
+# relative link or image names a file the site puts beside the homepage (site/home's own, palette.css, mark.png).
 for home in site/home/*.html; do
     [ -f "$home" ] || continue
     awk -v home="$home" -v summary="$SRC/SUMMARY.md" '
@@ -215,7 +215,7 @@ for home in site/home/*.html; do
                     if (!(page in inSummary)) problem(FNR, t, "not a page in SUMMARY.md")
                     continue
                 }
-                if (t == "palette.css" || t == "mark.svg") continue
+                if (t == "palette.css" || t == "mark.png") continue
                 if ((getline probe < (dir "/" t)) < 0) problem(FNR, t, "no such file in " dir)
                 else close(dir "/" t)
             }

@@ -846,7 +846,7 @@ docs_site() {
     fi
     # The homepage (site/home) at the root, with the palette and mark it shares with the book, and mdBook's 404 page,
     # which names its assets from /docs/, so it serves for a missing page anywhere on the site.
-    cp site/home/* site/palette.css site/mark.svg book/
+    cp site/home/* site/palette.css site/mark.png book/
     cp book/docs/404.html book/404.html
     # The homepage's latest release: the newest version section in CHANGELOG.md, and the day of the commit that added
     # it (the version bump; the docs workflow fetches the history for this). Without the history the date is left out.
