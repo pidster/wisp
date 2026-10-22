@@ -45,11 +45,23 @@ public struct NotifierHelper: Sendable {
     /// No helper: the route is skipped as missing.
     public static let none = NotifierHelper(locate: { nil })
 
-    /// The bundle beside the running `wisp`, run for real.
-    public static let live: NotifierHelper = {
-        let state = LiveState()
+    /// The bundle beside the running `wisp`, run for real, registered with LaunchServices first.
+    public static let live = running(
+        locate: { ExecutablePath.current.flatMap { bundle(besides: $0) } },
+        register: { app in _ = LSRegisterURL(app as CFURL, true) })
+
+    /// A helper that runs the bundle's executable; `register` is told each bundle once a process before it is run.
+    ///
+    /// - Parameters:
+    ///   - locate: Where the bundle is.
+    ///   - register: Registers a bundle with LaunchServices; tests pass one that does nothing.
+    /// - Returns: The helper.
+    static func running(
+        locate: @escaping @Sendable () -> URL?, register: @escaping @Sendable (URL) -> Void
+    ) -> NotifierHelper {
+        let state = LiveState(register: register)
         return NotifierHelper(
-            locate: { ExecutablePath.current.flatMap { bundle(besides: $0) } },
+            locate: locate,
             permission: { app in state.run(app, .status, timeout: 5).flatMap(Self.permission(from:)) },
             askLater: { app in state.askOnce(app) },
             askNow: { app in state.run(app, .ask, timeout: 120).flatMap(Self.permission(from:)) },
@@ -64,7 +76,7 @@ public struct NotifierHelper: Sendable {
                 default: return "Wisp Notifier.app exited with status \(result.status)"
                 }
             })
-    }()
+    }
 
     /// The bundle beside `executable`, when it holds the helper's executable.
     ///
@@ -92,16 +104,25 @@ public struct NotifierHelper: Sendable {
     /// What the live helper keeps for the process: the bundles registered with LaunchServices, and whether it has
     /// asked.
     private final class LiveState: Sendable {
+        /// Registers a bundle with LaunchServices.
+        private let registrar: @Sendable (URL) -> Void
         /// The bundles registered this process.
         private let registered = Mutex<Set<String>>([])
         /// Whether `askOnce` has started a request.
         private let asked = Mutex(false)
 
+        /// Creates the state.
+        ///
+        /// - Parameter register: Registers a bundle with LaunchServices.
+        init(register: @escaping @Sendable (URL) -> Void) {
+            registrar = register
+        }
+
         /// Registers `app` with LaunchServices, once a process: macOS refuses a bundle it does not know, with no
         /// prompt, when its executable is run directly (ADR 0070).
         private func register(_ app: URL) {
             let first = registered.withLock { $0.insert(app.path).inserted }
-            if first { _ = LSRegisterURL(app as CFURL, true) }
+            if first { registrar(app) }
         }
 
         /// Runs the helper with `command` and waits up to `timeout` seconds.
