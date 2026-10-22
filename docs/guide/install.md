@@ -19,9 +19,11 @@ Nothing else: no API key, no account, and no network for generation.
 brew install pidster/tap/wisp
 ```
 
-That installs three things: `wisp`, `wisp-tui` (the terminal front end `wisp chat` hands a terminal session to),
-and MLX's Metal library, `mlx.metallib`, beside `wisp` in Homebrew's `libexec`, which wisp needs to run MLX models
-([ADR 0047](../decisions/0047-mlx-in-the-release.md)). Homebrew also installs the shell completions for zsh, bash,
+That installs four things: `wisp`, `wisp-tui` (the terminal front end `wisp chat` hands a terminal session to),
+MLX's Metal library, `mlx.metallib`, beside `wisp` in Homebrew's `libexec`, which wisp needs to run MLX models
+([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and `Wisp Notifier.app` beside it, which posts wisp's
+notifications as "Wisp" once you allow them: the first notification asks
+([ADR 0070](../decisions/0070-a-notification-helper.md)). Homebrew also installs the shell completions for zsh, bash,
 and fish. The binary is unsigned; Homebrew does not quarantine what it downloads, so Gatekeeper does not stop it.
 
 Upgrade with `brew upgrade pidster/tap/wisp`, remove it with `brew uninstall wisp`, and delete `~/.wisp` to

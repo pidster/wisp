@@ -232,7 +232,7 @@ An Apple silicon Mac on **macOS 27** or later (M4 or above is recommended) with 
 Homebrew.
 
 ```bash
-brew install pidster/tap/wisp   # installs wisp, wisp-tui, and MLX's Metal library
+brew install pidster/tap/wisp   # installs wisp, wisp-tui, MLX's Metal library, and Wisp Notifier.app
 wisp doctor                     # checks the model, MLX, sandbox, classifier, config, home, notifications, pending requests, and the output store
 wisp "What is the date in Tokyo?"
 ```

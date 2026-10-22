@@ -7,11 +7,11 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
 
 - A git tag `vX.Y.Z` on `main` whose version equals `WispVersion.current` (semver, from 0.1.0).
 - A GitHub release for that tag with `wisp-X.Y.Z-arm64.tar.gz` (the stripped `wisp` and `wisp-tui`,
-  `mlx.metallib`, and the LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
+  `mlx.metallib`, `Wisp Notifier.app`, and the LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
   `CHANGELOG.md` followed by the install line.
 - A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
-  checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp` and `mlx.metallib` in the
-  Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
+  checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp`, `mlx.metallib`, and
+  `Wisp Notifier.app` in the Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
   beside the binary's real path ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The formula also installs
   the shell completions for bash, zsh, and fish into Homebrew's completion directories, so a Homebrew user has
   them with no further step.
@@ -75,7 +75,11 @@ every local step and prints the remote ones instead of executing them.
    staged `wisp completions zsh|bash|fish` prints the committed scripts in
    `harness/Sources/WispCore/Resources/completions/`, which the formula installs. With `WISP_SIGN_IDENTITY` set, both
    binaries are signed after `strip` and before those checks, and then notarised; the release stops unless Apple
-   accepts them (`--dry-run` signs and prints the submission instead). MLX
+   accepts them (`--dry-run` signs and prints the submission instead). The release build's `WispNotifier` is
+   stripped and wrapped by `scripts/notifier-app` in `Wisp Notifier.app`, with its icon built from
+   `harness/Notifier/AppIcon-1024.png`, its version `X.Y.Z`, and signed with the same identity or ad hoc
+   ([ADR 0070](decisions/0070-a-notification-helper.md)); the staged `wisp doctor`'s `notifier` finding must name the
+   staged bundle, and a signed release notarises the bundle with the binaries. MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
    A dry run, often made before the bump is pushed, reports the two remote checks and goes on.
 3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file; and the formula,
@@ -88,11 +92,11 @@ every local step and prints the remote ones instead of executing them.
 5. Tap: clone `pidster/homebrew-tap`, copy in `Formula/wisp.rb`, commit, push. The formula has no `version`
    line: Homebrew scans the version from the URL's `releases/download/vX.Y.Z/`, and `brew audit` reports a
    `version` equal to the scanned one as redundant (`resource_auditor.rb`, `audit_version`, read on
-   2026-10-09). The formula puts `wisp` and `mlx.metallib` in `libexec` with a link
+   2026-10-09). The formula puts `wisp`, `mlx.metallib`, and `Wisp Notifier.app` in `libexec` with a link
    in `bin`, and runs `generate_completions_from_executable(bin/"wisp", "completions")`, which writes the output of
    `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
-   `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library
-   and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
+   `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library,
+   the helper's executable, and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
 6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`. Its `signature` line names
    the Developer ID for a signed release, and `signed ad hoc` for an unsigned one.
 7. Docs site: check that the site at https://wisp.pidster.com carries the release. The `Docs` workflow

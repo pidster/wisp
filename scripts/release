@@ -173,6 +173,14 @@ if [ -n "$SIGN_IDENTITY" ]; then
         codesign --verify --strict "$OUT/stage/$exe"
     done
 fi
+# Wisp Notifier.app (ADR 0070): the release build's WispNotifier, stripped, wrapped in the bundle with its icon, and
+# signed by scripts/notifier-app, with the same identity as the binaries or ad hoc.
+cp "$BIN_DIR/WispNotifier" "$OUT/WispNotifier"
+strip "$OUT/WispNotifier"
+WISP_SIGN_IDENTITY="$SIGN_IDENTITY" scripts/notifier-app "$OUT/WispNotifier" "$OUT/stage" "$VERSION" >/dev/null
+rm "$OUT/WispNotifier"
+[ "$(plutil -extract CFBundleShortVersionString raw -o - "$OUT/stage/Wisp Notifier.app/Contents/Info.plist")" = "$VERSION" ] \
+    || { echo "Wisp Notifier.app's version is not $VERSION" >&2; exit 1; }
 cp LICENSE "$OUT/stage/LICENSE"
 [ "$("$OUT/stage/wisp" --version)" = "$VERSION" ] || { echo "built binary reports $("$OUT/stage/wisp" --version)" >&2; exit 1; }
 [ "$("$OUT/stage/wisp-tui" --version)" = "$VERSION" ] || { echo "wisp-tui reports $("$OUT/stage/wisp-tui" --version); set version in tools/wisp-tui/Cargo.toml" >&2; exit 1; }
@@ -181,6 +189,9 @@ cp LICENSE "$OUT/stage/LICENSE"
 STAGE_REAL="$(cd "$OUT/stage" && pwd -P)"
 "$OUT/stage/wisp" doctor | grep -qxF "ok   MLX: Metal library $STAGE_REAL/mlx.metallib loads" \
     || { echo "the staged wisp does not load the staged mlx.metallib (wisp doctor's MLX finding)" >&2; exit 1; }
+# And find the staged helper beside it (the notifier finding names it with its permission on this Mac).
+"$OUT/stage/wisp" doctor | grep -qF "ok   notifier: $STAGE_REAL/Wisp Notifier.app" \
+    || { echo "the staged wisp does not find the staged Wisp Notifier.app (wisp doctor's notifier finding)" >&2; exit 1; }
 # The formula installs the completions from 'wisp completions <shell>'; the staged binary must print the committed ones.
 for entry in zsh:_wisp bash:wisp.bash fish:wisp.fish; do
     "$OUT/stage/wisp" completions "${entry%%:*}" | cmp -s - "harness/Sources/WispCore/Resources/completions/${entry#*:}" \
@@ -189,10 +200,12 @@ done
 
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "==> notarise"
-    # The two signed binaries, zipped, to Apple's notary service; the release stops unless Apple accepts them. A bare
-    # executable cannot carry a stapled ticket, so Gatekeeper fetches it online the first time it meets one.
+    # The two signed binaries and the helper bundle, zipped, to Apple's notary service; the release stops unless Apple
+    # accepts them. A bare executable cannot carry a stapled ticket, so Gatekeeper fetches it online the first time it
+    # meets one.
     rm -rf "$OUT/notarise" "$OUT/notarise.zip"; mkdir -p "$OUT/notarise"
     cp "$OUT/stage/wisp" "$OUT/stage/wisp-tui" "$OUT/notarise/"
+    ditto "$OUT/stage/Wisp Notifier.app" "$OUT/notarise/Wisp Notifier.app"
     ditto -c -k --keepParent "$OUT/notarise" "$OUT/notarise.zip"
     if [ "$DRY_RUN" = "--dry-run" ]; then
         echo "[dry-run] xcrun notarytool submit $OUT/notarise.zip --keychain-profile $NOTARY_PROFILE --wait"
@@ -219,7 +232,7 @@ echo "==> package"
         printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
     fi
 } > "$OUT/notes.md"
-(cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib LICENSE)
+(cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib "Wisp Notifier.app" LICENSE)
 (cd "$OUT" && shasum -a 256 "$TARBALL" > "$TARBALL.sha256")
 SHA="$(cut -d' ' -f1 "$OUT/$TARBALL.sha256")"
 ls -la "$OUT/$TARBALL"; echo "sha256 $SHA"
@@ -242,7 +255,8 @@ class Wisp < Formula
   def install
     # MLX finds mlx.metallib beside the binary's real path (dladdr resolves Homebrew's links), so both
     # live in libexec and bin links to the binary (ADR 0047).
-    libexec.install "wisp", "mlx.metallib"
+    # Wisp Notifier.app beside wisp, where wisp looks for it (ADR 0070); not in /Applications, and not a cask.
+    libexec.install "wisp", "mlx.metallib", "Wisp Notifier.app"
     bin.install_symlink libexec/"wisp"
     bin.install "wisp-tui"
     # The completion scripts are embedded in the binary; this runs 'wisp completions bash|zsh|fish' into
@@ -254,6 +268,7 @@ class Wisp < Formula
     assert_equal "$VERSION", shell_output("#{bin}/wisp --version").strip
     assert_equal "$VERSION", shell_output("#{bin}/wisp-tui --version").strip
     assert_path_exists libexec/"mlx.metallib"
+    assert_predicate libexec/"Wisp Notifier.app/Contents/MacOS/WispNotifier", :executable?
     assert_path_exists zsh_completion/"_wisp"
     assert_path_exists bash_completion/"wisp"
     assert_path_exists fish_completion/"wisp.fish"
