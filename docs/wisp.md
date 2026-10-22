@@ -55,9 +55,9 @@ fails as before, since you asked for that one, and so it does when `system` is u
 
 On a terminal, when `wisp-tui` is installed beside `wisp`, or in a `bin` beside the folder `wisp` is in (the
 Homebrew formula installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp chat` hands the session to it;
-`wisp doctor`'s `front end` finding says where it found it, or where it looked: the conversation scrolls in the terminal's own scrollback above a pinned band
-with the reply in progress, an approval dialog, the input, and the status
-([ADR 0029](decisions/0029-tui-front-end.md)). `--plain` keeps the line-based chat below; a piped
+`wisp doctor`'s `front end` finding says where it found it, or where it looked: on the alternate screen, the
+conversation is drawn in a pane of its own above a band with the reply in progress, an approval dialog, the input,
+and the status ([ADR 0029](decisions/0029-tui-front-end.md), [ADR 0068](decisions/0068-the-conversation-in-a-pane.md)). `--plain` keeps the line-based chat below; a piped
 session is always plain. `wisp-tui` takes the same arguments as `wisp chat` and can be run directly. It
 starts `wisp chat --json` under the name `wisp chat (tui)`, which `ps` shows; wisp finds its own executable by
 the kernel's path, never by that name ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)).
@@ -70,8 +70,15 @@ in both. While a command you typed after `!` runs, or a model's turn, the first 
 and a second quits ("Commands you run yourself" and "Stopping a turn", below). Ctrl-C or Ctrl-D with nothing open leaves `wisp-tui`: it sends `/quit` (so the transcript is
 saved, as in the plain chat), closes wisp's input, and waits up to five seconds for wisp to exit before
 stopping it. Anything wisp wrote to stderr that was not yet shown, such as why it could not start, is
-printed after the band is gone, and `wisp-tui` exits with wisp's status when wisp failed (1 when it had
+printed after the conversation, and `wisp-tui` exits with wisp's status when wisp failed (1 when it had
 to be stopped).
+
+The pane follows the end of the conversation. PageUp and PageDown (with no panel open) scroll it; scrolling back to
+the end follows again. The mouse stays the terminal's, so dragging selects text as usual; the wheel does not scroll
+the pane, and `wisp-tui` turns off the terminal's alternate scroll mode while it runs, so the wheel is never sent as
+Up and Down, which would recall earlier input. On quitting, once the alternate screen is left, the conversation is printed into the terminal's
+scrollback as the pane last drew it, in its colours, so the terminal's own search and selection reach it again; the
+saved thread and the audit log keep it whole.
 
 `wisp-tui`'s input edits in place, with readline's keys:
 
@@ -93,7 +100,7 @@ it. Typing is held while it is open; an approval or a choice arriving closes it 
 
 | Keys | Panel |
 | --- | --- |
-| Ctrl-O | The last tool output in full. In the scrollback each output shows its first `shownOutputLines` lines (20), in the quiet tone, then `… 84 more lines · ctrl-o shows all`; lines already in the scrollback cannot be changed, so expanding is this panel and folding is closing it. The panel opens on what the event carried and asks wisp for the whole (an `output` line, below): when the model was given only part of the output and the output store holds the rest, the whole replaces it under wisp's line saying so (`output 3f9a2c1b from run_command: the whole of it, 30,000 lines, 2.1 MiB, from the output store`), a page of 64 KiB at a time; scrolling to the end of the pages held asks for the next, scrolling to the top for the one before, and the panel holds at most four, so a 16 MiB output is never held whole. Its title says which pages it holds (`output · pages 2–5 of 33`). When the store has nothing, the line says why (nothing was held back, the audit was off, or the output was swept) above what the tool returned. |
+| Ctrl-O | The last tool output in full. In the pane each output shows its first `shownOutputLines` lines (20), in the quiet tone, then `… 84 more lines · ctrl-o shows all`. The panel opens on what the event carried and asks wisp for the whole (an `output` line, below): when the model was given only part of the output and the output store holds the rest, the whole replaces it under wisp's line saying so (`output 3f9a2c1b from run_command: the whole of it, 30,000 lines, 2.1 MiB, from the output store`), a page of 64 KiB at a time; scrolling to the end of the pages held asks for the next, scrolling to the top for the one before, and the panel holds at most four, so a 16 MiB output is never held whole. Its title says which pages it holds (`output · pages 2–5 of 33`). When the store has nothing, the line says why (nothing was held back, the audit was off, or the output was swept) above what the tool returned. |
 | Ctrl-T | The model's context, live: what the next request carries (`/inspect context next`), at no model cost. Left steps back a turn to the context composed at that turn's start (`/inspect context N`), Right forward and past the latest turn back to the next request. `/inspect context turns` typed shows the turn list in the same panel. Only between turns. |
 
 #### The status bar
@@ -131,7 +138,7 @@ that opens while the bar has the focus takes the keys, and the focus returns to 
 takes the focus only between turns, with nothing open over the input; an item that goes while it has the focus (its
 last question answered elsewhere) passes the focus to the model.
 
-A line you send goes into the scrollback styled like the input it came from, a shade darker: its tint
+A line you send goes into the conversation styled like the input it came from, a shade darker: its tint
 edge to edge, halfway from the input's blue to black, with half-block strips above and below.
 The turn that answers it is in parts, each set apart from the one before by a blank line: a stretch of thinking
 (`∴`), each tool call (`⚙`, with its `↳` result and output), the reply, and the `ran:` line under it with the notes
@@ -148,7 +155,7 @@ or at the start in command mode, stays text. Backspace with the cursor at the st
 back to the normal prompt, keeping what you typed as ordinary text, so a stray `!` costs one key; Delete
 in an empty box does the same. A paste that starts with `!` at the start of the line enters command mode
 the same way. Enter runs the command and the box returns to the normal prompt; an empty command sends
-nothing. In the scrollback the command's line is a stripe in a darker, faded shade of the same colour
+nothing. In the conversation the command's line is a stripe in a darker, faded shade of the same colour
 (`commandSent`, #745A3C) with light text, `! git status --short`, as a prompt's is the darker shade of the
 input. Up and Down bring a command back in command mode.
 
@@ -160,7 +167,7 @@ sandbox: it may write anywhere you can`. A `!` at the start in outside mode is t
 line (Delete in an empty box) steps back one mode, to command mode's amber, and another to the normal prompt, keeping
 what you typed. A paste at the start of the line steps up a mode for each `!` it starts with, as typing them does:
 `!!brew upgrade` pasted into an empty box enters outside mode with `brew upgrade`, and `!x` pasted at the start in
-command mode enters outside mode with `x`. Enter sends `!!brew upgrade`; its scrollback line is `!! brew upgrade` on
+command mode enters outside mode with `x`. Enter sends `!!brew upgrade`; its line in the conversation is `!! brew upgrade` on
 the outside colour's darker shade (`outsideSent`, #693834), and Up and Down bring it back in outside mode. Text in
 the normal box that starts with `!!` (pasted after a space, say) is not sent unseen: Enter puts the box in outside
 mode with the rest, and a second Enter sends it. A command mode line whose text starts with `!` is sent as `! !x`, so
@@ -172,7 +179,7 @@ Help mode is `?` typed at the start of the line in the normal box: the `?` is th
 the ones that mention it`. Enter on an empty box shows `/help`; a word, `think`, sends `?think`, which shows only the
 commands and keys whose lines mention it, in any case. A `!` in help mode is text, and Backspace at the start of the
 line (Delete in an empty box) returns to the normal box. A `?` after other text is text, so a question can end with
-one. Its scrollback line is `? think` (or `?` alone) on the help colour's darker shade, a dark grey (`helpSent`,
+one. Its line in the conversation is `? think` (or `?` alone) on the help colour's darker shade, a dark grey (`helpSent`,
 #4D5254). Up and Down bring `?think` back in help mode.
 
 While a turn runs, or a command you typed, the input box is inactive: dimmed, with what wisp is doing in
@@ -200,7 +207,7 @@ An approval takes the input's place in the band: a rounded border in the level's
 the level, around the command (wrapped to four rows), the whole line when the command is one part of
 it, the directory, each reason, the pattern the answer is remembered under, and the keys, as `wisp
 chat` offers them. Lines too long for the dialog end in an ellipsis. The answer is recorded in the
-scrollback as one line, `✓ approved for this session: git push` or `⚠ refused: …` (`⚠ approved once, outside the
+conversation as one line, `✓ approved for this session: git push` or `⚠ refused: …` (`⚠ approved once, outside the
 sandbox: …` for a run outside it, which deserves the warning), and the band gives
 the rows back to the input. Ctrl-C or Ctrl-D refuses. A dialog takes its keys only once the keyboard has
 been quiet for half a second after it appears: a key pressed sooner was meant for the input (you were
@@ -261,7 +268,7 @@ row below the options takes typing, and Enter with something typed sends that in
 chat the same choice is a numbered list: type a number or a value, or press Enter to leave it; a line
 starting with `/` leaves it too.
 
-Replies are rendered as each line goes into the scrollback, in the little Markdown the model writes:
+Replies are rendered as each line goes into the conversation, in the little Markdown the model writes:
 `#` headings in bold, `-`, `*`, and `+` bullets as `•`, and `` `code` ``, `**strong**`, and `*emphasis*`
 styled with their markers removed. A fenced block keeps its lines as they are, in the code colour, with
 the fences dimmed; a fence left open closes at the end of the turn. Anything that is not clearly markup,
@@ -431,7 +438,7 @@ What a session shows, and where it goes:
   notes, separators, and a context under half used. Amber marks approvals, moderate, and a context
   past 80%; ember marks dangerous and errors; green and red mark lines added and removed; pale yellow
   marks tokens read; a muted pale amber (`command`, apart from the approvals' amber) marks a command you
-  typed: the plain chat's prompt marker, and `wisp-tui`'s input box in command mode, whose scrollback stripe
+  typed: the plain chat's prompt marker, and `wisp-tui`'s input box in command mode, whose stripe in the conversation
   is its darker shade (`commandSent`); a muted red (`outside`, darker than ember) marks one typed after `!!`, to
   run outside the sandbox, in the same places, with its darker shade (`outsideSent`). White is for the conversation, bold for your own words. Colour is off when piped,
   when `NO_COLOR` is set, or when `TERM` is `dumb`.

@@ -1,5 +1,5 @@
-//! The front end's state and rendering: finished lines go above into the terminal's own scrollback,
-//! the band at the bottom holds the reply in progress, the input or an approval dialog, and the status.
+//! The front end's state and rendering: the conversation in the pane above (ADR 0068), and the band at the bottom
+//! holding the reply in progress, the input or an approval dialog, and the status.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -14,10 +14,12 @@ use unicode_width::UnicodeWidthChar;
 use crate::editor::{Edit, Editor};
 use crate::markdown;
 use crate::palette;
+use crate::pane::Pane;
 use crate::picker::Picker;
 use crate::protocol::{
     Approval, Choice, Inbound, Notice, Outbound, Status, ToolOutput, Turn, View,
 };
+use crate::transcript::Transcript;
 
 /// Rows the band occupies with a one-row input: reply in progress, dialog, a half-height strip, the
 /// input, a half-height strip, status. The strips are rows of half-block glyphs in the tint, which read
@@ -85,7 +87,7 @@ fn bounded_seconds(seconds: f64) -> Duration {
     Duration::try_from_secs_f64(seconds).map_or(LONGEST_TURN, |duration| duration.min(LONGEST_TURN))
 }
 
-/// A line committed to scrollback, with its style.
+/// A line of the conversation, with its style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HistoryLine {
     /// The text.
@@ -126,7 +128,7 @@ pub enum LineKind {
 /// Whether a line begins a new part of a turn, to be set apart by a blank line from the line before it: a tool call
 /// (`⚙`) or a stretch of thinking (`∴`), the reply's first line, or the `ran:` line under it. Not straight after a
 /// sent line, whose tinted strip already sets it apart, nor at the very start.
-fn starts_part(previous: Option<LineKind>, kind: LineKind, text: &str) -> bool {
+pub(crate) fn starts_part(previous: Option<LineKind>, kind: LineKind, text: &str) -> bool {
     let reply = |kind| matches!(kind, LineKind::Reply | LineKind::Code | LineKind::Fence);
     let Some(previous) = previous else {
         return false;
@@ -418,7 +420,7 @@ fn wrap_rows(text: &str, width: usize) -> Vec<String> {
 
 /// `line` with tabs as four spaces and other control characters (an escape sequence's start) removed,
 /// so tool output cannot drive the terminal.
-fn sanitise(line: &str) -> String {
+pub(crate) fn sanitise(line: &str) -> String {
     line.chars()
         .filter_map(|c| match c {
             '\t' => Some("    ".to_string()),
@@ -587,8 +589,13 @@ impl Activity {
 #[derive(Debug, Default)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct App {
-    /// Lines waiting to be inserted above the band.
-    pub pending: Vec<HistoryLine>,
+    /// The conversation, element by element, as the pane draws it (ADR 0068).
+    pub transcript: Transcript,
+    /// Where the pane is in the conversation.
+    pub pane: Pane,
+    /// How many of the transcript's lines a test has taken (`take_pending`).
+    #[cfg(test)]
+    taken: usize,
     /// The reply so far on the current line, not yet committed.
     pub partial: String,
     /// What the user has typed.
@@ -629,9 +636,6 @@ pub struct App {
     /// stoppable work it reports (a `/models pull`, ADR 0059) is shown and stopped as a running command, while
     /// a message's stoppable activity is the model's turn (ADR 0049, amended 2026-10-11).
     pub slash_sent: bool,
-    /// The kind of the line pushed last, so a new part of a turn (a tool call, a stretch of thinking, the reply, the
-    /// `ran:` line) can be set apart from the one before it by a blank line.
-    pub last_pushed: Option<LineKind>,
     /// The input box's mode: normal, command mode (`!` typed at the start of the line, so what is typed runs as a
     /// shell command, ADR 0049, and the box takes the command colour), or outside mode (`!` typed again at the start,
     /// so it runs outside the sandbox, ADR 0064 amended 2026-10-14, and the box takes the outside colour), or help
@@ -1162,25 +1166,10 @@ impl App {
         }
     }
 
-    /// Folds a tool's output into scrollback: the first lines wisp says to show, then a line saying
-    /// how many are left. The whole text stays for the panel.
+    /// Gives a tool's output to the element it ends, which draws it (`Element::body_lines`); it is also the last
+    /// output, for Ctrl-O.
     fn show_output(&mut self, output: ToolOutput) {
-        let lines: Vec<&str> = output.text.lines().collect();
-        let shown = output.shown_lines.min(lines.len());
-        let mut pending: Vec<String> = lines[..shown]
-            .iter()
-            .map(|line| format!("    {}", sanitise(line)))
-            .collect();
-        if lines.len() > shown {
-            let hidden = lines.len() - shown;
-            let plural = if hidden == 1 { "" } else { "s" };
-            pending.push(format!(
-                "    … {hidden} more line{plural} · ctrl-o shows all"
-            ));
-        }
-        for line in pending {
-            self.push(&line, LineKind::ToolOutput);
-        }
+        self.transcript.attach(output.clone());
         self.last_output = Some(output);
     }
 
@@ -1422,14 +1411,27 @@ impl App {
         }
     }
 
-    /// `PageUp`: a page up in the panel.
+    /// `PageUp`: a page up in the panel when one is open, otherwise in the pane.
     pub fn page_up(&mut self) {
-        self.scroll_panel(-isize::try_from(PANEL_ROWS).unwrap_or(1));
+        if self.panel.is_some() {
+            self.scroll_panel(-isize::try_from(PANEL_ROWS).unwrap_or(1));
+        } else {
+            self.scroll_pane(-self.pane.page());
+        }
     }
 
-    /// `PageDown`: a page down in the panel.
+    /// `PageDown`: a page down in the panel when one is open, otherwise in the pane.
     pub fn page_down(&mut self) {
-        self.scroll_panel(isize::try_from(PANEL_ROWS).unwrap_or(1));
+        if self.panel.is_some() {
+            self.scroll_panel(isize::try_from(PANEL_ROWS).unwrap_or(1));
+        } else {
+            self.scroll_pane(self.pane.page());
+        }
+    }
+
+    /// Scrolls the pane by `rows` (negative is up).
+    pub fn scroll_pane(&mut self, rows: isize) {
+        self.pane.scroll(&self.transcript, rows);
     }
 
     /// Commits the partial reply line, if any.
@@ -1453,23 +1455,18 @@ impl App {
         self.push(line, kind);
     }
 
+    /// Adds a line to the conversation.
     fn push(&mut self, text: &str, kind: LineKind) {
-        if starts_part(self.last_pushed, kind, text) {
-            self.pending.push(HistoryLine {
-                text: String::new(),
-                kind: LineKind::Note,
-            });
-        }
-        self.last_pushed = Some(kind);
-        self.pending.push(HistoryLine {
-            text: text.to_string(),
-            kind,
-        });
+        self.transcript.push(text, kind);
     }
 
-    /// Takes the lines to insert above the band.
+    /// The lines drawn since a test last took them, with an empty note for each blank row between parts.
+    #[cfg(test)]
     pub fn take_pending(&mut self) -> Vec<HistoryLine> {
-        std::mem::take(&mut self.pending)
+        let lines = self.transcript.lines();
+        let new = lines[self.taken.min(lines.len())..].to_vec();
+        self.taken = lines.len();
+        new
     }
 
     /// The notifications wisp has asked for since the last call, oldest first.
@@ -1982,11 +1979,6 @@ impl App {
         Action::Quit
     }
 
-    /// Whether nothing is typed.
-    pub fn input_is_empty(&self) -> bool {
-        self.editor.is_empty()
-    }
-
     /// The band's height for a terminal `width` cells wide: the base, plus a row for each further row
     /// the input's text needs, up to `MAX_INPUT_ROWS`.
     /// While a dialog is asked it takes the input's place: the reply row, the dialog, a blank row, and the
@@ -2137,6 +2129,29 @@ impl App {
             ..inset
         };
         frame.render_widget(Paragraph::new(lines).block(block), dialog);
+    }
+
+    /// Draws the whole screen into `area`: the pane above, and the band at the bottom at the height it needs, leaving
+    /// the pane a row at least.
+    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+        let band = self
+            .band_height(area.width)
+            .min(area.height.saturating_sub(1))
+            .max(1)
+            .min(area.height);
+        let pane = Rect {
+            height: area.height - band,
+            ..area
+        };
+        self.pane.render(frame, &self.transcript, pane);
+        self.render(
+            frame,
+            Rect {
+                y: area.y + pane.height,
+                height: band,
+                ..area
+            },
+        );
     }
 
     /// Draws the band into `area`. Text is inset by the margin everywhere; the input's tint runs edge
@@ -5469,7 +5484,12 @@ mod tests {
         app.handle(Outbound::parse(
             r#"{"type":"event","kind":"model.reasoning","details":{"phase":"end"},"text":"∴ thought for 1.2 s, 9 tokens","output":{"id":"0123456789abcdef","text":"one\ntwo\nthree\n","lines":3,"bytes":14,"truncated":false,"shownLines":1}}"#,
         ));
-        let texts: Vec<String> = app.pending.iter().map(|line| line.text.clone()).collect();
+        let texts: Vec<String> = app
+            .transcript
+            .lines()
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
         assert!(
             texts.iter().any(|t| t == "∴ thought for 1.2 s, 9 tokens"),
             "{texts:?}"

@@ -4,6 +4,16 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Changed:
+
+- `wisp-tui` draws the conversation in a pane of its own on the alternate screen, above the input and the status,
+  instead of writing it into the terminal's scrollback. PageUp and PageDown scroll it; it follows the end again once
+  scrolled back down. Dragging with the mouse selects text as before; the wheel does not scroll the pane, and no longer
+  recalls earlier input. On quitting, the conversation is printed into the scrollback, so the terminal's own search
+  and selection reach all of it.
+
 ## 0.28.0
 
 Added:

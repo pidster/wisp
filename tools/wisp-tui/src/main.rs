@@ -1,6 +1,6 @@
-//! `wisp-tui`: a terminal front end for `wisp chat --json`. The conversation scrolls in the
-//! terminal's own scrollback; a band at the bottom (ratatui's inline viewport) holds the reply in
-//! progress, the input or an approval dialog in its place, and the status line, and grows to fit them.
+//! `wisp-tui`: a terminal front end for `wisp chat --json`. On the alternate screen, the conversation is drawn in a
+//! pane of its own (ADR 0068), above a band holding the reply in progress, the input or an approval dialog in its
+//! place, and the status line; on quitting, the conversation is printed into the terminal's scrollback.
 //!
 //! Usage: `wisp-tui [chat arguments…]`; every argument is passed to `wisp chat`. `WISP_BIN` names the
 //! wisp binary (default `wisp` on `PATH`).
@@ -10,8 +10,10 @@ mod editor;
 mod markdown;
 mod notify;
 mod palette;
+mod pane;
 mod picker;
 mod protocol;
+mod transcript;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -21,22 +23,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, EnableBracketedPaste, Event as TermEvent, KeyCode, KeyEventKind,
     KeyModifiers,
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
-use ratatui::layout::Rect;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Widget, Wrap};
-use ratatui::{Terminal, TerminalOptions, Viewport};
 
-use app::{Action, App, BAND_HEIGHT, HistoryLine, LineKind, MARGIN};
+use app::{Action, App};
 use editor::Edit;
-use markdown::Tone;
 use notify::Sequence;
 use protocol::{Inbound, Outbound};
 
@@ -117,14 +112,26 @@ fn main() -> Result<()> {
         }
     });
 
-    let mut terminal = ratatui::init_with_options(TerminalOptions {
-        viewport: Viewport::Inline(BAND_HEIGHT),
-    });
-    // Bracketed paste delivers a paste as one event, so its newlines and keys cannot submit or edit.
+    // The alternate screen, the whole of it ours (ADR 0068): the pane draws the conversation above the band.
+    let mut terminal = ratatui::init();
+    // Bracketed paste delivers a paste as one event, so its newlines and keys cannot submit or edit. The mouse stays
+    // the terminal's, for selecting text; its wheel is kept from turning into Up and Down on this screen, which would
+    // recall earlier input instead of scrolling (the pane scrolls with PageUp and PageDown).
     let _ = execute!(std::io::stdout(), EnableBracketedPaste);
-    let result = run(&mut terminal, &rx, &mut stdin, sequence);
+    let _ = write_all_flushed(&mut std::io::stdout(), WHEEL_AS_ARROWS_OFF);
+    let mut app = App::default();
+    let result = run(&mut terminal, &rx, &mut stdin, sequence, &mut app);
+    let _ = write_all_flushed(&mut std::io::stdout(), WHEEL_AS_ARROWS_ON);
     let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::restore();
+    // Back on the normal screen: the conversation goes into the scrollback, as the pane last drew it.
+    // A terminal that reports no width (a pipe, or `script` without one) is taken as 80 columns.
+    let width = ratatui::crossterm::terminal::size()
+        .ok()
+        .map(|(width, _)| width)
+        .filter(|width| *width > 0)
+        .unwrap_or(80);
+    let _ = pane::print(&mut std::io::stdout(), &app.transcript, width);
     let ending = shut_down(&mut child, Some(stdin), QUIT_BOUND);
     // What wisp wrote to stderr after the loop stopped reading, such as why it could not start.
     for line in remaining_stderr(&rx, STDERR_BOUND) {
@@ -257,18 +264,17 @@ fn spawn(args: &[String]) -> Result<Child> {
         .with_context(|| format!("cannot start {bin} chat --json"))
 }
 
-/// The loop: apply wisp's lines and the keys, insert finished lines above, redraw the band.
+/// The loop: apply wisp's lines and the keys to `app`, and redraw the screen.
 fn run(
     terminal: &mut ratatui::DefaultTerminal,
     rx: &mpsc::Receiver<Incoming>,
     stdin: &mut impl Write,
     sequence: Option<Sequence>,
+    app: &mut App,
 ) -> Result<()> {
-    let mut app = App::default();
     let mut posted = 0;
-    let mut height = BAND_HEIGHT;
     let mut shown_label: Option<String> = None;
-    terminal.draw(|frame| app.render(frame, frame.area()))?;
+    terminal.draw(|frame| app.draw(frame, frame.area()))?;
     loop {
         // The thought bubble (ADR 0053) wakes the loop for each of its frames; otherwise four times a second.
         let wait = app
@@ -290,7 +296,7 @@ fn run(
             Some(Incoming::Closed) => app.exited = true,
             Some(Incoming::Terminal(TermEvent::Paste(text))) => app.edit(&Edit::Paste(text)),
             Some(Incoming::Terminal(TermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
-                let action = apply_key(&mut app, command_for(key.code, key.modifiers));
+                let action = apply_key(app, command_for(key.code, key.modifiers));
                 match action {
                     Action::None => {}
                     Action::Send(inbound) => {
@@ -314,11 +320,11 @@ fn run(
         // One synchronized update per frame: the terminal shows the finished frame, not the cleared band
         // of a resize or the steps of inserting lines, which it would otherwise paint as they arrive.
         let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
-        let frame = paint(terminal, &mut app, &mut height);
+        let frame = terminal.draw(|frame| app.draw(frame, frame.area()));
         let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
         frame?;
         // Between frames, so a sequence is never split by one of the frame's own.
-        post_notices(&mut std::io::stdout(), &mut app, sequence, &mut posted);
+        post_notices(&mut std::io::stdout(), app, sequence, &mut posted);
         if app.exited {
             return Ok(());
         }
@@ -335,9 +341,22 @@ fn post_notices(out: &mut impl Write, app: &mut App, sequence: Option<Sequence>,
     }
 }
 
-/// Whether what arrived can change what the band shows. Nothing in the band animates, so a wake with
-/// nothing, a key release, or focus and mouse events leave it as drawn; drawing anyway would show and
-/// move the cursor four times a second, which some terminals paint as a flicker or a restarted blink.
+/// Turns off the terminal's alternate scroll mode (DECSET 1007), in which the wheel on the alternate screen is sent
+/// as Up and Down: in `wisp-tui` those recall earlier input, so the wheel would change the line being typed.
+const WHEEL_AS_ARROWS_OFF: &[u8] = b"\x1b[?1007l";
+
+/// Turns the alternate scroll mode back on when leaving, as most terminals start with it.
+const WHEEL_AS_ARROWS_ON: &[u8] = b"\x1b[?1007h";
+
+/// Writes `bytes` and flushes them.
+fn write_all_flushed(out: &mut impl Write, bytes: &[u8]) -> std::io::Result<()> {
+    out.write_all(bytes)?;
+    out.flush()
+}
+
+/// Whether what arrived can change what the screen shows. Nothing animates but the busy box, so a wake with
+/// nothing, a key release, or focus and mouse events leave it as drawn; drawing anyway would show and move the
+/// cursor four times a second, which some terminals paint as a flicker or a restarted blink.
 fn changes_the_band(incoming: Option<&Incoming>) -> bool {
     match incoming {
         None | Some(Incoming::StderrClosed) => false,
@@ -415,13 +434,6 @@ fn bar_key(app: &mut App, key: Key) -> Action {
     Action::None
 }
 
-/// The band's next height, when it should change: at once when the input needs more rows, but back
-/// down only once the input is empty, as it is when a message is sent. Shrinking remakes the terminal,
-/// so doing it on every Backspace across a wrap would remake it back and forth while the user types.
-fn next_height(current: u16, wanted: u16, input_empty: bool) -> Option<u16> {
-    (wanted > current || (wanted < current && input_empty)).then_some(wanted)
-}
-
 /// What a key asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Key {
@@ -447,9 +459,9 @@ enum Key {
     ToggleOutput,
     /// Ctrl-T: the model's context in a panel.
     ShowContext,
-    /// `PageUp`: a page up in an open panel.
+    /// `PageUp`: a page up in an open panel, or in the pane.
     PageUp,
-    /// `PageDown`: a page down in an open panel.
+    /// `PageDown`: a page down in an open panel, or in the pane.
     PageDown,
     /// Nothing wisp-tui uses.
     Nothing,
@@ -496,194 +508,15 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
     }
 }
 
-/// One frame: the lines finished since the last go above the band, the band takes the height the
-/// input needs, and the band is drawn.
-fn paint(terminal: &mut ratatui::DefaultTerminal, app: &mut App, height: &mut u16) -> Result<()> {
-    let width = terminal.size()?.width;
-    for line in app.take_pending() {
-        insert(terminal, &line, width)?;
-    }
-    if let Some(wanted) = next_height(*height, app.band_height(width), app.input_is_empty()) {
-        regrow(terminal, wanted)?;
-        *height = wanted;
-    }
-    terminal.draw(|frame| app.render(frame, frame.area()))?;
-    Ok(())
-}
-
-/// Gives the band a new height. ratatui fixes an inline viewport's height when the terminal is made, so
-/// the band is cleared, the cursor put at its top, and a terminal made afresh there: growing reserves
-/// the new rows by scrolling when the band is at the bottom; shrinking leaves the band where it starts,
-/// and the lines inserted above it later close the gap below.
-fn regrow(terminal: &mut ratatui::DefaultTerminal, height: u16) -> Result<()> {
-    let top = terminal.get_frame().area().as_position();
-    terminal.clear()?;
-    terminal.set_cursor_position(top)?;
-    *terminal = Terminal::with_options(
-        CrosstermBackend::new(std::io::stdout()),
-        TerminalOptions {
-            viewport: Viewport::Inline(height),
-        },
-    )?;
-    Ok(())
-}
-
-/// Writes one history line into scrollback above the band, wrapped to the width.
-fn insert(terminal: &mut ratatui::DefaultTerminal, line: &HistoryLine, width: u16) -> Result<()> {
-    let rendered = styled(line);
-    let inner = width.saturating_sub(MARGIN * 2).max(1);
-    let shown: String = rendered
-        .spans
-        .iter()
-        .map(|span| span.content.as_ref())
-        .collect();
-    let height = wrapped_height(&shown, inner);
-    if let Some(tint) = sent_tint(line.kind) {
-        // A sent line looks like the input it came from, a shade darker: its tint edge to edge, with
-        // half-block strips above and below, since a terminal cannot tint less than a row. A command's line
-        // has the command colour's darker shade (ADR 0049).
-        terminal.insert_before(height + 2, move |buffer| {
-            sent(buffer, rendered, width, inner, height, tint);
-        })?;
-        return Ok(());
-    }
-    terminal.insert_before(height, move |buffer| {
-        Paragraph::new(rendered)
-            .wrap(Wrap { trim: false })
-            .render(Rect::new(MARGIN.min(width / 2), 0, inner, height), buffer);
-    })?;
-    Ok(())
-}
-
-/// The background and strip styles a sent line is drawn in: an ordinary prompt's on the sent tint, a
-/// command's on the command colour's darker shade, an outside command's on the outside colour's, a help request's on
-/// the help colour's; `None` for every other line.
-fn sent_tint(kind: LineKind) -> Option<(Style, Style)> {
-    match kind {
-        LineKind::User => Some((palette::sent_background(), palette::sent_edge())),
-        LineKind::Command => Some((
-            palette::command_sent_background(),
-            palette::command_sent_edge(),
-        )),
-        LineKind::Outside => Some((
-            palette::outside_sent_background(),
-            palette::outside_sent_edge(),
-        )),
-        LineKind::Help => Some((palette::help_sent_background(), palette::help_sent_edge())),
-        _ => None,
-    }
-}
-
-/// Draws a sent line into `buffer`: a `▄` strip, the text on its tint across the whole width, and a `▀`
-/// strip; `tint` is the background and the strips' style.
-fn sent(
-    buffer: &mut ratatui::buffer::Buffer,
-    text: Line<'static>,
-    width: u16,
-    inner: u16,
-    height: u16,
-    tint: (Style, Style),
-) {
-    let (background, edge) = tint;
-    let strip = |glyph: &str| Paragraph::new(glyph.repeat(usize::from(width))).style(edge);
-    strip("▄").render(Rect::new(0, 0, width, 1), buffer);
-    Paragraph::new("")
-        .style(background)
-        .render(Rect::new(0, 1, width, height), buffer);
-    Paragraph::new(text)
-        .style(background)
-        .wrap(Wrap { trim: false })
-        .render(Rect::new(MARGIN.min(width / 2), 1, inner, height), buffer);
-    strip("▀").render(Rect::new(0, height + 1, width, 1), buffer);
-}
-
-/// A history line in its colours; a reply's Markdown is rendered here, as the line is committed.
-fn styled(line: &HistoryLine) -> Line<'static> {
-    let style = match line.kind {
-        LineKind::User | LineKind::Command | LineKind::Outside | LineKind::Help => palette::user(),
-        LineKind::Reply => {
-            return Line::from(
-                markdown::spans(&line.text)
-                    .into_iter()
-                    .map(|(text, tone)| {
-                        let style = match tone {
-                            Tone::Plain => palette::body(),
-                            Tone::Strong => palette::strong(),
-                            Tone::Emphasis => palette::emphasis(),
-                            Tone::Code => palette::code(),
-                            Tone::Heading => palette::heading(),
-                            Tone::Bullet => palette::muted(),
-                        };
-                        Span::styled(text, style)
-                    })
-                    .collect::<Vec<_>>(),
-            );
-        }
-        LineKind::Code => palette::code(),
-        LineKind::Output => palette::body(),
-        LineKind::Tool | LineKind::Note => {
-            if let Some((end, lead)) = lead(line.kind, &line.text) {
-                let (head, rest) = line.text.split_at(end);
-                return Line::from(vec![
-                    Span::styled(head.to_string(), lead),
-                    Span::styled(rest.to_string(), palette::muted()),
-                ]);
-            }
-            palette::muted()
-        }
-        LineKind::ToolOutput | LineKind::Fence => palette::muted(),
-        LineKind::Error => palette::ember(),
-    };
-    Line::from(Span::styled(line.text.clone(), style))
-}
-
-/// Where a line's lead ends, and its colour, so what happened stands apart from the muted rest: a tool call's `⚙` and
-/// tool name in `WISP`, a stretch of thinking's `∴ thought` in `HELP`'s grey, and an answered or waiting approval's
-/// `✓` or `⚠` and words up to the colon in `AMBER`, or `EMBER` when it was refused. None for any other line.
-fn lead(kind: LineKind, text: &str) -> Option<(usize, Style)> {
-    let word = |glyph: &str| {
-        let after = text.strip_prefix(glyph)?;
-        Some(glyph.len() + after.find(' ').unwrap_or(after.len()))
-    };
-    match kind {
-        LineKind::Tool if text.starts_with("⚙ ") => word("⚙ ").map(|end| (end, palette::wisp())),
-        LineKind::Tool if text.starts_with("∴ ") => {
-            word("∴ ").map(|end| (end, palette::thinking()))
-        }
-        LineKind::Tool | LineKind::Note if text.starts_with("⚠ ") || text.starts_with("✓ ") => {
-            let end = text.find(':')?;
-            let style = if text[..end] == *"⚠ refused" {
-                palette::ember()
-            } else {
-                palette::amber()
-            };
-            Some((end, style))
-        }
-        _ => None,
-    }
-}
-
-/// Rows `text` takes at `width`, counting characters (wide glyphs may take one more).
-fn wrapped_height(text: &str, width: u16) -> u16 {
-    let width = usize::from(width.max(1));
-    let rows: usize = text
-        .split('\n')
-        .map(|part| part.chars().count().max(1).div_ceil(width))
-        .sum();
-    rows.try_into().unwrap_or(u16::MAX).max(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::Action;
     use super::{
         App, Edit, Incoming, Key, KeyCode, KeyModifiers, Outbound, Sequence, TermEvent,
-        changes_the_band, command_for, next_height, post_notices, version_display,
-        version_requested, wrapped_height,
+        changes_the_band, command_for, post_notices, version_display, version_requested,
     };
     use super::{CHILD_NAME, chat_command};
     use super::{Ending, exit_code, remaining_stderr, shut_down};
-    use super::{HistoryLine, Line, LineKind, palette, styled};
     use super::{app::BarItem, app::DIALOG_GRACE, apply_key, protocol::Inbound};
     use ratatui::crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
     use std::os::unix::process::ExitStatusExt;
@@ -838,11 +671,11 @@ mod tests {
     }
 
     #[test]
-    fn the_band_grows_at_once_and_shrinks_only_when_the_input_is_empty() {
-        assert_eq!(next_height(6, 8, false), Some(8));
-        assert_eq!(next_height(8, 7, false), None);
-        assert_eq!(next_height(8, 6, true), Some(6));
-        assert_eq!(next_height(6, 6, true), None);
+    fn the_wheel_is_kept_from_sending_arrows_and_given_back_on_leaving() {
+        let mut out = Vec::new();
+        assert!(super::write_all_flushed(&mut out, super::WHEEL_AS_ARROWS_OFF).is_ok());
+        assert!(super::write_all_flushed(&mut out, super::WHEEL_AS_ARROWS_ON).is_ok());
+        assert_eq!(out, b"\x1b[?1007l\x1b[?1007h");
     }
 
     #[test]
@@ -909,173 +742,6 @@ mod tests {
     }
 
     #[test]
-    fn replies_are_committed_with_their_markdown_rendered() {
-        let line = |text: &str, kind| HistoryLine {
-            text: text.into(),
-            kind,
-        };
-        let text = |rendered: &Line| -> String {
-            rendered
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect()
-        };
-        let reply = styled(&line("Use `git log` **now**", LineKind::Reply));
-        assert_eq!(text(&reply), "Use git log now");
-        assert_eq!(reply.spans[1].style, palette::code());
-        assert_eq!(reply.spans[3].style, palette::strong());
-        // Code and everything that is not a reply keep their text as it is.
-        let code = styled(&line("let **x** = 1", LineKind::Code));
-        assert_eq!(
-            (text(&code), code.spans[0].style),
-            ("let **x** = 1".into(), palette::code())
-        );
-        assert_eq!(text(&styled(&line("`raw`", LineKind::Tool))), "`raw`");
-    }
-
-    #[test]
-    fn what_happened_leads_its_line_in_its_own_colour() {
-        let spans = |text: &str, kind| -> Vec<(String, ratatui::style::Style)> {
-            styled(&HistoryLine {
-                text: text.into(),
-                kind,
-            })
-            .spans
-            .iter()
-            .map(|span| (span.content.to_string(), span.style))
-            .collect()
-        };
-        let muted = palette::muted();
-        assert_eq!(
-            spans("⚙ edit_file append /tmp/a", LineKind::Tool),
-            [
-                ("⚙ edit_file".into(), palette::wisp()),
-                (" append /tmp/a".into(), muted)
-            ]
-        );
-        assert_eq!(
-            spans("∴ thought for 3.3 s, 13 tokens", LineKind::Tool),
-            [
-                ("∴ thought".into(), palette::thinking()),
-                (" for 3.3 s, 13 tokens".into(), muted)
-            ]
-        );
-        assert_eq!(
-            spans("✓ approved for this turn: git push", LineKind::Note),
-            [
-                ("✓ approved for this turn".into(), palette::amber()),
-                (": git push".into(), muted)
-            ]
-        );
-        assert_eq!(
-            spans("⚠ refused: git push", LineKind::Note),
-            [
-                ("⚠ refused".into(), palette::ember()),
-                (": git push".into(), muted)
-            ]
-        );
-        assert_eq!(
-            spans("⚙ read_file", LineKind::Tool),
-            [
-                ("⚙ read_file".into(), palette::wisp()),
-                (String::new(), muted)
-            ]
-        );
-        // A result, a step, and a tool's output stay muted throughout.
-        for (text, kind) in [
-            ("  ↳ exit 0", LineKind::Tool),
-            ("   · safe by rules", LineKind::Tool),
-            ("⚙ not a call", LineKind::ToolOutput),
-            ("⚠ no colon here", LineKind::Note),
-        ] {
-            assert_eq!(spans(text, kind), [(text.to_string(), muted)], "{text}");
-        }
-    }
-
-    #[test]
-    fn a_sent_line_sits_on_its_tint_between_half_block_strips() {
-        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 12, 3));
-        let text = styled(&HistoryLine {
-            text: "› hi".into(),
-            kind: LineKind::User,
-        });
-        super::sent(
-            &mut buffer,
-            text,
-            12,
-            10,
-            1,
-            (palette::sent_background(), palette::sent_edge()),
-        );
-        let row = |y: u16| {
-            (0..12)
-                .map(|x| buffer[(x, y)].symbol().to_string())
-                .collect::<String>()
-        };
-        assert_eq!(row(0), "▄".repeat(12));
-        assert_eq!(row(1).trim_end(), " › hi");
-        assert_eq!(row(2), "▀".repeat(12));
-        assert_eq!(
-            buffer[(11, 1)].bg,
-            palette::SENT,
-            "the tint runs edge to edge"
-        );
-        assert_eq!(buffer[(0, 0)].fg, palette::SENT);
-    }
-
-    #[test]
-    fn a_commands_line_sits_on_the_command_colours_darker_shade_in_light_text() {
-        let line = HistoryLine {
-            text: "! git status".into(),
-            kind: LineKind::Command,
-        };
-        let text = styled(&line);
-        assert_eq!(text.spans[0].style, palette::user());
-        let tint = super::sent_tint(LineKind::Command)
-            .unwrap_or((palette::sent_background(), palette::sent_edge()));
-        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 16, 3));
-        super::sent(&mut buffer, text, 16, 14, 1, tint);
-        assert_eq!(buffer[(15, 1)].bg, palette::COMMAND_SENT);
-        assert_eq!(buffer[(1, 1)].fg, palette::WHITE);
-        assert_eq!(buffer[(0, 0)].fg, palette::COMMAND_SENT);
-        assert_eq!(buffer[(0, 2)].fg, palette::COMMAND_SENT);
-        assert_eq!(
-            super::sent_tint(LineKind::User),
-            Some((palette::sent_background(), palette::sent_edge()))
-        );
-        assert_eq!(super::sent_tint(LineKind::Note), None);
-        // An outside command's line sits on the outside colour's darker shade, in the same light text.
-        let outside = HistoryLine {
-            text: "!! brew upgrade".into(),
-            kind: LineKind::Outside,
-        };
-        let text = styled(&outside);
-        assert_eq!(text.spans[0].style, palette::user());
-        let tint = super::sent_tint(LineKind::Outside)
-            .unwrap_or((palette::sent_background(), palette::sent_edge()));
-        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 16, 3));
-        super::sent(&mut buffer, text, 16, 14, 1, tint);
-        assert_eq!(buffer[(15, 1)].bg, palette::OUTSIDE_SENT);
-        assert_eq!(buffer[(1, 1)].fg, palette::WHITE);
-        assert_eq!(buffer[(0, 0)].fg, palette::OUTSIDE_SENT);
-        assert_eq!(buffer[(0, 2)].fg, palette::OUTSIDE_SENT);
-        // A help request's line sits on the help colour's darker shade, a dark grey.
-        let help = HistoryLine {
-            text: "? models".into(),
-            kind: LineKind::Help,
-        };
-        let text = styled(&help);
-        assert_eq!(text.spans[0].style, palette::user());
-        let tint = super::sent_tint(LineKind::Help)
-            .unwrap_or((palette::sent_background(), palette::sent_edge()));
-        let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 16, 3));
-        super::sent(&mut buffer, text, 16, 14, 1, tint);
-        assert_eq!(buffer[(15, 1)].bg, palette::HELP_SENT);
-        assert_eq!(buffer[(0, 0)].fg, palette::HELP_SENT);
-    }
-
-    #[test]
     fn notices_are_written_after_the_frame_and_only_once() {
         let mut app = App::default();
         app.handle(Outbound::parse(
@@ -1123,15 +789,6 @@ mod tests {
             "--version".to_string()
         ]));
         assert!(!version_requested(&[]));
-    }
-
-    #[test]
-    fn wrapped_height_counts_rows() {
-        assert_eq!(wrapped_height("", 10), 1);
-        assert_eq!(wrapped_height("short", 10), 1);
-        assert_eq!(wrapped_height("exactly ten", 11), 1);
-        assert_eq!(wrapped_height("twelve chars", 10), 2);
-        assert_eq!(wrapped_height("a\nb", 10), 2);
     }
 
     /// A chat at its prompt: a status with a context gauge, so the bar has its model and gauge.

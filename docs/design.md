@@ -774,7 +774,10 @@ running a command, waiting for approval). The terminal chat redraws that as a wo
 sends it as `activity` lines. `ChatLoop.history` keeps the latest 100 typed lines for `/history`; `wisp-tui` keeps its own
 list for Up and Down. `wisp chat --json` is the same loop with its IO mapped onto a JSON Lines protocol
 (`ChatProtocol`, `LineRouter`, `JSONApprover`), so a front end in another process, `tools/wisp-tui`,
-can own the screen while the session stays here. `wisp chat` on a terminal hands its session to `wisp-tui`,
+can own the screen while the session stays here. `wisp-tui` holds the conversation as a list of elements
+(`Transcript`: a line sent, a tool call with its output, a stretch of thinking, a reply, a run of notes) grouped as
+wisp's lines arrive, and draws it in a pane above its band on the alternate screen (`Pane`), printing it into the
+scrollback on quitting ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)). `wisp chat` on a terminal hands its session to `wisp-tui`,
 found beside the running executable (`FrontEnd`), which starts its child as `wisp chat (tui)`; `ExecutablePath`
 finds that executable by the path the kernel started it from, never by `argv[0]`, which a parent may set at spawn
 (`wisp-tui`, and `scripts/wisp-mcp` naming the server `wisp mcp (CLIENT)` from `WISP_MCP_CLIENT`;

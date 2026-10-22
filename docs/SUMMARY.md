@@ -119,6 +119,7 @@
   - [0065: The documentation site, an mdBook over docs/ on GitHub Pages](decisions/0065-documentation-site.md)
   - [0066: One thread store: every MCP thread saved, and resumed by a later server](decisions/0066-one-thread-store.md)
   - [0067: A call's time limit may only lengthen the one it would otherwise get](decisions/0067-a-call-may-only-lengthen-its-time-limit.md)
+  - [0068: wisp-tui draws the conversation in a pane of its own](decisions/0068-the-conversation-in-a-pane.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

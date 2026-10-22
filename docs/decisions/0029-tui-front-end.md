@@ -1,6 +1,6 @@
 # ADR 0029: The terminal chat is a Rust front end over a headless wisp
 
-Date: 2026-09-22. Status: accepted. Amends the chat's place in `design.md`. Amended by [ADR 0064](0064-an-approved-run-outside-the-sandbox.md) (2026-10-14): a third input mode, outside the sandbox, in a muted red.
+Date: 2026-09-22. Status: accepted. Amends the chat's place in `design.md`. Amended by [ADR 0064](0064-an-approved-run-outside-the-sandbox.md) (2026-10-14): a third input mode, outside the sandbox, in a muted red. Amended by [ADR 0068](0068-the-conversation-in-a-pane.md) (2026-10-22): the conversation is drawn in a pane of its own on the alternate screen, not written into the scrollback.
 
 ## Context
 

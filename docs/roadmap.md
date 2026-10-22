@@ -19,7 +19,7 @@ measurement.
 
 ## 0.29.0
 
-- **A foldable conversation in `wisp-tui`** (asked for by the owner on 2026-10-15; planned, not built; moved from
+- **A foldable conversation in `wisp-tui`** (asked for by the owner on 2026-10-15; being built; moved from
   0.27.0 behind the thread store on 2026-10-16, and from 0.28.0 behind its phase 3 on 2026-10-20). Today the
   conversation is printed into the terminal's own scrollback ([ADR 0029](decisions/0029-tui-front-end.md)), where
   nothing can fold a line once it is printed. The plan: `wisp-tui` draws the conversation itself, in a log pane
@@ -31,8 +31,9 @@ measurement.
   The cost, which a new ADR records: the terminal's own scrollback, search, and selection no longer hold the
   conversation, so the pane scrolls and copies itself, and on quitting the conversation leaves the screen (the
   transcript and the audit log keep it). Built in stages: the pane and its scrolling; folding; navigation and
-  unfolding; copying. The alternative kept in view: the same navigation and folding inside the Ctrl-O panel,
-  leaving the scrollback as it is.
+  unfolding; copying. Chosen by the operator on 2026-10-22 ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)):
+  the pane, replacing the inline view outright, with the conversation printed into the scrollback on quitting, and all
+  four stages in 0.29.0. Stage 1, the pane and its scrolling, built on 2026-10-22.
 
 ## Not scheduled
 
