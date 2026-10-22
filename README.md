@@ -79,9 +79,9 @@ turns it had to drop; `/inspect facts` and `/inspect summary` show them and `/fa
 that starts with `!` (`! git status`) runs the command yourself, in the sandbox and without asking, and the
 model is told what you ran on its next request; `!!` (`!!brew upgrade`) runs it outside the sandbox, for the chores
 the sandbox refuses. On a
-terminal the chat runs in `wisp-tui`, installed beside `wisp`: the conversation scrolls in your
-terminal's own history above a pinned input and status line, with the model's tool calls shown as they
-happen.
+terminal the chat runs in `wisp-tui`, installed beside `wisp`: the conversation is drawn in a pane of its
+own above a pinned input and status line, with the model's tool calls shown as they happen and long outputs
+folded, and it is printed into your terminal's history when you quit.
 
 Some subcommands need no prompt at all. They put the model, or plain rules, to one job each:
 

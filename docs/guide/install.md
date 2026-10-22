@@ -81,8 +81,9 @@ wisp chat
 ```
 
 On a terminal, with `wisp-tui` installed beside `wisp` (Homebrew's install has it), `wisp chat` hands the session to
-`wisp-tui`: the conversation scrolls in your terminal's own history above a pinned input and status line, and the
-model's tool calls show as they happen. `wisp chat --plain` keeps the plain line-based chat, and a piped session is
+`wisp-tui`: the conversation is drawn in a pane of its own above a pinned input and status line, the model's tool
+calls show as they happen, and long outputs fold (Shift with the arrows reaches each part, Ctrl-Y copies one). On
+quitting, the conversation is printed into your terminal's history. `wisp chat --plain` keeps the plain line-based chat, and a piped session is
 always plain. `wisp doctor`'s `front end` line says which you will get.
 
 What to try first:

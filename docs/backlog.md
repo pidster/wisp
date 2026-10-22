@@ -158,9 +158,9 @@ proposal, open to the operator's choice from renders.
 Done 2026-10-15, in both front ends: `/think on|off|LEVEL` and the model's thinking in the status line, an item of
 `wisp-tui`'s bar ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-15); the status line's
 left half as `model (think) N% used · path vcs(branch)`, with git or Subversion found by its marker and read off the
-prompt's path ([ADR 0029](decisions/0029-tui-front-end.md), amended 2026-10-15). Planned for 0.27.0: the
-conversation as a log pane of `wisp-tui`'s own, with long outputs folded and each element reachable
-([roadmap.md](roadmap.md)).
+prompt's path ([ADR 0029](decisions/0029-tui-front-end.md), amended 2026-10-15). Done 2026-10-22, for
+0.29.0: the conversation as a pane of `wisp-tui`'s own, with long outputs folded, each element reachable from the
+keyboard, and copying through OSC 52 ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)).
 
 ## Documentation
 
