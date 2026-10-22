@@ -7,29 +7,13 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-| Release | Larger | Smaller |
-| --- | --- | --- |
-| 0.30.0 | `Wisp Notifier.app`: notifications from wisp itself, with its own name, icon, and row in Notification settings | The doctor's notifier line; `notifications.viaHelper` |
-
-## 0.30.0
-
-- **A notification helper of wisp's own** (in the backlog under "When wisp can be signed"; chosen by the operator on
-  2026-10-22; built 2026-10-22, not yet released). `Wisp Notifier.app`, bundle identifier `com.pidster.wisp.notifier`, a small bundle with no Dock icon
-  beside `wisp` in the formula's `libexec`, posts through `UserNotifications`, so banners come from "Wisp" with its
-  icon (the homepage's wisp, cropped to its head) whether or not the terminal has focus, and a click brings the
-  terminal wisp ran in forward. A new `helper` route, tried first by every face, used once the person has allowed
-  it; until then, and whenever the helper is missing or `notifications.viaHelper` is off, the routes of today post
-  as before. Probed on 2026-10-22: an ad hoc signed bundle may notify once the person allows it, so the helper needs
-  no Developer ID; macOS refuses a bundle run from a temporary folder, and one run directly by its executable until
-  LaunchServices knows it; the first request can fail while the prompt is still on screen. Built in stages: the
-  helper; the route, the setting, and the doctor's line; the release's bundle, signed ad hoc or with the Developer
-  ID and notarised when signing is on; the icon. A new ADR amends ADR 0030 and ADR 0044.
+No release is scheduled after 0.30.0; the next is chosen with the operator from what follows.
 
 ## Not scheduled
 
