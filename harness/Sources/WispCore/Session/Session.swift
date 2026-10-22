@@ -354,7 +354,8 @@ public struct Session: Sendable {
     }
 
     /// The host for a face of this session: its approver, the session's notifier, and the face's
-    /// notification routes with `notifications.viaTerminalApp` from the config. Every face builds one
+    /// notification routes with `notifications.viaTerminalApp` and `notifications.viaHelper` from the config, the
+    /// helper being the `Wisp Notifier.app` beside the running `wisp` (ADR 0070). Every face builds one
     /// (ADR 0044).
     ///
     /// - Parameters:
@@ -370,7 +371,8 @@ public struct Session: Sendable {
         SessionHost(
             approver: approver, notifier: notifier,
             notifications: NotificationRoutes(
-                face: face, viaTerminalApp: config.notificationsViaTerminalApp, only: only),
+                face: face, viaTerminalApp: config.notificationsViaTerminalApp,
+                viaHelper: config.notificationsViaHelper, helper: .live, only: only),
             asker: asker ?? NobodyAsker(face: "wisp \(entryPoint.rawValue)"))
     }
 

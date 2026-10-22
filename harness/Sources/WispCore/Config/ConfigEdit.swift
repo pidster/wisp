@@ -123,6 +123,9 @@ public enum ConfigSettings {
             Setting(
                 path: "notifications.viaTerminalApp",
                 summary: "whether to post through the terminal app by bundle identifier", kind: .flag),
+            Setting(
+                path: "notifications.viaHelper",
+                summary: "whether to post through Wisp Notifier.app when it is installed and allowed", kind: .flag),
             Setting(path: "audit.enabled", summary: "whether the audit log is written", kind: .flag),
             Setting(path: "ollama.baseURL", summary: "where Ollama serves", kind: .text),
             Setting(
@@ -304,6 +307,7 @@ public enum ConfigSettings {
         case "notifications.enabled": return .bool(d.notificationsEnabled)
         case "notifications.perMinute": return .int(d.notificationsPerMinute)
         case "notifications.viaTerminalApp": return .bool(d.notificationsViaTerminalApp)
+        case "notifications.viaHelper": return .bool(d.notificationsViaHelper)
         case "audit.enabled": return .bool(d.auditEnabled)
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")

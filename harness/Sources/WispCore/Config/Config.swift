@@ -399,12 +399,16 @@ public struct Config: Codable, Equatable, Sendable {
         /// Whether to post through the terminal app by bundle identifier (ADR 0044's third route); default
         /// false until a probe shows the banner attributed to the app.
         public var viaTerminalApp: Bool?
+        /// Whether to post through `Wisp Notifier.app` when it is installed and allowed (ADR 0070's route, tried
+        /// first); default true.
+        public var viaHelper: Bool?
 
         /// Creates settings; nil fields take defaults.
-        public init(enabled: Bool? = nil, perMinute: Int? = nil, viaTerminalApp: Bool? = nil) {
+        public init(enabled: Bool? = nil, perMinute: Int? = nil, viaTerminalApp: Bool? = nil, viaHelper: Bool? = nil) {
             self.enabled = enabled
             self.perMinute = perMinute
             self.viaTerminalApp = viaTerminalApp
+            self.viaHelper = viaHelper
         }
     }
 
@@ -883,6 +887,7 @@ public struct Config: Codable, Equatable, Sendable {
             notificationsEnabled: notifications?.enabled ?? true,
             notificationsPerMinute: max(1, notifications?.perMinute ?? 5),
             notificationsViaTerminalApp: notifications?.viaTerminalApp ?? true,
+            notificationsViaHelper: notifications?.viaHelper ?? true,
             disabledTools: Set(tools?.disabled ?? []), customTools: tools?.custom ?? [],
             toolsModels: tools?.models ?? false,
             toolsAsk: tools?.ask ?? false,
@@ -993,6 +998,8 @@ public struct Config: Codable, Equatable, Sendable {
         public var notificationsPerMinute: Int = 5
         /// Whether a notification may be sent to the terminal app by bundle identifier.
         public var notificationsViaTerminalApp: Bool = false
+        /// Whether a notification may be posted through `Wisp Notifier.app` (ADR 0070).
+        public var notificationsViaHelper: Bool = true
         /// Built-in tools not registered.
         public var disabledTools: Set<String> = []
         /// The user's own tools, validated.

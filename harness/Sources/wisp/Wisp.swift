@@ -1264,14 +1264,15 @@ struct Notify: ParsableCommand {
     @Option(
         name: .long,
         help: ArgumentHelp(
-            "Use only this route: host, terminal, app, or osascript. app is tried even when "
-                + "notifications.viaTerminalApp is off, to probe which app the banner is attributed to.",
+            "Use only this route: helper, host, terminal, app, or osascript. helper and app are tried even when "
+                + "their setting is off; helper asks for permission and waits when it has not been given, and app "
+                + "probes which app the banner is attributed to.",
             valueName: "route"))
     var route: String?
 
     func validate() throws {
         if let route, NotificationRoute(rawValue: route) == nil {
-            throw ValidationError("--route must be host, terminal, app, or osascript")
+            throw ValidationError("--route must be helper, host, terminal, app, or osascript")
         }
     }
 

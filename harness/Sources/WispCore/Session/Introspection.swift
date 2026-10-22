@@ -75,6 +75,7 @@ public struct Introspection: Sendable {
             "notifications": .object([
                 "enabled": .bool(config.notificationsEnabled), "perMinute": .int(config.notificationsPerMinute),
                 "viaTerminalApp": .bool(config.notificationsViaTerminalApp),
+                "viaHelper": .bool(config.notificationsViaHelper),
             ]),
             "inquiry": .object([
                 "timeoutSeconds": config.inquiryTimeout.map { .int(Int($0.components.seconds)) } ?? .int(0),

@@ -1,8 +1,12 @@
 import Foundation
+import WispNotifierKit
 
 /// How a notification reached the person ([ADR 0044](../../../../docs/decisions/0044-host-effects.md)),
 /// in the order they are tried.
 public enum NotificationRoute: String, Sendable, CaseIterable {
+    /// `Wisp Notifier.app`, beside `wisp`, posts it as "Wisp", once the person has allowed it
+    /// ([ADR 0070](../../../../docs/decisions/0070-a-notification-helper.md)).
+    case helper
     /// The front end, which declared `notify` in its `hello`, posts it (`wisp-tui` writes the terminal's
     /// sequence between its frames).
     case host
@@ -135,8 +139,9 @@ public enum TerminalNotification {
     }
 }
 
-/// The routes a face can post a notification by, tried in ADR 0044's order, first that works: the front
-/// end, the terminal, the terminal app by bundle identifier, and `osascript`. The bounds, the rate limit,
+/// The routes a face can post a notification by, tried in ADR 0044's order, first that works, with ADR 0070's helper
+/// ahead of them: `Wisp Notifier.app`, the front end, the terminal, the terminal app by bundle identifier, and
+/// `osascript`. The bounds, the rate limit,
 /// and the off switch (`Notifier`) apply before any route.
 public struct NotificationRoutes: Sendable {
     /// A front end that can post notifications itself: `wisp-tui` over `wisp chat --json`.
@@ -189,6 +194,10 @@ public struct NotificationRoutes: Sendable {
     public var face: Face
     /// Whether the app route is on (`notifications.viaTerminalApp`).
     public var viaTerminalApp: Bool
+    /// Whether the helper route is on (`notifications.viaHelper`).
+    public var viaHelper: Bool
+    /// `Wisp Notifier.app`, for the helper route.
+    var helper: NotifierHelper
     /// Only this route, for `wisp notify --route`: the others are not tried, and the app route is tried
     /// even when the setting is off, so an operator can probe it.
     public var only: NotificationRoute?
@@ -202,16 +211,20 @@ public struct NotificationRoutes: Sendable {
     /// - Parameters:
     ///   - face: Which face.
     ///   - viaTerminalApp: `notifications.viaTerminalApp`.
+    ///   - viaHelper: `notifications.viaHelper`.
+    ///   - helper: `Wisp Notifier.app`; tests inject one, and never run a real one.
     ///   - only: A single route to use, for `wisp notify --route`.
     ///   - environment: The environment; tests inject one.
     ///   - writeTerminal: Writes to the terminal; tests inject one, and never write to the real terminal.
     public init(
-        face: Face, viaTerminalApp: Bool = false, only: NotificationRoute? = nil,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
+        face: Face, viaTerminalApp: Bool = false, viaHelper: Bool = false, helper: NotifierHelper = .none,
+        only: NotificationRoute? = nil, environment: [String: String] = ProcessInfo.processInfo.environment,
         writeTerminal: @escaping TerminalNotification.Writer = TerminalNotification.tty
     ) {
         self.face = face
         self.viaTerminalApp = viaTerminalApp
+        self.viaHelper = viaHelper
+        self.helper = helper
         self.only = only
         self.environment = environment
         self.writeTerminal = writeTerminal
@@ -227,8 +240,8 @@ public struct NotificationRoutes: Sendable {
         let optIn = face.isTerminal && TerminalNotification.terminal(in: environment)?.optIn != nil
         var steps =
             optIn
-            ? [hostStep(), appStep(forced: only == .app), terminalStep()]
-            : [hostStep(), terminalStep(), appStep(forced: only == .app)]
+            ? [helperStep(forced: only == .helper), hostStep(), appStep(forced: only == .app), terminalStep()]
+            : [helperStep(forced: only == .helper), hostStep(), terminalStep(), appStep(forced: only == .app)]
         steps.append(.attempt(.osascript, "banners come from Script Editor"))
         if let only {
             steps = steps.filter {
@@ -238,6 +251,40 @@ public struct NotificationRoutes: Sendable {
             }
         }
         return steps
+    }
+
+    /// The helper, first in every face when it is on and beside `wisp`; whether the person has allowed it is read
+    /// when a notification is delivered, not here.
+    private func helperStep(forced: Bool) -> Step {
+        guard viaHelper || forced else { return .skip(.helper, "off (notifications.viaHelper)") }
+        guard let app = helper.locate() else { return .skip(.helper, "no \(NotifierProtocol.bundleName) beside wisp") }
+        return .attempt(
+            .helper, "\(NotifierProtocol.bundleName) posts as \(NotifierProtocol.displayName) (\(app.path))")
+    }
+
+    /// Posts by the helper when the person has allowed it. Not yet asked, it starts asking and leaves this
+    /// notification to the next route, so none waits on the prompt; with `--route helper` it asks and waits, so an
+    /// operator can grant it on purpose.
+    ///
+    /// - Returns: Nil when posted, else why the helper passed it on.
+    private func deliverByHelper(_ message: Notifier.Message) -> String? {
+        guard let app = helper.locate() else { return "no \(NotifierProtocol.bundleName) beside wisp" }
+        guard var permission = helper.permission(app) else { return "\(NotifierProtocol.bundleName) could not be run" }
+        if permission == .notDetermined {
+            guard only == .helper else {
+                helper.askLater(app)
+                return "asking the person to allow Wisp's notifications; this one goes by the next route"
+            }
+            guard let answer = helper.askNow(app) else { return "\(NotifierProtocol.bundleName) could not be run" }
+            permission = answer
+        }
+        guard permission.allowsPosting else {
+            return "notifications for Wisp are \(permission.rawValue); System Settings, Notifications, Wisp"
+        }
+        let request = NotifierProtocol.Request(
+            id: "wisp-" + ShortID.make(), title: message.title, subtitle: message.subtitle, body: message.body,
+            sound: message.sound, activate: environment["__CFBundleIdentifier"].flatMap { $0.isEmpty ? nil : $0 })
+        return helper.post(app, request)
     }
 
     private func hostStep() -> Step {
@@ -287,6 +334,9 @@ public struct NotificationRoutes: Sendable {
             switch step {
             case .skip(let route, let reason):
                 skipped.append("\(route.rawValue): \(reason)")
+            case .attempt(.helper, _):
+                guard let failure = deliverByHelper(message) else { return (.posted(.helper), skipped) }
+                skipped.append("helper: \(failure)")
             case .attempt(.host, _):
                 guard case .frontEnd(let frontEnd) = face else { continue }
                 frontEnd.send(message)

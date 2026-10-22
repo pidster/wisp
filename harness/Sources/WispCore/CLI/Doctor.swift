@@ -47,6 +47,9 @@ public struct Doctor: Sendable {
         public var thinkingBudget: @Sendable (Config.Resolved) async -> Finding?
         /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
         public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
+        /// `Wisp Notifier.app`, for the `notify` and `notifier` findings; only where it is and its permission are read,
+        /// so nothing is asked or posted.
+        public var helper: NotifierHelper
         /// The running `wisp` and who signed it, or nil when the executable cannot be found, for the `signature`
         /// finding.
         public var signature: @Sendable () -> (executable: URL, signature: CodeSignature)?
@@ -90,6 +93,7 @@ public struct Doctor: Sendable {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
                 return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
             },
+            helper: .live,
             signature: {
                 guard let executable = FrontEnd.runningExecutable else { return nil }
                 return (executable, CodeSignature.of(executable))
@@ -110,6 +114,7 @@ public struct Doctor: Sendable {
             backends: @escaping @Sendable () -> [Finding] = { [] },
             thinkingBudget: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) },
+            helper: NotifierHelper = .none,
             signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil }
         ) {
             self.systemModel = systemModel
@@ -123,6 +128,7 @@ public struct Doctor: Sendable {
             self.backends = backends
             self.thinkingBudget = thinkingBudget
             self.frontEnd = frontEnd
+            self.helper = helper
             self.signature = signature
         }
     }
@@ -164,7 +170,8 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), frontEndFinding(), signatureFinding(),
+            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), notifier(), frontEndFinding(),
+            signatureFinding(),
             homeWritable(),
             pendingApprovals(),
             outputStore(),

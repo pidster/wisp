@@ -115,7 +115,7 @@ import Testing
         let effects = Effects()
         let (outcome, skipped) = deliver(.terminal, ghostty, effects: effects)
         #expect(outcome == .posted(.terminal))
-        #expect(skipped == ["host: no front end"])
+        #expect(skipped == ["helper: off (notifications.viaHelper)", "host: no front end"])
         #expect(effects.written.withLock { $0 } == [Array("\u{1B}]9;Build: The tests pass.\u{07}".utf8)])
         #expect(effects.runs == 0)
         let kitty = Effects()
@@ -131,7 +131,11 @@ import Testing
         let noApp = Effects()
         let viaTerminal = deliver(.terminal, iterm, app: false, effects: noApp)
         #expect(viaTerminal.0 == .posted(.terminal) && noApp.writes == 1)
-        #expect(viaTerminal.skipped == ["host: no front end", "app: off (notifications.viaTerminalApp)"])
+        #expect(
+            viaTerminal.skipped == [
+                "helper: off (notifications.viaHelper)", "host: no front end",
+                "app: off (notifications.viaTerminalApp)",
+            ])
     }
 
     @Test func terminalAppFallsToOsascriptWithTheAppRouteOff() {
@@ -140,7 +144,8 @@ import Testing
         #expect(outcome == .posted(.osascript))
         #expect(
             skipped == [
-                "host: no front end", "terminal: Terminal.app has no notification sequence",
+                "helper: off (notifications.viaHelper)", "host: no front end",
+                "terminal: Terminal.app has no notification sequence",
                 "app: off (notifications.viaTerminalApp)",
             ])
         #expect(effects.writes == 0)
@@ -175,7 +180,9 @@ import Testing
     @Test func theJSONFaceNeverWritesToTheTerminal() {
         // With a hello declaring notify, the front end posts it.
         let declared = Effects()
-        #expect(deliver(.frontEnd(declared.frontEnd), ghostty, effects: declared) == (.posted(.host), []))
+        #expect(
+            deliver(.frontEnd(declared.frontEnd), ghostty, effects: declared)
+                == (.posted(.host), ["helper: off (notifications.viaHelper)"]))
         #expect(declared.sent.withLock { $0 } == [message])
         #expect(declared.writes == 0 && declared.runs == 0)
         // Without one, today's behaviour: posted by wisp's process, never through the terminal it does not own.
@@ -185,7 +192,8 @@ import Testing
         #expect(outcome == .posted(.osascript))
         #expect(
             skipped == [
-                "host: the front end declared no notify", "terminal: the front end owns the terminal",
+                "helper: off (notifications.viaHelper)", "host: the front end declared no notify",
+                "terminal: the front end owns the terminal",
                 "app: off (notifications.viaTerminalApp)",
             ])
         #expect(silent.writes == 0)
@@ -195,10 +203,14 @@ import Testing
         let effects = Effects()
         let (outcome, skipped) = deliver(.mcp, ghostty, effects: effects)
         #expect(outcome == .posted(.osascript))
-        #expect(skipped.prefix(2) == ["host: MCP has no notification", "terminal: the MCP client owns the terminal"])
+        #expect(
+            skipped.prefix(3) == [
+                "helper: off (notifications.viaHelper)", "host: MCP has no notification",
+                "terminal: the MCP client owns the terminal",
+            ])
         #expect(effects.writes == 0)
         #expect(deliver(.mcp, ghostty, app: true, effects: Effects()).0 == .posted(.app))
-        #expect(deliver(.headless, ghostty, effects: Effects()).skipped[1] == "terminal: not used by this face")
+        #expect(deliver(.headless, ghostty, effects: Effects()).skipped[2] == "terminal: not used by this face")
     }
 
     @Test func oneRouteOnlyForTheProbe() {
@@ -226,9 +238,10 @@ import Testing
         off.post(message, source: .model, audit: audit, routes: terminal)
         let events = sink.events.filter { $0.kind == .notification }
         #expect(events[0].details["route"] == "terminal")
-        #expect(events[0].details["skipped"] == .array(["host: no front end"]))
+        #expect(
+            events[0].details["skipped"] == .array(["helper: off (notifications.viaHelper)", "host: no front end"]))
         #expect(events[1].details["route"] == "osascript")
-        #expect(events[1].details["skipped"]?.arrayValue?.count == 3)
+        #expect(events[1].details["skipped"]?.arrayValue?.count == 4)
         // Refused before any route: no route and nothing skipped.
         #expect(events[2].details["route"] == nil && events[2].details["skipped"] == nil)
         for event in events { #expect(Set(event.details.keys).isSubset(of: AuditEvent.fields(for: .notification))) }

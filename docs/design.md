@@ -487,13 +487,17 @@ flag means the same everywhere. The faces are overlays on this core:
 
 `Notifier` applies the off switch, the bounds, and the per-minute limit across the process, then hands the
 bounded message to the face's `NotificationRoutes`, which try ADR 0044's routes in order and return the
-first that works with the reasons the earlier ones were skipped: `host` (the front end's `notify` line),
+first that works with the reasons the earlier ones were skipped: `helper` (ADR 0070: `Wisp Notifier.app` beside
+`wisp`, through `NotifierHelper`, which registers the bundle with LaunchServices, reads its permission with
+`--status`, and posts with `--post` once the person has allowed it; not yet asked, it starts `--ask` once a process
+without waiting and passes the notification on; every face, with `notifications.viaHelper`), `host` (the front
+end's `notify` line),
 `terminal` (the escape sequence `TerminalNotification` builds for the terminal `TERM_PROGRAM` or `TERM`
 names, written to `/dev/tty`; only the `.terminal` face, since under `--json` the front end and under MCP
 the client own the terminal), `app` (`display notification` sent to `__CFBundleIdentifier`'s app, only with
 `notifications.viaTerminalApp`), and `osascript`. The plan is a pure function of the face, the environment,
-and the setting (`NotificationRoutes.steps`), which the tests and `wisp doctor` read; the terminal writer
-and the `osascript` runner are injected.
+and the setting (`NotificationRoutes.steps`), which the tests and `wisp doctor` read; the terminal writer, the
+`osascript` runner, and the helper are injected.
 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a
 "this project" answer on one MCP thread is written once and a "this session" answer covers every thread.

@@ -385,7 +385,7 @@ complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wis
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" t title' -s 't' -l 'title' -d 'The title (default: wisp).' -rfka ''
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" subtitle' -l 'subtitle' -d 'A second line under the title.' -rfka ''
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" sound' -l 'sound' -d 'Play the default notification sound.'
-complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" route' -l 'route' -d 'Use only this route: host, terminal, app, or osascript. app is tried even when notifications.viaTerminalApp is off, to probe which app the banner is attributed to.' -rfka ''
+complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" route' -l 'route' -d 'Use only this route: helper, host, terminal, app, or osascript. helper and app are tried even when their setting is off; helper asks for permission and waits when it has not been given, and app probes which app the banner is attributed to.' -rfka ''
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" version' -l 'version' -d 'Show the version.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp notify" h help' -s 'h' -l 'help' -d 'Show help information.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp scan" personal' -l 'personal' -d 'Report personal data too: emails, phone and card numbers, public IPs, addresses, private hostnames, user names, and lines the personal-data classifier flags.'

@@ -4,6 +4,17 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- Notifications come from wisp itself: `Wisp Notifier.app`, installed beside `wisp`, posts them as "Wisp" with its
+  own icon and its own row in Notification settings, whether or not your terminal has focus, and clicking one
+  brings your terminal forward. The first notification asks you to allow them, and goes by the old route meanwhile;
+  `wisp notify --route helper "test"` asks on purpose. Refused, or turned off with `notifications.viaHelper`,
+  notifications post as before (ADR 0070).
+- `wisp doctor` has a `notifier` line: where `Wisp Notifier.app` is and whether its notifications are allowed.
+
 ## 0.29.1
 
 Added:

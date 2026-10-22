@@ -67,7 +67,7 @@ import Testing
         #expect(top.objectValue?["assessment"]?.objectValue?["taskChanges"] == "restated")
         #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.6))
         #expect(top.objectValue?["context"]?.objectValue?["memory"] == false)
-        #expect(Introspection.render(top).utf8.count < 6_000, "the configuration view stays bounded")
+        #expect(Introspection.render(top).utf8.count < 6_500, "the configuration view stays bounded")
     }
 
     @Test func configurationShowsEffectiveValuesAndPaths() throws {

@@ -40,7 +40,7 @@ import WispTestSupport
         #expect(
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
-                "subject kinds", "saved transcripts", "threads", "notify", "front end", "signature", "home",
+                "subject kinds", "saved transcripts", "threads", "notify", "notifier", "front end", "signature", "home",
                 "pending approvals", "output store",
             ])
         let broken = Doctor.Probes(
@@ -49,7 +49,8 @@ import WispTestSupport
         #expect(
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
-                "settings", "facts store", "subject kinds", "saved transcripts", "threads", "notify", "front end",
+                "settings", "facts store", "subject kinds", "saved transcripts", "threads", "notify", "notifier",
+                "front end",
                 "signature", "home",
                 "pending approvals", "output store",
             ])

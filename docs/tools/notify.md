@@ -3,7 +3,8 @@
 Shows the user a macOS notification: a title and a message, the way a long-running task says it has
 finished or that it needs you. The same notifier backs `wisp notify` on the command line
 ([wisp.md](../wisp.md)). Decided in [ADR 0030](../decisions/0030-notifications.md); how it is posted, in
-[ADR 0044](../decisions/0044-host-effects.md).
+[ADR 0044](../decisions/0044-host-effects.md) and [ADR 0070](../decisions/0070-a-notification-helper.md), which adds
+wisp's own helper, `Wisp Notifier.app`.
 
 ## Arguments
 
@@ -14,7 +15,7 @@ finished or that it needs you. The same notifier backs `wisp notify` on the comm
 
 ## Result
 
-`notification posted via <route>` (`host`, `terminal`, `app`, or `osascript`, below), or `error:
+`notification posted via <route>` (`helper`, `host`, `terminal`, `app`, or `osascript`, below), or `error:
 notification not shown: <reason>` when notifications are off, the message is empty, the per-minute limit
 is reached, or every route failed. The model is told the reason and can say so. Delivery is not awaited:
 a route that took the notification has done its part.
@@ -32,11 +33,12 @@ a route that took the notification has done its part.
 
 ## How it is posted
 
-The limit, the bounds, and the off switch apply first; then the first of four routes that works posts it,
+The limit, the bounds, and the off switch apply first; then the first of five routes that works posts it,
 in this order:
 
 | Route | When | Posted as |
 | --- | --- | --- |
+| `helper` | Every face, with `notifications.viaHelper` on (the default), when `Wisp Notifier.app` is beside `wisp` (a Homebrew install has it in `libexec`) and the person has allowed its notifications. wisp runs the bundle's executable, `Contents/MacOS/WispNotifier`, registering the bundle with LaunchServices first | Wisp, with its own icon and row in Notification settings; posted whether or not the terminal has focus, and a click brings forward the terminal app wisp ran in (`__CFBundleIdentifier`) |
 | `host` | Under `wisp chat --json`, when the front end's `hello` declared `notify` (`wisp-tui` does in a terminal that has a sequence): wisp sends a `notify` line and the front end writes the sequence between its frames | The terminal |
 | `terminal` | Plain chat and the one-shot commands (`wisp notify`, `wisp watch`, `wisp "…"`), when `/dev/tty` opens and `TERM_PROGRAM` (or, when unset, `TERM`) names a terminal with a notification sequence: Ghostty, iTerm2, and WezTerm post OSC 9 (`ESC ] 9 ; title: message BEL`), kitty OSC 99 (the title and the message as two chunks). Written to `/dev/tty`, never to stdout. Never under `--json` (the front end owns the terminal) or `wisp mcp` (the client does) | The terminal, under its name and icon; clicking it returns to the terminal |
 | `app` | With `notifications.viaTerminalApp` on (the default) and `__CFBundleIdentifier` set: `display notification` sent to that app (`tell application id …`); macOS asks once for Automation consent per app | The terminal app (probed 2026-09-30 in Terminal.app and Ghostty) |
@@ -77,6 +79,21 @@ If notifications collect in Notification Center without popping up, Script Edito
 to deliver quietly, or a Focus mode is on: in System Settings, Notifications, Script Editor, choose
 Banners or Alerts. Seen on this Mac on 2026-09-23: both test notifications arrived in the stack and
 neither showed a banner. For the terminal route the same applies to the terminal's own row.
+
+### Allowing Wisp's notifications
+
+The first notification after `Wisp Notifier.app` is installed starts macOS's prompt, "Wisp would like to send you
+notifications", and goes by the next route meanwhile, so none waits on the prompt; the audit's `skipped` says so
+(`helper: asking the person to allow Wisp's notifications; this one goes by the next route`). Once allowed, every
+notification comes from Wisp. To be asked on purpose, `wisp notify --route helper "test"` asks and waits for the
+answer, then posts. Refused, or turned off later in System Settings, Notifications, Wisp, notifications go by the
+other routes; `wisp doctor`'s `notifier` line says which state it is in. The permission belongs to the bundle
+identifier, `com.pidster.wisp.notifier`, so an upgrade keeps it (probed 2026-10-22, ADR 0070). The helper needs no
+Developer ID. `notifications.viaHelper: false` leaves it out.
+
+macOS refuses the helper, with no prompt, when it runs from a temporary folder: a bundle made for testing must sit
+elsewhere (`scripts/notifier-app harness/.build/debug/WispNotifier harness/.build/debug <version>` puts one beside a
+debug build).
 
 ### Probing the app route
 
