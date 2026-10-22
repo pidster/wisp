@@ -24,7 +24,7 @@ only what applies everywhere and to every agent.
 
 | Path | Contents |
 | --- | --- |
-| `harness/` | Swift package. Targets: `WispCore` (all logic, with the HTTP backends: Ollama, llama.cpp, LM Studio), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait, which the release is built with, ADR 0047), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers the Core AI and MLX backends), tests, and `WispTestSupport` (`ScriptedModel` and friends, also a library product). |
+| `harness/` | Swift package. Targets: `WispCore` (all logic, with the HTTP backends: Ollama, llama.cpp, LM Studio), `WispCoreAI` (Core AI model backend), `WispMLX` (MLX backend, real only under the `MLX` trait, which the release is built with, ADR 0047), `WispMCP` (MCP server), `wisp` (CLI, argument parsing only, registers the Core AI and MLX backends), tests, `WispTestSupport` (`ScriptedModel` and friends, also a library product), and `WispNotifier`, the executable of `Wisp Notifier.app`, with `WispNotifierKit`, the command line it shares with `WispCore` (ADR 0070); `harness/Notifier/` holds the bundle's icon. |
 | `harness/Evals/` | A second Swift package, depending on the harness by path: the model evaluations (`ModelEvalTests`, needing a model). The gate and coverage never build it; `scripts/check eval` does. |
 | `tools/` | Cargo workspace. `wisp-tui`, the terminal front end over `wisp chat --json` (ADR 0029); future tool binaries go here too. The gate runs fmt, pedantic clippy, and tests on it. |
 | `docs/` | Documentation and ADRs, and the source of the documentation site: an mdBook (`book.toml` at the root, `docs/SUMMARY.md` its contents, ADR 0065). Part of every change (see Definition of done). |

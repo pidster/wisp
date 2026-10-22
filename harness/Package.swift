@@ -6,6 +6,8 @@ let package = Package(
     platforms: [.macOS("27.0")],
     products: [
         .executable(name: "wisp", targets: ["wisp"]),
+        // Wisp Notifier.app's executable; scripts/notifier-app wraps it in the bundle (ADR 0070).
+        .executable(name: "WispNotifier", targets: ["WispNotifier"]),
         .library(name: "WispCore", targets: ["WispCore"]),
         .library(name: "WispMCP", targets: ["WispMCP"]),
         // The MLX backend; also used by the evaluations package, which registers it when an `mlx:` model is named.
@@ -33,8 +35,16 @@ let package = Package(
             url: "https://github.com/apple/coreai-models.git", revision: "3f109efd54273391f9fd9f5f5b3d8c6e99836d55"),
     ],
     targets: [
+        // What wisp and Wisp Notifier.app say to each other; shared so neither drifts from the other.
+        .target(name: "WispNotifierKit"),
+        .executableTarget(
+            name: "WispNotifier",
+            dependencies: ["WispNotifierKit"],
+            linkerSettings: [.linkedFramework("UserNotifications"), .linkedFramework("AppKit")]
+        ),
         .target(
             name: "WispCore",
+            dependencies: ["WispNotifierKit"],
             exclude: [
                 "Resources/system-prompt.md", "Resources/measurements.json", "Resources/multiplexers.txt",
                 "Resources/risk-examples.tsv", "Resources/risk-default.json", "Resources/personal-default.json",
@@ -87,7 +97,7 @@ let package = Package(
         ),
         .testTarget(
             name: "WispCoreTests",
-            dependencies: ["WispCore", "WispTestSupport"],
+            dependencies: ["WispCore", "WispNotifierKit", "WispTestSupport"],
             // Snapshots read by path in ContextEquivalenceTests.
             exclude: ["Fixtures"]
         ),
