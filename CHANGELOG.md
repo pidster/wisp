@@ -6,6 +6,13 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Added:
+
+- Every part of a `wisp-tui` conversation can be reached from the keyboard. Shift-Up selects the last element (a
+  message, a tool call with its output, a stretch of thinking, a reply), Shift-Up and Shift-Down step through them,
+  Shift-Right unfolds a long output or stretch of thinking and Shift-Left folds it, Enter toggles, and Ctrl-O shows
+  the selected element's output whole. Esc, or typing, returns to the input.
+
 Changed:
 
 - `wisp-tui` draws the conversation in a pane of its own on the alternate screen, above the input and the status,

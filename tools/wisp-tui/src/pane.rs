@@ -272,6 +272,8 @@ pub fn lead(kind: LineKind, text: &str) -> Option<(usize, Style)> {
 pub struct Pane {
     /// The first row shown, once the person has scrolled away from the end; `None` follows the end.
     pub top: Option<usize>,
+    /// The element selected (Shift-Up from the input), by its index; `None` while the input has the keys.
+    pub selected: Option<usize>,
     /// The width last drawn at, so scrolling knows how the conversation wraps.
     width: Cell<u16>,
     /// The height last drawn at.
@@ -302,12 +304,17 @@ impl Pane {
         isize::try_from(self.height.get().saturating_sub(1).max(1)).unwrap_or(1)
     }
 
-    /// Scrolls by `by` rows (negative is up); reaching the end follows it again.
-    pub fn scroll(&mut self, transcript: &Transcript, by: isize) {
-        let width = match self.width.get() {
+    /// The width last drawn at, or 80 before the first frame.
+    fn drawn_width(&self) -> u16 {
+        match self.width.get() {
             0 => 80,
             width => width,
-        };
+        }
+    }
+
+    /// Scrolls by `by` rows (negative is up); reaching the end follows it again.
+    pub fn scroll(&mut self, transcript: &Transcript, by: isize) {
+        let width = self.drawn_width();
         let rows = usize::from(self.height.get().max(1));
         let total = Self::total(transcript, width);
         let last_top = total.saturating_sub(rows);
@@ -315,6 +322,42 @@ impl Pane {
             .first(total, rows)
             .saturating_add_signed(by)
             .min(last_top);
+        self.top = (top < last_top).then_some(top);
+    }
+
+    /// Scrolls the least that brings the selected element into view: to its start when it is above the rows shown
+    /// or taller than the pane, to its end when it is below them.
+    pub fn reveal(&mut self, transcript: &Transcript) {
+        let Some(index) = self.selected else {
+            return;
+        };
+        let width = self.drawn_width();
+        let rows = usize::from(self.height.get().max(1));
+        let mut total = 0;
+        let mut previous = None;
+        let mut span = None;
+        for (at, element) in transcript.elements.iter().enumerate() {
+            let separated = usize::from(Transcript::separated(previous, element));
+            let own = self::rows(element, width).len();
+            if at == index {
+                span = Some((total + separated, own));
+            }
+            total += separated + own;
+            previous = Some(element);
+        }
+        let Some((start, height)) = span else {
+            return;
+        };
+        let last_top = total.saturating_sub(rows);
+        let shown = self.first(total, rows);
+        let top = if start < shown || height > rows {
+            start
+        } else if start + height > shown + rows {
+            start + height - rows
+        } else {
+            shown
+        };
+        let top = top.min(last_top);
         self.top = (top < last_top).then_some(top);
     }
 
@@ -336,7 +379,7 @@ impl Pane {
         let margin = MARGIN.min(area.width / 2);
         let mut at = 0;
         let mut previous = None;
-        for element in &transcript.elements {
+        for (index, element) in transcript.elements.iter().enumerate() {
             let separated = Transcript::separated(previous, element);
             previous = Some(element);
             let drawn = rows_of(element, area.width, separated);
@@ -344,19 +387,31 @@ impl Pane {
                 at += drawn.len();
                 continue;
             }
-            for row in drawn {
+            let selected = self.selected == Some(index);
+            for (offset, row) in drawn.iter().enumerate() {
                 if at >= first + rows {
                     return;
                 }
                 if at >= first {
                     let y = area.y + u16::try_from(at - first).unwrap_or(u16::MAX);
-                    draw(frame, &row, Rect::new(area.x, y, area.width, 1), margin);
+                    let rect = Rect::new(area.x, y, area.width, 1);
+                    draw(frame, row, rect, margin);
+                    // The selected element is marked down its left edge; the blank row before it is left plain.
+                    if selected && !(separated && offset == 0) {
+                        frame.render_widget(
+                            Paragraph::new(Span::styled(SELECTED_MARK, palette::wisp())),
+                            Rect { width: 1, ..rect },
+                        );
+                    }
                 }
                 at += 1;
             }
         }
     }
 }
+
+/// The mark down the left edge of the selected element.
+pub const SELECTED_MARK: &str = "▌";
 
 /// `element`'s rows, a blank row first when `separated`.
 fn rows_of(element: &Element, width: u16, separated: bool) -> Vec<Row> {
@@ -691,6 +746,50 @@ mod tests {
         assert_eq!(shown[1], " › count");
         assert_eq!(shown[3], " reply line 1");
         assert_eq!(shown[4], "");
+    }
+
+    #[test]
+    fn the_selected_element_is_marked_down_its_left_edge() {
+        let mut transcript = conversation(0);
+        transcript.push("⚙ read_file a", LineKind::Tool);
+        transcript.push("Done.", LineKind::Reply);
+        let pane = Pane {
+            selected: Some(1),
+            ..Pane::default()
+        };
+        let shown = screen(&pane, &transcript, 20, 6);
+        assert_eq!(shown[3], format!("{SELECTED_MARK}⚙ read_file a"));
+        assert_eq!(
+            shown[4], "",
+            "the blank row before the next part is not marked"
+        );
+        assert_eq!(shown[5], " Done.");
+    }
+
+    #[test]
+    fn revealing_scrolls_the_least_that_brings_the_element_into_view() {
+        let mut transcript = Transcript::default();
+        for n in 0..10 {
+            transcript.push(&format!("⚙ step {n}"), LineKind::Tool);
+        }
+        let mut pane = Pane::default();
+        let _ = screen(&pane, &transcript, 20, 4);
+        // In view at the end already: nothing moves.
+        pane.selected = Some(8);
+        pane.reveal(&transcript);
+        assert!(pane.following());
+        // Above the rows shown: scrolled up to its start, past the blank row before it.
+        pane.selected = Some(2);
+        pane.reveal(&transcript);
+        assert_eq!(pane.top, Some(4));
+        assert_eq!(
+            screen(&pane, &transcript, 20, 4)[0],
+            format!("{SELECTED_MARK}⚙ step 2")
+        );
+        // Below them: scrolled down until its end is the last row, which here is the end, so the pane follows.
+        pane.selected = Some(9);
+        pane.reveal(&transcript);
+        assert!(pane.following());
     }
 
     #[test]

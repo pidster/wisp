@@ -1309,7 +1309,13 @@ impl App {
             self.panel = None;
             return;
         }
-        let Some(output) = &self.last_output else {
+        // The selected element's output, while one is selected (ADR 0068); otherwise the last.
+        let selected = self
+            .pane
+            .selected
+            .and_then(|index| self.transcript.elements.get(index))
+            .and_then(|element| element.body.clone());
+        let Some(output) = selected.as_ref().or(self.last_output.as_ref()) else {
             self.push("no tool output to show yet", LineKind::Note);
             return;
         };
@@ -1446,6 +1452,60 @@ impl App {
     /// Scrolls the pane by `rows` (negative is up).
     pub fn scroll_pane(&mut self, rows: isize) {
         self.pane.scroll(&self.transcript, rows);
+    }
+
+    /// Whether an element is selected and has the keys: nothing (a dialog, a choice, the panel) is open over the
+    /// input (ADR 0068).
+    pub fn navigating(&self) -> bool {
+        self.pane.selected.is_some()
+            && self.approval.is_none()
+            && self.picker.is_none()
+            && self.panel.is_none()
+    }
+
+    /// Shift-Up or Shift-Down, or Up or Down while an element is selected: the previous or next element, staying at
+    /// either end; Shift-Up from the input selects the last. The element is brought into view.
+    pub fn step_element(&mut self, forward: bool) {
+        if self.approval.is_some() || self.picker.is_some() || self.panel.is_some() {
+            return;
+        }
+        let count = self.transcript.elements.len();
+        if count == 0 {
+            return;
+        }
+        self.bar = None;
+        self.suggestions = None;
+        self.pane.selected = Some(match self.pane.selected {
+            None if forward => return,
+            None => count - 1,
+            Some(index) if forward => (index + 1).min(count - 1),
+            Some(index) => index.saturating_sub(1),
+        });
+        self.pane.reveal(&self.transcript);
+    }
+
+    /// Right, Left, or Enter on the selected element: opens its body (`Some(true)`), folds it (`Some(false)`), or
+    /// toggles it (`None`), keeping it in view. An element whose body does not fold is left as it is.
+    pub fn fold_element(&mut self, open: Option<bool>) {
+        let Some(element) = self
+            .pane
+            .selected
+            .and_then(|index| self.transcript.elements.get_mut(index))
+        else {
+            return;
+        };
+        if !element.folds() {
+            return;
+        }
+        element.open = open.unwrap_or(!element.open);
+        element.changed();
+        self.pane.reveal(&self.transcript);
+    }
+
+    /// Esc, or a key that belongs to the input, while an element is selected: the keys return to the input, the
+    /// pane staying where it is.
+    pub fn leave_elements(&mut self) {
+        self.pane.selected = None;
     }
 
     /// Commits the partial reply line, if any.
@@ -2256,6 +2316,8 @@ impl App {
         // bar there is none, and the row above the input names the bar's keys.
         if let Some(item) = self.focused() {
             plain(frame, 1, bar_hint(item, usize::from(inset.width)));
+        } else if self.navigating() {
+            plain(frame, 1, element_hint(usize::from(inset.width)));
         } else if let Some((line, column)) = cursor {
             let x = inset
                 .x
@@ -2642,6 +2704,14 @@ fn place_spans(status: &Status, directory: String) -> Vec<Span<'static>> {
     spans
 }
 
+/// The row above the input while an element is selected: the keys that move through the elements and fold them,
+/// fitted to `width` cells.
+fn element_hint(width: usize) -> Line<'static> {
+    let text =
+        "↑↓ elements · → unfold · ← fold · enter toggles · ctrl-o output · esc back to the input";
+    Line::from(Span::styled(fit(text, width), palette::muted()))
+}
+
 /// The row above the input while the status bar has the focus: what Enter does on the focused item, and the
 /// bar's keys, fitted to `width` cells.
 fn bar_hint(item: BarItem, width: usize) -> Line<'static> {
@@ -2650,7 +2720,7 @@ fn bar_hint(item: BarItem, width: usize) -> Line<'static> {
 }
 
 /// `n` with thousands separated by commas, as the terminal chat's footer writes it.
-fn grouped(n: u64) -> String {
+pub(crate) fn grouped(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (index, digit) in digits.chars().enumerate() {

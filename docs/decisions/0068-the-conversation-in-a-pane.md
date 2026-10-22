@@ -71,7 +71,7 @@ conversation printed into the scrollback on quitting, and all four of the roadma
 - The wheel does not scroll the pane; capturing the mouse for it would have made selecting text with the terminal
   need a modifier key, and the operator chose plain selection. PageUp and PageDown, and Shift with the arrows over
   elements, are the pane's ways through the conversation.
-- Shift with the arrows reaches the elements only in terminals that send it (Ghostty, iTerm2, kitty, WezTerm, and most
-  others; Terminal.app needs its keyboard profile set to send them). Up and Down then step once an element is selected.
+- Shift with the arrows reaches the elements only in a terminal that sends Shift with them, which not every
+  terminal does by default; once an element is selected, plain Up and Down step through them too.
 - Tests: the grouping into elements, folding, the pane's rows at a width, scrolling, navigation, copying's sequence, and
   the printing on quit, all on ratatui's test backend or plain buffers; the alternate screen itself needs a terminal.

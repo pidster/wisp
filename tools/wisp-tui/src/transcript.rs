@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 
-use crate::app::{HistoryLine, LineKind, sanitise, starts_part};
+use crate::app::{HistoryLine, LineKind, grouped, sanitise, starts_part};
 use crate::pane::Row;
 use crate::protocol::ToolOutput;
 
@@ -131,7 +131,7 @@ impl Element {
     }
 
     /// Forgets the rows drawn for it, after a change.
-    fn changed(&self) {
+    pub fn changed(&self) {
         self.rows.replace(None);
     }
 }
@@ -144,15 +144,11 @@ pub const HELD_LIMIT: usize = 32 * 1024 * 1024;
 
 /// `count` lines, with thousands separated: `1 line`, `30,000 lines`.
 fn lines(count: u64) -> String {
-    let digits = count.to_string();
-    let mut grouped = String::new();
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    format!("{grouped} line{}", if count == 1 { "" } else { "s" })
+    format!(
+        "{} line{}",
+        grouped(count),
+        if count == 1 { "" } else { "s" }
+    )
 }
 
 /// `bytes` for people: `512 bytes`, `12.0 KiB`, `2.1 MiB`.

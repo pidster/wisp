@@ -374,6 +374,9 @@ fn apply_key(app: &mut App, key: Key) -> Action {
     if app.focused().is_some() {
         return bar_key(app, key);
     }
+    if app.navigating() {
+        return element_key(app, key);
+    }
     match key {
         Key::Interrupt => app.interrupt(),
         Key::Cancel => app.cancel(),
@@ -390,7 +393,7 @@ fn apply_key(app: &mut App, key: Key) -> Action {
             app.recall_previous();
             Action::None
         }
-        Key::RecallNext => {
+        Key::RecallNext | Key::SelectNext => {
             app.recall_next();
             Action::None
         }
@@ -407,8 +410,38 @@ fn apply_key(app: &mut App, key: Key) -> Action {
             app.page_down();
             Action::None
         }
+        Key::SelectPrevious => {
+            app.step_element(false);
+            Action::None
+        }
+        // From the input, Shift-Left and Shift-Right are Left and Right, as Shift-Down is Down, above.
+        Key::Fold => apply_key(app, Key::Edit(Edit::Left)),
+        Key::Unfold => apply_key(app, Key::Edit(Edit::Right)),
         Key::Previous | Key::Nothing => Action::None,
     }
+}
+
+/// A key while an element is selected (ADR 0068): Up and Down (with Shift or without) step through the elements,
+/// Right unfolds the one selected, Left folds it, Enter toggles it, Ctrl-O shows its output whole in the panel, and
+/// `PageUp` and `PageDown` scroll; Esc returns the keys to the input, and any other key returns them and does there what
+/// it always does, so a character typed goes in and Ctrl-C quits as it would.
+fn element_key(app: &mut App, key: Key) -> Action {
+    match key {
+        Key::RecallPrevious | Key::SelectPrevious => app.step_element(false),
+        Key::RecallNext | Key::SelectNext => app.step_element(true),
+        Key::Edit(Edit::Right) | Key::Unfold => app.fold_element(Some(true)),
+        Key::Edit(Edit::Left) | Key::Fold => app.fold_element(Some(false)),
+        Key::Submit => app.fold_element(None),
+        Key::ToggleOutput => app.toggle_output(),
+        Key::PageUp => app.page_up(),
+        Key::PageDown => app.page_down(),
+        Key::Cancel => app.leave_elements(),
+        other => {
+            app.leave_elements();
+            return apply_key(app, other);
+        }
+    }
+    Action::None
 }
 
 /// A key while the status bar has the focus: Left and Right (and Alt- or Ctrl-) move between its items, Tab and
@@ -463,6 +496,14 @@ enum Key {
     PageUp,
     /// `PageDown`: a page down in an open panel, or in the pane.
     PageDown,
+    /// Shift-Up: the previous element of the conversation, or the last from the input (ADR 0068).
+    SelectPrevious,
+    /// Shift-Down: the next element.
+    SelectNext,
+    /// Shift-Left: folds the element selected.
+    Fold,
+    /// Shift-Right: unfolds the element selected.
+    Unfold,
     /// Nothing wisp-tui uses.
     Nothing,
 }
@@ -473,6 +514,7 @@ enum Key {
 fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
     let control = modifiers.contains(KeyModifiers::CONTROL);
     let alt = modifiers.contains(KeyModifiers::ALT);
+    let shift = modifiers.contains(KeyModifiers::SHIFT);
     match code {
         KeyCode::Char('c' | 'd') if control => Key::Interrupt,
         KeyCode::Char('a') if control => Key::Edit(Edit::Home),
@@ -493,6 +535,8 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::Delete => Key::Edit(Edit::Delete),
         KeyCode::Left if alt || control => Key::Edit(Edit::WordLeft),
         KeyCode::Right if alt || control => Key::Edit(Edit::WordRight),
+        KeyCode::Left if shift => Key::Fold,
+        KeyCode::Right if shift => Key::Unfold,
         KeyCode::Left => Key::Edit(Edit::Left),
         KeyCode::Right => Key::Edit(Edit::Right),
         KeyCode::Home => Key::Edit(Edit::Home),
@@ -502,6 +546,8 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::Esc => Key::Cancel,
         KeyCode::Tab => Key::Complete,
         KeyCode::BackTab => Key::Previous,
+        KeyCode::Up if shift => Key::SelectPrevious,
+        KeyCode::Down if shift => Key::SelectNext,
         KeyCode::Up => Key::RecallPrevious,
         KeyCode::Down => Key::RecallNext,
         _ => Key::Nothing,
@@ -739,6 +785,11 @@ mod tests {
         assert_eq!(command_for(KeyCode::Char('t'), none), Key::Type('t'));
         assert_eq!(command_for(KeyCode::PageUp, none), Key::PageUp);
         assert_eq!(command_for(KeyCode::PageDown, none), Key::PageDown);
+        let shift = KeyModifiers::SHIFT;
+        assert_eq!(command_for(KeyCode::Up, shift), Key::SelectPrevious);
+        assert_eq!(command_for(KeyCode::Down, shift), Key::SelectNext);
+        assert_eq!(command_for(KeyCode::Left, shift), Key::Fold);
+        assert_eq!(command_for(KeyCode::Right, shift), Key::Unfold);
     }
 
     #[test]
@@ -798,6 +849,91 @@ mod tests {
             r#"{"type":"status","model":"system","directory":"~/x","approval":"ask","contextUsed":0.2}"#,
         ));
         app
+    }
+
+    /// A chat at its prompt after a turn: the message, a folded output of 30 lines, and the reply.
+    fn after_a_turn() -> App {
+        let mut app = at_the_prompt();
+        typed(&mut app, "list the numbers");
+        apply_key(&mut app, Key::Submit);
+        for line in [
+            r#"{"type":"event","kind":"tool.call","call":"c","text":"⚙ run_command seq 30","details":{}}"#,
+            r#"{"type":"event","kind":"command.outcome","call":"c","text":"  ↳ exit 0","details":{"exitStatus":0}}"#,
+            r#"{"type":"event","kind":"tool.result","call":"c","text":null,"details":{},"output":{"id":"e1","text":"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n","lines":30,"bytes":81,"truncated":false,"shownLines":20}}"#,
+            r#"{"type":"delta","text":"Thirty numbers.\n"}"#,
+            r#"{"type":"status","model":"system","directory":"~/x","approval":"ask","contextUsed":0.2}"#,
+        ] {
+            app.handle(Outbound::parse(line));
+        }
+        app
+    }
+
+    #[test]
+    fn shift_up_selects_the_last_element_and_the_arrows_step_fold_and_unfold() {
+        let mut app = after_a_turn();
+        assert_eq!(app.transcript.elements.len(), 3);
+        assert!(!app.navigating());
+        apply_key(&mut app, Key::SelectPrevious);
+        assert_eq!(app.pane.selected, Some(2), "the reply, the last element");
+        // Up and Down step while one is selected, stopping at the ends.
+        apply_key(&mut app, Key::RecallPrevious);
+        assert_eq!(app.pane.selected, Some(1));
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::SelectPrevious);
+        assert_eq!(app.pane.selected, Some(0));
+        apply_key(&mut app, Key::RecallNext);
+        assert_eq!(app.pane.selected, Some(1));
+        // Right unfolds the output, Left folds it, Enter toggles; the reply does not fold.
+        apply_key(&mut app, Key::Edit(Edit::Right));
+        assert!(app.transcript.elements[1].open);
+        apply_key(&mut app, Key::Fold);
+        assert!(!app.transcript.elements[1].open);
+        apply_key(&mut app, Key::Submit);
+        assert!(app.transcript.elements[1].open);
+        apply_key(&mut app, Key::SelectNext);
+        apply_key(&mut app, Key::Unfold);
+        assert!(!app.transcript.elements[2].open);
+        assert_eq!(app.pane.selected, Some(2));
+        // Nothing was typed or sent meanwhile.
+        assert!(app.editor.is_empty() && !app.busy);
+    }
+
+    #[test]
+    fn esc_or_a_character_returns_the_keys_to_the_input() {
+        let mut app = after_a_turn();
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::Cancel);
+        assert!(app.pane.selected.is_none() && app.editor.is_empty());
+        apply_key(&mut app, Key::SelectPrevious);
+        typed(&mut app, "hi");
+        assert!(app.pane.selected.is_none());
+        assert_eq!(app.editor.text(), "hi");
+        // With nothing in the conversation, Shift-Up selects nothing.
+        let mut empty = at_the_prompt();
+        apply_key(&mut empty, Key::SelectPrevious);
+        assert!(empty.pane.selected.is_none());
+    }
+
+    #[test]
+    fn ctrl_o_on_a_selected_element_pages_its_own_output() {
+        let mut app = after_a_turn();
+        app.handle(Outbound::parse(
+            r#"{"type":"event","kind":"tool.result","call":"d","text":"  ↳ later","details":{},"output":{"id":"e2","text":"x\n","lines":1,"bytes":2,"truncated":false,"shownLines":20}}"#,
+        ));
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::SelectPrevious);
+        assert_eq!(app.pane.selected, Some(1));
+        apply_key(&mut app, Key::ToggleOutput);
+        assert!(app.panel.is_some() && !app.navigating());
+        assert!(
+            app.take_requests().iter().any(
+                |request| matches!(request, Inbound::Output { id, page: 1, .. } if id == "e1")
+            )
+        );
+        // Esc closes the panel, and the element is still selected.
+        apply_key(&mut app, Key::Cancel);
+        assert!(app.panel.is_none() && app.navigating());
     }
 
     fn typed(app: &mut App, text: &str) {

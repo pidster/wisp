@@ -33,7 +33,7 @@ measurement.
   transcript and the audit log keep it). Built in stages: the pane and its scrolling; folding; navigation and
   unfolding; copying. Chosen by the operator on 2026-10-22 ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)):
   the pane, replacing the inline view outright, with the conversation printed into the scrollback on quitting, and all
-  four stages in 0.29.0. Stage 1, the pane and its scrolling, and stage 2, folding, built on 2026-10-22.
+  four stages in 0.29.0. Stage 1, the pane and its scrolling, stage 2, folding, and stage 3, navigation and unfolding, built on 2026-10-22.
 
 ## Not scheduled
 
