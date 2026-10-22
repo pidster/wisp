@@ -91,9 +91,15 @@ input lists the keys while one is selected:
 | Shift-Left, Left | Fold it again. |
 | Enter | Unfold or fold. |
 | Ctrl-O | The element's output whole in the panel, paged from wisp, as for the last output. |
+| Ctrl-Y | Copy the element to the clipboard (below). |
 | PageUp, PageDown | Scroll the pane. |
 | Esc | Back to the input. |
 | A character, or any other key | Back to the input, where it does what it always does, so nothing typed is lost. |
+
+Ctrl-Y copies the selected element, or from the input the last reply, to the clipboard: its lines as plain text (a
+reply's Markdown as the model wrote it) and its output whole as the event carried it, folded or not, up to 1 MiB. It
+goes through the terminal, as OSC 52, so it works over ssh too; a terminal that does not take OSC 52, or has it turned
+off, copies nothing. The row above the input says what was copied and its size until the next key.
 
 The mouse stays the terminal's, so dragging selects text as usual; the wheel does not scroll
 the pane, and `wisp-tui` turns off the terminal's alternate scroll mode while it runs, so the wheel is never sent as

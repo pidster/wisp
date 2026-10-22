@@ -6,6 +6,7 @@
 //! wisp binary (default `wisp` on `PATH`).
 
 mod app;
+mod clipboard;
 mod editor;
 mod markdown;
 mod notify;
@@ -296,6 +297,8 @@ fn run(
             Some(Incoming::Closed) => app.exited = true,
             Some(Incoming::Terminal(TermEvent::Paste(text))) => app.edit(&Edit::Paste(text)),
             Some(Incoming::Terminal(TermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
+                // What a key last said above the input lasts until the next one.
+                app.flash = None;
                 let action = apply_key(app, command_for(key.code, key.modifiers));
                 match action {
                     Action::None => {}
@@ -325,6 +328,10 @@ fn run(
         frame?;
         // Between frames, so a sequence is never split by one of the frame's own.
         post_notices(&mut std::io::stdout(), app, sequence, &mut posted);
+        if let Some(copied) = app.take_copied() {
+            // A failed write loses a copy, never the session; the row above the input has said what it held.
+            let _ = write_all_flushed(&mut std::io::stdout(), &copied);
+        }
         if app.exited {
             return Ok(());
         }
@@ -402,6 +409,10 @@ fn apply_key(app: &mut App, key: Key) -> Action {
             Action::None
         }
         Key::ShowContext => app.show_context(),
+        Key::Copy => {
+            app.copy();
+            Action::None
+        }
         Key::PageUp => {
             app.page_up();
             Action::None
@@ -433,6 +444,7 @@ fn element_key(app: &mut App, key: Key) -> Action {
         Key::Edit(Edit::Left) | Key::Fold => app.fold_element(Some(false)),
         Key::Submit => app.fold_element(None),
         Key::ToggleOutput => app.toggle_output(),
+        Key::Copy => app.copy(),
         Key::PageUp => app.page_up(),
         Key::PageDown => app.page_down(),
         Key::Cancel => app.leave_elements(),
@@ -492,6 +504,8 @@ enum Key {
     ToggleOutput,
     /// Ctrl-T: the model's context in a panel.
     ShowContext,
+    /// Ctrl-Y: copies the selected element, or the last reply, to the clipboard (ADR 0068).
+    Copy,
     /// `PageUp`: a page up in an open panel, or in the pane.
     PageUp,
     /// `PageDown`: a page down in an open panel, or in the pane.
@@ -526,6 +540,7 @@ fn command_for(code: KeyCode, modifiers: KeyModifiers) -> Key {
         KeyCode::Char('f') if alt => Key::Edit(Edit::WordRight),
         KeyCode::Char('o') if control => Key::ToggleOutput,
         KeyCode::Char('t') if control => Key::ShowContext,
+        KeyCode::Char('y') if control => Key::Copy,
         KeyCode::Char(_) if control => Key::Nothing,
         KeyCode::Char(c) => Key::Type(c),
         KeyCode::Enter if alt => Key::Edit(Edit::Newline),
@@ -896,6 +911,43 @@ mod tests {
         assert_eq!(app.pane.selected, Some(2));
         // Nothing was typed or sent meanwhile.
         assert!(app.editor.is_empty() && !app.busy);
+    }
+
+    #[test]
+    fn ctrl_y_copies_the_last_reply_or_the_selected_element_whole() {
+        let mut app = after_a_turn();
+        assert_eq!(
+            command_for(KeyCode::Char('y'), KeyModifiers::CONTROL),
+            Key::Copy
+        );
+        apply_key(&mut app, Key::Copy);
+        assert_eq!(
+            app.take_copied(),
+            Some(super::clipboard::osc52("Thirty numbers."))
+        );
+        assert!(
+            app.flash
+                .as_deref()
+                .is_some_and(|flash| flash.starts_with("copied the reply"))
+        );
+        // The selected element is copied with its output whole, folded or not, and stays selected.
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::SelectPrevious);
+        apply_key(&mut app, Key::Copy);
+        let numbers: Vec<String> = (1..=30).map(|n| n.to_string()).collect();
+        let expected = format!("⚙ run_command seq 30\n  ↳ exit 0\n{}", numbers.join("\n"));
+        assert_eq!(app.take_copied(), Some(super::clipboard::osc52(&expected)));
+        assert!(app.navigating());
+        assert!(
+            app.flash
+                .as_deref()
+                .is_some_and(|flash| flash.starts_with("copied the tool call"))
+        );
+        // With nothing in the conversation, nothing is copied and the row says so.
+        let mut empty = at_the_prompt();
+        apply_key(&mut empty, Key::Copy);
+        assert_eq!(empty.take_copied(), None);
+        assert_eq!(empty.flash.as_deref(), Some("nothing to copy yet"));
     }
 
     #[test]

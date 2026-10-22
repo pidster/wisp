@@ -123,6 +123,37 @@ impl Element {
         drawn
     }
 
+    /// Its text to copy, plain: its lines as they read, then its body whole as the event carried it, folded or not.
+    pub fn plain_text(&self) -> String {
+        let mut text: Vec<&str> = self.lines.iter().map(|line| line.text.as_str()).collect();
+        if let Some(body) = &self.body {
+            text.push(body.text.trim_end_matches('\n'));
+        }
+        text.join("\n")
+    }
+
+    /// What it is, for a note about it: the message, the output, the thinking, the reply, the notes.
+    pub fn what(&self) -> &'static str {
+        match self.first_kind() {
+            LineKind::User | LineKind::Command | LineKind::Outside | LineKind::Help => {
+                "the message"
+            }
+            LineKind::Reply | LineKind::Code | LineKind::Fence => "the reply",
+            LineKind::Tool
+                if self
+                    .lines
+                    .first()
+                    .is_some_and(|line| line.text.starts_with('∴')) =>
+            {
+                "the thinking"
+            }
+            LineKind::Tool | LineKind::ToolOutput | LineKind::Fold => "the tool call",
+            LineKind::Note => "the notes",
+            LineKind::Error => "the error",
+            LineKind::Output => "the output",
+        }
+    }
+
     /// Every line drawn for it: its own, then its body's.
     pub fn drawn(&self) -> Vec<HistoryLine> {
         let mut lines = self.lines.clone();
@@ -152,7 +183,7 @@ fn lines(count: u64) -> String {
 }
 
 /// `bytes` for people: `512 bytes`, `12.0 KiB`, `2.1 MiB`.
-fn size(bytes: u64) -> String {
+pub(crate) fn size(bytes: u64) -> String {
     #[allow(clippy::cast_precision_loss)]
     let value = bytes as f64;
     if bytes < 1024 {

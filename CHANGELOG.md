@@ -12,6 +12,8 @@ Added:
   message, a tool call with its output, a stretch of thinking, a reply), Shift-Up and Shift-Down step through them,
   Shift-Right unfolds a long output or stretch of thinking and Shift-Left folds it, Enter toggles, and Ctrl-O shows
   the selected element's output whole. Esc, or typing, returns to the input.
+- Ctrl-Y in `wisp-tui` copies the selected element, or the last reply, to the clipboard as plain text, with its
+  output whole, through the terminal's own clipboard sequence (OSC 52), so it works over ssh too.
 
 Changed:
 

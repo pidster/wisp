@@ -684,6 +684,10 @@ pub struct App {
     /// The line the input box held when a picker opened over it (from the status bar, with a draft typed), put back
     /// when the picker closes, so a picker's typed answer never takes in, or clears, what was being written.
     pub parked: Option<String>,
+    /// An OSC 52 sequence setting the clipboard (Ctrl-Y, ADR 0068), written to the terminal between frames.
+    pub copied: Option<Vec<u8>>,
+    /// A line said in the row above the input until the next key, such as what Ctrl-Y copied.
+    pub flash: Option<String>,
 }
 
 impl App {
@@ -1502,6 +1506,43 @@ impl App {
         self.pane.reveal(&self.transcript);
     }
 
+    /// Ctrl-Y: copies the selected element, or with none selected the last reply, to the clipboard through the
+    /// terminal (OSC 52), as plain text and with its body whole; the row above the input says what was copied.
+    pub fn copy(&mut self) {
+        let element = match self.pane.selected {
+            Some(index) => self.transcript.elements.get(index),
+            None => self
+                .transcript
+                .elements
+                .iter()
+                .rev()
+                .find(|element| element.what() == "the reply"),
+        };
+        let Some(element) = element else {
+            self.flash = Some("nothing to copy yet".into());
+            return;
+        };
+        let text = element.plain_text();
+        let (copied, cut) = crate::clipboard::bounded(&text);
+        let size = crate::transcript::size(u64::try_from(copied.len()).unwrap_or(u64::MAX));
+        let what = element.what();
+        self.copied = Some(crate::clipboard::osc52(copied));
+        self.flash = Some(if cut {
+            format!("copied the first {size} of {what}; the clipboard takes no more at once")
+        } else if element.released {
+            format!("copied {what}, {size}, without its output, which wisp holds: ctrl-o pages it")
+        } else {
+            format!(
+                "copied {what}, {size}, to the clipboard (a terminal without OSC 52 copies nothing)"
+            )
+        });
+    }
+
+    /// The clipboard sequence Ctrl-Y asked for, to write to the terminal.
+    pub fn take_copied(&mut self) -> Option<Vec<u8>> {
+        self.copied.take()
+    }
+
     /// Esc, or a key that belongs to the input, while an element is selected: the keys return to the input, the
     /// pane staying where it is.
     pub fn leave_elements(&mut self) {
@@ -2316,6 +2357,15 @@ impl App {
         // bar there is none, and the row above the input names the bar's keys.
         if let Some(item) = self.focused() {
             plain(frame, 1, bar_hint(item, usize::from(inset.width)));
+        } else if let Some(flash) = &self.flash {
+            plain(
+                frame,
+                1,
+                Line::from(Span::styled(
+                    fit(flash, usize::from(inset.width)),
+                    palette::muted(),
+                )),
+            );
         } else if self.navigating() {
             plain(frame, 1, element_hint(usize::from(inset.width)));
         } else if let Some((line, column)) = cursor {
@@ -2707,8 +2757,7 @@ fn place_spans(status: &Status, directory: String) -> Vec<Span<'static>> {
 /// The row above the input while an element is selected: the keys that move through the elements and fold them,
 /// fitted to `width` cells.
 fn element_hint(width: usize) -> Line<'static> {
-    let text =
-        "↑↓ elements · → unfold · ← fold · enter toggles · ctrl-o output · esc back to the input";
+    let text = "↑↓ elements · → unfold · ← fold · enter toggles · ctrl-o output · ctrl-y copies · esc back";
     Line::from(Span::styled(fit(text, width), palette::muted()))
 }
 
