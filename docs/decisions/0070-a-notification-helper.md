@@ -1,6 +1,6 @@
 # ADR 0070: A notification helper of wisp's own, Wisp Notifier.app
 
-Date: 2026-10-22. Status: accepted; being built for 0.30.0. Amends [ADR 0030](0030-notifications.md) and
+Date: 2026-10-22. Status: accepted; built 2026-10-22 for 0.30.0. Amends [ADR 0030](0030-notifications.md) and
 [ADR 0044](0044-host-effects.md): a fifth route, `helper`, tried first.
 
 ## Context

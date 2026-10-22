@@ -10,7 +10,8 @@ The model has ten tools: `current_date`, `read_file`, `inspect`, `notify`, `syst
 `edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `ask` puts a question
 to you and changes nothing (off by default; who answers it is below); `models` asks you
 before it pulls, enables, disables, or checks a model (below); `notify` shows a banner, at
-most a few a minute, through your terminal or `osascript`, and changes nothing ([notify](tools/notify.md));
+most a few a minute, through `Wisp Notifier.app` once you allow it, your terminal, or `osascript`, and changes
+nothing ([notify](tools/notify.md));
 `memory`, which a conversation has only with `context.memory` on or a tool list that names it (off by default),
 reads only the conversation's own record and the audit log, and writes only the model's own facts
 about the conversation, which rank below yours and a tool's and never reach the shared store without you

@@ -20,7 +20,7 @@ measurement.
 ## 0.30.0
 
 - **A notification helper of wisp's own** (in the backlog under "When wisp can be signed"; chosen by the operator on
-  2026-10-22). `Wisp Notifier.app`, bundle identifier `com.pidster.wisp.notifier`, a small bundle with no Dock icon
+  2026-10-22; built 2026-10-22, not yet released). `Wisp Notifier.app`, bundle identifier `com.pidster.wisp.notifier`, a small bundle with no Dock icon
   beside `wisp` in the formula's `libexec`, posts through `UserNotifications`, so banners come from "Wisp" with its
   icon (the homepage's wisp, cropped to its head) whether or not the terminal has focus, and a click brings the
   terminal wisp ran in forward. A new `helper` route, tried first by every face, used once the person has allowed

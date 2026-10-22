@@ -174,7 +174,9 @@ Three things wait on a Developer ID or App Store signature rather than on code. 
 signed with a Developer ID and notarised, off until the maintainer turns it on
 ([ADR 0069](decisions/0069-signed-and-notarised-releases.md)); the first two below now wait on their own work.
 
-- **A notification helper app.** `Wisp Notifier.app`, a tiny agent bundle (`LSUIElement`) in the
+- **A notification helper app.** Done 2026-10-22, for 0.30.0, without signing: an ad hoc signed bundle may notify
+  once the person allows it ([ADR 0070](decisions/0070-a-notification-helper.md)); a click brings the terminal
+  forward, and action buttons ("Show" opening the audit) are not built. The plan as it stood: `Wisp Notifier.app`, a tiny agent bundle (`LSUIElement`) in the
   formula's `libexec`, posting through `UserNotifications` instead of `osascript`
   ([ADR 0030](decisions/0030-notifications.md)). Gains: banners as "Wisp" with its own icon and its
   own row in Notification settings, and action buttons ("Show" opening the audit). Done 2026-09-30

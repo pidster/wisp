@@ -85,6 +85,7 @@ answer reaches the thread's next turn. The agent cannot answer it for you ([ask]
 
 | Symptom | Cause and fix |
 | --- | --- |
+| Notifications come from your terminal or Script Editor, not from Wisp | `wisp doctor`'s `notifier` line says why. `not yet allowed`: the next notification asks, or `wisp notify --route helper "test"` asks now. Notifications for Wisp are off: turn them on in System Settings, Notifications, Wisp. `no Wisp Notifier.app beside wisp`: a Homebrew install has it; `brew reinstall pidster/tap/wisp`. `off (notifications.viaHelper)`: `wisp config set notifications.viaHelper true` ([notify](../tools/notify.md)) |
 | `config` in `doctor` is not ok, or every command exits 64 naming `config.json` | The file does not parse, or a `commandPolicy` pattern is invalid; the message names it. Fix the file, or `wisp config unset` the setting |
 | `facts store` in `doctor` is not ok | `~/.wisp/facts.json` did not parse, was set aside, or is readable by others; the detail says which and how to fix it |
 | `pending approvals` in `doctor` is not ok | `~/.wisp/pending` is open to others or not yours: `chmod 700` it |
