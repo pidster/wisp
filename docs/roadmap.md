@@ -7,7 +7,7 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
@@ -15,50 +15,7 @@ measurement.
 
 | Release | Larger | Smaller |
 | --- | --- | --- |
-| 0.28.0 | The thread store's phase 3: `wisp threads` to list, show, delete, and hand threads, and a thread picker in `wisp-tui` that switches in place | The store in `wisp doctor`'s report; `/resume ID` in chat |
 | 0.29.0 | `wisp-tui`'s conversation as a log pane of its own, with long outputs folded and each element reachable | Copying from the pane |
-
-## 0.28.0
-
-The thread store's phase 3 ([proposals/2026-10-16-one-thread-store.md](proposals/2026-10-16-one-thread-store.md),
-"Phases"), planned with the operator on 2026-10-20; built on 2026-10-20 (ADR 0066, the phase 3 amendment), not yet
-released. Phases 1 and 2 (ADR 0066) save every thread and
-resume it from any face; what is missing is a way for the person to see and manage them outside chat, and to move
-between them inside it.
-
-- **`wisp threads`**, a subcommand over `ThreadStore`, with `--json` on each:
-  - `wisp threads` (or `list`): every saved thread, as chat's `/threads` shows it (`ChatThread.listing`): id,
-    owner, model, turns, last used, and state (`saved`, or `open elsewhere` with the holder's pid and client).
-  - `wisp threads show ID`: its start settings, turns, audit sessions, the facts it dropped, its size on disk with
-    its stored outputs, and when the sweep will delete it (`threads.keepDays`).
-  - `wisp threads delete ID`: the thread and its stored outputs, as `close_thread` deletes one; refused while a
-    process holds it (D6), naming the holder. Audited, a new `thread.deleted` kind beside `thread.swept`.
-  - `wisp threads hand ID CLIENT`: the thread's owner set to `CLIENT` (D3), so that client's agent may resume it;
-    refused while it is held. Audited as `thread.handed`, with the owner before and after. The refusal an MCP
-    caller gets for another client's thread then names the command, as D3 has it: `thread X belongs to codex;
-    wisp threads hand X claude-code gives it to you`.
-  - **The person only** (chosen 2026-10-20): `delete` and `hand` change what an agent may open, so, like
-    `wisp approvals approve`, they need a terminal, and `CommandPolicy`'s defaults refuse `wisp threads
-    delete|hand` to wisp's model, so no agent can take another's thread through `run_command`. `list` and `show`
-    are reads, open to anyone.
-- **`/resume ID` in chat**, for the plain chat and `wisp-tui` alike: the current thread is saved and let go (its
-  lock released), and `ID` is opened as `--resume ID` opens it at start, an agent's thread with its settings
-  holding (D11). Refused, with the reason, for a thread held elsewhere or one that cannot be resumed; the
-  current thread stays open then.
-- **A thread picker in `wisp-tui`**, switching in place (chosen 2026-10-20): `/threads` opens a picker over the
-  same listing (the `choice` protocol line `/model` uses), the current thread marked; choosing one sends
-  `/resume ID`. Held threads are shown and not chosen. The plain chat keeps the printed listing.
-- **The store in `wisp doctor`**, a `threads` finding beside `saved transcripts`: how many saved, how many held and
-  by whom, their size on disk, and the next sweep's count under `threads.keepDays`; a `thread.json` that cannot be
-  read is a warning naming `wisp threads delete`.
-- **Docs and decision:** an amendment to [ADR 0066](decisions/0066-one-thread-store.md) for phase 3; `docs/wisp.md`
-  (`wisp threads`, `/resume`, the doctor finding), `docs/mcp.md` (the owner refusal's message),
-  `docs/logging.md` (the two kinds), and `docs/tools/run_command.md` (the policy's new defaults).
-- **Tests, without the model:** each subcommand over a scratch home (list, show, delete and hand, both refused while
-  a lock is held); the policy refusing `wisp threads delete|hand` and allowing `list` and `show`; `/resume`
-  switching threads in a scripted chat, the first saved and unlocked, an agent's thread keeping its settings; the
-  picker's `choice` line and the `/resume` it sends, in `wisp-tui`'s tests; an MCP server refused another client's
-  thread, then allowed it after `hand`, over the wire.
 
 ## 0.29.0
 
