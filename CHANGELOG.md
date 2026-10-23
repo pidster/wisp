@@ -12,6 +12,11 @@ Added:
   library) is where it says, so a part a release puts in the wrong place is caught (ADR 0072).
 - `WISP_TUI` names the `wisp-tui` that `wisp chat` hands a terminal to, for an unusual set-up.
 
+Changed:
+
+- `wisp models` and chat's `/models` list each backend's models by name, numbers compared as numbers
+  (`granite4.1:8b` before `granite4.2:8b`), rather than in the order Ollama or a server reported them.
+
 ## 0.30.1
 
 Changed:

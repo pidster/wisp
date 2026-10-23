@@ -157,7 +157,9 @@ public enum ModelListing {
 
     /// Every candidate: Apple's two, each backend's installed models, every disabled model none of them listed,
     /// and each backend's cached models not linked yet, each judged; and a line of text for each backend that did
-    /// not answer.
+    /// not answer. Backends come in the order of their schemes, and within each group the models by name, numbers
+    /// compared as numbers (`granite4.1` before `granite4.2`, `9B` before `12B`), whatever order a server
+    /// reported them in.
     ///
     /// - Parameters:
     ///   - config: The effective configuration.
@@ -174,17 +176,16 @@ public enum ModelListing {
         var cached: [InstalledModel] = []
         for backend in ModelBackends.all {
             do {
-                candidates += try await backend.installed(config: config, home: home)
+                candidates += byName(try await backend.installed(config: config, home: home))
             } catch {
                 unreachable.append("\(backend.scheme): \(error)")
             }
-            cached += backend.unlinked(config: config, home: home)
+            cached += byName(backend.unlinked(config: config, home: home))
         }
         // Compared by canonical form: a model disabled under another spelling is the listed one (ADR 0056).
         let named = { (one: ModelSelection, other: ModelSelection) in one.names(other, config: config, home: home) }
-        for selection in disabled where !candidates.contains(where: { named($0.selection, selection) }) {
-            candidates.append(InstalledModel(selection: selection, detail: ""))
-        }
+        let unlisted = disabled.filter { selection in !candidates.contains { named($0.selection, selection) } }
+        candidates += byName(unlisted.map { InstalledModel(selection: $0, detail: "") })
         var entries = candidates.map { installed in
             var entry = Entry(
                 selection: installed.selection, detail: installed.detail, parameters: installed.parameters,
@@ -219,6 +220,13 @@ public enum ModelListing {
                 format: model.format, location: model.location, enabled: false)
         }
         return Listing(entries: entries, unreachable: unreachable)
+    }
+
+    /// `models` ordered by name, numbers compared as numbers, so the listing does not follow a server's own order.
+    static func byName(_ models: [InstalledModel]) -> [InstalledModel] {
+        models.sorted {
+            $0.selection.description.localizedStandardCompare($1.selection.description) == .orderedAscending
+        }
     }
 
     /// `wisp models`: on a terminal (`width`), the table `ModelTable.terminal` lays out; piped, its tab-separated

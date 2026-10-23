@@ -746,7 +746,11 @@ does not report `completion`, such as an embedding model, cannot) and must decla
 conversation has tools. The listing also shows what you can turn on: every disabled model, and, in a build with MLX,
 every complete `mlx-community` model in the Hugging Face cache that the MLX models folder does not link yet. A
 backend that does not answer gets one line in parentheses. The configured default is marked `*`
-([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
+([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). Apple's two come first, then each backend in the
+alphabetical order of its scheme (`coreai`, `llamacpp`, `lmstudio`, `mlx`, `ollama`), its models by name with numbers
+compared as numbers (`granite4.1` before `granite4.2`, `9b` before `27b`), not in the order its server reports them;
+then disabled models no backend lists, and cached models not yet linked, each by name. Chat's `/models` lists in the
+same order.
 
 | Column | Shows |
 | --- | --- |

@@ -93,6 +93,27 @@ private struct ListingBackend: ModelBackend {
         #expect(fromConfig.entries.first { $0.selection == tools }?.enabled == false)
     }
 
+    /// Within a backend the models come by name, numbers as numbers, not in the order the backend reported them.
+    @Test func eachBackendsModelsComeByName() async {
+        let listing = await ModelListing.entries(config: config, home: home, tools: [])
+        let names = listing.entries.compactMap { entry -> String? in
+            guard case .local("listing", let name) = entry.selection else { return nil }
+            return name
+        }
+        #expect(names == ["embed", "text", "tools", "cached"])
+        let sorted = ModelListing.byName(
+            [
+                "ollama:granite4.2:8b", "ollama:gemma4:12b", "ollama:granite4.1:8b", "ollama:qwen3.8:27b",
+                "ollama:qwen3.8:9b",
+            ]
+            .compactMap { try? ModelSelection(parsing: $0) }.map { InstalledModel(selection: $0, detail: "") })
+        #expect(
+            sorted.map(\.selection.description) == [
+                "ollama:gemma4:12b", "ollama:granite4.1:8b", "ollama:granite4.2:8b", "ollama:qwen3.8:9b",
+                "ollama:qwen3.8:27b",
+            ])
+    }
+
     @Test func allAddsTheExcludedWithTheirReasons() async {
         let lines = await ModelListing.lines(
             config: config, home: home, current: .system, tools: [CurrentDateTool()], all: true)
