@@ -230,7 +230,7 @@ and delete.
 ## Install
 
 An Apple silicon Mac on **macOS 27** or later (M4 or above is recommended) with Apple Intelligence enabled, and
-Homebrew.
+Homebrew or the disk image.
 
 ```bash
 brew install pidster/tap/wisp   # installs wisp, wisp-tui, MLX's Metal library, and Wisp Notifier.app
@@ -240,6 +240,10 @@ wisp "What is the date in Tokyo?"
 
 That is all wisp needs: it runs on Apple's on-device model. To add a local model through Ollama, MLX, llama.cpp,
 LM Studio, or Core AI, and to choose which, follow **[How to install local models](docs/install-local-models.md)**.
+
+Or download `Wisp-X.Y.Z.dmg` from the [releases page](https://github.com/pidster/wisp/releases), drag `Wisp.app`
+to Applications, open it and choose **Install** (or run `/Applications/Wisp.app/Contents/MacOS/wisp install`), and
+update it later with `wisp update` ([install guide](docs/guide/install.md)).
 
 Homebrew also installs shell completions for zsh, bash, and fish; with any other install, `wisp completions install`
 writes them for your shell ([wisp.md](docs/wisp.md), "`wisp completions`").

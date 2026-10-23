@@ -188,8 +188,9 @@ own work.
   when it is installed and authorised, and fall back to `osascript` otherwise. The open fact to settle
   first: whether macOS grants notification authorisation to the bundle as shipped; signing removes
   that doubt.
-- **A DMG, with the package declaring its layout.** Scheduled for 0.31.0 with `wisp update`
-  ([roadmap.md](roadmap.md)). An app bundle in a disk image, signed and notarised,
+- **A DMG, with the package declaring its layout.** Done 2026-10-23, for 0.31.0, with `wisp install` and
+  `wisp update` ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md),
+  [ADR 0073](decisions/0073-wisp-install-and-the-finder.md), [ADR 0074](decisions/0074-wisp-update.md)). An app bundle in a disk image, signed and notarised,
   beside the Homebrew formula. Its layout differs from the formula's: `wisp` in `Contents/MacOS` or
   `Contents/Helpers`, `mlx.metallib` and other resources in `Contents/Resources`. Today wisp finds its
   parts by searching from its own real path: `wisp-tui` beside it or in a `bin` beside its folder

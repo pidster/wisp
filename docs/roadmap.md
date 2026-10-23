@@ -49,15 +49,20 @@ and documented in its own commit.
    exists in `wisp doctor` and the chat's status line, and never installs. Each check and update is audited. A
    new ADR, and the trust page says what is sent: one request to GitHub's API, with no identifier of the person.
 
-5. **`wisp models uninstall NAME`**, asked for by the operator on 2026-10-23, run by the person only (chat's
-   `/models uninstall` too; the model's `models` tool cannot): it removes a model where wisp knows its files, Ollama's
-   through Ollama's own delete, an MLX model's entry in the models folder, and a Core AI bundle, and clears the
-   model's entries in `config.json` (its settings, a disabled entry). It first shows what goes: the paths, the bytes,
-   the configuration it clears, and a warning when the model is the default. The person types the model's name to
-   confirm; `--yes` skips that for a script, and without a terminal nothing is removed unless `--yes` is given. An
-   MLX model linked into the Hugging Face cache leaves the cache alone unless `--purge-cache` is given, which warns
-   that other tools sharing the cache lose it too and says how much it frees. llama.cpp's and LM Studio's models are
-   their servers', and Apple's are the system's: refused, saying where to remove them.
+## 0.31.1: `wisp models uninstall`
+
+Moved from 0.31.0 by the operator on 2026-10-23, so 0.31.0 ships with the disk image, `wisp install`, and
+`wisp update`, and 0.31.1 is also the first release a `Wisp.app` updates to with `wisp update`.
+
+**`wisp models uninstall NAME`**, asked for by the operator on 2026-10-23, run by the person only (chat's
+`/models uninstall` too; the model's `models` tool cannot): it removes a model where wisp knows its files, Ollama's
+through Ollama's own delete, an MLX model's entry in the models folder, and a Core AI bundle, and clears the
+model's entries in `config.json` (its settings, a disabled entry). It first shows what goes: the paths, the bytes,
+the configuration it clears, and a warning when the model is the default. The person types the model's name to
+confirm; `--yes` skips that for a script, and without a terminal nothing is removed unless `--yes` is given. An
+MLX model linked into the Hugging Face cache leaves the cache alone unless `--purge-cache` is given, which warns
+that other tools sharing the cache lose it too and says how much it frees. llama.cpp's and LM Studio's models are
+their servers', and Apple's are the system's: refused, saying where to remove them.
 
 Later, with no release yet: protecting wisp's state from other agents, and Private Cloud Compute, below.
 
