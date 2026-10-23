@@ -66,6 +66,6 @@ Probed on this Mac on 2026-10-23, with 0.30.1's signed release build in a `Wisp.
 - A signed release builds the DMG: `Wisp.app`, a link to `/Applications`, and a read-me, the app notarised with the
   binaries and stapled, then the image signed, notarised, and stapled. An unsigned release (`--unsigned`) builds
   neither, since Gatekeeper refuses an app signed ad hoc that was downloaded.
-- What opening `Wisp.app` from the Finder does, `wisp install`, and `wisp update` are built in the stages that follow.
-  Opening it from the Finder today starts `wisp` with no terminal, which exits; `LSUIElement` keeps it out of the
-  Dock.
+- What opening `Wisp.app` from the Finder does, `wisp install`, and `wisp update` are built in the stages that follow:
+  the first two in [ADR 0073](0073-wisp-install-and-the-finder.md), a dialog offering to install. `LSUIElement`
+  keeps the app out of the Dock.

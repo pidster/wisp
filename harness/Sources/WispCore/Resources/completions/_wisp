@@ -70,13 +70,15 @@ _wisp() {
             'draft:Draft a commit message, a PR description, or a changelog line from a diff.'
             'classifier:Train, measure, and choose risk classifiers for the approval gate.'
             'completions:Print or install wisp'\''s shell completions for zsh, bash, or fish.'
+            'install:Link Wisp.app'\''s wisp and wisp-tui into ~/.local/bin, or a folder you name.'
+            'uninstall:Remove the links to Wisp.app'\''s wisp and wisp-tui from ~/.local/bin, or a folder you name.'
             'help:Show subcommand help information.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|help)
+        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|help)
             "_wisp_${words[1]}" && ret=0
             ;;
         esac
@@ -924,6 +926,31 @@ _wisp_completions_install() {
     local -ar arg_specs=(
         ':shell:{__wisp_complete "${_shell[@]}"}'
         '--print-path[Print where the script would go, and write nothing.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_install() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':folder:_files -/'
+        '--force[Replace a link to another wisp (never a file).]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_uninstall() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':folder:_files -/'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

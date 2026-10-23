@@ -19,19 +19,22 @@ Agreed with the operator on 2026-10-23: a second way to install, a signed and no
 `Wisp.app`, beside the Homebrew formula, and a way to update that install. Each stage is tested without the network
 and documented in its own commit.
 
-1. **Each package declares its layout.** The backlog's plan ("A DMG, with the package declaring its layout"): where
+1. **Each package declares its layout** (built 2026-10-23, [ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)).
+   The backlog's plan ("A DMG, with the package declaring its layout"): where
    `wisp-tui`, `mlx.metallib`, and `Wisp Notifier.app` are, relative to `wisp`, read from the app's `Info.plist` or
    a small manifest the formula puts in `libexec`; the search from `wisp`'s real path stays as the fallback for a
    build directory, and `WISP_TUI`, like `WISP_BIN`, overrides. `wisp doctor` checks every part the package
    declares. A new ADR.
-2. **`Wisp.app` and the DMG.** `wisp` is the app's executable in `Contents/MacOS`, with `wisp-tui` beside it,
+2. **`Wisp.app` and the DMG** (built 2026-10-23, ADR 0072). `wisp` is the app's executable in `Contents/MacOS`, with `wisp-tui` beside it,
    `mlx.metallib` in `Contents/Resources`, and `Wisp Notifier.app` in `Contents/Helpers`, its bundle identifier
    unchanged so the person's notification permission carries over. `scripts/release` signs the bundle inside out,
    notarises and staples the app, builds a compressed DMG with `Wisp.app`, a link to Applications, and a short
    read-me, signs, notarises, and staples the DMG, and publishes it beside the tarball and its `sha256`. What
-   opening `Wisp.app` from the Finder does, with no terminal to run in, is settled in the stage: open the
-   person's terminal at `wisp install`, or show a short note.
-3. **`wisp install` and `wisp uninstall`.** Run as `/Applications/Wisp.app/Contents/MacOS/wisp install`, it links
+   opening `Wisp.app` from the Finder does, with no terminal to run in, was settled with stage 3: a dialog that
+   offers to install.
+3. **`wisp install` and `wisp uninstall`** (built 2026-10-23,
+   [ADR 0073](decisions/0073-wisp-install-and-the-finder.md); opened from the Finder, the app offers it in a
+   dialog). Run as `/Applications/Wisp.app/Contents/MacOS/wisp install`, it links
    `wisp` and `wisp-tui` into `~/.local/bin`, or a folder it is given, with no admin password, and says when that
    folder is not on `PATH`; `uninstall` removes only the links it made. Refused from a Homebrew install, which
    owns its links.

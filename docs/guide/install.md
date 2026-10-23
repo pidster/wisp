@@ -36,15 +36,15 @@ From 0.31.0 each release also has `Wisp-X.Y.Z.dmg` on its
 [GitHub release page](https://github.com/pidster/wisp/releases), signed and notarised. Open it and drag `Wisp.app`
 onto Applications. `Wisp.app` holds the same four parts: `wisp` and `wisp-tui` in `Contents/MacOS`,
 `Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`. Then put `wisp` on your
-`PATH` with links, as the image's read-me says:
+`PATH`: open `Wisp.app` and choose **Install**, or run
 
 ```bash
-mkdir -p ~/.local/bin
-ln -sf /Applications/Wisp.app/Contents/MacOS/wisp ~/.local/bin/wisp
-ln -sf /Applications/Wisp.app/Contents/MacOS/wisp-tui ~/.local/bin/wisp-tui
+/Applications/Wisp.app/Contents/MacOS/wisp install
 ```
 
-and add `~/.local/bin` to `PATH` if it is not there. Both installs keep their state in the same `~/.wisp`, so a
+Either links `wisp` and `wisp-tui` into `~/.local/bin`, with no administrator's password, and says what to add to your
+shell's start-up file if that folder is not on `PATH`. `wisp uninstall` removes the links
+([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). Both installs keep their state in the same `~/.wisp`, so a
 Homebrew install and the app share threads, approvals, and facts; use one or the other on `PATH`.
 
 ## Check the install: `wisp doctor`

@@ -12,8 +12,11 @@ Added:
   library) is where it says, so a part a release puts in the wrong place is caught (ADR 0072).
 - `WISP_TUI` names the `wisp-tui` that `wisp chat` hands a terminal to, for an unusual set-up.
 - A disk image, `Wisp-X.Y.Z.dmg`, beside the Homebrew formula: `Wisp.app`, signed and notarised, holding `wisp`,
-  `wisp-tui`, `Wisp Notifier.app`, and MLX's library; drag it to Applications and link `wisp` onto your `PATH`
+  `wisp-tui`, `Wisp Notifier.app`, and MLX's library; drag it to Applications and run `wisp install` from it
   (ADR 0072).
+- `wisp install` links `Wisp.app`'s `wisp` and `wisp-tui` into `~/.local/bin`, or a folder you name, with no
+  administrator's password, and prints the line to add when the folder is not on your `PATH`; `wisp uninstall`
+  removes them. Opening `Wisp.app` from the Finder offers to do it in a dialog (ADR 0073).
 
 Changed:
 

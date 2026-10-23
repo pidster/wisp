@@ -174,13 +174,13 @@ _wisp() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|help)
+    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|help)
         # Offer subcommand argument completions
         "_wisp_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions threads notify scan redact watch draft classifier completions help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions threads notify scan redact watch draft classifier completions install uninstall help' -- "${cur}"))
         ;;
     esac
 }
@@ -1015,6 +1015,38 @@ _wisp_completions_install() {
     case "${positional_number}" in
     1)
         __wisp_add_completions -W 'zsh'$'\n''bash'$'\n''fish'
+        return
+        ;;
+    esac
+}
+
+_wisp_install() {
+    repeating_flags=()
+    non_repeating_flags=(--force --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 1
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -d
+        return
+        ;;
+    esac
+}
+
+_wisp_uninstall() {
+    repeating_flags=()
+    non_repeating_flags=(--version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 1
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -d
         return
         ;;
     esac

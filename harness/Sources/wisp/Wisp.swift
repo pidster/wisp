@@ -20,15 +20,20 @@ struct Wisp: AsyncParsableCommand {
             Approvals.self, FactsCommand.self, QuestionsCommand.self, ThreadsCommand.self, Notify.self, Scan.self,
             Redact.self, Watch.self,
             Draft.self,
-            ClassifierCommand.self, CompletionsCommand.self,
+            ClassifierCommand.self, CompletionsCommand.self, InstallCommand.self, UninstallCommand.self,
         ],
         defaultSubcommand: Respond.self
     )
 
-    /// Opens the app bundle wisp runs from, if it does, so MLX finds its library there (ADR 0072); registers the model
-    /// backends this build carries, and what pulls models (ADR 0059), then parses and runs.
+    /// Opens the app bundle wisp runs from, if it does, so MLX finds its library there (ADR 0072); shows the install
+    /// dialog instead when `Wisp.app` was opened from the Finder (ADR 0073); registers the model backends this build
+    /// carries, and what pulls models (ADR 0059), then parses and runs.
     static func main() async {
         PackageLayout.openAppBundle()
+        if FinderLaunch.isCurrent {
+            FinderLaunch.run()
+            return
+        }
         ModelBackends.register(CoreAIBackend())
         ModelBackends.register(MLXBackend())
         ModelPullers.register(MLXPuller())

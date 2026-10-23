@@ -21,14 +21,13 @@ cat > "$CONTENT/Read Me.txt" <<README
 Wisp $VERSION
 
 1. Drag Wisp.app onto Applications.
-2. In a terminal, put wisp on your PATH, for instance:
+2. Open Wisp.app there and choose Install, or in a terminal run:
 
-     mkdir -p ~/.local/bin
-     ln -sf /Applications/Wisp.app/Contents/MacOS/wisp ~/.local/bin/wisp
-     ln -sf /Applications/Wisp.app/Contents/MacOS/wisp-tui ~/.local/bin/wisp-tui
+     /Applications/Wisp.app/Contents/MacOS/wisp install
 
-   and add ~/.local/bin to PATH if it is not there.
-3. Run: wisp doctor
+   It links wisp and wisp-tui into ~/.local/bin, and says what to add to your
+   shell's start-up file if that folder is not on your PATH.
+3. In a new terminal, run: wisp doctor
 
 wisp keeps its state in ~/.wisp, shared with a Homebrew install of wisp.
 Documentation: https://wisp.pidster.com/docs/

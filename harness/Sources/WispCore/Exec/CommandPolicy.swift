@@ -118,6 +118,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         nestedWisp,
         // Nor does it fetch a model: the download is the person's to approve (ADR 0052).
         #"(^|[\s;&|(/])wisp\s+models\s+pull\b"#,
+        // Nor does it put wisp on PATH or take it off (ADR 0073): what a shell runs as wisp is the person's choice.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?(un)?install\b"#,
     ]
 
     /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, quoted or not, by any path, after any of `env`
