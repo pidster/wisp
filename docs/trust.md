@@ -273,7 +273,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | Path | Contents | Permissions |
 | --- | --- | --- |
 | `~/.wisp/update.json` | when `updates.check` last asked GitHub, and the version it named or why it failed | yours |
-| `~/Downloads/Wisp-X.Y.Z.dmg` and `.sha256` | the release `wisp update` downloaded, left for you to keep or delete | yours |
+| `~/Downloads/Wisp-X.Y.Z.dmg` | the release `wisp update` downloaded, left for you to keep or delete (its checksum is read, not saved) | yours |
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |

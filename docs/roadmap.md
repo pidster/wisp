@@ -7,32 +7,13 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. 0.31.1, `wisp models uninstall`, the first release a `Wisp.app` updated to with `wisp update`, shipped the same day too. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-## 0.31.1: `wisp models uninstall`
-
-Moved from 0.31.0 by the operator on 2026-10-23, so 0.31.0 shipped with the disk image, `wisp install`, and
-`wisp update`, and 0.31.1 is also the first release a `Wisp.app` updates to with `wisp update`.
-
-Built 2026-10-23 ([ADR 0075](decisions/0075-wisp-models-uninstall.md)), with a real folder moved to the Bin and
-`--purge-cache` removing the repository's whole folder, as the operator chose, and leaving a store another tool keeps at
-the cache's root to that tool.
-
-**`wisp models uninstall NAME`**, asked for by the operator on 2026-10-23, run by the person only (chat's
-`/models uninstall` too; the model's `models` tool cannot): it removes a model where wisp knows its files, Ollama's
-through Ollama's own delete, an MLX model's entry in the models folder, and a Core AI bundle, and clears the
-model's entries in `config.json` (its settings, a disabled entry). It first shows what goes: the paths, the bytes,
-the configuration it clears, and a warning when the model is the default. The person types the model's name to
-confirm; `--yes` skips that for a script, and without a terminal nothing is removed unless `--yes` is given. An
-MLX model linked into the Hugging Face cache leaves the cache alone unless `--purge-cache` is given, which warns
-that other tools sharing the cache lose it too and says how much it frees. llama.cpp's and LM Studio's models are
-their servers', and Apple's are the system's: refused, saying where to remove them.
-
-Later, with no release yet: protecting wisp's state from other agents, and Private Cloud Compute, below.
+Nothing is scheduled next. Later, with no release yet: protecting wisp's state from other agents, and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
 

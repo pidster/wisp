@@ -4,6 +4,14 @@ Date: 2026-10-23. Status: accepted by the operator on 2026-10-23; built 2026-10-
 [ADR 0072](0072-a-dmg-and-a-declared-layout.md) (`Wisp.app` in a disk image) and
 [ADR 0073](0073-wisp-install-and-the-finder.md) (`wisp install`, and the Finder dialog).
 
+Amended 2026-10-23, after 0.31.1 shipped: the first real update, a 0.31.0 `Wisp.app` from the released disk image
+in a scratch folder to 0.31.1, ran in about 4 s: `wisp update --check` named 0.31.1; the update downloaded
+`Wisp-0.31.1.dmg` (19.2 MB) to `~/Downloads`, matched its checksum, checked the app as signed by the team and
+notarised, and swapped it in, leaving nothing beside it; the swapped app passed Gatekeeper ("Notarized Developer ID")
+and `codesign --verify --deep --strict`, the link `wisp install` had made ran 0.31.1, and `update.check` and
+`update.install` were recorded. Decision 1 said the `.sha256` is saved beside the image; it is read and not saved.
+App Management in `/Applications` was not part of this run.
+
 ## Context
 
 A Homebrew install updates with `brew upgrade`; `Wisp.app` from the disk image had no way to. The operator chose on

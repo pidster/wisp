@@ -1565,7 +1565,8 @@ wisp update --check    # only say whether one is out
 ```
 
 It asks GitHub's API for wisp's latest release; when that is newer than the running `wisp`, it downloads
-`Wisp-X.Y.Z.dmg` and its `.sha256` to `~/Downloads` (an image already there that matches is used again), and checks
+`Wisp-X.Y.Z.dmg` to `~/Downloads` (an image already there that matches is used again), reads the release's
+`.sha256` without saving it, and checks
 that the checksum matches, and that the image's `Wisp.app` is `com.pidster.wisp`, of the release's version, and wholly
 signed by wisp's team, `LFQFWCB8Y3`, and notarised by Apple. It then copies the new app beside the old, checks the
 copy, swaps the two in one step, and removes the old one; the links `wisp install` made keep working. Any failed check
