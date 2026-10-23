@@ -45,6 +45,26 @@ import Testing
             ])
         #expect(FrontEnd.locate(besides: build, exists: { _ in false }) == nil)
     }
+
+    /// `WISP_TUI` first, then the package's declared `wisp-tui`, then the search; each place looked at once (ADR 0072).
+    @Test func theOverrideAndTheDeclaredPathComeFirst() {
+        let wisp = URL(fileURLWithPath: "/Applications/Wisp.app/Contents/MacOS/wisp")
+        let declared = URL(fileURLWithPath: "/Applications/Wisp.app/Contents/MacOS/wisp-tui")
+        #expect(
+            FrontEnd.candidates(besides: wisp, declared: declared, override: "/opt/odd/wisp-tui").map(\.path) == [
+                "/opt/odd/wisp-tui", "/Applications/Wisp.app/Contents/MacOS/wisp-tui",
+                "/Applications/Wisp.app/Contents/bin/wisp-tui",
+            ])
+        #expect(FrontEnd.candidates(besides: wisp, override: "").first == declared)
+        let installed: Set = ["/Applications/Wisp.app/Contents/MacOS/wisp-tui", "/opt/odd/wisp-tui"]
+        #expect(
+            FrontEnd.locate(
+                besides: wisp, declared: declared, override: "/opt/odd/wisp-tui", exists: installed.contains)?
+                .path == "/opt/odd/wisp-tui")
+        #expect(
+            FrontEnd.locate(besides: wisp, declared: declared, override: "/gone/wisp-tui", exists: installed.contains)
+                == declared)
+    }
 }
 
 /// Where the running `wisp` is, by the kernel's path and never by `argv[0]`, which a parent may set to a name of

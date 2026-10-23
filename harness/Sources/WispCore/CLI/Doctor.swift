@@ -53,6 +53,8 @@ public struct Doctor: Sendable {
         /// The running `wisp` and who signed it, or nil when the executable cannot be found, for the `signature`
         /// finding.
         public var signature: @Sendable () -> (executable: URL, signature: CodeSignature)?
+        /// The layout the running package declares, for the `package` finding.
+        public var layout: @Sendable () -> PackageLayout.Reading
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -91,13 +93,18 @@ public struct Doctor: Sendable {
             thinkingBudget: { await ThinkingBudgetCheck.probe($0.llamacpp) },
             frontEnd: {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
-                return (FrontEnd.locate(besides: executable), FrontEnd.candidates(besides: executable))
+                let (declared, override) = (FrontEnd.declared, FrontEnd.override)
+                return (
+                    FrontEnd.locate(besides: executable, declared: declared, override: override),
+                    FrontEnd.candidates(besides: executable, declared: declared, override: override)
+                )
             },
             helper: .live,
             signature: {
                 guard let executable = FrontEnd.runningExecutable else { return nil }
                 return (executable, CodeSignature.of(executable))
-            })
+            },
+            layout: { PackageLayout.current })
 
         /// Creates probes.
         public init(
@@ -115,7 +122,8 @@ public struct Doctor: Sendable {
             thinkingBudget: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) },
             helper: NotifierHelper = .none,
-            signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil }
+            signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil },
+            layout: @escaping @Sendable () -> PackageLayout.Reading = { .none }
         ) {
             self.systemModel = systemModel
             self.systemModelAnswers = systemModelAnswers
@@ -130,6 +138,7 @@ public struct Doctor: Sendable {
             self.frontEnd = frontEnd
             self.helper = helper
             self.signature = signature
+            self.layout = layout
         }
     }
 
@@ -170,7 +179,7 @@ public struct Doctor: Sendable {
     public func run() -> [Finding] {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
-            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), notifier(), frontEndFinding(),
+            subjectKinds(), savedTranscripts(), threads(), notifyRoute(), notifier(), frontEndFinding(), package(),
             signatureFinding(),
             homeWritable(),
             pendingApprovals(),

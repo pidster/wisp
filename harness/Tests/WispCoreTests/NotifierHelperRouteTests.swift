@@ -120,4 +120,16 @@ import WispNotifierKit
         #expect(NotifierHelper.bundle(besides: wisp) { $0 == app + "/Contents/MacOS/WispNotifier" }?.path == app)
         #expect(NotifierHelper.bundle(besides: wisp) { _ in false } == nil)
     }
+
+    /// The bundle the package declares wins over one beside `wisp`, and the search is the fallback when the declared
+    /// one is missing (ADR 0072).
+    @Test func theDeclaredBundleComesFirst() {
+        let wisp = URL(fileURLWithPath: "/Applications/Wisp.app/Contents/MacOS/wisp")
+        let declared = URL(fileURLWithPath: "/Applications/Wisp.app/Contents/Helpers/Wisp Notifier.app")
+        let beside = "/Applications/Wisp.app/Contents/MacOS/Wisp Notifier.app"
+        let both: Set = [declared.path + "/Contents/MacOS/WispNotifier", beside + "/Contents/MacOS/WispNotifier"]
+        #expect(NotifierHelper.bundle(besides: wisp, declared: declared, exists: both.contains) == declared)
+        let onlyBeside: Set = [beside + "/Contents/MacOS/WispNotifier"]
+        #expect(NotifierHelper.bundle(besides: wisp, declared: declared, exists: onlyBeside.contains)?.path == beside)
+    }
 }

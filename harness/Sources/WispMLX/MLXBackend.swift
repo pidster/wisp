@@ -382,7 +382,8 @@ public struct MLXBackend: ModelBackend {
     public func doctorFinding() -> Doctor.Finding? {
         #if MLX
             let search = MetalLibrary.Search(
-                imageDirectory: MetalLibrary.imageDirectory(), mainBundleDirectory: Bundle.main.bundleURL)
+                imageDirectory: MetalLibrary.imageDirectory(), mainBundleDirectory: Bundle.main.bundleURL,
+                appResources: PackageLayout.current.layout?.app?.appending(path: "Contents/Resources"))
             return MetalLibrary.finding(compiledIn: true, search: search, load: Self.loadMetalLibrary)
         #else
             return MetalLibrary.finding(compiledIn: false, search: nil)

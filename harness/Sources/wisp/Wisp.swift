@@ -25,8 +25,10 @@ struct Wisp: AsyncParsableCommand {
         defaultSubcommand: Respond.self
     )
 
-    /// Registers the model backends this build carries, and what pulls models (ADR 0059), then parses and runs.
+    /// Opens the app bundle wisp runs from, if it does, so MLX finds its library there (ADR 0072); registers the model
+    /// backends this build carries, and what pulls models (ADR 0059), then parses and runs.
     static func main() async {
+        PackageLayout.openAppBundle()
         ModelBackends.register(CoreAIBackend())
         ModelBackends.register(MLXBackend())
         ModelPullers.register(MLXPuller())
@@ -339,7 +341,8 @@ struct Chat: AsyncParsableCommand {
         exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> URL? {
         guard !json, !plain, interactive else { return nil }
-        return FrontEnd.locate(besides: executable, exists: exists)
+        return FrontEnd.locate(
+            besides: executable, declared: FrontEnd.declared, override: FrontEnd.override, exists: exists)
     }
 
     /// Replaces this process with `wisp-tui`, which spawns `wisp chat --json` on this same binary.

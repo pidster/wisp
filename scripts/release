@@ -264,6 +264,10 @@ class Wisp < Formula
     libexec.install "wisp", "mlx.metallib", "Wisp Notifier.app"
     bin.install_symlink libexec/"wisp"
     bin.install "wisp-tui"
+    # Where the parts are, relative to libexec/wisp, for wisp and its doctor's package finding (ADR 0072).
+    (libexec/"wisp-layout.json").write <<~JSON
+      {"frontEnd": "../bin/wisp-tui", "notifier": "Wisp Notifier.app", "metalLibrary": "mlx.metallib"}
+    JSON
     # The completion scripts are embedded in the binary; this runs 'wisp completions bash|zsh|fish' into
     # bash_completion, zsh_completion, and fish_completion.
     generate_completions_from_executable(bin/"wisp", "completions")
@@ -273,6 +277,7 @@ class Wisp < Formula
     assert_equal "$VERSION", shell_output("#{bin}/wisp --version").strip
     assert_equal "$VERSION", shell_output("#{bin}/wisp-tui --version").strip
     assert_path_exists libexec/"mlx.metallib"
+    assert_path_exists libexec/"wisp-layout.json"
     assert_predicate libexec/"Wisp Notifier.app/Contents/MacOS/WispNotifier", :executable?
     assert_path_exists zsh_completion/"_wisp"
     assert_path_exists bash_completion/"wisp"

@@ -93,10 +93,11 @@ every local step and prints the remote ones instead of executing them.
    line: Homebrew scans the version from the URL's `releases/download/vX.Y.Z/`, and `brew audit` reports a
    `version` equal to the scanned one as redundant (`resource_auditor.rb`, `audit_version`, read on
    2026-10-09). The formula puts `wisp`, `mlx.metallib`, and `Wisp Notifier.app` in `libexec` with a link
-   in `bin`, and runs `generate_completions_from_executable(bin/"wisp", "completions")`, which writes the output of
+   in `bin`, writes `wisp-layout.json` beside them, saying where each part is
+   ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)), and runs `generate_completions_from_executable(bin/"wisp", "completions")`, which writes the output of
    `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
    `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library,
-   the helper's executable, and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
+   the layout, the helper's executable, and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
 6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`. Its `signature` line names
    the Developer ID for a signed release, and `signed ad hoc` for an unsigned one.
 7. Docs site: check that the site at https://wisp.pidster.com carries the release. The `Docs` workflow

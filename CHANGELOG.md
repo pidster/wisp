@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- `wisp doctor` has a `package` line: every part the install says it has (`wisp-tui`, `Wisp Notifier.app`, the Metal
+  library) is where it says, so a part a release puts in the wrong place is caught (ADR 0072).
+- `WISP_TUI` names the `wisp-tui` that `wisp chat` hands a terminal to, for an unusual set-up.
+
 ## 0.30.1
 
 Changed:

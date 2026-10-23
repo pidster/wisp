@@ -487,8 +487,8 @@ flag means the same everywhere. The faces are overlays on this core:
 
 `Notifier` applies the off switch, the bounds, and the per-minute limit across the process, then hands the
 bounded message to the face's `NotificationRoutes`, which try ADR 0044's routes in order and return the
-first that works with the reasons the earlier ones were skipped: `helper` (ADR 0070: `Wisp Notifier.app` beside
-`wisp`, through `NotifierHelper`, which registers the bundle with LaunchServices, reads its permission with
+first that works with the reasons the earlier ones were skipped: `helper` (ADR 0070: `Wisp Notifier.app` where the
+package declares it or beside `wisp`, through `NotifierHelper`, which registers the bundle with LaunchServices, reads its permission with
 `--status`, and posts with `--post` once the person has allowed it; not yet asked, it starts `--ask` once a process
 without waiting and passes the notification on; every face, with `notifications.viaHelper`), `host` (the front
 end's `notify` line),
@@ -502,6 +502,15 @@ and the setting (`NotificationRoutes.steps`), which the tests and `wisp doctor` 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a
 "this project" answer on one MCP thread is written once and a "this session" answer covers every thread.
 The MCP tests build real sessions over a scratch home and check that two threads share one store.
+
+### `PackageLayout`
+
+Where the parts of an installed wisp are, as the package declares them (ADR 0072): `Wisp.app`'s `Info.plist`
+(`WispLayout`) or the formula's `wisp-layout.json` beside `wisp`, read once a process from `wisp`'s real path
+(`PackageLayout.current`). `FrontEnd` looks for `wisp-tui` at `WISP_TUI`, then the declared path, then the search
+beside `wisp`; `NotifierHelper.live` takes the declared `Wisp Notifier.app` before the one beside `wisp`. `wisp`'s
+`main` opens the app bundle it runs from, so MLX, which searches every opened bundle's resources, finds the Metal
+library there when `wisp` was started through a link. `Doctor.package` checks every declared part.
 
 ### `Introspection`
 

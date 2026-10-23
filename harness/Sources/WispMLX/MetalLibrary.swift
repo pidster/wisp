@@ -8,9 +8,11 @@ import WispCore
 /// from the first of these that exists (`mlx/backend/metal/device.cpp`, `load_default_library`):
 /// `mlx.metallib` in the directory of the image holding MLX's code, `Resources/mlx.metallib` there,
 /// `default.metallib` in a `mlx-swift_Cmlx.bundle` beside the main bundle (what `swift build` leaves),
-/// and `Resources/default.metallib` in the image's directory. MLX is linked statically, so the image is
-/// the `wisp` executable (or the test bundle's binary under `swift test`), and the release carries the
-/// library as `mlx.metallib` beside `wisp`. This type repeats that search; it does not load MLX.
+/// and `Resources/default.metallib` in the image's directory, then that bundle in the resources of every bundle the
+/// process has opened. MLX is linked statically, so the image is the `wisp` executable (or the test bundle's binary
+/// under `swift test`); the tarball carries the library as `mlx.metallib` beside `wisp`, and `Wisp.app` in its
+/// resources' `mlx-swift_Cmlx.bundle`, which `wisp` opens at start-up (ADR 0072), since a data file in
+/// `Contents/MacOS` breaks the app's signature. This type repeats that search; it does not load MLX.
 enum MetalLibrary {
     /// The bundle SwiftPM builds for mlx-swift's `Cmlx` target, holding `default.metallib`.
     static let swiftPMBundle = "mlx-swift_Cmlx.bundle"
@@ -21,6 +23,8 @@ enum MetalLibrary {
         var imageDirectory: URL?
         /// `Bundle.main.bundleURL`: for a command-line tool, the executable's directory.
         var mainBundleDirectory: URL
+        /// The resources of the app bundle `wisp` runs from, which it opens at start-up; nil outside one.
+        var appResources: URL?
 
         /// Every path MLX tries, in its order.
         var candidates: [URL] {
@@ -36,7 +40,13 @@ enum MetalLibrary {
             if let imageDirectory {
                 paths.append(imageDirectory.appending(path: "Resources/default.metallib"))
             }
-            return paths
+            if let appResources {
+                let bundle = appResources.appending(path: MetalLibrary.swiftPMBundle)
+                paths.append(bundle.appending(path: "Contents/Resources/default.metallib"))
+                paths.append(bundle.appending(path: "default.metallib"))
+            }
+            var seen: Set<String> = []
+            return paths.filter { seen.insert($0.standardizedFileURL.path).inserted }
         }
 
         /// The first candidate that exists, or nil.

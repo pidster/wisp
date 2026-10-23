@@ -45,9 +45,14 @@ public struct NotifierHelper: Sendable {
     /// No helper: the route is skipped as missing.
     public static let none = NotifierHelper(locate: { nil })
 
-    /// The bundle beside the running `wisp`, run for real, registered with LaunchServices first.
+    /// The bundle the package declares, or else the one beside the running `wisp`, run for real, registered with
+    /// LaunchServices first.
     public static let live = running(
-        locate: { ExecutablePath.current.flatMap { bundle(besides: $0) } },
+        locate: {
+            ExecutablePath.current.flatMap {
+                bundle(besides: $0, declared: PackageLayout.current.layout?.parts[.notifier])
+            }
+        },
         register: { app in _ = LSRegisterURL(app as CFURL, true) })
 
     /// A helper that runs the bundle's executable; `register` is told each bundle once a process before it is run.
@@ -78,17 +83,20 @@ public struct NotifierHelper: Sendable {
             })
     }
 
-    /// The bundle beside `executable`, when it holds the helper's executable.
+    /// The bundle the package declares, or else the one beside `executable`, when it holds the helper's executable
+    /// ([ADR 0072](../../../../docs/decisions/0072-a-dmg-and-a-declared-layout.md)).
     ///
     /// - Parameters:
     ///   - executable: The running `wisp`, links resolved.
+    ///   - declared: Where the package declares the bundle, if it does.
     ///   - exists: Whether a path is an executable file.
     /// - Returns: The bundle, or nil.
     static func bundle(
-        besides executable: URL, exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        besides executable: URL, declared: URL? = nil,
+        exists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> URL? {
-        let app = executable.deletingLastPathComponent().appending(path: NotifierProtocol.bundleName)
-        return exists(Self.executable(in: app).path) ? app : nil
+        let beside = executable.deletingLastPathComponent().appending(path: NotifierProtocol.bundleName)
+        return [declared, beside].compactMap(\.self).first { exists(Self.executable(in: $0).path) }
     }
 
     /// The helper's executable inside `app`.

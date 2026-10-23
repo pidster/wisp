@@ -38,6 +38,23 @@ import WispCore
         #expect(unknownImage.candidates.count == 2)
     }
 
+    /// In `Wisp.app` the library is in the app's resources, which `wisp` opens so MLX's walk over the opened bundles
+    /// finds it, even when `wisp` was started through a link and the main bundle is the link's folder (ADR 0072).
+    @Test func searchesTheAppsResourcesLast() throws {
+        let root = try scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let macOS = root.appending(path: "Wisp.app/Contents/MacOS")
+        let resources = root.appending(path: "Wisp.app/Contents/Resources")
+        let search = MetalLibrary.Search(
+            imageDirectory: macOS, mainBundleDirectory: root.appending(path: "bin"), appResources: resources)
+        #expect(
+            Array(search.candidates.suffix(2)).map { String($0.path.dropFirst(resources.path.count + 1)) } == [
+                "mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib", "mlx-swift_Cmlx.bundle/default.metallib",
+            ])
+        try touch(resources.appending(path: "mlx-swift_Cmlx.bundle/default.metallib"))
+        #expect(search.found?.path == resources.appending(path: "mlx-swift_Cmlx.bundle/default.metallib").path)
+    }
+
     @Test func findingsForEachState() throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
