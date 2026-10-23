@@ -13,7 +13,7 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Nothing is scheduled next. Later, with no release yet: protecting wisp's state from other agents, and Private Cloud Compute, below.
+Nothing is scheduled next. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
 
@@ -51,6 +51,17 @@ The plan, for a release not yet chosen, with an ADR first that says plainly what
 5. **Where the home belongs.** Left open by [ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md): `~/.wisp`, or
    Apple's `~/Library/Application Support` and `~/Library/Caches`, decided with the rest, since keys and encryption
    may change what is kept where.
+
+## Later: tasks, a plan and its grant
+
+Raised by the operator on 2026-10-23, from an example: watch Homebrew with `brew outdated` and ask whether to update a
+given formula. The broader aim is that a person hands wisp a problem and it composes its primitives to solve it.
+Proposed in [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the problem becomes a tree of tasks with
+dependencies between branches and leaves, built and worked by the model through a `tasks` tool; the plan carries a
+grant (command templates with typed, sourced arguments, and how each runs) that the person approves with it; scheduled
+runs are started by a LaunchAgent, report by banner, and are answered in wisp; `/schedule` is the person's and the
+model's `schedule` tool only proposes. First, a probe of whether `gemma4:12b` or `qwen3.8:27b` writes plans and grants
+a person could approve. Stored grants wait on the protection track above.
 
 ## Later: Private Cloud Compute
 

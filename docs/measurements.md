@@ -534,6 +534,40 @@ and "What was the first thing I said to you?", six times on each build:
 With the new header the context scenario and the chat suite held: the 4B 6/6 and 22/24 again, and
 `ollama:granite4.1:8b` 6/6 and 24/24.
 
+### Planning a task tree and its grant, 2026-10-23
+
+The probe for [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md). Four local models were each given four problems
+as text-only threads (`respond` with `tools: []`) and the same instructions and JSON schema: a tree of tasks with
+`dependsOn`, and a grant of command templates with typed arguments, each argument's source, placement (sandbox or
+outside), and whether each run needs the person's yes. Each problem was run once per model, without retries. Each plan was read
+by hand for whether a person could approve it as written: the steps and dependencies right; every template needed,
+defined, and nothing more; every argument bound to an earlier command's output; nothing outside the sandbox that need
+not be.
+
+| Problem | `gemma4:12b` | `gemma4:26b` | `qwen3.8:27b` | `granite4.2:8b`, not thinking |
+| --- | --- | --- | --- | --- |
+| Homebrew: daily, ask per formula, upgrade the agreed | no: the upgrade's argument taken from the question's answer | no: the same; a notification and a question put in the grant as commands | nearly: the upgrade bound to `list-outdated.formulae[].name` with a per-run yes, but the listing task names no template, and an unneeded `brew info` | no: the upgrade placed in the sandbox, its argument from nothing; the listing names no template; a dependency on a task that does not exist |
+| Disk: the ten largest folders in two caches, delete those picked | no: `rm -rf <selection>` outside, its argument from the answer; a duplicated template | no: `rm -rf <path>` outside, its argument from the problem, not the listing | no: the roots fixed and the deletion bound to the listing with a per-run yes, but `du` lists the roots themselves, so a root could be picked | no: `find -printf`, which macOS's `find` lacks, and sizes of entries, not folders; the deletion's template never defined |
+| Git: fetch, list merged branches, ask before deleting each | no: a `grep -v` repeated until the 7,680-token reply was cut, 102 s; templates named but not defined | nearly: `git branch -d` bound to the listing with a per-run yes, but nothing in the grant keeps `main` or the current branch out | no: the branch taken from the answer; `git branch -D` granted beside `-d`; asks whether to delete `main` instead of refusing | no: no plan; a question asking for the repository's path |
+| `cargo audit` when `Cargo.lock` changes, notify, change nothing | no: redirects the report into a file, and a per-run yes | no: an invented command line | nearly: read-only, sandboxed, no yes, the trigger and dependencies right, but `--manifest-path` is not `cargo audit`'s flag, and its source is empty | no: writes a state file into the project to detect changes the trigger already detects; the notification an outside shell command |
+| Approvable as written | 0/4 | 0/4 | 0/4 (3 nearly) | 0/4 |
+| Seconds, slowest to fastest | 102, 11, 10, 6 | 12, 7, 5, 5 | 62, 50, 40, 19 | 38, 9, 7, 5 |
+
+`granite4.2:8b` thinking, its default, was worse and slower: the Homebrew plan (16 s) had no upgrade template and
+templates naming files nothing made; the git plan (180 s) was one interactive shell script and a command writing and
+loading its own LaunchAgent; the disk plan was stopped after more than nine minutes and the `cargo audit` plan was
+abandoned when Ollama sent nothing for 120 s, both run beside other requests to the same model.
+
+Two facts the plans depend on were probed: `brew outdated --json=v2` run in wisp's sandbox (Homebrew 7.0.10) exits 0
+and lists from Homebrew's cached data, after errors that `/opt/homebrew/Cellar` is not writable and that the API
+download's lock under `/opt/homebrew/var` was refused, so fresh data needs a run outside; and `cargo audit`'s advisory
+database is `~/.cargo/advisory-db`, outside the default writable paths.
+
+What it shows: no model wrote a grant a person should approve unedited. The failures are of kinds a checker can find
+mechanically (a task naming an undefined template, an argument sourced from an answer or from nothing, a type outside
+the vocabulary, a destructive template outside the sandbox whose argument is not bound to a listing); the subtler ones (a listing
+that includes its own root, `main` not excluded) are not. `qwen3.8:27b` came closest, at 19 to 62 s a plan; the 8B models did not come near.
+
 ## Context checkpoint 2
 
 ```

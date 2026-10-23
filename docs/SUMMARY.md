@@ -129,6 +129,7 @@
   - [0075: wisp models uninstall removes a model where wisp knows its files](decisions/0075-wisp-models-uninstall.md)
   - [0076: The model is told its sandbox](decisions/0076-the-sandbox-in-the-prompt.md)
   - [0077: The current directory is the project, unless it is a privileged folder](decisions/0077-no-project-folder-in-privileged-folders.md)
+  - [0078: Tasks: a plan and its grant, approved together](decisions/0078-tasks-a-plan-and-its-grant.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)
