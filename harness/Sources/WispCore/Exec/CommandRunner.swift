@@ -496,6 +496,49 @@ public struct CommandRunner: Sendable {
     /// another sandbox, whose refusal of a nested profile makes commands run under that one instead.
     public var confines: Bool { sandboxed }
 
+    /// What the model is told about where its commands run, built from this runner's settings
+    /// ([ADR 0076](../../../../docs/decisions/0076-the-sandbox-in-the-prompt.md)).
+    public var sandboxNote: String {
+        Self.sandboxNote(
+            enabled: options.policy.sandbox.enabled, nested: Self.isNestedSandbox, root: options.writableRoot,
+            writablePaths: options.policy.sandbox.writablePaths, network: options.policy.sandbox.allowNetwork,
+            outside: options.policy.sandbox.allowOutsideSandbox,
+            home: FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
+    /// The sandbox note for these settings: where commands may write, whether the network is on, and what a refused
+    /// write looks like and whether the model may ask to run outside; or that there is no sandbox, or another one.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether the policy's sandbox is on (off under `--unsafe`).
+    ///   - nested: Whether wisp itself runs inside another sandbox, whose rules then apply.
+    ///   - root: The writable project directory.
+    ///   - writablePaths: The configured writable paths, `~` allowed.
+    ///   - network: Whether the network is allowed.
+    ///   - outside: Whether the model may ask to run a command outside the sandbox.
+    ///   - home: The home directory, shown as `~`.
+    /// - Returns: The note.
+    static func sandboxNote(
+        enabled: Bool, nested: Bool, root: String, writablePaths: [String], network: Bool, outside: Bool, home: String
+    ) -> String {
+        guard enabled else { return "Commands run without a sandbox: they can change anything this account can." }
+        let refused = "A write it refuses fails with \"Operation not permitted\": say so"
+        let asking = outside ? ", or ask to run it with outsideSandbox, which the person approves." : "."
+        if nested {
+            return "Commands run inside the sandbox wisp itself was started in, which decides what they may write. "
+                + refused + asking
+        }
+        func shown(_ path: String) -> String {
+            let expanded = path.hasPrefix("~") ? home + path.dropFirst() : path
+            return expanded == home || expanded.hasPrefix(home + "/") ? "~" + expanded.dropFirst(home.count) : expanded
+        }
+        let places = [shown(root), "the temporary folder"] + writablePaths.map(shown)
+        let listed = places.dropLast().joined(separator: ", ") + ", and " + (places.last ?? "")
+        return "Commands run in a sandbox: they can read any file, but write only under \(listed); the network is "
+            + (network ? "on" : "off") + ". " + refused.replacingOccurrences(of: "it refuses", with: "elsewhere")
+            + asking
+    }
+
     /// The canonical directories commands may write under, as the sandbox's profile names them.
     public var writableRoots: [String] {
         options.policy.writableRoots(

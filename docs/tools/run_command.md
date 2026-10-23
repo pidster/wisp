@@ -73,6 +73,18 @@ stream was then discarded.
 
 ## Policy and sandbox
 
+The model is told its sandbox before its first command ([ADR 0076](../decisions/0076-the-sandbox-in-the-prompt.md)): a
+conversation with `run_command` has a note after wisp's system prompt, built from these settings, such as
+
+```
+Commands run in a sandbox: they can read any file, but write only under ~/src/wisp, the temporary folder,
+~/Library/Caches, ~/.cargo/registry, and ~/.cargo/git; the network is on. A write elsewhere fails with
+"Operation not permitted": say so, or ask to run it with outsideSandbox, which the person approves.
+```
+
+Without `allowNetwork` it says the network is off; without `allowOutsideSandbox` it does not offer the outside run;
+under `--unsafe` it says commands run without a sandbox; inside another sandbox, that that sandbox decides.
+
 Every command passes a `CommandPolicy` ([ADR 0009](../decisions/0009-command-policy-and-sandbox.md)),
 configured under `commandPolicy` in `config.json`:
 

@@ -472,7 +472,9 @@ A `WispThread` is one gate plus the tools wired to it and the `Prompting` the ag
 one function for every face of wisp. `Prompting` renders three layers into the framework's instructions:
 wisp's own system prompt (the file `Resources/system-prompt.md`, embedded at build time by the
 `EmbedSystemPrompt` plugin), the operator's `systemPromptExtension` from config, and the caller's
-conversation instructions; see [ADR 0017](decisions/0017-three-layer-instructions.md).
+conversation instructions; see [ADR 0017](decisions/0017-three-layer-instructions.md). A conversation with
+`run_command` has its runner's `sandboxNote` after wisp's prompt: where commands may write, whether the network is on,
+and how to ask to run outside, built from the session's settings ([ADR 0076](decisions/0076-the-sandbox-in-the-prompt.md)).
 What differs between faces is what the face that owns the person's screen can do for a tool, so it is
 given when a conversation is opened, not when the session begins, as a `SessionHost`
 ([ADR 0044](decisions/0044-host-effects.md); Foundation already has a `Host`). A host carries the face's

@@ -194,7 +194,9 @@ public struct WispThread: Sendable {
                 Agent(transcript: transcript, tools: tools, model: resolved, audit: audit, links: links)
             } else {
                 Agent(
-                    instructions: prompting.rendered(toolsAvailable: !tools.isEmpty, memory: memory != nil),
+                    instructions: prompting.rendered(
+                        toolsAvailable: !tools.isEmpty, memory: memory != nil,
+                        sandbox: tools.contains { $0.name == "run_command" } ? runner.sandboxNote : nil),
                     tools: tools, model: resolved, audit: audit)
             }
         agent.stats = stats

@@ -127,6 +127,7 @@
   - [0073: wisp install puts Wisp.app on PATH, and the Finder offers it](decisions/0073-wisp-install-and-the-finder.md)
   - [0074: wisp update replaces Wisp.app, and an opt-in check says when to](decisions/0074-wisp-update.md)
   - [0075: wisp models uninstall removes a model where wisp knows its files](decisions/0075-wisp-models-uninstall.md)
+  - [0076: The model is told its sandbox](decisions/0076-the-sandbox-in-the-prompt.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

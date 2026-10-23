@@ -48,15 +48,20 @@ public struct Prompting: Equatable, Sendable {
     /// model told about tool discipline does not invent tool calls it cannot make, and the system prompt's
     /// memory rule only when the conversation has `memory`.
     ///
+    /// With `run_command`, the system prompt is followed by the runner's sandbox note, wisp's own words built from the
+    /// session's settings (ADR 0076).
+    ///
     /// - Parameters:
     ///   - toolsAvailable: Whether the conversation has any tools.
     ///   - memory: Whether one of them is `memory`.
+    ///   - sandbox: The sandbox note, when the conversation has `run_command`; nil otherwise.
     /// - Returns: The text the framework is given as instructions.
-    public func rendered(toolsAvailable: Bool, memory: Bool = false) -> String {
+    public func rendered(toolsAvailable: Bool, memory: Bool = false, sandbox: String? = nil) -> String {
         var parts = [Self.systemPrompt(memory: toolsAvailable && memory)]
         if !toolsAvailable {
             parts[0] += " This conversation has no tools; answer directly from what you know."
         }
+        if toolsAvailable, let sandbox, !sandbox.isEmpty { parts[0] += "\n" + sandbox }
         if let extra = systemPromptExtension?.trimmingCharacters(in: .whitespacesAndNewlines), !extra.isEmpty {
             parts.append("Guidance for this Mac:\n\(extra)")
         }

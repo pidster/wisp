@@ -208,7 +208,8 @@ import WispTestSupport
         // Neither the tool, the prompt's rule, nor a reference's recall hint: the reference says what it stands for
         // and how to see it again without memory.
         #expect(!last.enabledToolDefinitions.map(\.name).contains("memory"))
-        let instructions = ThreadRecord.text(of: try #require(last.transcript.first))
+        let instructions = AssessmentTests.instructions(last.transcript)
+        #expect(instructions.hasPrefix("You are Wisp"))
         #expect(!instructions.contains(Prompting.memoryRule) && !instructions.contains("memory"))
         let output = try #require(agent.store.entries.first { $0.kind == .toolOutput })
         let reference = ThreadRecord.text(of: try #require(last.transcript.first { $0.id == output.value.id }))

@@ -4,6 +4,14 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Changed:
+
+- The model is told its sandbox before its first command: where commands may write, whether the network is on, and
+  that it may ask to run one outside the sandbox, which you approve; built from your settings, and only when it has
+  `run_command` (ADR 0076).
+
 ## 0.31.1
 
 Added:

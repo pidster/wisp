@@ -2,6 +2,9 @@
 
 Date: 2026-09-20. Status: accepted.
 
+Amended by [ADR 0076](0076-the-sandbox-in-the-prompt.md): with `run_command`, layer 1 gains a sandbox note built from
+the session's settings.
+
 ## Context
 
 Until now "instructions" was one string: the MCP `instructions` argument or `--instructions` if given,
