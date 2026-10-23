@@ -31,6 +31,8 @@ On 2026-10-23 the operator turned signing on by default, and asked for 0.30.1 to
   `--unsigned`. The certificate reads valid until 2027-02-01; after that a new one is needed to sign, and the default
   finds it by the same name.
 - ADR 0069's open question, whether Homebrew installs a signed binary with its signature intact, is answered by the
-  first signed release's verify step.
+  first signed release's verify step: on 2026-10-23, 0.30.1 installed by Homebrew kept the Developer ID signature on
+  `wisp`, `wisp-tui`, and `Wisp Notifier.app` (`codesign --verify --strict` passes; `wisp doctor` names the signer),
+  and the release's tarball, given a Safari quarantine attribute, ran with no prompt.
 - `Wisp Notifier.app` is signed with the same identity as the binaries; its bundle identifier, and so the person's
   notification permission, is unchanged (ADR 0070).

@@ -188,7 +188,8 @@ own work.
   when it is installed and authorised, and fall back to `osascript` otherwise. The open fact to settle
   first: whether macOS grants notification authorisation to the bundle as shipped; signing removes
   that doubt.
-- **A DMG, with the package declaring its layout.** An app bundle in a disk image, signed and notarised,
+- **A DMG, with the package declaring its layout.** Scheduled for 0.31.0 with `wisp update`
+  ([roadmap.md](roadmap.md)). An app bundle in a disk image, signed and notarised,
   beside the Homebrew formula. Its layout differs from the formula's: `wisp` in `Contents/MacOS` or
   `Contents/Helpers`, `mlx.metallib` and other resources in `Contents/Resources`. Today wisp finds its
   parts by searching from its own real path: `wisp-tui` beside it or in a `bin` beside its folder
@@ -201,7 +202,8 @@ own work.
   would have caught 0.17.0's regression before release. Not a `config.json` setting: the layout is a
   fact of the package, not a choice for the person (the operator, 2026-10-04).
 - **Private Cloud Compute.** The `com.apple.developer.private-cloud-compute` entitlement is granted to
-  signed App Store apps only ([backends.md](backends.md), "Private Cloud Compute").
+  App Store apps only ([backends.md](backends.md), "Private Cloud Compute"); researched on 2026-10-23, with the
+  operator's steps and a probe, in [roadmap.md](roadmap.md), "Later: Private Cloud Compute".
 
 ## Models
 

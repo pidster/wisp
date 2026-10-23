@@ -7,13 +7,78 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-No release is scheduled after 0.30.0; the next is chosen with the operator from what follows.
+## 0.31.0: a DMG, and `wisp update`
+
+Agreed with the operator on 2026-10-23: a second way to install, a signed and notarised disk image holding
+`Wisp.app`, beside the Homebrew formula, and a way to update that install. Each stage is tested without the network
+and documented in its own commit.
+
+1. **Each package declares its layout.** The backlog's plan ("A DMG, with the package declaring its layout"): where
+   `wisp-tui`, `mlx.metallib`, and `Wisp Notifier.app` are, relative to `wisp`, read from the app's `Info.plist` or
+   a small manifest the formula puts in `libexec`; the search from `wisp`'s real path stays as the fallback for a
+   build directory, and `WISP_TUI`, like `WISP_BIN`, overrides. `wisp doctor` checks every part the package
+   declares. A new ADR.
+2. **`Wisp.app` and the DMG.** `wisp` is the app's executable in `Contents/MacOS`, with `wisp-tui` beside it,
+   `mlx.metallib` in `Contents/Resources`, and `Wisp Notifier.app` in `Contents/Helpers`, its bundle identifier
+   unchanged so the person's notification permission carries over. `scripts/release` signs the bundle inside out,
+   notarises and staples the app, builds a compressed DMG with `Wisp.app`, a link to Applications, and a short
+   read-me, signs, notarises, and staples the DMG, and publishes it beside the tarball and its `sha256`. What
+   opening `Wisp.app` from the Finder does, with no terminal to run in, is settled in the stage: open the
+   person's terminal at `wisp install`, or show a short note.
+3. **`wisp install` and `wisp uninstall`.** Run as `/Applications/Wisp.app/Contents/MacOS/wisp install`, it links
+   `wisp` and `wisp-tui` into `~/.local/bin`, or a folder it is given, with no admin password, and says when that
+   folder is not on `PATH`; `uninstall` removes only the links it made. Refused from a Homebrew install, which
+   owns its links.
+4. **`wisp update`.** Run by the person, never by the model (the default policy refuses it, as it does
+   `wisp approvals`): reads the latest release from GitHub, and when it is newer, downloads the DMG, checks its
+   `sha256`, that it is signed by the team `LFQFWCB8Y3` and accepted by Gatekeeper as notarised, and replaces
+   `Wisp.app` whole, the old one kept until the new one is in place. `--check` only reports. From a Homebrew
+   install it changes nothing and says `brew upgrade pidster/tap/wisp`; from a build from source, that it cannot
+   update one. Off the network until asked, so the README's "nothing leaves your machine" stays true by default;
+   an opt-in setting, `updates.check`, off by default, checks at most once a day and says when a newer version
+   exists in `wisp doctor` and the chat's status line, and never installs. Each check and update is audited. A
+   new ADR, and the trust page says what is sent: one request to GitHub's API, with no identifier of the person.
+
+Later, with no release yet: Private Cloud Compute, below.
+
+## Later: Private Cloud Compute
+
+Researched on 2026-10-23, and not possible yet for a tool distributed as wisp is. What Apple documents:
+
+- The entitlement, `com.apple.developer.private-cloud-compute`, is granted to a developer account that is in the
+  App Store Small Business Program, under two million first-time App Store downloads, and has asked for it by
+  Apple's request form; it then appears as a capability for the account's App IDs
+  ([Accessing Private Cloud Compute](https://developer.apple.com/private-cloud-compute/)).
+- Distribution is through the App Store, tested through TestFlight or ad hoc builds. Developer ID is not named; asked
+  on Apple's forums, an Apple engineer thought it is not allowed, without confirming.
+- A restricted entitlement on a bare executable needs a bundle with an embedded provisioning profile (Apple's
+  pattern for daemons); a command-line binary on its own cannot carry it, signed or not ([backends.md](backends.md),
+  "Private Cloud Compute").
+- Each person has a daily limit, against their Apple Account, raised by iCloud+; `quotaUsage` reports it. The window
+  is 32K tokens. Free to developers for now; Apple says a fee may follow. Use is under the Apple Intelligence terms.
+- Calling Apple's `fm` command for it is not a way round: its licence forbids programmatic use, and the `fm` on this
+  Mac (macOS 27.0) lists only the on-device model.
+
+The likely shape, unproven: a small helper app of wisp's own holding the entitlement, which makes only the model
+call, while wisp's tools, sandbox, approvals, and audit stay in `wisp`. Distributed through the App Store, it must
+run in the App Sandbox, and whether a sandboxed helper may serve a command-line client, and App Review accept one
+that does, are both open.
+
+Steps for the operator, in the developer portal, before any code: join the Small Business Program; request the
+entitlement; once granted, register an App ID (for instance `com.pidster.wisp.cloud`) with the capability; make an
+Apple Development certificate, register this Mac, and make a development profile; and try making a Developer ID
+profile with the capability, which settles whether the simpler route exists.
+
+Then a probe, `PCCProbe.app`, settles the rest before an ADR: it logs its own entitlements, the model's
+availability, quota, and window, and makes one request, run through `open`, as its executable directly, and through
+a link in a `bin` folder; again signed with the Developer ID if a profile allows it; and again in the App Sandbox,
+answering one request from a plain command-line client over a local socket.
 
 ## Not scheduled
 
@@ -47,14 +112,14 @@ Waiting on the operator:
   for the dialog as an approval's does (`approval.bannerDelaySeconds`) is open: today it is posted at once, and
   waiting would need an amendment to [ADR 0062](decisions/0062-the-inquiry-verb.md).
 
-Waiting on signing (a Developer ID or App Store signature):
+Waiting on Apple:
 
-- a notification helper app, so notifications come from wisp itself, with its icon and action buttons;
-- a DMG, with the package declaring where its parts are;
-- Private Cloud Compute, whose entitlement Apple grants only to signed App Store apps.
+- Private Cloud Compute: the entitlement, and whether a helper app distributed outside the App Store may hold it
+  (above, "Later: Private Cloud Compute").
 
 Waiting on someone asking:
 
+- action buttons on wisp's notifications ("Show" opening the audit), which `Wisp Notifier.app` could add;
 - tools for embeddings and reranking;
 - reverse delegation through MCP sampling: the local model asks the calling agent's model when it is
   stuck on a sub-step;
