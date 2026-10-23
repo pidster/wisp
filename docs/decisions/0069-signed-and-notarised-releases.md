@@ -1,7 +1,8 @@
 # ADR 0069: Releases can be signed with a Developer ID and notarised, off until the operator turns it on
 
-Date: 2026-10-22. Status: accepted. Amends [ADR 0012](0012-homebrew-release.md): the release can be signed and
-notarised; unsigned stays the default.
+Date: 2026-10-22. Status: accepted; amended by [ADR 0071](0071-signed-releases-by-default.md), which makes signing
+the default from 0.30.1. Amends [ADR 0012](0012-homebrew-release.md): the release can be signed and notarised; unsigned
+stays the default.
 
 ## Context
 

@@ -37,8 +37,8 @@ backend, the model, the asset behind it, and its declared capabilities (`docs/lo
 
 `private-cloud` needs the managed entitlement `com.apple.developer.private-cloud-compute`, which Apple
 assigns to an App ID on request (App Store Small Business Program, under two million first-time
-downloads) and which only a provisioning profile can authorise. An ad-hoc signed command-line tool such
-as the Homebrew or `swift build` binary cannot carry it. The framework does not say so: on this Mac on
+downloads) and which only a provisioning profile can authorise. A command-line tool such as the Homebrew
+or `swift build` binary cannot carry it, whether signed ad hoc or, as releases are from 0.30.1, with a Developer ID. The framework does not say so: on this Mac on
 2026-09-20 `PrivateCloudComputeLanguageModel.availability` was `available` and `quotaUsage` below the
 limit, and the first request failed with `LanguageModelError` code -1 wrapping
 `ModelManagerServices.ModelManagerError` code 1046. wisp therefore checks its own code signature

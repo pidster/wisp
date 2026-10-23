@@ -815,7 +815,8 @@ under it, indented and wrapped to the full width; piped, the reason is the last 
     not usable: it cannot hold a conversation
 ```
 
-`private-cloud` is refused from every unsigned build; see [backends.md](backends.md), "Private Cloud
+`private-cloud` is refused from every build, signed or not: its entitlement needs a provisioning profile, which a
+command-line binary cannot carry; see [backends.md](backends.md), "Private Cloud
 Compute".
 
 `wisp tools --markdown` and `--json` include a `Measured:` line, or a `measurements` field, for each

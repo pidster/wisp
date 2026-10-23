@@ -150,7 +150,7 @@ answer. [mcp.md](docs/mcp.md) has each tool's arguments and result.
 **Nothing leaves your machine.** The default model runs on your Apple silicon, so prompts, files, and
 command output stay local, and there is no API key, no account, and no bill. Apple's Private Cloud
 Compute is an explicit opt-in (`--model private-cloud`), noted on stderr and in the audit log; it needs
-an entitlement that an unsigned command-line binary cannot carry, so it is refused from this build
+an entitlement that a command-line binary cannot carry, even signed with a Developer ID, so it is refused from this build
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model
 ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens, and a model in MLX
 layout with `--model mlx:<name>`, run in wisp's own process on the GPU; a model a local llama.cpp

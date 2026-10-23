@@ -122,6 +122,7 @@
   - [0068: wisp-tui draws the conversation in a pane of its own](decisions/0068-the-conversation-in-a-pane.md)
   - [0069: Releases can be signed with a Developer ID and notarised](decisions/0069-signed-and-notarised-releases.md)
   - [0070: A notification helper of wisp's own, Wisp Notifier.app](decisions/0070-a-notification-helper.md)
+  - [0071: Releases are signed and notarised by default](decisions/0071-signed-releases-by-default.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

@@ -16,10 +16,10 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
   the shell completions for bash, zsh, and fish into Homebrew's completion directories, so a Homebrew user has
   them with no further step.
 
-The binaries are unsigned (the linker's ad hoc signature) unless the release is run with a signing identity; Homebrew
-does not quarantine what it downloads, so Gatekeeper does not intervene either way. With `WISP_SIGN_IDENTITY` set, the
-release signs and notarises them, and a tarball downloaded directly runs too (below, "Signing";
-[ADR 0069](decisions/0069-signed-and-notarised-releases.md)).
+The release signs the binaries and the helper bundle with a Developer ID and notarises them, so a tarball downloaded
+directly runs too; `--unsigned` leaves them with the linker's ad hoc signature, which Homebrew installs without
+complaint, since it does not quarantine what it downloads (below, "Signing";
+[ADR 0069](decisions/0069-signed-and-notarised-releases.md), [ADR 0071](decisions/0071-signed-releases-by-default.md)).
 
 ## Step 0: the docs sweep, before running the script
 
@@ -73,7 +73,7 @@ every local step and prints the remote ones instead of executing them.
    `tools/wisp-tui/Cargo.toml` is bumped with `WispVersion.current`) and `wisp doctor` passes on the build
    machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle, and that the
    staged `wisp completions zsh|bash|fish` prints the committed scripts in
-   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. With `WISP_SIGN_IDENTITY` set, both
+   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. Unless `--unsigned` is given, both
    binaries are signed after `strip` and before those checks, and then notarised; the release stops unless Apple
    accepts them (`--dry-run` signs and prints the submission instead). The release build's `WispNotifier` is
    stripped and wrapped by `scripts/notifier-app` in `Wisp Notifier.app`, with its icon built from
@@ -111,9 +111,10 @@ Until a macOS 27 CI runner exists this runs on a developer's Mac with Xcode 27.
 
 ## Signing
 
-Off by default: a release signs only when `WISP_SIGN_IDENTITY` is set
-([ADR 0069](decisions/0069-signed-and-notarised-releases.md)). The certificate's name, for an individual developer
-account the person's legal name, is written into every signed binary, where `codesign -dv` shows it to anyone.
+On by default since 0.30.1: a release signs and notarises unless it is run with `--unsigned`
+([ADR 0069](decisions/0069-signed-and-notarised-releases.md), [ADR 0071](decisions/0071-signed-releases-by-default.md)).
+The certificate's name, for an individual developer account the person's legal name, is written into every signed
+binary, where `codesign -dv` shows it to anyone.
 
 Once, on the Mac that releases:
 
@@ -127,9 +128,11 @@ Once, on the Mac that releases:
    --issuer <IssuerID>`, which checks them with Apple and keeps them in the keychain. `xcrun notarytool history
    --keychain-profile wisp-notary` signs in with them and changes nothing.
 
-Each signed release: `WISP_SIGN_IDENTITY="Developer ID Application" scripts/release X.Y.Z` (the full name, or any part
-that matches one identity; `WISP_NOTARY_PROFILE` names another profile than `wisp-notary`). Preflight refuses an
-identity that is not a Developer ID Application one or matches none or several, and a profile that cannot sign in.
+Each release then signs with the identity `WISP_SIGN_IDENTITY` names, `Developer ID Application` when it is unset or
+empty (the full name, or any part that matches one identity; `WISP_NOTARY_PROFILE` names another profile than
+`wisp-notary`). Preflight refuses an identity that is not a Developer ID Application one or matches none or several,
+and a profile that cannot sign in; on a Mac without the certificate, `scripts/release X.Y.Z --unsigned` releases
+unsigned.
 
 ## Coverage gate
 

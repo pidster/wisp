@@ -24,7 +24,8 @@ MLX's Metal library, `mlx.metallib`, beside `wisp` in Homebrew's `libexec`, whic
 ([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and `Wisp Notifier.app` beside it, which posts wisp's
 notifications as "Wisp" once you allow them: the first notification asks
 ([ADR 0070](../decisions/0070-a-notification-helper.md)). Homebrew also installs the shell completions for zsh, bash,
-and fish. The binary is unsigned; Homebrew does not quarantine what it downloads, so Gatekeeper does not stop it.
+and fish. From 0.30.1 the binaries and `Wisp Notifier.app` are signed with a Developer ID and notarised by Apple, so the
+release's tarball also runs when downloaded directly; `wisp doctor`'s `signature` line names the signer.
 
 Upgrade with `brew upgrade pidster/tap/wisp`, remove it with `brew uninstall wisp`, and delete `~/.wisp` to
 forget everything it kept ([What wisp can do to your Mac](../trust.md), "Undoing").

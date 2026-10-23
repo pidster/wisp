@@ -1,26 +1,30 @@
 #!/bin/sh
 # Cut a release: preflight, build, package, tag, GitHub release, Homebrew tap formula.
-# Usage: scripts/release X.Y.Z [--dry-run] [--skip-eval]
+# Usage: scripts/release X.Y.Z [--dry-run] [--skip-eval] [--unsigned]
 # See docs/release.md. Remote steps (tag push, release, tap push) are printed, not run, with --dry-run.
 # --skip-eval leaves out the model eval, for a release whose eval already passed on the same code (a dry
 # run just before, with only docs changed since); say so in the release notes or the commit that follows.
-# WISP_SIGN_IDENTITY, when set, signs wisp and wisp-tui with that Developer ID (a full or unique partial name from
-# `security find-identity -v -p codesigning`) and notarises them with the notarytool keychain profile
-# WISP_NOTARY_PROFILE (default wisp-notary); unset, the release is unsigned, as before (ADR 0069).
+# The release is signed with a Developer ID and notarised (ADR 0069, by default since ADR 0071): wisp, wisp-tui, and
+# Wisp Notifier.app, signed by the identity WISP_SIGN_IDENTITY names (a full or unique partial name from
+# `security find-identity -v -p codesigning`; default "Developer ID Application", the one such identity in the
+# keychain) and notarised with the notarytool keychain profile WISP_NOTARY_PROFILE (default wisp-notary).
+# --unsigned leaves them with the linker's ad hoc signature, as releases before 0.30.1 were.
 set -eu
 
 VERSION="${1:-}"
-[ -n "$VERSION" ] || { echo "usage: scripts/release X.Y.Z [--dry-run] [--skip-eval]" >&2; exit 64; }
+[ -n "$VERSION" ] || { echo "usage: scripts/release X.Y.Z [--dry-run] [--skip-eval] [--unsigned]" >&2; exit 64; }
 # Exactly three dot-separated numbers: 1.2 or 1.2.3.4 would tag a version Homebrew and WispVersion disagree on.
 printf '%s\n' "$VERSION" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' \
     || { echo "version must be X.Y.Z (three numbers, no leading zeros), not '$VERSION'" >&2; exit 64; }
 shift
 DRY_RUN=""
 SKIP_EVAL=""
+UNSIGNED=""
 for flag in "$@"; do
     case "$flag" in
         --dry-run) DRY_RUN="--dry-run" ;;
         --skip-eval) SKIP_EVAL=1 ;;
+        --unsigned) UNSIGNED=1 ;;
         *) echo "unknown flag $flag" >&2; exit 64 ;;
     esac
 done
@@ -31,7 +35,8 @@ TAG="v$VERSION"
 TARBALL="wisp-$VERSION-arm64.tar.gz"
 TAP_REPO="pidster/homebrew-tap"
 OUT="$ROOT/harness/.build/release-artifacts"
-SIGN_IDENTITY="${WISP_SIGN_IDENTITY:-}"
+SIGN_IDENTITY="${WISP_SIGN_IDENTITY:-Developer ID Application}"
+[ -z "$UNSIGNED" ] || SIGN_IDENTITY=""
 NOTARY_PROFILE="${WISP_NOTARY_PROFILE:-wisp-notary}"
 
 remote() {
@@ -89,12 +94,12 @@ if [ -n "$SIGN_IDENTITY" ]; then
         *) echo "WISP_SIGN_IDENTITY must name a Developer ID Application identity, not '$SIGN_IDENTITY'" >&2; exit 1 ;;
     esac
     matches="$(security find-identity -v -p codesigning | grep -cF "\"$SIGN_IDENTITY" || true)"
-    [ "$matches" -eq 1 ] || { echo "$matches valid signing identities match '$SIGN_IDENTITY'; need exactly one (security find-identity -v -p codesigning; docs/release.md, \"Signing\")" >&2; exit 1; }
+    [ "$matches" -eq 1 ] || { echo "$matches valid signing identities match '$SIGN_IDENTITY'; need exactly one: name it with WISP_SIGN_IDENTITY, or release with --unsigned (security find-identity -v -p codesigning; docs/release.md, \"Signing\")" >&2; exit 1; }
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
         || { echo "notarytool cannot sign in with the keychain profile '$NOTARY_PROFILE' (docs/release.md, \"Signing\")" >&2; exit 1; }
     echo "signing as $SIGN_IDENTITY, notarising with the profile $NOTARY_PROFILE"
 else
-    echo "unsigned: WISP_SIGN_IDENTITY is not set (docs/release.md, \"Signing\")"
+    echo "unsigned: --unsigned was given (docs/release.md, \"Signing\")"
 fi
 # The remote, read only, before the slow steps: the tag must not exist on origin (a local check misses one pushed
 # from another clone), and origin/main must be HEAD, so the tag names a commit that is pushed and nothing on origin is
