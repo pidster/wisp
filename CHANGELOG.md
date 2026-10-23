@@ -11,6 +11,9 @@ Added:
 - `wisp doctor` has a `package` line: every part the install says it has (`wisp-tui`, `Wisp Notifier.app`, the Metal
   library) is where it says, so a part a release puts in the wrong place is caught (ADR 0072).
 - `WISP_TUI` names the `wisp-tui` that `wisp chat` hands a terminal to, for an unusual set-up.
+- A disk image, `Wisp-X.Y.Z.dmg`, beside the Homebrew formula: `Wisp.app`, signed and notarised, holding `wisp`,
+  `wisp-tui`, `Wisp Notifier.app`, and MLX's library; drag it to Applications and link `wisp` onto your `PATH`
+  (ADR 0072).
 
 Changed:
 

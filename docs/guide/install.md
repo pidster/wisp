@@ -9,7 +9,7 @@ This guide takes you from nothing to a first answer, a first approval, and a con
 | --- | --- |
 | An Apple silicon Mac on **macOS 27** or later; M4 or above is recommended | wisp is built on the Foundation Models framework of macOS 27 ([ADR 0002](../decisions/0002-macos-27-baseline.md)); the on-device model needs Apple silicon |
 | Apple Intelligence turned on in System Settings, and its model downloaded | The default model is Apple's on-device model; until it is ready, wisp has no model to run unless you add one of your own ([Local models](local-models.md)) |
-| Homebrew | wisp is released through a Homebrew tap ([ADR 0012](../decisions/0012-homebrew-release.md)) |
+| Homebrew, or the disk image | wisp is released through a Homebrew tap ([ADR 0012](../decisions/0012-homebrew-release.md)), and from 0.31.0 as `Wisp.app` in a disk image ([ADR 0072](../decisions/0072-a-dmg-and-a-declared-layout.md)) |
 
 Nothing else: no API key, no account, and no network for generation.
 
@@ -29,6 +29,23 @@ release's tarball also runs when downloaded directly; `wisp doctor`'s `signature
 
 Upgrade with `brew upgrade pidster/tap/wisp`, remove it with `brew uninstall wisp`, and delete `~/.wisp` to
 forget everything it kept ([What wisp can do to your Mac](../trust.md), "Undoing").
+
+### Or: the disk image
+
+From 0.31.0 each release also has `Wisp-X.Y.Z.dmg` on its
+[GitHub release page](https://github.com/pidster/wisp/releases), signed and notarised. Open it and drag `Wisp.app`
+onto Applications. `Wisp.app` holds the same four parts: `wisp` and `wisp-tui` in `Contents/MacOS`,
+`Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`. Then put `wisp` on your
+`PATH` with links, as the image's read-me says:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf /Applications/Wisp.app/Contents/MacOS/wisp ~/.local/bin/wisp
+ln -sf /Applications/Wisp.app/Contents/MacOS/wisp-tui ~/.local/bin/wisp-tui
+```
+
+and add `~/.local/bin` to `PATH` if it is not there. Both installs keep their state in the same `~/.wisp`, so a
+Homebrew install and the app share threads, approvals, and facts; use one or the other on `PATH`.
 
 ## Check the install: `wisp doctor`
 

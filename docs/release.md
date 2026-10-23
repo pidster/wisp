@@ -8,7 +8,9 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
 - A git tag `vX.Y.Z` on `main` whose version equals `WispVersion.current` (semver, from 0.1.0).
 - A GitHub release for that tag with `wisp-X.Y.Z-arm64.tar.gz` (the stripped `wisp` and `wisp-tui`,
   `mlx.metallib`, `Wisp Notifier.app`, and the LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
-  `CHANGELOG.md` followed by the install line.
+  `CHANGELOG.md` followed by the install line; and, for a signed release, `Wisp-X.Y.Z.dmg` with
+  `Wisp-X.Y.Z.dmg.sha256`, a disk image holding `Wisp.app`, a link to `/Applications`, and a read-me
+  ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)).
 - A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
   checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp`, `mlx.metallib`, and
   `Wisp Notifier.app` in the Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
@@ -79,12 +81,19 @@ every local step and prints the remote ones instead of executing them.
    stripped and wrapped by `scripts/notifier-app` in `Wisp Notifier.app`, with its icon built from
    `harness/Notifier/AppIcon-1024.png`, its version `X.Y.Z`, and signed with the same identity or ad hoc
    ([ADR 0070](decisions/0070-a-notification-helper.md)); the staged `wisp doctor`'s `notifier` finding must name the
-   staged bundle, and a signed release notarises the bundle with the binaries. MLX
+   staged bundle, and a signed release notarises the bundle with the binaries. A signed release then assembles
+   `Wisp.app` with `scripts/wisp-app` from the same staged parts (`wisp` and `wisp-tui` in `Contents/MacOS`, the
+   helper in `Contents/Helpers`, the library in `Contents/Resources/mlx-swift_Cmlx.bundle`, the `Info.plist`
+   declaring each), signs it inside out, and checks that its `wisp doctor`'s `package` finding has every declared
+   part and that `wisp`, started through a link outside the app, loads the app's library; the app goes in the same
+   notarisation as the binaries and is stapled, then `scripts/wisp-dmg` packs it into the DMG, which is signed,
+   notarised, stapled, and checked with `spctl` (`--dry-run` builds both and prints the submissions). MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
    A dry run, often made before the bump is pushed, reports the two remote checks and goes on.
 3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file; and the formula,
    `wisp.rb`, written from the template with the new URL and checksum before anything is published.
-4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with both assets and generated notes.
+4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with the assets (the tarball and, signed, the DMG,
+   each with its checksum) and generated notes.
    A release that fails from here cannot simply be rerun, since preflight refuses an existing tag, so the
    script prints, on its way out, the exact commands for the steps still to do (the tag push, the release
    create or an upload with `--clobber` if it exists, the tap push), with the artifacts and the formula left in

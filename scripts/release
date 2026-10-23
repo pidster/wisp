@@ -33,6 +33,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 TAG="v$VERSION"
 TARBALL="wisp-$VERSION-arm64.tar.gz"
+DMG="Wisp-$VERSION.dmg"
 TAP_REPO="pidster/homebrew-tap"
 OUT="$ROOT/harness/.build/release-artifacts"
 SIGN_IDENTITY="${WISP_SIGN_IDENTITY:-Developer ID Application}"
@@ -202,29 +203,62 @@ for entry in zsh:_wisp bash:wisp.bash fish:wisp.fish; do
     "$OUT/stage/wisp" completions "${entry%%:*}" | cmp -s - "harness/Sources/WispCore/Resources/completions/${entry#*:}" \
         || { echo "the staged wisp's ${entry%%:*} completions differ from the committed ${entry#*:}" >&2; exit 1; }
 done
+# Wisp.app, for the DMG (ADR 0072), from the same staged and signed parts; a signed release only, since an app
+# signed ad hoc and downloaded directly is refused by Gatekeeper.
+if [ -n "$SIGN_IDENTITY" ]; then
+    echo "==> Wisp.app"
+    WISP_SIGN_IDENTITY="$SIGN_IDENTITY" scripts/wisp-app "$OUT/stage" "$OUT" "$VERSION" >/dev/null
+    APP_REAL="$(cd "$OUT/Wisp.app" && pwd -P)"
+    # Every part the app declares is present, and wisp started through a link outside the app, as a PATH entry
+    # starts it, still finds MLX's library in the app's resources.
+    "$OUT/Wisp.app/Contents/MacOS/wisp" doctor | grep -qxF \
+        "ok   package: $APP_REAL/Contents/Info.plist declares wisp-tui, Wisp Notifier.app, the Metal library; all present" \
+        || { echo "Wisp.app's wisp doctor does not find every declared part (its package finding)" >&2; exit 1; }
+    rm -rf "$OUT/link"; mkdir "$OUT/link"; ln -s "$APP_REAL/Contents/MacOS/wisp" "$OUT/link/wisp"
+    "$OUT/link/wisp" doctor | grep -qxF \
+        "ok   MLX: Metal library $APP_REAL/Contents/Resources/mlx-swift_Cmlx.bundle/default.metallib loads" \
+        || { echo "wisp started through a link does not load Wisp.app's Metal library (wisp doctor's MLX finding)" >&2; exit 1; }
+    rm -rf "$OUT/link"
+fi
 
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "==> notarise"
-    # The two signed binaries and the helper bundle, zipped, to Apple's notary service; the release stops unless Apple
-    # accepts them. A bare executable cannot carry a stapled ticket, so Gatekeeper fetches it online the first time it
-    # meets one.
-    rm -rf "$OUT/notarise" "$OUT/notarise.zip"; mkdir -p "$OUT/notarise"
-    cp "$OUT/stage/wisp" "$OUT/stage/wisp-tui" "$OUT/notarise/"
-    ditto "$OUT/stage/Wisp Notifier.app" "$OUT/notarise/Wisp Notifier.app"
-    ditto -c -k --keepParent "$OUT/notarise" "$OUT/notarise.zip"
-    if [ "$DRY_RUN" = "--dry-run" ]; then
-        echo "[dry-run] xcrun notarytool submit $OUT/notarise.zip --keychain-profile $NOTARY_PROFILE --wait"
-    else
-        submitted="$(xcrun notarytool submit "$OUT/notarise.zip" --keychain-profile "$NOTARY_PROFILE" --wait \
+    # Submits one file to Apple's notary service and waits; the release stops, with the submission's log, unless Apple
+    # accepts it.
+    notarise() {
+        if [ "$DRY_RUN" = "--dry-run" ]; then
+            echo "[dry-run] xcrun notarytool submit $1 --keychain-profile $NOTARY_PROFILE --wait"
+            return 0
+        fi
+        submitted="$(xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait \
             --timeout 30m --output-format json)" || true
         verdict="$(printf '%s' "$submitted" | plutil -extract status raw -o - - 2>/dev/null || true)"
         submission="$(printf '%s' "$submitted" | plutil -extract id raw -o - - 2>/dev/null || true)"
         if [ "$verdict" != "Accepted" ]; then
-            printf '%s\n' "notarisation ended '${verdict:-without a verdict}': $submitted" >&2
+            printf '%s\n' "notarisation of ${1##*/} ended '${verdict:-without a verdict}': $submitted" >&2
             [ -z "$submission" ] || xcrun notarytool log "$submission" --keychain-profile "$NOTARY_PROFILE" >&2 || true
             exit 1
         fi
-        echo "notarised: submission $submission accepted"
+        echo "notarised ${1##*/}: submission $submission accepted"
+    }
+    # The two signed binaries, the helper bundle, and Wisp.app, zipped, in one submission. A bare executable cannot
+    # carry a stapled ticket, so Gatekeeper fetches its ticket online the first time it meets one; the app is stapled,
+    # so it opens offline.
+    rm -rf "$OUT/notarise" "$OUT/notarise.zip"; mkdir -p "$OUT/notarise"
+    cp "$OUT/stage/wisp" "$OUT/stage/wisp-tui" "$OUT/notarise/"
+    ditto "$OUT/stage/Wisp Notifier.app" "$OUT/notarise/Wisp Notifier.app"
+    ditto "$OUT/Wisp.app" "$OUT/notarise/Wisp.app"
+    ditto -c -k --keepParent "$OUT/notarise" "$OUT/notarise.zip"
+    notarise "$OUT/notarise.zip"
+    [ "$DRY_RUN" = "--dry-run" ] || xcrun stapler staple -q "$OUT/Wisp.app"
+    # Then the disk image holding the stapled app, signed, notarised, and stapled in its turn (ADR 0072).
+    echo "==> DMG"
+    WISP_SIGN_IDENTITY="$SIGN_IDENTITY" scripts/wisp-dmg "$OUT/Wisp.app" "$OUT/$DMG" "$VERSION" >/dev/null
+    notarise "$OUT/$DMG"
+    if [ "$DRY_RUN" != "--dry-run" ]; then
+        xcrun stapler staple -q "$OUT/$DMG"
+        spctl -a -t open --context context:primary-signature "$OUT/$DMG" \
+            || { echo "Gatekeeper does not accept $DMG after notarisation" >&2; exit 1; }
     fi
 fi
 
@@ -232,13 +266,20 @@ echo "==> package"
 {
     printf '%s\n\n' "$NOTES"
     if [ -n "$SIGN_IDENTITY" ]; then
-        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. The binaries in the tarball are signed with a Developer ID and notarised by Apple, so a direct download runs too.\n'
+        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`, or download `%s` and drag Wisp.app to Applications. Everything is signed with a Developer ID and notarised by Apple, so the tarball runs when downloaded directly too.\n' "$DMG"
     else
         printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
     fi
 } > "$OUT/notes.md"
 (cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib "Wisp Notifier.app" LICENSE)
 (cd "$OUT" && shasum -a 256 "$TARBALL" > "$TARBALL.sha256")
+# The assets the GitHub release carries: the tarball, and for a signed release the DMG, each with its checksum.
+ASSETS="$OUT/$TARBALL $OUT/$TARBALL.sha256"
+if [ -n "$SIGN_IDENTITY" ]; then
+    (cd "$OUT" && shasum -a 256 "$DMG" > "$DMG.sha256")
+    ASSETS="$ASSETS $OUT/$DMG $OUT/$DMG.sha256"
+    ls -la "$OUT/$DMG"
+fi
 SHA="$(cut -d' ' -f1 "$OUT/$TARBALL.sha256")"
 ls -la "$OUT/$TARBALL"; echo "sha256 $SHA"
 
@@ -309,8 +350,8 @@ recovery() {
         esac
         case "$STEP" in
             tag | push | release)
-                echo "    if gh release view $TAG >/dev/null 2>&1; then gh release upload $TAG '$OUT/$TARBALL' '$OUT/$TARBALL.sha256' --clobber;"
-                echo "    else gh release create $TAG '$OUT/$TARBALL' '$OUT/$TARBALL.sha256' --title 'wisp $VERSION' --notes-file '$OUT/notes.md'; fi"
+                echo "    if gh release view $TAG >/dev/null 2>&1; then gh release upload $TAG $ASSETS --clobber;"
+                echo "    else gh release create $TAG $ASSETS --title 'wisp $VERSION' --notes-file '$OUT/notes.md'; fi"
                 ;;
         esac
         echo "    sh -c \"$TAP_PUBLISH\""
@@ -325,8 +366,8 @@ remote git tag -a "$TAG" -m "wisp $VERSION"
 STEP=push
 remote git push origin "$TAG"
 STEP=release
-remote gh release create "$TAG" "$OUT/$TARBALL" "$OUT/$TARBALL.sha256" --title "wisp $VERSION" \
-    --notes-file "$OUT/notes.md"
+# shellcheck disable=SC2086 # $ASSETS is split into paths on purpose; none has a space (they are under $OUT)
+remote gh release create "$TAG" $ASSETS --title "wisp $VERSION" --notes-file "$OUT/notes.md"
 
 echo "==> tap formula"
 STEP=tap

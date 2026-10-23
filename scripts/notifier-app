@@ -1,8 +1,8 @@
 #!/bin/sh
 # Wrap the WispNotifier executable in Wisp Notifier.app (ADR 0070) and sign it: with the Developer ID named by
 # WISP_SIGN_IDENTITY when it is set (hardened runtime, secure timestamp), ad hoc otherwise, which seals the
-# Info.plist and the icon with the executable. The icon is built here from harness/Notifier/AppIcon-1024.png, the
-# committed source (ADR 0070 says how it was made): every size macOS asks for, by sips, packed by iconutil.
+# Info.plist and the icon with the executable. The icon is built here, by scripts/app-icon, from
+# harness/Notifier/AppIcon-1024.png, the committed source (ADR 0070 says how it was made).
 # Usage: scripts/notifier-app <WispNotifier executable> <directory to put the bundle in> <version>
 # The release runs it on the stripped release build; for a debug build beside harness/.build/debug/wisp:
 #   scripts/notifier-app harness/.build/debug/WispNotifier harness/.build/debug 0.0.0
@@ -22,14 +22,7 @@ APP="$DIRECTORY/Wisp Notifier.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/WispNotifier"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-mkdir "$WORK/AppIcon.iconset"
-for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" "$ICON_SOURCE" --out "$WORK/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
-    sips -z "$((size * 2))" "$((size * 2))" "$ICON_SOURCE" --out "$WORK/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
+"$ROOT/scripts/app-icon" "$ICON_SOURCE" "$APP/Contents/Resources/AppIcon.icns"
 # LSUIElement: no Dock icon and no menu bar; the bundle identifier is permanent, since macOS keeps the person's
 # permission under it.
 cat > "$APP/Contents/Info.plist" <<PLIST

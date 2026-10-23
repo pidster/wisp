@@ -1,8 +1,8 @@
 # ADR 0072: A DMG holding Wisp.app, and each package declaring its layout
 
 Date: 2026-10-23. Status: accepted by the operator on 2026-10-23 (the declared layout and `Wisp.app`'s layout; the
-home's location left open, below); the declared layout built 2026-10-23 for 0.31.0, `Wisp.app` and the DMG to follow
-in the same release. Amends [ADR 0012](0012-homebrew-release.md) (a second package beside the formula) and
+home's location left open, below); the declared layout, and `Wisp.app` and the DMG in the release (`scripts/wisp-app`,
+`scripts/wisp-dmg`), built 2026-10-23 for 0.31.0. Amends [ADR 0012](0012-homebrew-release.md) (a second package beside the formula) and
 [ADR 0047](0047-mlx-in-the-release.md) (where `Wisp.app` keeps the Metal library).
 
 ## Context
@@ -63,5 +63,9 @@ Probed on this Mac on 2026-10-23, with 0.30.1's signed release build in a `Wisp.
 - The formula gains a file in `libexec`; an install from 0.30.1 or earlier has none and searches as before.
 - `Wisp.app` started through a link finds its library only because `wisp` opens its bundle first; a future MLX that
   stops searching the opened bundles would fail the doctor's `MLX` finding, not silently.
-- What the DMG holds, how it is signed and notarised, `wisp install`, and `wisp update` are built in the stages that
-  follow, each with its own commit.
+- A signed release builds the DMG: `Wisp.app`, a link to `/Applications`, and a read-me, the app notarised with the
+  binaries and stapled, then the image signed, notarised, and stapled. An unsigned release (`--unsigned`) builds
+  neither, since Gatekeeper refuses an app signed ad hoc that was downloaded.
+- What opening `Wisp.app` from the Finder does, `wisp install`, and `wisp update` are built in the stages that follow.
+  Opening it from the Finder today starts `wisp` with no terminal, which exits; `LSUIElement` keeps it out of the
+  Dock.

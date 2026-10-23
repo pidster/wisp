@@ -1,0 +1,78 @@
+#!/bin/sh
+# Assemble Wisp.app from a release stage and sign it (ADR 0072): wisp, the app's executable, and wisp-tui in
+# Contents/MacOS; Wisp Notifier.app, already built and signed by scripts/notifier-app, in Contents/Helpers; MLX's Metal
+# library in Contents/Resources/mlx-swift_Cmlx.bundle, where MLX looks once wisp has opened its own bundle, since a
+# data file in Contents/MacOS breaks the app's signature. The Info.plist declares where each part is (WispLayout),
+# which wisp and its doctor's package finding read. Signed inside out with the Developer ID named by
+# WISP_SIGN_IDENTITY when it is set (hardened runtime, secure timestamp), ad hoc otherwise.
+# Usage: scripts/wisp-app <stage directory> <directory to put the app in> <version>
+# The stage holds wisp, wisp-tui, mlx.metallib, and Wisp Notifier.app, as scripts/release stages them.
+set -eu
+
+[ "$#" -eq 3 ] || { echo "usage: scripts/wisp-app <stage directory> <directory> <version>" >&2; exit 64; }
+STAGE="$1"
+DIRECTORY="$2"
+VERSION="$3"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+for part in wisp wisp-tui mlx.metallib "Wisp Notifier.app"; do
+    [ -e "$STAGE/$part" ] || { echo "no $part in $STAGE" >&2; exit 1; }
+done
+[ -d "$DIRECTORY" ] || { echo "no directory $DIRECTORY" >&2; exit 1; }
+
+APP="$DIRECTORY/Wisp.app"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/mlx-swift_Cmlx.bundle"
+cp "$STAGE/wisp" "$STAGE/wisp-tui" "$APP/Contents/MacOS/"
+ditto "$STAGE/Wisp Notifier.app" "$APP/Contents/Helpers/Wisp Notifier.app"
+cp "$STAGE/mlx.metallib" "$APP/Contents/Resources/mlx-swift_Cmlx.bundle/default.metallib"
+"$ROOT/scripts/app-icon" "$ROOT/harness/Notifier/AppIcon-1024.png" "$APP/Contents/Resources/AppIcon.icns"
+# LSUIElement: no Dock icon when the Finder opens it. WispLayout's paths are relative to Contents/MacOS, where wisp is.
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.pidster.wisp</string>
+    <key>CFBundleName</key>
+    <string>Wisp</string>
+    <key>CFBundleDisplayName</key>
+    <string>Wisp</string>
+    <key>CFBundleExecutable</key>
+    <string>wisp</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$VERSION</string>
+    <key>CFBundleVersion</key>
+    <string>$VERSION</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>27.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>WispLayout</key>
+    <dict>
+        <key>frontEnd</key>
+        <string>wisp-tui</string>
+        <key>notifier</key>
+        <string>../Helpers/Wisp Notifier.app</string>
+        <key>metalLibrary</key>
+        <string>../Resources/mlx-swift_Cmlx.bundle/default.metallib</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+plutil -lint -s "$APP/Contents/Info.plist"
+# Inside out: the helper keeps the signature scripts/notifier-app gave it; wisp-tui, then the app, whose signature
+# covers its executable, wisp, and seals the resources.
+if [ -n "${WISP_SIGN_IDENTITY:-}" ]; then
+    codesign --force --options runtime --timestamp --sign "$WISP_SIGN_IDENTITY" "$APP/Contents/MacOS/wisp-tui"
+    codesign --force --options runtime --timestamp --sign "$WISP_SIGN_IDENTITY" "$APP"
+else
+    codesign --force --sign - "$APP/Contents/MacOS/wisp-tui"
+    codesign --force --sign - "$APP"
+fi
+codesign --verify --strict --deep "$APP"
+printf '%s\n' "$APP"

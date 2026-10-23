@@ -1,0 +1,43 @@
+#!/bin/sh
+# Pack Wisp.app into a compressed disk image (ADR 0072): the app, a link to /Applications to drag it onto, and a short
+# read-me. Signed with the Developer ID named by WISP_SIGN_IDENTITY when it is set; the release then notarises and
+# staples it.
+# Usage: scripts/wisp-dmg <Wisp.app> <destination .dmg> <version>
+set -eu
+
+[ "$#" -eq 3 ] || { echo "usage: scripts/wisp-dmg <Wisp.app> <destination .dmg> <version>" >&2; exit 64; }
+APP="$1"
+DMG="$2"
+VERSION="$3"
+[ -d "$APP/Contents/MacOS" ] || { echo "no app at $APP" >&2; exit 1; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+CONTENT="$WORK/Wisp $VERSION"
+mkdir "$CONTENT"
+ditto "$APP" "$CONTENT/Wisp.app"
+ln -s /Applications "$CONTENT/Applications"
+cat > "$CONTENT/Read Me.txt" <<README
+Wisp $VERSION
+
+1. Drag Wisp.app onto Applications.
+2. In a terminal, put wisp on your PATH, for instance:
+
+     mkdir -p ~/.local/bin
+     ln -sf /Applications/Wisp.app/Contents/MacOS/wisp ~/.local/bin/wisp
+     ln -sf /Applications/Wisp.app/Contents/MacOS/wisp-tui ~/.local/bin/wisp-tui
+
+   and add ~/.local/bin to PATH if it is not there.
+3. Run: wisp doctor
+
+wisp keeps its state in ~/.wisp, shared with a Homebrew install of wisp.
+Documentation: https://wisp.pidster.com/docs/
+README
+rm -f "$DMG"
+hdiutil create -quiet -volname "Wisp $VERSION" -srcfolder "$CONTENT" -fs APFS -format UDZO "$DMG"
+if [ -n "${WISP_SIGN_IDENTITY:-}" ]; then
+    codesign --force --timestamp --sign "$WISP_SIGN_IDENTITY" "$DMG"
+    codesign --verify --strict "$DMG"
+fi
+hdiutil verify -quiet "$DMG"
+printf '%s\n' "$DMG"
