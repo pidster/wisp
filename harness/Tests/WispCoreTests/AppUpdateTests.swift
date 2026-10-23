@@ -200,6 +200,206 @@ import Testing
         #expect(try marker(installed) == "new")
     }
 
+    /// The whole update with folders for the image and the app: replaced, refused by the system, and stopped by a
+    /// check, each audited, the image unmounted every time.
+    @Test func updatesFromAnImageAndAuditsTheOutcome() async throws {
+        let root = try Self.scratch()
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o755], ofItemAtPath: root.appending(path: "Applications").path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        func app(at url: URL, marker: String) throws {
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
+            try Data(marker.utf8).write(to: url.appending(path: "Contents/MacOS/wisp"))
+        }
+        let installed = root.appending(path: "Applications/Wisp.app")
+        try app(at: installed, marker: "old")
+        let mounted = root.appending(path: "mounted")
+        try app(at: mounted.appending(path: "Wisp.app"), marker: "new")
+        let image = root.appending(path: "Wisp-0.31.1.dmg")
+        try Data("image".utf8).write(to: image)
+        let sum = root.appending(path: "Wisp-0.31.1.dmg.sha256")
+        try Data("\(try AppUpdate.sha256(of: image))  Wisp-0.31.1.dmg\n".utf8).write(to: sum)
+        let release = AppUpdate.Release(version: "0.31.1", image: image, checksum: sum, page: nil)
+        let sink = MemoryAuditSink()
+        let audit = AuditLog(session: "s", sink: sink)
+        let unmounted = Counter()
+        func steps(
+            holding folder: URL = mounted, verify: @escaping (URL, String) throws -> Void = { _, _ in }
+        )
+            -> AppUpdate.Steps
+        {
+            AppUpdate.Steps(mount: { _ in folder }, unmount: { _ in unmounted.add() }, verify: verify)
+        }
+        let downloads = root.appending(path: "Downloads")
+        let replaced = try await AppUpdate.update(
+            installed, to: release, downloads: downloads, audit: audit, source: "cli", note: { _ in },
+            steps: steps())
+        #expect(replaced == .replaced(app: installed, from: WispVersion.current, to: "0.31.1"))
+        let marker = {
+            String(decoding: try Data(contentsOf: installed.appending(path: "Contents/MacOS/wisp")), as: UTF8.self)
+        }
+        #expect(try marker() == "new" && unmounted.value == 1)
+        #expect(sink.events.last?.details["outcome"] == "replaced" && sink.events.last?.kind == .updateInstall)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555], ofItemAtPath: root.appending(path: "Applications").path)
+        let blocked = try await AppUpdate.update(
+            installed, to: release, downloads: downloads, audit: audit, source: "finder", note: { _ in },
+            steps: steps())
+        guard case .blocked(let reason, let kept) = blocked else {
+            Issue.record("not blocked: \(blocked)")
+            return
+        }
+        #expect(reason.hasSuffix("is not writable by you") && kept.lastPathComponent == "Wisp-0.31.1.dmg")
+        #expect(sink.events.last?.details["outcome"] == "blocked" && sink.events.last?.details["source"] == "finder")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: root.appending(path: "Applications").path)
+
+        await #expect(throws: AppUpdate.Failure.image("it holds no Wisp.app")) {
+            try await AppUpdate.update(
+                installed, to: release, downloads: downloads, audit: audit, source: "cli", note: { _ in },
+                steps: steps(holding: root.appending(path: "Downloads")))
+        }
+        await #expect(throws: AppUpdate.Failure.notTrusted("no")) {
+            try await AppUpdate.update(
+                installed, to: release, downloads: downloads, audit: audit, source: "cli", note: { _ in },
+                steps: steps { _, _ in throw AppUpdate.Failure.notTrusted("no") })
+        }
+        #expect(sink.events.last?.details["outcome"] == "failed" && sink.events.last?.details["reason"] != .null)
+        #expect(try marker() == "new" && unmounted.value == 4)
+    }
+
+    /// The real check refuses an app that is not wisp's, not the release's version, or not signed; the real mount
+    /// refuses a file that is not a disk image.
+    @Test func theRealChecksRefuseWhatIsNotARelease() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        func app(identifier: String, version: String) throws -> URL {
+            let url = root.appending(path: "\(UUID().uuidString).app")
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
+            let info: [String: Any] = [
+                "CFBundleIdentifier": identifier, "CFBundleShortVersionString": version, "CFBundleExecutable": "wisp",
+            ]
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+                .write(to: url.appending(path: "Contents/Info.plist"))
+            try Data("#!/bin/sh\n".utf8).write(to: url.appending(path: "Contents/MacOS/wisp"))
+            return url
+        }
+        func reason(_ app: URL, _ version: String) -> String? {
+            do {
+                try AppUpdate.verify(app: app, version: version)
+                return nil
+            } catch {
+                return "\(error)"
+            }
+        }
+        #expect(
+            reason(try app(identifier: "com.example.other", version: "0.31.1"), "0.31.1")?.contains("com.example.other")
+                == true)
+        #expect(
+            reason(try app(identifier: AppUpdate.bundleIdentifier, version: "0.31.0"), "0.31.1")?.contains(
+                "version 0.31.0") == true)
+        let unsigned = reason(try app(identifier: AppUpdate.bundleIdentifier, version: "0.31.1"), "0.31.1")
+        #expect(unsigned?.hasPrefix("the app in the disk image was refused") == true, "\(unsigned ?? "passed")")
+        let notAnImage = root.appending(path: "x.dmg")
+        try Data("not an image".utf8).write(to: notAnImage)
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.attach(notAnImage) }
+        #expect(AppUpdate.run("/nonexistent/tool", []).status == -1)
+        let folder = root.appending(path: "not-mounted")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        AppUpdate.detach(folder)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// The request a check makes, answered in-process: GitHub's API, the user agent `wisp`, and its answer read; an
+    /// error status is a network failure. Nothing reaches the network.
+    @Test func asksGitHubForTheLatestRelease() async throws {
+        #expect(URLProtocol.registerClass(GitHubStub.self))
+        defer { URLProtocol.unregisterClass(GitHubStub.self) }
+        let release = try await AppUpdate.fetchLatest()
+        #expect(release.version == "0.31.1")
+        let seen = try #require(GitHubStub.seen.withLock { $0 })
+        #expect(seen.url == AppUpdate.latestRelease && seen.agent == "wisp")
+        #expect(AppInstall.volumeIsReadOnly(FileManager.default.temporaryDirectory) == false)
+        GitHubStub.status.withLock { $0 = 503 }
+        defer { GitHubStub.status.withLock { $0 = 200 } }
+        await #expect(throws: AppUpdate.Failure.network("HTTP 503")) { try await AppUpdate.fetchLatest() }
+        // A checksum that cannot be fetched stops the download before anything is saved.
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let missing = AppUpdate.Release(
+            version: "0.31.1", image: root.appending(path: "a.dmg"), checksum: root.appending(path: "none.sha256"),
+            page: nil)
+        await #expect(throws: AppUpdate.Failure.self) {
+            try await AppUpdate.download(missing, into: root, note: { _ in })
+        }
+    }
+
+    /// Each failure says what stopped, as the person reads it; an error that is not wisp's is a network failure.
+    @Test func failuresSayWhatStopped() async throws {
+        let said: [AppUpdate.Failure: String] = [
+            .network("offline"): "cannot reach GitHub: offline",
+            .unreadable("not a release"): "GitHub's answer could not be read: not a release",
+            .noImage("0.30.1"): "the release 0.30.1 has no disk image",
+            .checksum(expected: "a", found: "b"): "the disk image's sha256 is b, not the published a; it was not used",
+            .image("it holds no Wisp.app"): "the disk image: it holds no Wisp.app",
+            .notTrusted("x"): "the app in the disk image was refused: x",
+            .refused("move it"): "move it",
+            .io("cannot save"): "cannot save",
+        ]
+        for (failure, text) in said { #expect("\(failure)" == text) }
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = await AppUpdate.check(home: Home(root: root), source: "cli", audit: nil) {
+            throw URLError(.notConnectedToInternet)
+        }
+        #expect(result.failure.map { "\($0)" }?.hasPrefix("cannot reach GitHub:") == true)
+    }
+
+    /// What goes wrong on the way is said, and nothing is left behind: a new app that is not there, an installed app
+    /// that is not there to swap, a file that cannot be read, and a checksum file that holds no checksum.
+    @Test func stepsThatFailSayWhy() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let installed = root.appending(path: "Wisp.app")
+        let new = root.appending(path: "New.app")
+        try FileManager.default.createDirectory(at: new, withIntermediateDirectories: true)
+        func failure(_ body: () throws -> String?) -> String {
+            do {
+                return "returned \(try body() ?? "nil")"
+            } catch {
+                return "\(error)"
+            }
+        }
+        #expect(
+            failure {
+                try AppUpdate.replace(installed, with: root.appending(path: "Gone.app"), version: "1") { _, _ in }
+            }
+            .hasPrefix("cannot copy the new app beside the old"))
+        #expect(
+            failure { try AppUpdate.replace(installed, with: new, version: "1") { _, _ in } }
+                .hasPrefix("cannot put the new app in place"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted() == ["New.app"])
+        #expect(AppUpdate.isRefusal(EPERM) && AppUpdate.isRefusal(EROFS) && !AppUpdate.isRefusal(ENOENT))
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.sha256(of: root.appending(path: "none")) }
+        let image = root.appending(path: "a.dmg")
+        try Data("image".utf8).write(to: image)
+        let sum = root.appending(path: "a.sha256")
+        try Data("not a checksum\n".utf8).write(to: sum)
+        let release = AppUpdate.Release(version: "0.31.1", image: image, checksum: sum, page: nil)
+        await #expect(throws: AppUpdate.Failure.unreadable("the sha256 file")) {
+            try await AppUpdate.download(release, into: root.appending(path: "Downloads"), note: { _ in })
+        }
+        // Outside an app, opening the app bundle does nothing.
+        PackageLayout.openAppBundle()
+        #expect(AppInstall.Source.translocated(installed).refusal?.contains("temporary copy") == true)
+        #expect(AppInstall.Source.elsewhere.refusal?.contains("not in Wisp.app") == true)
+    }
+
     @Test func onlyTheAppUpdatesItself() throws {
         let app = URL(filePath: "/Applications/Wisp.app")
         #expect(try AppUpdate.app(of: .app(app)) == app)
@@ -233,4 +433,33 @@ private final class Notes: Sendable {
     private let storage = Mutex<[String]>([])
     var lines: [String] { storage.withLock { $0 } }
     @Sendable func add(_ line: String) { storage.withLock { $0.append(line) } }
+}
+
+/// Answers GitHub's API in-process with `AppUpdateTests`' release, and records the request.
+private final class GitHubStub: URLProtocol {
+    /// The last request's address and user agent.
+    static let seen = Mutex<(url: String, agent: String?)?>(nil)
+    /// The status it answers with.
+    static let status = Mutex(200)
+
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "api.github.com" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.seen.withLock {
+            $0 = (request.url?.absoluteString ?? "", request.value(forHTTPHeaderField: "User-Agent"))
+        }
+        let body = Data(
+            #"{"tag_name": "v0.31.1", "assets": [{"name": "Wisp-0.31.1.dmg", "browser_download_url": "https://example.com/a"}]}"#
+                .utf8)
+        guard let url = request.url,
+            let response = HTTPURLResponse(
+                url: url, statusCode: Self.status.withLock { $0 }, httpVersion: nil, headerFields: nil)
+        else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

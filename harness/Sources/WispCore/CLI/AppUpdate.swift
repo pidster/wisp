@@ -62,7 +62,7 @@ public enum AppUpdate {
     }
 
     /// Why a check or an update stopped.
-    public enum Failure: Error, CustomStringConvertible, Equatable {
+    public enum Failure: Error, CustomStringConvertible, Hashable {
         /// GitHub could not be reached, or answered with an error.
         case network(String)
         /// GitHub's answer was not a release wisp can read.
@@ -549,6 +549,37 @@ public enum AppUpdate {
         _ app: URL, to release: Release, downloads: URL, audit: AuditLog?, source: String,
         note: @Sendable (String) -> Void
     ) async throws -> Outcome {
+        try await update(
+            app, to: release, downloads: downloads, audit: audit, source: source, note: note,
+            steps: Steps(mount: attach, unmount: detach, verify: verify(app:version:)))
+    }
+
+    /// The steps of an update that need a disk image or a notarised app, which a test replaces with folders.
+    struct Steps {
+        /// Mounts an image and returns where.
+        var mount: (URL) throws -> URL
+        /// Unmounts it.
+        var unmount: (URL) -> Void
+        /// Checks an app is the release's.
+        var verify: (URL, String) throws -> Void
+    }
+
+    /// `update(_:to:downloads:audit:source:note:)` with its steps given.
+    ///
+    /// - Parameters:
+    ///   - app: The installed `Wisp.app`.
+    ///   - release: The newer release.
+    ///   - downloads: `~/Downloads`.
+    ///   - audit: Where the `update.install` event goes, or nil.
+    ///   - source: Who asked, for the audit.
+    ///   - note: Says what is happening.
+    ///   - steps: Mounting, unmounting, and checking.
+    /// - Returns: What was done.
+    /// - Throws: `Failure` when the update stopped before anything was changed.
+    static func update(
+        _ app: URL, to release: Release, downloads: URL, audit: AuditLog?, source: String,
+        note: @Sendable (String) -> Void, steps: Steps
+    ) async throws -> Outcome {
         func record(_ outcome: String, reason: String?, image: URL?) {
             audit?.record(
                 .updateInstall,
@@ -562,13 +593,13 @@ public enum AppUpdate {
         do {
             let downloaded = try await download(release, into: downloads, note: note)
             image = downloaded
-            let point = try attach(downloaded)
-            defer { detach(point) }
+            let point = try steps.mount(downloaded)
+            defer { steps.unmount(point) }
             let new = point.appending(path: "Wisp.app")
             guard FileManager.default.fileExists(atPath: new.path) else { throw Failure.image("it holds no Wisp.app") }
-            try verify(app: new, version: release.version)
+            try steps.verify(new, release.version)
             note("checked: Wisp.app \(release.version), signed by \(teamIdentifier) and notarised")
-            if let refusal = try replace(app, with: new, version: release.version) {
+            if let refusal = try replace(app, with: new, version: release.version, verify: steps.verify) {
                 record("blocked", reason: refusal, image: downloaded)
                 return .blocked(reason: refusal, image: downloaded)
             }
