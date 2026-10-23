@@ -53,6 +53,40 @@ import WispTestSupport
         #expect(!Prompting().rendered(toolsAvailable: false, sandbox: note()).contains("sandbox"))
     }
 
+    /// The current directory is the project commands may write in, unless it is a privileged folder (ADR 0077): the
+    /// home folder or above it, the home's Library, the volumes' mount point, or a system folder.
+    @Test func aPrivilegedFolderGivesNoProjectFolder() {
+        let home = "/Users/me"
+        for project in [
+            "/Users/me/src/wisp", "/Users/me/Documents", "/Volumes/Disk/work", "/private/tmp/x", "/srv/app",
+        ] {
+            #expect(CommandPolicy.privilegedFolder(project, home: home) == nil, "\(project)")
+            #expect(CommandPolicy.projectRoot(project, home: home) == CommandPolicy.canonical(project))
+        }
+        let privileged = [
+            "/Users/me": "your home folder", "/Users": "/Users, above your home folder",
+            "/": "/, above your home folder",
+            "/Users/me/Library/Keychains": "/Users/me/Library/Keychains, in your Library folder",
+            "/Volumes": "/Volumes, where every disk is mounted", "/System/Library": "/System/Library, a system folder",
+            "/usr/local/bin": "/usr/local/bin, a system folder", "/private/etc": "/private/etc, a system folder",
+        ]
+        for (folder, reason) in privileged {
+            #expect(CommandPolicy.privilegedFolder(folder, home: home) == reason, "\(folder)")
+            #expect(CommandPolicy.projectRoot(folder, home: home) == nil)
+        }
+        // The sandbox's writable set leaves it out, and the note says why.
+        let policy = CommandPolicy()
+        let roots = policy.writableRoots(writableRoot: home, temporaryDirectory: "/private/tmp/t", home: home)
+        #expect(!roots.contains(home) && roots.first == "/private/tmp/t")
+        let note = CommandRunner.sandboxNote(
+            enabled: true, nested: false, root: home, writablePaths: [], network: true, outside: false, home: home)
+        #expect(
+            note == "Commands run in a sandbox: they can read any file, but write only under the temporary folder; the "
+                + "network is on. wisp was started in your home folder, so it gives no project folder: start it in a "
+                + "project to let commands write there. A write elsewhere fails with \"Operation not permitted\": say so."
+        )
+    }
+
     /// A thread with `run_command` is told its runner's sandbox; one without it is not.
     @Test func aThreadWithRunCommandIsToldTheSandbox() async throws {
         let home = Home(

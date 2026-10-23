@@ -503,7 +503,7 @@ public struct CommandRunner: Sendable {
             enabled: options.policy.sandbox.enabled, nested: Self.isNestedSandbox, root: options.writableRoot,
             writablePaths: options.policy.sandbox.writablePaths, network: options.policy.sandbox.allowNetwork,
             outside: options.policy.sandbox.allowOutsideSandbox,
-            home: FileManager.default.homeDirectoryForCurrentUser.path)
+            home: CommandPolicy.canonical(FileManager.default.homeDirectoryForCurrentUser.path))
     }
 
     /// The sandbox note for these settings: where commands may write, whether the network is on, and what a refused
@@ -532,11 +532,19 @@ public struct CommandRunner: Sendable {
             let expanded = path.hasPrefix("~") ? home + path.dropFirst() : path
             return expanded == home || expanded.hasPrefix(home + "/") ? "~" + expanded.dropFirst(home.count) : expanded
         }
-        let places = [shown(root), "the temporary folder"] + writablePaths.map(shown)
-        let listed = places.dropLast().joined(separator: ", ") + ", and " + (places.last ?? "")
+        let project = CommandPolicy.projectRoot(root, home: home)
+        let places = (project.map { [shown($0)] } ?? []) + ["the temporary folder"] + writablePaths.map(shown)
+        let listed =
+            places.count == 1 ? places[0] : places.dropLast().joined(separator: ", ") + ", and " + (places.last ?? "")
+        // Started in a privileged folder, there is no project folder (ADR 0077); the note says why.
+        let started =
+            CommandPolicy.privilegedFolder(root, home: home).map {
+                " wisp was started in \($0), so it gives no project folder: start it in a project to let commands "
+                    + "write there."
+            } ?? ""
         return "Commands run in a sandbox: they can read any file, but write only under \(listed); the network is "
-            + (network ? "on" : "off") + ". " + refused.replacingOccurrences(of: "it refuses", with: "elsewhere")
-            + asking
+            + (network ? "on" : "off") + "." + started + " "
+            + refused.replacingOccurrences(of: "it refuses", with: "elsewhere") + asking
     }
 
     /// The canonical directories commands may write under, as the sandbox's profile names them.

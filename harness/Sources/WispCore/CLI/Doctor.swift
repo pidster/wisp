@@ -337,9 +337,19 @@ public struct Doctor: Sendable {
     private func sandboxExec() -> Finding {
         let path = "/usr/bin/sandbox-exec"
         let present = FileManager.default.isExecutableFile(atPath: path)
-        return Finding(
-            name: "sandbox", ok: present,
-            detail: present ? "\(path) present" : "\(path) missing; run_command cannot be sandboxed")
+        guard present else {
+            return Finding(name: "sandbox", ok: false, detail: "\(path) missing; run_command cannot be sandboxed")
+        }
+        let root = resolvedConfig.runner.writableRoot
+        // Started in a privileged folder, commands get no project folder (ADR 0077).
+        if let reason = CommandPolicy.privilegedFolder(root, home: FileManager.default.homeDirectoryForCurrentUser.path)
+        {
+            return Finding(
+                name: "sandbox", ok: true,
+                detail: "\(path) present; started in \(reason), so commands write only to the temporary folders: "
+                    + "start wisp in a project to let them write there")
+        }
+        return Finding(name: "sandbox", ok: true, detail: "\(path) present; commands write under \(root)")
     }
 
     private func config() -> Finding {

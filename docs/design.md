@@ -610,7 +610,7 @@ nothing.
 `CommandPolicy` patterns, consults `ApprovalGate` (rules plus a classifier, the shipped Core ML one by default, ask at
 `moderate` and above through an `Approver` per entry point), then spawns `/bin/sh -c` in its own process
 group (`posix_spawn`, with `POSIX_SPAWN_CLOEXEC_DEFAULT` so the child holds descriptors 0, 1, and 2 alone) under
-`sandbox-exec` with a profile rooted at the launch directory, captures stdout and stderr separately into
+`sandbox-exec` with a profile rooted at the launch directory (none in a privileged folder, `CommandPolicy.projectRoot`, ADR 0077), captures stdout and stderr separately into
 bounded buffers (`OutputBuffer`: the first and last `bound` bytes of each stream in memory, the whole stream
 spilled to the output store as it arrives once a byte would be dropped), kills the whole group on timeout (the
 limit from `CommandRunner.limit(for:requested:)`: the caller's request, `run_command`'s `timeoutSeconds` or the

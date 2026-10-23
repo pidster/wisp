@@ -31,7 +31,7 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 
 | The sandbox confines | It does not confine |
 | --- | --- |
-| **Writes**: only under the directory wisp was launched in, the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is. A command you approve to run outside the sandbox is not confined at all (below). | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
+| **Writes**: only under the directory wisp was launched in (none when that is a privileged folder: the home folder or above it, `~/Library`, or a system folder), the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is. A command you approve to run outside the sandbox is not confined at all (below). | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
 | **Network**, only if you set `sandbox.allowNetwork: false`. | **Network by default**: on, because builds fetch dependencies. |
 | **The process tree**: a timeout kills the whole group. | **Inter-process messaging and the rest of macOS**: unchanged. |
 

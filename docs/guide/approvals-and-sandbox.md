@@ -86,7 +86,9 @@ write succeeds only when the real file lands inside the writable set:
 wisp's own home, `~/.wisp`, is never writable to a sandboxed command, even when it lies inside that set, so a
 command cannot change your approvals, facts, configuration, or pending answers. The network is allowed unless
 `commandPolicy.sandbox.allowNetwork` is `false`. Start wisp from the project you want it to work on: that
-directory is the one it may change.
+directory is the one it may change. Started in your home folder, a folder above it, `~/Library`, or a system folder,
+it changes none: commands write only to the temporary folders, and the model and `wisp doctor` say so
+([ADR 0077](../decisions/0077-no-project-folder-in-privileged-folders.md)).
 
 ### A refused write
 

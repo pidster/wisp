@@ -77,10 +77,14 @@ The model is told its sandbox before its first command ([ADR 0076](../decisions/
 conversation with `run_command` has a note after wisp's system prompt, built from these settings, such as
 
 ```
-Commands run in a sandbox: they can read any file, but write only under ~/src/wisp, the temporary folder,
+Commands run in a sandbox: they can read any file, but write only under $PWD, the temporary folder,
 ~/Library/Caches, ~/.cargo/registry, and ~/.cargo/git; the network is on. A write elsewhere fails with
 "Operation not permitted": say so, or ask to run it with outsideSandbox, which the person approves.
 ```
+
+where `$PWD` stands for the directory wisp was started in, written out as its path. Started in a privileged folder (below), the note
+lists no project folder and adds that wisp was started in that folder, so it gives none: start it in a project to let
+commands write there.
 
 Without `allowNetwork` it says the network is off; without `allowOutsideSandbox` it does not offer the outside run;
 under `--unsafe` it says commands run without a sandbox; inside another sandbox, that that sandbox decides.
@@ -247,7 +251,11 @@ Seatbelt lets a process re-apply an identical profile but refuses a different on
 
 ### Writable root and working directory
 
-The sandbox's writable set is rooted at the directory wisp was launched in (`Options.writableRoot`),
+The sandbox's writable set is rooted at the directory wisp was launched in, its current directory
+(`Options.writableRoot`), unless that is a privileged folder: the home folder or above it, the home's `Library`,
+`/Volumes`, or a system folder (`/System`, `/Library`, `/Applications`, `/usr`, `/bin`, `/sbin`, `/opt`, `/private`
+but its temporary folders, `/dev`, `/cores`); there, there is no project folder, and the model and `wisp doctor` say
+so ([ADR 0077](../decisions/0077-no-project-folder-in-privileged-folders.md)). The set is that root,
 plus the temporary directory, the per-user cache directory, `/private/tmp`, and configured paths. A
 `workingDirectory` chosen by the
 model changes where the command runs, never what it may write: a command run in `/Users/me` with the

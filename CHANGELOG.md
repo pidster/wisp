@@ -11,6 +11,9 @@ Changed:
 - The model is told its sandbox before its first command: where commands may write, whether the network is on, and
   that it may ask to run one outside the sandbox, which you approve; built from your settings, and only when it has
   `run_command` (ADR 0076).
+- Started in your home folder, a folder above it, `~/Library`, or a system folder, wisp no longer lets commands or
+  `edit_file` write there: they write only to the temporary folders, and the model and `wisp doctor` say to start
+  wisp in a project. Before, started in `~`, commands could write anywhere in your home (ADR 0077).
 
 ## 0.31.1
 

@@ -220,10 +220,50 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     public func writableRoots(
         writableRoot: String, temporaryDirectory: String, userCacheDirectory: String? = nil, home: String
     ) -> [String] {
-        var writable = [writableRoot, temporaryDirectory, "/private/tmp"]
+        var writable = [temporaryDirectory, "/private/tmp"]
+        if let project = Self.projectRoot(writableRoot, home: home) { writable.insert(project, at: 0) }
         if let userCacheDirectory { writable.append(userCacheDirectory) }
         writable += sandbox.writablePaths.map { $0.hasPrefix("~") ? home + $0.dropFirst() : $0 }
         return writable.map { Self.canonical($0) }
+    }
+
+    /// The directory wisp was started in (`$PWD`), as the project commands may write in, or nil when it is a
+    /// privileged folder (`privilegedFolder`): commands then write only to the temporary folders and the configured
+    /// paths ([ADR 0077](../../../../docs/decisions/0077-no-project-folder-in-privileged-folders.md)). A path in
+    /// `commandPolicy.sandbox.writablePaths` makes such a folder writable for someone who wants it.
+    ///
+    /// - Parameters:
+    ///   - root: The launch directory.
+    ///   - home: The home directory.
+    /// - Returns: The root, canonical, or nil.
+    public static func projectRoot(_ root: String, home: String) -> String? {
+        privilegedFolder(root, home: home) == nil ? canonical(root) : nil
+    }
+
+    /// The system folders whose contents are never a project: macOS's own, the applications, the Unix tree, and the
+    /// volumes' mount point. `/private` holds `/etc` and `/var`; its temporary folders are writable anyway.
+    static let systemFolders = [
+        "/System", "/Library", "/Applications", "/usr", "/bin", "/sbin", "/opt", "/private", "/dev", "/cores",
+    ]
+
+    /// Why `root` is a privileged folder that gives no project folder, as the note and the doctor say it: the home
+    /// folder or above it (`/`, `/Users`, which would make the whole home writable), the home's `Library` (app data
+    /// and keychains), the volumes' mount point, or a system folder; nil for any other folder.
+    ///
+    /// - Parameters:
+    ///   - root: The launch directory.
+    ///   - home: The home directory.
+    /// - Returns: The reason, or nil.
+    public static func privilegedFolder(_ root: String, home: String) -> String? {
+        let project = canonical(root)
+        let home = canonical(home)
+        if project == home { return "your home folder" }
+        if contains(project, home) { return "\(project), above your home folder" }
+        if contains(home + "/Library", project) { return "\(project), in your Library folder" }
+        if project == "/Volumes" { return "/Volumes, where every disk is mounted" }
+        for temporary in ["/private/tmp", "/private/var/folders"] where contains(temporary, project) { return nil }
+        if systemFolders.contains(where: { contains($0, project) }) { return "\(project), a system folder" }
+        return nil
     }
 
     /// The canonical `paths` that lie under one of the canonical `roots` (or are one).
