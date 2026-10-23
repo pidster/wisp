@@ -97,6 +97,7 @@ A llama.cpp or LM Studio model's window is the one its server holds it at.
 wisp models --all                          # every model, with the reason any cannot be used
 wisp models disable ollama:llama3.2:3b     # hidden from /model and refused wherever a model is chosen
 wisp models enable ollama:llama3.2:3b
+wisp models uninstall ollama:llama3.2:3b   # removes it, after showing what goes and asking you to type its name
 ```
 
 The default model cannot be disabled until another is the default. Enabling an MLX or llama.cpp model whose
