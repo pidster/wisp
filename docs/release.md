@@ -10,7 +10,9 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
   `mlx.metallib`, `Wisp Notifier.app`, and the LICENSE) and `wisp-X.Y.Z-arm64.tar.gz.sha256`, whose notes are the `## X.Y.Z` section of
   `CHANGELOG.md` followed by the install line; and, for a signed release, `Wisp-X.Y.Z.dmg` with
   `Wisp-X.Y.Z.dmg.sha256`, a disk image holding `Wisp.app`, a link to `/Applications`, and a read-me
-  ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)).
+  ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)). `wisp update` finds the image and its checksum by
+  these exact names on the latest release, and checks the app's `CFBundleShortVersionString` against the tag
+  ([ADR 0074](decisions/0074-wisp-update.md)); renaming either breaks updates.
 - A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
   checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp`, `mlx.metallib`, and
   `Wisp Notifier.app` in the Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library

@@ -201,6 +201,9 @@ public struct ChatLoop {
         /// `/approvals approve|deny` and `/facts keep|drop` (ADR 0046, note of 2026-10-12); nil shows none, as in
         /// `wisp-tui`, which has its own dialog for them.
         public var pending: ChatPending?
+        /// A newer wisp's version when `updates.check` found one, read before each prompt for the status line
+        /// (ADR 0074); nil shows nothing.
+        public var update: (@Sendable () -> String?)?
 
         /// Creates a context.
         public init(
@@ -217,8 +220,9 @@ public struct ChatLoop {
             configOptions: (@Sendable (ConfigSettings.Setting) async -> [ChatChoice.Option])? = nil,
             approvalStore: ApprovalStore? = nil, activity: ChatActivity? = nil,
             shownOutputLines: Int = Config().resolved.shownOutputLines, interrupt: ChatInterrupt? = nil,
-            outputs: URL? = nil, pending: ChatPending? = nil
+            outputs: URL? = nil, pending: ChatPending? = nil, update: (@Sendable () -> String?)? = nil
         ) {
+            self.update = update
             self.outputs = outputs
             self.pending = pending
             self.interrupt = interrupt
@@ -316,7 +320,8 @@ public struct ChatLoop {
             model: agent.model.selection.description, directory: ChatStatus.abbreviated(context.directory),
             vcs: vcs.system?.rawValue, branch: vcs.branch, dirty: vcs.dirty, added: vcs.added, removed: vcs.removed,
             approval: context.approval,
-            contextUsed: used, thinking: Self.thinkingShown(agent.model, chosen: agent.thinking))
+            contextUsed: used, thinking: Self.thinkingShown(agent.model, chosen: agent.thinking),
+            update: context.update?())
     }
 
     /// Adds a typed line to `history`, trimmed, unless it is blank or repeats the line before it.

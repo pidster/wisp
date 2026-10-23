@@ -21,6 +21,7 @@ struct Wisp: AsyncParsableCommand {
             Redact.self, Watch.self,
             Draft.self,
             ClassifierCommand.self, CompletionsCommand.self, InstallCommand.self, UninstallCommand.self,
+            UpdateCommand.self,
         ],
         defaultSubcommand: Respond.self
     )
@@ -31,7 +32,7 @@ struct Wisp: AsyncParsableCommand {
     static func main() async {
         PackageLayout.openAppBundle()
         if FinderLaunch.isCurrent {
-            FinderLaunch.run()
+            await FinderLaunch.run()
             return
         }
         ModelBackends.register(CoreAIBackend())
@@ -435,7 +436,8 @@ struct Chat: AsyncParsableCommand {
                 // wisp approvals answers (ADR 0046).
                 pending: ChatPending(
                     channel: PendingApprovals(home: Wisp.home), facts: session.permanentFacts,
-                    auditFile: Wisp.home.auditFile, canAnswer: isatty(FileHandle.standardInput.fileDescriptor) != 0)),
+                    auditFile: Wisp.home.auditFile, canAnswer: isatty(FileHandle.standardInput.fileDescriptor) != 0),
+                update: Chat.updateShown(session: session)),
             style: style,
             io: .init(
                 readLine: { readLine() },
@@ -672,7 +674,8 @@ struct Chat: AsyncParsableCommand {
                 // chat's, as the person's, as its dialog does.
                 pending: ChatPending(
                     channel: PendingApprovals(home: Wisp.home), facts: session.permanentFacts, auditFile: nil,
-                    canAnswer: true, shows: false, via: "tui")),
+                    canAnswer: true, shows: false, via: "tui"),
+                update: Chat.updateShown(session: session)),
             io: .init(
                 readLine: { router.nextMessage() },
                 print: { send(ChatProtocol.encode("output", ["text": .string($0)])) },
@@ -764,6 +767,19 @@ struct Chat: AsyncParsableCommand {
         }
         let shown = opening.announcement(transcripts: ChatStatus.abbreviated(transcripts.directory.path))
         return (agent, thread, (fallback.map { [$0.message] } ?? []) + (shown.map { [$0] } ?? []))
+    }
+
+    /// With `updates.check` on (ADR 0074), asks GitHub in the background when a check is due, and returns what the
+    /// status line reads before each prompt: the newer version the last check found. Off, nil, and nothing is asked.
+    ///
+    /// - Parameter session: The session.
+    /// - Returns: The reader `ChatLoop.Context.update` takes.
+    static func updateShown(session: Session) -> (@Sendable () -> String?)? {
+        guard session.config.updatesCheck else { return nil }
+        let home = Wisp.home
+        let audit = session.audit
+        Task { await AppUpdate.checkIfDue(enabled: true, home: home, source: "chat", audit: audit) }
+        return { AppUpdate.state(home: home)?.newer(than: WispVersion.current) }
     }
 
     /// Opens the chat's agent on a saved thread for `/resume` (ADR 0066, phase 3), as `open` does at start: an agent's
@@ -1607,9 +1623,17 @@ struct DoctorCommand: AsyncParsableCommand {
 
     func run() async throws {
         let config = try? Session.loadConfig(home: Wisp.home)
-        let findings = await Doctor(
+        var findings = await Doctor(
             home: Wisp.home, model: config?.model ?? .default, config: config ?? Config().resolved
         ).check()
+        // With updates.check on, a check that is due is made now, under a session of its own for its audit (ADR 0074).
+        let checking = config?.updatesCheck ?? false
+        var state = AppUpdate.state(home: Wisp.home)
+        if checking, AppUpdate.isDue(state, now: Date()), let session = try? Wisp.begin(.init(entryPoint: .update)) {
+            state = await AppUpdate.check(home: Wisp.home, source: "doctor", audit: session.audit).state
+            session.end()
+        }
+        findings.append(AppUpdate.finding(enabled: checking, state: state))
         print("wisp \(WispVersion.display)")
         print(Doctor.render(findings))
         guard Doctor.allPassed(findings) else { throw ExitCode.failure }

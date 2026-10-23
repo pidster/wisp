@@ -88,6 +88,14 @@ model reads, and command output go to that machine. A llama.cpp or LM Studio key
 `WISP_LMSTUDIO_API_KEY`, or `apiKey` in `config.json`) is sent to that server alone, as `Authorization`, and
 never logged or shown ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
 
+wisp asks whether it is current only when you ask it to ([ADR 0074](decisions/0074-wisp-update.md)): `wisp update`
+and `wisp update --check` send one HTTPS request to GitHub's API for wisp's latest release, with the user agent
+`wisp` and nothing about you or your Mac beyond what any HTTPS request carries, and an update then downloads the disk
+image and its checksum from GitHub to `~/Downloads`. `updates.check`, off by default, makes the same request at most
+once a day, when a chat starts, `wisp doctor` runs, or `Wisp.app` is opened, and never installs; each check is an
+`update.check` event in the audit log. A downloaded image is used only when its checksum matches and its app is signed
+by wisp's team and notarised by Apple.
+
 If you choose `--model private-cloud`, prompts and tool output go to Apple's Private Cloud Compute under
 Apple's privacy guarantees. wisp prints a note on stderr when that model is selected and records it in
 every session's audit event. The risk classifier always runs on the Mac (the on-device model or a Core
@@ -259,6 +267,8 @@ not judge whether a conclusion follows from the output, and misses a result put 
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
+| `~/.wisp/update.json` | when `updates.check` last asked GitHub, and the version it named or why it failed | yours |
+| `~/Downloads/Wisp-X.Y.Z.dmg` and `.sha256` | the release `wisp update` downloaded, left for you to keep or delete | yours |
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |

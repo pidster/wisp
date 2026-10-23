@@ -116,6 +116,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case threadSwept
         case threadDeleted
         case threadHanded
+        case updateCheck
+        case updateInstall
         case mcpRequest
         case mcpResult
         case error
@@ -177,6 +179,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .threadSwept,
             .threadDeleted,
             .threadHanded,
+            .updateCheck,
+            .updateInstall,
             .mcpRequest,
             .mcpResult,
             .error,
@@ -238,6 +242,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .threadSwept: "thread.swept"
             case .threadDeleted: "thread.deleted"
             case .threadHanded: "thread.handed"
+            case .updateCheck: "update.check"
+            case .updateInstall: "update.install"
             case .mcpRequest: "mcp.request"
             case .mcpResult: "mcp.result"
             case .error: "error"

@@ -121,6 +121,7 @@ public struct Introspection: Sendable {
                 "outputDays": .int(config.contextOutputDays),
             ]),
             "threads": .object(["keepDays": .int(config.threadsKeepDays)]),
+            "updates": .object(["check": .bool(config.updatesCheck)]),
             "watch": .object(["settle": .double(config.watchSettle)]),
             "verification": .object(["mode": .string(config.verificationMode.rawValue)]),
             "backends": .object(

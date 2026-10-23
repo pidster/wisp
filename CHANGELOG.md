@@ -17,6 +17,10 @@ Added:
 - `wisp install` links `Wisp.app`'s `wisp` and `wisp-tui` into `~/.local/bin`, or a folder you name, with no
   administrator's password, and prints the line to add when the folder is not on your `PATH`; `wisp uninstall`
   removes them. Opening `Wisp.app` from the Finder offers to do it in a dialog (ADR 0073).
+- `wisp update` updates `Wisp.app`: it downloads the latest release's disk image to `~/Downloads`, checks its checksum
+  and that the app is signed by wisp's developer and notarised by Apple, and replaces the app; `--check` only says
+  whether one is out. `updates.check` (off by default) asks GitHub once a day and shows a newer version in
+  `wisp doctor`, the chat's status line, and the Finder dialog, which offers to update (ADR 0074).
 
 Changed:
 

@@ -123,6 +123,9 @@ pub struct Status {
     /// Whether the model thinks (`on`, `off`, a level, or `default`), for a model that can; `None` otherwise.
     #[serde(default)]
     pub think: Option<String>,
+    /// A newer wisp's version, when `updates.check` found one (ADR 0074); `None` otherwise.
+    #[serde(default)]
+    pub update: Option<String>,
 }
 
 /// One edge of a turn: a message to the model and everything it does to answer it.

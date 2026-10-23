@@ -1,8 +1,8 @@
 # wisp command reference
 
-`wisp` runs Apple's on-device Foundation Model with tools. It has twenty-one subcommands (`respond`,
+`wisp` runs Apple's on-device Foundation Model with tools. It has twenty-two subcommands (`respond`,
 `chat`, `tools`, `models`, `mcp`, `logs`, `config`, `doctor`, `approvals`, `facts`, `questions`, `threads`, `notify`, `scan`,
-`redact`, `watch`, `draft`, `classifier`, `completions`, `install`, `uninstall`), plus hidden maintainer ones under `classifier`; `respond` is the
+`redact`, `watch`, `draft`, `classifier`, `completions`, `install`, `uninstall`, `update`), plus hidden maintainer ones under `classifier`; `respond` is the
 default, so `wisp "<prompt>"` works.
 
 ## Subcommands
@@ -598,7 +598,7 @@ Out, to the front end:
 | `type` | Fields | When |
 | --- | --- | --- |
 | `note` | `text` | The banner, the help line, and anything chat would say on stderr. |
-| `status` | `model`, `directory`, `branch`, `dirty`, `added`, `removed` (lines in tracked files since the last commit), `approval`, `contextUsed`, `vcs` (`git` or `svn`), `think` (`on`, `off`, a level, or `default`, for a model that can think; nulls when unknown) | Before each prompt: the turn is over and input is wanted. |
+| `status` | `model`, `directory`, `branch`, `dirty`, `added`, `removed` (lines in tracked files since the last commit), `approval`, `contextUsed`, `vcs` (`git` or `svn`), `think` (`on`, `off`, a level, or `default`, for a model that can think; nulls when unknown), `update` (a newer wisp's version when `updates.check` found one, [ADR 0074](decisions/0074-wisp-update.md); null otherwise) | Before each prompt: the turn is over and input is wanted. |
 | `vcs` | `vcs`, `branch`, `dirty`, `added`, `removed`, as `status` carries them | The version control as a read after the status found it, sent only when it differs from the read before, so a slow read never holds up the prompt (ADR 0029, amended 2026-10-15). It replaces those parts of the status line and says nothing about the turn: input stays as it was. |
 | `activity` | `doing`, `asking`, `turnSeconds`, and `thinking` while the model thinks | What the turn under way is doing, sent each time it changes: `doing` is `waiting for the model`, `thinking`, `running <command>`, `<tool> <argument>`, `waiting for your approval`, or `condensing the context`, and null when the turn has ended. While a reasoning model thinks, `doing` is `thinking` and `thinking` is true; the field is absent otherwise ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). `wisp-tui` draws it in its busy box as a thought bubble that grows and then cycles its dots, a frame every 280 ms: `.`, `.o`, `.oO`, `.oO( thinking )`, `.oO( thinking. )`, `.oO( thinking.. )`, `.oO( thinking... )`, then the last four again for as long as it thinks. A command you typed after `!` sends `running <command>` with `stoppable` true while it runs (an `interrupt` line stops it), then `stopping <command>` with `stopping` true once one has, and null when it ends, with no `turn` lines; `/models pull` does the same while it downloads, `doing` its progress (`pulling mlx-community/q: 1.2 GB of 4.5 GB, file 2 of 7`), and `wisp-tui` holds it as the work Ctrl-C stops ([ADR 0059](decisions/0059-one-set-of-model-actions.md). A model's turn carries `stoppable` true throughout (an `interrupt` line stops the turn), then `doing` `stopping the turn` with `stopping` true once one has; both fields are absent otherwise. `asking` is true while a person is being asked. `turnSeconds` is how far into the turn it began. A front end times the rest itself; `wisp-tui` shows it in its status line. |
 | `turn` | `phase`, `turn`, and at the end `seconds`, `outcome`, and, when the model reports usage, `inputTokens` and `outputTokens`, and `facts` when the turn recorded or changed any, and `ran` when there is a line of what the turn ran, and `cited` when the reply cites entries the conversation does not hold, and `verified` when the reply reports a result the turn's calls do not support | `phase` `start` when a message goes to the model, `end` when its reply is complete; `turn` is the number the turn's `event` lines carry, `outcome` is `ok` or `error` (the error is a `note` just before). The tokens are the turn's, summed over the requests its tool loop made. `facts` lists the facts the turn recorded or changed, each `{ id, scope (permanent, thread, session), subject, name, value, source, proposed }`; the same facts arrive as a `note` line after the turn's end, which is what `wisp-tui` shows. `ran` is the line the terminal chat prints under the reply, such as `ran: read_file ×2 · run_command (1 failed)`, counted from the turn's audit events ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)); it is sent only here, and `wisp-tui` shows it under the reply as a muted note. `cited` is the line beside it naming the entries the reply cites that the conversation does not hold, such as `cited but not in this conversation: entries 19–30 (12)` ([ADR 0055](decisions/0055-cited-entries-checked.md)); `wisp-tui` shows it after `ran`. `verified` is the line after both for a result claim the turn's calls do not support, such as `unsupported: "Removed the scratch file." (no rm, rmdir, unlink, or trash command ran in this turn)` ([verification.md](verification.md), [ADR 0060](decisions/0060-a-verification-pass.md)); `wisp-tui` shows it after `cited`. Slash commands and commands typed after `!` are not turns. |
@@ -1031,6 +1031,7 @@ wisp config unset approval.timeoutSeconds
 | `tools.models` | `true` or `false` (the default): whether a conversation given every tool gets the model's `models` tool, to list models and ask to pull, enable, disable, or check one ([tools/models.md](tools/models.md)). A tool list that names `models` gets it either way. |
 | `tools.ask` | `true` or `false` (the default): whether a conversation given every tool gets the model's `ask` tool, to ask you one question mid-turn ([tools/ask.md](tools/ask.md)). A tool list that names `ask` gets it either way. |
 | `inquiry.timeoutSeconds` | Seconds, 0 to 86,400; 0 (the default) waits until you answer the model's question, and a deadline below 10 is taken as 10. |
+| `updates.check` | `true` or `false` (the default): whether wisp asks GitHub at most once a day for a newer release, and shows one in `wisp doctor` and the chat's status line; it never installs ([`wisp update`](#wisp-update), [ADR 0074](decisions/0074-wisp-update.md)). |
 | `inquiry.elicitation` | `true` or `false` (the default): under `wisp mcp`, whether the model's question is also asked through the client's elicitation form ([mcp.md](mcp.md), "Questions"). |
 | `shownOutputLines` | 0 to 10,000; 0 shows a tool call's note alone. |
 | `notifications.enabled`, `notifications.viaTerminalApp`, `notifications.viaHelper`, `audit.enabled` | `true` or `false` (`on`, `off`, `yes`, `no`). |
@@ -1518,6 +1519,45 @@ reads or writes `~/.wisp`, and the default policy refuses both to the model.
 Opening `Wisp.app` from the Finder shows a dialog instead of starting a conversation: it offers **Install**, which
 does what `wisp install` does and shows the result; once installed, it says where; with something in the way, or
 from the disk image, it says what to do.
+
+### `wisp update`
+
+Update `Wisp.app` to the latest release ([ADR 0074](decisions/0074-wisp-update.md)).
+
+```
+wisp update            # download, check, and replace Wisp.app when a newer release is out
+wisp update --check    # only say whether one is out
+```
+
+It asks GitHub's API for wisp's latest release; when that is newer than the running `wisp`, it downloads
+`Wisp-X.Y.Z.dmg` and its `.sha256` to `~/Downloads` (an image already there that matches is used again), and checks
+that the checksum matches, and that the image's `Wisp.app` is `com.pidster.wisp`, of the release's version, and wholly
+signed by wisp's team, `LFQFWCB8Y3`, and notarised by Apple. It then copies the new app beside the old, checks the
+copy, swaps the two in one step, and removes the old one; the links `wisp install` made keep working. Any failed check
+stops it with the reason, and the app is unchanged (exit 1). When macOS will not let it replace the app (the folder
+is not yours to write, or App Management refuses the terminal), it leaves the app as it was, says why, opens the
+checked image in the Finder for you to drag the new app over, and exits 1. It never asks for a password.
+
+```
+$ wisp update
+downloading https://github.com/pidster/wisp/releases/download/v0.31.1/Wisp-0.31.1.dmg
+saved /Users/you/Downloads/Wisp-0.31.1.dmg; its sha256 matches the release's
+checked: Wisp.app 0.31.1, signed by LFQFWCB8Y3 and notarised
+updated /Applications/Wisp.app from 0.31.0 to 0.31.1
+wisp processes already running, such as MCP servers, keep 0.31.0 until they are started again
+```
+
+From a Homebrew install it changes nothing and says to run `brew upgrade pidster/tap/wisp`; from a build or an
+unpacked tarball, that it cannot update one; from the disk image, to move the app to Applications first. `--check`
+works from any of them. The default policy refuses `wisp update` to the model. Each check is an `update.check` event
+and each update an `update.install` event ([logging.md](logging.md)).
+
+With `updates.check` on (off by default), wisp asks at most once a day, when a chat starts, `wisp doctor` runs, or
+`Wisp.app` is opened from the Finder, keeps the answer in `~/.wisp/update.json`, and shows a newer version in the
+doctor's `update` line and the chat's status line (`0.31.1 available`, in plain chat and `wisp-tui`); it never
+installs. With it on, the Finder dialog offers **Update** when a newer release is out, and does what `wisp update`
+does. A release with no disk image (one made before 0.31.0, or with `--unsigned`) is reported by `--check`, and
+`wisp update` says it has none.
 
 ### `wisp mcp`
 

@@ -1021,6 +1021,8 @@ extension AuditEvent {
         case .threadSwept: ["thread", "owner", "lastUsed", "turns", "sessions", "outputBytes"]
         case .threadDeleted: ["thread", "owner", "turns", "sessions", "outputSessions", "outputBytes"]
         case .threadHanded: ["thread", "from", "to"]
+        case .updateCheck: ["source", "current", "latest", "newer", "failure"]
+        case .updateInstall: ["source", "app", "from", "to", "outcome", "reason", "image"]
         case .mcpRequest: ["tool", "arguments"]
         case .mcpResult: ["tool", "isError", "text", "seconds"]
         case .error: ["message", "context"]

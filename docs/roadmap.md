@@ -38,7 +38,8 @@ and documented in its own commit.
    `wisp` and `wisp-tui` into `~/.local/bin`, or a folder it is given, with no admin password, and says when that
    folder is not on `PATH`; `uninstall` removes only the links it made. Refused from a Homebrew install, which
    owns its links.
-4. **`wisp update`.** Run by the person, never by the model (the default policy refuses it, as it does
+4. **`wisp update`** (built 2026-10-23, [ADR 0074](decisions/0074-wisp-update.md); the image is saved to
+   `~/Downloads`, a refusal opens it to drag, and the Finder dialog offers the update when the check is on). Run by the person, never by the model (the default policy refuses it, as it does
    `wisp approvals`): reads the latest release from GitHub, and when it is newer, downloads the DMG, checks its
    `sha256`, that it is signed by the team `LFQFWCB8Y3` and accepted by Gatekeeper as notarised, and replaces
    `Wisp.app` whole, the old one kept until the new one is in place. `--check` only reports. From a Homebrew

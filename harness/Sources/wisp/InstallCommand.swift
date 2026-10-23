@@ -75,8 +75,9 @@ struct UninstallCommand: ParsableCommand {
     }
 }
 
-/// What `Wisp.app` does when opened from the Finder, with no terminal: a dialog that offers to install
-/// (`AppInstall.welcome`), and the result of doing so.
+/// What `Wisp.app` does when opened from the Finder, with no terminal: with `updates.check` on and a newer release
+/// out, a dialog that offers to update (ADR 0074); otherwise one that offers to install (`AppInstall.welcome`,
+/// ADR 0073); and the result of either.
 enum FinderLaunch {
     /// Whether this process was opened from the Finder.
     static var isCurrent: Bool {
@@ -85,11 +86,12 @@ enum FinderLaunch {
             inApp: PackageLayout.current.layout?.app != nil)
     }
 
-    /// Shows the dialog, installs on the person's word, and shows what was done.
-    @MainActor static func run() {
+    /// Shows the dialog, updates or installs on the person's word, and shows what was done.
+    @MainActor static func run() async {
         let application = NSApplication.shared
         application.setActivationPolicy(.accessory)
         application.activate()
+        if await offerUpdate() { return }
         let environment = ProcessInfo.processInfo.environment
         let home = ShellCompletions.home(environment: environment)
         let folder = AppInstall.folder(nil, home: home)
@@ -112,6 +114,93 @@ enum FinderLaunch {
         } catch {
             _ = alert("Wisp could not be installed", "\(error)", buttons: ["OK"], style: .warning).runModal()
         }
+    }
+
+    /// With `updates.check` on, checks when one is due and, when a newer release is out, offers to update.
+    ///
+    /// - Returns: True when the person chose to update, whatever came of it; false to go on to the install dialog.
+    @MainActor private static func offerUpdate() async -> Bool {
+        guard case .app(let app) = AppInstall.source(of: PackageLayout.current),
+            let config = try? Session.loadConfig(home: Wisp.home), config.updatesCheck,
+            let session = try? Wisp.begin(.init(entryPoint: .update))
+        else { return false }
+        defer { session.end() }
+        let current = WispVersion.current
+        var release: AppUpdate.Release?
+        var state = AppUpdate.state(home: Wisp.home)
+        if AppUpdate.isDue(state, now: Date()) {
+            let result = await AppUpdate.check(home: Wisp.home, source: "finder", audit: session.audit)
+            (state, release) = (result.state, result.release)
+        }
+        guard let newer = state?.newer(than: current) else { return false }
+        let answer = alert(
+            "Wisp \(newer) is available",
+            "This is \(current). Update downloads Wisp-\(newer).dmg to your Downloads folder, checks that it is signed by "
+                + "wisp's developer and notarised by Apple, and replaces this app with the one inside.",
+            buttons: ["Update", "Not Now"]
+        )
+        .runModal()
+        guard answer == .alertFirstButtonReturn else { return false }
+        let panel = progress("Downloading and checking Wisp \(newer)…")
+        let outcome: Result<AppUpdate.Outcome, any Error>
+        do {
+            let latest: AppUpdate.Release
+            if let release, release.version == newer {
+                latest = release
+            } else {
+                latest = try await AppUpdate.fetchLatest()
+            }
+            let downloads =
+                FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads")
+            outcome = .success(
+                try await AppUpdate.update(
+                    app, to: latest, downloads: downloads, audit: session.audit, source: "finder", note: { _ in }))
+        } catch {
+            outcome = .failure(error)
+        }
+        panel.close()
+        switch outcome {
+        case .success(.replaced(_, _, let to)):
+            _ = alert(
+                "Wisp is updated to \(to)",
+                "The links wisp install made still work. Wisp chats and MCP servers already running keep \(current) until "
+                    + "they are started again.", buttons: ["OK"]
+            )
+            .runModal()
+        case .success(.blocked(let reason, let image)):
+            _ = AppUpdate.run("/usr/bin/open", [image.path])
+            _ = alert(
+                "Wisp could not replace itself",
+                "\(reason).\n\nThe checked disk image is open: drag Wisp.app onto Applications there to replace this one.",
+                buttons: ["OK"], style: .warning
+            )
+            .runModal()
+        case .failure(let error):
+            _ = alert(
+                "Wisp was not updated", "\(error). This app is unchanged.", buttons: ["OK"], style: .warning
+            )
+            .runModal()
+        }
+        return true
+    }
+
+    /// A small window with a spinner and `text`, shown until closed.
+    @MainActor private static func progress(_ text: String) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 80), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        panel.title = "Wisp"
+        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 28, width: 24, height: 24))
+        spinner.style = .spinning
+        spinner.startAnimation(nil)
+        let label = NSTextField(labelWithString: text)
+        label.frame = NSRect(x: 56, y: 30, width: 310, height: 20)
+        panel.contentView?.addSubview(spinner)
+        panel.contentView?.addSubview(label)
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        return panel
     }
 
     /// An alert with the app's icon and `buttons`, the first the default.

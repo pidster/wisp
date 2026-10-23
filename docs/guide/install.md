@@ -44,7 +44,9 @@ onto Applications. `Wisp.app` holds the same four parts: `wisp` and `wisp-tui` i
 
 Either links `wisp` and `wisp-tui` into `~/.local/bin`, with no administrator's password, and says what to add to your
 shell's start-up file if that folder is not on `PATH`. `wisp uninstall` removes the links
-([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). Both installs keep their state in the same `~/.wisp`, so a
+([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). To update the app later, run `wisp update`, or turn on
+`wisp config set updates.check true` to hear when a newer release is out
+([wisp.md](../wisp.md#wisp-update)). Both installs keep their state in the same `~/.wisp`, so a
 Homebrew install and the app share threads, approvals, and facts; use one or the other on `PATH`.
 
 ## Check the install: `wisp doctor`

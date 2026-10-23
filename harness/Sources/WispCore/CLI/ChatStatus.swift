@@ -25,12 +25,16 @@ public struct ChatStatus: Equatable, Sendable {
     /// Whether the model thinks: `on`, `off`, a level, or `default` when nothing is asked and the runtime decides; nil
     /// for a model that cannot think or has no switch for it (ADR 0053, amended 2026-10-15).
     public var thinking: String?
+    /// A newer wisp's version, when `updates.check` found one (ADR 0074); nil otherwise.
+    public var update: String?
 
     /// Creates a status.
     public init(
         model: String, directory: String, vcs: String? = nil, branch: String? = nil, dirty: Bool? = nil,
-        added: Int? = nil, removed: Int? = nil, approval: String, contextUsed: Double? = nil, thinking: String? = nil
+        added: Int? = nil, removed: Int? = nil, approval: String, contextUsed: Double? = nil, thinking: String? = nil,
+        update: String? = nil
     ) {
+        self.update = update
         self.model = model
         self.directory = directory
         self.vcs = vcs
@@ -43,7 +47,8 @@ public struct ChatStatus: Equatable, Sendable {
         self.thinking = thinking
     }
 
-    /// The line: on the left `model (off) 15% used · ~/src/wisp git(main)+12-3`, on the right the approval mode,
+    /// The line: on the left `model (off) 15% used · ~/src/wisp git(main)+12-3`, on the right a newer wisp when
+    /// `updates.check` found one (`0.31.1 available`, amber) and the approval mode,
     /// pushed to the right edge when `width` is known and there is room, else after a separator. A
     /// context past 80% is amber; lines added are green, lines removed red.
     public func rendered(style: Style, width: Int? = nil) -> String {
@@ -62,7 +67,8 @@ public struct ChatStatus: Equatable, Sendable {
             place += style.amber("*")
         }
         let left = model + style.muted(" · ") + place
-        let right = style.muted(approval)
+        var right = style.muted(approval)
+        if let update { right = style.amber("\(update) available") + style.muted(" · ") + right }
         if let width {
             let gap = width - Style.stripped(left).count - Style.stripped(right).count
             if gap >= 3 { return left + String(repeating: " ", count: gap) + right }

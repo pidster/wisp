@@ -1,0 +1,236 @@
+import Foundation
+import Synchronization
+import Testing
+
+@testable import WispCore
+
+/// `wisp update` and `updates.check` (ADR 0074), without the network: GitHub's answer as data, downloads from files,
+/// and the swap between folders under the temporary directory.
+@Suite struct AppUpdateTests {
+    /// A scratch folder, removed by the test.
+    private static func scratch() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "wisp-update-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private static let latest = Data(
+        #"""
+        {"tag_name": "v0.31.1", "html_url": "https://github.com/pidster/wisp/releases/tag/v0.31.1",
+         "assets": [
+           {"name": "wisp-0.31.1-arm64.tar.gz", "browser_download_url": "https://example.com/t.tar.gz"},
+           {"name": "Wisp-0.31.1.dmg", "browser_download_url": "https://example.com/Wisp-0.31.1.dmg"},
+           {"name": "Wisp-0.31.1.dmg.sha256", "browser_download_url": "https://example.com/Wisp-0.31.1.dmg.sha256"}
+         ]}
+        """#.utf8)
+
+    @Test func versionsCompareAsNumbers() throws {
+        let parse = { (text: String) in try #require(AppUpdate.Version(text)) }
+        #expect(try parse("v0.31.0").description == "0.31.0")
+        #expect(try parse("0.31.0-dev+abc1234 (modified)").description == "0.31.0")
+        #expect(try parse("0.9.0") < parse("0.10.0"))
+        #expect(try parse("0.31.0") < parse("0.31.1") && !(try parse("1.0.0") < parse("0.99.99")))
+        #expect(AppUpdate.Version("0.31") == nil && AppUpdate.Version("x.y.z") == nil && AppUpdate.Version("") == nil)
+    }
+
+    @Test func readsTheLatestRelease() throws {
+        let release = try AppUpdate.release(fromJSON: Self.latest)
+        #expect(release.version == "0.31.1" && release.imageName == "Wisp-0.31.1.dmg")
+        #expect(release.checksum?.absoluteString.hasSuffix(".dmg.sha256") == true)
+        #expect(release.page?.absoluteString.hasSuffix("v0.31.1") == true)
+        // A release with no disk image (0.30.1, or one made with --unsigned) still names its version; only an
+        // update needs the image.
+        let noImage = try AppUpdate.release(fromJSON: Data(#"{"tag_name": "v0.30.1", "assets": []}"#.utf8))
+        #expect(noImage.version == "0.30.1" && noImage.image == nil && noImage.imageName == "Wisp-0.30.1.dmg")
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.release(fromJSON: Data("{}".utf8)) }
+        let badTag = Data(#"{"tag_name": "nightly", "assets": []}"#.utf8)
+        #expect(throws: AppUpdate.Failure.unreadable("the tag nightly")) { try AppUpdate.release(fromJSON: badTag) }
+    }
+
+    @Test func aStateSaysWhenANewerReleaseIsOut() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let state = AppUpdate.State(checkedAt: now, latest: "0.31.1")
+        #expect(state.newer(than: "0.31.0") == "0.31.1")
+        #expect(state.newer(than: "0.31.1") == nil && state.newer(than: "0.32.0") == nil)
+        #expect(AppUpdate.State(checkedAt: now, latest: nil, failure: "x").newer(than: "0.1.0") == nil)
+        #expect(AppUpdate.isDue(nil, now: now))
+        #expect(!AppUpdate.isDue(state, now: now.addingTimeInterval(3_600)))
+        #expect(AppUpdate.isDue(state, now: now.addingTimeInterval(86_400)))
+        #expect(AppUpdate.isDue(state, now: now.addingTimeInterval(-60)))
+    }
+
+    /// Off, nothing is asked; on, a check is made only when due, kept, and audited.
+    @Test func checksOnlyWhenOnAndDue() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = Home(root: root)
+        let sink = MemoryAuditSink()
+        let audit = AuditLog(session: "s", sink: sink)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let asked = Counter()
+        let fetch = {
+            asked.add()
+            return try AppUpdate.release(fromJSON: Self.latest)
+        }
+        #expect(
+            await AppUpdate.checkIfDue(enabled: false, home: home, source: "chat", audit: audit, now: now, fetch: fetch)
+                == nil)
+        #expect(asked.value == 0 && AppUpdate.state(home: home) == nil)
+        let first = await AppUpdate.checkIfDue(
+            enabled: true, home: home, source: "chat", audit: audit, now: now, fetch: fetch)
+        #expect(first?.latest == "0.31.1" && asked.value == 1)
+        #expect(AppUpdate.state(home: home) == first)
+        let again = await AppUpdate.checkIfDue(
+            enabled: true, home: home, source: "chat", audit: audit, now: now.addingTimeInterval(60), fetch: fetch)
+        #expect(again == first && asked.value == 1)
+        let event = try #require(sink.events.last)
+        #expect(event.kind == .updateCheck && event.details["source"] == "chat" && event.details["latest"] == "0.31.1")
+        // A failed check is kept too, so it is not retried on every prompt.
+        let failed = await AppUpdate.check(home: home, source: "doctor", audit: audit, now: now) {
+            throw AppUpdate.Failure.network("offline")
+        }
+        #expect(failed.state.failure == "cannot reach GitHub: offline" && failed.release == nil)
+        #expect(sink.events.last?.details["failure"] == "cannot reach GitHub: offline")
+    }
+
+    @Test func theDoctorSaysWhatTheCheckFound() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let off = AppUpdate.finding(enabled: false, state: nil, current: "0.31.0")
+        #expect(off.ok && off.detail.hasPrefix("updates.check is off"))
+        #expect(AppUpdate.finding(enabled: true, state: nil, current: "0.31.0").detail == "not checked yet")
+        let newer = AppUpdate.finding(
+            enabled: true, state: .init(checkedAt: now, latest: "0.31.1"), current: "0.31.0")
+        #expect(newer.ok && newer.detail == "0.31.1 is available (this is 0.31.0): wisp update")
+        let current = AppUpdate.finding(
+            enabled: true, state: .init(checkedAt: now, latest: "0.31.0"), current: "0.31.0")
+        #expect(current.detail.hasPrefix("0.31.0 is the latest (checked 2027-01-15"))
+        let failed = AppUpdate.finding(
+            enabled: true, state: .init(checkedAt: now, latest: nil, failure: "cannot reach GitHub: offline"),
+            current: "0.31.0")
+        #expect(failed.ok && failed.detail.hasSuffix("failed: cannot reach GitHub: offline"))
+    }
+
+    @Test func readsAChecksumFile() throws {
+        let hash = String(repeating: "ab", count: 32)
+        #expect(AppUpdate.checksumValue("\(hash)  Wisp-0.31.1.dmg\n") == hash)
+        #expect(AppUpdate.checksumValue(hash.uppercased()) == hash)
+        #expect(AppUpdate.checksumValue("not a hash  file") == nil && AppUpdate.checksumValue("") == nil)
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appending(path: "x")
+        try Data("abc".utf8).write(to: file)
+        #expect(
+            try AppUpdate.sha256(of: file) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    /// The image is saved under its own name when its checksum matches, used again when already there, and refused
+    /// when it does not match; downloads here are files.
+    @Test func downloadsAndChecksTheImage() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appending(path: "source.dmg")
+        try Data("an image".utf8).write(to: source)
+        let sum = root.appending(path: "source.sha256")
+        try Data("\(try AppUpdate.sha256(of: source))  Wisp-0.31.1.dmg\n".utf8).write(to: sum)
+        let downloads = root.appending(path: "Downloads")
+        var release = AppUpdate.Release(version: "0.31.1", image: source, checksum: sum, page: nil)
+        let notes = Notes()
+        // A file URL's last component is the image's name; a real release's is Wisp-X.Y.Z.dmg.
+        let saved = try await AppUpdate.download(release, into: downloads, note: notes.add)
+        #expect(saved.lastPathComponent == "source.dmg" && FileManager.default.fileExists(atPath: saved.path))
+        #expect(notes.lines.last?.hasSuffix("its sha256 matches the release's") == true)
+        _ = try await AppUpdate.download(release, into: downloads, note: notes.add)
+        #expect(notes.lines.last?.hasSuffix("already downloaded") == true)
+        let wrong = root.appending(path: "wrong.sha256")
+        try Data("\(String(repeating: "0", count: 64))  x\n".utf8).write(to: wrong)
+        release.checksum = wrong
+        try FileManager.default.removeItem(at: saved)
+        await #expect(throws: AppUpdate.Failure.self) {
+            try await AppUpdate.download(release, into: downloads, note: notes.add)
+        }
+        #expect(!FileManager.default.fileExists(atPath: saved.path))
+        release.image = nil
+        await #expect(throws: AppUpdate.Failure.noImage("0.31.1")) {
+            try await AppUpdate.download(release, into: downloads, note: notes.add)
+        }
+    }
+
+    /// The new app is swapped in whole, the old one gone and nothing left beside it; a copy that fails its check
+    /// changes nothing; an unwritable folder is a refusal, not an error.
+    @Test func replacesTheAppWhole() throws {
+        let root = try Self.scratch()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        func app(_ name: String, marker: String) throws -> URL {
+            let url = root.appending(path: name)
+            try FileManager.default.createDirectory(
+                at: url.appending(path: "Contents/MacOS"), withIntermediateDirectories: true)
+            try Data(marker.utf8).write(to: url.appending(path: "Contents/MacOS/wisp"))
+            return url
+        }
+        func marker(_ app: URL) throws -> String {
+            String(decoding: try Data(contentsOf: app.appending(path: "Contents/MacOS/wisp")), as: UTF8.self)
+        }
+        func leftovers() throws -> [String] {
+            try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix(".") }
+        }
+        let installed = try app("Wisp.app", marker: "old")
+        let new = try app("New.app", marker: "new")
+        var checked: [String] = []
+        let refused = try AppUpdate.replace(installed, with: new, version: "0.31.1") { app, version in
+            checked.append("\(app.lastPathComponent.hasPrefix(".Wisp.app.update-")) \(version)")
+        }
+        #expect(refused == nil && checked == ["true 0.31.1"])
+        #expect(try marker(installed) == "new" && (try leftovers()).isEmpty)
+
+        let newer = try app("Newer.app", marker: "newer")
+        #expect(throws: AppUpdate.Failure.notTrusted("no")) {
+            try AppUpdate.replace(installed, with: newer, version: "0.31.2") { _, _ in
+                throw AppUpdate.Failure.notTrusted("no")
+            }
+        }
+        #expect(try marker(installed) == "new" && (try leftovers()).isEmpty)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+        let blocked = try AppUpdate.replace(installed, with: newer, version: "0.31.2") { _, _ in }
+        #expect(blocked?.hasSuffix("is not writable by you") == true)
+        #expect(try marker(installed) == "new")
+    }
+
+    @Test func onlyTheAppUpdatesItself() throws {
+        let app = URL(filePath: "/Applications/Wisp.app")
+        #expect(try AppUpdate.app(of: .app(app)) == app)
+        #expect(
+            throws: AppUpdate.Failure.refused(
+                "this wisp was installed by Homebrew; update it with: brew upgrade pidster/tap/wisp")
+        ) {
+            try AppUpdate.app(of: .homebrew)
+        }
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .elsewhere) }
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .diskImage(app)) }
+    }
+
+    @Test func theDefaultPolicyRefusesTheModelAnUpdate() {
+        let policy = CommandPolicy()
+        #expect(policy.check("wisp update") != .allowed)
+        #expect(policy.check("/Applications/Wisp.app/Contents/MacOS/wisp update --check") != .allowed)
+        #expect(policy.check("wisp doctor") == .allowed)
+    }
+}
+
+/// A count a `@Sendable` closure adds to.
+private final class Counter: Sendable {
+    private let storage = Mutex(0)
+    var value: Int { storage.withLock { $0 } }
+    func add() { storage.withLock { $0 += 1 } }
+}
+
+/// Lines a `@Sendable` note closure collects.
+private final class Notes: Sendable {
+    private let storage = Mutex<[String]>([])
+    var lines: [String] { storage.withLock { $0 } }
+    @Sendable func add(_ line: String) { storage.withLock { $0.append(line) } }
+}

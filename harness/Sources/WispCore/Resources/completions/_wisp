@@ -72,13 +72,14 @@ _wisp() {
             'completions:Print or install wisp'\''s shell completions for zsh, bash, or fish.'
             'install:Link Wisp.app'\''s wisp and wisp-tui into ~/.local/bin, or a folder you name.'
             'uninstall:Remove the links to Wisp.app'\''s wisp and wisp-tui from ~/.local/bin, or a folder you name.'
+            'update:Update Wisp.app to the latest release, or (--check) say whether there is one.'
             'help:Show subcommand help information.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|help)
+        respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|update|help)
             "_wisp_${words[1]}" && ret=0
             ;;
         esac
@@ -951,6 +952,18 @@ _wisp_uninstall() {
     local -i ret=1
     local -ar arg_specs=(
         ':folder:_files -/'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_update() {
+    local -i ret=1
+    local -ar arg_specs=(
+        '--check[Only say whether a newer release is out; download nothing.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

@@ -148,7 +148,8 @@ answer. [mcp.md](docs/mcp.md) has each tool's arguments and result.
 ## Why it is different
 
 **Nothing leaves your machine.** The default model runs on your Apple silicon, so prompts, files, and
-command output stay local, and there is no API key, no account, and no bill. Apple's Private Cloud
+command output stay local, and there is no API key, no account, and no bill. wisp asks GitHub for a newer release only
+when you run `wisp update` or turn on `updates.check` ([trust.md](docs/trust.md)). Apple's Private Cloud
 Compute is an explicit opt-in (`--model private-cloud`), noted on stderr and in the audit log; it needs
 an entitlement that a command-line binary cannot carry, even signed with a Developer ID, so it is refused from this build
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model

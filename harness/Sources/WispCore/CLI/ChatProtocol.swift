@@ -135,6 +135,7 @@ public enum ChatProtocol {
             "added": status.added.map { .int($0) } ?? .null, "removed": status.removed.map { .int($0) } ?? .null,
             "approval": .string(status.approval), "contextUsed": status.contextUsed.map { .double($0) } ?? .null,
             "think": status.thinking.map { .string($0) } ?? .null,
+            "update": status.update.map { .string($0) } ?? .null,
         ]
     }
 

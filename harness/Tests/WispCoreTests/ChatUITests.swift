@@ -38,6 +38,11 @@ import WispTestSupport
         thinking.vcs = "svn"
         thinking.branch = "trunk"
         #expect(thinking.rendered(style: .plain) == "ollama:q (off) 14% used · ~/src/x svn(trunk) · --yes")
+        // A newer wisp the update check found comes before the approval mode, in amber (ADR 0074).
+        var newer = bare
+        newer.update = "0.31.1"
+        #expect(newer.rendered(style: .plain) == "system · /tmp · 0.31.1 available · never asks")
+        #expect(newer.rendered(style: Style(enabled: true)).contains("38;2;242;185;80m0.31.1 available"))
         let styled = full.rendered(style: Style(enabled: true))
         #expect(Style.stripped(styled) == full.rendered(style: .plain))
         #expect(styled.contains("\u{1B}[38;2;143;211;244mollama:q") && styled.contains("38;2;134;174;200m14% used"))

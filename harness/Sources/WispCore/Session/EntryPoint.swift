@@ -33,6 +33,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case models
     /// `wisp threads delete` or `hand`: the person changing the thread store (ADR 0066, phase 3).
     case threads
+    /// `wisp update`, or the Finder dialog's check and update (ADR 0074).
+    case update
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {

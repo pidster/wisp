@@ -196,6 +196,10 @@ public enum ConfigSettings {
                 summary: "days after a session's last use its stored tool outputs are removed; 0 keeps them",
                 kind: .integer(Config.ContextConfig.outputDaysRange)),
             Setting(
+                path: "updates.check",
+                summary: "ask GitHub at most once a day whether a newer wisp is out, and say so; never installs",
+                kind: .flag),
+            Setting(
                 path: "threads.keepDays",
                 summary: "days after its last use a saved thread and its stored outputs are deleted; 0 keeps them",
                 kind: .integer(Config.ThreadsConfig.keepDaysRange)),
@@ -327,6 +331,7 @@ public enum ConfigSettings {
         case "context.memory": return .bool(d.contextMemory)
         case "context.outputDays": return .int(d.contextOutputDays)
         case "threads.keepDays": return .int(d.threadsKeepDays)
+        case "updates.check": return .bool(d.updatesCheck)
         case "watch.settle": return .double(d.watchSettle)
         case "verification.mode": return .string(d.verificationMode.rawValue)
         case let budget where budget.hasPrefix("llamacpp.thinkingBudget."):

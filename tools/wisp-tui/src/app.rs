@@ -2631,7 +2631,8 @@ impl App {
     }
 
     /// The status row for a band `width` cells wide: on the left the model, its context use, and whether it
-    /// thinks, the directory with its branch and line changes; on the right the questions and approvals waiting, the approval mode, the
+    /// thinks, the directory with its branch and line changes; on the right the questions and approvals waiting, a newer
+    /// wisp when `updates.check` found one (ADR 0074), the approval mode, the
     /// turn, and its tokens, pushed to the right edge. The item with the focus is drawn in black on its own colour.
     /// When it does not all fit, parts go in turn: the directory shortens to its last folder, then the approval
     /// mode and the turn go (the turn stays while it has the focus), then the directory, then the context gauge
@@ -2646,7 +2647,15 @@ impl App {
         let think = self.think_spans(focus);
         let waiting = self.waiting_spans(focus);
         let turn = self.turn_spans(focus);
-        let mut rest = vec![Span::styled(status.approval.clone(), palette::muted())];
+        let mut rest = Vec::new();
+        if let Some(update) = &status.update {
+            rest.push(Span::styled(
+                format!("{update} available"),
+                palette::amber(),
+            ));
+            rest.push(separator());
+        }
+        rest.push(Span::styled(status.approval.clone(), palette::muted()));
         if !turn.is_empty() {
             rest.push(separator());
             rest.extend(turn.iter().cloned());
@@ -4901,6 +4910,7 @@ mod tests {
                     approval: "moderate".into(),
                     context_used: None,
                     think: None,
+                    update: None,
                     vcs: None,
                 }),
                 turn: Some(TurnState::Ended {
@@ -4934,6 +4944,7 @@ mod tests {
             approval: "approve at moderate".into(),
             context_used: Some(0.15),
             think: None,
+            update: None,
             vcs: Some("git".into()),
         };
         let app = App {
@@ -5021,6 +5032,7 @@ mod tests {
                 approval: "--yes".into(),
                 context_used: Some(0.137),
                 think: None,
+                update: None,
                 vcs: Some("git".into()),
             }),
             editor: {
@@ -5940,6 +5952,38 @@ mod tests {
         app.handle(Outbound::Choice(question("q1", &["a", "b"], false)));
         assert_eq!(app.questions_waiting(), 1);
         assert!(status_text(&app, 100).contains("questions: 1"));
+    }
+
+    #[test]
+    fn a_newer_wisp_shows_in_amber_before_the_approval_mode() {
+        let app = App {
+            status: Some(Status {
+                model: "system".into(),
+                directory: "~/w".into(),
+                approval: "ask".into(),
+                update: Some("0.31.1".into()),
+                ..Status::default()
+            }),
+            ..Default::default()
+        };
+        let text = status_text(&app, 100);
+        assert!(text.ends_with("0.31.1 available · ask"), "{text}");
+        let line = app.status_line(100);
+        let span = line
+            .spans
+            .iter()
+            .find(|span| span.content == "0.31.1 available");
+        assert_eq!(span.map(|span| span.style), Some(palette::amber()));
+        let quiet = App {
+            status: Some(Status {
+                model: "system".into(),
+                directory: "~/w".into(),
+                approval: "ask".into(),
+                ..Status::default()
+            }),
+            ..Default::default()
+        };
+        assert!(!status_text(&quiet, 100).contains("available"));
     }
 
     #[test]

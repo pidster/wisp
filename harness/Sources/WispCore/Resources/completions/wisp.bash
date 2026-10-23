@@ -174,13 +174,13 @@ _wisp() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|help)
+    respond|chat|tools|models|mcp|logs|config|doctor|approvals|facts|questions|threads|notify|scan|redact|watch|draft|classifier|completions|install|uninstall|update|help)
         # Offer subcommand argument completions
         "_wisp_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions threads notify scan redact watch draft classifier completions install uninstall help' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'respond chat tools models mcp logs config doctor approvals facts questions threads notify scan redact watch draft classifier completions install uninstall update help' -- "${cur}"))
         ;;
     esac
 }
@@ -1050,6 +1050,14 @@ _wisp_uninstall() {
         return
         ;;
     esac
+}
+
+_wisp_update() {
+    repeating_flags=()
+    non_repeating_flags=(--check --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 0
 }
 
 _wisp_help() {

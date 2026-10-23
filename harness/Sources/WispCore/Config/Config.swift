@@ -62,6 +62,20 @@ public struct Config: Codable, Equatable, Sendable {
     public var inquiry: InquiryConfig?
     /// The thread store (ADR 0066): how long a saved thread is kept after its last use.
     public var threads: ThreadsConfig?
+    /// Updates (ADR 0074): whether wisp asks GitHub once a day for a newer release.
+    public var updates: UpdatesConfig?
+
+    /// Settings for updates ([ADR 0074](../../../../docs/decisions/0074-wisp-update.md)).
+    public struct UpdatesConfig: Codable, Equatable, Sendable {
+        /// Whether wisp asks GitHub at most once a day whether a newer release is out; off by default, so nothing
+        /// reaches the network until the person runs `wisp update`.
+        public var check: Bool?
+
+        /// Creates settings; nil fields take defaults.
+        public init(check: Bool? = nil) {
+            self.check = check
+        }
+    }
 
     /// Settings for the thread store ([ADR 0066](../../../../docs/decisions/0066-one-thread-store.md)).
     public struct ThreadsConfig: Codable, Equatable, Sendable {
@@ -677,8 +691,10 @@ public struct Config: Codable, Equatable, Sendable {
         shownOutputLines: Int? = nil, facts: FactsConfig? = nil, context: ContextConfig? = nil,
         watch: WatchConfig? = nil, models: ModelsConfig? = nil, llamacpp: OpenAICompatibleConfig? = nil,
         lmstudio: OpenAICompatibleConfig? = nil, verification: VerificationConfig? = nil,
-        inquiry: InquiryConfig? = nil, commandMaxTimeoutSeconds: Int? = nil, threads: ThreadsConfig? = nil
+        inquiry: InquiryConfig? = nil, commandMaxTimeoutSeconds: Int? = nil, threads: ThreadsConfig? = nil,
+        updates: UpdatesConfig? = nil
     ) {
+        self.updates = updates
         self.threads = threads
         self.commandMaxTimeoutSeconds = commandMaxTimeoutSeconds
         self.verification = verification
@@ -909,7 +925,8 @@ public struct Config: Codable, Equatable, Sendable {
             verificationMode: verification?.mode ?? .readers,
             inquiryTimeout: (inquiry?.timeoutSeconds ?? 0) == 0
                 ? nil : .seconds(min(86_400, max(10, inquiry?.timeoutSeconds ?? 0))),
-            inquiryElicitation: inquiry?.elicitation ?? false
+            inquiryElicitation: inquiry?.elicitation ?? false,
+            updatesCheck: updates?.check ?? false
         )
     }
 
@@ -1050,6 +1067,9 @@ public struct Config: Codable, Equatable, Sendable {
         /// Under `wisp mcp`, whether the model's question is also asked through the client's elicitation form
         /// (`inquiry.elicitation`); off by default (ADR 0062, D8).
         public var inquiryElicitation = false
+        /// Whether wisp asks GitHub at most once a day for a newer release (`updates.check`, ADR 0074); off by
+        /// default.
+        public var updatesCheck = false
     }
 }
 

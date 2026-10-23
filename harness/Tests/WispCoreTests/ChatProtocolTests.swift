@@ -31,6 +31,9 @@ import WispTestSupport
         var thinking = status
         thinking.thinking = "high"
         #expect(ChatProtocol.status(thinking)["think"] == "high")
+        #expect(bare["update"] == .null)
+        thinking.update = "0.31.1"
+        #expect(ChatProtocol.status(thinking)["update"] == "0.31.1")
         let vcs = ChatProtocol.vcs(.init(system: .git, branch: "main", dirty: true, added: 2, removed: 1))
         #expect(vcs == ["vcs": "git", "branch": "main", "dirty": true, "added": 2, "removed": 1])
         #expect(
