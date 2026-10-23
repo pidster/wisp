@@ -7,51 +7,15 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-## 0.31.0: a DMG, and `wisp update`
-
-Agreed with the operator on 2026-10-23: a second way to install, a signed and notarised disk image holding
-`Wisp.app`, beside the Homebrew formula, and a way to update that install. Each stage is tested without the network
-and documented in its own commit.
-
-1. **Each package declares its layout** (built 2026-10-23, [ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)).
-   The backlog's plan ("A DMG, with the package declaring its layout"): where
-   `wisp-tui`, `mlx.metallib`, and `Wisp Notifier.app` are, relative to `wisp`, read from the app's `Info.plist` or
-   a small manifest the formula puts in `libexec`; the search from `wisp`'s real path stays as the fallback for a
-   build directory, and `WISP_TUI`, like `WISP_BIN`, overrides. `wisp doctor` checks every part the package
-   declares. A new ADR.
-2. **`Wisp.app` and the DMG** (built 2026-10-23, ADR 0072). `wisp` is the app's executable in `Contents/MacOS`, with `wisp-tui` beside it,
-   `mlx.metallib` in `Contents/Resources`, and `Wisp Notifier.app` in `Contents/Helpers`, its bundle identifier
-   unchanged so the person's notification permission carries over. `scripts/release` signs the bundle inside out,
-   notarises and staples the app, builds a compressed DMG with `Wisp.app`, a link to Applications, and a short
-   read-me, signs, notarises, and staples the DMG, and publishes it beside the tarball and its `sha256`. What
-   opening `Wisp.app` from the Finder does, with no terminal to run in, was settled with stage 3: a dialog that
-   offers to install.
-3. **`wisp install` and `wisp uninstall`** (built 2026-10-23,
-   [ADR 0073](decisions/0073-wisp-install-and-the-finder.md); opened from the Finder, the app offers it in a
-   dialog). Run as `/Applications/Wisp.app/Contents/MacOS/wisp install`, it links
-   `wisp` and `wisp-tui` into `~/.local/bin`, or a folder it is given, with no admin password, and says when that
-   folder is not on `PATH`; `uninstall` removes only the links it made. Refused from a Homebrew install, which
-   owns its links.
-4. **`wisp update`** (built 2026-10-23, [ADR 0074](decisions/0074-wisp-update.md); the image is saved to
-   `~/Downloads`, a refusal opens it to drag, and the Finder dialog offers the update when the check is on). Run by the person, never by the model (the default policy refuses it, as it does
-   `wisp approvals`): reads the latest release from GitHub, and when it is newer, downloads the DMG, checks its
-   `sha256`, that it is signed by the team `LFQFWCB8Y3` and accepted by Gatekeeper as notarised, and replaces
-   `Wisp.app` whole, the old one kept until the new one is in place. `--check` only reports. From a Homebrew
-   install it changes nothing and says `brew upgrade pidster/tap/wisp`; from a build from source, that it cannot
-   update one. Off the network until asked, so the README's "nothing leaves your machine" stays true by default;
-   an opt-in setting, `updates.check`, off by default, checks at most once a day and says when a newer version
-   exists in `wisp doctor` and the chat's status line, and never installs. Each check and update is audited. A
-   new ADR, and the trust page says what is sent: one request to GitHub's API, with no identifier of the person.
-
 ## 0.31.1: `wisp models uninstall`
 
-Moved from 0.31.0 by the operator on 2026-10-23, so 0.31.0 ships with the disk image, `wisp install`, and
+Moved from 0.31.0 by the operator on 2026-10-23, so 0.31.0 shipped with the disk image, `wisp install`, and
 `wisp update`, and 0.31.1 is also the first release a `Wisp.app` updates to with `wisp update`.
 
 **`wisp models uninstall NAME`**, asked for by the operator on 2026-10-23, run by the person only (chat's
