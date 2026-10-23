@@ -45,7 +45,44 @@ and documented in its own commit.
    exists in `wisp doctor` and the chat's status line, and never installs. Each check and update is audited. A
    new ADR, and the trust page says what is sent: one request to GitHub's API, with no identifier of the person.
 
-Later, with no release yet: Private Cloud Compute, below.
+Later, with no release yet: protecting wisp's state from other agents, and Private Cloud Compute, below.
+
+## Later: protecting wisp's state from other agents
+
+Raised by the operator on 2026-10-23: wisp, being on the device, may be trusted with what other agents are not, so
+what keeps them out? Today very little does. macOS separates processes by user, not by program, so any agent with a
+shell as the same person (Claude Code, Codex, a script) can read `~/.wisp` (threads, the audit log with commands'
+output verbatim, facts, the output store), change `config.json`'s policy and threshold or the stored approvals, write
+an answer into `~/.wisp/pending` for a request that waits, which defeats [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)'s
+rule that the asking agent never answers, and run `wisp` itself to print what it keeps.
+
+Moving the whole of wisp to the App Store, so the App Sandbox's container protects its data, was weighed and set
+aside: inside the App Sandbox `sandbox-exec` cannot run (nested profiles are refused), commands cannot run in the
+person's repositories without a grant for each folder, and a sandboxed command-line tool runs only when its own app
+starts it, so another agent could not start `wisp mcp`. What macOS offers a Developer ID tool instead:
+
+- the hardened runtime, on since 0.30.1, which stops another process attaching to `wisp` or injecting code;
+- App Management, which stops other apps changing a signed app in `/Applications` (`Wisp.app`, from 0.31.0), where
+  Homebrew's Cellar has no such guard;
+- keychain items whose access is limited to wisp's code signature, which another program cannot read without the
+  person agreeing;
+- the person's presence, by Touch ID or password through LocalAuthentication, which an agent cannot supply.
+
+The plan, for a release not yet chosen, with an ADR first that says plainly what a same-user agent can still do:
+
+1. **Answers only the person can give need the person present.** An approval, a fact kept as permanent, and an answer
+   to the model's question, given anywhere but the face that asked, are confirmed with Touch ID or the password and
+   signed with a key held in the keychain; an answer in `~/.wisp/pending` without that signature is refused.
+2. **Policy-bearing state is authenticated.** Configuration changed through `wisp config`, and the stored approvals,
+   carry a keychain-held key's authentication code; a change made around wisp is reported by `wisp doctor` and
+   refused until the person confirms it.
+3. **Encryption at rest, if it earns its cost:** the audit log, threads, and output store, under a keychain-held key,
+   so files copied out of `~/.wisp` are unreadable; it does not stop an agent running `wisp`, which point 4 is for.
+4. **Reading what wisp keeps.** Whether commands that print threads, facts, or the audit should ask for the person's
+   presence when not run from a terminal the person holds, and how wisp can tell.
+5. **Where the home belongs.** Left open by [ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md): `~/.wisp`, or
+   Apple's `~/Library/Application Support` and `~/Library/Caches`, decided with the rest, since keys and encryption
+   may change what is kept where.
 
 ## Later: Private Cloud Compute
 
