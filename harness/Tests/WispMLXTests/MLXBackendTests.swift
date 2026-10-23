@@ -25,6 +25,24 @@ import WispCore
         return (home, models)
     }
 
+    /// Uninstalling plans the models folder's entry (ADR 0075): a real folder to the Bin; a model named by its path is
+    /// the person's to remove.
+    @Test func uninstallPlansTheModelsFolderEntryAndRefusesAPath() async throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        try FileManager.default.createDirectory(at: models.appending(path: "q"), withIntermediateDirectories: true)
+        let config = Config().resolved
+        let plan = try await Self.backend.removal("q", config: config, home: home, purgeCache: false)
+        guard case .trash(let folder) = plan.steps.first, plan.steps.count == 1 else {
+            Issue.record("not a move to the Bin: \(plan.steps)")
+            return
+        }
+        #expect(plan.model == "mlx:q" && folder.path == models.appending(path: "q").path)
+        await #expect(throws: ModelRemoval.Failure.self) {
+            try await Self.backend.removal("/opt/q", config: config, home: home, purgeCache: false)
+        }
+    }
+
     @Test func aDisabledModelIsRefusedByItsNameOrItsDirectorysPath() throws {
         let (home, models) = try scratch()
         defer { try? FileManager.default.removeItem(at: home.root) }

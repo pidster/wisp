@@ -139,6 +139,16 @@ public protocol ModelBackend: Sendable {
     ///   - home: wisp's home, for the default models directory; nil when there is none to hand.
     /// - Returns: The canonical name.
     func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String
+    /// What uninstalling `name` would remove, read without changing anything (ADR 0075).
+    ///
+    /// - Parameters:
+    ///   - name: The part after the scheme.
+    ///   - config: The effective configuration.
+    ///   - home: wisp's home.
+    ///   - purgeCache: Whether a shared cache's copy goes too (MLX's Hugging Face cache).
+    /// - Returns: The plan.
+    /// - Throws: `ModelRemoval.Failure`: the runtime keeps its own models, or this one is not installed.
+    func removal(_ name: String, config: Config.Resolved, home: Home, purgeCache: Bool) async throws -> ModelRemoval
 }
 
 extension ModelBackend {
@@ -158,6 +168,17 @@ extension ModelBackend {
 
     /// None: the runtime reports what its models can do.
     public func declarationKeys(for name: String) -> [String]? { nil }
+
+    /// Refuses: the runtime keeps its own models.
+    ///
+    /// - Throws: `ModelRemoval.Failure.notWisps`.
+    public func removal(
+        _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
+    ) async throws
+        -> ModelRemoval
+    {
+        throw ModelRemoval.Failure.notWisps(model: "\(scheme):\(name)", reason: "\(scheme) keeps its own models")
+    }
 
     /// `config` as it is: nothing is declared for a runtime that reports its models' capabilities.
     public func declaring(

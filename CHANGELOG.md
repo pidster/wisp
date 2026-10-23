@@ -4,6 +4,15 @@ Notable changes per release, written for people who run wisp. The release script
 section for the version being cut as the GitHub release notes and refuses to release without one.
 Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
 
+## Unreleased
+
+Added:
+
+- `wisp models uninstall NAME` and chat's `/models uninstall NAME` remove a model and its settings after you type its
+  name: Ollama's copy through Ollama, an MLX or Core AI model's link or folder in wisp's models folder (a folder to the
+  Bin), and with `--purge-cache` an MLX model's repository folder in the Hugging Face cache (a store another tool keeps
+  there is left to it). llama.cpp's, LM Studio's, and Apple's models are refused, saying where to remove them (ADR 0075).
+
 ## 0.31.0
 
 Added:

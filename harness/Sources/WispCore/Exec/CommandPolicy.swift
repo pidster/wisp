@@ -118,6 +118,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         nestedWisp,
         // Nor does it fetch a model: the download is the person's to approve (ADR 0052).
         #"(^|[\s;&|(/])wisp\s+models\s+pull\b"#,
+        // Nor does it remove one (ADR 0075): uninstalling a model is the person's alone.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?models["']?\s+["']?uninstall\b"#,
         // Nor does it put wisp on PATH or take it off (ADR 0073): what a shell runs as wisp is the person's choice.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?(un)?install\b"#,
         // Nor does it replace wisp with a newer release (ADR 0074): an update is the person's to make.

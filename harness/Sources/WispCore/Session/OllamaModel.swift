@@ -413,6 +413,27 @@ public struct OllamaModel: LanguageModel, Sendable {
         return loaded.first { $0.name == name }?.size ?? 0
     }
 
+    /// Deletes a model from Ollama with `DELETE /api/delete` (ADR 0075).
+    ///
+    /// - Throws: `Failure.unreachable`, or `Failure.serverError` when Ollama refuses, as for a model it does not have.
+    public static func delete(_ name: String, at settings: OllamaSettings) async throws {
+        var request = URLRequest(url: settings.baseURL.appending(path: "api/delete"))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["model": name])
+        request.timeoutInterval = 30
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw Failure.unreachable(settings.baseURL, error.localizedDescription)
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            throw Failure.serverError(status: status, body: String(decoding: data.prefix(200), as: UTF8.self))
+        }
+    }
+
     /// Asks `/api/show` what a model can do and what shape it is.
     ///
     /// - Throws: `Failure.unreachable`, `Failure.serverError`, or `Failure.badResponse`.
@@ -728,6 +749,25 @@ public struct OllamaBackend: ModelBackend {
     public func canonicalName(_ name: String, config: Config.Resolved?, home: Home?) -> String {
         let last = name.split(separator: "/", omittingEmptySubsequences: false).last ?? Substring(name)
         return name.isEmpty || last.contains(":") ? name : name + ":latest"
+    }
+
+    /// Ollama's copy, through Ollama's delete, sized from its listing (ADR 0075).
+    ///
+    /// - Throws: `ModelRemoval.Failure.notInstalled` when Ollama does not list it, or Ollama's failure.
+    public func removal(
+        _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
+    ) async throws
+        -> ModelRemoval
+    {
+        let canonical = canonicalName(name, config: config, home: home)
+        let installed = try await OllamaModel.installed(at: config.ollama)
+        guard let model = installed.first(where: { $0.name == canonical || $0.name == name }) else {
+            throw ModelRemoval.Failure.notInstalled(
+                model: "ollama:\(name)", reason: "Ollama at \(config.ollama.baseURL.absoluteString) does not list it")
+        }
+        return ModelRemoval(
+            model: "ollama:\(model.name)", steps: [.ollama(model.name)], bytes: Int64(model.size),
+            kept: purgeCache ? ["--purge-cache does nothing for Ollama, which keeps no shared cache"] : [])
     }
 
     /// Checks the server lists the model, reads its capabilities, and wraps it.

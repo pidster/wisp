@@ -1035,8 +1035,60 @@ struct ConfigCommand: ParsableCommand {
 /// person's approval.
 struct Models: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List, enable, or disable the models usable with --model and config.json, or fetch an MLX model.",
-        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self], defaultSubcommand: List.self)
+        abstract:
+            "List, enable, or disable the models usable with --model and config.json, fetch an MLX model, or remove "
+            + "one.",
+        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self, Uninstall.self],
+        defaultSubcommand: List.self)
+
+    /// Removes a model where wisp knows its files, and its settings, after the person types its name (ADR 0075).
+    struct Uninstall: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Remove a model and its settings, after you type its name.",
+            discussion:
+                "Shows what goes first: Ollama's copy (through Ollama's delete, which every app using Ollama loses), "
+                + "an MLX model's or Core AI bundle's link in wisp's models folder (what it points to stays), or a "
+                + "real folder there (moved to the Bin), the bytes freed, the settings cleared from config.json, and "
+                + "a warning when it is the default model. You type the model's name to go ahead; --yes skips that "
+                + "for a script, and without a terminal nothing is removed unless --yes is given. An MLX model's "
+                + "files in the Hugging Face cache stay unless --purge-cache is given, which removes the "
+                + "repository's whole folder there, for every tool sharing the cache. llama.cpp's, LM Studio's, and "
+                + "Apple's models are refused, saying where to remove them.")
+
+        @Argument(
+            help: "The model, as wisp models lists it, such as ollama:llama3.2:3b.",
+            completion: DynamicCompletions.models)
+        var model: String
+
+        @Flag(help: "Also remove an MLX model's repository from the Hugging Face cache, every revision.")
+        var purgeCache = false
+
+        @Flag(name: [.short, .long], help: "Remove without asking you to type the name.")
+        var yes = false
+
+        func run() async throws {
+            let session = try Wisp.begin(.init(entryPoint: .models))
+            defer { session.end() }
+            let dialog = ModelActions.UninstallDialog(
+                interactive: isatty(STDIN_FILENO) != 0, show: { print($0) },
+                typed: { prompt in
+                    print("\(prompt): ", terminator: "")
+                    fflush(stdout)
+                    return readLine()
+                })
+            do {
+                _ = try await ModelActions(session: session, face: .cli).uninstall(
+                    model, purgeCache: purgeCache, yes: yes, dialog: dialog)
+            } catch let failure as ModelSelection.Failure {
+                throw ValidationError("\(failure)")
+            } catch {
+                // The plan went to standard output; it comes before the reason, piped or not.
+                fflush(stdout)
+                FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+                throw ExitCode.failure
+            }
+        }
+    }
 
     /// Lists the models a session can run on: Apple's two, whatever each local backend serves, and the cached MLX
     /// models enabling would link, with every fact wisp knows about each (ADR 0056).

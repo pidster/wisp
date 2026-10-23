@@ -54,7 +54,7 @@ _wisp() {
             'respond:Generate a response to a prompt, calling tools as needed.'
             'chat:Start an interactive chat session.'
             'tools:List the tools available to the model.'
-            'models:List, enable, or disable the models usable with --model and config.json, or fetch an MLX model.'
+            'models:List, enable, or disable the models usable with --model and config.json, fetch an MLX model, or remove one.'
             'mcp:Serve wisp'\''s tools to an MCP client over stdio.'
             'logs:Show the audit log.'
             'config:Show or change the configuration.'
@@ -162,12 +162,13 @@ _wisp_models() {
             'disable:Disable models: hidden from /model and refused everywhere; not the default model.'
             'check:Check what MLX and llama.cpp models can do, on the models themselves, and record it in config.json.'
             'pull:Fetch an MLX model from Hugging Face into its cache and link it, after asking.'
+            'uninstall:Remove a model and its settings, after you type its name.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        list|enable|disable|check|pull)
+        list|enable|disable|check|pull|uninstall)
             "_wisp_models_${words[1]}" && ret=0
             ;;
         esac
@@ -232,6 +233,20 @@ _wisp_models_pull() {
     local -ar arg_specs=(
         ':repository:'
         '--trust-publisher[Pull from a publisher not in mlx.trustedPublishers this once, skipping the question about the publisher; the download question is still asked, and the setting is unchanged.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_uninstall() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':model:{__wisp_custom_complete ---completion models uninstall -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        '--purge-cache[Also remove an MLX model'\''s repository from the Hugging Face cache, every revision.]'
+        '(-y --yes)'{-y,--yes}'[Remove without asking you to type the name.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

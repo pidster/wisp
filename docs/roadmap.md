@@ -18,6 +18,10 @@ measurement.
 Moved from 0.31.0 by the operator on 2026-10-23, so 0.31.0 shipped with the disk image, `wisp install`, and
 `wisp update`, and 0.31.1 is also the first release a `Wisp.app` updates to with `wisp update`.
 
+Built 2026-10-23 ([ADR 0075](decisions/0075-wisp-models-uninstall.md)), with a real folder moved to the Bin and
+`--purge-cache` removing the repository's whole folder, as the operator chose, and leaving a store another tool keeps at
+the cache's root to that tool.
+
 **`wisp models uninstall NAME`**, asked for by the operator on 2026-10-23, run by the person only (chat's
 `/models uninstall` too; the model's `models` tool cannot): it removes a model where wisp knows its files, Ollama's
 through Ollama's own delete, an MLX model's entry in the models folder, and a Core AI bundle, and clears the

@@ -271,6 +271,10 @@ public enum ChatInput: Equatable, Sendable {
         HelpEntry(
             usage: "/models cancel [REPOSITORY]", about: "stop a pull the model asked for, running in the background"),
         HelpEntry(
+            usage: "/models uninstall NAME [--purge-cache]",
+            about: "remove a model and its settings after you type its name: Ollama's copy, a link or folder in wisp's "
+                + "models folder; --purge-cache also an MLX model's files in the Hugging Face cache"),
+        HelpEntry(
             usage: "/model [name]",
             about: "switch the conversation to a model, keeping the transcript; no name shows it",
             names: ["model"], command: { .model($0) }),
@@ -503,13 +507,17 @@ public enum ModelsRequest: Equatable, Sendable {
     case trust(String)
     /// Cancel the background pull of a repository, or every one (ADR 0059).
     case cancel(String?)
+    /// Remove a model and its settings, after the person types its name; with `purgeCache`, an MLX model's folder in
+    /// the Hugging Face cache too (ADR 0075).
+    case uninstall(String, purgeCache: Bool)
     /// Anything else, with the word that was not understood, or `enable`, `disable`, `check`, `pull`, or `trust`
     /// with no name.
     case unknown(String)
 
     /// How to use `/models`, as an unknown argument is answered.
     public static let usage =
-        "/models, or /models enable|disable|check NAME…, pull REPOSITORY, trust PUBLISHER, cancel [REPOSITORY]"
+        "/models, or /models enable|disable|check NAME…, pull REPOSITORY, trust PUBLISHER, cancel [REPOSITORY], "
+        + "uninstall NAME [--purge-cache]"
 
     /// Parses what follows `/models`.
     public init(_ argument: String?) {
@@ -522,6 +530,10 @@ public enum ModelsRequest: Equatable, Sendable {
         case "pull" where parts.count == 2: self = .pull(parts[1])
         case "trust" where parts.count == 2: self = .trust(parts[1])
         case "cancel" where parts.count <= 2: self = .cancel(parts.count == 2 ? parts[1] : nil)
+        case "uninstall" where parts.count == 2 && parts[1] != "--purge-cache":
+            self = .uninstall(parts[1], purgeCache: false)
+        case "uninstall" where parts.count == 3 && parts.filter({ $0 == "--purge-cache" }).count == 1:
+            self = .uninstall(parts.dropFirst().first { $0 != "--purge-cache" } ?? "", purgeCache: true)
         case let word?: self = .unknown(word)
         }
     }

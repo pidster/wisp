@@ -516,6 +516,7 @@ What a session shows, and where it goes:
 | `/models pull REPOSITORY` | Fetch an MLX model from Hugging Face and link it, as `wisp models pull` does (below), with the same plan, checks, resume, and audit (`source` `chat`). The plan and the publisher question's lines are notes; the answers are the face's choice dialog: for a publisher not in `mlx.trustedPublishers`, refuse (the default), pull it once, or trust it from now on; the download and replacing a real directory, no (the default) or yes. While it downloads, the status line (the working line in the terminal chat, the busy box in `wisp-tui`) says how far it has gone, `pulling mlx-community/q: 1.2 GB of 4.5 GB, file 2 of 7 · Ctrl-C stops it`, and notes still arrive; Ctrl-C stops it, as it stops a command you typed, keeping what arrived, and the same `/models pull` resumes it ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
 | `/models trust PUBLISHER` | Trust a Hugging Face organisation from now on: added to `mlx.trustedPublishers` in `config.json`, recorded as `config.change`, so its pulls ask only about the download. The person's alone: the model's `models` tool cannot. |
 | `/models cancel [REPOSITORY]` | Stop a pull the model asked for, running in the background (all of them without a name); what arrived is kept, and the conversation gets a note saying so. |
+| `/models uninstall NAME [--purge-cache]` | Remove a model and its settings, as `wisp models uninstall` does (below): the plan as notes, then the model's name typed at the prompt, or in `wisp-tui`'s text box, to go ahead; anything else leaves it ([ADR 0075](decisions/0075-wisp-models-uninstall.md)). |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities; in `wisp-tui` (and any front end that answers a `choice`) it then offers, as a picker titled "Switch to which model?", the models it can switch to, the enabled ones that can serve the conversation's tools, the one in use marked: choosing one switches, and no answer or the one in use says `model unchanged`. The status bar's model item sends it. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/think [on\|off\|LEVEL]` | Whether the conversation's model thinks: `on`, `off`, or for Ollama and llama.cpp a level (`low`, `medium`, `high`, `max`). Saved as the model's default, `<runtime>.models.<name>.think`, as `/config set` saves it (audited as a `config.change`), and applied to the conversation at once, as `respond`'s `think` is, where a setting changed with `/config` is read only as a session starts; switching back to the model later in the session keeps it. No argument shows it (`thinking: off (ollama.models.granite4.2:8b.think)`) and, in `wisp-tui`, offers the choices in a picker. A model that cannot think, or whose runtime has no such setting (Apple's, LM Studio's), is refused: `system has no thinking to turn on or off`. The status line shows the choice ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-15). |
 | `/stats` | Timings of this session's recent model turns and classifier calls: per kind and model, the count, failures, mean, P50, P95, and maximum seconds, and the mean prompt tokens where the runtime reports them (Ollama); then the latest eight calls by start time. Kept in memory only, the latest 256 calls; see below. |
@@ -985,6 +986,40 @@ setting. `--yes`, which approves commands elsewhere, is not an option of `wisp m
 | Audit | `model.publisher`, the publisher's decision (`trusted`, `flag`, `once`, `trust`, `refused`); then `model.pull`, with the outcome `fetched`, `linked`, `declined` (a refused publisher included), `failed`, or `cancelled` (stopped in chat, or a background pull cancelled), `seeded`, the files copied from the directory, and `source`, the face that asked (`cli` here) ([logging.md](logging.md)) |
 
 See [backends.md](backends.md), "MLX Swift", and [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
+
+#### `wisp models uninstall <name> [--purge-cache] [--yes]`
+
+Removes a model where wisp knows its files, and its settings in `config.json`, after you type its name
+([ADR 0075](decisions/0075-wisp-models-uninstall.md)). It shows what goes first:
+
+| Model | What goes |
+| --- | --- |
+| `ollama:` | Ollama's copy, through Ollama's `DELETE /api/delete`; every app using Ollama loses it |
+| `mlx:`, `coreai:` | The entry in wisp's models folder: a link is removed, and what it points to stays; a real folder is moved to the Bin. A model named by its path is refused |
+| `llamacpp:`, `lmstudio:`, `system`, `private-cloud` | Refused, saying where it is removed: llama.cpp's GGUF file, LM Studio's My Models, macOS |
+
+An MLX model's files in the Hugging Face cache stay, and the plan says how much they hold; `--purge-cache` removes the
+repository's whole folder there, `models--org--name`, every revision, for every tool that shares the cache. Another
+tool may keep a model's large files in a store of its own at the cache's root (`<cache>/blobs`); wisp never touches it,
+and the plan says how much of the model is there.
+
+```
+$ wisp models uninstall mlx:Qwen3-1.7B-4bit --purge-cache
+uninstalling mlx:Qwen3-1.7B-4bit removes:
+  the link /Users/you/.wisp/models/mlx/Qwen3-1.7B-4bit (it points to …/snapshots/3b1b…, which stays)
+  /Users/you/.cache/huggingface/hub/models--mlx-community--Qwen3-1.7B-4bit in the Hugging Face cache, every revision, removed
+  freeing 4.5 MB
+979.5 MB of its files are in /Users/you/.cache/huggingface/hub/blobs, a store another tool keeps; wisp leaves it to that tool
+Type mlx:Qwen3-1.7B-4bit to remove it; anything else leaves it:
+```
+
+The plan also names the settings cleared (`<scheme>.models.<name>` under any spelling, an MLX declaration, its
+`models.disabled` entry) and warns when the model is the default, which then falls back to `system`; `model` itself is
+left for you to change. The model's name, as typed or as the plan spells it, goes ahead; anything else leaves it.
+`--yes` (`-y`) skips the question for a script; without a terminal, nothing is removed unless `--yes` is given (exit
+1). Each removal is a `model.uninstall` event and each setting cleared a `config.change`. The model's `models` tool
+does not offer it, and the default policy refuses `wisp models uninstall` to the model. Chat has the same as
+`/models uninstall NAME [--purge-cache]`, asking for the name at the prompt or in `wisp-tui`'s text box.
 
 ### `wisp config`
 

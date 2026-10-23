@@ -32,10 +32,30 @@ extension ChatLoop {
                 cancelled.isEmpty
                     ? "no pull is running" + (repository.map { " for \($0)" } ?? "")
                     : "cancelling the pull of \(cancelled.joined(separator: ", ")); what arrived is kept")
+        case .uninstall(let name, let purgeCache): await uninstall(actions, name, purgeCache: purgeCache)
         case .unknown(let word):
             io.note("unknown /models argument '\(word)'; \(ModelsRequest.usage)")
         case .list:
             await list(actions)
+        }
+    }
+
+    /// `/models uninstall NAME`: the plan as notes, then the model's name typed in the face's text box, or at the plain
+    /// chat's prompt, to go ahead (ADR 0075).
+    ///
+    /// - Parameters:
+    ///   - actions: The chat's model actions.
+    ///   - name: The model, as typed.
+    ///   - purgeCache: Whether an MLX model's folder in the Hugging Face cache goes too.
+    private func uninstall(_ actions: ModelActions, _ name: String, purgeCache: Bool) async {
+        let note = io.note
+        let dialog = ModelActions.UninstallDialog(
+            interactive: true, show: { note($0) },
+            typed: { prompt in await ask(ChatChoice(title: prompt, options: [], acceptsText: true)) })
+        do {
+            _ = try await actions.uninstall(name, purgeCache: purgeCache, yes: false, dialog: dialog)
+        } catch {
+            io.note(style.ember("error: \(error)"))
         }
     }
 

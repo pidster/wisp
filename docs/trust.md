@@ -173,6 +173,11 @@ call's result), in the thread's record, and as a fact of the thread (`answer`, y
 on its own. Your answer is not private from the agent that called wisp, which can read the thread under
 `wisp://threads/{thread_id}`; the dialog says so ([ADR 0062](decisions/0062-the-inquiry-verb.md)).
 
+wisp removes a model only when you run `wisp models uninstall NAME` or `/models uninstall NAME` and type its name
+after it has shown what goes ([ADR 0075](decisions/0075-wisp-models-uninstall.md)): Ollama's copy through Ollama, a
+link in wisp's models folder, a real folder there to the Bin, and the model's folder in the Hugging Face cache only
+with `--purge-cache` (never another tool's store there); wisp's own model is refused the command, and its `models` tool does not offer it.
+
 wisp downloads a model only when you ask for it, with `wisp models pull <organisation>/<name>` in a terminal or
 `/models pull` in chat, and answer yes after it has said which files, how many bytes, and where; or when the model,
 given its `models` tool (off by default), asks and you approve that one pull, which names the publisher, the

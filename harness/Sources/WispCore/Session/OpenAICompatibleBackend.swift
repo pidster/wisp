@@ -21,6 +21,21 @@ public struct OpenAICompatibleBackend: ModelBackend {
         OpenAICompatibleModel.Served.shortName(name)
     }
 
+    /// Refuses: the server's models are its own (ADR 0075).
+    ///
+    /// - Throws: `ModelRemoval.Failure.notWisps`, saying where to remove it.
+    public func removal(
+        _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
+    ) async throws
+        -> ModelRemoval
+    {
+        let reason =
+            dialect == .llamaCpp
+            ? "llama.cpp serves the GGUF file llama-server was started with; delete that file yourself"
+            : "\(dialect.runtime) keeps its own models; remove it there (LM Studio: My Models)"
+        throw ModelRemoval.Failure.notWisps(model: "\(scheme):\(name)", reason: reason)
+    }
+
     /// Checks the server lists the model, reads what it says about it, and wraps it.
     ///
     /// - Throws: `ModelSelection.Failure.unavailable` with the server's failure as the reason, or for a declared

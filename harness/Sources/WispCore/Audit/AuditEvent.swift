@@ -86,6 +86,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case modelPull
         case modelPublisher
         case modelVerified
+        case modelUninstall
         case classifierVerdict
         case classifierTrained
         case configChange
@@ -149,6 +150,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .modelPull,
             .modelPublisher,
             .modelVerified,
+            .modelUninstall,
             .classifierVerdict,
             .classifierTrained,
             .configChange,
@@ -212,6 +214,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .modelPull: "model.pull"
             case .modelPublisher: "model.publisher"
             case .modelVerified: "model.verified"
+            case .modelUninstall: "model.uninstall"
             case .classifierVerdict: "classifier.verdict"
             case .classifierTrained: "classifier.train"
             case .configChange: "config.change"

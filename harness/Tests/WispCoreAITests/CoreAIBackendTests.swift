@@ -18,6 +18,23 @@ import WispCore
         return (home, models)
     }
 
+    /// Uninstalling plans the models folder's entry (ADR 0075): a linked bundle unlinked, its target kept; a bundle
+    /// named by its path is the person's to remove.
+    @Test func uninstallUnlinksABundleAndRefusesAPath() async throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let elsewhere = home.root.appending(path: "bundle")
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: models.appending(path: "b").path, withDestinationPath: elsewhere.path)
+        let config = Config().resolved
+        let plan = try await CoreAIBackend().removal("b", config: config, home: home, purgeCache: false)
+        #expect(plan.model == "coreai:b" && plan.steps.count == 1 && plan.bytes == 0)
+        await #expect(throws: ModelRemoval.Failure.self) {
+            try await CoreAIBackend().removal("~/b", config: config, home: home, purgeCache: false)
+        }
+    }
+
     @Test func namesResolveToBundleDirectories() throws {
         let (home, models) = try scratch()
         defer { try? FileManager.default.removeItem(at: home.root) }

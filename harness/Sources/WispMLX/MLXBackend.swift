@@ -59,6 +59,26 @@ public struct MLXBackend: ModelBackend {
         return CommandPolicy.canonical(Self.modelURL(for: name, config: config, home: home).path)
     }
 
+    /// The model's entry in the models folder: a link into the Hugging Face cache removed, the cache's folder kept
+    /// unless `purgeCache`, or a real folder moved to the Bin (ADR 0075). A model named by its path is not in the
+    /// folder, and is the person's to remove.
+    ///
+    /// - Throws: `ModelRemoval.Failure`.
+    public func removal(
+        _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
+    ) async throws
+        -> ModelRemoval
+    {
+        guard !name.hasPrefix("/"), !name.hasPrefix("~") else {
+            throw ModelRemoval.Failure.notWisps(
+                model: "mlx:\(name)",
+                reason: "it is named by its path, outside wisp's models folder; remove it yourself")
+        }
+        return try ModelRemoval.folder(
+            model: "mlx:\(name)", entry: Self.modelURL(for: name, config: config, home: home),
+            cacheRoot: (cache ?? .current()).root, purgeCache: purgeCache)
+    }
+
     /// The configured models directory, or the default under the home.
     public static func modelsDirectory(config: Config.Resolved, home: Home) -> URL {
         if let configured = config.mlxModelsDirectory {

@@ -130,13 +130,18 @@ the configured model is unavailable and was not named; `respond` and MCP open th
 
 `ModelActions` is the one layer every face takes these through ([ADR 0059](decisions/0059-one-set-of-model-actions.md)):
 `wisp models …` (face `cli`), chat's `/models` and `/model` and `wisp-tui`'s picker (`chat`), and the model's
-`ModelsTool` (`tool`). Each `Action` (`list`, `show`, `pull`, `trust`, `enable`, `disable`, `check`, `switch`) declares
+`ModelsTool` (`tool`). Each `Action` (`list`, `show`, `pull`, `trust`, `enable`, `disable`, `check`, `switch`,
+`uninstall`) declares
 what it reads and changes, whether the model may ask for it, and the widest scope its approval is kept for; the
 actions call `Session.setModels`, `Session.checkModels`, `Session.trustPublisher`, `DisabledModels.check`, and
 `PublisherCheck`, recording in the asking conversation's log with the face as `source`. A pull is `WispCore`'s
 questions around a `ModelPuller` the executable registers (`ModelPullers`; `MLXPuller` over `ModelPull`): `prepare`
 lists the repository into a `PreparedPull` (a `PullSummary` and closures over the runtime's plan), and
-`ModelActions.pull` screens the publisher, puts the question through the face's `PullDialog` (the terminal's lines,
+`ModelActions.uninstall` ([ADR 0075](decisions/0075-wisp-models-uninstall.md)) asks the model's backend for a
+`ModelRemoval` (`ModelBackend.removal`, which reads and changes nothing: Ollama's delete, a link or a folder in the
+models folder, the Hugging Face cache's repository folder, never another tool's store at the cache's root), shows it through the
+face's `UninstallDialog`, takes the typed name, runs the steps (`ModelRemoval.perform`), and clears the model's
+settings. `ModelActions.pull` screens the publisher, puts the question through the face's `PullDialog` (the terminal's lines,
 chat's notes and `ChatChoice`), asks about the download, and runs the fetch in a child task that the dialog's
 `CommandStop` cancels, as Ctrl-C stops a typed command, keeping the part of the file for the next pull to resume;
 progress is `PullProgress`, which chat shows as its `ChatActivity`, read from the file's part by a ticker and as each

@@ -24,6 +24,25 @@ public struct CoreAIBackend: ModelBackend {
         return CommandPolicy.canonical(Self.bundleURL(for: name, config: config, home: home).path)
     }
 
+    /// The bundle's entry in the models folder: a link removed, leaving the bundle it points to, or a real bundle
+    /// moved to the Bin (ADR 0075). A bundle named by its path is not in the folder, and is the person's to remove.
+    ///
+    /// - Throws: `ModelRemoval.Failure`.
+    public func removal(
+        _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
+    ) async throws
+        -> ModelRemoval
+    {
+        guard !name.hasPrefix("/"), !name.hasPrefix("~") else {
+            throw ModelRemoval.Failure.notWisps(
+                model: "coreai:\(name)",
+                reason: "it is named by its path, outside wisp's models folder; remove it yourself")
+        }
+        return try ModelRemoval.folder(
+            model: "coreai:\(name)", entry: Self.bundleURL(for: name, config: config, home: home), cacheRoot: nil,
+            purgeCache: purgeCache)
+    }
+
     /// The configured models directory, or the default under the home.
     public static func modelsDirectory(config: Config.Resolved, home: Home) -> URL {
         if let configured = config.coreaiModelsDirectory {
