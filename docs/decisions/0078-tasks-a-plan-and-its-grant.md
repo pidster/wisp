@@ -3,8 +3,11 @@
 Date: 2026-10-23. Status: proposed. The operator agreed on 2026-10-23 the framing (a problem is solved by a plan of
 tasks that composes wisp's primitives, approved with what it may do), the tree of tasks with dependencies, and, for
 scheduled runs, decisions 5 to 7; the rest, marked **pending**, is not agreed. The tree itself moved on 2026-10-24 to
-[ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md), which this one builds on. Would amend
-[ADR 0064](0064-an-approved-run-outside-the-sandbox.md) (an outside run is remembered by nothing) and extend
+[ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md), which this one builds on. On 2026-10-24 the operator
+chose that plans are skills the person configures ([ADR 0080](0080-agent-skills.md)), whose `allowed-tools` carries the
+grant; decisions 3 and 4 below read with that. Leaves
+[ADR 0064](0064-an-approved-run-outside-the-sandbox.md) (an outside run is remembered by nothing) unchanged: a step outside
+the sandbox still asks on every run, and changing that is not proposed. Would extend
 [ADR 0033](0033-watch-mode.md) (watch mode) and [ADR 0073](0073-wisp-install-and-the-finder.md) (`wisp install`).
 
 ## Context
@@ -46,7 +49,9 @@ the probe below has the results.
 
 ### The grant
 
-3. **A plan carries its grant, and the person approves both together.** The grant says what the tree may do, in a
+3. **A plan carries its grant, and the person approves both together.** Since 2026-10-24 the plan is a skill and its
+   grant the skill's `allowed-tools`, approved against the skill's digest ([ADR 0080](0080-agent-skills.md), decisions 4
+   and 5); the vocabulary below is what that syntax expresses. The grant says what the tree may do, in a
    small vocabulary the person can read:
 
    | Kind | Example | Means |
@@ -64,7 +69,8 @@ the probe below has the results.
    0064 and is not proposed for Homebrew.
 4. **Planning and running may use different models.** The plan is written by a model good enough to plan (the
    probe below picks it) and approved by the person; the steps may run on a fast model, which the grant bounds. A
-   change to the plan or grant is approved again; the model cannot widen its own grant.
+   change to the plan or grant is approved again; the model cannot widen its own grant. Since 2026-10-24 plans come
+   from skills the person keeps (ADR 0080); a model that plans drafts a skill for the person to read and save.
 
 ### Triggers and channels
 
@@ -73,9 +79,11 @@ the probe below has the results.
    `wisp uninstall` removes it and `wisp doctor` reports it. Other triggers are now (the default), a file change,
    and an interval, as `wisp watch` has them.
 6. **The model drives each run** (agreed), on the task's own thread, with the tree, the grant, and only the tools
-   the grant needs.
+   the grant needs. **Pending, a conflict for the operator:** the design ([proposal](../proposals/2026-10-24-task-trees.md),
+   D9) runs a step whose arguments are all bound with no model at all, and the model only for judgements; that
+   narrows this decision, and needs the operator's agreement.
 7. **A banner reports, the person answers in wisp** (agreed). A run ends with a `notify` banner of what it found;
-   a question waits in `~/.wisp/pending`, answered with `wisp approvals`, in `wisp-tui`, or in chat. No banner
+   a question waits in `~/.wisp/pending`, answered with `wisp questions`, in `wisp-tui`, or in chat. No banner
    buttons. An unanswered question is never a yes; it waits, and the next run replaces it (pending: expiry).
 8. **`/schedule` is the person's; the `schedule` tool proposes** (shape agreed). `/schedule <frequency|time>
    <action>` in chat and `wisp schedule add|list|remove|run` create and manage scheduled tasks; the model's

@@ -5,7 +5,8 @@ dependencies between its branches and leaves, worked by the model through a `tas
 [ADR 0078](0078-tasks-a-plan-and-its-grant.md), decisions 1 and 2, which move here). On 2026-10-24 they set out the
 spine: the conversation is the spine of the task tree, and a tree is rooted at any point in it. They also set the
 tool's scope: the model can read, write, and search and filter the tree. Everything else, marked **pending**, is not
-agreed. ADR 0078 keeps what a plan may do and when it runs (the grant, triggers, channels, protection) and builds on
+agreed. On 2026-10-24 the operator chose that plans are Agent Skills the person configures
+([ADR 0080](0080-agent-skills.md)): a skill's body is a brief, and using a skill roots a tree. ADR 0078 keeps what a plan may do and when it runs (the grant, triggers, channels, protection) and builds on
 this one.
 
 ## Context
@@ -59,9 +60,9 @@ audited; and a way to give each step only the context it needs.
 8. **A task carries a brief**: a short instruction, and the facts and spine entries it needs, written when the plan
    is made. When the task runs, its request is composed from wisp's system prompt, the thread's instructions, the
    brief, the goal, and its dependencies' results as references; not the whole spine. A task may read a spine entry
-   by reference, never change one.
+   by reference, never change one. A skill's body is the brief of the tree it roots (ADR 0080, decision 6).
 9. **A brief is consumed.** When its task ends, the brief leaves the active context and later work sees only the
-   task's result; the brief stays in the store and the audit log, which are never cut. **Pending:** whether a brief's
+   task's result; the brief stays in the store and in the audit log while it is kept (the log rotates). **Pending:** whether a brief's
    facts are a fourth fact scope, `task`, held while the task is active.
 10. **A brief is part of the plan the person approves** (pending: with ADR 0078's grant), fixed at approval and
     approved again if changed, and bounded in size as facts are (pending: its share of the window). Data from other
@@ -87,7 +88,9 @@ audited; and a way to give each step only the context it needs.
     Every result is bounded by the tool-output budget and paged, as `read_file` and `memory` are. Off by default,
     added by a setting or a named list, as `memory` and `ask` are (pending: the setting's name).
 12. **Who may change what.** The model may add and update tasks while planning, and update status and results while
-    running. Once a plan is approved, a change to its structure or a brief is a change to the plan and is approved
+    running. **Pending, from the review of 2026-10-24:** narrowed so that only the task runner sets the status of
+    steps, questions, and notices, the model only that of the judgement it is running, and the person cancels or
+    retries; otherwise the model could mark a question done and skip the person's answer. Once a plan is approved, a change to its structure or a brief is a change to the plan and is approved
     again (pending, with ADR 0078); the model cannot add a step its grant does not cover by adding a task.
 13. **The person sees and searches the same tree**: `/tasks` in chat and `wisp-tui`, `wisp tasks` from a terminal
     (pending), and the resources `wisp://threads/{thread_id}/tasks` and `wisp://threads/{thread_id}/tasks/{task_id}`

@@ -59,7 +59,9 @@ given formula. The broader aim is that a person hands wisp a problem and it comp
 Proposed in [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md): the conversation is the spine,
 and a problem becomes a tree of tasks rooted at one of its turns, with dependencies between branches and leaves and
 across trees, each task carrying a brief consumed when it runs, read, written, and searched by the model through a
-`tasks` tool. Proposed in [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the plan carries a
+`tasks` tool. Proposed in [ADR 0080](decisions/0080-agent-skills.md): plans are Agent Skills the person configures, kept
+outside `~/.wisp` and checked by a digest, their grant in `allowed-tools`. Proposed in
+[ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the plan carries a
 grant (command templates with typed, sourced arguments, and how each runs) that the person approves with it; scheduled
 runs are started by a LaunchAgent, report by banner, and are answered in wisp; `/schedule` is the person's and the
 model's `schedule` tool only proposes. A probe on 2026-10-23 found no local model writing a plan and grant a person
