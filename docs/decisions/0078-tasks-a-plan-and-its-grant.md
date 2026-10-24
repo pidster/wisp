@@ -2,7 +2,8 @@
 
 Date: 2026-10-23. Status: proposed. The operator agreed on 2026-10-23 the framing (a problem is solved by a plan of
 tasks that composes wisp's primitives, approved with what it may do), the tree of tasks with dependencies, and, for
-scheduled runs, decisions 5 to 7; the rest, marked **pending**, is not agreed. Would amend
+scheduled runs, decisions 5 to 7; the rest, marked **pending**, is not agreed. The tree itself moved on 2026-10-24 to
+[ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md), which this one builds on. Would amend
 [ADR 0064](0064-an-approved-run-outside-the-sandbox.md) (an outside run is remembered by nothing) and extend
 [ADR 0033](0033-watch-mode.md) (watch mode) and [ADR 0073](0073-wisp-install-and-the-finder.md) (`wisp install`).
 
@@ -38,18 +39,10 @@ the probe below has the results.
 
 ### The task tree
 
-1. **A problem becomes a tree of tasks.** The conversation's task (`/task`, the thread's task fact) is the root;
-   the model breaks it into branches and leaves, each with a goal, the primitive it uses (a command template, a
-   tool, a question to the person, a notification), and what it produces. A leaf may **depend on** other tasks
-   anywhere in the tree, by id, not only on its parent: "upgrade `<formula>`" depends on "list outdated" and on the
-   person's yes to that formula. A task is `pending`, `ready` (its dependencies done), `running`, `waiting` (on the
-   person), `done`, `failed`, or `skipped`; a failure stops what depends on it and nothing else.
-2. **A `tasks` tool lets the model build and work the tree** (agreed in principle): add a task or a dependency,
-   mark one done with its result, list what is ready. It is named `tasks` because `task` is already the thread's
-   task fact. The tree is kept with the thread (`threads/<id>/tasks.json`, pending) and shown by `/tasks` in chat,
-   `wisp-tui`, and `wisp://threads/{thread_id}/tasks`. **Pending:** whether a dependency cycle is refused at once
-   (proposed: yes); how deep and wide a tree may grow; whether results flow to dependents as references to the
-   output store (proposed, so the tree obeys the tool-output budget, ADR 0050).
+1. and 2. **Moved on 2026-10-24 to [ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md)**, which records
+   the agreed tree of tasks with dependencies and the `tasks` tool, and roots a tree at a turn of the conversation,
+   its spine. In this ADR's terms: "upgrade `<formula>`" depends on "list outdated" and on the person's yes to that
+   formula, and the grant below is approved for a tree.
 
 ### The grant
 

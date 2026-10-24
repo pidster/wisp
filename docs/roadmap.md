@@ -56,12 +56,14 @@ The plan, for a release not yet chosen, with an ADR first that says plainly what
 
 Raised by the operator on 2026-10-23, from an example: watch Homebrew with `brew outdated` and ask whether to update a
 given formula. The broader aim is that a person hands wisp a problem and it composes its primitives to solve it.
-Proposed in [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the problem becomes a tree of tasks with
-dependencies between branches and leaves, built and worked by the model through a `tasks` tool; the plan carries a
+Proposed in [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md): the conversation is the spine,
+and a problem becomes a tree of tasks rooted at one of its turns, with dependencies between branches and leaves and
+across trees, each task carrying a brief consumed when it runs, read, written, and searched by the model through a
+`tasks` tool. Proposed in [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the plan carries a
 grant (command templates with typed, sourced arguments, and how each runs) that the person approves with it; scheduled
 runs are started by a LaunchAgent, report by banner, and are answered in wisp; `/schedule` is the person's and the
-model's `schedule` tool only proposes. First, a probe of whether `gemma4:12b` or `qwen3.8:27b` writes plans and grants
-a person could approve. Stored grants wait on the protection track above.
+model's `schedule` tool only proposes. A probe on 2026-10-23 found no local model writing a plan and grant a person
+could approve as written (`qwen3.8:27b` nearest). Stored grants and briefs wait on the protection track above.
 
 ## Later: Private Cloud Compute
 
