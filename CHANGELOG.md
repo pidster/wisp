@@ -1,8 +1,11 @@
 # Changelog
 
-Notable changes per release, written for people who run wisp. The release script publishes the
-section for the version being cut as the GitHub release notes and refuses to release without one.
-Keep an `Unreleased` section at the top while working; the version-bump commit renames it.
+Notable changes in each release of wisp.
+
+<!-- For maintainers: the release script publishes the section for the version being cut as the GitHub release
+     notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
+     version-bump commit renames it. -->
+
 
 ## Unreleased
 
