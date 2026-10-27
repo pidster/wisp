@@ -152,16 +152,18 @@ diff, add, commit, push. There is no direct `run_command` MCP tool by decision; 
 approved, and audited as a turn. The tool is named by your harness's convention for the `wisp` server
 (Claude Code: `mcp__wisp__respond`; Codex: the `respond` tool of the `wisp` server).
 
-Open one thread for git and reuse it. When the thread starts, pass all five of these. The thread is saved after
+Open one thread for git and reuse it. When the thread starts, pass all six of these. The thread is saved after
 every turn, so after a reconnect or a new build the same call resumes it with its saved settings; on an existing
 thread, live or saved, settings equal to its own are accepted and different ones refused, naming the field
 (ADR 0066):
 
 - `thread_id`: `git` (or `git2`, `git3` if `git` is open in another wisp, another client's, or saved with other settings).
 - `tools`: `["run_command"]`, so the model has nothing else to reach for.
-- `model`: `ollama:granite4.1:8b`, the default local Ollama model (see the model choice below). It
+- `model`: `ollama:granite4.2:8b`, the default local Ollama model (see the model choice below). It
   follows a fixed instruction reliably and its context window is far larger than the on-device model's,
-  so a thread survives many commits with hook output. If Ollama is not running the thread fails to start
+  so a thread survives many commits with hook output.
+- `think`: `false`. Not thinking, `granite4.2:8b` is as fast as `granite4.1:8b`; thinking makes it 4 to 15
+  times slower and buys nothing for a fixed command. If Ollama is not running the thread fails to start
   with a clear error; then use the default `system` model and keep prompts short.
 - `commandTimeoutSeconds`: `600`. The pre-commit hook runs the whole gate, which can pass 60 s after a
   change (a commit was killed at 60 s twice on 2026-10-13, once leaving the lockfile half-restored), and
@@ -218,13 +220,13 @@ Which model to pass as `model` when a thread starts (measured in the 2026-10-04 
 
 | Work | Model | Why |
 | --- | --- | --- |
-| Default: git, single commands, fixed instructions, short lookups | `ollama:granite4.1:8b` | About 2 s a request, 5 to 10 times faster than the most accurate models, and close to them on the 2026-10-04 comparison (`edit_file` 28/30, `system_info` 14/16), at 5.4 GB |
+| Default: git, single commands, fixed instructions, short lookups | `ollama:granite4.2:8b`, `think` `false` | Not thinking, as fast as `granite4.1:8b` on the tools (a median of 3.2 s a request) and as accurate (`edit_file` 42/42, `system_info` 14/16, triage 7/7), and every draft right where 4.1 missed three (2026-10-10), at 5.35 GB. The operator's default from 2026-10-27, after `granite4.1:8b` rewrote a git command's quotes |
 | Complex: multi-step tasks, reading and reasoning over several files or outputs | `ollama:gemma4:12b` | Perfect on tools and small drafts on 2026-10-04 (`edit_file` 30/30, `system_info` 16/16, commits 10/10), at 8 GB and 12 to 18 s a request; it thinks before it answers |
 | Large diffs and long drafts | `ollama:qwen3.8:27b` | As accurate, and the only one with both large-diff drafts right (2/2), but 17.7 GB; tool work at a median of 14 s a request (2026-10-09), and far slower as a classifier, where it thinks before every verdict |
 | Fast tool work, diff summaries, triage, with llama-server running | `llamacpp:Ternary-Bonsai-2-9B-Q2_0` | As accurate as granite4.1 on the tools on 2026-10-17 (`edit_file` 35/36, `system_info` 22/24, triage 7/7) and two to four times faster at `summarise_diff` (2.0 s) and as a classifier (1.6 s a verdict), at 2.6 GB; poor at drafts (medium 1/4), so not for commit messages. Set `think` `low` (needs a wisp with 9db525e or later; 0.26.3 takes only `true` or `false`). Bonsai 2's 4B (1.2 GB) matched it on the tools on 2026-10-19 but is weaker in chat; the 2B is not fit for tool work |
 | Ollama not running | `system` | Always there; keep prompts short for its 8k-token window |
 
-A thinking model can be used with thinking off, for one model (`ollama.models.<name>.think false`) or for one thread (`respond`'s `think: false` when it starts): `granite4.2:8b` not thinking matched `granite4.1:8b`'s speed on the tools and got every draft right, where thinking made it 4 to 15 times slower (2026-10-10, `docs/measurements.md`, "granite4.1 against granite4.2").
+A thinking model can be used with thinking off, as the default is, for one model (`ollama.models.<name>.think false`) or for one thread (`respond`'s `think: false` when it starts): `granite4.2:8b` not thinking matched `granite4.1:8b`'s speed on the tools and got every draft right, where thinking made it 4 to 15 times slower (2026-10-10, `docs/measurements.md`, "granite4.1 against granite4.2").
 
 Not for tool work: `llama3.2:3b` (it writes tool calls as text and misses edits) and `ministral-3:14b` (Ollama's template leaves its `name[ARGS]{…}` calls as text, so none are made). If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. If it lists it with `ENABLED` `no`, `wisp models enable <name>` turns it on; ask before enabling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
