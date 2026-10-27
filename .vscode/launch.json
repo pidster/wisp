@@ -19,6 +19,26 @@
             "target": "wisp",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release wisp (harness)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:wisp}/harness",
+            "name": "Debug WispNotifier (harness)",
+            "target": "WispNotifier",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug WispNotifier (harness)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:wisp}/harness",
+            "name": "Release WispNotifier (harness)",
+            "target": "WispNotifier",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release WispNotifier (harness)"
         }
     ]
 }

@@ -243,8 +243,7 @@ Mark anything you add here with the harness it is for. Nothing in this section a
 ### Claude Code
 
 - Reads `CLAUDE.md`, which imports this file, and loads `.claude/rules/*.md` by path automatically.
-- MCP servers come from `.mcp.json`: `wisp` (above) and `codex` (`codex mcp-server`, the OpenAI Codex
-  CLI, for delegating to Codex; needs `codex` on `PATH`). Tools are named `mcp__<server>__<tool>`.
+- MCP servers come from `.mcp.json`: `wisp` (above). Tools are named `mcp__<server>__<tool>`.
 - Reconnect a server with `/mcp`. When a wisp approval dialog is stuck, the user can answer it with
   `wisp approvals approve ID` from a terminal; failing that, `/mcp reconnect wisp` and retry the turn.
 - Ask the user a question with `AskUserQuestion`; that is the harness's dialog, not wisp's.
