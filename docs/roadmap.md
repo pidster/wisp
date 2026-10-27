@@ -13,7 +13,7 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Next is 0.32.0, the plan tool, below. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next is 0.32.0, the plan tool, below. Later, with no release yet: a llama.cpp server wisp starts, protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## 0.32.0: the plan tool
 
@@ -24,6 +24,16 @@ began each, dependencies across trees, the model marking its own progress; saved
 `wisp threads plan`, the MCP resources and `respond`'s `plan`, and a line a tree in later turns. It records and runs
 nothing. Off by default (`tools.plan`) until measured on local models; before the release, the planning probe of
 2026-10-23 rerun through the tool, to see whether the models build a plan one call at a time.
+
+## Later: a llama.cpp server wisp starts
+
+Agreed by the operator on 2026-10-27, as a release of its own after 0.32.0; proposed in
+[ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), every decision pending. llama.cpp is the one local
+runtime the person starts by hand, and it serves the fastest accurate model for tool work (Ternary Bonsai 2). wisp
+would start one `llama-server` in router mode (`--models-dir`) over a folder of the GGUF models it knows, from a
+binary the person approved and wisp checks by digest, on `127.0.0.1` with a key of its own, off by default. Open:
+whether a LaunchAgent, a process started on demand, or one living with `wisp mcp` keeps it running; the memory limits;
+and a probe of the router's load time and of ternary models under it, before the decisions are taken.
 
 ## Later: protecting wisp's state from other agents
 
