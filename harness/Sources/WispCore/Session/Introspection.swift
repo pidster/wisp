@@ -85,6 +85,7 @@ public struct Introspection: Sendable {
                 "disabled": .array(config.disabledTools.sorted().map { .string($0) }),
                 "models": .bool(config.toolsModels),
                 "ask": .bool(config.toolsAsk),
+                "plan": .bool(config.toolsPlan),
                 "custom": .array(
                     config.customTools.map { tool in
                         .object([

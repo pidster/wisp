@@ -9,7 +9,7 @@ public struct ToolRegistry: Sendable {
     /// custom tool may not take one.
     public static let builtInNames = [
         "current_date", "run_command", "read_file", "edit_file", "inspect", "notify", "system_info", "memory",
-        "models", "ask",
+        "models", "ask", "plan",
     ]
 
     /// Builds the registry with the given limits for command execution and file pages.
@@ -34,6 +34,8 @@ public struct ToolRegistry: Sendable {
     ///     one that answers that models cannot be managed here: enough for a catalogue.
     ///   - ask: The conversation's `ask` tool, over the face's asker and the thread's inquiry state (ADR 0062). Nil
     ///     gives one nobody answers: enough for a catalogue.
+    ///   - plan: The conversation's `plan` tool, over its plan (ADR 0081). Nil registers one over an empty plan, for a
+    ///     catalogue.
     ///   - budget: The conversation's tool-output budget, shared with its agent, which sets the window on it.
     ///   - store: The conversation's output store; nil keeps nothing past the budget, and results say so.
     ///   - condenser: What answers `memory`'s `condense` question over a stored output; nil leaves the verb to
@@ -48,44 +50,53 @@ public struct ToolRegistry: Sendable {
         audit: AuditLog? = nil, approval: ApprovalGate? = nil,
         introspection: Introspection = Introspection(home: Home.resolve(), config: Config().resolved),
         host: SessionHost? = nil, memory: MemorySource? = nil, models: ModelsTool? = nil, ask: AskTool? = nil,
-        budget: ToolBudget = ToolBudget(), store: OutputStore? = nil, condenser: OutputCondenser? = nil,
+        plan: PlanTool? = nil, budget: ToolBudget = ToolBudget(), store: OutputStore? = nil,
+        condenser: OutputCondenser? = nil,
         disabled: Set<String> = [],
         custom: [CustomTool.Definition] = [], commandTimeout: Int? = nil
     ) {
         let audit = audit ?? .disabled(session: "unaudited")
         let ledger = CallLedger()
+        // Every tool but `plan` ends its result with the plan's reminder (ADR 0081, decision 12); a catalogue's
+        // plan is empty and reminds of nothing.
+        let book = plan?.book
         let commandRunner = CommandRunner(
             options: runner, audit: audit, approval: approval, budget: budget, store: store)
         var reader = reader
         reader.budget = budget
         let builtIns: [any WispTool] = [
-            AuditedTool(CurrentDateTool(), audit: audit, ledger: ledger),
+            AuditedTool(CurrentDateTool(), audit: audit, ledger: ledger, plan: book),
             AuditedTool(
-                RunCommandTool(runner: commandRunner, threadTimeout: commandTimeout), audit: audit, ledger: ledger),
-            AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit, ledger: ledger),
+                RunCommandTool(runner: commandRunner, threadTimeout: commandTimeout), audit: audit, ledger: ledger,
+                plan: book),
+            AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit, ledger: ledger, plan: book),
             AuditedTool(
                 EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit,
                 ledger: ledger),
             AuditedTool(
-                InspectTool(introspection: introspection, budget: budget, store: store), audit: audit, ledger: ledger),
+                InspectTool(introspection: introspection, budget: budget, store: store), audit: audit, ledger: ledger,
+                plan: book),
             AuditedTool(
                 NotifyTool(
                     host: host ?? SessionHost(approver: DenyingApprover(reason: "no host"), notifier: Notifier()),
-                    audit: audit), audit: audit, ledger: ledger),
+                    audit: audit), audit: audit, ledger: ledger, plan: book),
             AuditedTool(
-                SystemInfoTool(runner: commandRunner, budget: budget, store: store), audit: audit, ledger: ledger),
+                SystemInfoTool(runner: commandRunner, budget: budget, store: store), audit: audit, ledger: ledger,
+                plan: book),
             AuditedTool(
                 MemoryTool(
                     source: memory ?? MemorySource(), audit: audit, budget: budget, store: store, condenser: condenser),
-                audit: audit, ledger: ledger),
-            AuditedTool(models ?? ModelsTool(), audit: audit, ledger: ledger),
-            AuditedTool(ask ?? AskTool(), audit: audit, ledger: ledger),
+                audit: audit, ledger: ledger, plan: book),
+            AuditedTool(models ?? ModelsTool(), audit: audit, ledger: ledger, plan: book),
+            AuditedTool(ask ?? AskTool(), audit: audit, ledger: ledger, plan: book),
+            AuditedTool(plan ?? PlanTool(budget: budget, store: store), audit: audit, ledger: ledger),
         ]
         // Definitions are validated when the config loads, so building one fails only if the framework
         // rejects its schema; such a tool is left out with a diagnostic rather than failing the session.
         let customs: [any WispTool] = custom.compactMap { definition in
             do {
-                return AuditedTool(try CustomTool(definition, runner: commandRunner), audit: audit, ledger: ledger)
+                return AuditedTool(
+                    try CustomTool(definition, runner: commandRunner), audit: audit, ledger: ledger, plan: book)
             } catch {
                 Diagnostics.tools.error("custom tool \(definition.name) left out: \(error)")
                 return nil
@@ -98,18 +109,20 @@ public struct ToolRegistry: Sendable {
     /// (`context.memory`, off by default since [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)),
     /// less `models` unless `models` is true (`tools.models`, off by default,
     /// [ADR 0059](../../../../docs/decisions/0059-one-set-of-model-actions.md)), and less `ask` unless `ask` is true
-    /// (`tools.ask`, off by default, [ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)). All three stay
-    /// registered, so a list that names one still selects it.
+    /// (`tools.ask`, off by default, [ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)), and less `plan`
+    /// unless `plan` is true (`tools.plan`, off by default, [ADR 0081](../../../../docs/decisions/0081-the-plan-tool.md)).
+    /// All four stay registered, so a list that names one still selects it.
     ///
     /// - Parameters:
     ///   - memory: Whether `memory` is in the default set.
     ///   - models: Whether `models` is in the default set.
     ///   - ask: Whether `ask` is in the default set.
+    ///   - plan: Whether `plan` is in the default set.
     /// - Returns: The names, in registration order.
-    func defaultNames(memory: Bool, models: Bool = false, ask: Bool = false) -> [String] {
+    func defaultNames(memory: Bool, models: Bool = false, ask: Bool = false, plan: Bool = false) -> [String] {
         all.map(\.name).filter {
             (memory || $0 != MemoryTool.toolName) && (models || $0 != ModelsTool.toolName)
-                && (ask || $0 != AskTool.toolName)
+                && (ask || $0 != AskTool.toolName) && (plan || $0 != PlanTool.toolName)
         }
     }
 

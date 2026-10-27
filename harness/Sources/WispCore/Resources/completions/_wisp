@@ -62,7 +62,7 @@ _wisp() {
             'approvals:Show or revoke standing command approvals, and answer commands waiting for approval.'
             'facts:Answer requests to keep a fact as a permanent fact.'
             'questions:Answer the model'\''s questions waiting under wisp mcp.'
-            'threads:List, show, delete, and hand over saved threads.'
+            'threads:List, show, delete, and hand over saved threads, and show a thread'\''s plan.'
             'notify:Show a macOS notification.'
             'scan:Scan text for credentials and personal data.'
             'redact:Redact credentials and personal data from text.'
@@ -641,6 +641,7 @@ _wisp_threads() {
         local -ar subcommands=(
             'list:List the saved threads, most recently used first.'
             'show:Show a thread'\''s settings, turns, sessions, size on disk, and when it is swept.'
+            'plan:Show a thread'\''s plan: every tree, one tree, or one task, as its last turn left it.'
             'delete:Delete a saved thread and its stored outputs, from a terminal.'
             'hand:Give a saved thread to another client, so its agent may resume it, from a terminal.'
         )
@@ -648,7 +649,7 @@ _wisp_threads() {
         ;;
     arg)
         case "${words[1]}" in
-        list|show|delete|hand)
+        list|show|plan|delete|hand)
             "_wisp_threads_${words[1]}" && ret=0
             ;;
         esac
@@ -675,6 +676,20 @@ _wisp_threads_show() {
     local -ar arg_specs=(
         ':id:{__wisp_custom_complete ---completion threads show -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
         '--json[Print the thread as JSON.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_threads_plan() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':id:{__wisp_custom_complete ---completion threads plan -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
+        ':item:'
+        '--json[Print the plan as JSON.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

@@ -422,6 +422,8 @@ public struct ChatLoop {
                 await questions(request)
             case .fact(let request):
                 fact(request)
+            case .plan(let argument):
+                for line in PlanText.view(argument, in: agent.plan?.plan ?? agent.store.plan) { io.print(line) }
             case .task(nil):
                 io.print(FactReport.task(agent.taskHistory))
             case .task(let text?):

@@ -174,8 +174,8 @@ import WispTestSupport
         #expect(ToolCatalogue.text([]) == nil)
         // Every built-in has a hand-written clause.
         #expect(Set(ToolCatalogue.clauses.keys) == Set(ToolRegistry.builtInNames))
-        // Sizes, for the proposal: bytes of the catalogue of every built-in.
-        #expect(try #require(ToolCatalogue.text(ToolRegistry().all)).utf8.count < 700)
+        // Sizes, for the proposal: bytes of the catalogue of every built-in; 685 for ten, 727 with plan (ADR 0081).
+        #expect(try #require(ToolCatalogue.text(ToolRegistry().all)).utf8.count < 750)
     }
 
     @Test func theModelIsShownIdentitiesNotValuesWithinBounds() {

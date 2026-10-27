@@ -9,14 +9,14 @@ import WispCore
 struct ThreadsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "threads",
-        abstract: "List, show, delete, and hand over saved threads.",
+        abstract: "List, show, delete, and hand over saved threads, and show a thread's plan.",
         discussion:
             "Every thread, chat's and an MCP agent's, is saved in ~/.wisp/threads after each turn and resumed by "
             + "any face (wisp chat --resume ID, or an agent naming its thread_id). 'list' shows them, 'show' one in "
-            + "full. 'delete' removes one with its stored outputs, and 'hand' gives one to another client, so that "
+            + "full, and 'plan' its plan of tasks. 'delete' removes one with its stored outputs, and 'hand' gives one to another client, so that "
             + "client's agent may resume it; both are refused while a process holds the thread, and run only from a "
             + "terminal.",
-        subcommands: [List.self, Show.self, Delete.self, Hand.self],
+        subcommands: [List.self, Show.self, Plan.self, Delete.self, Hand.self],
         defaultSubcommand: List.self)
 
     /// Lists every saved thread.
@@ -55,6 +55,30 @@ struct ThreadsCommand: AsyncParsableCommand {
                 try ThreadsCommand.printJSON(details)
             } else {
                 for line in ThreadAdmin.lines(details, keepDays: keepDays) { print(line) }
+            }
+        }
+    }
+
+    /// Shows one thread's plan (ADR 0081).
+    struct Plan: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Show a thread's plan: every tree, one tree, or one task, as its last turn left it.")
+
+        @Argument(help: "The thread's id, as 'wisp threads' lists it.", completion: DynamicCompletions.threads)
+        var id: String
+
+        @Argument(help: "A tree such as t1, or a task such as t1.2; leave out for every tree.")
+        var item: String?
+
+        @Flag(name: .long, help: "Print the plan as JSON.")
+        var json = false
+
+        func run() async throws {
+            let plan = try ThreadsCommand.attempt { try ThreadAdmin(home: Wisp.home).plan(id) }
+            if json {
+                try ThreadsCommand.printJSON(plan)
+            } else {
+                for line in PlanText.view(item, in: plan) { print(line) }
             }
         }
     }

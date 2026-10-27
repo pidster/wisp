@@ -58,6 +58,8 @@ public struct WispThread: Sendable {
     /// The thread's questions to the person (ADR 0062): the one waiting, the records, and under `wisp mcp` the watch
     /// for a parked question's answer.
     public let inquiries: InquiryBox
+    /// The thread's plan (ADR 0081), shared by its `plan` tool and its agent; nil when the thread has no `plan` tool.
+    public let plan: PlanBook?
 
     /// Builds the gate and the tool registry for one thread of `session`, over the face's `host`: the gate
     /// asks its approver, and `notify` posts through it. `commandTimeout` is the thread's own limit for `run_command`
@@ -82,6 +84,7 @@ public struct WispThread: Sendable {
         let outputs = session.config.auditEnabled ? OutputStore.forThread(home: session.home, audit: audit) : nil
         let condenser = OutputCondenser()
         let inquiries = InquiryBox(conversation: audit.session, notices: session.notices)
+        let plan = PlanBook()
         // `--yes` answers approvals ahead of time; it answers no question, so nobody is asked (ADR 0062).
         let asker: any Asker = session.request.autoApprove ? NobodyAsker(face: "--yes") : host.asker
         let registry = ToolRegistry(
@@ -93,12 +96,14 @@ public struct WispThread: Sendable {
                 conversation: audit.session,
                 current: model),
             ask: AskTool(asker: asker, box: inquiries, audit: audit, timeout: session.config.inquiryTimeout),
+            plan: PlanTool(book: plan, audit: audit, budget: budget, store: outputs),
             budget: budget, store: outputs, condenser: condenser,
             disabled: session.config.disabledTools, custom: session.config.customTools, commandTimeout: commandTimeout)
         let selection = registry.select(toolNames)
         guard selection.unknown.isEmpty else { throw Session.Failure.unknownTools(selection.unknown) }
         let hasMemory = selection.tools.contains { $0.name == MemoryTool.toolName }
         budget.memory = hasMemory
+        let hasPlan = selection.tools.contains { $0.name == PlanTool.toolName }
         return WispThread(
             gate: gate, tools: selection.tools.map { $0 }, audit: audit, receipts: receipts, relay: relay,
             prompting: prompting,
@@ -115,7 +120,8 @@ public struct WispThread: Sendable {
             infersTask: session.entryPoint == .chat,
             runner: CommandRunner(
                 options: session.config.runner, audit: audit, approval: gate, budget: budget, store: outputs),
-            notices: session.notices, budget: budget, outputs: outputs, condenser: condenser, inquiries: inquiries)
+            notices: session.notices, budget: budget, outputs: outputs, condenser: condenser, inquiries: inquiries,
+            plan: hasPlan ? plan : nil)
     }
 
     /// What the model answering a `condense` chunk is told: read the part, answer the question, quote the lines.
@@ -216,6 +222,7 @@ public struct WispThread: Sendable {
         agent.summaryShare = config.summaryShare
         agent.facts = facts
         agent.memory = memory
+        agent.plan = plan
         agent.notices = notices
         if config.assessmentEnabled {
             agent.assessment = AssessmentSettings(

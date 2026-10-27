@@ -99,6 +99,9 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case inquiryParked
         case inquiryAnswered
         case inquirySettled
+        case planAdd
+        case planDepend
+        case planUpdate
         case condensation
         case presentationCut
         case outputReferenced
@@ -163,6 +166,9 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .inquiryParked,
             .inquiryAnswered,
             .inquirySettled,
+            .planAdd,
+            .planDepend,
+            .planUpdate,
             .condensation,
             .presentationCut,
             .outputReferenced,
@@ -227,6 +233,9 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .inquiryParked: "inquiry.parked"
             case .inquiryAnswered: "inquiry.answered"
             case .inquirySettled: "inquiry.settled"
+            case .planAdd: "plan.add"
+            case .planDepend: "plan.depend"
+            case .planUpdate: "plan.update"
             case .condensation: "context.condensation"
             case .presentationCut: "context.cut"
             case .outputReferenced: "context.reference"

@@ -6,6 +6,17 @@ Keep an `Unreleased` section at the top while working; the version-bump commit r
 
 ## Unreleased
 
+Added:
+
+- The `plan` tool: the model keeps a plan of tasks with dependencies across turns, in trees rooted at the turn that
+  began each, marks each task running, done, failed, or skipped with a note, and reads back what is ready. It records
+  and runs nothing. You see it with `/plan` in chat and `wisp-tui`, `wisp threads plan ID` from a terminal, and
+  `wisp://threads/{thread_id}/plan` over MCP, whose `respond` returns `plan` when a turn changed it; later turns carry
+  a line for each open tree. While a task is open and none was marked in the turn, every other tool's result ends with
+  a one-line reminder to mark it, which took `granite4.1:8b` from no plan kept to five of six in the plan probe
+  (`scripts/check eval plan`). Off by default: `wisp config set tools.plan true`, or a tool list naming `plan`
+  (ADR 0081).
+
 Changed:
 
 - The model is told its sandbox before its first command: where commands may write, whether the network is on, and

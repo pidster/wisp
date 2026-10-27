@@ -719,13 +719,13 @@ _wisp_threads() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|show|delete|hand)
+    list|show|plan|delete|hand)
         # Offer subcommand argument completions
         "_wisp_threads_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list show delete hand' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'list show plan delete hand' -- "${cur}"))
         ;;
     esac
 }
@@ -749,6 +749,22 @@ _wisp_threads_show() {
     case "${positional_number}" in
     1)
         __wisp_add_completions -W "$(__wisp_custom_complete ---completion threads show -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
+        return
+        ;;
+    esac
+}
+
+_wisp_threads_plan() {
+    repeating_flags=()
+    non_repeating_flags=(--json --version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 2
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -W "$(__wisp_custom_complete ---completion threads plan -- positional@0 "${COMP_CWORD}" "$(__wisp_cursor_index_in_current_word)")"
         return
         ;;
     esac

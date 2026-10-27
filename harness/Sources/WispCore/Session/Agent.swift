@@ -114,6 +114,16 @@ public final class Agent {
             publishMemory()
         }
     }
+    /// The conversation's plan, shared with its `plan` tool ([ADR 0081](../../../../docs/decisions/0081-the-plan-tool.md)):
+    /// seeded from the store's plan when set, saved into the store when each turn ends, with the tree the turn rooted
+    /// rooted at its prompt, and named in every later request's now block. Nil, the default, keeps the store's plan as
+    /// it is; `WispThread.openAgent` sets it when the thread has `plan`.
+    public var plan: PlanBook? {
+        didSet {
+            plan?.seed(store.plan)
+            refreshFacts(quietly: true)
+        }
+    }
     /// The assessment of each request (phase 4d of the layered-context proposal, decision D12): before each user turn,
     /// rules or one model call outside the context decide the tools the request registers (D4), the task and its
     /// objective (D6), and the facts repeated next to the request (D7), audited as `context.assessment`. Nil, the
@@ -429,6 +439,7 @@ public final class Agent {
         store = ThreadRecord(carrying: Transcript(entries: instructions))
         store.continuity = continuity
         store.firstTurn = turns.current
+        plan?.reset()
         composer.registered = nil
         refreshFacts(quietly: true)
         materialise(fresh: true)
@@ -615,6 +626,10 @@ public final class Agent {
             store.record(entry, origin: .turn, turn: turn, sources: references, time: time)
         }
         extractFacts(from: events, turn: turn)
+        if let plan {
+            let prompt = store.entries.last { $0.kind == .prompt && $0.origin == .turn && $0.turn == turn }
+            store.plan = plan.endTurn(promptEntry: prompt?.id)
+        }
         for note in memory?.takeNotes() ?? [] { record(note) }
         noteCalls(in: added)
         refreshFacts()
@@ -865,6 +880,7 @@ public final class Agent {
     ) async throws -> Reply {
         takeNotices()
         turns.advance()
+        plan?.beginTurn()
         turnFactIDs = []
         contextNote = nil
         composer.squeezesEarlier = false

@@ -13,7 +13,17 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Nothing is scheduled next. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next is 0.32.0, the plan tool, below. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+
+## 0.32.0: the plan tool
+
+Chosen by the operator on 2026-10-24, ahead of skills ([ADR 0081](decisions/0081-the-plan-tool.md),
+[tools/plan.md](tools/plan.md)): the model's `plan` tool, the first part of
+[ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md). Trees of tasks rooted at the turn that
+began each, dependencies across trees, the model marking its own progress; saved with the thread; seen with `/plan`,
+`wisp threads plan`, the MCP resources and `respond`'s `plan`, and a line a tree in later turns. It records and runs
+nothing. Off by default (`tools.plan`) until measured on local models; before the release, the planning probe of
+2026-10-23 rerun through the tool, to see whether the models build a plan one call at a time.
 
 ## Later: protecting wisp's state from other agents
 

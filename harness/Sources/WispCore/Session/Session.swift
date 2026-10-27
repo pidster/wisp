@@ -340,14 +340,15 @@ public struct Session: Sendable {
     }
 
     /// The whole registry for `.all` (without `memory` unless `context.memory` is on, nor `models` unless `tools.models`
-    /// is, nor `ask` unless `tools.ask` is), or the names as given once each is known.
+    /// is, nor `ask` unless `tools.ask` is, nor `plan` unless `tools.plan` is), or the names as given once each is known.
     ///
     /// - Throws: `Failure.unknownTools`.
     private static func resolve(_ selection: ToolSelection, config: Config.Resolved) throws -> [String] {
         let registry = ToolRegistry(
             runner: config.runner, disabled: config.disabledTools, custom: config.customTools)
         let names = selection.resolved(
-            or: registry.defaultNames(memory: config.contextMemory, models: config.toolsModels, ask: config.toolsAsk))
+            or: registry.defaultNames(
+                memory: config.contextMemory, models: config.toolsModels, ask: config.toolsAsk, plan: config.toolsPlan))
         let unknown = registry.select(names).unknown
         guard unknown.isEmpty else { throw Failure.unknownTools(unknown) }
         return names

@@ -37,6 +37,9 @@ struct SavedThread: RespondingThread {
 
     /// The running summary's versions; nil when facts are off.
     func summaries() async -> [RunningSummary]? { permanent == nil ? nil : record.summaries }
+
+    /// The plan saved with the record (ADR 0081).
+    func plan() async -> Plan? { record.plan }
 }
 
 extension WispServer {

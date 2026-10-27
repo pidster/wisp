@@ -255,6 +255,9 @@ public struct ThreadRecord: Sendable {
     /// The running summary's versions, oldest first (phase 4b, decision D1): the last is current, each earlier
     /// one superseded by the next. Saved with the store; at most `RunningSummary.historyLimit` are kept.
     public internal(set) var summaries: [RunningSummary] = []
+    /// The conversation's plan, as its `plan` tool left it when the last turn ended
+    /// ([ADR 0081](../../../../docs/decisions/0081-the-plan-tool.md)). Saved with the store.
+    public internal(set) var plan = Plan()
     /// What the agent working on the conversation keeps from one turn to the next, held here so an agent that takes
     /// the store over (chat's `/model`) goes on where the one before left off; this session's only, and not saved.
     var continuity = Continuity()

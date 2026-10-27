@@ -28,6 +28,10 @@ public protocol RespondingThread: Sendable {
     /// facts.
     func summaries() async -> [RunningSummary]?
 
+    /// The thread's plan as it stands (ADR 0081): the live one while a turn may change it, else the record's; nil when
+    /// the thread cannot show one.
+    func plan() async -> Plan?
+
     /// Moves one of the thread's facts, or a session fact, to `target` as the caller's action
     /// (`Agent.setFactScope`).
     ///
@@ -84,6 +88,9 @@ extension RespondingThread {
 
     /// None, as for `context(_:)`.
     public func summaries() async -> [RunningSummary]? { nil }
+
+    /// None, as for `context(_:)`.
+    public func plan() async -> Plan? { nil }
 
     /// Refused: a thread without a thread record keeps no facts.
     public func setFactScope(_ id: String, to target: FactTarget) async throws -> Fact { throw FactFailure.off }
@@ -161,6 +168,9 @@ public actor ThreadActor: RespondingThread {
 
     /// The agent's store, for saving.
     public func record() async -> ThreadRecord? { agent.store }
+
+    /// The agent's plan: its live book's when the thread has the `plan` tool, else the one saved with its record.
+    public func plan() async -> Plan? { agent.plan?.plan ?? agent.store.plan }
 
     /// The agent's running summary's versions, or nil when it keeps no facts.
     public func summaries() async -> [RunningSummary]? {

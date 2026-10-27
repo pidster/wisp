@@ -54,11 +54,12 @@ import Testing
         #expect(session.prompting.rendered.hasSuffix("Guidance for this Mac:\nfrom file"))
         #expect(session.config.model == .system)
         #expect(session.config.runner.policy == .default)
-        // Every tool but memory and models, which are off by default (ADR 0057, 0059) and still registered.
+        // Every tool but memory, models, ask, and plan, which are off by default (ADR 0057, 0059, 0062, 0081) and still
+        // registered.
         #expect(
             session.toolNames
                 == ToolRegistry().all.map(\.name).filter {
-                    $0 != MemoryTool.toolName && $0 != ModelsTool.toolName && $0 != AskTool.toolName
+                    ![MemoryTool.toolName, ModelsTool.toolName, AskTool.toolName, PlanTool.toolName].contains($0)
                 })
         #expect(ToolRegistry().all.map(\.name) == ToolRegistry.builtInNames)
         #expect(session.notes.isEmpty)

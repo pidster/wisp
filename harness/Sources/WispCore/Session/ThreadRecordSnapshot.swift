@@ -55,6 +55,8 @@ extension ThreadRecord {
         public var facts: FactBook? = nil
         /// The running summary's versions, oldest first; nil when none was written.
         public var summaries: [RunningSummary]? = nil
+        /// The conversation's plan; nil when it has none.
+        public var plan: Plan? = nil
 
         /// The sessions whose audit events the entries refer to (their `sources`, and the condensations
         /// that dropped them), sorted and distinct: where to look for what a resumed conversation carries.
@@ -117,6 +119,7 @@ extension ThreadRecord {
                 restored.turn = summary.turn.map { _ in 0 }
                 return restored
             }
+            if let plan { store.plan = plan }
             return store
         }
     }
@@ -135,6 +138,7 @@ extension ThreadRecord {
                     dropped: active ? nil : Transcript(entries: [entry.value]),
                     cuts: entry.cuts.isEmpty ? nil : entry.cuts, time: entry.time, droppedAt: entry.droppedAt,
                     referencedAt: entry.referencedAt, command: entry.command)
-            }, facts: facts.facts.isEmpty ? nil : facts, summaries: summaries.isEmpty ? nil : summaries)
+            }, facts: facts.facts.isEmpty ? nil : facts, summaries: summaries.isEmpty ? nil : summaries,
+            plan: plan.isEmpty ? nil : plan)
     }
 }

@@ -540,11 +540,20 @@ Commands that write (audit log, threads, the doctor's write probe) call `Home.en
 
 ### `ToolRegistry`
 
-A static list, `all`, is the single source of truth for what the model can see: ten built-ins
+A static list, `all`, is the single source of truth for what the model can see: eleven built-ins
 (`builtInNames`) and the custom tools. `select(_:)` resolves names from the CLI and reports unknown ones so the
-CLI can fail before touching the model. `defaultNames(memory:models:ask:)` is "every tool": the whole registry less
-`memory`, `models`, and `ask` unless `context.memory`, `tools.models`, and `tools.ask` turn them on (ADR 0057,
-ADR 0059, ADR 0062); all three stay registered, so a list that names one still selects it.
+CLI can fail before touching the model. `defaultNames(memory:models:ask:plan:)` is "every tool": the whole registry
+less `memory`, `models`, `ask`, and `plan` unless `context.memory`, `tools.models`, `tools.ask`, and `tools.plan` turn
+them on (ADR 0057, ADR 0059, ADR 0062, ADR 0081); all four stay registered, so a list that names one still selects it.
+
+The conversation's plan (ADR 0081, [tools/plan.md](tools/plan.md)) is a `Plan` (in `WispCore/Plan`): trees rooted at
+turns and tasks with dependencies, every operation pure and returning the changed plan or a `Plan.Failure` the model
+can act on. `PlanBook`, a `Mutex` in a `final class`, holds the live plan the `plan` tool changes, since the framework
+calls the tool from its own task; the thread's agent marks each turn's start on it, and at the turn's end records the
+store id of the turn's prompt on the tree the turn rooted and saves the plan into `ThreadRecord.plan`, which the
+snapshot writes to `record.store`. `requestNotes` adds `PlanText.reference`, a line an open tree, to every request's
+now block. `/plan`, `wisp threads plan` (`ThreadAdmin.plan`, from the saved record), and the MCP resources
+(`PlanResources`, through `RespondingThread.plan`) read it.
 
 ### Tools
 

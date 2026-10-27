@@ -186,14 +186,16 @@ extension Agent {
         assessed.taskTools.formUnion(called)
     }
 
-    /// `frame` with the request's own lines at the end of the now block (D7 and D4): the facts the assessment found
-    /// relevant, repeated, and the tools registered for the request. Unchanged without an assessment.
+    /// `frame` with the request's own lines at the end of the now block (D7 and D4): a line for each open tree of the
+    /// conversation's plan (ADR 0081), then the facts the assessment found relevant, repeated, and the tools registered
+    /// for the request. Unchanged without a plan or an assessment.
     ///
     /// - Parameters:
     ///   - frame: The facts frame.
     ///   - view: The facts in force; nil when the conversation keeps none.
     /// - Returns: The frame.
     func requestNotes(_ frame: FactFrame, view: FactView?) -> FactFrame {
+        let frame = frame.addingNow(plan.map { PlanText.reference($0.plan, next: $0.namesNext) } ?? [])
         guard let settings = assessment else { return frame }
         var lines: [String] = []
         if let view {

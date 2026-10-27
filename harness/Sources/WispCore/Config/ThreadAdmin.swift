@@ -139,6 +139,17 @@ public struct ThreadAdmin: Sendable {
             outputBytes: settings.sessions.reduce(0) { $0 + outputSize($1) }, sweepsAfter: sweepsAfter)
     }
 
+    /// Thread `id`'s plan as last saved, after its last turn ([ADR 0081](../../../../docs/decisions/0081-the-plan-tool.md)):
+    /// read from its record without opening a model, so an open thread's shows its last turn.
+    ///
+    /// - Parameter id: The thread.
+    /// - Returns: The plan; empty when the thread kept none.
+    /// - Throws: `Failure.notFound`, or `ThreadStore.Failure` when its record cannot be read.
+    public func plan(_ id: String) throws -> Plan {
+        guard let record = try store.record(id) else { throw Failure.notFound(id) }
+        return record.plan
+    }
+
     /// Deletes thread `id` under its lock: its directory, and the stored outputs of each audit session it had that no
     /// other thread names (a chat's `/new` carries its session into the next thread). A thread whose settings cannot
     /// be read is deleted too, with no outputs, which is how the person clears one this build cannot resume.

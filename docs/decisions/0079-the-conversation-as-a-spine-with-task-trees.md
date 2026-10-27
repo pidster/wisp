@@ -6,7 +6,8 @@ dependencies between its branches and leaves, worked by the model through a `tas
 spine: the conversation is the spine of the task tree, and a tree is rooted at any point in it. They also set the
 tool's scope: the model can read, write, and search and filter the tree. Everything else, marked **pending**, is not
 agreed. On 2026-10-24 the operator chose that plans are Agent Skills the person configures
-([ADR 0080](0080-agent-skills.md)): a skill's body is a brief, and using a skill roots a tree. ADR 0078 keeps what a plan may do and when it runs (the grant, triggers, channels, protection) and builds on
+([ADR 0080](0080-agent-skills.md)): a skill's body is a brief, and using a skill roots a tree. On 2026-10-24 the operator also chose to build
+the tool first, recording and tracking only: [ADR 0081](0081-the-plan-tool.md), the `plan` tool, built for 0.32.0. ADR 0078 keeps what a plan may do and when it runs (the grant, triggers, channels, protection) and builds on
 this one.
 
 ## Context

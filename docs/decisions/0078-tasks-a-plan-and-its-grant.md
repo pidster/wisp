@@ -2,7 +2,8 @@
 
 Date: 2026-10-23. Status: proposed. The operator agreed on 2026-10-23 the framing (a problem is solved by a plan of
 tasks that composes wisp's primitives, approved with what it may do), the tree of tasks with dependencies, and, for
-scheduled runs, decisions 5 to 7; the rest, marked **pending**, is not agreed. The tree itself moved on 2026-10-24 to
+scheduled runs, decisions 5 to 7; the rest, marked **pending**, is not agreed. On 2026-10-26 the operator set the
+requirement of decision 11, that an agreed plan's next task needs no further approval; its conditions are pending. The tree itself moved on 2026-10-24 to
 [ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md), which this one builds on. On 2026-10-24 the operator
 chose that plans are skills the person configures ([ADR 0080](0080-agent-skills.md)), whose `allowed-tools` carries the
 grant; decisions 3 and 4 below read with that. Leaves
@@ -71,6 +72,26 @@ the probe below has the results.
    probe below picks it) and approved by the person; the steps may run on a fast model, which the grant bounds. A
    change to the plan or grant is approved again; the model cannot widen its own grant. Since 2026-10-24 plans come
    from skills the person keeps (ADR 0080); a model that plans drafts a skill for the person to read and save.
+
+### Running an agreed plan
+
+11. **The operator's requirement (2026-10-26): once the operator has agreed a plan, wisp does not ask again just to do
+    the plan's next task.** The agreement is the approval for the work it names; this answers decision 3's pending
+    question, whether a template's approval replaces the classifier's ask, with yes. **Pending,** the conditions the
+    review of 2026-10-24 ([proposal](../proposals/2026-10-24-task-trees.md), "Review") sets on it, none agreed yet:
+    1. **What is agreed is specific:** each task's command templates and the source of each argument, the grant of
+       decision 3, not only its goals, since the model writes the plan and a goal does not bound a command.
+    2. **The gate knows the task:** a command reaches the gate with the plan and the task it runs for, and is cleared
+       only when it matches that task's grant; the gate sees command strings alone today (`clear(command:)`).
+    3. **The agreement cannot be changed after it is given:** the plan and grant are kept with a digest checked against
+       a key another local process cannot use, so neither the model nor another agent can edit what was agreed; this
+       waits on the protection track (decision 10).
+    4. **The model does not decide what is next:** the runner, or the person, sets the status that makes a task next,
+       so a model cannot reach a later task's grant by marking the ones before it done (ADR 0079, decision 12).
+
+    A conflict for the operator: a task whose template runs outside the sandbox still asks on every run under ADR 0064,
+    which this ADR leaves unchanged (Homebrew's upgrade is such a task); the requirement would change that for an agreed
+    plan, and needs a decision of its own.
 
 ### Triggers and channels
 

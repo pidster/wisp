@@ -40,6 +40,8 @@ public enum ChatInput: Equatable, Sendable {
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
     case task(String?)
+    /// Show the conversation's plan (ADR 0081): every tree, one tree's outline (`t1`), or one task (`t1.2`).
+    case plan(String?)
     /// List the models the session could switch to, or turn some on or off (ADR 0056).
     case models(ModelsRequest)
     /// Switch the conversation to a model, or show the current one when nil.
@@ -242,6 +244,10 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/fact ID permanent|thread|session",
             about: "move a fact to that scope; ID is cN, sN, pN, or CONV/cN for another conversation's proposal"),
         HelpEntry(usage: "/fact delete ID", about: "delete a fact"),
+        HelpEntry(
+            usage: "/plan [TREE|TASK]",
+            about: "the conversation's plan: every tree, one tree such as t1, or one task such as t1.2",
+            names: ["plan"], command: { .plan($0) }),
         HelpEntry(
             usage: "/task [text]", about: "show the task and its history, or set it", names: ["task"],
             command: { .task($0) }),

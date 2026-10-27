@@ -568,6 +568,50 @@ mechanically (a task naming an undefined template, an argument sourced from an a
 the vocabulary, a destructive template outside the sandbox whose argument is not bound to a listing); the subtler ones (a listing
 that includes its own root, `main` not excluded) are not. `qwen3.8:27b` came closest, at 19 to 62 s a plan; the 8B models did not come near.
 
+### Keeping the plan while working, 2026-10-26
+
+The plan probe for [ADR 0081](decisions/0081-the-plan-tool.md), `scripts/check eval plan` (`PlanEvalTests`), after a
+chat on 2026-10-25 in which `granite4.1:8b` added its tasks but never marked one. Three problems (read three files and
+say what each is about; check the Mac's version, free space, and memory; count the lines of three files, then say which
+is longest, a task depending on the three), each driven with "go on" for up to six turns while a task was open, twice
+under each of four variants: the shipped line a tree in later turns (`baseline`), a line naming the tree's next task
+and how to mark it (`next`), a one-line reminder after every other tool's result while a task is running or ready and
+none was marked this turn (`nudge`), and both. A conversation finished when it planned at least three tasks and every
+task was settled; scored from the plan and the audit, not the replies. 24 conversations a model, 28 minutes in all.
+
+| Variant | `granite4.1:8b` finished | its updates, stalled turns | `gemma4:12b` finished | its updates, stalled turns |
+| --- | --- | --- | --- | --- |
+| `baseline` | 0/6 | 0, 9 | 5/6 | 27, 5 |
+| `next` | 1/6 | 4, 3 | 6/6 | 26, 0 |
+| `nudge` | 5/6 | 19, 0 | 6/6 | 20, 0 |
+| `both` | 5/6 | 16, 0 | 6/6 | 23, 0 |
+
+Under `baseline`, `granite4.1:8b` never called `update` in six conversations, though it did the work (2 to 8 calls a
+conversation), as in the chat; `next` alone barely changed that. With the reminder it marked each task as it went and
+finished most problems in the first turn. Its two misses under `nudge` and `both` were the dependent problem, where it
+planned four to six tasks and settled one to three. `gemma4:12b` kept its plan without help but for one conversation
+under `baseline` that stalled for five turns. Two runs a cell; a direction, not a rate. The reminder costs about 30
+tokens a tool result while a task is open. That the work done matched the task marked was not checked: a conversation
+marking a task done without doing it would score as finished.
+
+`granite4.2:8b` ran the same probe on 2026-10-26, with `ollama.think` `false` (38 minutes) and then `low` (33 minutes),
+each in a scratch `WISP_HOME` holding only that setting:
+
+| Variant | `granite4.2:8b`, not thinking | `granite4.2:8b`, thinking `low` |
+| --- | --- | --- |
+| `baseline` | 5/6 | 0/6 |
+| `next` | 5/6 | 1/6 |
+| `nudge` | 4/6 | 2/6 |
+| `both` | 4/6 | 3/6 |
+| Misses that added no task at all | 5 of 6 | 14 of 18 |
+
+Not thinking, it marked its tasks without help, unlike `granite4.1:8b`, and the reminder made no difference within two
+runs a cell. Its failure is another one: in five of its six misses it did the work in the first turn without adding a
+task, so the plan stayed empty and the reminder, which needs an open task, never appeared. Thinking `low` did that in
+most conversations. Those conversations count five stalled turns each, since "go on" was sent while the plan stayed
+empty and nothing was left to do; the stalls measure the probe there, not the model. A conversation took about 80 s
+not thinking against about 30 s for `granite4.1:8b`.
+
 ## Context checkpoint 2
 
 ```

@@ -108,6 +108,11 @@ public enum ConfigSettings {
                     "give a conversation with every tool the ask tool, so the model can ask you a question mid-turn",
                 kind: .flag),
             Setting(
+                path: "tools.plan",
+                summary:
+                    "give a conversation with every tool the plan tool, so the model keeps a plan of tasks across turns",
+                kind: .flag),
+            Setting(
                 path: "inquiry.timeoutSeconds",
                 summary: "seconds you have to answer the model's question; 0 waits until you do",
                 kind: .integer(0...86_400)),
@@ -305,6 +310,7 @@ public enum ConfigSettings {
         case "tools.disabled": return .array(d.disabledTools.sorted().map { .string($0) })
         case "tools.models": return .bool(d.toolsModels)
         case "tools.ask": return .bool(d.toolsAsk)
+        case "tools.plan": return .bool(d.toolsPlan)
         case "inquiry.timeoutSeconds": return .int(Int(d.inquiryTimeout?.components.seconds ?? 0))
         case "inquiry.elicitation": return .bool(d.inquiryElicitation)
         case "shownOutputLines": return .int(d.shownOutputLines)

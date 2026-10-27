@@ -10,7 +10,9 @@ import Synchronization
 /// `ToolCallContext.call`, so what it keeps in the output store goes under that id. A call that repeats an earlier
 /// call of the turn exactly (the same tool, the same arguments) is answered with a line saying so above its
 /// result, so a model that asks the same question six times in a turn (session `ce87576a`, 2026-10-04) is told
-/// (ADR 0050).
+/// (ADR 0050). With the conversation's plan, a result also ends with the plan's reminder to mark the task it may have
+/// finished, while one is open and none was marked this turn (ADR 0081, decision 12); the audit records the result as
+/// the model sees it.
 public struct AuditedTool<Base: WispTool>: WispTool {
     /// Arguments are the base tool's.
     public typealias Arguments = Base.Arguments
@@ -20,6 +22,7 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     private let base: Base
     private let audit: AuditLog
     private let ledger: CallLedger?
+    private let plan: PlanBook?
 
     /// Wraps `base` to record into `audit`.
     ///
@@ -27,10 +30,12 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     ///   - base: The tool.
     ///   - audit: Where its calls and results go.
     ///   - ledger: The conversation's record of the turn's calls, for the repeated-call line; nil never notes one.
-    public init(_ base: Base, audit: AuditLog, ledger: CallLedger? = nil) {
+    ///   - plan: The conversation's plan, whose reminder ends each result; nil, or the `plan` tool itself, adds none.
+    public init(_ base: Base, audit: AuditLog, ledger: CallLedger? = nil, plan: PlanBook? = nil) {
         self.base = base
         self.audit = audit
         self.ledger = ledger
+        self.plan = plan
     }
 
     /// Forwarded from the base tool.
@@ -60,6 +65,7 @@ public struct AuditedTool<Base: WispTool>: WispTool {
         do {
             var output = try await ToolCallContext.$call.withValue(call) { try await base.call(arguments: arguments) }
             if repeats > 1 { output = Self.repeatedLine(tool: base.name, repeats: repeats) + "\n" + output }
+            if let line = plan?.reminder() { output += "\n" + line }
             var details = AuditEvent.Details.toolResult(
                 tool: base.name, output: output, seconds: Date().timeIntervalSince(started))
             if repeats > 1 { details["repeat"] = .int(repeats) }

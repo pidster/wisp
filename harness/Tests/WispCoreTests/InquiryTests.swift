@@ -366,7 +366,7 @@ final class ScriptedAsker: Asker, Sendable {
         let place = try ModelActionsTests.Place()
         defer { place.remove() }
         let deny = DenyingApprover(reason: "x")
-        #expect(ToolRegistry.builtInNames.last == AskTool.toolName)
+        #expect(ToolRegistry.builtInNames.contains(AskTool.toolName))
         #expect(Config().resolved.toolsAsk == false && ConfigSettings.defaultValue("tools.ask") == false)
         #expect(ConfigSettings.defaultValue("inquiry.timeoutSeconds") == 0)
         #expect(ConfigSettings.defaultValue("inquiry.elicitation") == false)

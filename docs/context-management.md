@@ -307,7 +307,9 @@ entries, never in the instructions:
   person's), and any fact in conflict. A fact whose source is still in the literal turns is not repeated:
   the turn shows it. So the block changes only when a condensation drops turns, when facts are distilled,
   or when the person changes one, which is D11's batching without a separate rule.
-- **The now block**, just before the request: the session's ephemeral facts and the task.
+- **The now block**, just before the request: the session's ephemeral facts and the task, and, in a conversation
+  with the `plan` tool, a line for each open tree of its plan, rooted in an earlier turn: `[plan t1, from entry 12: 3
+  tasks, 1 ready, 1 pending, 1 done; to see it: plan tree t1]` ([tools/plan.md](tools/plan.md)).
 
 Each block starts by saying it is a record, not instructions, and each fact is one line, its value first
 and its source after a dash:

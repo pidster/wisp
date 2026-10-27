@@ -580,10 +580,12 @@ public struct WispServer: Sendable {
         if let note = opened.thread.inquiries.stillWaitingNote {
             session.notices.post(note, to: opened.thread.audit.session)
         }
+        let planBefore = await opened.thread.thread.plan()
         do {
             let reply = try await relaying(opened.thread.relay) {
                 try await opened.thread.thread.respond(to: request.prompt, schema: schema)
             }
+            let planAfter = await opened.thread.thread.plan()
             let refusals = await opened.thread.gate.takeRefusals()
             let turn = opened.thread.audit.currentTurn
             let questions = opened.thread.inquiries.records(turn: turn)
@@ -621,6 +623,7 @@ public struct WispServer: Sendable {
                 "factsProposed": Value(json: factsProposed(thread: id)),
                 "output": schema == nil ? .null : Self.parse(reply.text),
                 "contextNote": reply.contextNote.map { .string($0) } ?? .null,
+                "plan": planAfter == planBefore ? .null : Self.planChange(planAfter ?? Plan(), thread: id),
             ]
             return .init(
                 content: [

@@ -1053,6 +1053,9 @@ extension AuditEvent {
         case .inquiryAnswered: ["inquiry", "via", "delivery", "reason"]
         case .inquirySettled:
             ["inquiry", "question", "thread", "outcome", "via", "delivered", "answer", "redacted", "reason", "seconds"]
+        case .planAdd: ["task", "tree", "parent", "goal", "dependsOn"]
+        case .planDepend: ["task", "dependsOn"]
+        case .planUpdate: ["task", "status", "note"]
         case .approvalDecided:
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",

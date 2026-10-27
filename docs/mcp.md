@@ -76,6 +76,8 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | `wisp://threads/{thread_id}/context/{turn}` | Markdown: the context wisp composed at the start of that turn, entry by entry under its store id, with the turn's own entries (its prompt, its tool loop's calls and output, its reply) marked. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/context/next` | Markdown: the context the thread's next request carries, which is what chat's `/inspect context` saves; for a saved thread, its record as a resumed turn's request would carry it, before the facts that turn adds. Paged at 16 KiB. |
 | `wisp://threads/{thread_id}/facts` | JSON: the thread's own facts (ids `c…`): its task, the state of the work, and its proposed permanent facts. Each has `id`, `scope`, `subject`, `name`, `value`, `source` (`person`, `caller`, `tool`, `model`), `version`, `class`, `method`, `detail`, `state`, `recorded`, `turn`, `entries` and `sources` (the store entries and audit events it came from), `proposed`, `supersededBy`, `approved`, `conflict` (the winning head and the ones that disagree, when they do, including a permanent or session fact), and `uri`; plus `conflicts`, the count of its facts in conflict. Current facts only; `?all=true` adds superseded and deleted versions. Paged. The running summary is not here; it has its own resource, below. The session's and the permanent facts are in the resources below; all of them, as the model is given them, are in `…/context/next`. |
+| `wisp://threads/{thread_id}/plan` | JSON: the thread's plan ([tools/plan.md](tools/plan.md), [ADR 0081](decisions/0081-the-plan-tool.md)): `trees` (each `id`, `entry`, the store id of the prompt that rooted it, `created`, `tasks`, `heading`, `uri`), `tasks` (each `id`, `tree`, `parent`, `goal`, `status`, `ready`, `dependsOn`, `dependents`, `note`, `created`, `updated`, `uri`), and `ready`, the tasks that can start. Live while the thread is open on this server, else from its saved record; empty for a thread that kept none. |
+| `wisp://threads/{thread_id}/plan/{item}` | JSON: one tree (`t1`): `tree`, its `tasks`, and `text`, its outline; or one task (`t1.2`): `task` and `text`, the task in full. An unknown tree or task is refused. |
 | `wisp://threads/{thread_id}/summary` | JSON: the thread's running summary of earlier turns, the one the model is given in place of the turns condensing dropped: `thread_id`, `versions` (how many have been written), and `summary` (`version`, `text`, `covered` turns, the `turns`, store `entries`, and audit `sources` it added, `through`, `recorded`, `turn`, `model`), or null before the first (one is written when condensing has dropped three or more turns not yet summarised). `?all=true` adds `summaries`, every version, oldest first. Served while the thread is open, like the facts; a thread that keeps no facts has no summary and is refused, as is an unknown thread. |
 | `wisp://threads/{thread_id}/facts/{fact_id}` | JSON: one of the thread's facts (`fact`) and every version the thread holds of what it is about (`history`), oldest first, and `request`, the latest request to keep it as a permanent fact and its outcome (`set_fact_scope`, below), or null. A `p…` or `s…` id is refused with a pointer to where it is served. |
 | `wisp://facts` | JSON: the permanent facts in the shared store (`~/.wisp/facts.json`, ids `p…`), which only the person moves facts into, from chat, or from `wisp facts keep` and `wisp-tui` when a caller asks (`set_fact_scope`); the same fields, with `approved` for one the person approved, and `uri`. Current only; `?all=true` adds superseded and deleted versions. Paged. |
@@ -145,7 +147,7 @@ Run a prompt on the on-device model, with wisp's tools available to it, on a con
 Result content is the reply text. `structuredContent`:
 
 ```json
-{ "thread_id": "…", "created": true, "resumed": false, "resumedTurns": null, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "verification": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null }
+{ "thread_id": "…", "created": true, "resumed": false, "resumedTurns": null, "condensed": false, "text": "…", "refusals": [], "receipt": { … }, "calls": [ … ], "ran": "ran: run_command ×2 (1 failed)", "unknownEntries": [], "cited": null, "verification": null, "facts": [ … ], "notifications": [ … ], "factsProposed": { … }, "questions": [ … ], "output": null, "contextNote": null, "plan": null }
 ```
 
 `notifications` lists every notification the turn posted or tried to, in order: the model's `notify`
@@ -181,6 +183,13 @@ posted for a proposal, [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)):
 `count` is the server's, `thread` this thread's share of it, and `uri` where they are listed.
 
 `output` is the reply parsed as JSON when the call gave a `schema`, and null otherwise.
+
+`plan` is null unless the turn changed the thread's plan, through the model's `plan` tool
+([tools/plan.md](tools/plan.md)); then it gives each tree's heading, the tasks ready, and where to read it whole:
+
+```json
+{ "trees": ["t1, from entry 12: 3 tasks, 1 ready, 1 pending, 1 done"], "ready": ["t1.2"], "uri": "wisp://threads/git/plan" }
+```
 
 `questions` lists the questions the model asked the person this turn through its `ask` tool, when the thread has
 it ([tools/ask.md](tools/ask.md), [ADR 0062](decisions/0062-the-inquiry-verb.md)), each `{ "id", "question",
