@@ -300,6 +300,23 @@ final class FakeOllama: URLProtocol {
         #expect(OllamaModel.Executor.completed(["a": 1], schema: ["type": "object"]) == ["a": 1])
     }
 
+    @Test func anArrayWrittenAsAStringBecomesAList() {
+        // qwen3.8:27b, 2026-10-27: plan's dependsOn as "t1.1" and as "", each ending the turn in the framework.
+        let schema: JSONValue = [
+            "type": "object", "required": ["action"],
+            "properties": [
+                "action": ["type": "string"], "dependsOn": ["type": "array", "items": ["type": "string"]],
+                "tags": ["anyOf": [["type": "array"], ["type": "null"]]], "note": ["type": "string"],
+            ],
+        ]
+        let completed = OllamaModel.Executor.completed(
+            ["action": "add", "dependsOn": " t1.1 ", "tags": "", "note": "kept"], schema: schema)
+        #expect(completed == ["action": "add", "dependsOn": ["t1.1"], "tags": [], "note": "kept"])
+        #expect(
+            OllamaModel.Executor.completed(["action": "add", "dependsOn": ["t1.1"]], schema: schema)
+                == ["action": "add", "dependsOn": ["t1.1"]])
+    }
+
     @Test func aModelsWindowIsSizedFromItsShapeUnlessConfiguredAndEveryRequestAsksForIt() async throws {
         FakeOllama.serve("/api/tags", body: #"{"models":[{"name":"g:latest","size":5349000000}]}"#)
         FakeOllama.serve(

@@ -279,6 +279,12 @@ import WispTestSupport
             await call("update") {
                 $0.id = "t1.2"; $0.status = "finished"
             }.hasPrefix("error: unknown status"))
+        // A note alone keeps the status; neither is refused.
+        #expect(
+            await call("update") {
+                $0.id = "t1.2"; $0.note = "du needs a wider grant"
+            } == "t1.2 [failed] List the largest folders (after t1.1) — du needs a wider grant")
+        #expect(await call("update") { $0.id = "t1.2" }.hasPrefix("error: unknown status"))
         #expect(
             await call("show") { $0.id = "t1.3" }.hasPrefix(
                 "t1.3 [pending] Report (after t1.2)\n  tree: t1, under t1.2"))
@@ -287,7 +293,7 @@ import WispTestSupport
         #expect(await call("show") { $0.id = "t1" } == (await call("tree") { $0.id = "t1" }))
         #expect(
             await call("find") { $0.status = "failed" }
-                == "t1.2 [failed] List the largest folders (after t1.1) — du was refused")
+                == "t1.2 [failed] List the largest folders (after t1.1) — du needs a wider grant")
         #expect(await call("find") { $0.text = "nothing like this" } == "no task matches")
         #expect(await call("find") { $0.dependsOn = ["t1.2"] } == "t1.3 [pending] Report (after t1.2)")
         #expect(await call("find") { $0.status = "ready" } == "no task matches")
@@ -298,7 +304,7 @@ import WispTestSupport
         #expect(book.changedThisTurn)
         let kinds = sink.events.map(\.kind)
         #expect(kinds.filter { $0 == .planAdd }.count == 3 && kinds.contains(.planDepend))
-        #expect(kinds.filter { $0 == .planUpdate }.count == 2)
+        #expect(kinds.filter { $0 == .planUpdate }.count == 3)
         let added = try #require(sink.events.first { $0.kind == .planAdd })
         #expect(
             added.details["task"] == "t1.1" && added.details["tree"] == "t1"
@@ -511,26 +517,124 @@ import WispTestSupport
                 == "added t1.3 [pending] Write a report (after t1.2)\nt1.2 not in the plan yet; add it to go on")
         #expect(await add("t1.1", "Check free disk space") == "added t1.1 [ready] Check free disk space")
         #expect(await add("t1.2", "List the largest folders", after: ["t1.1"]).hasPrefix("added t1.2 [pending]"))
-        // A cycle through a task named before it was added is refused; an id taken, or of another tree, is not kept.
+        // A cycle through a task named before it was added is refused; an id taken, or of another tree, is refused
+        // with the one to give, which passes over an id a task waits for.
         #expect(await add("t1.4", "Loop", after: ["t1.5"]).hasPrefix("added t1.4"))
         #expect(await add("t1.5", "Back", after: ["t1.4"]) == "error: that would make a cycle: t1.5 -> t1.4 -> t1.5")
-        #expect(await add("t1.1", "Again").hasPrefix("added t1.5 [ready] Again"))
-        #expect(await add("t9.9", "Elsewhere").hasPrefix("added t1.6 [ready] Elsewhere"))
+        #expect(await add("t1.1", "Again") == "error: t1.1 is already a task; give this task t1.6, or leave id out")
+        #expect(
+            await add("t9.9", "Elsewhere")
+                == "error: t9.9 is not in t1, where this task goes; give this task t1.6, or leave id out")
         #expect(await add("t1.7", "Far", after: ["t2.1"]) == "error: no task or tree t2.1 in this conversation's plan")
         let plan = book.plan
-        #expect(plan.trees.count == 1 && plan.ready.map(\.id) == ["t1.1", "t1.5", "t1.6"])
+        #expect(plan.trees.count == 1 && plan.ready.map(\.id) == ["t1.1"])
         #expect(
-            PlanText.detail(try #require(plan.task("t1.4")), in: plan)[2] == "  depends on: t1.5 [ready] Again")
+            PlanText.detail(try #require(plan.task("t1.4")), in: plan)[2] == "  depends on: t1.5, not in the plan yet")
         // The next turn's tree is named before it is rooted, too; an earlier tree is still a parent.
         book.beginTurn()
         _ = book.endTurn(promptEntry: 2)
         #expect(await add("", "Next turn", parent: "t2") == "added t2.1 [ready] Next turn")
-        #expect(await add("", "Under the first tree", parent: "t1").hasPrefix("added t1.7"))
+        #expect(await add("", "Under the first tree", parent: "t1").hasPrefix("added t1.6"))
         var detail = Plan()
         detail = try detail.adding(goal: "a", parent: nil, dependsOn: ["t1.2"], currentTree: nil, now: Self.now).plan
         #expect(
             PlanText.detail(try #require(detail.task("t1.1")), in: detail)[2]
                 == "  depends on: t1.2, not in the plan yet")
+    }
+
+    @Test func eachRequestNamesTheIdsTheTurnsTasksTake() throws {
+        // granite4.2:8b and gemma4:26b, 2026-10-27, named a turn's first task t1, then used t1 as a task.
+        #expect(PlanText.turn(Plan()) == "[plan: this turn's tasks are t1.1, t1.2, …]")
+        #expect(PlanText.turn(try Self.sample()) == "[plan: this turn's tasks are t2.1, t2.2, …]")
+    }
+
+    @Test func aModelsOwnIdIsKeptOrRefusedWithTheIdToGive() throws {
+        // The planning probe, 2026-10-27 and 2026-10-28: models named the first task t1, asked for t1.1.1 with and
+        // without a parent, and gave ids already taken; each renumbered silently, the model went on with its own.
+        func add(
+            _ plan: Plan, _ id: String, parent: String? = nil, current: Int? = 1
+        ) throws(Plan.Failure) -> Plan.Task {
+            try plan.adding(
+                goal: "g \(id) \(parent ?? "")", parent: parent, dependsOn: [], currentTree: current, requestedID: id,
+                now: Self.now
+            ).task
+        }
+        let plan = try Self.sample()
+        // A tree's name, this turn's before it is rooted or another's.
+        #expect(throws: Plan.Failure.badID("t1 names a tree; give this task t1.1, or leave id out")) {
+            try add(Plan(), "t1", current: nil)
+        }
+        #expect(throws: Plan.Failure.badID("t2 names a tree; give this task t1.4, or leave id out")) {
+            try add(plan, "t2")
+        }
+        // A deeper id is a child of the task its prefix names, with parent left out or naming it.
+        let child = try add(plan, "t1.2.1")
+        #expect(child.id == "t1.2.1" && child.parent == "t1.2")
+        #expect(try add(plan, "t1.2.1", parent: "t1.2").parent == "t1.2")
+        #expect(
+            throws: Plan.Failure.badID(
+                "t1.4.1 would go under t1.4, which is not in the plan; add t1.4 first, or leave id out")
+        ) {
+            try add(plan, "t1.4.1")
+        }
+        #expect(
+            throws: Plan.Failure.badID(
+                "t1.2.1 would go under t1.2, but parent is t1.1; make them agree, or leave id out")
+        ) {
+            try add(plan, "t1.2.1", parent: "t1.1")
+        }
+        #expect(
+            throws: Plan.Failure.badID(
+                "t1.2.1 would go under t1.2, but parent is t1; make them agree, or leave id out")
+        ) {
+            try add(plan, "t1.2.1", parent: "t1")
+        }
+        // A level id is kept anywhere in its tree, as the tool's own are; taken, it is refused.
+        #expect(try add(plan, "t1.9", parent: "t1.1").id == "t1.9")
+        #expect(throws: Plan.Failure.badID("t1.2 is already a task; give this task t1.4, or leave id out")) {
+            try add(plan, "t1.2")
+        }
+        // A name written as an id is refused; anything else is not an id, and the next number is given.
+        for name in ["t1.find", "t1.1a", "t1.new1"] {
+            #expect(throws: Plan.Failure.badID("\(name) is not an id; give this task t1.4, or leave id out")) {
+                try add(plan, name)
+            }
+        }
+        #expect(try add(plan, "[t1.2]").id == "t1.4")
+        #expect(try add(plan, "step 1").id == "t1.4")
+        #expect(try add(plan, "task1.2").id == "t1.4")
+        #expect(Plan.parts("t1.2.3")! == (1, [2, 3]) && Plan.parts("t1")! == (1, []))
+        #expect(Plan.parts("t1.") == nil && Plan.parts("t1.+2") == nil && Plan.parts("t0.1") == nil)
+    }
+
+    @Test func aTreesNameWithoutATaskOfThatNameIsRefusedAsATree() throws {
+        let plan = try Self.sample()
+        #expect(throws: Plan.Failure.tree("t1")) { try plan.updating("t1", status: .done, note: nil, now: Self.now) }
+        #expect(throws: Plan.Failure.tree("t1")) { try plan.depending("t1.2", on: "t1", now: Self.now) }
+        #expect(throws: Plan.Failure.tree("t1")) {
+            try plan.adding(goal: "x", parent: nil, dependsOn: ["t1"], currentTree: 1, now: Self.now)
+        }
+        #expect(
+            Plan.Failure.tree("t1").description == "t1 is a tree, not a task; name one of its tasks, such as t1.1")
+        // As a parent, a tree's name still puts the task at the top of that tree.
+        let top = try plan.adding(goal: "Top", parent: "t1", dependsOn: [], currentTree: 2, now: Self.now)
+        #expect(top.id == "t1.4" && top.task.parent == nil)
+    }
+
+    @Test func theSameGoalInTheSamePlaceIsAddedOnce() throws {
+        // gemma4:26b, 2026-10-27, added one task eight times, each call told it was a repeat.
+        let plan = try Self.sample()
+        #expect(throws: Plan.Failure.duplicate("t1.3")) {
+            try plan.adding(goal: " Report ", parent: "t1.1", dependsOn: [], currentTree: 1, now: Self.now)
+        }
+        #expect(Plan.Failure.duplicate("t1.3").description == "t1.3 already has that goal there; nothing added")
+        let elsewhere = try plan.adding(goal: "Report", parent: nil, dependsOn: [], currentTree: 1, now: Self.now)
+        #expect(elsewhere.id == "t1.4")
+        // A parent written none or null is no parent.
+        for none in ["none", "None", "null"] {
+            let added = try plan.adding(goal: "Free", parent: none, dependsOn: [], currentTree: 1, now: Self.now)
+            #expect(added.task.parent == nil && added.task.tree == 1)
+        }
     }
 
     @Test func chatParsesPlan() {

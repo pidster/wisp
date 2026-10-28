@@ -568,6 +568,71 @@ mechanically (a task naming an undefined template, an argument sourced from an a
 the vocabulary, a destructive template outside the sandbox whose argument is not bound to a listing); the subtler ones (a listing
 that includes its own root, `main` not excluded) are not. `qwen3.8:27b` came closest, at 19 to 62 s a plan; the 8B models did not come near.
 
+### Planning a task tree through the plan tool, 2026-10-27
+
+The probe of 2026-10-23 above, run again through the `plan` tool of [ADR 0081](decisions/0081-the-plan-tool.md): the
+same four problems and models, each a `respond` thread with `tools: ["plan"]` and no schema, told to record the plan
+one `add` a task, each command's goal its exact command line and each question its wording, and to run nothing. There
+is no grant: the tool records tasks and dependencies only. Each problem was run once per model, one thread at a time,
+and each plan read back from the record for whether its steps and dependencies are right, its goals name the commands,
+and anything that changes the Mac waits on a question to the person.
+
+| Problem | `granite4.2:8b`, not thinking | `gemma4:12b` | `gemma4:26b` | `qwen3.8:27b` |
+| --- | --- | --- | --- | --- |
+| Homebrew | no: steps nested, nothing waits on anything, every task marked running | no: a Python script to write, no listing, question, or upgrade | no: one task added eight times | nearly: list, report, ask each, upgrade the agreed, summary, chained, with exact `brew` commands; asks the person to run the read-only listing too |
+| Disk | no: nothing waits, so the deletion is ready at once; tasks marked done | partly: find, ask, delete chained, but no commands and no schedule | no: nothing waits, no commands | nearly, run again after the failure below: `du -sk <root>/* \| sort -rn \| head -10` for each root, combined, asked, confirmed again before `rm -rf` outside the sandbox, chained |
+| Git | no: duplicated steps, no deletion task, marked running | no: no deletion task, one task marked done | no: two tasks, a script to write | nearly, run again after the fix below: fetch, `git branch --merged main`, drop `main` and the current branch, ask each, `git branch -d` only after a yes (never `-D` or a remote), chained |
+| `cargo audit` | no: a placeholder parent, nothing waits | nearly: audit then notify, chained, but run now, not on a change to `Cargo.lock` | no: the parent three times, a script to write | nearly, run again after the fix: `cargo audit`, read its output, notify naming each crate, chained; but the audit waits on the parent task, not the watch beneath it, after its own ids collided with the tool's and it wrote dependencies as `"[t1.2]"` (six failed calls) |
+| Seconds | 43, 284, 183, 104 | 46, 41, 33, 27 | 82, 38, 53, 70 | 338, 465, 198, 929 (the last three run again) |
+
+What the tool showed about the models:
+
+- `granite4.2:8b` and `gemma4:26b` gave the first task the tree's own name (`id: "t1"`), got `t1.1`, and then named
+  `t1` as a parent, a dependency, and a task to mark, which failed or put tasks in the wrong place; `gemma4:26b` looped,
+  adding the same task again each time. `gemma4:12b` began three of four with `tree t1` before the tree existed.
+- `granite4.2:8b` nested every step under another and never used `dependsOn`, so a question and the action it guards
+  were ready together.
+- `granite4.2:8b` (four of four) and `gemma4:12b` (three) marked tasks running or done in a turn that only planned.
+- `qwen3.8:27b` chained every step and wrote the closest to approvable plans of either probe, four nearly: the disk
+  plan lists the folders inside each root, which the 2026-10-23 plan did not, and the git plan keeps `main` and the
+  current branch out, which no 2026-10-23 plan did. Each would still need a person's edit, and each took 3 to 15
+  minutes.
+- Three models treated the tree's first task as the whole job and made steps depend on it, so a step waits on a task
+  that holds it and is never itself done.
+
+What it showed about wisp, each fixed the same day (ADR 0081, decision 13; [backends.md](backends.md)): three of
+`qwen3.8:27b`'s five turns ended in Apple's framework, before the tool saw the call, when it wrote `dependsOn` as
+`""` or `"t1.1"` rather than a list; a repeated `add` was flagged as a repeat but still added; and a tree's name where a
+task was needed was answered as unknown. Run again with the list fix, the failed turns finished. Each request now
+names the ids the turn's tasks take, and a tree's name used as a task is refused as a tree.
+
+Run again with that on 2026-10-28, the same instructions and problems, on the two models still installed:
+
+| | `granite4.2:8b`, not thinking | `qwen3.8:27b` |
+| --- | --- | --- |
+| First task given the tree's name (`id: "t1"`) | 2 of 4 (Homebrew, `cargo audit`) | 1 of 4 (`cargo audit`) |
+| Failed calls | 6, 0, 4, 1 | 2, 3, 1, 0 (six on `cargo audit` before) |
+| Plans | none approvable: no question before a change in three, and tasks marked done although nothing ran in all four | Homebrew, disk, and git chained with exact commands and a question before each change; `cargo audit`'s notification waits on the trigger task, not the audit |
+| Seconds | 529, 174, 163, 68 | 477, 428, 137, 270 |
+
+The line does not end the naming, but no run then used `t1` where a task was needed, so the refusal was never met.
+Both models still asked for ids a level deeper (`t1.1.1`, with no `parent` or with one), which the tool numbers
+`t1.2` and so on, and a later call naming `t1.1.1` is refused as unknown; `qwen3.8:27b` still made steps wait on their
+own parent task.
+
+Run a third time the same day, with a model's own id kept or refused naming the id to give (ADR 0081, decision 14):
+
+| | `granite4.2:8b`, not thinking | `qwen3.8:27b` |
+| --- | --- | --- |
+| First task given the tree's name | 2 of 4, each refused and given as `t1.1` on the next call | 3 of 4, the same |
+| Failed calls | 1, 8, 6, 2 | 3, 6, 3, 1, all but three a goal over 200 characters or an `update` with a note and no status |
+| Plans | Homebrew and `cargo audit` chained, though marked done with nothing run; disk and git broke on ids of its own naming (`t1.find`, `t1.1a`), not ids, so numbered without a word, and every later call naming them failed | all four approvable: exact commands, chained, a question before each change; no step waits on its own parent |
+| Seconds | 55, 445, 233, 268 | 223, 455, 155, 74 |
+
+Both models took the id offered after a tree's name on the next call, every time; `granite4.2:8b`, refused `t2.1` as of
+another tree, repeated it once, then turned to ids of its own naming. What still fails without a word is an id that is
+not one, such as `t1.find`, which is numbered without saying so.
+
 ### Keeping the plan while working, 2026-10-26
 
 The plan probe for [ADR 0081](decisions/0081-the-plan-tool.md), `scripts/check eval plan` (`PlanEvalTests`), after a

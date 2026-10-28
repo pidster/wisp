@@ -102,7 +102,9 @@ public struct ChatMessage: Equatable, Sendable {
     /// tool's schema when it writes arguments, and the framework refuses a call missing a required property
     /// by ending the whole turn; `system_info`'s `process`, required so the on-device model always names one,
     /// is "otherwise empty" by its own description. A missing number or choice has no neutral value and is
-    /// left out.
+    /// left out. An array property the model wrote as a string becomes a list: `""` none, any other string the
+    /// one item, since the framework ends the turn on that too (`plan`'s `dependsOn` as `"t1.1"` or `""` from
+    /// `qwen3.8:27b`, three of five conversations on 2026-10-27).
     ///
     /// - Parameters:
     ///   - arguments: The arguments as the model wrote them.
@@ -110,8 +112,14 @@ public struct ChatMessage: Equatable, Sendable {
     /// - Returns: The arguments, completed where that is safe.
     public static func completed(_ arguments: JSONValue, schema: JSONValue) -> JSONValue {
         guard var fields = arguments.objectValue, let object = schema.objectValue,
-            let properties = object["properties"]?.objectValue, let required = object["required"]?.arrayValue
+            let properties = object["properties"]?.objectValue
         else { return arguments }
+        for (name, value) in fields {
+            guard case .string(let text) = value, isArray(properties[name]) else { continue }
+            let item = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            fields[name] = .array(item.isEmpty ? [] : [.string(item)])
+        }
+        guard let required = object["required"]?.arrayValue else { return .object(fields) }
         for name in required.compactMap(\.stringValue) where fields[name] == nil {
             let property = properties[name]?.objectValue ?? [:]
             guard property["enum"] == nil else { continue }
@@ -123,5 +131,17 @@ public struct ChatMessage: Equatable, Sendable {
             }
         }
         return .object(fields)
+    }
+
+    /// Whether a property's schema is an array's, alone or as one of several types (an optional one).
+    ///
+    /// - Parameter property: The property's schema.
+    /// - Returns: Whether it takes an array.
+    private static func isArray(_ property: JSONValue?) -> Bool {
+        guard let property = property?.objectValue else { return false }
+        if property["type"]?.stringValue == "array" { return true }
+        if property["type"]?.arrayValue?.contains(.string("array")) == true { return true }
+        let choices = (property["anyOf"]?.arrayValue ?? []) + (property["oneOf"]?.arrayValue ?? [])
+        return choices.contains { isArray($0) }
     }
 }

@@ -26,8 +26,7 @@ public struct PlanTool: WispTool {
         /// The task or tree acted on.
         @Guide(
             description:
-                "A task such as t1.2 (show, depend, update; for add, a name for the new task), or a tree such as t1 "
-                + "(tree, find).")
+                "A task such as t1.2 (show, depend, update, add), or a tree such as t1 (tree, find).")
         public var id: String?
         /// For add: what the task is for.
         @Guide(description: "For add: what the task is for, in a short sentence.")
@@ -41,7 +40,10 @@ public struct PlanTool: WispTool {
                 "For add and depend: tasks it waits for, such as t1.1. For find: one task; finds its dependents.")
         public var dependsOn: [String]?
         /// For update and find: a status.
-        @Guide(description: "For update: running, done, failed, skipped, or pending. For find: those, or ready.")
+        @Guide(
+            description:
+                "For update: running, done, failed, skipped, or pending; leave out to add a note alone. For find: those, or ready."
+        )
         public var status: String?
         /// For update: what the model found, or why.
         @Guide(description: "For update: what you found, or why it failed or was skipped; short.")
@@ -160,18 +162,22 @@ public struct PlanTool: WispTool {
             return "\(id) now waits for \(on.joined(separator: ", "))"
         case "update":
             guard let id else { throw Refusal.missing("id", action: action) }
-            guard let raw = arguments.status?.trimmingCharacters(in: .whitespaces).lowercased(),
-                let status = Plan.Status(rawValue: raw)
-            else { throw Refusal.badStatus(arguments.status, allowingReady: false) }
+            let raw = arguments.status?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+            let noted = !(arguments.note?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            // A note alone keeps the status: qwen3.8:27b sent notes without one twice on 2026-10-28.
+            let status = Plan.Status(rawValue: raw)
+            guard status != nil || (raw.isEmpty && noted) else {
+                throw Refusal.badStatus(arguments.status, allowingReady: false)
+            }
             let plan = try book.change { plan, current in
                 let changed = try plan.updating(id, status: status, note: arguments.note, now: now)
                 return (changed, current, changed)
             }
-            book.noteMarked()
+            if status != nil { book.noteMarked() }
             audit?.record(
                 .planUpdate,
                 details: [
-                    "task": .string(id), "status": .string(status.rawValue),
+                    "task": .string(id), "status": .string(plan.task(id)?.status.rawValue ?? raw),
                     "note": plan.task(id)?.note.map { .string($0) } ?? .null,
                 ])
             var lines = [plan.task(id).map { PlanText.line($0, in: plan) } ?? id]
@@ -180,7 +186,7 @@ public struct PlanTool: WispTool {
                 lines.append("now ready: \(freed.map(\.id).joined(separator: ", "))")
             }
             let stopped = plan.dependents(of: id).filter { $0.status == .pending }
-            if status == .failed || status == .skipped, !stopped.isEmpty {
+            if let status, status == .failed || status == .skipped, !stopped.isEmpty {
                 lines.append(
                     "cannot go on while this is \(status.rawValue): \(stopped.map(\.id).joined(separator: ", "))")
             }

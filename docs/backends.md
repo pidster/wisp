@@ -171,7 +171,10 @@ turn. On 2026-09-29 `granite4.1:8b` called `system_info` with `{"topic": "proces
 required so that the on-device model always names one, and its description says "otherwise empty", so
 the turn ended. The executor therefore fills a missing required string with `""`, a missing array with
 `[]`, and a missing boolean with `false` before the framework sees the call. A missing number or
-choice has no neutral value, so it is left out, and the call still fails.
+choice has no neutral value, so it is left out, and the call still fails. An array written as a string
+ends the turn the same way: on 2026-10-27 `qwen3.8:27b` sent `plan`'s `dependsOn` as `"t1.1"` and as `""`
+in three of five conversations. So an array property given a string becomes a list, `""` an empty one and
+any other string the one item. The same completion applies to llama.cpp, LM Studio, and MLX.
 
 A Mistral model can write its calls as text in its own format, `name[ARGS]{…}`, which its Ollama template leaves
 in `content` instead of `tool_calls`. `ministral-3:14b` did so throughout the 2026-10-04 comparison, so wisp saw

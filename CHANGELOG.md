@@ -15,7 +15,7 @@ Added:
   began each, marks each task running, done, failed, or skipped with a note, and reads back what is ready. It records
   and runs nothing. You see it with `/plan` in chat and `wisp-tui`, `wisp threads plan ID` from a terminal, and
   `wisp://threads/{thread_id}/plan` over MCP, whose `respond` returns `plan` when a turn changed it; later turns carry
-  a line for each open tree. While a task is open and none was marked in the turn, every other tool's result ends with
+  a line for each open tree, and every request the ids the turn's tasks take. While a task is open and none was marked in the turn, every other tool's result ends with
   a one-line reminder to mark it, which took `granite4.1:8b` from no plan kept to five of six in the plan probe
   (`scripts/check eval plan`). Off by default: `wisp config set tools.plan true`, or a tool list naming `plan`
   (ADR 0081).
@@ -28,6 +28,12 @@ Changed:
 - Started in your home folder, a folder above it, `~/Library`, or a system folder, wisp no longer lets commands or
   `edit_file` write there: they write only to the temporary folders, and the model and `wisp doctor` say to start
   wisp in a project. Before, started in `~`, commands could write anywhere in your home (ADR 0077).
+
+Fixed:
+
+- A local model (Ollama, llama.cpp, LM Studio, MLX) that wrote a list argument as plain text, such as `"t1.1"` or
+  `""`, no longer ends the turn with an error from Apple's framework: the text becomes a list of one item, or an empty
+  one.
 
 ## 0.31.1
 

@@ -1,7 +1,7 @@
 # ADR 0081: The plan tool, a recorded and tracked tree of tasks
 
 Date: 2026-10-24. Status: accepted by the operator, decisions 1 to 4 on 2026-10-24, 5 to 11, how it is built,
-on 2026-10-25, and 12 on 2026-10-26; built for 0.32.0. The first part of
+on 2026-10-25, 12 on 2026-10-26, and 13 and 14 on 2026-10-28; built for 0.32.0. The first part of
 [ADR 0079](0079-the-conversation-as-a-spine-with-task-trees.md) (the conversation as a spine, with task trees at its
 turns), which stays proposed for the rest; nothing here runs a task, grants anything, or touches
 [ADR 0078](0078-tasks-a-plan-and-its-grant.md) or [ADR 0080](0080-agent-skills.md).
@@ -71,6 +71,35 @@ while working"):
     and `granite4.2:8b` not thinking kept their plans either way (6/6 and 4/6 with it, 5/6 and 5/6 without). The line
     naming the next task in later turns (`PlanText.reference`'s `next`) stays in the probe only: alone it took
     `granite4.1:8b` to 1/6.
+
+Agreed by the operator on 2026-10-28, after the planning probe through the tool ([measurements.md](../measurements.md),
+"Planning a task tree through the plan tool"):
+
+13. **Each request names the ids the turn's tasks take.** `granite4.2:8b` and `gemma4:26b` gave the first task the
+    tree's name (`id: "t1"`), got `t1.1`, and then named `t1` as its parent, dependency, and the task to mark, which
+    failed or put tasks in the wrong place; `gemma4:26b` looped on it. While the conversation has the tool, the now
+    block ends with `[plan: this turn's tasks are t3.1, t3.2, …]`, and the `id` guide no longer invites a name for a
+    new task. A tree's name where a task is needed is refused as a tree (`t1 is a tree, not a task; name one of its
+    tasks, such as t1.1`), so a model that still names it is corrected on its next call; a `parent` naming a tree
+    still puts a task at the top of that tree, as `granite4.1:8b`'s calls of 2026-10-25 need. The operator chose this
+    over keeping the name as the first task's alias, built first the same day: it addresses why models guess, and a
+    tree's name never quietly means a task. Rerun on 2026-10-28, the first task was still given the tree's name in 2 of 4
+    (`granite4.2:8b`) and 1 of 4 (`qwen3.8:27b`), and no run then used `t1` as a task. With it, as build fixes: a repeated
+    `add` of the same goal under the same parent is refused rather than added again, and a `parent` of `none` or
+    `null` is none.
+14. **A model's own id is kept or refused, never replaced.** In the rerun both models asked for ids a level deeper
+    (`t1.1.1`), with a `parent` and without, and models gave ids already taken; the tool numbered each the next free
+    number and said so only in its result, which the models did not read, so later calls named their own ids and
+    failed, and a taken id once fulfilled another task's dependency by chance. Every such call in the probes meant
+    a child of the task the prefix names, or a new sibling. So a deeper id is kept as a child of that task, with
+    `parent` left out or naming it; it is refused when that task is not in the plan or `parent` names another. A
+    tree's name, an id taken, and one of another tree are refused, each naming the id to give, the tree's next
+    number past any a task waits for. A refusal is the message the models acted on: `qwen3.8:27b` corrected after
+    each. Agreed by the operator on 2026-10-28. Run again the same day, both models took the id offered after a
+    tree's name on the next call, but `granite4.2:8b` turned to names written as ids (`t1.find`, `t1.1a`), which were
+    numbered without a word and every later call naming them failed; so an id that begins `t<n>.` and is not one is
+    refused too, also agreed that day. With it, as a build fix: `update` with a note and no status keeps the status,
+    where `qwen3.8:27b` sent notes alone twice.
 
 ## Consequences
 

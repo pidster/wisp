@@ -128,6 +128,17 @@ public enum PlanText {
         return lines
     }
 
+    /// The line each request ends its now block with while the conversation has the plan tool: the ids the turn's
+    /// tasks take, so a model numbers them rather than giving the first the tree's own name (`granite4.2:8b` and
+    /// `gemma4:26b` named it `t1` on 2026-10-27, then used `t1` as a task).
+    ///
+    /// - Parameter plan: The plan, whose next tree the turn roots.
+    /// - Returns: The line.
+    public static func turn(_ plan: Plan) -> String {
+        let tree = (plan.trees.map(\.id).max() ?? 0) + 1
+        return "[plan: this turn's tasks are t\(tree).1, t\(tree).2, …]"
+    }
+
     /// The task to name as next among `tasks`: the first running, else the first ready.
     ///
     /// - Parameters:

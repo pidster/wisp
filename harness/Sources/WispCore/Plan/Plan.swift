@@ -74,6 +74,12 @@ public struct Plan: Codable, Sendable, Equatable {
         case selfDependency(String)
         /// A task cannot start or finish while a task it depends on is not done.
         case blocked(task: String, by: [String])
+        /// The same goal is already a task in the same place.
+        case duplicate(String)
+        /// A tree's name where a task is needed.
+        case tree(String)
+        /// The id the model gave a new task cannot be its id; the reason says what would be.
+        case badID(String)
 
         /// The failure as the model reads it.
         public var description: String {
@@ -87,6 +93,9 @@ public struct Plan: Codable, Sendable, Equatable {
             case .blocked(let task, let by):
                 "\(task) depends on \(by.joined(separator: ", ")), not done yet; finish or settle "
                     + (by.count == 1 ? "it" : "them") + " first, or mark \(task) skipped"
+            case .duplicate(let id): "\(id) already has that goal there; nothing added"
+            case .tree(let name): "\(name) is a tree, not a task; name one of its tasks, such as \(name).1"
+            case .badID(let reason): reason
             }
         }
     }
@@ -135,6 +144,12 @@ public struct Plan: Codable, Sendable, Equatable {
         guard name.hasPrefix("t"), !name.contains("."), let id = Int(name.dropFirst()) else { return nil }
         return tree(id)
     }
+
+    /// The failure for `id`, which names no task: that it is a tree's, when it is, else that it is unknown.
+    ///
+    /// - Parameter id: The id given.
+    /// - Returns: The failure.
+    func missing(_ id: String) -> Failure { tree(named: id) == nil ? .unknown(id) : .tree(id) }
 
     /// The tasks of tree `id`, in the order they were added.
     ///
@@ -187,10 +202,18 @@ public struct Plan: Codable, Sendable, Equatable {
 
     /// Adds a task. Without a parent it goes at the top of `currentTree`, the tree of the turn under way, which is
     /// rooted first when there is none; with one it goes under that task, in the parent's tree, or at the top of a
-    /// tree named `t<n>`. A parent naming the turn's own tree, before its first task roots it, counts as none, since a
-    /// model names the tree it expects. A model's own id for the task is kept when it is in the task's tree and
-    /// unused. A dependency may name a task of the same tree that is not added yet, as a model calling the tool for
-    /// several tasks at once does; the task is not ready until that one is added and done.
+    /// tree named `t<n>`. A parent naming the turn's own tree before its first task roots it, or written `none` or
+    /// `null`, counts as none, since a model names the tree it expects. A dependency may name a task of the same tree
+    /// that is not added yet, as a model calling the tool for several tasks at once does; the task is not ready until
+    /// that one is added and done.
+    ///
+    /// A model's own id for the task is kept, or refused with the id to give instead, never silently replaced, since
+    /// a model that is not told the real id goes on using its own (the planning probe of 2026-10-28): a level id
+    /// (`t1.4`) when it is in the task's tree and unused; a deeper one (`t1.2.1`) as a child of the task its prefix
+    /// names, `parent` left out or naming that task. A tree's name, an id taken, one of another tree, a deeper one
+    /// under a task not in the plan or under another than `parent`, and a name written as an id (`t1.find`) are refused.
+    /// Anything else is ignored and the next number given. The same goal added again in the same place is refused, as
+    /// a model repeating a call would otherwise add it each time.
     ///
     /// - Parameters:
     ///   - goal: What it is for.
@@ -221,11 +244,22 @@ public struct Plan: Codable, Sendable, Equatable {
         let newTree = (trees.map(\.id).max() ?? 0) + 1
         var parent = parent?.trimmingCharacters(in: .whitespaces)
         if let named = parent,
-            named.isEmpty
+            named.isEmpty || ["none", "null"].contains(named.lowercased())
                 || (task(named) == nil && tree(named: named) == nil
                     && named == "t\(turnTree ?? newTree)")
         {
             parent = nil
+        }
+        let requested = requestedID.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
+        let shape = requested.flatMap(Self.parts)
+        let above = shape.flatMap { $0.path.count > 1 ? Self.id(tree: $0.tree, path: $0.path.dropLast()) : nil }
+        if parent == nil, let requested, let above {
+            guard task(above) != nil else {
+                throw Failure.badID(
+                    "\(requested) would go under \(above), which is not in the plan; add \(above) first, or leave id out"
+                )
+            }
+            parent = above
         }
         var current = currentTree
         let treeID: Int
@@ -249,16 +283,38 @@ public struct Plan: Codable, Sendable, Equatable {
             plan.trees.append(Tree(id: treeID, entry: nil, created: now))
             current = treeID
         }
-        if let unknown = dependencies.first(where: { task($0) == nil && Self.number($0, inTree: treeID) == nil }) {
-            throw Failure.unknown(unknown)
+        if let unknown = dependencies.first(where: { id in
+            task(id) == nil && Self.parts(id).map { $0.tree == treeID && !$0.path.isEmpty } != true
+        }) {
+            throw missing(unknown)
         }
         let inTree = tasks(inTree: treeID)
+        if let same = inTree.first(where: { $0.parent == parentTask && $0.goal == goal }) {
+            throw Failure.duplicate(same.id)
+        }
         guard inTree.count < Self.tasksPerTree else {
             throw Failure.limit("tree t\(treeID) holds \(Self.tasksPerTree) tasks, the most a tree may")
         }
-        let next = (inTree.compactMap { Self.number($0.id, inTree: treeID) }.max() ?? 0) + 1
-        let requested = requestedID.flatMap { id in task(id) == nil ? Self.number(id, inTree: treeID) : nil }
-        let id = "t\(treeID).\(requested ?? next)"
+        let named = inTree.flatMap { [$0.id] + $0.dependsOn }
+        let next = (named.compactMap { Self.number($0, inTree: treeID) }.max() ?? 0) + 1
+        let numbered = "t\(treeID).\(next)"
+        let instead = "give this task \(numbered), or leave id out"
+        if let requested, shape == nil, Self.looksNumbered(requested) {
+            throw Failure.badID("\(requested) is not an id; \(instead)")
+        }
+        if let requested, let shape {
+            guard !shape.path.isEmpty else { throw Failure.badID("\(requested) names a tree; \(instead)") }
+            guard shape.tree == treeID else {
+                throw Failure.badID("\(requested) is not in t\(treeID), where this task goes; \(instead)")
+            }
+            if let above, above != parentTask {
+                throw Failure.badID(
+                    "\(requested) would go under \(above), but parent is \(parent ?? "none"); make them agree, or leave id out"
+                )
+            }
+            guard task(requested) == nil else { throw Failure.badID("\(requested) is already a task; \(instead)") }
+        }
+        let id = shape == nil ? numbered : requested ?? numbered
         for dependency in dependencies {
             if let path = path(from: dependency, to: id) { throw Failure.cycle([id] + path) }
         }
@@ -278,8 +334,8 @@ public struct Plan: Codable, Sendable, Equatable {
     /// - Returns: The plan with the dependency.
     /// - Throws: `Failure` for an unknown task, a task depending on itself, a cycle, or the limit.
     func depending(_ id: String, on: String, now: Date) throws(Failure) -> Plan {
-        guard let index = tasks.firstIndex(where: { $0.id == id }) else { throw Failure.unknown(id) }
-        guard task(on) != nil else { throw Failure.unknown(on) }
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { throw missing(id) }
+        guard task(on) != nil else { throw missing(on) }
         guard id != on else { throw Failure.selfDependency(id) }
         guard !tasks[index].dependsOn.contains(on) else { return self }
         guard tasks[index].dependsOn.count < Self.dependencyLimit else {
@@ -316,13 +372,13 @@ public struct Plan: Codable, Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - id: The task.
-    ///   - status: Its new status.
+    ///   - status: Its new status; nil keeps the one it has, for a note alone.
     ///   - note: What the model found, or why; nil keeps the note it had.
     ///   - now: The time.
     /// - Returns: The plan with the task changed.
     /// - Throws: `Failure` for an unknown task, a long note, or a task still waiting on another.
-    func updating(_ id: String, status: Status, note: String?, now: Date) throws(Failure) -> Plan {
-        guard let index = tasks.firstIndex(where: { $0.id == id }) else { throw Failure.unknown(id) }
+    func updating(_ id: String, status: Status?, note: String?, now: Date) throws(Failure) -> Plan {
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { throw missing(id) }
         let note = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let note, note.count > Self.noteLimit { throw Failure.badNote }
         if status == .running || status == .done {
@@ -330,7 +386,7 @@ public struct Plan: Codable, Sendable, Equatable {
             guard waiting.isEmpty else { throw Failure.blocked(task: id, by: waiting) }
         }
         var plan = self
-        plan.tasks[index].status = status
+        if let status { plan.tasks[index].status = status }
         if let note, !note.isEmpty { plan.tasks[index].note = note }
         plan.tasks[index].updated = now
         return plan
@@ -388,6 +444,46 @@ public struct Plan: Codable, Sendable, Equatable {
             return nil
         }
         return number
+    }
+
+    /// The tree and the numbers below it of an id: `t1.2.3` is tree 1 and `[2, 3]`, `t1` tree 1 and `[]`; nil for
+    /// anything else.
+    ///
+    /// - Parameter id: An id.
+    /// - Returns: Its parts.
+    static func parts(_ id: String) -> (tree: Int, path: [Int])? {
+        guard id.hasPrefix("t") else { return nil }
+        let pieces = id.dropFirst().split(separator: ".", omittingEmptySubsequences: false)
+        guard
+            pieces.allSatisfy({ piece in
+                !piece.isEmpty && piece.count < 5 && piece.allSatisfy { $0.isASCII && $0.isNumber }
+            })
+        else { return nil }
+        let numbers = pieces.compactMap { Int($0) }
+        guard numbers.allSatisfy({ $0 > 0 }) else { return nil }
+        return (numbers[0], Array(numbers.dropFirst()))
+    }
+
+    /// Whether `text` begins as an id does, `t` and a number and a dot (`t1.find`, `t1.1a`), so a model meant it as
+    /// one: granite4.2:8b named its tasks so on 2026-10-28, and numbered without a word, its later calls naming them
+    /// failed.
+    ///
+    /// - Parameter text: The id given.
+    /// - Returns: Whether it is meant as an id.
+    static func looksNumbered(_ text: String) -> Bool {
+        guard text.hasPrefix("t") else { return false }
+        let digits = text.dropFirst().prefix { $0.isASCII && $0.isNumber }
+        return !digits.isEmpty && text.dropFirst(1 + digits.count).hasPrefix(".")
+    }
+
+    /// The id of the task at `path` in tree `tree`.
+    ///
+    /// - Parameters:
+    ///   - tree: The tree.
+    ///   - path: The numbers below it.
+    /// - Returns: The id, such as `t1.2`.
+    static func id(tree: Int, path: some Sequence<Int>) -> String {
+        (["t\(tree)"] + path.map(String.init)).joined(separator: ".")
     }
 
     /// `ids` with repeats and empty ones removed, in order.
