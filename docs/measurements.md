@@ -536,6 +536,27 @@ and "What was the first thing I said to you?", six times on each build:
 With the new header the context scenario and the chat suite held: the 4B 6/6 and 22/24 again, and
 `ollama:granite4.1:8b` 6/6 and 24/24.
 
+### A llama.cpp router for wisp's models, 2026-10-29
+
+A probe for [ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md) on this Mac (48 GB): the Homebrew
+`llama-server` 0.7.0 (build 11669) in router mode, `--models-dir` over a folder of links to the three Ternary Bonsai 2
+GGUF files, `--models-max 1`, `127.0.0.1`, and `--api-key-file`; then the same 9B under `-m` for comparison.
+
+| Measure | Result |
+| --- | --- |
+| Models listed | Each linked file under its own name, `unloaded` until asked for; a request without the key: 401 |
+| First request to the 9B, loading it from disk | 8.5 s |
+| A request to the loaded model (40 tokens at most) | 0.2 to 0.5 s |
+| Switching models, one loaded at a time | 1.4 s (2B), 2.0 s (9B again), 2.35 s (4B) |
+| wisp's five tool prompts (`run_command`, `current_date`, `system_info`, `read_file`, a count), `think` `low` | 5/5 through the router, 1.6 to 6.3 s; 5/5 through `-m`, 1.5 to 5.0 s; the same answers |
+| The 9B's process at llama.cpp's defaults (262,144 tokens, 4 slots) | 11.4 GB resident |
+| The same at `--ctx-size 32768 --parallel 1`, given to the router | 3.8 GB |
+| After 20 s idle under `--sleep-idle-seconds 20` | 217 MB; the next request 0.74 s, the one after 0.07 s |
+| Stopping the router | Its model's process stopped with it |
+
+The router passes its own context and slot settings on to each model it starts. Not measured: the 9B at a 65,536-token
+context, the default the operator chose.
+
 ### Planning a task tree and its grant, 2026-10-23
 
 The probe for [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md). Four local models were each given four problems

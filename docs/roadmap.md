@@ -13,17 +13,18 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Nothing is scheduled next. Later, with no release yet: a llama.cpp server wisp starts, protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next is 0.33.0, a llama.cpp server wisp starts, below. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
-## Later: a llama.cpp server wisp starts
+## 0.33.0: a llama.cpp server wisp starts
 
-Agreed by the operator on 2026-10-27, as a release of its own; proposed in
-[ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), every decision pending. llama.cpp is the one local
-runtime the person starts by hand, and it serves the fastest accurate model for tool work (Ternary Bonsai 2). wisp
-would start one `llama-server` in router mode (`--models-dir`) over a folder of the GGUF models it knows, from a
-binary the person approved and wisp checks by digest, on `127.0.0.1` with a key of its own, off by default. Open:
-whether a LaunchAgent, a process started on demand, or one living with `wisp mcp` keeps it running; the memory limits;
-and a probe of the router's load time and of ternary models under it, before the decisions are taken.
+Chosen by the operator on 2026-10-29 ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), accepted that
+day after a probe). llama.cpp is the one local runtime the person starts by hand, and it serves the fastest accurate
+model for tool work (Ternary Bonsai 2). `llamacpp.server` chooses: `off` (today's behaviour, the default), `wisp`, or
+`llama-app`. Under `wisp`, one `llama-server` in router mode (`--models-dir`) serves the GGUF models the person links
+with `wisp models`, kept in `~/Library/Application Support/Wisp/llamacpp/models`, from a binary the person approved and
+wisp checks by digest, on `127.0.0.1` with a key of its own, kept running by a LaunchAgent with idle sleep, with a
+65,536-token context, one slot, two models, and 600 s idle by default, each configurable. Under `llama-app`, wisp
+uses `Llama.app`'s router.
 
 ## Later: protecting wisp's state from other agents
 
