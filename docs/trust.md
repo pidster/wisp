@@ -6,9 +6,11 @@ here is enforced by code and covered by tests; the linked pages hold the detail.
 
 ## What runs, and where
 
-The model has ten tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`, `models`, `ask`,
-`edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `ask` puts a question
-to you and changes nothing (off by default; who answers it is below); `models` asks you
+The model has eleven tools: `current_date`, `read_file`, `inspect`, `notify`, `system_info`, `memory`, `models`, `ask`,
+`plan`, `edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `ask` puts a question
+to you and changes nothing (off by default; who answers it is below); `plan`, which a conversation has only with
+`tools.plan` on or a tool list that names it (off by default), keeps the conversation's list of tasks in its own
+thread record, and records only: it runs nothing and grants nothing ([plan](tools/plan.md)); `models` asks you
 before it pulls, enables, disables, or checks a model (below); `notify` shows a banner, at
 most a few a minute, through `Wisp Notifier.app` once you allow it, your terminal, or `osascript`, and changes
 nothing ([notify](tools/notify.md));

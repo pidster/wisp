@@ -29,11 +29,12 @@ against a fake server
 
 ## Which model, as measured
 
-From the local-model comparison of 2026-10-04 on this project's Mac ([Measurements](../measurements.md)):
+From the local-model comparison of 2026-10-04 on this project's Mac, and `granite4.1` against `granite4.2` on
+2026-10-10 ([Measurements](../measurements.md)):
 
 | Work | Model | Size | Why |
 | --- | --- | --- | --- |
-| Most things: single commands, short lookups, git | `granite4.1:8b` | 5.4 GB | About 2 s a request, close to the most accurate (`edit_file` 28/30, `system_info` 14/16) |
+| Most things: single commands, short lookups, git | `granite4.2:8b`, thinking off | 5.35 GB | Not thinking, as fast as `granite4.1:8b` on the tools (a median of 3.2 s a request), and every draft right |
 | Multi-step tasks, reasoning over several files | `gemma4:12b` | 8.0 GB | Perfect on tools (30/30, 16/16) at 12 to 18 s a request; it thinks before it answers |
 | Large diffs and long drafts | `qwen3.8:27b` | 17.7 GB | As accurate, and the only one with both large-diff drafts right, but much slower |
 

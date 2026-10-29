@@ -1110,7 +1110,9 @@ model available and answering a one-word request (availability alone said yes on
 service, `modelmanagerd`, refused every request with "Too many open files"; when a request fails with the service's
 own error, the finding says to restart it, `sudo killall modelmanagerd`, which launchd starts again), the configured model available when it is not `system` (for `ollama:<name>`, `llamacpp:<name>`, or
 `lmstudio:<name>`, that the server answers, accepts the key if it wants one, and lists the model), the Core ML risk classifier preparing when `approval.classifier` is
-`coreml` (the default), MLX's Metal library loading in a build with MLX, `/usr/bin/sandbox-exec` present,
+`coreml` (the default), MLX's Metal library loading in a build with MLX, `/usr/bin/sandbox-exec` present (the detail names the folder
+commands write under, or, when wisp was started in a privileged folder such as `~`, says they write only to the
+temporary folders and to start wisp in a project, [ADR 0077](decisions/0077-no-project-folder-in-privileged-folders.md)),
 `config.json` parses, `~/.wisp` writable. Run it first
 when something is wrong. `wisp --version` prints the version: bare (`0.16.0`) for a release build, and for any other build the version, `-dev`, and the commit it was built from (`0.16.0-dev+4ab6eec`), with ` (modified)` after it when tracked files had uncommitted changes (untracked files do not count) (`0.16.0-dev+4ab6eec (modified)`), so a build from `main` is not taken for the release whose number it carries. Where the commit is unknown (a source archive) it is `0.16.0-dev`. `wisp-tui --version` follows the same rule. The banner and `wisp doctor` print the same form; the audit log's `version`, the classifier versions, and the MCP handshake keep the bare version.
 

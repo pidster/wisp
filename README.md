@@ -46,7 +46,7 @@ before it touches your Mac:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.svg">
-  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and three more, memory, models, and ask, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
+  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and four more, memory, models, ask, and plan, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
 The model never carries the whole conversation. The audit log keeps everything, and wisp composes each
@@ -186,7 +186,7 @@ reply reports that no call produced ([verification.md](docs/verification.md)), s
 delegated work without reading the log. [trust.md](docs/trust.md) states in one page
 what wisp can and cannot do to your Mac.
 
-**It is a microharness.** One binary, one session, a registry of ten tools, and the smallest correct
+**It is a microharness.** One binary, one session, a registry of eleven tools, and the smallest correct
 agent loop; the framework runs the loop and wisp puts the care around it. Your own tools are command
 templates in `~/.wisp/config.json`, run through the same gate as everything else
 ([tools/custom.md](docs/tools/custom.md)). State is a directory, `~/.wisp`, that you can read, edit,
@@ -214,6 +214,7 @@ and delete.
 | | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | The model asks you a question mid-turn with its `ask` tool (off by default), in chat, `wisp-tui`, or from an MCP session through `wisp questions`; never for a secret | [tools/ask.md](docs/tools/ask.md), [ADR 0062](docs/decisions/0062-the-inquiry-verb.md) |
+| | The model's plan: tasks with dependencies kept across turns with its `plan` tool (off by default), seen with `/plan`, `wisp threads plan`, and over MCP | [tools/plan.md](docs/tools/plan.md), [ADR 0081](docs/decisions/0081-the-plan-tool.md) |
 | | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |

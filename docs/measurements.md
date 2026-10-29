@@ -366,6 +366,8 @@ delegation default for now: `ollama.think` applies to every Ollama model, and tu
 `gemma4:12b` and `qwen3.8:27b` too. Choosing thinking per model or per call was planned for 0.22.0
 and shipped in it: `ollama.models.<name>.think`, `respond`'s `think`,
 and no thinking for wisp's own calls ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11).
+With that in place, on 2026-10-27 the operator made `granite4.2:8b`, not thinking, the delegation default, after
+`granite4.1:8b` rewrote a git command's quotes.
 
 ### qwen3.8:27b re-measured, 2026-10-09
 

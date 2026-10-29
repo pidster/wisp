@@ -51,7 +51,7 @@ could, which is why you are asked about each one ([ADR 0064](../decisions/0064-a
 | Remember project and always approvals for longer | `approval.persistDays` | 30 |
 | Give commands more time | `commandTimeoutSeconds` (0 is no limit), and the cap a call or thread may ask for, `commandMaxTimeoutSeconds` | 120, 1,800 |
 | Stop the model asking to run a command outside the sandbox | `commandPolicy.sandbox.allowOutsideSandbox` | `true` |
-| Give the model its `memory`, `models`, or `ask` tool | `context.memory`, `tools.models`, `tools.ask` | `false` |
+| Give the model its `memory`, `models`, `ask`, or `plan` tool | `context.memory`, `tools.models`, `tools.ask`, `tools.plan` | `false` |
 | Leave a built-in tool out everywhere | `tools.disabled` | none |
 | Add house style to every conversation | `systemPromptExtension` | none |
 | Turn notifications off | `notifications.enabled` | `true` |

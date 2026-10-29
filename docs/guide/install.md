@@ -58,15 +58,16 @@ wisp doctor
 `wisp doctor` checks what a working install needs and exits non-zero when anything fails: macOS 27, the
 on-device model answering a one-word request, the risk classifier, MLX's Metal library, `sandbox-exec`, your
 `config.json`, and a writable `~/.wisp`, along with the state wisp keeps. Each line is `ok` or not, with a detail.
-From a development build of 0.24.2 with a fresh home, on 2026-10-14 (a Homebrew install names its own paths):
+From a development build after 0.31.1 with a fresh home, started in `/private/tmp`, on 2026-10-29 (a Homebrew install
+names its own paths):
 
 ```
 ok   macOS: 27.0.0
 ok   model: on-device model available and answers
-ok   classifier: coreml model risk@0.24.2-default (shipped) prepares
+ok   classifier: coreml model risk@0.31.1-default (shipped) prepares
 ok   context window: 8,192 tokens, reported by the framework
 ok   MLX: Metal library …/default.metallib loads
-ok   sandbox: /usr/bin/sandbox-exec present
+ok   sandbox: /usr/bin/sandbox-exec present; commands write under /private/tmp
 ok   config: no …/config.json; defaults apply
 …
 ok   home: … writable

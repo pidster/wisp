@@ -73,7 +73,7 @@ naming them:
 | --- | --- |
 | `instructions` | The conversation's own instructions, added under wisp's system prompt and the operator's extension ([ADR 0017](../decisions/0017-three-layer-instructions.md)) |
 | `tools` | Exactly the tools the task needs: `["run_command"]` for a thread that only runs commands, `[]` for text only. Every tool's schema is in every prompt, so fewer is better on a small window |
-| `model` | `system` (the default), or a local model such as `ollama:granite4.1:8b` ([Local models](local-models.md)) |
+| `model` | `system` (the default), or a local model such as `ollama:granite4.2:8b` ([Local models](local-models.md)) |
 | `think` | `false` keeps a thinking model from thinking, for fixed quick tasks; `true` or a level for a hard one |
 | `commandTimeoutSeconds` | A longer limit for the thread's commands, such as `600` for one that commits through a slow pre-commit hook; capped by the operator's `commandMaxTimeoutSeconds`, 1,800 s by default ([ADR 0063](../decisions/0063-command-time-limits.md)) |
 
@@ -135,7 +135,8 @@ suits any fixed, repeated job. Open one thread and reuse it:
 {
   "thread_id": "git",
   "tools": ["run_command"],
-  "model": "ollama:granite4.1:8b",
+  "model": "ollama:granite4.2:8b",
+  "think": false,
   "commandTimeoutSeconds": 600,
   "instructions": "You run git commands for a coding assistant. Run exactly the command line given between backticks, once, in the working directory given, with the run_command tool. Do not modify the command, add flags, or run anything else. Reply with the exit status and the output verbatim, and nothing else.",
   "prompt": "Use run_command with working directory /Users/me/src/project to run exactly the command line between the backticks:\n`git status --short`\nReport the exit status and output verbatim, nothing else."
@@ -145,9 +146,11 @@ suits any fixed, repeated job. Open one thread and reuse it:
 Why each part is there:
 
 - **`tools: ["run_command"]`** leaves the model nothing else to reach for.
-- **`ollama:granite4.1:8b`** follows a fixed instruction reliably, at about 2 s a request, and its window is far
-  larger than the on-device model's 8,192 tokens, so the thread survives many commits ([Local models](local-models.md)).
-  Without Ollama, use `system` and keep prompts short.
+- **`ollama:granite4.2:8b`** follows a fixed instruction reliably, and its window is far larger than the on-device
+  model's 8,192 tokens, so the thread survives many commits ([Local models](local-models.md)). Without Ollama, use
+  `system` and keep prompts short.
+- **`think: false`**: not thinking, `granite4.2:8b` is as fast as `granite4.1:8b` (a median of 3.2 s a request on
+  2026-10-10); thinking makes it 4 to 15 times slower and buys nothing for a fixed command.
 - **`commandTimeoutSeconds: 600`**: a pre-commit hook that runs a project's whole test suite can pass the default
   120 s.
 - **The command between backticks** keeps a trailing full stop from being taken as part of it.

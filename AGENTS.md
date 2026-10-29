@@ -57,7 +57,7 @@ Smoke-testing against the live model (never in unit tests):
 export WISP_HOME=/tmp/wisp-scratch     # keep smoke state out of the real ~/.wisp
 harness/.build/debug/wisp tools
 harness/.build/debug/wisp --yes "Use run_command to run: uname -m"
-harness/.build/debug/wisp chat --plain    # /help lists every command (?WORD only those that mention WORD): !COMMAND (run it yourself), !!COMMAND (run it yourself outside the sandbox), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel|uninstall], /model, /think on|off|LEVEL, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /last, /show, /history, /save, /threads, /resume, /new, /quit; y/s/p/a/n to approvals
+harness/.build/debug/wisp chat --plain    # /help lists every command (?WORD only those that mention WORD): !COMMAND (run it yourself), !!COMMAND (run it yourself outside the sandbox), /tools, /status, /approvals [pending|approve|deny], /facts [keep|drop], /questions [answer|decline], /audit, /config, /models [enable|disable|check|pull|trust|cancel|uninstall], /model, /think on|off|LEVEL, /stats, /tokens, /inspect context|facts|summary|thinking, /fact, /task, /plan, /last, /show, /history, /save, /threads, /resume, /new, /quit; y/s/p/a/n to approvals
 (cd tools && cargo build) && WISP_BIN=harness/.build/debug/wisp tools/target/debug/wisp-tui   # the front end
 harness/.build/debug/wisp logs --last 20  # audit summaries; --json for raw events
 WISP_LOG=debug harness/.build/debug/wisp "…"   # mirror diagnostics to stderr
@@ -231,7 +231,7 @@ A thinking model can be used with thinking off, as the default is, for one model
 Not for tool work: `llama3.2:3b` (it writes tool calls as text and misses edits) and `ministral-3:14b` (Ollama's template leaves its `name[ARGS]{…}` calls as text, so none are made). If `wisp models` does not list the model, `ollama pull <name>` fetches it; ask before pulling. If it lists it with `ENABLED` `no`, `wisp models enable <name>` turns it on; ask before enabling. Read the `wisp://tools` resource (or run `wisp tools --markdown`) for the
 model's tools and the prompt shapes that work; `wisp://config`, `wisp://status`, `wisp://approvals`,
 and `wisp://threads` show its state, and `wisp://threads/{thread_id}` a thread's: its `context` (what the
-model carries, per turn), `facts`, `summary`, `output`, `reasoning` (a thinking model's thinking), and `audit`. Commands the model runs that need approval are asked
+model carries, per turn), `facts`, `summary`, `output`, `reasoning` (a thinking model's thinking), `plan` (the model's plan, ADR 0081), and `audit`. Commands the model runs that need approval are asked
 through MCP elicitation and, with `approval.outOfBand` (the default), through `wisp approvals` and
 `wisp-tui` too; a client without elicitation waits for that answer, up to `approval.timeoutSeconds`, and
 silence is a refusal (`docs/mcp.md`, "Approval").

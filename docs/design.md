@@ -280,7 +280,7 @@ material, and pages it at the tool-output budget. An entry's content is read fro
 through `AuditLog.event(_:)`, which asks the log's sink when it is an `AuditReader` (`FileAuditSink` searches
 its files for the id, newest first; `MemoryAuditSink` and `TeeAuditSink` too); the store's copy is the fallback
 (D8). `memory` is a built-in tool, off by default (ADR 0057): a thread given every tool has it only with
-`context.memory` on (`ToolRegistry.defaultNames(memory:models:ask:)`, which `Session` resolves "every tool" through), and a
+`context.memory` on (`ToolRegistry.defaultNames(memory:models:ask:plan:)`, which `Session` resolves "every tool" through), and a
 named list only when it names it;
 `WispThread.openAgent` wires it and renders the prompt with its rule
 (`Prompting.rendered(toolsAvailable:memory:)`); the composer's `recalls` switch makes references name it. Each

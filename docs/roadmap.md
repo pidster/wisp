@@ -22,8 +22,10 @@ Chosen by the operator on 2026-10-24, ahead of skills ([ADR 0081](decisions/0081
 [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md). Trees of tasks rooted at the turn that
 began each, dependencies across trees, the model marking its own progress; saved with the thread; seen with `/plan`,
 `wisp threads plan`, the MCP resources and `respond`'s `plan`, and a line a tree in later turns. It records and runs
-nothing. Off by default (`tools.plan`) until measured on local models; before the release, the planning probe of
-2026-10-23 rerun through the tool, to see whether the models build a plan one call at a time.
+nothing. Off by default (`tools.plan`) until measured on local models. The planning probe of 2026-10-23 was rerun
+through the tool on 2026-10-27 and 2026-10-28 ([measurements.md](measurements.md), "Planning a task tree through the
+plan tool"): `qwen3.8:27b` recorded an approvable plan for all four problems on the third run, and `granite4.2:8b`
+still marks tasks done with nothing run.
 
 ## Later: a llama.cpp server wisp starts
 
