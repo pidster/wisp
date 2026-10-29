@@ -7,7 +7,7 @@ Notable changes in each release of wisp.
      version-bump commit renames it. -->
 
 
-## Unreleased
+## 0.32.0
 
 Added:
 
