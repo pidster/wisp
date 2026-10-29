@@ -7,29 +7,17 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. 0.31.1, `wisp models uninstall`, the first release a `Wisp.app` updated to with `wisp update`, shipped the same day too. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. 0.31.1, `wisp models uninstall`, the first release a `Wisp.app` updated to with `wisp update`, shipped the same day too. 0.32.0, the model's `plan` tool, off by default, with the sandbox told to the model and no project folder in a privileged folder, shipped on 2026-10-29. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Next is 0.32.0, the plan tool, below. Later, with no release yet: a llama.cpp server wisp starts, protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
-
-## 0.32.0: the plan tool
-
-Chosen by the operator on 2026-10-24, ahead of skills ([ADR 0081](decisions/0081-the-plan-tool.md),
-[tools/plan.md](tools/plan.md)): the model's `plan` tool, the first part of
-[ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md). Trees of tasks rooted at the turn that
-began each, dependencies across trees, the model marking its own progress; saved with the thread; seen with `/plan`,
-`wisp threads plan`, the MCP resources and `respond`'s `plan`, and a line a tree in later turns. It records and runs
-nothing. Off by default (`tools.plan`) until measured on local models. The planning probe of 2026-10-23 was rerun
-through the tool on 2026-10-27 and 2026-10-28 ([measurements.md](measurements.md), "Planning a task tree through the
-plan tool"): `qwen3.8:27b` recorded an approvable plan for all four problems on the third run, and `granite4.2:8b`
-still marks tasks done with nothing run.
+Nothing is scheduled next. Later, with no release yet: a llama.cpp server wisp starts, protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: a llama.cpp server wisp starts
 
-Agreed by the operator on 2026-10-27, as a release of its own after 0.32.0; proposed in
+Agreed by the operator on 2026-10-27, as a release of its own; proposed in
 [ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), every decision pending. llama.cpp is the one local
 runtime the person starts by hand, and it serves the fastest accurate model for tool work (Ternary Bonsai 2). wisp
 would start one `llama-server` in router mode (`--models-dir`) over a folder of the GGUF models it knows, from a
