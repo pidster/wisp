@@ -203,8 +203,11 @@ enum EvalModels {
     }
 
     /// The configuration the context comparison resolves with: the defaults, with the window held at `window` for
-    /// both local runtimes, and the operator's MLX models and their declared capabilities, which an `mlx:` model
-    /// needs to be offered tools.
+    /// Ollama and MLX, and the operator's MLX models and their declared capabilities, which an `mlx:` model needs to
+    /// be offered tools; Ollama's per-model thinking, so a model runs as it is configured to; and the operator's
+    /// llama.cpp and LM Studio settings, so a `llamacpp:` model is found where it is served (wisp's own router,
+    /// `llamacpp.server wisp`, ADR 0082). A server's window cannot be asked for per request, so the comparison
+    /// holds each resolved model at the window as well (`ResolvedModel.held(window:)`).
     ///
     /// - Parameter window: The context window, in tokens.
     /// - Returns: The configuration.
@@ -216,6 +219,9 @@ enum EvalModels {
         resolved.mlxVerified = operatorConfig.mlxVerified
         resolved.mlxExecutor = operatorConfig.mlxExecutor
         resolved.mlxContextLength = window
+        resolved.ollama.modelThinks = operatorConfig.ollama.modelThinks
+        resolved.llamacpp = operatorConfig.llamacpp
+        resolved.lmstudio = operatorConfig.lmstudio
         return resolved
     }
 

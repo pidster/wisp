@@ -81,7 +81,8 @@ struct ContextEvalTests {
     func comparisonOnEachModel() async throws {
         let config = EvalModels.contextConfig(window: 8192)
         for selection in EvalModels.selections {
-            guard let model = EvalModels.resolve(selection, for: ["context"], config: config) else { continue }
+            guard let resolved = EvalModels.resolve(selection, for: ["context"], config: config) else { continue }
+            let model = resolved.held(window: 8192)
             let run = try await Self.measure(model, variant: "window-8192", strategy: Self.stack)
             let failed = run.turns.filter(\.failed).count
             EvalModels.result(

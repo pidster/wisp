@@ -71,6 +71,23 @@ private struct ScriptedBackend: ModelBackend {
         try ModelSelection(parsing: "scripted:tools").resolve().check(tools: [CurrentDateTool()])
     }
 
+    @Test func aWindowIsHeldAtMostAtWhatAComparisonAsks() {
+        let unknown = ResolvedModel(
+            selection: .local(backend: "scripted", name: "tools"), custom: ScriptedModel(steps: [.say("hi")]),
+            capabilitySource: .configuration)
+        let wide = ResolvedModel(
+            selection: .local(backend: "scripted", name: "tools"), custom: ScriptedModel(steps: [.say("hi")]),
+            capabilitySource: .configuration, contextSize: 65_536)
+        let narrow = ResolvedModel(
+            selection: .local(backend: "scripted", name: "tools"), custom: ScriptedModel(steps: [.say("hi")]),
+            capabilitySource: .configuration, contextSize: 4096)
+        #expect(unknown.held(window: 8192).contextSize == 8192)
+        #expect(wide.held(window: 8192).contextSize == 8192)
+        #expect(wide.held(window: 8192).contextNote == "held at 8192 tokens for a comparison")
+        #expect(narrow.held(window: 8192).contextSize == 4096)
+        #expect(narrow.held(window: 8192).contextNote == nil)
+    }
+
     @Test func aSessionGatesAndAuditsTheResolvedModel() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "wisp-backend-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

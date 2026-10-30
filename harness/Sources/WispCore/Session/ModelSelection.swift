@@ -197,9 +197,9 @@ public struct ResolvedModel: Sendable {
     public let asset: String?
     /// The context window in tokens when the model or its settings state it; nil when only an
     /// overflow error will tell. `Agent` condenses ahead of it from the usage each turn reports.
-    public let contextSize: Int?
+    public private(set) var contextSize: Int?
     /// Why the window is what it is, when the backend chose it (ADR 0043); nil when it is the model's own.
-    public let contextNote: String?
+    public private(set) var contextNote: String?
     private let makeFromInstructions: @Sendable ([any Tool], String) -> LanguageModelSession
     private let makeFromTranscript: @Sendable ([any Tool], Transcript) -> LanguageModelSession
     private let countTokens: (@Sendable (Transcript) async throws -> Int)?
@@ -393,5 +393,22 @@ public struct ResolvedModel: Sendable {
     /// - Throws: Framework errors if counting fails.
     public func tokenCount(for transcript: Transcript) async throws -> Int? {
         try await countTokens?(transcript)
+    }
+}
+
+extension ResolvedModel {
+    /// This model with wisp condensing against at most `window` tokens: the smaller of its own window and `window`,
+    /// and `window` when its own is unknown. For a comparison that holds every model at one window, such as the
+    /// context eval's 8,192 tokens, where a runtime's window is its server's (llama.cpp's router serves at 65,536)
+    /// and cannot be asked for per request.
+    ///
+    /// - Parameter window: The most tokens wisp condenses against.
+    /// - Returns: The model, its window held.
+    public func held(window: Int) -> ResolvedModel {
+        guard contextSize.map({ $0 > window }) ?? true else { return self }
+        var model = self
+        model.contextSize = window
+        model.contextNote = "held at \(window) tokens for a comparison"
+        return model
     }
 }

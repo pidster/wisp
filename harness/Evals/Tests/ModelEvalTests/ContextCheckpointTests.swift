@@ -82,7 +82,7 @@ struct ContextCheckpointTests {
         guard let plan else { return }
         let config = EvalModels.contextConfig(window: plan.window)
         for selection in EvalModels.selections {
-            guard let model = EvalModels.resolve(selection, for: [], config: config) else {
+            guard let model = EvalModels.resolve(selection, for: [], config: config)?.held(window: plan.window) else {
                 print("context checkpoint: \(selection) unavailable; \(part.rawValue) skipped on it")
                 continue
             }
@@ -113,7 +113,8 @@ struct ContextCheckpointTests {
         for legs in plan.switchPlans {
             let models = legs.compactMap { leg in
                 EvalModels.resolve(
-                    leg.model, for: [], config: EvalModels.contextConfig(window: leg.window ?? plan.window))
+                    leg.model, for: [], config: EvalModels.contextConfig(window: leg.window ?? plan.window)
+                )?.held(window: leg.window ?? plan.window)
             }
             guard models.count == legs.count, let first = legs.first else {
                 print("context checkpoint: a model of \(legs.map(\.spelling).joined(separator: ">")) is unavailable")
