@@ -6,6 +6,9 @@ import Foundation
 /// coreml` loads it as it is. A maximum-entropy model over the command's words: it trains in well
 /// under a second and answers in microseconds, which is what a classifier on every command needs
 /// ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
+///
+/// ``ClassifierStore/train(_:source:version:parent:)`` calls it and keeps the result as a new version; the
+/// shipped default is trained the same way when a release is prepared (`scripts/check classifier-default`).
 public enum RiskClassifierTraining {
     /// What a training run produced.
     public struct Outcome: Equatable, Sendable {

@@ -6,13 +6,20 @@ import FoundationModels
 /// Measured on this project's labelled set (`scripts/check eval`): 46 of 47,
 /// never rating a dangerous command safe, about 1.7 s per call. Always
 /// combine with `RuleRiskClassifier`; never let it lower a level.
+///
+/// `approval.classifier: system-model` selects it; ``CompositeRiskClassifier`` runs it beside the rules and takes
+/// the higher level, so the model covers what the rules miss and the rules cover its weak spots
+/// ([ADR 0011](../../../../docs/decisions/0011-risk-classifier-and-approval.md)). Since ADR 0041 the shipped
+/// ``CoreMLRiskClassifier`` is the default, being far faster.
 public struct ModelRiskClassifier: RiskClassifier {
     /// The structured verdict the model produces. `reason` comes first on purpose: the model
     /// commits to its reasoning before the level, which measurably reduces snap judgements.
     @Generable
     struct Verdict {
+        /// What the command does and what it could change or expose, shown to the person as the reason.
         @Guide(description: "One short sentence: what the command does and what it could change or expose.")
         var reason: String
+        /// The level, with the definitions the model is held to in its guide.
         @Guide(
             description:
                 "safe: only reads, lists, searches, counts, prints, checks versions, or runs the project's own build "
@@ -77,6 +84,8 @@ public struct ModelRiskClassifier: RiskClassifier {
     }
 
     /// A fresh session on the classifier's model, or nil when the on-device model is unavailable.
+    ///
+    /// - Returns: A session with no tools and ``instructions``, or nil.
     private func session() -> LanguageModelSession? {
         if let model { return model.session(tools: [], instructions: Self.instructions) }
         let system = SystemLanguageModel.default
@@ -88,6 +97,14 @@ public struct ModelRiskClassifier: RiskClassifier {
     /// sampling so the same command always gets the same verdict.
     /// If the model is unavailable or fails, reports `moderate` with the reason, so a
     /// broken classifier asks for approval rather than waving commands through.
+    ///
+    /// The command goes between markers and the model is told to treat it as data, since the model, not the
+    /// person, wrote it and it may read like instructions.
+    ///
+    /// - Parameters:
+    ///   - command: The simple command.
+    ///   - workingDirectory: Where it would run, given to the model as context.
+    /// - Returns: The model's level and reason, or `moderate` with ``RiskAssessment/failureKey`` set on failure.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         guard let session = session() else {
             return RiskAssessment(

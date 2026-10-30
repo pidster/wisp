@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 
 /// The channel through which a question asked under `wisp mcp` is answered from another of wisp's faces
-/// ([ADR 0046](../../../../docs/decisions/0046-approval-and-notifications-over-mcp.md)). It carries two kinds of
+/// ([ADR 0046](../../../../docs/decisions/0046-approval-and-notifications-over-mcp.md)). It carries three kinds of
 /// request: a command waiting for approval, answered by `wisp approvals approve|deny` or a running `wisp-tui`;
 /// a fact a caller asked to keep as a permanent fact, answered by `wisp facts keep|drop` or `wisp-tui`
 /// ([ADR 0048](../../../../docs/decisions/0048-permanent-facts-over-mcp.md)); and a question the model asked the
@@ -14,7 +14,8 @@ import Foundation
 ///
 /// A directory under the home, `pending/`, mode 0700, the same trust boundary as `approvals.json`. The
 /// waiting server writes one request file per question (`<id>.request.json` for a command, `<id>.fact.json`
-/// for a fact, mode 0600, by rename so a reader never sees half of one); an answering process writes
+/// for a fact, `<id>.question.json` for the model's question, mode 0600, by rename so a reader never sees half of
+/// one); an answering process writes
 /// `<id>.answer.json` beside it by a hard link from a private temporary file, which fails when an answer is
 /// already there, so the first answer wins and is always whole. The server polls for the answer, checks it is
 /// bound to the request it filed, takes it (deleting the answer, then the request), and deletes the request
@@ -31,6 +32,10 @@ import Foundation
 /// accepts only an answer whose binding equals the one it computed when it filed the request. An answer can
 /// therefore approve only the command (or keep only the fact) the person was shown, for that thread, and only
 /// once: the id is fresh for every request, and taking the answer deletes both files.
+///
+/// The waiting side is ``OutOfBandApprover``,
+/// ``OutOfBandAsker``, and `FactKeeper`; the answering side is `wisp approvals`, `wisp facts`, `wisp questions`,
+/// `PendingRelay` for `wisp-tui`, and `ChatPending` for the plain chat.
 public struct PendingApprovals: Sendable {
     /// What a request asks.
     public enum Kind: String, Codable, Equatable, Sendable, CaseIterable {
@@ -76,6 +81,13 @@ public struct PendingApprovals: Sendable {
         public var source: String
 
         /// Creates one.
+        ///
+        /// - Parameters:
+        ///   - id: Its id in the thread or session.
+        ///   - subject: The subject kind.
+        ///   - name: The name under the subject.
+        ///   - value: The value.
+        ///   - source: Who asserted it.
         public init(id: String, subject: String, name: String, value: String, source: String) {
             self.id = id
             self.subject = subject
@@ -88,7 +100,9 @@ public struct PendingApprovals: Sendable {
         public var text: String { "\(name) = \(value)" }
     }
 
-    /// One question waiting in a `wisp mcp` process: a command to approve, or a fact to keep.
+    /// One question waiting in a `wisp mcp` process: a command to approve, a fact to keep, or the model's question.
+    ///
+    /// Every kind has the same fields; those a kind does not use are empty or nil.
     public struct Request: Codable, Equatable, Sendable {
         /// Random, fresh for every request; what `wisp approvals approve` and `wisp facts keep` take.
         public var id: String
@@ -174,7 +188,7 @@ public struct PendingApprovals: Sendable {
         public var decision: String
         /// For a question answered `answer` or `chose`: the text, or the option (ADR 0062). Nil otherwise.
         public var text: String?
-        /// Where the person answered: `cli` or `tui`.
+        /// Where the person answered: `cli`, `tui`, or `chat`.
         public var via: String
         /// The answering process.
         public var pid: Int32
@@ -194,7 +208,8 @@ public struct PendingApprovals: Sendable {
         case stale(String)
         /// The decision is not one wisp knows for any kind of request.
         case invalidDecision(String)
-        /// The request is of the other kind: a fact answered as a command, or a command as a fact.
+        /// The request is of another kind: a decision meant for one kind given to a request of another (a fact
+        /// answered as a command, a question as a fact, and so on).
         case otherKind(String, Kind)
         /// The directory is not safe to use: not a directory, not the user's, or open to others.
         case unsafeDirectory(String)
@@ -238,30 +253,59 @@ public struct PendingApprovals: Sendable {
     public let directory: URL
 
     /// A channel in `directory`.
+    ///
+    /// - Parameter directory: The channel's directory, created on first filing or answering.
     public init(directory: URL) {
         self.directory = directory
     }
 
     /// The channel under `home`: `<home>/pending`.
+    ///
+    /// - Parameter home: wisp's home.
     public init(home: Home) {
         self.init(directory: home.pending)
     }
 
     /// Whether process `pid` is running (or exists under another user, which `kill` reports as `EPERM`).
+    ///
+    /// Signal 0 checks without sending anything. A pid the system has reused for another process reads as alive,
+    /// so a request may outlive its server until it expires or that pid ends.
+    ///
+    /// - Parameter pid: The process.
+    /// - Returns: True when it exists.
     public static func isAlive(_ pid: Int32) -> Bool {
         kill(pid, 0) == 0 || errno == EPERM
     }
 
     /// A fresh request id: eight lowercase hex characters, as other wisp ids.
+    ///
+    /// - Returns: The id.
     static func makeID() -> String { ShortID.make() }
 
     /// The SHA-256, in hex, of `fields` encoded as a JSON array, so no field can run into the next.
+    ///
+    /// - Parameter fields: The fields, in a fixed order.
+    /// - Returns: The lowercase hex digest.
     private static func hash(_ fields: [JSONValue]) -> String {
         let data = (try? JSONEncoder().encode(JSONValue.array(fields))) ?? Data()
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The binding of a command request: the hash of the fields an answer is bound to.
+    ///
+    /// Times are whole seconds since 1970, which is why every request's `createdAt` is truncated to the second.
+    ///
+    /// - Parameters:
+    ///   - id: The request's id.
+    ///   - command: The simple command.
+    ///   - line: The whole line.
+    ///   - pattern: The approval pattern.
+    ///   - directory: Where it would run.
+    ///   - level: The verdict's level.
+    ///   - thread: The asking conversation.
+    ///   - pid: The waiting server.
+    ///   - createdAt: When it was filed.
+    /// - Returns: The binding.
     static func binding(
         id: String, command: String, line: String, pattern: String, directory: String, level: RiskLevel,
         thread: String?, pid: Int32, createdAt: Date
@@ -278,6 +322,12 @@ public struct PendingApprovals: Sendable {
 
     /// A command request's binding at version 2: the first set's hash with the reasons shown and the expiry,
     /// so neither can be changed in the file without the answer being refused.
+    ///
+    /// - Parameters:
+    ///   - base: The first set's binding.
+    ///   - reasons: The reasons shown.
+    ///   - expiresAt: The expiry, if any.
+    /// - Returns: The binding.
     static func binding(base: String, reasons: [String], expiresAt: Date?) -> String {
         hash([
             .string(base), .array(reasons.map(JSONValue.string)),
@@ -287,11 +337,22 @@ public struct PendingApprovals: Sendable {
 
     /// A command request's binding when it is to run outside the sandbox (ADR 0064): the version 2 binding hashed
     /// once more with the mark, so it can never equal the binding of the same line asked to run sandboxed.
+    ///
+    /// - Parameter base: The version 2 binding.
+    /// - Returns: The binding.
     static func binding(outsideSandbox base: String) -> String {
         hash([.string(base), .string("outside-sandbox")])
     }
 
     /// The binding of a fact request, led by the kind so it can never equal a command's.
+    ///
+    /// - Parameters:
+    ///   - fact: The fact to keep.
+    ///   - id: The request's id.
+    ///   - thread: The asking conversation.
+    ///   - pid: The waiting server.
+    ///   - createdAt: When it was filed.
+    /// - Returns: The binding.
     static func binding(fact: ProposedFact?, id: String, thread: String?, pid: Int32, createdAt: Date) -> String {
         hash([
             .string(Kind.fact.rawValue), .string(id), .string(fact?.id ?? ""), .string(fact?.subject ?? ""),
@@ -302,6 +363,16 @@ public struct PendingApprovals: Sendable {
 
     /// The binding of a question request (ADR 0062), led by the kind: its id, question, options, thread, server
     /// process, creation, and expiry, so an answer applies only to the question the person was shown.
+    ///
+    /// - Parameters:
+    ///   - question: The question.
+    ///   - options: Its options.
+    ///   - id: The request's id, the question's own.
+    ///   - thread: The asking conversation.
+    ///   - pid: The waiting server.
+    ///   - createdAt: When it was filed.
+    ///   - expiresAt: Its deadline, if any.
+    /// - Returns: The binding.
     static func binding(
         question: String, options: [String], id: String, thread: String?, pid: Int32, createdAt: Date,
         expiresAt: Date?
@@ -386,23 +457,43 @@ public struct PendingApprovals: Sendable {
     }
 
     /// The file a request of `kind` with `id` is filed in.
+    ///
+    /// - Parameters:
+    ///   - id: The request's id.
+    ///   - kind: Its kind, which sets the suffix.
+    /// - Returns: The file's URL.
     private func requestFile(_ id: String, _ kind: Kind) -> URL { directory.appending(path: "\(id)\(kind.suffix)") }
     /// The file `request` is filed in.
+    ///
+    /// - Parameter request: The request.
+    /// - Returns: The file's URL.
     private func requestFile(_ request: Request) -> URL { requestFile(request.id, request.kind) }
     /// The answer file for `id`, whatever its kind.
+    ///
+    /// - Parameter id: The request's id.
+    /// - Returns: The file's URL.
     private func answerFile(_ id: String) -> URL { directory.appending(path: "\(id).answer.json") }
 
     /// Whether a request of any kind is filed under `id`.
+    ///
+    /// - Parameter id: The request's id.
+    /// - Returns: True when a file of some kind exists.
     private func hasRequestFile(_ id: String) -> Bool {
         Kind.allCases.contains { FileManager.default.fileExists(atPath: requestFile(id, $0).path) }
     }
 
     /// Whether `name` is a request file of any kind.
+    ///
+    /// - Parameter name: A file name in the directory.
+    /// - Returns: True for a known suffix.
     private static func isRequestFile(_ name: String) -> Bool {
         Kind.allCases.contains { name.hasSuffix($0.suffix) }
     }
 
     /// Whether `id` could name a request file: lowercase hex, so it never reaches outside the directory.
+    ///
+    /// - Parameter id: An id as the person typed it.
+    /// - Returns: True for one to 32 lowercase hex characters.
     static func isValidID(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 32 && id.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
@@ -428,6 +519,12 @@ public struct PendingApprovals: Sendable {
 
     /// What is wrong with the directory at `path` for this channel, or nil: it must be a directory (not a
     /// link), owned by this user, with no access for group or others.
+    ///
+    /// Checked because whoever can write here can answer a request; `lstat`, so a link to another directory is
+    /// refused rather than followed.
+    ///
+    /// - Parameter path: The directory.
+    /// - Returns: What is wrong, with how to fix a mode, or nil.
     static func problem(with path: String) -> String? {
         var info = stat()
         guard lstat(path, &info) == 0 else { return "\(path) cannot be read: \(String(cString: strerror(errno)))" }
@@ -444,6 +541,10 @@ public struct PendingApprovals: Sendable {
     /// name appears whole or not at all. With `exclusive`, the final name is made by a hard link, which
     /// fails when it already exists.
     ///
+    /// - Parameters:
+    ///   - data: The contents.
+    ///   - url: The final name, in this directory.
+    ///   - exclusive: Whether to refuse an existing file (an answer) rather than replace it (a request).
     /// - Returns: False when `exclusive` and the file already existed.
     /// - Throws: `Failure.io`.
     private func write(_ data: Data, to url: URL, exclusive: Bool) throws -> Bool {
@@ -466,6 +567,8 @@ public struct PendingApprovals: Sendable {
         return true
     }
 
+    /// A new encoder for the channel's files: pretty, sorted keys, ISO 8601 dates; made per use because
+    /// `JSONEncoder` is not `Sendable`.
     private static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -473,6 +576,7 @@ public struct PendingApprovals: Sendable {
         return encoder
     }
 
+    /// A new decoder for the channel's files, ISO 8601 dates, made per use.
     private static var decoder: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -483,6 +587,7 @@ public struct PendingApprovals: Sendable {
 
     /// Files `request` for another face to answer.
     ///
+    /// - Parameter request: The bound request.
     /// - Throws: `Failure.unsafeDirectory` or `Failure.io`.
     public func file(_ request: Request) throws {
         try ensureDirectory()
@@ -491,7 +596,11 @@ public struct PendingApprovals: Sendable {
         _ = try write(data, to: requestFile(request), exclusive: false)
     }
 
-    /// Whether `request` is still filed.
+    /// Whether `request` is still filed. A waiting server that finds it gone stops waiting: the request was
+    /// withdrawn or swept.
+    ///
+    /// - Parameter request: The request as filed.
+    /// - Returns: True while its file exists.
     public func isFiled(_ request: Request) -> Bool {
         FileManager.default.fileExists(atPath: requestFile(request).path)
     }
@@ -521,6 +630,11 @@ public struct PendingApprovals: Sendable {
 
     /// What is wrong with `answer` for a question `request` (ADR 0062), or nil: `answer` needs text, `chose` one of
     /// the options, and `none` and `decline` nothing; a free-text question takes no `chose`.
+    ///
+    /// - Parameters:
+    ///   - answer: The answer.
+    ///   - request: The request it answers.
+    /// - Returns: What is wrong, or nil; always nil for a command or a fact.
     static func problem(with answer: Answer, to request: Request) -> String? {
         guard request.kind == .question else { return nil }
         let text = answer.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -537,6 +651,8 @@ public struct PendingApprovals: Sendable {
 
     /// Removes `request`: it was answered another way, timed out, or was abandoned. An answer written after
     /// this is never read; the answering process sees the request gone and removes its answer.
+    ///
+    /// - Parameter request: The request as filed.
     public func withdraw(_ request: Request) {
         unlink(requestFile(request).path)
     }
@@ -545,6 +661,8 @@ public struct PendingApprovals: Sendable {
 
     /// The request with `id` as filed, of any kind, whatever its state.
     ///
+    /// - Parameter id: The request's id.
+    /// - Returns: The request as decoded from its file.
     /// - Throws: `Failure.unknown` when there is none or the id is malformed.
     public func request(id: String) throws -> Request {
         guard Self.isValidID(id) else { throw Failure.unknown(id) }
@@ -559,6 +677,8 @@ public struct PendingApprovals: Sendable {
     }
 
     /// Every request file that decodes, of any kind, oldest first.
+    ///
+    /// - Returns: The requests, stale ones included.
     private func all() -> [Request] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         return names.filter(Self.isRequestFile)
@@ -572,6 +692,12 @@ public struct PendingApprovals: Sendable {
     /// outlives its server (ADR 0048, amended 2026-10-12): keeping a fact needs no live thread, so the face the
     /// person answers in applies the answer (`FactKeeper.settleUnwatched`). One filed with an expiry, as wisp
     /// 0.22.0 and earlier filed them, still expires.
+    ///
+    /// - Parameters:
+    ///   - request: The request.
+    ///   - now: The time.
+    ///   - alive: Whether a process is running.
+    /// - Returns: True when it is stale.
     static func isStale(_ request: Request, now: Date, alive: (Int32) -> Bool) -> Bool {
         if let expires = request.expiresAt, expires < now { return true }
         return request.kind != .fact && !alive(request.pid)
@@ -580,7 +706,7 @@ public struct PendingApprovals: Sendable {
     /// The requests still waiting, oldest first; stale ones are left for `sweep`.
     ///
     /// - Parameters:
-    ///   - kind: Only requests of this kind; nil for both.
+    ///   - kind: Only requests of this kind; nil for every kind.
     ///   - now: The time.
     ///   - alive: Whether a process is running.
     /// - Returns: The live requests.
@@ -635,7 +761,7 @@ public struct PendingApprovals: Sendable {
     ///   - decision: `once`, `session`, `project`, `always`, or `no` for a command; `keep` or `drop` for a fact;
     ///     `answer`, `chose`, `none`, or `decline` for a question.
     ///   - text: For a question answered `answer` or `chose`, the text or the option.
-    ///   - via: Where the person answered: `cli` or `tui`.
+    ///   - via: Where the person answered: `cli`, `tui`, or `chat`.
     ///   - now: The time.
     ///   - alive: Whether a process is running.
     /// - Returns: The request answered, as it was shown.

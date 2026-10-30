@@ -4,6 +4,12 @@ import Foundation
 /// `training/<task>/`, split so that no family of near-identical examples spans two parts, and checked
 /// for overlap exactly, after removing whitespace and shell plumbing, by family, and by near match
 /// ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md), amendment).
+///
+/// The parts are kept apart because the eval commands once served both to choose and to report, kept from the
+/// training examples only by exact match: a near-copy on both sides makes a measurement look better than it is.
+/// `wisp classifier split` deals families into parts, `TrainingSetsTests` checks the sets under `training/`, and
+/// ``ClassifierStore/withoutHeldOut(_:also:)`` uses ``overlaps(_:_:nearAt:)`` to keep this Mac's held-out
+/// commands out of training.
 public enum TrainingSplit {
     /// One labelled example of any task.
     public struct Example: Equatable, Hashable, Sendable {
@@ -13,6 +19,10 @@ public enum TrainingSplit {
         public var text: String
 
         /// Creates an example.
+        ///
+        /// - Parameters:
+        ///   - label: The label.
+        ///   - text: The text, as written.
         public init(label: String, text: String) {
             self.label = label
             self.text = text
@@ -35,6 +45,9 @@ public enum TrainingSplit {
     /// Reads `label<TAB>text` lines, `#` comments and blank lines skipped. Text is kept exactly as
     /// written, leading indentation and a U+200B in a secret-looking value included, so a split writes
     /// it back unchanged; comparisons ignore the U+200B. Only a trailing carriage return goes.
+    ///
+    /// - Parameter text: The file's text.
+    /// - Returns: The examples, in order; malformed lines are skipped (see ``malformed(_:)``).
     public static func parse(_ text: String) -> [Example] {
         text.split(separator: "\n").compactMap { raw in
             let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : String(raw)
@@ -46,6 +59,9 @@ public enum TrainingSplit {
     }
 
     /// The lines `parse` skips that are neither comments nor blank: each lost its tab or has no text.
+    ///
+    /// - Parameter text: The file's text.
+    /// - Returns: The malformed lines, as written.
     public static func malformed(_ text: String) -> [String] {
         text.split(separator: "\n").map(String.init).filter { line in
             guard !line.trimmingCharacters(in: .whitespaces).isEmpty, !line.hasPrefix("#") else { return false }
@@ -55,12 +71,20 @@ public enum TrainingSplit {
     }
 
     /// Writes examples as `label<TAB>text` lines under a header.
+    ///
+    /// - Parameters:
+    ///   - examples: The examples.
+    ///   - header: Comment lines, each written after `# `.
+    /// - Returns: The file's text, ending in a newline.
     public static func write(_ examples: [Example], header: [String]) -> String {
         (header.map { "# \($0)" } + examples.map { "\($0.label)\t\($0.text)" }).joined(separator: "\n") + "\n"
     }
 
     /// Whitespace collapsed: what makes two lines the same line. Case is kept, since it matters in
     /// flags (`git branch -D` is not `-d`).
+    ///
+    /// - Parameter text: An example's text.
+    /// - Returns: The text with U+200B removed and whitespace runs collapsed to one space.
     public static func normalised(_ text: String) -> String {
         text.replacingOccurrences(of: "\u{200B}", with: "").split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
@@ -88,7 +112,12 @@ public enum TrainingSplit {
         (#"\b[\w@+-][\w@.+-]*\.[A-Za-z][A-Za-z0-9]{0,11}\b"#, "<f>"),
     ]
 
-    /// Applies each pattern in turn.
+    /// Applies each pattern in turn; one that does not compile is skipped.
+    ///
+    /// - Parameters:
+    ///   - text: The text.
+    ///   - rules: Patterns with their replacement templates.
+    /// - Returns: The text after every replacement.
     private static func replacing(_ text: String, _ rules: [(pattern: String, template: String)]) -> String {
         var result = text
         for (pattern, template) in rules {
@@ -106,12 +135,18 @@ public enum TrainingSplit {
     }
 
     /// `text` normalised with its shell plumbing removed.
+    ///
+    /// - Parameter text: An example's text.
+    /// - Returns: The canonical form.
     public static func canonical(_ text: String) -> String {
         normalised(replacing(normalised(text), plumbing))
     }
 
     /// A path's components other than dotfiles replaced, keeping whether it is under home or root:
     /// `~/.ssh/id_rsa` is `~/.ssh/<p>`, and `/tmp/a/b` is `/<p>`.
+    ///
+    /// - Parameter token: One word.
+    /// - Returns: Its shape, or the word unchanged when it is no path.
     static func pathShape(_ token: String) -> String {
         guard token.contains("/") || token.hasPrefix("~") else { return token }
         var out: [String] = []
@@ -126,6 +161,9 @@ public enum TrainingSplit {
 
     /// The family of a text: its canonical form with what varies between near-identical examples
     /// replaced by placeholders.
+    ///
+    /// - Parameter text: An example's text.
+    /// - Returns: The family key.
     public static func family(of text: String) -> String {
         replacing(canonical(text), placeholders).split(separator: " ").map { pathShape(String($0)) }
             .joined(separator: " ")
@@ -133,6 +171,9 @@ public enum TrainingSplit {
 
     /// The words of a text's family, for near matches: numbers, ids, and paths already replaced, so two
     /// lines of one template with different values share their words.
+    ///
+    /// - Parameter text: An example's text.
+    /// - Returns: The words.
     static func words(_ text: String) -> Set<String> {
         let keep: Set<Character> = ["-", ".", "<", ">"]
         return Set(family(of: text).split { !$0.isLetter && !$0.isNumber && !keep.contains($0) }.map(String.init))
@@ -140,6 +181,12 @@ public enum TrainingSplit {
 
     /// Whether two word sets nearly match: equal when either is under three words, otherwise sharing
     /// `nearAt` of their union.
+    ///
+    /// - Parameters:
+    ///   - a: One word set.
+    ///   - b: The other.
+    ///   - nearAt: The share of the union they must have in common.
+    /// - Returns: True on a near match; never for an empty set.
     static func near(_ a: Set<String>, _ b: Set<String>, nearAt: Double) -> Bool {
         guard !a.isEmpty, !b.isEmpty else { return false }
         if a.count < 3 || b.count < 3 { return a == b }
@@ -178,6 +225,13 @@ public enum TrainingSplit {
 
     /// Examples grouped so that near-identical ones share a group: the same family, or a near match with
     /// any member, joined transitively. Keyed by the group's first family.
+    ///
+    /// A union-find over the examples, with ``NearIndex`` so near matches are not sought between every pair.
+    ///
+    /// - Parameters:
+    ///   - examples: The examples.
+    ///   - nearAt: The share of words a near match shares; 0.8 by default.
+    /// - Returns: The groups.
     public static func clusters(_ examples: [Example], nearAt: Double = 0.8) -> [String: [Example]] {
         var parent = Array(examples.indices)
         func root(_ index: Int) -> Int {
@@ -210,6 +264,12 @@ public enum TrainingSplit {
 
     /// Every pair of examples, one from each set, that are too alike: the same text, the same canonical
     /// text, the same family, or a near match.
+    ///
+    /// - Parameters:
+    ///   - first: One set.
+    ///   - second: The other; each of its examples is reported once at most, by the first test it fails.
+    ///   - nearAt: The share of words a near match shares.
+    /// - Returns: The overlaps, in `second`'s order.
     public static func overlaps(_ first: [Example], _ second: [Example], nearAt: Double = 0.8) -> [Overlap] {
         let clean = { (text: String) in text.replacingOccurrences(of: "\u{200B}", with: "") }
         let exact = Set(first.map { clean($0.text) })
@@ -253,6 +313,10 @@ struct NearIndex {
     private let nearAt: Double
 
     /// Indexes `bags` for near matches at `nearAt`.
+    ///
+    /// - Parameters:
+    ///   - bags: The word sets, found later by index.
+    ///   - nearAt: The share of words a near match shares.
     init(_ bags: [Set<String>], nearAt: Double) {
         self.nearAt = nearAt
         var counts: [String: Int] = [:]
@@ -275,6 +339,12 @@ struct NearIndex {
 
     /// The first words of `bag` in rarest-first order that any near match must share; a word the index
     /// has never seen sorts first, as the rarest.
+    ///
+    /// - Parameters:
+    ///   - bag: A word set of three or more words.
+    ///   - rank: Each word's rarest-first position.
+    ///   - nearAt: The share of words a near match shares.
+    /// - Returns: The prefix, at least one word.
     private static func prefix(_ bag: Set<String>, rank: [String: Int], nearAt: Double) -> ArraySlice<String> {
         let ordered = bag.sorted { (rank[$0] ?? -1, $0) < (rank[$1] ?? -1, $1) }
         let length = bag.count - Int((nearAt * Double(bag.count) - 1e-9).rounded(.up)) + 1
@@ -282,6 +352,9 @@ struct NearIndex {
     }
 
     /// The indexed sets that could nearly match `bag`.
+    ///
+    /// - Parameter bag: The word set to match.
+    /// - Returns: Indexes into the indexed sets, ascending; a superset of the near matches.
     func candidates(for bag: Set<String>) -> [Int] {
         guard !bag.isEmpty else { return [] }
         if bag.count < 3 { return small[bag.sorted()] ?? [] }
@@ -293,12 +366,17 @@ struct NearIndex {
 
 /// SplitMix64: a small, seeded, repeatable random source, so a split is the same on every Mac.
 struct SeededGenerator: RandomNumberGenerator {
+    /// The generator's state, advanced by a fixed odd constant each call.
     private var state: UInt64
 
     /// A generator starting from `seed`.
+    ///
+    /// - Parameter seed: The starting state.
     init(seed: UInt64) { state = seed }
 
     /// The next value.
+    ///
+    /// - Returns: 64 pseudo-random bits.
     mutating func next() -> UInt64 {
         state &+= 0x9E37_79B9_7F4A_7C15
         var z = state

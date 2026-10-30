@@ -8,6 +8,9 @@ import Foundation
 /// a shell (0.21.1). Beside it, the same line with that data written `''` (`Spellings`), for the rules that look
 /// for what the shell runs: a pipe, a list, a redirection, or a program's name inside a pattern is none of those
 /// (the 0.22.0 eval, 2026-10-12).
+///
+/// ``CommandPolicy/check(_:)`` reads the same spellings, so the deny patterns and the rules see a command alike.
+/// `docs/approval.md` lists what is data for each program.
 extension RuleRiskClassifier {
     /// Git's options that come before the verb and take a separate value.
     private static let gitValueOptions: Set<String> = [
@@ -18,6 +21,9 @@ extension RuleRiskClassifier {
     /// joined, `$IFS` read as a space) joined by single spaces, with git's global options (`-C <dir>`,
     /// `-c <k=v>`, `--no-pager`, `--git-dir=…`) dropped so the verb follows `git` directly, and the quoted data
     /// arguments of printing and searching programs kept as written (`DataArguments`).
+    ///
+    /// - Parameter command: The command line.
+    /// - Returns: The one normalised spelling, in an array.
     static func normalisedForms(of command: String) -> [String] { [spellings(of: command).normalised] }
 
     /// The spellings of one command line the rules run over.
@@ -36,6 +42,13 @@ extension RuleRiskClassifier {
 
     /// The spellings of `command`: as `normalisedForms`, and with its data masked (`masked(_:)`), so the rules
     /// that look for a pipe, a list, a redirection, or a program's name see only what the shell runs.
+    ///
+    /// One pass over the line's tokens: each simple command's program starts a ``DataArguments`` that says which
+    /// of its arguments are data, and an operator ends it. `maskedRaw` blanks the data in the original text by
+    /// position, so everything else keeps its spelling.
+    ///
+    /// - Parameter command: The command line.
+    /// - Returns: Its spellings.
     static func spellings(of command: String) -> Spellings {
         var words: [String] = []
         var masked: [String] = []
@@ -94,6 +107,9 @@ extension RuleRiskClassifier {
     /// hides no command. A word with an unquoted operator, parenthesis, or backslash (`x|sh`, `a;`), any
     /// substitution (`"$(rm -rf ~)"`, even in single quotes, which only ever keeps a rule's verdict), or an
     /// unclosed quote is left as it is.
+    ///
+    /// - Parameter raw: The word as written.
+    /// - Returns: True when blanking it is safe.
     static func canMask(_ raw: String) -> Bool {
         guard !raw.contains("$("), !raw.contains("`") else { return false }
         var quote: Character?
@@ -130,6 +146,9 @@ extension RuleRiskClassifier {
 
     /// Whether a word written `raw` holds an unquoted, unescaped `;`, `|`, or `&` that is not part of a redirection
     /// (`2>&1`, `&>`): the shell ends a command there, so what follows starts another (`echo a;rm -rf ~`).
+    ///
+    /// - Parameter raw: The word as written.
+    /// - Returns: True when it holds such an operator.
     static func holdsAnOperator(_ raw: String) -> Bool {
         let chars = Array(raw)
         var quote: Character?
@@ -160,6 +179,9 @@ extension RuleRiskClassifier {
 
     /// Whether `word`, at the start of a simple command, comes before its program: a wrapper or its option or
     /// count (`sudo`, `-u`, `timeout 5`), a keyword (`do`, `then`, `!`), or an assignment (`NO_COLOR=1`).
+    ///
+    /// - Parameter word: The word's value.
+    /// - Returns: True when the program is still to come.
     private static func isPrefix(_ word: String) -> Bool {
         let name = String(word.split(separator: "/").last ?? Substring(word))
         if CommandSplitter.wrappers.contains(name) || CommandSplitter.leadingKeywords.contains(word) { return true }
@@ -170,6 +192,9 @@ extension RuleRiskClassifier {
 
     /// Whether a word written as `raw` ends the simple command it is in: an operator, or a word ending in an
     /// unescaped `;`, `|`, or `&` (`x;`), but not a redirection such as `2>&`.
+    ///
+    /// - Parameter raw: The word as written.
+    /// - Returns: True when the command ends with it.
     private static func endsCommand(_ raw: String) -> Bool {
         guard let last = raw.last, "|;&".contains(last) else { return false }
         return !raw.dropLast().hasSuffix("\\") && !raw.dropLast().hasSuffix(">")
@@ -182,6 +207,9 @@ extension RuleRiskClassifier {
 /// script of `sed` (the value of `-e`, or the first argument); the program of `awk` and its field separator, unless
 /// the program runs a command, reads one, or writes a file (`awkRuns(_:)`); and the message of `git … -m`. File
 /// names are never data, so a credential path is seen however it is quoted, and nor is a redirection's target.
+///
+/// A small state machine fed one argument at a time, since whether a word is data depends on the options before
+/// it. A program not listed here has no data: every argument is read as written.
 struct DataArguments {
     /// The program, without its directory.
     let program: String
@@ -220,9 +248,14 @@ struct DataArguments {
     ]
 
     /// Creates the state for `program`'s arguments.
+    ///
+    /// - Parameter program: The program's name, without its directory.
     init(program: String) { self.program = program }
 
     /// Whether `word`, the next argument, is data; updates the state for the words after it.
+    ///
+    /// - Parameter word: The next argument.
+    /// - Returns: True when it is data the program never runs.
     mutating func isData(_ word: CommandSplitter.Word) -> Bool {
         let value = word.value
         if afterRedirection {
@@ -292,6 +325,9 @@ struct DataArguments {
     /// `print | "sh"`, `"cmd" | getline`, `|&`), reads another file (`getline`), or writes one (`print > "f"`).
     /// Its strings are taken out first, so a `|` or `>` printed (`printf "%s | %s"`, `" => "`) is not mistaken
     /// for one; a comparison outside a print (`NF>6`) is not a redirection.
+    ///
+    /// - Parameter program: The awk program's text.
+    /// - Returns: True when it runs, reads, or writes something; its text is then not data.
     static func awkRuns(_ program: String) -> Bool {
         let code = program.replacing(/"(\\.|[^"\\])*"/, with: "\"\"")
         return code.contains(/system\s*\(|\bgetline\b|\|&|\b(print|printf)\b[^;}]*[|>]/)

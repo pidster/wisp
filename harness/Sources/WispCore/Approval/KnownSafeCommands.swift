@@ -10,6 +10,10 @@ import Foundation
 /// the options that make a reading program write or run something (`find -exec`, `sort -o`,
 /// `rg --pre`). The risky rules are checked first, so a command they match is never known safe. The
 /// list is deliberately short: a command left off it is judged as before, never refused.
+///
+/// It exists because the rules only ever raised a level, so every command went to the model classifier, which
+/// over-rates real commands. A known-safe verdict (``RiskAssessment/isKnownSafe``) is `safe` and final:
+/// ``CompositeRiskClassifier`` stops at the rules, and the audit marks it `rules.knownSafe`.
 enum KnownSafeCommands {
     /// One argument: a quoted string or a word without shell operators.
     private static let argument = #"(?:"[^"]*"|'[^']*'|[^\s;&|<>"']+)"#
@@ -134,7 +138,13 @@ enum KnownSafeCommands {
         return patterns.contains { matches("^(?:\($0))$", text) }
     }
 
-    /// Whether `pattern` matches anywhere in `text`; a pattern that does not compile never matches.
+    /// Whether `pattern` matches anywhere in `text`; a pattern that does not compile never matches, which is why a
+    /// test checks `patternsCompile`.
+    ///
+    /// - Parameters:
+    ///   - pattern: A regular expression.
+    ///   - text: The command.
+    /// - Returns: True on a match.
     private static func matches(_ pattern: String, _ text: String) -> Bool {
         (try? RegexCache.regex(pattern))?.matches(anywhereIn: text) == true
     }

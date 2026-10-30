@@ -5,6 +5,14 @@ import Foundation
 /// Covers the model classifier's weak spot (it under-rates ordinary
 /// modifications as safe) and the shapes that must never slip through. Each
 /// rule is a regex, a level, and the reason shown to the approver.
+///
+/// The rules always run; with a model or Core ML classifier configured, ``CompositeRiskClassifier`` runs them
+/// first, and a command they know to be read-only (``KnownSafeCommands``) is not put to the model at all. They
+/// also judge `read_file`'s reads alone, and the whole line once more beside its parts (``ApprovalGate``). Their
+/// normalisation (`RuleNormalisation.swift`) is shared with ``CommandPolicy``'s deny patterns. What each level
+/// covers, with examples, is in `docs/approval.md`; the labelling guide behind them is `training/risk/labels.md`
+/// ([ADR 0011](../../../../docs/decisions/0011-risk-classifier-and-approval.md),
+/// [ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
 public struct RuleRiskClassifier: RiskClassifier {
     /// One signal.
     public struct Rule: Sendable, Equatable {
@@ -32,6 +40,12 @@ public struct RuleRiskClassifier: RiskClassifier {
         }
 
         /// Creates a rule.
+        ///
+        /// - Parameters:
+        ///   - pattern: The regex.
+        ///   - level: The level when it matches.
+        ///   - reason: The reason shown.
+        ///   - scope: Which spellings it reads; `.commands` by default.
         public init(_ pattern: String, _ level: RiskLevel, _ reason: String, scope: Scope = .commands) {
             self.pattern = pattern
             self.level = level
@@ -42,6 +56,7 @@ public struct RuleRiskClassifier: RiskClassifier {
 
     /// The rules in use.
     public let rules: [Rule]
+    /// Each rule with its compiled pattern, compiled once at creation.
     private let compiled: [(regex: NSRegularExpression, rule: Rule)]
 
     /// Why the rules could not be compiled.
@@ -59,6 +74,7 @@ public struct RuleRiskClassifier: RiskClassifier {
 
     /// Creates a classifier over `rules`, compiling every pattern once.
     ///
+    /// - Parameter rules: The rules.
     /// - Throws: `Failure.invalidRule` naming the first pattern that does not compile.
     public init(rules: [Rule]) throws {
         self.rules = rules
@@ -81,6 +97,9 @@ public struct RuleRiskClassifier: RiskClassifier {
         return (try? RuleRiskClassifier(rules: usable)) ?? RuleRiskClassifier(compiled: [])
     }()
 
+    /// Creates a classifier over rules already compiled: `standard`'s fallback.
+    ///
+    /// - Parameter compiled: The rules with their patterns.
     private init(compiled: [(regex: NSRegularExpression, rule: Rule)]) {
         rules = compiled.map(\.rule)
         self.compiled = compiled
@@ -258,6 +277,12 @@ public struct RuleRiskClassifier: RiskClassifier {
     /// `Rule.Scope` names: most see the line with the data of printing and searching programs masked, so a pattern
     /// (`grep -E "a|python"`) or a message is not taken for a pipe or a program; text written into a shell start-up
     /// file is read as the commands it will be. The read-only list is judged with the data masked too.
+    ///
+    /// - Parameters:
+    ///   - command: One simple command, or a whole line.
+    ///   - workingDirectory: Not read: the rules see the text alone.
+    /// - Returns: The highest level and every matching reason; `noSignals` when none matched, or `knownSafe` with
+    ///   `RiskAssessment.knownSafeKey` set.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         var level = RiskLevel.safe
         var reasons: [String] = []
@@ -299,6 +324,9 @@ public struct RuleRiskClassifier: RiskClassifier {
     }
 
     /// `forms` without repeats, in order.
+    ///
+    /// - Parameter forms: Spellings, perhaps equal.
+    /// - Returns: Each once, first occurrence kept.
     private static func distinct(_ forms: [String]) -> [String] {
         forms.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
@@ -306,6 +334,12 @@ public struct RuleRiskClassifier: RiskClassifier {
     /// The spellings a `.contents` rule reads, and the segments it does not: the line without its simple commands
     /// that only list names (`ls`, with no substitution and no redirection but a harmless one), written as the
     /// line and normalised; and those listing segments, written both ways.
+    ///
+    /// Listing a folder of credentials shows names, not contents, so it is `moderate`, while reading one stays
+    /// `dangerous`.
+    ///
+    /// - Parameter command: The command line.
+    /// - Returns: The spellings that read contents, and the spellings of the listing segments.
     static func contentsForms(of command: String) -> (contents: [String], listed: [String]) {
         var kept: [String] = []
         var listed: [String] = []
@@ -320,6 +354,9 @@ public struct RuleRiskClassifier: RiskClassifier {
 
     /// Whether a simple command only lists names: its program is `ls`, it runs no substitution, and it redirects
     /// nothing but standard error or into `/dev/null`.
+    ///
+    /// - Parameter segment: One trimmed segment.
+    /// - Returns: True when it only lists.
     private static func onlyLists(_ segment: String) -> Bool {
         guard CommandSplitter.executable(of: segment) == "ls", !segment.hasPrefix("("),
             !segment.contains("$("), !segment.contains("`"), !segment.contains("<("), !segment.contains(">(")

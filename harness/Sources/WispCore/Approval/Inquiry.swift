@@ -5,6 +5,10 @@ import Synchronization
 /// ([ADR 0062](../../../../docs/decisions/0062-the-inquiry-verb.md)): free text, or a choice of two to six
 /// options. The third host effect beside approval and notification (ADR 0044): each face asks its own way
 /// through an `Asker`, and the tool never knows which.
+///
+/// The `D` numbers in these comments (D4, D5, D14, D15) and "section 6" refer to the decisions in ADR 0062. The
+/// person alone answers: the model may not run `wisp questions answer` (the default deny list refuses it), and an
+/// agent driving wisp over MCP must not answer on the person's behalf.
 public struct Question: Equatable, Sendable {
     /// Random, fresh for every question; what `wisp questions answer` takes.
     public var id: String
@@ -18,6 +22,13 @@ public struct Question: Equatable, Sendable {
     public var timeout: Duration?
 
     /// Creates a question.
+    ///
+    /// - Parameters:
+    ///   - id: Its id; a fresh random one by default.
+    ///   - text: The question.
+    ///   - options: Two to six options; empty for free text.
+    ///   - thread: The asking conversation.
+    ///   - timeout: How long the person has; nil waits until they answer.
     public init(
         id: String = ShortID.make(), text: String, options: [String] = [], thread: String? = nil,
         timeout: Duration? = nil
@@ -131,6 +142,9 @@ public struct Question: Equatable, Sendable {
     }
 
     /// Whether `text` is the number of the "none of these" row, the one after the options.
+    ///
+    /// - Parameter text: What the person typed, trimmed.
+    /// - Returns: True when it is that number.
     private func number(ofNone text: String) -> Bool { Int(text) == options.count + 1 }
 
     /// The choice a face offers for this question: the options, then `none of these`; typed text taken for a
@@ -154,6 +168,9 @@ public struct Question: Equatable, Sendable {
     ]
 
     /// Whether `text` asks for a secret, by rule: one of `secretWords` as a word.
+    ///
+    /// A rule, so no model call is added. A rule can be talked round ("the thing you log in with"), so the answer
+    /// is masked as well (``Question/Outcome/masked()``) as the backstop; neither is a wall (ADR 0062, D5).
     ///
     /// - Parameter text: The question.
     /// - Returns: Whether it is refused.
@@ -240,6 +257,10 @@ extension Question {
         public var via: String?
 
         /// Creates a reply.
+        ///
+        /// - Parameters:
+        ///   - outcome: How the question ended.
+        ///   - via: Where the person answered; nil when nobody did.
         public init(_ outcome: Outcome, via: String? = nil) {
             self.outcome = outcome
             self.via = via
@@ -256,6 +277,12 @@ public protocol Asker: Sendable {
 
     /// Asks, and returns how it ended and where the person answered. `box` is the asking thread's inquiry state,
     /// which an asker that parks a question (`wisp mcp`) hands the waiting question to.
+    ///
+    /// - Parameters:
+    ///   - question: The validated question.
+    ///   - box: The asking thread's questions.
+    ///   - audit: The asking thread's log, for what the asker itself does.
+    /// - Returns: How the question ended, and where it was answered.
     func ask(_ question: Question, box: InquiryBox, audit: AuditLog?) async -> Question.Reply
 }
 
@@ -265,12 +292,20 @@ public struct NobodyAsker: Asker {
     public let face: String
 
     /// Creates the asker.
+    ///
+    /// - Parameter face: The face, as the model is told it (`wisp respond`, `--yes`).
     public init(face: String) { self.face = face }
 
     /// No ways.
     public var ways: [String] { [] }
 
-    /// Nobody.
+    /// Nobody: the question ends at once as `nobody`, naming the face.
+    ///
+    /// - Parameters:
+    ///   - question: Not shown to anyone.
+    ///   - box: Not used.
+    ///   - audit: Not used.
+    /// - Returns: `.nobody(face)`.
     public func ask(_ question: Question, box: InquiryBox, audit: AuditLog?) async -> Question.Reply {
         Question.Reply(.nobody(face))
     }
@@ -287,6 +322,8 @@ public struct TerminalAsker: Asker {
     let write: @Sendable (String) -> Void
 
     /// Creates the asker over the terminal.
+    ///
+    /// - Parameter style: Colours for the dialog.
     public init(style: Style = .plain) {
         self.init(
             style: style, read: { stop, timeout in await LineReader.standardInput.read(stop: stop, within: timeout) },
@@ -294,6 +331,11 @@ public struct TerminalAsker: Asker {
     }
 
     /// Creates an asker over an injected reader and writer, for tests.
+    ///
+    /// - Parameters:
+    ///   - style: Colours for the dialog.
+    ///   - read: Reads one line, ending on the stop or the deadline.
+    ///   - write: Writes the dialog.
     init(
         style: Style, read: @escaping @Sendable (TurnStop?, Duration?) async -> LineReader.Read,
         write: @escaping @Sendable (String) -> Void
@@ -329,6 +371,9 @@ public struct TerminalAsker: Asker {
     }
 
     /// `30 s`, `5 min`, or `2 h`.
+    ///
+    /// - Parameter duration: The deadline.
+    /// - Returns: It in whole seconds, minutes, or hours, rounded down.
     static func deadlineText(_ duration: Duration) -> String {
         let seconds = Int(duration.components.seconds)
         return seconds < 60 ? "\(seconds) s" : seconds < 3600 ? "\(seconds / 60) min" : "\(seconds / 3600) h"
@@ -336,11 +381,20 @@ public struct TerminalAsker: Asker {
 
     /// Shows the dialog and reads the answer; for a choice, text that is no option is asked again, up to three
     /// times, then taken as declined.
+    ///
+    /// - Parameters:
+    ///   - question: The question.
+    ///   - box: Not used: a terminal question never parks.
+    ///   - audit: Not used.
+    /// - Returns: The outcome, via `terminal`.
     public func ask(_ question: Question, box: InquiryBox, audit: AuditLog?) async -> Question.Reply {
         Question.Reply(await read(question), via: "terminal")
     }
 
-    /// The dialog and its reads.
+    /// The dialog and its reads: one deadline across all the tries, and the turn's stop ends it as Ctrl-C.
+    ///
+    /// - Parameter question: The question.
+    /// - Returns: How it ended.
     private func read(_ question: Question) async -> Question.Outcome {
         let stop = TurnStop.current
         write(Self.render(question, style: style))
@@ -412,8 +466,9 @@ public final class InquiryBox: Sendable {
 
     /// The box's state.
     private struct Contents {
+        /// Every question, oldest first, with at most `historyLimit` settled ones.
         var records: [Record] = []
-        /// The questions asked per turn, by their text.
+        /// The questions asked per turn, by their text; only the latest turn's is kept.
         var asked: [Int: [String]] = [:]
         /// The watch for a parked question, by question id.
         var watches: [String: Task<Void, Never>] = [:]
@@ -421,6 +476,7 @@ public final class InquiryBox: Sendable {
         var pending: [String: (PendingApprovals, PendingApprovals.Request)] = [:]
     }
 
+    /// The box's state, behind one lock.
     private let contents = Mutex(Contents())
     /// Where a parked question's answer waits for the thread's next turn (ADR 0059's notes); nil keeps none.
     private let notices: ConversationNotices?
@@ -442,6 +498,8 @@ public final class InquiryBox: Sendable {
     }
 
     /// Sets what records an answer delivered after a park as the thread's `person` fact.
+    ///
+    /// - Parameter record: Records the question and its answer.
     public func onAnswer(_ record: @escaping @Sendable (Question, String) async -> Void) {
         onAnswer.withLock { $0 = record }
     }
@@ -453,11 +511,17 @@ public final class InquiryBox: Sendable {
     public var waiting: Question? { contents.withLock { $0.records.last { $0.state == .waiting }?.question } }
 
     /// The records of `turn`.
+    ///
+    /// - Parameter turn: The turn's number.
+    /// - Returns: Its records, oldest first.
     public func records(turn: Int) -> [Record] { records.filter { $0.turn == turn } }
 
     /// Admits `question` for `turn`, or refuses it: one waiting at a time, `Question.perTurn` a turn, never the
     /// same text twice in a turn (D4).
     ///
+    /// - Parameters:
+    ///   - question: The validated question.
+    ///   - turn: The asking turn.
     /// - Throws: `Question.Refusal`.
     public func begin(_ question: Question, turn: Int) throws(Question.Refusal) {
         try contents.withLock { contents throws(Question.Refusal) in
@@ -472,6 +536,13 @@ public final class InquiryBox: Sendable {
 
     /// Settles `id` with `outcome`, delivered `delivered`; nothing changes for a question not waiting.
     ///
+    /// Its watch and pending request are forgotten either way, and the oldest settled records beyond
+    /// `historyLimit` are dropped.
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - outcome: How it ended.
+    ///   - delivered: How the answer reached the model (`tool`, `notice`); nil when it did not.
     /// - Returns: The record, or nil when no such question waits.
     @discardableResult
     public func settle(_ id: String, outcome: Question.Outcome, delivered: String? = nil) -> Record? {
@@ -594,6 +665,16 @@ public final class InquiryBox: Sendable {
     }
 
     /// Settles a parked question with what the watch found, posts the note, records the fact, and audits it.
+    ///
+    /// The answer is masked first (``Question/Outcome/masked()``). Nothing happens when the question was settled
+    /// already, so a withdrawal and a late answer cannot both deliver.
+    ///
+    /// - Parameters:
+    ///   - question: The question.
+    ///   - outcome: What the watch found.
+    ///   - via: Where the person answered.
+    ///   - started: When the watch began, for the audit's seconds.
+    ///   - audit: The thread's log.
     private func deliver(
         _ question: Question, outcome: Question.Outcome, via: String?, started: Date, audit: AuditLog?
     ) async {

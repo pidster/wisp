@@ -2,6 +2,13 @@ import Foundation
 
 /// What `run_command` may execute and how it is confined.
 ///
+/// ``CommandRunner`` applies the policy to every command before anything else, then consults ``ApprovalGate``
+/// for the model's commands; `edit_file` takes the same
+/// ``writableRoots(writableRoot:temporaryDirectory:userCacheDirectory:home:)``, so it is confined to exactly
+/// the directories a command may write. The policy is the operator's
+/// (`commandPolicy` in `config.json`, validated when the configuration loads or is edited); no tool changes it
+/// ([ADR 0009](../../../../docs/decisions/0009-command-policy-and-sandbox.md), `docs/tools/run_command.md`).
+///
 /// Two layers, both configurable from `config.json`:
 ///
 /// 1. **Patterns.** `deny` regexes reject a command line outright; if `allow` is
@@ -10,9 +17,13 @@ import Foundation
 /// 2. **Sandbox.** When enabled, the command runs under `sandbox-exec` with a
 ///    Seatbelt profile that denies file writes outside a set of directories and,
 ///    optionally, all network access. This is enforced by the kernel regardless
-///    of what the command line says.
+///    of what the command line says. Reads are not confined: ADR 0009 confined writes and the network, which
+///    is what was asked for.
 public struct CommandPolicy: Codable, Equatable, Sendable {
-    /// Seatbelt confinement settings.
+    /// Seatbelt confinement settings, `commandPolicy.sandbox` in `config.json`.
+    ///
+    /// Network is allowed by default because builds fetch dependencies; turning it off is one field
+    /// ([ADR 0009](../../../../docs/decisions/0009-command-policy-and-sandbox.md)).
     public struct Sandbox: Codable, Equatable, Sendable {
         /// Whether to run commands under `sandbox-exec` at all.
         public var enabled: Bool
@@ -28,6 +39,12 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         public var allowOutsideSandbox: Bool
 
         /// Creates sandbox settings.
+        ///
+        /// - Parameters:
+        ///   - enabled: Whether commands run under `sandbox-exec`.
+        ///   - allowNetwork: Whether the sandboxed command may use the network.
+        ///   - writablePaths: Extra writable directories; `~` is expanded when the profile is built.
+        ///   - allowOutsideSandbox: Whether the model may ask for a run outside the sandbox (ADR 0064).
         public init(
             enabled: Bool = true, allowNetwork: Bool = true, writablePaths: [String] = Sandbox.defaultWritablePaths,
             allowOutsideSandbox: Bool = true
@@ -38,12 +55,17 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
             self.allowOutsideSandbox = allowOutsideSandbox
         }
 
-        /// Caches that build tools expect to write: SwiftPM and Cargo registries.
+        /// Caches that build tools expect to write: SwiftPM's (under `~/Library/Caches`) and Cargo's registry and
+        /// git checkouts, so a build that fetches dependencies works inside the sandbox.
         public static let defaultWritablePaths = ["~/Library/Caches", "~/.cargo/registry", "~/.cargo/git"]
 
+        /// The JSON field names, the same as the properties'.
         private enum CodingKeys: String, CodingKey { case enabled, allowNetwork, writablePaths, allowOutsideSandbox }
 
-        /// Decodes a partial object; missing fields take their defaults.
+        /// Decodes a partial object; missing fields take their defaults, so an operator writes only what changes.
+        ///
+        /// - Parameter decoder: The decoder reading `commandPolicy.sandbox`.
+        /// - Throws: `DecodingError` when a present field has the wrong type.
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
@@ -55,6 +77,9 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     }
 
     /// The outcome of checking a command line against the patterns.
+    ///
+    /// A denial reaches the model as tool output rather than an error, so the model can adapt instead of the
+    /// whole response failing (ADR 0009).
     public enum Verdict: Equatable, Sendable {
         /// The command may run.
         case allowed
@@ -70,6 +95,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     public var sandbox: Sandbox
 
     /// Creates a policy.
+    ///
+    /// - Parameters:
+    ///   - deny: Regexes that reject a command line; the built-in list by default.
+    ///   - allow: Regexes of which a command line must match one; empty allows any line not denied.
+    ///   - sandbox: The Seatbelt settings.
     public init(deny: [String] = CommandPolicy.defaultDeny, allow: [String] = [], sandbox: Sandbox = Sandbox()) {
         self.deny = deny
         self.allow = allow
@@ -80,10 +110,14 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     /// obviously destructive or privilege-escalating shapes.
     public static let `default` = CommandPolicy()
 
+    /// The JSON field names, the same as the properties'.
     private enum CodingKeys: String, CodingKey { case deny, allow, sandbox }
 
     /// Decodes a partial object; missing fields take their defaults, so `{"sandbox":{"allowNetwork":false}}`
-    /// is a complete policy.
+    /// is a complete policy. A `deny` list that is present replaces the built-in one rather than adding to it.
+    ///
+    /// - Parameter decoder: The decoder reading `commandPolicy`.
+    /// - Throws: `DecodingError` when a present field has the wrong type.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         deny = try container.decodeIfPresent([String].self, forKey: .deny) ?? CommandPolicy.defaultDeny
@@ -91,10 +125,18 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         sandbox = try container.decodeIfPresent(Sandbox.self, forKey: .sandbox) ?? Sandbox()
     }
 
-    /// No patterns and no sandbox. What `--unsafe` selects.
+    /// No patterns and no sandbox. What `--unsafe` selects on `respond`, `chat`, and `mcp`, with a warning on
+    /// stderr. Only the policy changes: the approval gate is configured separately.
     public static let unrestricted = CommandPolicy(deny: [], allow: [], sandbox: Sandbox(enabled: false))
 
     /// Shapes rejected by default. Illustrative, not exhaustive; the sandbox is the real barrier.
+    ///
+    /// Besides the destructive shapes of ADR 0009 (`sudo`, `rm -rf /`, a pipe into a shell, making a filesystem,
+    /// `dd` to a device), most entries keep the person's own decisions away from the model: answering an approval,
+    /// a fact, or a question, handing over or deleting a thread, installing or updating wisp, fetching, adding, or
+    /// removing a model, starting a nested wisp. Each names its ADR below. ``check(_:)`` reads these against the
+    /// line with the data of printing and searching programs masked, which a pattern the configuration adds does
+    /// not get.
     public static let defaultDeny: [String] = [
         #"(^|[\s;&|(])sudo(\s|$)"#,
         #"(^|[\s;&|(])rm\s+(-[A-Za-z]*r[A-Za-z]*f|-[A-Za-z]*f[A-Za-z]*r)\S*\s+/+\*?(\s|$)"#,
@@ -139,7 +181,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     public static let nestedWisp =
         #"^\s*(?>(env|exec|nohup|nice|time|command|builtin|caffeinate|xargs|timeout|\{|then|do|else|!|-\S*|\d\S*|\S*=\S*)\s+)*["']?(\S*/)?wisp["']?(\s+-\S*(\s+[^-\s]\S*)?)*\s+["']?(respond|chat|mcp|["'])"#
 
-    /// Checks that every pattern compiles.
+    /// Checks that every pattern compiles, so a bad pattern fails when the configuration loads or is edited rather
+    /// than at run time, where ``matches(_:_:)`` would treat it as matching nothing.
     ///
     /// - Throws: `Failure.invalidPattern` naming the first bad pattern.
     public func validate() throws {
@@ -155,6 +198,10 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     /// they read the line with the data of printing and searching programs written `''`
     /// (`RuleRiskClassifier.Spellings`): a pattern (`grep -vE "grep|bash -c"`) or a message is not refused as a pipe
     /// into a shell. A pattern the configuration adds reads the whole text, data included.
+    ///
+    /// - Parameter command: The whole command line, as the model or the person wrote it.
+    /// - Returns: `.allowed`, or `.denied` naming the first deny pattern that matched, or saying that no allow
+    ///   pattern did.
     public func check(_ command: String) -> Verdict {
         let spellings = RuleRiskClassifier.spellings(of: command)
         let text = [command] + [spellings.normalised].filter { $0 != command }
@@ -172,9 +219,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
 
     /// The Seatbelt profile with `writableRoot` as the writable project directory.
     ///
-    /// Everything is allowed except writes outside the writable set and,
-    /// when `allowNetwork` is false, all networking. Paths are canonicalised.
-    /// The root is fixed by the harness, never by a per-command working directory.
+    /// Everything is allowed except writes outside the writable set and, when `allowNetwork` is false, all
+    /// networking. Paths are canonicalised, because Seatbelt matches real paths and `/tmp` and `/var` are
+    /// symlinks. The root is fixed by the harness (the launch directory), never by a per-command working
+    /// directory, so the model cannot widen the writable set by choosing where a command runs (ADR 0009, amended
+    /// 2026-09-19). `/dev/null`, the terminal, and `/dev/fd/` stay writable for the shell's redirections.
     ///
     /// - Parameters:
     ///   - writableRoot: The project directory commands may write under.
@@ -273,6 +322,8 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
 
     /// The canonical `paths` that lie under one of the canonical `roots` (or are one).
     ///
+    /// Used to note in the profile a protected directory that the writable set would otherwise cover.
+    ///
     /// - Parameters:
     ///   - paths: Canonical paths.
     ///   - roots: Canonical directories.
@@ -282,6 +333,13 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     }
 
     /// Whether the canonical `path` is the canonical `root` or lies under it.
+    ///
+    /// A component-wise prefix test: `/a/bc` is not under `/a/b`. Both paths must already be canonical.
+    ///
+    /// - Parameters:
+    ///   - root: A canonical directory.
+    ///   - path: A canonical path.
+    /// - Returns: True when `path` is `root` or a descendant.
     static func contains(_ root: String, _ path: String) -> Bool {
         path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
@@ -299,6 +357,14 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         }
     }
 
+    /// Whether `pattern` matches anywhere in `command`, compiled once through ``RegexCache``.
+    ///
+    /// An uncompilable pattern matches nothing here; ``validate()`` is what reports it.
+    ///
+    /// - Parameters:
+    ///   - pattern: A regular expression.
+    ///   - command: The text to search.
+    /// - Returns: True on a match.
     private static func matches(_ pattern: String, _ command: String) -> Bool {
         guard let regex = try? RegexCache.regex(pattern) else { return false }
         return regex.matches(anywhereIn: command)
@@ -306,7 +372,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
 
     /// Resolves symlinks with `realpath(3)` (for example `/var` to `/private/var`) and strips a
     /// trailing slash. For a path that does not exist yet, the longest existing prefix is resolved
-    /// and the remainder appended unchanged.
+    /// and the remainder appended unchanged, so a writable directory a build has not made yet still gets the real
+    /// path Seatbelt will see once it exists.
+    ///
+    /// - Parameter path: An absolute path.
+    /// - Returns: The resolved path without a trailing slash (`/` stays `/`).
     public static func canonical(_ path: String) -> String {
         var existing = path
         var remainder: [String] = []
@@ -329,7 +399,11 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         return resolved
     }
 
-    /// Quotes a path for a Seatbelt string literal.
+    /// Quotes a path for a Seatbelt string literal, escaping backslashes and double quotes so a directory's name
+    /// cannot end the literal and add rules of its own.
+    ///
+    /// - Parameter path: The path to quote.
+    /// - Returns: The quoted literal.
     static func quote(_ path: String) -> String {
         "\"" + path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }

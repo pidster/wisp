@@ -6,6 +6,9 @@ public enum Multiplexers {
     public static let programs: Set<String> = parse(MultiplexersText.text)
 
     /// Parses the list: one name per line, `#` comments and blank lines ignored.
+    ///
+    /// - Parameter text: The list's text.
+    /// - Returns: The program names.
     public static func parse(_ text: String) -> Set<String> {
         Set(
             text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }

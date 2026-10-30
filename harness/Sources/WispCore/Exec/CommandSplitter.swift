@@ -1,6 +1,12 @@
 import Foundation
 
 /// One simple command inside a shell line, with the key its approval is stored under.
+///
+/// ``CommandSplitter`` produces these; ``CommandPolicy`` checks each one's `text`, ``ApprovalGate`` classifies each
+/// one and asks about it on its own, and ``ApprovalStore`` remembers an approval under its ``pattern``. Approvals
+/// follow programs, not argument spellings: `head -n 5 a` and `head -n 10 b` are both `head *`
+/// ([ADR 0015](../../../../docs/decisions/0015-per-command-approval.md)), while a multiplexer keeps its verb
+/// ([ADR 0027](../../../../docs/decisions/0027-verb-patterns.md)).
 public struct SimpleCommand: Equatable, Sendable {
     /// The segment as written, trimmed.
     public var text: String
@@ -11,7 +17,9 @@ public struct SimpleCommand: Equatable, Sendable {
     public var subcommand: String?
     /// The approval key: the executable, its verb when it has one, and ` *`, so arguments never
     /// matter to remembering but `git commit *` and `git push *` are remembered apart. For a command
-    /// whose program says nothing of what runs (`isKeyedExactly`), the exact text instead.
+    /// whose program says nothing of what runs (`isKeyedExactly`), the exact text instead. A standing approval
+    /// under it only decides whether to ask: every part is still classified on every run, and a dangerous verdict
+    /// always asks, so `rm *` approved for `rm file` never covers `rm -rf build` (ADR 0015).
     public var pattern: String {
         isKeyedExactly ? text : "\(executable)\(subcommand.map { " " + $0 } ?? "") *"
     }
@@ -20,10 +28,16 @@ public struct SimpleCommand: Equatable, Sendable {
     public var legacyPattern: String? { subcommand == nil || isKeyedExactly ? nil : "\(executable) *" }
     /// Whether an approval of this command is remembered by its exact text, never by a pattern: its
     /// program is a shell keyword, an interpreter, or a function definition, or it runs through `exec`,
-    /// `xargs`, or `eval`, so `X *` would cover anything at all (`do *`, `sh *`, `python3 *`).
+    /// `xargs`, or `eval`, so `X *` would cover anything at all (`do *`, `sh *`, `python3 *`). A standing `do *`
+    /// found on 2026-10-09 is why (ADR 0015, amendment of 2026-10-11).
     public var isKeyedExactly: Bool { CommandSplitter.isKeyedExactly(text: text, executable: executable) }
 
     /// Creates a simple command.
+    ///
+    /// - Parameters:
+    ///   - text: The segment as written, trimmed.
+    ///   - executable: The program that runs, unwrapped and without its directory.
+    ///   - subcommand: The verb, for a multiplexer; nil otherwise.
     public init(text: String, executable: String, subcommand: String? = nil) {
         self.text = text
         self.executable = executable
@@ -37,6 +51,12 @@ public struct SimpleCommand: Equatable, Sendable {
 /// and newlines, and looks inside `$(…)`, backticks, and `(…)` subshells so a command hidden there is
 /// checked too. It is a policy pre-pass, not a shell: anything it cannot parse stays in the enclosing
 /// segment's text, where the deny patterns and classifier still see it.
+///
+/// Splitting exists because a line can chain or pipe several commands (`ls && curl … | sh`), and judging the whole
+/// string would let a dangerous part hide behind a safe first one. ``CommandRunner`` checks the policy against every
+/// part and hands the parts to ``ApprovalGate``; a denial of any part refuses the whole line
+/// ([ADR 0015](../../../../docs/decisions/0015-per-command-approval.md)). Compound commands (loops, conditionals,
+/// `case`, function bodies) are read by what their bodies run (ADR 0015, amended 2026-10-11).
 public enum CommandSplitter {
     /// Wrapper options that take a separate value, whose value must be skipped too.
     static let valueOptions: Set<String> = [
@@ -74,6 +94,10 @@ public enum CommandSplitter {
     /// The simple commands in `line`, in order, including those nested in substitutions, subshells,
     /// and the scripts given to `sh -c` and `eval`. Fails closed: a segment from which no command can
     /// be read is returned as itself, so the gate never judges fewer commands than the line holds.
+    ///
+    /// - Parameter line: A POSIX shell command line.
+    /// - Returns: Its simple commands in order: a segment's substitutions before it, the scripts it hands a shell
+    ///   after it.
     public static func split(_ line: String) -> [SimpleCommand] { split(line, depth: 0) }
 
     /// `split` at a nesting `depth`; past `maxDepth` the text is returned whole as one command.
@@ -82,6 +106,11 @@ public enum CommandSplitter {
     /// and a case branch's `a) X` are judged as `X`; a loop header (`for f in *.txt`) and a closing keyword
     /// (`done`, `fi`) run nothing of their own; and a command that uses a loop's variable carries what the
     /// variable ranges over (`rm "$f" # f in *.txt`), so the rules see what it can hold.
+    ///
+    /// - Parameters:
+    ///   - line: The text to split.
+    ///   - depth: How many substitutions or `sh -c` bodies enclose it.
+    /// - Returns: The simple commands.
     private static func split(_ line: String, depth: Int) -> [SimpleCommand] {
         guard depth < maxDepth else {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -206,6 +235,11 @@ public enum CommandSplitter {
 
     /// `body` with ` # NAME in VALUES` added for each loop variable it uses, so the rules judge `rm "$f"` in
     /// `for f in ~/*` by what `$f` ranges over. The key is unchanged: the program is the same.
+    ///
+    /// - Parameters:
+    ///   - body: The command a clause runs.
+    ///   - loops: The loop variables bound earlier in the line.
+    /// - Returns: The body, annotated.
     static func annotated(_ body: String, loops: [LoopVariable]) -> String {
         var text = body
         for loop in loops where uses(body, variable: loop.name) {
@@ -215,6 +249,13 @@ public enum CommandSplitter {
     }
 
     /// Whether `text` expands the variable `name` (`$name`, `${name}`, `${name:-x}`).
+    ///
+    /// A name that is not a valid identifier is never used, so it cannot inject into the regex.
+    ///
+    /// - Parameters:
+    ///   - text: The command's text.
+    ///   - name: The variable's name.
+    /// - Returns: True when `text` expands it.
     static func uses(_ text: String, variable name: String) -> Bool {
         guard !name.isEmpty, name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return false }
         let pattern = #"\$(\{"# + name + #"\b|"# + name + #"(?![A-Za-z0-9_]))"#
@@ -222,6 +263,9 @@ public enum CommandSplitter {
     }
 
     /// Whether the program a segment runs is what a substitution prints (`$(which tool) args`, `` `x` y``).
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: True when the program's place holds a substitution.
     static func runsASubstitution(_ segment: String) -> Bool {
         guard let word = unwrap(segment)?.first else { return false }
         return word.raw.hasPrefix("$(") || word.raw.hasPrefix("`")
@@ -231,6 +275,9 @@ public enum CommandSplitter {
     /// assignments, is a variable or a substitution (`$X args`, `"${TOOL}" x`, `$(which rm) -rf`, `/bin/$X`),
     /// so its name says nothing of what runs. A variable naming only a directory (`$HOME/bin/tool`) does not
     /// count: the program's own name is still written.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: True when the program's name is decided at run time.
     static func programIsChosenAtRunTime(_ segment: String) -> Bool {
         guard let body = clause(of: segment, caseOpen: false).body, let word = unwrap(body)?.first else {
             return false
@@ -241,7 +288,11 @@ public enum CommandSplitter {
     }
 
     /// The command lines a segment hands to a shell: the argument of `sh -c`, `bash -lc`, and the like,
-    /// and the words after `eval`, which the shell runs as a line of their own.
+    /// and the words after `eval`, which the shell runs as a line of their own, and what `find -exec` runs
+    /// (``executed(byFind:)``). ``split(_:)`` splits each in turn, so a command hidden there is judged too.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The inner command lines; empty when there are none.
     static func innerScripts(of segment: String) -> [String] {
         guard let (name, rest, _) = program(of: segment) else { return [] }
         if name == "eval" { return rest.isEmpty ? [] : [rest.joined(separator: " ")] }
@@ -263,6 +314,9 @@ public enum CommandSplitter {
     /// The commands `find` runs for each match: the words after `-exec`, `-execdir`, `-ok`, or `-okdir` up to
     /// the `;` or `+` that ends them, quoted again as one line, so `-exec sh -c 'rm {}' \;` is judged as
     /// `sh -c 'rm {}'`, and the script inside it too.
+    ///
+    /// - Parameter words: The words after `find`.
+    /// - Returns: The command lines.
     static func executed(byFind words: [String]) -> [String] {
         var commands: [String] = []
         var remaining = words[...]
@@ -279,18 +333,30 @@ public enum CommandSplitter {
 
     /// `word` as it must be written to stay one shell word: as it is when it holds nothing special, quoted
     /// otherwise.
+    ///
+    /// - Parameter word: A word's value.
+    /// - Returns: The word as written.
     static func shellWord(_ word: String) -> String {
         let plain = !word.isEmpty && word.allSatisfy { $0.isLetter || $0.isNumber || "_./{}=+:@,%-".contains($0) }
         return plain ? word : quoted(word)
     }
 
     /// `text` as one shell word: in single quotes, each `'` written `'\''`.
+    ///
+    /// - Parameter text: Any text.
+    /// - Returns: The quoted word.
     static func quoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     /// Whether the command with this `text` and `executable` is remembered by its exact text
     /// (`SimpleCommand.isKeyedExactly`).
+    ///
+    /// - Parameters:
+    ///   - text: The segment as written.
+    ///   - executable: Its program.
+    /// - Returns: True for a keyword, an interpreter, a function definition, a name no program has, or a command
+    ///   run through `exec`, `xargs`, or `eval`.
     static func isKeyedExactly(text: String, executable: String) -> Bool {
         if keywords.contains(executable) || interpreters.contains(executable) || executable.hasPrefix("python") {
             return true
@@ -303,6 +369,13 @@ public enum CommandSplitter {
     }
 
     /// Top-level segments split on control operators outside quotes and parentheses.
+    ///
+    /// `&&`, `||`, `|`, `;`, a newline, and a lone `&` (a background job) end a segment; `&` in a redirection
+    /// (`2>&1`, `&>`) does not. Groups in parentheses stay whole here and are looked inside by
+    /// ``substitutions(in:)``.
+    ///
+    /// - Parameter line: The line.
+    /// - Returns: The segments, untrimmed, empty ones included.
     static func segments(of line: String) -> [String] {
         var result: [String] = []
         var current = ""
@@ -372,6 +445,9 @@ public enum CommandSplitter {
     /// text, `'…'` and `$'…'`, is skipped, and a parenthesis inside quotes does not close a group. Inside `"…"`
     /// only `$(…)` and backticks are substitutions: a `(` there is a character (`grep -E "a (b|c)"`), and so is
     /// a `'` (`"it's $(x)"`, whose substitution is still found).
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The bodies, in order.
     static func substitutions(in segment: String) -> [String] {
         var bodies: [String] = []
         let chars = Array(segment)
@@ -417,6 +493,11 @@ public enum CommandSplitter {
     /// The index just past the quoted text whose opening quote is at `open`: `'…'` with no escapes,
     /// `$'…'` (when `chars[open - 1]` is `$`) and `"…"` with backslash escapes; the end of the text
     /// when the quote is never closed.
+    ///
+    /// - Parameters:
+    ///   - chars: The text.
+    ///   - open: The index of the opening quote.
+    /// - Returns: The index after the closing quote, or `chars.count`.
     private static func quoteEnd(_ chars: [Character], from open: Int) -> Int {
         let quote = chars[open]
         let escapes = quote == "\"" || (open > 0 && chars[open - 1] == "$" && quote == "'")
@@ -434,6 +515,11 @@ public enum CommandSplitter {
 
     /// The index of the `)` that closes the `(` at `open`, skipping quoted text and escapes; nil when
     /// it is never closed.
+    ///
+    /// - Parameters:
+    ///   - chars: The text.
+    ///   - open: The index of the `(`.
+    /// - Returns: The index of the matching `)`, or nil.
     private static func closingParenthesis(_ chars: [Character], open: Int) -> Int? {
         var depth = 0
         var cursor = open
@@ -457,11 +543,17 @@ public enum CommandSplitter {
     }
 
     /// The program a segment runs, or nil for a bare subshell or assignment-only segment.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The program's name without its directory, or nil.
     static func executable(of segment: String) -> String? { essential(of: segment)?.executable }
 
     /// The program and, for a multiplexer, its verb: the first word after the program that is not an
     /// option, an option's value, or a toolchain selector such as `+nightly`. `git -C dir status`
     /// gives `status`; `git --version` gives no verb.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The program and its verb, or nil when no program can be read.
     static func essential(of segment: String) -> (executable: String, subcommand: String?)? {
         guard let (name, rest, _) = program(of: segment) else { return nil }
         guard Multiplexers.programs.contains(name) else { return (name, nil) }
@@ -482,6 +574,9 @@ public enum CommandSplitter {
 
     /// The program name and the words after it, with wrappers and assignments unwrapped, and the wrappers that
     /// were; nil for a bare subshell, a substitution in the program's place, or assignments alone.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The program's name, its arguments' values, and the wrappers unwrapped; or nil.
     private static func program(of segment: String) -> (String, [String], Set<String>)? {
         guard let (first, rest, unwrapped) = unwrap(segment) else { return nil }
         if first.raw.hasPrefix("(") || first.raw.hasPrefix("$(") || first.raw.hasPrefix("`") { return nil }
@@ -492,6 +587,9 @@ public enum CommandSplitter {
     /// `segment`'s words with wrappers (and their options) and assignments taken off the front: the word in
     /// the program's place, the words after it, and the wrappers that were unwrapped; nil for assignments
     /// alone.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The program's word, the words after it, and the wrappers taken off; or nil.
     private static func unwrap(_ segment: String) -> (first: Word, rest: [Word], unwrapped: Set<String>)? {
         var words = tokens(of: segment)[...]
         var unwrapped: Set<String> = []
@@ -539,12 +637,18 @@ public enum CommandSplitter {
     /// literally, `"…"` and `$'…'` with backslash escapes (kept as the escaped character, not
     /// interpreted). A backslash before a newline continues the line and leaves nothing, and an unquoted
     /// `$IFS` or `${IFS}` separates words as a space would (`rm${IFS}-rf` is `rm -rf`).
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The words' values, empty ones left out.
     static func words(of segment: String) -> [String] {
         tokens(of: segment).map(\.value).filter { !$0.isEmpty }
     }
 
     /// The words of `segment`, as `words(of:)` reads them, each with its spelling and where it starts. A word
     /// written as an empty quote (`''`) is kept, with an empty value; a line continuation alone is not.
+    ///
+    /// - Parameter segment: One segment.
+    /// - Returns: The words, in order.
     static func tokens(of segment: String) -> [Word] {
         let chars = Array(segment)
         var result: [Word] = []
@@ -608,6 +712,13 @@ public enum CommandSplitter {
     }
 
     /// The length of an unquoted `$IFS` or `${IFS}` at `index`, or nil when there is none there.
+    ///
+    /// `$IFSX` is another variable, so `$IFS` counts only when no name character follows it.
+    ///
+    /// - Parameters:
+    ///   - chars: The text.
+    ///   - index: Where a `$` is.
+    /// - Returns: 4 or 6, or nil.
     private static func ifsLength(_ chars: [Character], at index: Int) -> Int? {
         let ahead = String(chars[index..<min(chars.count, index + 6)])
         if ahead == "${IFS}" { return 6 }

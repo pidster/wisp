@@ -11,6 +11,23 @@ import Synchronization
 /// and spill the whole stream to the conversation's output store (`OutputStore`) as it arrives when there is
 /// one; the result the model sees fits the tool-output budget as a whole, and what is held back is marked and
 /// kept, never dropped ([ADR 0050](../../../../docs/decisions/0050-tool-output-budget-and-overflow.md)).
+///
+/// A run goes through one path, in order: the working directory is checked; the policy's patterns are applied to
+/// the line and to each simple command ``CommandSplitter`` finds in it; for the model's commands (``Origin/model``)
+/// the ``ApprovalGate`` classifies each part and asks the person when one is risky; then the shell is spawned,
+/// watched by a timeout and the person's stop, and its outcome checked for a sandbox refusal. Every run records
+/// one `policy.decision` (allowed, denied, or refused) and, once it ran, a `command.outcome` in the conversation's
+/// ``AuditLog``. The person's own
+/// commands take the same path without the gate, which is the one seam between the two (there is no second runner,
+/// [ADR 0049](../../../../docs/decisions/0049-commands-typed-in-chat.md)).
+///
+/// It is a value type: each conversation builds its own (`WispThread`, `ToolRegistry`) with the conversation's audit
+/// log, gate, budget, and output store, and ``authorize(_:in:)`` hands back a copy with the gate taken out. The
+/// confinement and why it is built this way are in
+/// [ADR 0009](../../../../docs/decisions/0009-command-policy-and-sandbox.md) and `docs/tools/run_command.md`; the
+/// limits on time in
+/// [ADR 0063](../../../../docs/decisions/0063-command-time-limits.md) and
+/// [ADR 0067](../../../../docs/decisions/0067-a-call-may-only-lengthen-its-time-limit.md).
 public struct CommandRunner: Sendable {
     /// Limits applied to every command this runner executes.
     public struct Options: Sendable, Equatable {
@@ -39,6 +56,14 @@ public struct CommandRunner: Sendable {
         /// Creates options. Defaults are a 120-second timeout, requests capped at 1,800 seconds, the tool-output
         /// budget as the bound, the default policy, the current directory as the writable root, and wisp's home
         /// (`Home.resolve()`) protected.
+        ///
+        /// - Parameters:
+        ///   - writableRoot: The sandbox's writable project directory; nil takes the current directory.
+        ///   - timeout: The operator's default wall-clock limit; zero means none.
+        ///   - maxTimeout: The most a caller's requested limit may be.
+        ///   - maxOutputBytes: The operator's bound on a result; nil takes the tool-output budget.
+        ///   - policy: The patterns and sandbox settings.
+        ///   - protectedPaths: Directories never writable; nil protects wisp's home.
         public init(
             writableRoot: String? = nil, timeout: Duration = .seconds(120), maxTimeout: Duration = .seconds(1800),
             maxOutputBytes: Int? = nil, policy: CommandPolicy = .default, protectedPaths: [String]? = nil
@@ -237,6 +262,12 @@ public struct CommandRunner: Sendable {
             public var bytes: Int
 
             /// Creates a run.
+            ///
+            /// - Parameters:
+            ///   - stream: `stdout` or `stderr`.
+            ///   - firstLine: The first line held back, in the stored output's numbering.
+            ///   - lastLine: The last line held back.
+            ///   - bytes: Bytes held back.
             public init(stream: String, firstLine: Int, lastLine: Int, bytes: Int) {
                 self.stream = stream
                 self.firstLine = firstLine
@@ -278,7 +309,8 @@ public struct CommandRunner: Sendable {
         /// was none.
         public var outsideNote: String? = nil
 
-        /// Creates an outcome.
+        /// Creates an outcome; each parameter sets the property of the same name, and the optional ones default to
+        /// a command that ran to its end inside the sandbox with its whole output shown.
         public init(
             exitStatus: Int32, stdout: String, stderr: String, timedOut: Bool, truncated: Bool, stopped: Bool = false,
             sandboxRefusal: SandboxRefusal? = nil, sandboxNote: String? = nil, held: [Held] = [],
@@ -334,6 +366,9 @@ public struct CommandRunner: Sendable {
     }
 
     /// Reasons a command could not be started or was refused.
+    ///
+    /// `run_command` returns these to the model as text (`ToolOutput.error`), not as a thrown error, so the model can
+    /// change course; the description is that text.
     public enum Failure: Error, CustomStringConvertible, Equatable {
         /// The requested working directory does not exist or is not a directory.
         case invalidWorkingDirectory(String)
@@ -406,7 +441,9 @@ public struct CommandRunner: Sendable {
     ///
     /// Seatbelt lets a process re-apply an identical profile but refuses a different one, so the probe
     /// applies a profile no outer sandbox would use. Decided once per process from a fixed command whose
-    /// output nobody else controls; a user command can never influence it.
+    /// output nobody else controls; a user command can never influence it (ADR 0009, amended 2026-09-19). A probe
+    /// that cannot be launched at all also counts as nested, so wisp does not wrap commands in a `sandbox-exec` it
+    /// cannot run. Nested, commands run under the outer sandbox, which decides what they may write.
     public static let isNestedSandbox: Bool = {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
@@ -590,7 +627,9 @@ public struct CommandRunner: Sendable {
     }
 
     /// Checks `command` against the policy and clears it through the approval gate once (classifying it
-    /// and asking when it is risky), for a caller that will run the same line repeatedly: `wisp watch`.
+    /// and asking when it is risky), for a caller that will run the same line repeatedly: `wisp watch`. A watch's
+    /// line never changes, so neither can its verdict
+    /// ([ADR 0033](../../../../docs/decisions/0033-watch-mode.md), amended 2026-09-23).
     ///
     /// - Parameters:
     ///   - command: A POSIX shell command line.
@@ -607,6 +646,10 @@ public struct CommandRunner: Sendable {
 
     /// `directory`, or the current directory, when it is an existing directory.
     ///
+    /// Checked before anything else so a bad directory is reported as such rather than as a failed launch.
+    ///
+    /// - Parameter directory: The directory asked for; nil for the current one.
+    /// - Returns: The directory, as given.
     /// - Throws: `Failure.invalidWorkingDirectory` otherwise.
     private static func existingDirectory(_ directory: String?) throws -> String {
         let workingDirectory = directory ?? FileManager.default.currentDirectoryPath
@@ -616,11 +659,23 @@ public struct CommandRunner: Sendable {
         return workingDirectory
     }
 
-    /// Whether commands run under Seatbelt here.
+    /// Whether commands run under Seatbelt here: the sandbox is on and wisp is not nested in another
+    /// (``isNestedSandbox``). A command approved to run outside the sandbox is launched unconfined regardless.
     private var sandboxed: Bool { options.policy.sandbox.enabled && !Self.isNestedSandbox }
 
     /// Records a `policy.decision`, marked as the person's when they typed the command, and with what became of a
     /// request to run it outside the sandbox.
+    ///
+    /// The event also records whether the command will be confined, whether the network is on, and whether wisp is
+    /// nested in another sandbox, so the audit log says under what rules each command ran (`docs/logging.md`).
+    ///
+    /// - Parameters:
+    ///   - verdict: Allowed, denied by the policy, or refused by the gate.
+    ///   - reason: Why it was denied or refused; nil when allowed.
+    ///   - command: The whole command line.
+    ///   - workingDirectory: Where it runs.
+    ///   - origin: Who chose it.
+    ///   - outside: What became of a request to run it outside the sandbox.
     private func decide(
         _ verdict: AuditEvent.Details.PolicyVerdict, reason: String? = nil, command: String,
         in workingDirectory: String, origin: Origin = .model, outside: OutsideSandbox = .notAsked
@@ -644,6 +699,16 @@ public struct CommandRunner: Sendable {
     /// operator turned that off for is denied after the lists. A command the person typed (`origin` `.person`) passes
     /// the lists and the switch and no gate: typing it is the approval, `!!` included.
     ///
+    /// Each simple command is checked alone as well as the whole line, so a pattern anchored at the start of a
+    /// command (the nested-wisp pattern) also catches it after `;`, `&&`, or inside a loop
+    /// ([ADR 0015](../../../../docs/decisions/0015-per-command-approval.md)).
+    ///
+    /// - Parameters:
+    ///   - command: The whole command line.
+    ///   - workingDirectory: Where it will run, for the gate's question and its remembered approvals.
+    ///   - gate: The gate to clear it through; nil clears it without asking (and refuses a run outside the sandbox).
+    ///   - origin: Who chose it.
+    ///   - outside: What became of a request to run it outside the sandbox.
     /// - Throws: `Failure.denied` or `Failure.disapproved`.
     private func admit(
         _ command: String, in workingDirectory: String, gate: ApprovalGate?, origin: Origin = .model,
@@ -684,6 +749,20 @@ public struct CommandRunner: Sendable {
 
     /// Launches an admitted command and records its outcome, marked as the person's when they typed it. A command
     /// approved to run outside the sandbox (`outside` `.asked`) is launched without `sandbox-exec`.
+    ///
+    /// A confined command that failed is checked for a sandbox refusal (ADR 0054), so the model is told the write
+    /// was refused rather than left to guess from `Operation not permitted`; the model's note also says it may ask
+    /// to run outside the sandbox when the operator allows that. Records a `command.outcome`.
+    ///
+    /// - Parameters:
+    ///   - command: The command line, already admitted.
+    ///   - workingDirectory: Where it runs.
+    ///   - origin: Who chose it.
+    ///   - stop: The person's stop; nil follows the turn's stop instead.
+    ///   - limit: The wall-clock limit; nil for none.
+    ///   - outside: What became of a request to run it outside the sandbox.
+    /// - Returns: The outcome, its notes set.
+    /// - Throws: `Failure.launchFailed`.
     private func execute(
         _ command: String, in workingDirectory: String, origin: Origin = .model, stop: CommandStop? = nil,
         limit: TimeLimit?, outside: OutsideSandbox = .notAsked
@@ -712,6 +791,9 @@ public struct CommandRunner: Sendable {
     }
 
     /// The per-user cache directory (`getconf DARWIN_USER_CACHE_DIR`), or nil if the system has none.
+    ///
+    /// Writable in the sandbox because Clang keeps its module cache there; without it a build that compiles a C
+    /// module inside the sandbox fails.
     static var userCacheDirectory: String? {
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
         let length = confstr(_CS_DARWIN_USER_CACHE_DIR, &buffer, buffer.count)
@@ -799,10 +881,16 @@ public struct CommandRunner: Sendable {
             recallable: budget?.memory ?? false, limit: limit)
     }
 
-    /// Room the notes on a result take out of the bound: the header, the frames, and the held-back note.
+    /// Room the notes on a result take out of the bound: the header, the frames, and the held-back note, so the
+    /// result as a whole, notes included, stays within the bound (ADR 0050).
     static let notesAllowance = 640
 
     /// What opens a stream's spill file in `store`, named `name`; nil without a store.
+    ///
+    /// - Parameters:
+    ///   - store: The conversation's output store; nil gives no spill, so the buffer drops what memory cannot hold.
+    ///   - name: The file's name, the call's output id with `.out` or `.err`.
+    /// - Returns: The opener, called once by ``OutputBuffer`` when it first has to drop a byte; nil without a store.
     private static func spill(
         into store: OutputStore?, name: String
     ) -> (@Sendable () -> (handle: FileHandle, url: URL)?)? {
@@ -889,7 +977,8 @@ public struct CommandRunner: Sendable {
 
     /// Sends SIGKILL to process group `group` until it is empty (`kill` reports `ESRCH`), checking every
     /// 10 ms for up to `deadline`. Called once its leader has been reaped: the kernel keeps the group's id
-    /// from reuse while any member lives, so the signal reaches only what the command started.
+    /// from reuse while any member lives, so the signal reaches only what the command started. An `EPERM`
+    /// is taken to mean members remain, so it keeps trying.
     ///
     /// - Parameters:
     ///   - group: The process group id, the leader's pid.
@@ -940,6 +1029,8 @@ final class ProcessGroup: Sendable {
     }
 
     /// Sends `signal` to the group while its leader has not been reaped.
+    ///
+    /// - Parameter signal: The signal to send, such as `SIGKILL` after the grace.
     func signal(_ signal: Int32) {
         state.withLock { state in
             if !state.reaped { kill(-id, signal) }
@@ -955,6 +1046,10 @@ final class ProcessGroup: Sendable {
 /// Stops a running command when the person asks (Ctrl-C in chat, an `interrupt` line from a front end): the first
 /// request sends its process group SIGTERM and SIGKILL after `grace`; a later one sends SIGKILL at once. A request
 /// made before the command starts takes effect as it starts; one made after it ended does nothing.
+///
+/// A `final class` with a `Mutex` because every operation is a short synchronous critical section
+/// (`docs/design.md`, "Concurrency"). A model's command run without a stop of its own follows its turn's
+/// (`TurnStop`).
 public final class CommandStop: Sendable {
     /// What a request asks of the command.
     public enum Request: Sendable, Equatable {
@@ -1077,6 +1172,12 @@ final class OutputBuffer: Sendable {
     var isFinished: Bool { state.withLock { $0.finished } }
 
     /// Appends bytes; safe to call from the pipe's handler queue and the caller concurrently.
+    ///
+    /// Fills the head first, then the tail; the first time the tail would drop a byte it opens the spill and writes
+    /// what memory holds before the new chunk, so the file is the whole stream in order. If the spill cannot be
+    /// opened it is not tried again and bytes beyond the bound are only counted.
+    ///
+    /// - Parameter data: The chunk read from the pipe.
     func append(_ data: Data) {
         guard !data.isEmpty else { return }
         state.withLock { state in
@@ -1113,6 +1214,10 @@ final class OutputBuffer: Sendable {
     }
 
     /// Takes ownership of a pipe's read end and appends every chunk until end of file.
+    ///
+    /// At end of file it marks the buffer finished, closes the spill file, and closes the pipe.
+    ///
+    /// - Parameter handle: The read end; its readability handler is replaced.
     func capture(_ handle: FileHandle) {
         self.handle.withLock { $0 = handle }
         handle.readabilityHandler = { [self] handle in
@@ -1132,6 +1237,10 @@ final class OutputBuffer: Sendable {
     }
 
     /// Waits for end of file, but no longer than `deadline`; closes the spill file either way.
+    ///
+    /// Bounded because a descendant that escaped the process group could hold the pipe's write end open.
+    ///
+    /// - Parameter deadline: The longest to wait.
     func drain(deadline: Duration) async {
         let stop = ContinuousClock.now + deadline
         while !isFinished, ContinuousClock.now < stop {
@@ -1154,6 +1263,15 @@ enum Spawn {
     /// `read_file` has open (the 2026-10-09 review); the pipes' ends are marked close-on-exec as well, so no
     /// other `exec` in this process (a notifier's `osascript`, a probe) inherits them either.
     ///
+    /// The child leads a new process group, so a timeout or a stop can signal everything it starts; its signal mask
+    /// is cleared and `SIGINT` set back to the default, which chat ignores in its own process.
+    ///
+    /// - Parameters:
+    ///   - argv: The program and its arguments; `argv[0]` is an absolute path.
+    ///   - workingDirectory: Where the child starts.
+    ///   - stdout: Captures the child's standard output.
+    ///   - stderr: Captures the child's standard error.
+    /// - Returns: The child's pid.
     /// - Throws: `CommandRunner.Failure.launchFailed`.
     static func spawn(
         _ argv: [String], workingDirectory: String, stdout: OutputBuffer, stderr: OutputBuffer
@@ -1218,6 +1336,9 @@ enum Spawn {
     /// The wait blocks a thread in `waitpid` for as long as the command runs, so it gets a serial queue of its own,
     /// which libdispatch backs with a thread of its own: on a global queue, enough running commands would reach
     /// libdispatch's limit on that queue's threads and hold up every other job sent to it.
+    ///
+    /// - Parameter pid: The child to reap.
+    /// - Returns: The exit code, or the terminating signal negated.
     static func wait(for pid: pid_t) async -> Int32 {
         await withCheckedContinuation { continuation in
             DispatchQueue(label: "wisp.waitpid", qos: .utility).async {

@@ -13,6 +13,13 @@ import Synchronization
 /// The calling agent cannot answer: nothing in the MCP conversation approves. The wait is bounded by
 /// `approval.timeoutSeconds`; silence is a denial, and a cancelled call withdraws the request. Every step is
 /// audited on the asking conversation: `approval.pending`, the `notification`, and `approval.settled`.
+///
+/// Why two ways at once: the client's dialog alone failed in practice. A client without one (the Claude mobile
+/// app, 2026-09-17) let a delegated `git push` wait out the timeout, and Claude Code's dialog stuck in three of
+/// eight approvals in one session (2026-09-19 to 23). Asking through the conversation was rejected, since the
+/// calling agent is the party being gated.
+/// `Session.mcpApprover` builds it from the configuration; with `approval.outOfBand` off, ``ElicitationOnly`` is
+/// used instead. `docs/mcp.md`, "Approval", describes it from the client's side.
 public struct OutOfBandApprover: Approver {
     /// What one way of asking came back with.
     public enum Leg: Equatable, Sendable {
@@ -68,6 +75,9 @@ public struct OutOfBandApprover: Approver {
     }
 
     /// Decides without a conversation's log.
+    ///
+    /// - Parameter request: What to decide.
+    /// - Returns: What ``decide(_:audit:)`` returns.
     public func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
         await decide(request, audit: nil)
     }
@@ -89,6 +99,16 @@ public struct OutOfBandApprover: Approver {
     }
 
     /// Files the request, notifies, and waits for the first answer from the channel or the client's dialog.
+    ///
+    /// When the request cannot be filed, the client's dialog alone asks, and without one the request is denied
+    /// saying why. Whatever ends the wait, the pending file is withdrawn afterwards, so a later answer finds
+    /// nothing to answer.
+    ///
+    /// - Parameters:
+    ///   - request: What to decide.
+    ///   - audit: The asking conversation's log: `approval.pending`, the notification, `approval.settled`.
+    /// - Returns: The first answer; a denial when the call was cancelled or every way failed; `unanswered` at the
+    ///   timeout.
     public func decide(_ request: ApprovalRequest, audit: AuditLog?) async -> ApprovalDecision {
         let ask = alongside()
         let pending = PendingApprovals.request(for: request, client: client(), timeout: timeout)
@@ -168,21 +188,31 @@ public struct OutOfBandApprover: Approver {
     final class Race: Sendable {
         /// The race's state.
         private struct State {
+            /// Who waits for the winner, until the race ends.
             var continuation: CheckedContinuation<Winner, Never>?
+            /// How it ended; nil while running.
             var result: Winner?
+            /// Legs still asking.
             var running = 0
+            /// Why each failed leg could not ask.
             var failures: [String] = []
+            /// The legs' tasks, cancelled when the race ends.
             var tasks: [Task<Void, Never>] = []
         }
 
+        /// The race's state, behind one lock: the legs settle it from their own tasks.
         private let state: Mutex<State>
 
         /// A race of `legs` legs, all counted before any starts, so one that fails at once cannot end it early.
+        ///
+        /// - Parameter legs: The number of ways of asking.
         init(legs: Int) {
             state = Mutex(State(running: legs))
         }
 
-        /// Starts a leg.
+        /// Starts a leg; one started after the race ended is cancelled at once.
+        ///
+        /// - Parameter body: The leg, which settles or fails the race.
         func start(_ body: @escaping @Sendable () async -> Void) {
             let task = Task { await body() }
             let late = state.withLock { state -> Bool in
@@ -193,6 +223,8 @@ public struct OutOfBandApprover: Approver {
         }
 
         /// Ends the race with `winner`, unless it has ended; the legs are cancelled.
+        ///
+        /// - Parameter winner: How it ended.
         func settle(_ winner: Winner) {
             let (continuation, tasks) = state.withLock {
                 state -> (CheckedContinuation<Winner, Never>?, [Task<Void, Never>]) in
@@ -206,6 +238,8 @@ public struct OutOfBandApprover: Approver {
         }
 
         /// Records that a leg could not ask; when none is left, the race fails.
+        ///
+        /// - Parameter reason: Why the leg could not ask.
         func failed(_ reason: String) {
             let all = state.withLock { state -> [String]? in
                 state.failures.append(reason)
@@ -216,6 +250,8 @@ public struct OutOfBandApprover: Approver {
         }
 
         /// Waits for the winner.
+        ///
+        /// - Returns: How the race ended, at once when it already has.
         func winner() async -> Winner {
             await withCheckedContinuation { continuation in
                 let ready = state.withLock { state -> Winner? in
@@ -294,6 +330,9 @@ public struct OutOfBandApprover: Approver {
     }
 
     /// The face's name for a reason: `wisp approvals`, `wisp-tui`, or `wisp chat`.
+    ///
+    /// - Parameter via: The answer's `via` (`cli`, `tui`, `chat`).
+    /// - Returns: The face's name, or `via` itself for any other.
     static func face(_ via: String) -> String {
         switch via {
         case "cli": "wisp approvals"
@@ -313,6 +352,9 @@ struct ElicitationOnly: Approver {
     let fallback: any Approver
 
     /// Asks through the dialog, or defers to the fallback.
+    ///
+    /// - Parameter request: What to decide.
+    /// - Returns: The dialog's answer, a denial when it failed, or the fallback's decision.
     func decide(_ request: ApprovalRequest) async -> ApprovalDecision {
         guard let ask = ask() else { return await fallback.decide(request) }
         switch await ask(request) {

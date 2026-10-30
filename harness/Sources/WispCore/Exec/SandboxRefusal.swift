@@ -11,6 +11,10 @@ import Foundation
 /// output. A write the profile refuses names a path outside every writable root; one inside them that fails with
 /// `EPERM` is something else (file flags, System Integrity Protection, a file another process holds). Network and
 /// process refusals name no path, so for them it stays a guess, marked as one.
+///
+/// ``CommandRunner`` checks every confined command that failed, sets the verdict and its ``note(roots:)`` on the
+/// outcome, and records the verdict's ``name`` and ``paths`` with the `command.outcome` event. Before this the model
+/// was told nothing, and in a session of 2026-10-04 it reported a policy denial that never happened (ADR 0054).
 public enum SandboxRefusal: Equatable, Sendable {
     /// A path the error names is outside every writable root: the sandbox refused writing to it. Checked.
     case refused(paths: [String])
@@ -26,7 +30,8 @@ public enum SandboxRefusal: Equatable, Sendable {
     static let unwritableList = "The following directories are not writable by your user:"
     /// The end of a line that names one directory a tool cannot write, `PATH is not writable.` (Homebrew's `keg.rb`).
     static let unwritableSuffix = " is not writable."
-    /// The most paths kept from one command's error output.
+    /// The most paths kept from one command's error output, so a failing build's long error output cannot make the
+    /// verdict, and the audit event that carries it, unbounded.
     static let pathLimit = 8
 
     /// The verdict's name in the audit: `refused`, `not-the-sandbox`, or `guess`.
@@ -133,6 +138,9 @@ public enum SandboxRefusal: Equatable, Sendable {
     }
 
     /// `text` without one pair of surrounding quotes (`'`, `"`, or GNU's curly ones).
+    ///
+    /// - Parameter text: A word or path from an error line.
+    /// - Returns: The text inside the quotes, or the text as it was.
     private static func unquoted(_ text: String) -> String {
         guard text.count >= 2, let first = text.first, let last = text.last,
             ["'", "\"", "‘", "“", "`"].contains(first), ["'", "\"", "’", "”", "`"].contains(last)
@@ -141,6 +149,12 @@ public enum SandboxRefusal: Equatable, Sendable {
     }
 
     /// Whether `text` reads as a path: absolute, from the home directory, or relative with a dot.
+    ///
+    /// A bare relative name is not taken, since error lines carry plain words (`Error`, a tool's name) in the same
+    /// places.
+    ///
+    /// - Parameter text: The candidate.
+    /// - Returns: True when it reads as a path.
     private static func looksLikePath(_ text: String) -> Bool {
         text.hasPrefix("/") || text.hasPrefix("~/") || text.hasPrefix("./") || text.hasPrefix("../")
     }
@@ -165,6 +179,11 @@ public enum SandboxRefusal: Equatable, Sendable {
     }
 
     /// Whether real path `path` is a writable root or under one.
+    ///
+    /// - Parameters:
+    ///   - path: A real path.
+    ///   - roots: The writable roots, real paths.
+    /// - Returns: True when `path` is a root or lies under one, component-wise.
     static func inside(_ path: String, roots: [String]) -> Bool {
         roots.contains { root in path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/") }
     }

@@ -3,6 +3,9 @@ import Foundation
 /// Runs a risk classifier over labelled commands and reports how often it was right and how fast it
 /// was: the two things a classifier on every command must be
 /// ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
+///
+/// `wisp classifier measure` runs it and records the result in a version's manifest
+/// (``ClassifierStore/Manifest/Measured``).
 public enum RiskMeasurement {
     /// One classifier's result on a labelled set.
     public struct Report: Equatable, Sendable {
@@ -87,6 +90,11 @@ public enum RiskMeasurement {
     }
 
     /// The value at fraction `p` of sorted `values`, nearest rank; 0 for none.
+    ///
+    /// - Parameters:
+    ///   - values: Sorted ascending.
+    ///   - p: The fraction, 0 to 1.
+    /// - Returns: The value at that rank.
     static func percentile(_ values: [Double], _ p: Double) -> Double {
         guard !values.isEmpty else { return 0 }
         let rank = Int((p * Double(values.count)).rounded(.up)) - 1

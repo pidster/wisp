@@ -9,6 +9,10 @@ import Synchronization
 /// tool's result. Then the dialog is withdrawn, the question stays filed, and the turn parks: the thread's
 /// `InquiryBox` watches the channel and delivers the answer as a note to the thread's next turn. A cancelled call
 /// withdraws the question (`abandoned`).
+///
+/// It mirrors ``OutOfBandApprover``, with one difference: an approval holds its call until answered or timed
+/// out, while a question parks the turn after the hold, so an MCP `respond` call is never held longer than a
+/// minute by a question.
 public struct OutOfBandAsker: Asker {
     /// What the client's dialog came back with.
     public enum Leg: Equatable, Sendable {
@@ -22,6 +26,9 @@ public struct OutOfBandAsker: Asker {
     public typealias Ask = @Sendable (Question) async -> Leg
 
     /// How long the call holds the dialog before the turn parks (D15).
+    ///
+    /// Fixed rather than a setting: long enough for a person watching the client to answer inside the turn, and
+    /// well inside a client's tool-call timeout.
     public static let hold: Duration = .seconds(60)
 
     /// Where questions are filed.
@@ -79,6 +86,16 @@ public struct OutOfBandAsker: Asker {
 
     /// Files the question, notifies once, and waits for the first answer from the channel or the dialog within
     /// the hold; then parks.
+    ///
+    /// A deadline shorter than the hold ends the question as `unanswered` instead of parking. When the question
+    /// cannot be filed, the dialog alone asks, if there is one. Every ending but a park withdraws the filed
+    /// question; a park hands it to `box`, which keeps watching.
+    ///
+    /// - Parameters:
+    ///   - question: The validated question.
+    ///   - box: The asking thread's questions, which a park hands the question to.
+    ///   - audit: The thread's log.
+    /// - Returns: How it ended (`parked` when the hold lapsed), and where the person answered.
     public func ask(_ question: Question, box: InquiryBox, audit: AuditLog?) async -> Question.Reply {
         let ask = alongside()
         let pending = PendingApprovals.request(asking: question, client: client())
@@ -136,6 +153,14 @@ public struct OutOfBandAsker: Asker {
     }
 
     /// The race between the channel, the dialog when there is one, and the hold's clock.
+    ///
+    /// - Parameters:
+    ///   - pending: The filed request.
+    ///   - question: The question, for the dialog.
+    ///   - ask: The client's dialog, if any.
+    ///   - hold: How long to hold before parking.
+    ///   - audit: The thread's log, for a refused answer file.
+    /// - Returns: How the hold ended.
     private func race(
         _ pending: PendingApprovals.Request, question: Question, ask: Ask?, hold: Duration, audit: AuditLog?
     ) async -> Winner {
@@ -190,19 +215,29 @@ public struct OutOfBandAsker: Asker {
     final class Race: Sendable {
         /// The race's state.
         private struct State {
+            /// Who waits for the winner, until the race ends.
             var continuation: CheckedContinuation<Winner, Never>?
+            /// How it ended; nil while running.
             var result: Winner?
+            /// Legs still asking.
             var running = 0
+            /// Why each failed leg could not ask.
             var failures: [String] = []
+            /// The legs' tasks, cancelled when the race ends.
             var tasks: [Task<Void, Never>] = []
         }
 
+        /// The race's state, behind one lock: the legs settle it from their own tasks.
         private let state: Mutex<State>
 
         /// A race of `legs` legs, all counted before any starts.
+        ///
+        /// - Parameter legs: The number of ways of asking.
         init(legs: Int) { state = Mutex(State(running: legs)) }
 
-        /// Starts a leg.
+        /// Starts a leg; one started after the race ended is cancelled at once.
+        ///
+        /// - Parameter body: The leg, which settles or fails the race.
         func start(_ body: @escaping @Sendable () async -> Void) {
             let task = Task { await body() }
             let late = state.withLock { state -> Bool in
@@ -213,6 +248,8 @@ public struct OutOfBandAsker: Asker {
         }
 
         /// Ends the race with `winner`, unless it has ended; the legs are cancelled.
+        ///
+        /// - Parameter winner: How it ended.
         func settle(_ winner: Winner) {
             let (continuation, tasks) = state.withLock {
                 state -> (CheckedContinuation<Winner, Never>?, [Task<Void, Never>]) in
@@ -226,6 +263,8 @@ public struct OutOfBandAsker: Asker {
         }
 
         /// Records that a leg could not ask; when none is left, the race fails.
+        ///
+        /// - Parameter reason: Why the leg could not ask.
         func failed(_ reason: String) {
             let all = state.withLock { state -> [String]? in
                 state.failures.append(reason)
@@ -236,6 +275,8 @@ public struct OutOfBandAsker: Asker {
         }
 
         /// Waits for the winner.
+        ///
+        /// - Returns: How the race ended, at once when it already has.
         func winner() async -> Winner {
             await withCheckedContinuation { continuation in
                 let ready = state.withLock { state -> Winner? in

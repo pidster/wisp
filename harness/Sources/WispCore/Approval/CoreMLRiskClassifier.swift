@@ -4,6 +4,9 @@ import NaturalLanguage
 import Synchronization
 
 /// Which classifier judges commands before the approval gate asks a human.
+///
+/// `approval.classifier` in `config.json`. Whatever is chosen, the rules run too and the higher verdict wins
+/// (``CompositeRiskClassifier``), so a model can raise a verdict but never lower the rules'.
 public enum RiskClassifierChoice: String, Codable, Sendable, CaseIterable {
     /// The rule set only: fast and deterministic.
     case rules
@@ -21,11 +24,16 @@ public enum RiskClassifierChoice: String, Codable, Sendable, CaseIterable {
 /// A Core ML text classifier over the command line, run beside the rules
 /// ([ADR 0020](../../../../docs/decisions/0020-coreml-risk-classifier.md)).
 ///
-/// The model asset must follow contract version 1 (`Contract`): one string input named `text`, one
-/// string output named `label` whose values are wisp's risk levels, and creator metadata that says
+/// The model asset must follow a contract this build reads, version 1 or 2 (`Contract`): one string input named
+/// `text`, one string output named `label` whose values are wisp's risk levels, and creator metadata that says
 /// so. Anything else is rejected at load. Every failure, from a missing asset to an unknown label,
 /// reports `moderate` with the reason, so a broken classifier asks for approval rather than waving
 /// commands through; the rules still run beside it and the higher level wins.
+///
+/// It is the default classifier because it answers in under a millisecond however busy the Mac is, where the
+/// on-device language model took 2.5 s a verdict at the median (measured 2026-09-26)
+/// ([ADR 0041](../../../../docs/decisions/0041-shipped-classifier-is-the-default.md)). Its versions live in the
+/// ``ClassifierStore``.
 public struct CoreMLRiskClassifier: RiskClassifier {
     /// What a model asset must satisfy, and the preprocessing it can expect.
     public enum Contract {
@@ -67,6 +75,13 @@ public struct CoreMLRiskClassifier: RiskClassifier {
 
         /// Checks a loaded model's metadata and feature names against the contract.
         ///
+        /// Checked at load so a model built for something else fails loudly once, rather than giving verdicts
+        /// whose labels mean nothing.
+        ///
+        /// - Parameters:
+        ///   - metadata: The model's creator-defined metadata.
+        ///   - inputs: Its input feature names.
+        ///   - outputs: Its output feature names.
         /// - Returns: The contract version the model declares.
         /// - Throws: `Failure.wrongContract`, `Failure.wrongLabels`, or `Failure.wrongFeatures`.
         @discardableResult
@@ -137,16 +152,23 @@ public struct CoreMLRiskClassifier: RiskClassifier {
     public let url: URL?
     /// Below this top-label probability the verdict is raised to at least `moderate`.
     public let minimumConfidence: Double
+    /// The cached preparation and loaded model, shared by copies of this value.
     private let prepared = Slot()
 
     /// Holds the one-time preparation result, and the loaded model once the first verdict needs it:
     /// loading costs far more than a prediction, and a classifier runs on every command.
     private final class Slot: Sendable {
+        /// The preparation's outcome, success or failure, once tried.
         let result = Mutex<Result<Prepared, Failure>?>(nil)
+        /// The loaded model, once the first verdict needs it; predictions run under this lock, one at a time.
         let model = Mutex<NLModel?>(nil)
     }
 
     /// Creates a classifier over the asset at `url`; nothing is loaded until the first verdict.
+    ///
+    /// - Parameters:
+    ///   - url: The `.mlmodel` or `.mlmodelc`; nil reports `notConfigured` on every verdict.
+    ///   - minimumConfidence: The top-label probability below which a verdict is raised to `moderate` at least.
     public init(url: URL?, minimumConfidence: Double = 0.6) {
         self.url = url
         self.minimumConfidence = minimumConfidence
@@ -154,6 +176,7 @@ public struct CoreMLRiskClassifier: RiskClassifier {
 
     /// Compiles the asset if it is a source `.mlmodel`, loads it once, and checks the contract.
     ///
+    /// - Parameter url: The asset; `~` is expanded.
     /// - Returns: The prepared model.
     /// - Throws: `Failure`.
     public static func prepare(_ url: URL?) throws -> Prepared {
@@ -187,7 +210,10 @@ public struct CoreMLRiskClassifier: RiskClassifier {
             version: (version?.isEmpty == false) ? version ?? "unversioned" : "unversioned", contract: contract)
     }
 
-    /// The prepared model, preparing it on first use and remembering the outcome either way.
+    /// The prepared model, preparing it on first use and remembering the outcome either way, so a broken asset is
+    /// not compiled again on every command.
+    ///
+    /// - Returns: The prepared model, or why it could not be prepared.
     private func preparedModel() -> Result<Prepared, Failure> {
         prepared.result.withLock { cached in
             if let cached { return cached }
@@ -205,6 +231,15 @@ public struct CoreMLRiskClassifier: RiskClassifier {
     }
 
     /// Classifies with the model; every failure is a `moderate` verdict that says why.
+    ///
+    /// A failure also sets ``RiskAssessment/failureKey`` in the metadata, so the timing wrapper, the cache, the
+    /// measurements, and training from the audit can tell a fallback from a verdict. The label, confidence, model,
+    /// version, and contract go in the metadata too.
+    ///
+    /// - Parameters:
+    ///   - command: The simple command.
+    ///   - workingDirectory: Not read: the model sees the command alone.
+    /// - Returns: The model's level, raised to `moderate` below ``minimumConfidence``; or `moderate` on failure.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         let prepared: Prepared
         switch preparedModel() {

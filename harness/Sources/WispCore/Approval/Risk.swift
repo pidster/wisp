@@ -3,6 +3,10 @@ import FoundationModels
 import Synchronization
 
 /// How risky an action is, from a human's point of view.
+///
+/// Three levels ([ADR 0011](../../../../docs/decisions/0011-risk-classifier-and-approval.md); examples of each in
+/// `docs/approval.md`). `@Generable` so the model classifier can produce one directly; `Comparable` is added in an
+/// extension because `@Generable` rejects extra conformances on the declaration.
 @Generable
 public enum RiskLevel: String, Sendable, CaseIterable, Codable {
     /// Read-only, or reversible within the working directory.
@@ -19,6 +23,7 @@ extension RiskLevel: Comparable {
         lhs.rank < rhs.rank
     }
 
+    /// The level's position in severity order, from 0 for `safe`.
     private var rank: Int {
         switch self {
         case .safe: 0
@@ -29,6 +34,9 @@ extension RiskLevel: Comparable {
 }
 
 /// A classifier's opinion of an action.
+///
+/// What every ``RiskClassifier`` returns and ``ApprovalGate`` decides on; it is recorded whole in the
+/// `classifier.verdict` audit event, and its reasons are what the person is shown when asked.
 public struct RiskAssessment: Equatable, Sendable {
     /// The level; when classifiers disagree, the highest wins.
     public var level: RiskLevel
@@ -41,6 +49,12 @@ public struct RiskAssessment: Equatable, Sendable {
     public var metadata: [String: JSONValue]
 
     /// Creates an assessment.
+    ///
+    /// - Parameters:
+    ///   - level: The level.
+    ///   - reasons: One short sentence per signal.
+    ///   - sources: Which classifier produced it (`rules`, `model`, `coreml`).
+    ///   - metadata: Classifier-specific facts for the audit.
     public init(level: RiskLevel, reasons: [String], sources: [String], metadata: [String: JSONValue] = [:]) {
         self.level = level
         self.reasons = reasons
@@ -49,6 +63,11 @@ public struct RiskAssessment: Equatable, Sendable {
     }
 
     /// The more severe of two assessments, with reasons, sources, and metadata merged.
+    ///
+    /// Taking the higher level means a second classifier can only raise a verdict, never lower it.
+    ///
+    /// - Parameter other: The other assessment; its metadata wins on a shared key.
+    /// - Returns: The merged assessment.
     public func merged(with other: RiskAssessment) -> RiskAssessment {
         RiskAssessment(
             level: max(level, other.level), reasons: reasons + other.reasons, sources: sources + other.sources,
@@ -74,21 +93,37 @@ extension RiskAssessment {
 public protocol RiskClassifier: Sendable {
     /// Assesses `command` as it would run in `workingDirectory`. Never throws: a
     /// classifier that cannot decide reports a conservative level with a reason.
+    ///
+    /// - Parameters:
+    ///   - command: One simple command, or a whole line when the gate judges the line.
+    ///   - workingDirectory: Where it would run.
+    /// - Returns: The assessment.
     func classify(command: String, workingDirectory: String) async -> RiskAssessment
 }
 
 /// Takes the highest verdict across several classifiers, in order, stopping at a verdict that is known
 /// safe (`RiskAssessment.isKnownSafe`), so the rules, listed first, spare the model the commands they
 /// know to be read-only.
+///
+/// The model can only raise the rules' level, never lower it, and the rules cover the model's weak spots
+/// ([ADR 0011](../../../../docs/decisions/0011-risk-classifier-and-approval.md)).
 public struct CompositeRiskClassifier: RiskClassifier {
+    /// The classifiers, in the order they run; the rules first.
     private let classifiers: [any RiskClassifier]
 
     /// Creates a composite; an empty list assesses everything as safe.
+    ///
+    /// - Parameter classifiers: The classifiers, rules first.
     public init(_ classifiers: [any RiskClassifier]) {
         self.classifiers = classifiers
     }
 
     /// Runs every classifier and merges.
+    ///
+    /// - Parameters:
+    ///   - command: The command.
+    ///   - workingDirectory: Where it would run.
+    /// - Returns: The highest verdict, with every reason; the rules' alone for a known-safe command.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         var result = RiskAssessment(level: .safe, reasons: [], sources: [])
         for classifier in classifiers {
@@ -105,8 +140,11 @@ public struct CompositeRiskClassifier: RiskClassifier {
 /// which no model judged, is not recorded. The verdict passes
 /// through unchanged.
 public struct TimedRiskClassifier: RiskClassifier {
+    /// The classifier timed.
     private let classifier: any RiskClassifier
+    /// Its name in `/stats`.
     private let name: String
+    /// Where calls are recorded.
     private let stats: CallStats
 
     /// Creates the wrapper.
@@ -122,6 +160,11 @@ public struct TimedRiskClassifier: RiskClassifier {
     }
 
     /// Classifies with the wrapped classifier and records how long it took.
+    ///
+    /// - Parameters:
+    ///   - command: The command.
+    ///   - workingDirectory: Where it would run.
+    /// - Returns: The wrapped classifier's assessment, unchanged.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         let started = Date()
         let assessment = await classifier.classify(command: command, workingDirectory: workingDirectory)
@@ -141,17 +184,26 @@ public struct TimedRiskClassifier: RiskClassifier {
 /// decides and asks by the level as before. A fallback verdict (`RiskAssessment.failureKey`) is never
 /// kept, so a transient failure is retried. Bounded: the oldest entry goes first once `capacity` is
 /// reached. A reused verdict carries `classifier.cached` in its metadata.
+///
+/// A `final class` with a `Mutex` because the lookup and the store are short synchronous sections; the lock is not
+/// held across the wrapped classifier's call, so two calls for the same new line may both classify it.
 public final class CachingRiskClassifier: RiskClassifier {
     /// The metadata key a reused verdict carries.
     public static let cachedKey = "classifier.cached"
 
+    /// The kept verdicts and the order they were first kept in.
     private struct State {
+        /// Verdicts by line and directory.
         var verdicts: [String: RiskAssessment] = [:]
+        /// Keys, oldest first, for eviction.
         var order: [String] = []
     }
 
+    /// The classifier whose verdicts are kept.
     private let classifier: any RiskClassifier
+    /// The most verdicts kept.
     private let capacity: Int
+    /// The cache, behind one lock.
     private let state = Mutex(State())
 
     /// Creates the cache.
@@ -165,6 +217,11 @@ public final class CachingRiskClassifier: RiskClassifier {
     }
 
     /// The kept verdict for this line and directory, or a fresh one, kept unless it is a fallback.
+    ///
+    /// - Parameters:
+    ///   - command: The command.
+    ///   - workingDirectory: Where it would run; part of the key.
+    /// - Returns: The verdict, marked `classifier.cached` when reused.
     public func classify(command: String, workingDirectory: String) async -> RiskAssessment {
         let key = command + "\u{0}" + workingDirectory
         if var kept = state.withLock({ $0.verdicts[key] }) {

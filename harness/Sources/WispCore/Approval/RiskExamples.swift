@@ -9,6 +9,10 @@ public struct RiskExample: Equatable, Sendable {
     public var level: RiskLevel
 
     /// Creates an example.
+    ///
+    /// - Parameters:
+    ///   - command: The command line.
+    ///   - level: The level it should be rated.
     public init(command: String, level: RiskLevel) {
         self.command = command
         self.level = level
@@ -17,6 +21,9 @@ public struct RiskExample: Equatable, Sendable {
 
 /// Labelled commands in wisp's text format: one per line, `level<TAB>command`, with `#` comments and
 /// blank lines ignored ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
+///
+/// The format of the sets under `training/` and of `Resources/risk-examples.tsv`, which
+/// `scripts/check classifier-default` copies from `training/risk/train.tsv`.
 public enum RiskExamples {
     /// A line that is not a labelled command.
     public struct Problem: Error, CustomStringConvertible, Equatable {
@@ -35,6 +42,8 @@ public enum RiskExamples {
 
     /// Parses labelled lines.
     ///
+    /// - Parameter text: The file's text.
+    /// - Returns: The examples, in order.
     /// - Throws: `Problem` for the first line that has no tab, an unknown level, or no command.
     public static func parse(_ text: String) throws -> [RiskExample] {
         var examples: [RiskExample] = []
@@ -61,7 +70,7 @@ public enum RiskExamples {
 
     /// What the audit log yielded for training.
     public struct Harvest: Equatable, Sendable {
-        /// One example per distinct command, labelled by the model's verdict, latest first seen last.
+        /// One example per distinct command, in the order each was first seen, labelled by its latest verdict.
         public var examples: [RiskExample]
         /// Model verdicts read, repeats included.
         public var verdicts: Int
@@ -116,11 +125,24 @@ public enum RiskExamples {
     }
 
     /// The command a verdict or a refusal is about, in its session and turn.
+    ///
+    /// A refusal raises only the verdicts on the same command in the same turn, not every use of it.
+    ///
+    /// - Parameter event: A `classifier.verdict` or `approval.decided` event.
+    /// - Returns: The key.
     private static func refusalKey(_ event: AuditEvent) -> String {
         "\(event.session)|\(event.turn ?? -1)|\(event.details["command"]?.stringValue ?? "")"
     }
 
     /// `base` with `additions` merged in: an addition for a command already in `base` replaces it.
+    ///
+    /// Commands are compared as contract 1 preprocesses them, so spacing alone does not make two commands
+    /// different.
+    ///
+    /// - Parameters:
+    ///   - base: The examples to start from.
+    ///   - additions: The examples that win.
+    /// - Returns: `base` without the replaced commands, then `additions`.
     public static func merged(_ base: [RiskExample], with additions: [RiskExample]) -> [RiskExample] {
         let key = { (example: RiskExample) in CoreMLRiskClassifier.Contract.preprocess(example.command, version: "1") }
         let replaced = Set(additions.map(key))
@@ -129,6 +151,8 @@ public enum RiskExamples {
 
     /// Reads and parses a file of labelled lines.
     ///
+    /// - Parameter url: The file.
+    /// - Returns: The examples.
     /// - Throws: A read error, or `Problem`.
     public static func load(_ url: URL) throws -> [RiskExample] {
         try parse(String(contentsOf: url, encoding: .utf8))

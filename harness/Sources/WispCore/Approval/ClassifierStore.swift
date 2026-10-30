@@ -8,6 +8,11 @@ import Foundation
 /// A version is named `<wisp version>-default` for the shipped one and `<wisp version>-local.<n>` for
 /// those trained here, and referred to as `risk@<version>`. Each directory holds `model.mlmodel`,
 /// read-only, and `manifest.json`: what it was trained from and every measurement taken of it.
+///
+/// Versions are kept rather than replaced because retraining once overwrote the model the gate used, silently,
+/// with no history and no way back, and Create ML's training was not then repeatable. The configuration names a
+/// version as `risk@<version>` in `approval.coremlModel`; `wisp classifier` is the CLI over the store, and
+/// ``CoreMLRiskClassifier`` loads the version a session uses.
 public struct ClassifierStore: Sendable {
     /// The task every version here serves.
     public static let task = "risk"
@@ -58,6 +63,10 @@ public struct ClassifierStore: Sendable {
             public var holdsTheHardRequirement: Bool
 
             /// A measurement from a report taken now.
+            ///
+            /// - Parameters:
+            ///   - report: What ``RiskMeasurement`` found.
+            ///   - examplesSource: The labelled commands it was measured on.
             public init(_ report: RiskMeasurement.Report, examplesSource: String) {
                 date = Date().ISO8601Format()
                 self.examplesSource = examplesSource
@@ -99,11 +108,16 @@ public struct ClassifierStore: Sendable {
     public let root: URL
 
     /// A store under `home`.
+    ///
+    /// - Parameter home: wisp's home; the store is its `classifiers/risk`.
     public init(home: Home) {
         root = home.root.appending(path: "classifiers").appending(path: Self.task)
     }
 
     /// The version name of the default that ships with `wispVersion`.
+    ///
+    /// - Parameter wispVersion: A wisp version; this build's by default.
+    /// - Returns: `<wispVersion>-default`.
     public static func defaultVersion(_ wispVersion: String = WispVersion.current) -> String {
         "\(wispVersion)-default"
     }
@@ -111,6 +125,9 @@ public struct ClassifierStore: Sendable {
     /// The version a `risk@<version>` reference names, or nil for anything else (a path, a file name).
     /// A malformed version (`risk@../../x`, one with a `/`) is not a reference: it would name a directory
     /// outside the store.
+    ///
+    /// - Parameter reference: A configuration value, such as `risk@0.12.0-local.1`.
+    /// - Returns: The version, or nil.
     public static func version(of reference: String) -> String? {
         let prefix = "\(task)@"
         guard reference.hasPrefix(prefix), reference.count > prefix.count else { return nil }
@@ -119,13 +136,19 @@ public struct ClassifierStore: Sendable {
     }
 
     /// Whether `version` can name a directory in the store and nothing outside it: letters, digits, `.`, `_`,
-    /// `+`, and `-`, not starting with `.`, and without `..` or `/`.
+    /// `+`, and `-`, not starting with `.`, and without `..` or `/`, at most 128 characters.
+    ///
+    /// - Parameter version: The name to check.
+    /// - Returns: True when it is safe to use as a directory name in the store.
     public static func isValidVersion(_ version: String) -> Bool {
         !version.isEmpty && version.count <= 128 && !version.hasPrefix(".") && !version.contains("..")
             && version.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._+-".contains($0)) }
     }
 
     /// The reference for `version`, as config names it.
+    ///
+    /// - Parameter version: The version.
+    /// - Returns: `risk@<version>`.
     public static func reference(_ version: String) -> String { "\(task)@\(version)" }
 
     /// Labelled commands kept out of every training run on this Mac: a test set of commands actually run
@@ -135,6 +158,14 @@ public struct ClassifierStore: Sendable {
 
     /// `examples` without any that overlap `heldOut` (exactly, after normalising, by family, or by near
     /// match), and how many were left out.
+    ///
+    /// The comparison is ``TrainingSplit/overlaps(_:_:)``'s, so a near copy of a held-out command cannot leak
+    /// into training and inflate the held-out measurement.
+    ///
+    /// - Parameters:
+    ///   - examples: The training examples.
+    ///   - extra: Other held-out files to keep out as well; missing ones are skipped.
+    /// - Returns: The examples kept, and the number removed.
     public func withoutHeldOut(_ examples: [RiskExample], also extra: [URL] = []) -> (kept: [RiskExample], removed: Int)
     {
         let files = ([heldOut] + extra).filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -148,12 +179,20 @@ public struct ClassifierStore: Sendable {
     }
 
     /// The directory of `version`.
+    ///
+    /// - Parameter version: A valid version name.
+    /// - Returns: `<root>/<version>`.
     public func directory(_ version: String) -> URL { root.appending(path: version) }
 
     /// The model file of `version`.
+    ///
+    /// - Parameter version: A valid version name.
+    /// - Returns: The version's `model.mlmodel`.
     public func model(_ version: String) -> URL { directory(version).appending(path: "model.mlmodel") }
 
     /// Every version with a manifest, the default first, then newest last.
+    ///
+    /// - Returns: The manifests, ordered by creation then name after any default.
     public func versions() -> [Manifest] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         let manifests = names.compactMap { manifest($0) }
@@ -166,6 +205,9 @@ public struct ClassifierStore: Sendable {
     }
 
     /// The manifest of `version`, or nil.
+    ///
+    /// - Parameter version: The version; an invalid name gives nil without touching the disk.
+    /// - Returns: The manifest, or nil when it is missing or unreadable.
     public func manifest(_ version: String) -> Manifest? {
         guard Self.isValidVersion(version) else { return nil }
         let url = directory(version).appending(path: "manifest.json")
@@ -173,7 +215,10 @@ public struct ClassifierStore: Sendable {
     }
 
     /// The name the next version trained by `wispVersion` gets: `<wisp version>-local.<n>`, one past
-    /// the highest `n` any version has.
+    /// the highest `n` any version has, whichever wisp trained it, so the numbers never repeat.
+    ///
+    /// - Parameter wispVersion: The training wisp's version; this build's by default.
+    /// - Returns: The version name.
     public func nextLocalVersion(_ wispVersion: String = WispVersion.current) -> String {
         let highest =
             versions().compactMap { manifest in
@@ -184,15 +229,22 @@ public struct ClassifierStore: Sendable {
     }
 
     /// SHA-256 of examples, as `Manifest.examplesDigest` records it.
+    ///
+    /// - Parameter examples: The examples, in training order.
+    /// - Returns: The lowercase hex digest.
     public static func digest(_ examples: [RiskExample]) -> String {
         let text = examples.map { "\($0.level.rawValue)\t\($0.command)" }.joined(separator: "\n")
         return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Adds a version: moves the trained model into its directory, makes it read-only, and writes the
-    /// manifest, which later gains only measurements. An existing version is never replaced.
+    /// manifest, which later gains only measurements. An existing version is never replaced: the directory is
+    /// created without intermediates, which fails when it is already there.
     ///
-    /// - Throws: A file-system error, including when the version exists.
+    /// - Parameters:
+    ///   - model: The trained `.mlmodel`, moved into the store.
+    ///   - manifest: Its manifest, which names the version.
+    /// - Throws: `Failure.invalidVersion`, or a file-system error, including when the version exists.
     public func add(model: URL, manifest: Manifest) throws {
         guard Self.isValidVersion(manifest.version) else { throw Failure.invalidVersion(manifest.version) }
         let dir = directory(manifest.version)
@@ -205,6 +257,9 @@ public struct ClassifierStore: Sendable {
     }
 
     /// Writes a manifest, replacing the old one; only measurements are ever added to it afterwards.
+    ///
+    /// - Parameter manifest: The manifest, written atomically to its version's `manifest.json`.
+    /// - Throws: An encoding or file-system error.
     func write(_ manifest: Manifest) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -214,6 +269,9 @@ public struct ClassifierStore: Sendable {
 
     /// Records a measurement in `version`'s manifest.
     ///
+    /// - Parameters:
+    ///   - measured: The measurement.
+    ///   - version: The version measured.
     /// - Throws: `Failure.unknownVersion`, or a file-system error.
     public func record(_ measured: Manifest.Measured, for version: String) throws {
         guard var manifest = manifest(version) else { throw Failure.unknownVersion(version) }
@@ -221,7 +279,8 @@ public struct ClassifierStore: Sendable {
         try write(manifest)
     }
 
-    /// Removes a local version.
+    /// Removes a local version. The shipped default and the version the configuration names are protected, so a
+    /// session never loses its classifier.
     ///
     /// - Parameters:
     ///   - version: The version.
@@ -235,6 +294,8 @@ public struct ClassifierStore: Sendable {
     }
 
     /// Trains a new version from `examples` and adds it, never replacing one.
+    ///
+    /// The model is trained into a temporary file, then moved into the store with its manifest.
     ///
     /// - Parameters:
     ///   - examples: What to learn from; every level must appear.
@@ -262,7 +323,8 @@ public struct ClassifierStore: Sendable {
     }
 
     /// Writes the default shipped with this build into the store if it is not there yet, from
-    /// `ShippedClassifier`; nothing is written when the build carries none.
+    /// `ShippedClassifier`; nothing is written when the build carries none. Called when a session or
+    /// `wisp classifier` first needs it.
     ///
     /// - Returns: The default's version, or nil when this build ships none.
     /// - Throws: A file-system error.
@@ -280,22 +342,30 @@ public struct ClassifierStore: Sendable {
 
 /// The default risk classifier this build ships: trained once when the release is prepared, measured by
 /// the eval, and embedded from `Resources/risk-default.json` (the manifest and the model, base64).
+///
+/// It is the default classifier ([ADR 0041](../../../../docs/decisions/0041-shipped-classifier-is-the-default.md)),
+/// installed into the ``ClassifierStore`` as `risk@<version>-default` by ``ClassifierStore/installDefault()``.
 public struct ShippedClassifier: Sendable {
     /// What it records about itself.
     public var manifest: ClassifierStore.Manifest
     /// The `.mlmodel` bytes.
     public var model: Data
 
-    /// The embedded default, or nil when the resource is empty or not for this build's version.
+    /// The embedded default, or nil when the resource is empty or malformed.
     public static let current: ShippedClassifier? = decode(RiskDefaultText.text)
 
     /// The resource's shape.
     struct Resource: Codable {
+        /// The shipped version's manifest.
         var manifest: ClassifierStore.Manifest
+        /// The `.mlmodel` bytes, base64.
         var model: String
     }
 
     /// Reads the resource; nil when it is empty or malformed.
+    ///
+    /// - Parameter text: The resource's JSON.
+    /// - Returns: The classifier, or nil.
     static func decode(_ text: String) -> ShippedClassifier? {
         guard let resource = try? JSONDecoder().decode(Resource.self, from: Data(text.utf8)),
             let model = Data(base64Encoded: resource.model)
@@ -304,6 +374,12 @@ public struct ShippedClassifier: Sendable {
     }
 
     /// The resource text for a trained model and its manifest, as `wisp classifier ship` writes it.
+    ///
+    /// - Parameters:
+    ///   - manifest: The version's manifest.
+    ///   - model: The `.mlmodel` bytes.
+    /// - Returns: The JSON, with a trailing newline.
+    /// - Throws: An encoding error.
     public static func resource(manifest: ClassifierStore.Manifest, model: Data) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
