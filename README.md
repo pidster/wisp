@@ -273,6 +273,7 @@ that matches your question.
 | Know how each model backend works: windows, capabilities, errors | [backends.md](docs/backends.md) |
 | Connect it to another harness over MCP | [mcp.md](docs/mcp.md) |
 | Know what it can do to your Mac, what it remembers, and how to undo | [trust.md](docs/trust.md) |
+| Report a security vulnerability privately | [SECURITY.md](SECURITY.md) |
 | Know how commands are confined and when you are asked | [tools/run_command.md](docs/tools/run_command.md), [approval.md](docs/approval.md) |
 | Know what the model carries in a long conversation: facts, the summary, references, condensing | [context-management.md](docs/context-management.md), [tools/memory.md](docs/tools/memory.md) |
 | Read or query the audit log, or debug wisp itself | [logging.md](docs/logging.md) |
