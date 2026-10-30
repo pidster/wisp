@@ -94,12 +94,16 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     public var thinkingBudget: [String: Int]
     /// What `config.json` declares each model can do (`llamacpp.models.<name>`), by the operator or wisp's check.
     public var declared: [String: Config.MLXModelConfig]
+    /// Whose server this is, for llama.cpp (`llamacpp.server`, ADR 0082); `off` for LM Studio, which has no choice.
+    public var server: LlamaCppServer
+    /// Where Llama.app is looked for under `llama-app`, so a test need not depend on the Mac it runs on.
+    public var llamaApp: LlamaApp
 
     /// Creates settings.
     public init(
         baseURL: URL, timeout: Duration = .seconds(120), apiKey: String? = nil, apiKeySource: String? = nil,
         think: OllamaThink? = nil, thinkingBudget: [String: Int] = defaultThinkingBudget,
-        declared: [String: Config.MLXModelConfig] = [:]
+        declared: [String: Config.MLXModelConfig] = [:], server: LlamaCppServer = .off, llamaApp: LlamaApp = .standard
     ) {
         self.baseURL = baseURL
         self.timeout = timeout
@@ -108,6 +112,17 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
         self.think = think
         self.thinkingBudget = thinkingBudget
         self.declared = declared
+        self.server = server
+        self.llamaApp = llamaApp
+    }
+
+    /// What to do when nothing answers at `baseURL`: the runtime's own way to start a server, or, under
+    /// `llamacpp.server llama-app`, to start Llama.app or that it is not installed.
+    ///
+    /// - Parameter dialect: The runtime.
+    /// - Returns: The hint.
+    func startHint(for dialect: OpenAICompatibleDialect) -> String {
+        dialect == .llamaCpp && server == .llamaApp ? llamaApp.startHint : dialect.startHint
     }
 
     /// The budgets a level thinks within when `llamacpp.thinkingBudget` does not set its own: `low` 1,024 tokens,
@@ -135,14 +150,16 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     ) -> OpenAICompatibleSettings {
         let fromEnvironment = environment[dialect.apiKeyVariable].flatMap { $0.isEmpty ? nil : $0 }
         let fromFile = section?.apiKey.flatMap { $0.isEmpty ? nil : $0 }
+        // Whose server is llama.cpp's choice alone; an explicit `baseURL` wins over the port the choice implies.
+        let server = dialect == .llamaCpp ? section?.server ?? .off : .off
         return OpenAICompatibleSettings(
-            baseURL: section?.baseURL.flatMap(URL.init(string:)) ?? dialect.defaultBaseURL,
+            baseURL: section?.baseURL.flatMap(URL.init(string:)) ?? server.defaultBaseURL ?? dialect.defaultBaseURL,
             timeout: .seconds(section?.timeoutSeconds ?? 120), apiKey: fromEnvironment ?? fromFile,
             apiKeySource: fromEnvironment != nil ? dialect.apiKeyVariable : "config.json",
             think: dialect.takesThink ? section?.think : nil,
             thinkingBudget: defaultThinkingBudget.merging(section?.thinkingBudget ?? [:]) { _, configured in configured
             },
-            declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:])
+            declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:], server: server)
     }
 
     /// Whether a key is set and where from, never the key: `set (WISP_LLAMACPP_API_KEY)`, `unset`.

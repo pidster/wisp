@@ -142,6 +142,12 @@ public enum ConfigSettings {
                 summary:
                     "whether a model that can think is asked to: true, false, or a level; unset leaves it to the model",
                 kind: .choice(OllamaThink.choices)),
+            Setting(
+                path: "llamacpp.server",
+                summary:
+                    "whose llama.cpp server wisp uses: off, one you start at llamacpp.baseURL; llama-app, Llama.app's "
+                    + "(no key, open to any web page); wisp, its own (not built yet)",
+                kind: .choice(LlamaCppServer.allCases.map(\.rawValue))),
             Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
             Setting(
                 path: "llamacpp.think",
@@ -322,6 +328,7 @@ public enum ConfigSettings {
         case "ollama.baseURL": return .string(d.ollama.baseURL.absoluteString)
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
+        case "llamacpp.server": return .string(d.llamacpp.server.rawValue)
         case "llamacpp.baseURL": return .string(d.llamacpp.baseURL.absoluteString)
         case "llamacpp.think": return d.llamacpp.think.map { .string($0.text) } ?? .string("the template's default")
         case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)
@@ -602,8 +609,36 @@ public enum ConfigEdit {
                 + "'wisp classifier list' shows the versions you can choose"
         case ("audit.enabled", _, false):
             return "nothing will be recorded in the audit log from the next session on"
+        case ("llamacpp.server", let choice?, _):
+            guard let server = LlamaCppServer(rawValue: choice) else { return nil }
+            return serverWarning(server, baseURLSet: value(at: ["llamacpp", "baseURL"], in: .object(edited)) != nil)
         default:
             return nil
+        }
+    }
+
+    /// What choosing `server` means: for `llama-app` that its server is open to every
+    /// process and web page, and whether `llamacpp.baseURL` overrides its port; for `wisp`, that it is not built yet.
+    ///
+    /// - Parameters:
+    ///   - server: The choice.
+    ///   - baseURLSet: Whether `llamacpp.baseURL` is set.
+    /// - Returns: The warning; nil for `off`, today's behaviour.
+    static func serverWarning(_ server: LlamaCppServer, baseURLSet: Bool) -> String? {
+        switch server {
+        case .off:
+            return nil
+        case .wisp:
+            return LlamaCppServer.notBuilt
+        case .llamaApp:
+            let port =
+                baseURLSet
+                ? "llamacpp.baseURL is set, so wisp connects there rather than to Llama.app's port "
+                    + "\(LlamaCppServer.llamaAppPort); "
+                : ""
+            return "\(server.effect); \(port)Llama.app's server has no API key and answers any origin, so any process "
+                + "on this Mac and any web page you open can use its models; wisp doctor says whether it is installed "
+                + "and answers"
         }
     }
 

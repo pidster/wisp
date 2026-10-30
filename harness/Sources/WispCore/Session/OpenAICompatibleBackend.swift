@@ -30,9 +30,12 @@ public struct OpenAICompatibleBackend: ModelBackend {
         -> ModelRemoval
     {
         let reason =
-            dialect == .llamaCpp
-            ? "llama.cpp serves the GGUF file llama-server was started with; delete that file yourself"
-            : "\(dialect.runtime) keeps its own models; remove it there (LM Studio: My Models)"
+            switch (dialect, config.llamacpp.server) {
+            case (.llamaCpp, .llamaApp): "Llama.app keeps its own models; remove it there"
+            case (.llamaCpp, _):
+                "llama.cpp serves the GGUF file llama-server was started with; delete that file yourself"
+            default: "\(dialect.runtime) keeps its own models; remove it there (LM Studio: My Models)"
+            }
         throw ModelRemoval.Failure.notWisps(model: "\(scheme):\(name)", reason: reason)
     }
 
@@ -68,8 +71,8 @@ public struct OpenAICompatibleBackend: ModelBackend {
         }
     }
 
-    /// Base URL, timeout, whether a key is set (never the key), and `think` and the thinking budgets for llama.cpp,
-    /// with each model's own `think`.
+    /// Base URL, timeout, whether a key is set (never the key), and, for llama.cpp, whose server it is (`server`),
+    /// `think`, and the thinking budgets, with each model's own `think`.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
         let settings = config[server: dialect]
         var values: [String: JSONValue] = [
@@ -78,6 +81,7 @@ public struct OpenAICompatibleBackend: ModelBackend {
             "apiKey": .string(settings.apiKeyState),
             "contextLength": .string("reported by the server (ADR 0058)"),
         ]
+        if dialect == .llamaCpp { values["server"] = .string(settings.server.rawValue) }
         if dialect.takesThink {
             values["think"] = settings.think.map { .string($0.text) } ?? .string("unset")
             values["thinkingBudget"] = .object(

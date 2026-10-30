@@ -117,7 +117,7 @@ public struct ModelFallback: Equatable, Sendable {
         let when =
             switch model.backend {
             case "ollama": "once Ollama is running"
-            case "llamacpp": "once llama-server is running"
+            case "llamacpp": "once its llama.cpp server is running"
             case "lmstudio": "once LM Studio's server is running"
             default: "once it is available"
             }

@@ -64,7 +64,7 @@ enum ThinkingBudgetCheck {
     static func probe(_ settings: OpenAICompatibleSettings) async -> Doctor.Finding? {
         let quick = OpenAICompatibleSettings(
             baseURL: settings.baseURL, timeout: .seconds(2), apiKey: settings.apiKey,
-            apiKeySource: settings.apiKeySource)
+            apiKeySource: settings.apiKeySource, server: settings.server, llamaApp: settings.llamaApp)
         guard let propsData = try? await OpenAICompatibleModel.get("props", dialect: .llamaCpp, settings: quick),
             let props = try? JSONDecoder().decode(JSONValue.self, from: propsData),
             OpenAICompatibleModel.Props(props).thinks

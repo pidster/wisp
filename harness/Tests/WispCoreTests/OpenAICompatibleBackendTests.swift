@@ -171,8 +171,86 @@ extension OpenAICompatibleExecutorTests {
         // Chat's fallback note says what to start.
         let note = ModelFallback(model: .local(backend: dialect.scheme, name: "m"), reason: "down").message
         #expect(
-            note.hasSuffix(dialect == .llamaCpp ? "once llama-server is running" : "once LM Studio's server is running")
+            note.hasSuffix(
+                dialect == .llamaCpp ? "once its llama.cpp server is running" : "once LM Studio's server is running")
         )
+    }
+
+    // MARK: - Whose llama.cpp server (ADR 0082)
+
+    @Test func underLlamaAppAnUnavailableServerSaysToStartLlamaAppOrThatItIsMissing() async throws {
+        let installed = try LlamaCppServerTests.bundle(LlamaApp.bundleIdentifier)
+        var config = Config(llamacpp: .init(baseURL: "http://down.fakeserver:1", server: .llamaApp)).resolved
+        config.llamacpp.llamaApp = LlamaApp(candidates: [installed])
+        func failure() -> String {
+            do {
+                _ = try ModelSelection.local(backend: "llamacpp", name: "ggml-org/gemma-4-E4B-it-GGUF:Q8_0")
+                    .resolve(config: config)
+                return "resolved"
+            } catch {
+                return "\(error)"
+            }
+        }
+        let running = failure()
+        #expect(running.contains("no llama.cpp server at http://down.fakeserver:1"), "\(running)")
+        #expect(running.contains("start Llama.app") && !running.contains("llama-server -m"), "\(running)")
+        config.llamacpp.llamaApp = LlamaApp(candidates: [
+            installed.deletingLastPathComponent().appending(path: "No.app")
+        ])
+        let missing = failure()
+        #expect(missing.contains("Llama.app is not installed"), "\(missing)")
+        // The executor's hint is the settings' too.
+        let model = OpenAICompatibleModel(dialect: .llamaCpp, name: "m", settings: config.llamacpp)
+        #expect(model.executorConfiguration.startHint.hasPrefix("Llama.app is not installed"))
+        // Its removal points at Llama.app.
+        let removal = await #expect(throws: (any Error).self) {
+            _ = try await OpenAICompatibleBackend(.llamaCpp).removal(
+                "m", config: config, home: OfflineBackends.home, purgeCache: false)
+        }
+        #expect(removal.map { "\($0)" }?.contains("Llama.app keeps its own models") == true)
+    }
+
+    @Test func underLlamaAppTheModelsOfItsRouterAreListedAndResolved() async throws {
+        let host = "app.fakeserver"
+        FakeChatServer.serve(
+            host, "/v1/models",
+            #"{"object":"list","data":[{"id":"ggml-org/gemma-4-E4B-it-GGUF:Q8_0","object":"model","status":{"value":"unloaded"}}]}"#
+        )
+        FakeChatServer.serve(host, "/props", #"{"default_generation_settings":{"n_ctx":32768}}"#)
+        let config = Config(llamacpp: .init(baseURL: "http://\(host):1", server: .llamaApp)).resolved
+        let installed = try await OpenAICompatibleBackend(.llamaCpp).installed(
+            config: config, home: OfflineBackends.home)
+        #expect(installed.map(\.selection.description) == ["llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0"])
+        let model = try ModelSelection(parsing: "llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0").resolve(config: config)
+        #expect(model.contextSize == 32_768)
+        #expect(await Doctor.askLlamaCppServer(config.llamacpp) == .listed(1))
+        #expect(await Doctor.askLlamaCppServer(Self.llamaConfig.llamacpp) == nil, "off asks nothing")
+        let down = Config(llamacpp: .init(baseURL: "http://down.fakeserver:1", server: .llamaApp)).resolved
+        if case .failed = await Doctor.askLlamaCppServer(down.llamacpp) {
+        } else {
+            Issue.record("a down server answered")
+        }
+        #expect(
+            OpenAICompatibleBackend(.llamaCpp).settings(in: config, home: OfflineBackends.home).objectValue?["server"]
+                == "llama-app")
+    }
+
+    @Test func underWispEveryUseSaysItsServerIsNotBuiltAndAsksNothing() async throws {
+        // The fake serves a model here; under `wisp` it must not be asked.
+        let config = Config(llamacpp: .init(baseURL: "http://\(Self.llama):1", server: .wisp)).resolved
+        let before = FakeChatServer.requests.withLock { $0.count }
+        let resolving = #expect(throws: (any Error).self) {
+            _ = try ModelSelection.local(backend: "llamacpp", name: "Qwen3-8B-Q4_K_M").resolve(config: config)
+        }
+        #expect(resolving.map { "\($0)" }?.contains("is not built yet") == true)
+        let listing = await #expect(throws: (any Error).self) {
+            _ = try await OpenAICompatibleBackend(.llamaCpp).installed(config: config, home: OfflineBackends.home)
+        }
+        #expect(listing.map { "\($0)" }?.contains("arrives in a later stage of 0.33.0") == true)
+        #expect(await ThinkingBudgetCheck.probe(config.llamacpp) == nil)
+        #expect(FakeChatServer.requests.withLock { $0.count } == before)
+        // LM Studio is not touched by it.
+        #expect(try Self.resolved(.lmStudio, "qwen/qwen3-8b").contextSize == 32_768)
     }
 
     @Test func theListingNamesTheRuntimeAndAServersWindow() {

@@ -7,6 +7,17 @@ Notable changes in each release of wisp.
      version-bump commit renames it. -->
 
 
+## Unreleased
+
+Added:
+
+- `llamacpp.server`, whose llama.cpp server `llamacpp:` models use (ADR 0082): `off`, the default, a `llama-server`
+  you start, as before; `llama-app`, Llama.app's server on port 9931 (or `llamacpp.baseURL` when set), with
+  `wisp doctor` saying whether Llama.app is installed and its server answers, and warning that the server has no API
+  key and answers any web page; `wisp`, wisp's own server, accepted but not built yet, which every use says.
+  `wisp config set llamacpp.server` explains each. Llama.app's model names, such as
+  `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0`, work as given.
+
 ## 0.32.0
 
 Added:

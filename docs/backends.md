@@ -230,7 +230,8 @@ for what differs ([ADR 0058](decisions/0058-a-shared-http-executor.md)). What th
   window is condensed and retried, and so is one whose reply the server stops with `finish_reason` `length` when
   wisp asked no `max_tokens`: with no limit asked, `length` is the end of the window, not of the reply.
 - **Errors.** `no llama.cpp server at <url>: …; start one with llama-server -m <model.gguf>, or set
-  llamacpp.baseURL` (or the LM Studio equivalent) when nothing answers; `llama.cpp serves no model '<name>'; it
+  llamacpp.baseURL` (or the LM Studio equivalent, or, under `llamacpp.server llama-app`, to start Llama.app or that
+  it is not installed) when nothing answers; `llama.cpp serves no model '<name>'; it
   serves: …`; `… refused the request (HTTP 401): … set WISP_LLAMACPP_API_KEY, or llamacpp.apiKey in config.json`;
   `llama.cpp at <url> stopped before the reply was done (…); nothing of it was kept` when the stream ends before a
   choice finishes or `[DONE]` comes, or the connection is lost; `… sent nothing for N s (llamacpp.timeoutSeconds)`
@@ -264,6 +265,24 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
 { "model": "llamacpp:Qwen3-8B-Q4_K_M", "llamacpp": { "baseURL": "http://127.0.0.1:8080", "timeoutSeconds": 120 } }
 ```
 
+- **Whose server.** `llamacpp.server` chooses ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)):
+
+  | Value | What wisp does |
+  | --- | --- |
+  | `off` (the default) | Connects to `llamacpp.baseURL` (`http://127.0.0.1:8080`), a `llama-server` you start, and starts nothing, as before 0.33.0 |
+  | `llama-app` | Uses Llama.app's server and starts nothing; you add models in Llama.app |
+  | `wisp` | wisp's own server, started for the models it knows: arrives in a later stage of 0.33.0 and is not built yet. Accepted by `config.json`, and every use of a `llamacpp:` model, `wisp models`, and `wisp doctor` says so, asking the server nothing |
+
+  Llama.app (bundle identifier `app.llama.Llama`) runs llama.cpp's router on `127.0.0.1` port 9931, llama-server's own
+  default. It writes the port nowhere wisp could find (not in its defaults, its `models.ini`, or
+  `~/.config/llama/models.user.ini`; Llama.app 0.46.1, probed on 2026-10-29), so under `llama-app` wisp connects to
+  `http://127.0.0.1:9931` unless `llamacpp.baseURL` is set, which wins. Its server has no API key and answers any
+  origin, so any process on the Mac and any web page you open can use its models: wisp says so when the setting is
+  chosen and in `wisp doctor`'s `llama.cpp server` finding, which also says whether Llama.app is installed (in
+  `/Applications` or `~/Applications`) and whether its server answers, rather than refusing it. It names models by
+  their Hugging Face repository and quantisation, `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0`, which wisp takes as
+  given (the scheme ends at the first colon). Removing such a model is Llama.app's to do. The setting is llama.cpp's
+  alone: `lmstudio.server` is refused as `config.json` loads.
 - **Names.** `/v1/models` lists the model by the `-m` path or the `--alias` given; a path is named by its file's
   name without `.gguf` (`llamacpp:Qwen3-8B-Q4_K_M`), and the path itself is accepted too. A router serving several
   models (`--models-dir`) lists each, and wisp asks `/props` about the one it uses.

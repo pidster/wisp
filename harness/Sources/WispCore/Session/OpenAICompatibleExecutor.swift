@@ -23,13 +23,19 @@ extension OpenAICompatibleModel {
             public var timeoutSeconds: Int
             /// The bearer token, when the server wants one.
             public var apiKey: String?
+            /// What to start when the server stops answering (`OpenAICompatibleSettings.startHint(for:)`).
+            public var startHint: String
 
-            /// Creates a configuration.
-            public init(dialect: OpenAICompatibleDialect, baseURL: URL, timeoutSeconds: Int, apiKey: String? = nil) {
+            /// Creates a configuration; the hint defaults to the dialect's.
+            public init(
+                dialect: OpenAICompatibleDialect, baseURL: URL, timeoutSeconds: Int, apiKey: String? = nil,
+                startHint: String? = nil
+            ) {
                 self.dialect = dialect
                 self.baseURL = baseURL
                 self.timeoutSeconds = timeoutSeconds
                 self.apiKey = apiKey
+                self.startHint = startHint ?? dialect.startHint
             }
 
             /// The configuration with the key left out.
@@ -489,7 +495,7 @@ extension OpenAICompatibleModel {
             return switch ConnectionFailure(error, streaming: streaming) {
             case .timedOut: .timedOut(dialect, url, seconds: configuration.timeoutSeconds)
             case .interrupted(let detail): .interrupted(dialect, url, detail)
-            case .unreachable(let detail): .unreachable(dialect, url, detail)
+            case .unreachable(let detail): .unreachable(dialect, url, detail, hint: configuration.startHint)
             }
         }
 

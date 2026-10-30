@@ -585,11 +585,15 @@ public struct Config: Codable, Equatable, Sendable {
         public var thinkingBudget: [String: Int]?
         /// llama.cpp only: what each model can do, declared by the operator or recorded by wisp's check (ADR 0056).
         public var models: [String: MLXModelConfig]?
+        /// llama.cpp only: whose server serves its models, `off` (one the person starts, the default), `wisp`, or
+        /// `llama-app` (ADR 0082).
+        public var server: LlamaCppServer?
 
         /// Creates settings; nil fields take defaults.
         public init(
             baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: OllamaThink? = nil,
-            thinkingBudget: [String: Int]? = nil, models: [String: MLXModelConfig]? = nil
+            thinkingBudget: [String: Int]? = nil, models: [String: MLXModelConfig]? = nil,
+            server: LlamaCppServer? = nil
         ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
@@ -597,6 +601,7 @@ public struct Config: Codable, Equatable, Sendable {
             self.think = think
             self.thinkingBudget = thinkingBudget
             self.models = models
+            self.server = server
         }
     }
 
@@ -836,6 +841,15 @@ public struct Config: Codable, Equatable, Sendable {
                         codingPath: [],
                         debugDescription: "llamacpp: thinkingBudget.\(level) must be 0 (no limit) or more tokens"))
             }
+        }
+        // Whose server is a choice for llama.cpp alone: LM Studio always runs its own (ADR 0082).
+        if lmstudio?.server != nil {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription:
+                        "lmstudio: server is not taken: it is llama.cpp's choice (llamacpp.server); LM Studio runs its "
+                        + "own server, started from its Developer tab"))
         }
         // LM Studio sets thinking per model in the app; a model's `think` there would be read past.
         if let model = (lmstudio?.models ?? [:]).keys.sorted().first(where: { lmstudio?.models?[$0]?.think != nil }) {

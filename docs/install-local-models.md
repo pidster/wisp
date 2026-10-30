@@ -156,7 +156,8 @@ When a model will not start:
 | `no Ollama server at …` | Start Ollama (`brew services start ollama`, or open the app) |
 | `Ollama has no model '<name>'; installed: …` | `ollama pull <name>`, or pick one of those listed |
 | `model 'X' is disabled; enable it with …` | `wisp models enable X` |
-| `no llama.cpp server at …` | Start `llama-server`, or set `llamacpp.baseURL` |
+| `no llama.cpp server at …` | Start `llama-server`, or set `llamacpp.baseURL`; under `llamacpp.server llama-app`, the message says to start Llama.app, or that it is not installed |
+| `llamacpp.server is wisp, wisp's own llama.cpp server, which arrives in a later stage of 0.33.0 and is not built yet; …` | `wisp config set llamacpp.server off` (a `llama-server` you start) or `llama-app` (Llama.app's) |
 
 When chat's configured model is unavailable as it starts, chat starts on `system` and says so. A one-shot
 `wisp "…"` and an MCP `respond` fail with the message instead.

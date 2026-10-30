@@ -13,8 +13,10 @@ import Synchronization
 public struct OpenAICompatibleModel: LanguageModel, Sendable {
     /// Why the server could not serve.
     public enum Failure: Error, CustomStringConvertible, Equatable {
-        /// No server answered at the base URL.
-        case unreachable(OpenAICompatibleDialect, URL, String)
+        /// No server answered at the base URL; the hint says what to start (`OpenAICompatibleSettings.startHint`).
+        case unreachable(OpenAICompatibleDialect, URL, String, hint: String)
+        /// wisp will not ask the server anything, and says why: `llamacpp.server wisp`, whose server is not built yet.
+        case unusable(OpenAICompatibleDialect, String)
         /// The server serves no model by that name; the names it serves are listed.
         case noSuchModel(OpenAICompatibleDialect, String, served: [String])
         /// The server wants an API key, or another one (HTTP 401 or 403).
@@ -34,8 +36,9 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         /// Human-readable explanation; it never carries the API key.
         public var description: String {
             switch self {
-            case .unreachable(let dialect, let url, let detail):
-                "no \(dialect.runtime) server at \(url): \(detail); \(dialect.startHint)"
+            case .unreachable(let dialect, let url, let detail, let hint):
+                "no \(dialect.runtime) server at \(url): \(detail); \(hint)"
+            case .unusable(_, let reason): reason
             case .noSuchModel(let dialect, let name, let served):
                 "\(dialect.runtime) serves no model '\(name)'; it serves: "
                     + (served.isEmpty ? "none" : served.joined(separator: ", "))
@@ -175,7 +178,7 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
     public var executorConfiguration: Executor.Configuration {
         .init(
             dialect: dialect, baseURL: settings.baseURL, timeoutSeconds: Int(settings.timeout.components.seconds),
-            apiKey: settings.apiKey)
+            apiKey: settings.apiKey, startHint: settings.startHint(for: dialect))
     }
 
     /// The thinking a request sends now (`thinkSent(_:)` for what its scope asks), as the executor writes it into the
@@ -211,17 +214,20 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
     ///   - dialect: The runtime, for the failures.
     ///   - settings: The server.
     /// - Returns: The body, or nil for a 404, which a caller may take as a server too old for the path.
-    /// - Throws: `Failure.unreachable`, `Failure.refused`, or `Failure.serverError`.
+    /// - Throws: `Failure.unusable`, `Failure.unreachable`, `Failure.refused`, or `Failure.serverError`.
     static func get(
         _ path: String, query: [URLQueryItem] = [], dialect: OpenAICompatibleDialect,
         settings: OpenAICompatibleSettings
     ) async throws -> Data? {
+        // Every question to the server comes through here, so a server wisp will not use is refused once, here.
+        if dialect == .llamaCpp, let reason = settings.server.unusable { throw Failure.unusable(dialect, reason) }
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(
                 for: request(path, query: query, settings: settings))
         } catch {
-            throw Failure.unreachable(dialect, settings.baseURL, error.localizedDescription)
+            throw Failure.unreachable(
+                dialect, settings.baseURL, error.localizedDescription, hint: settings.startHint(for: dialect))
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         switch status {

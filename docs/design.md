@@ -100,7 +100,12 @@ as `chat_template_kwargs.enable_thinking`, `reasoning_effort`, and a level's `th
 `ThinkingBudgetCheck` logs a reply that ran past its budget and gives `wisp doctor` its probe ([ADR
 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-17). A connection's failure is named by `ConnectionFailure` for both, and a server's refusal of a request larger
 than its window becomes `contextSizeExceeded`, which `Agent` condenses for. The window is the one the server reports
-it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
+it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)). Whose llama.cpp server it is,
+`LlamaCppServer` (`llamacpp.server`: `off`, `llama-app`, `wisp`), is part of the llama.cpp settings
+(`OpenAICompatibleSettings.server`): `llama-app` moves the default base URL to Llama.app's port and its start hint to
+Llama.app's (`LlamaApp`, found by bundle identifier), and `wisp`, whose server is not built yet, is refused in
+`OpenAICompatibleModel.get`, the one way every question reaches the server, so no request is sent
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)).
 
 `ModelSelection` names the model (`system`, `private-cloud`, or `<backend>:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session

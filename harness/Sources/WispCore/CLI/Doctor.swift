@@ -45,6 +45,9 @@ public struct Doctor: Sendable {
         /// Whether the configured llama.cpp server keeps a think level to its budget, asked of a server whose model
         /// thinks; nil when none answers, or its model does not think (`ThinkingBudgetCheck.probe(_:)`).
         public var thinkingBudget: @Sendable (Config.Resolved) async -> Finding?
+        /// The `llama.cpp server` finding for `llamacpp.server` (ADR 0082): nil under `off`; under `llama-app`, whether
+        /// Llama.app is installed and its server answers (`Doctor.llamaCppServer(_:installed:answer:)`).
+        public var llamaCppServer: @Sendable (Config.Resolved) async -> Finding?
         /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
         public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
         /// `Wisp Notifier.app`, for the `notify` and `notifier` findings; only where it is and its permission are read,
@@ -91,6 +94,11 @@ public struct Doctor: Sendable {
             osascriptPresent: { FileManager.default.isExecutableFile(atPath: "/usr/bin/osascript") },
             backends: { ModelBackends.all.compactMap { $0.doctorFinding() } },
             thinkingBudget: { await ThinkingBudgetCheck.probe($0.llamacpp) },
+            llamaCppServer: { config in
+                let settings = config.llamacpp
+                return Doctor.llamaCppServer(
+                    settings, installed: settings.llamaApp.installed, answer: await Doctor.askLlamaCppServer(settings))
+            },
             frontEnd: {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }
                 let (declared, override) = (FrontEnd.declared, FrontEnd.override)
@@ -120,6 +128,7 @@ public struct Doctor: Sendable {
             osascriptPresent: @escaping @Sendable () -> Bool = { true },
             backends: @escaping @Sendable () -> [Finding] = { [] },
             thinkingBudget: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
+            llamaCppServer: @escaping @Sendable (Config.Resolved) async -> Finding? = { _ in nil },
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) },
             helper: NotifierHelper = .none,
             signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil },
@@ -135,6 +144,7 @@ public struct Doctor: Sendable {
             self.osascriptPresent = osascriptPresent
             self.backends = backends
             self.thinkingBudget = thinkingBudget
+            self.llamaCppServer = llamaCppServer
             self.frontEnd = frontEnd
             self.helper = helper
             self.signature = signature
@@ -206,6 +216,10 @@ public struct Doctor: Sendable {
     /// the checks without the request.
     public func check() async -> [Finding] {
         var findings = run()
+        // Whose llama.cpp server wisp uses, when that is not one the person starts, after the backends' own findings.
+        if let server = await probes.llamaCppServer(resolvedConfig) {
+            findings.insert(server, at: findings.firstIndex { $0.name == "sandbox" } ?? findings.endIndex)
+        }
         guard let index = findings.firstIndex(where: { $0.name == "model" && $0.ok }) else { return findings }
         // A llama.cpp server whose model thinks is asked to keep to a budget, after the backends' own findings.
         if let budget = await probes.thinkingBudget(resolvedConfig) {
