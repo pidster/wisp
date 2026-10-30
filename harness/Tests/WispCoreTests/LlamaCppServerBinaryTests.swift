@@ -198,6 +198,47 @@ import WispTestSupport
         #expect(try setting(home) == fat.path)
     }
 
+    @Test func aFileThatCannotBeOpenedIsNeitherApprovedNorRun() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = try home()
+        let binary = LlamaCppServerBinary(home: home)
+        // Executable but not readable: approving it is refused.
+        let hidden = try executable("hidden", mode: 0o111)
+        #expect(throws: LlamaCppServerBinary.Failure.unreadable(hidden.path, reason: "it cannot be opened")) {
+            _ = try binary.change(
+                hidden.path, configFile: home.configFile, workingDirectory: root, audit: nil, source: "cli")
+        }
+        #expect("\(LlamaCppServerBinary.Failure.unreadable("/b", reason: "r"))" == "/b cannot be read: r")
+        // Approved, then made unreadable: the check before a start refuses it.
+        let file = try executable("llama-server")
+        _ = try binary.change(file.path, configFile: home.configFile, workingDirectory: root, audit: nil, source: "cli")
+        try FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: file.path)
+        #expect(throws: LlamaCppServerBinary.Refusal.unreadable(path: file.path, reason: "it cannot be opened")) {
+            _ = try binary.check(file.path)
+        }
+    }
+
+    @Test func eachRefusalSaysHowToApproveTheFileAgain() {
+        let again = " approve the file now there with: wisp config set llamacpp.serverPath /h/llama-server"
+        #expect(
+            "\(LlamaCppServerBinary.Refusal.approvedOther(path: "/h/llama-server", approved: "/o/llama-server"))"
+                == "/h/llama-server is not approved: the approval is for /o/llama-server, and llamacpp.serverPath was "
+                + "changed without wisp config set;\(again)")
+        #expect(
+            "\(LlamaCppServerBinary.Refusal.moved(path: "/h/llama-server", approved: "/c/1/s", now: "/c/2/s"))"
+                == "/h/llama-server now resolves to /c/2/s, not /c/1/s as approved (an upgrade moves it);\(again)")
+        #expect(
+            "\(LlamaCppServerBinary.Refusal.missing(path: "/h/llama-server", resolved: "/c/1/s"))"
+                == "/h/llama-server resolves to /c/1/s, which is missing; install llama-server again or name another, "
+                + "then\(again)")
+        #expect(
+            "\(LlamaCppServerBinary.Refusal.unreadable(path: "/h/llama-server", reason: "it cannot be opened"))"
+                == "/h/llama-server cannot be read (it cannot be opened), so its digest cannot be checked")
+        #expect(
+            LlamaCppServerBinary.command("/Applications/My Tools/llama-server")
+                == "wisp config set llamacpp.serverPath '/Applications/My Tools/llama-server'")
+    }
+
     @Test func unsettingRemovesTheApproval() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let file = try executable("llama-server")

@@ -300,6 +300,133 @@ import Testing
         #expect(!stopped.ok && stopped.detail.contains("its LaunchAgent is not registered"))
     }
 
+    @Test func aStartIsRefusedWhenItsFilesCannotBeMade() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = FileManager.default
+        let home = try home()
+        let file = try approvedBinary(in: home)
+        let settings = Config(llamacpp: .init(server: .wisp, serverPath: file.path)).resolved.llamacpp
+        let sink = MemoryAuditSink()
+        func reason() -> String? {
+            do {
+                _ = try LlamaCppRouter.prepare(settings, home: home, audit: AuditLog(session: "s", sink: sink))
+                return nil
+            } catch let LlamaCppRouter.Failure.files(reason) {
+                return reason
+            } catch {
+                return "another error: \(error)"
+            }
+        }
+        // The models folder's place is taken by a file.
+        let models = URL(filePath: LlamaCppModels(home: home).folder.path, directoryHint: .notDirectory)
+        try Data("x".utf8).write(to: models)
+        let noFolder = try #require(reason())
+        #expect(noFolder.hasPrefix("\(models.path) cannot be made: "), "\(noFolder)")
+        let refusal = try #require(sink.events.last)
+        #expect(refusal.kind == .llamaCppServerStart && refusal.details["outcome"] == "refused")
+        #expect(refusal.details["reason"] == .string("wisp's llama.cpp server cannot start: \(noFolder)"))
+        try manager.removeItem(at: models)
+        // The key file's place is taken by a folder: the new key cannot be moved into it, and nothing is left behind.
+        let keys = LlamaCppRouter.KeyFile(home: home)
+        try manager.removeItem(at: keys.file)
+        try manager.createDirectory(at: keys.file.appending(path: "held"), withIntermediateDirectories: true)
+        let noKey = try #require(reason())
+        #expect(noKey.hasPrefix("the key file \(keys.file.path) cannot be made: "), "\(noKey)")
+        let left = try manager.contentsOfDirectory(atPath: keys.file.deletingLastPathComponent().path)
+        #expect(!left.contains { $0.hasPrefix(".api-key-") }, "\(left)")
+        // The key file's folder cannot be made: its support folder is a file.
+        let blocked = root.appending(path: "support-file")
+        try Data("x".utf8).write(to: blocked)
+        let elsewhere = LlamaCppRouter.KeyFile(home: Home(root: root.appending(path: "other"), support: blocked))
+        #expect {
+            try elsewhere.ensure()
+        } throws: { error in
+            guard case .unwritable(let path, _) = error as? LlamaCppRouter.KeyFile.Failure else { return false }
+            return path == elsewhere.file.path
+        }
+    }
+
+    @Test func aLogThatCannotBeOpenedIsSaid() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Its folder's place is taken by a file.
+        let blocked = root.appending(path: "logs-file")
+        try Data("x".utf8).write(to: blocked)
+        #expect {
+            _ = try LlamaCppRouter.openLog(blocked.appending(path: "llamacpp.log"))
+        } throws: { error in
+            guard case .files(let reason) = error as? LlamaCppRouter.Failure else { return false }
+            return reason.hasPrefix("its log folder cannot be made: ")
+        }
+        // The log's place is taken by a folder.
+        let folder = root.appending(path: "logs/llamacpp.log")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect {
+            _ = try LlamaCppRouter.openLog(folder)
+        } throws: { error in
+            "\(error)" == "wisp's llama.cpp server cannot start: \(folder.path) cannot be opened: Is a directory"
+        }
+    }
+
+    @Test func anAgentWhoseStateCannotBeReadPointsAtTheLog() {
+        let said = LlamaCppRouter.diagnosis(
+            binary: .failure(.notSet), agent: .unknown("x"), keyExists: true, settings: .defaults,
+            log: URL(filePath: "/L/llamacpp.log"), detail: nil)
+        #expect(said.hasPrefix("wisp's llama.cpp server does not answer at http://127.0.0.1:8933: wisp will not start"))
+        let unknown = LlamaCppRouter.diagnosis(
+            binary: .success(
+                .init(
+                    executable: URL(filePath: "/b"), sha256: "ab",
+                    approval: .init(path: "/b", resolved: "/b", sha256: "ab", approved: Date()))),
+            agent: .unknown("launchctl timed out"), keyExists: true, settings: .defaults,
+            log: URL(filePath: "/L/llamacpp.log"), detail: "refused")
+        #expect(
+            unknown
+                == "wisp's llama.cpp server does not answer at http://127.0.0.1:8933 (refused), and its LaunchAgent's "
+                + "state cannot be read (launchctl timed out); its log is /L/llamacpp.log")
+    }
+
+    @Test func theDoctorAsksWispsServerOnlyUnderWispAndNotBeforeItsKey() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = try home()
+        let agent = FakeAgent(state: .requiresApproval)
+        let off = await Doctor.askWispServer(Config().resolved.llamacpp, home: home, agent: agent)
+        #expect(off.answer == nil && off.router == nil)
+        let settings = Config(llamacpp: .init(server: .wisp)).resolved.llamacpp
+        let asked = await Doctor.askWispServer(settings, home: home, agent: agent)
+        #expect(asked.answer == .failed("no key yet"))
+        let router = try #require(asked.router)
+        #expect(router.binary == .failure(.notSet) && router.agent == .requiresApproval && !router.keyExists)
+        #expect(router.means == agent.means && router.log == LlamaCppRouter.log(home: home))
+        // The finding says what waits, and fails.
+        let finding = try #require(
+            Doctor.llamaCppServer(settings, installed: nil, answer: asked.answer, router: router))
+        #expect(!finding.ok && finding.detail.contains("LaunchAgent: waiting for your approval in Login Items"))
+    }
+
+    @Test func theDoctorCountsWhatAServerLists() throws {
+        let wisp = Config(llamacpp: .init(server: .wisp)).resolved.llamacpp
+        let router = Doctor.RouterState(
+            binary: .success(
+                .init(
+                    executable: URL(filePath: "/r"), sha256: "abcdef",
+                    approval: .init(path: "/b", resolved: "/r", sha256: "abcdef", approved: Date()))),
+            agent: .manual("WISP_LLAMACPP_AGENT is off"), means: .manual("off"), keyExists: true,
+            log: URL(filePath: "/L/llamacpp.log"))
+        let listed = try #require(Doctor.llamaCppServer(wisp, installed: nil, answer: .listed(1), router: router))
+        #expect(
+            listed.ok && listed.detail.contains("it answers at http://127.0.0.1:8933 with wisp's key, listing 1 model;")
+        )
+        let unread = try #require(Doctor.llamaCppServer(wisp, installed: nil, answer: nil, router: nil))
+        #expect(!unread.ok && unread.detail == "llamacpp.server wisp: its state was not read")
+        // Llama.app's router: counted, but only a plain listing passes without Llama.app installed.
+        let app = Config(llamacpp: .init(baseURL: "http://127.0.0.1:8080", server: .llamaApp)).resolved.llamacpp
+        let routed = try #require(
+            Doctor.llamaCppServer(
+                app, installed: nil, answer: .routed([.init(name: "a", status: nil), .init(name: "b", status: nil)])))
+        #expect(routed.detail.contains("its server at http://127.0.0.1:8080 answers, listing 2 models"))
+        #expect(routed.detail.contains("Llama.app's server has no API key"))
+    }
+
     // MARK: - The LaunchAgent
 
     @Test func howTheAgentIsRegisteredDependsOnTheInstallAndTheHome() {
@@ -428,10 +555,18 @@ import Testing
     }
 }
 
-/// `launchctl` as far as the file agent uses it: `print` succeeds while loaded, and every call is recorded.
+/// `launchctl` as far as the file agent uses it: `print` succeeds while loaded, and every call is recorded; or, given
+/// a failure, every call fails with it.
 final class FakeLaunchctl: Sendable {
     /// The calls, in order, and whether the agent is loaded.
     private let state = Mutex<(calls: [[String]], loaded: Bool)>(([], false))
+    /// The status and output every call fails with, if any.
+    private let failure: (status: Int32, output: String)?
+
+    /// A `launchctl` that succeeds, or fails every call with `status` and `output`.
+    init(failing status: Int32? = nil, output: String = "") {
+        failure = status.map { ($0, output) }
+    }
 
     /// The calls so far.
     var calls: [[String]] { state.withLock { $0.calls } }
@@ -440,6 +575,7 @@ final class FakeLaunchctl: Sendable {
     func run(_ arguments: [String]) -> (status: Int32, output: String) {
         state.withLock { state in
             state.calls.append(arguments)
+            if let failure { return failure }
             switch arguments.first {
             case "bootstrap": state.loaded = true
             case "bootout": state.loaded = false

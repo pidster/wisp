@@ -441,6 +441,32 @@ struct LaunchAgentFile: LlamaCppAgentControl {
     }
 }
 
+/// `SMAppService`'s agent, as `LoginItemAgent` uses it; a fake in tests.
+protocol LoginItemService: Sendable {
+    /// The agent's status.
+    var status: SMAppService.Status { get }
+    /// Registers the agent.
+    ///
+    /// - Throws: `SMAppService`'s error.
+    func register() throws
+    /// Unregisters the agent.
+    ///
+    /// - Throws: `SMAppService`'s error.
+    func unregister() throws
+}
+
+/// The main bundle's agent file, `com.pidster.wisp.llamacpp.plist`, through `SMAppService`.
+struct AppServiceAgent: LoginItemService {
+    /// The service, asked afresh each time as `SMAppService` reads it.
+    private var service: SMAppService { SMAppService.agent(plistName: LlamaCppAgent.plistName) }
+    /// The agent's status.
+    var status: SMAppService.Status { service.status }
+    /// Registers the agent.
+    func register() throws { try service.register() }
+    /// Unregisters the agent.
+    func unregister() throws { try service.unregister() }
+}
+
 /// The agent as `Wisp.app`'s own, registered with `SMAppService`, so it shows in Login Items. `SMAppService` finds the
 /// agent's file in the main bundle, which is the app only when `wisp` runs from it by its real path; started through
 /// a link, Foundation's main bundle is the link's folder, so the app's own `wisp` is asked to do it
@@ -448,13 +474,38 @@ struct LaunchAgentFile: LlamaCppAgentControl {
 struct LoginItemAgent: LlamaCppAgentControl {
     /// The app.
     let app: URL
+    /// The main bundle's folder.
+    let mainBundle: URL
+    /// The agent's `SMAppService`; a fake in tests.
+    let service: any LoginItemService
+    /// The launchd domain target, `gui/<uid>/<label>`.
+    let target: String
+    /// Runs `launchctl`; a fake in tests.
+    let launchctl: @Sendable ([String]) -> (status: Int32, output: String)
+    /// Runs a program with arguments (the app's own `wisp`); a fake in tests.
+    let run: @Sendable (String, [String]) -> (status: Int32, output: String)
+
+    /// A control for `app`, through the real main bundle, `SMAppService`, `launchctl`, and processes unless given.
+    init(
+        app: URL, mainBundle: URL = Bundle.main.bundleURL, service: any LoginItemService = AppServiceAgent(),
+        target: String = LlamaCppAgent.service,
+        launchctl: @escaping @Sendable ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl,
+        run: @escaping @Sendable (String, [String]) -> (status: Int32, output: String) = AppUpdate.run
+    ) {
+        self.app = app
+        self.mainBundle = mainBundle
+        self.service = service
+        self.target = target
+        self.launchctl = launchctl
+        self.run = run
+    }
 
     /// The means.
     var means: LlamaCppAgent.Means { .loginItem(app: app) }
 
     /// Whether the main bundle is the app, so `SMAppService` reads the app's agent file.
     var inBundle: Bool {
-        Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        mainBundle.resolvingSymlinksInPath().standardizedFileURL.path
             == app.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
@@ -467,7 +518,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
     /// - Returns: Its output.
     /// - Throws: `Failure.loginItem` with its output when it fails.
     func delegate(_ verb: String) throws -> String {
-        let result = AppUpdate.run(executable.path, ["llamacpp", "agent", verb])
+        let result = run(executable.path, ["llamacpp", "agent", verb])
         guard result.status == 0 else { throw LlamaCppAgent.Failure.loginItem(result.output) }
         return result.output
     }
@@ -481,7 +532,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
                 return .unknown("\(error)")
             }
         }
-        return Self.state(of: SMAppService.agent(plistName: LlamaCppAgent.plistName).status)
+        return Self.state(of: service.status)
     }
 
     /// Registers with `SMAppService`, or, registered already, starts the server again.
@@ -490,7 +541,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
             _ = try delegate("register")
             return
         }
-        try Self.registerHere()
+        try Self.registerHere(service: service, target: target, launchctl: launchctl)
     }
 
     /// Unregisters with `SMAppService`.
@@ -499,13 +550,13 @@ struct LoginItemAgent: LlamaCppAgentControl {
             _ = try delegate("unregister")
             return
         }
-        try Self.unregisterHere()
+        try Self.unregisterHere(service: service)
     }
 
     /// `launchctl kickstart -k`, which reaches an agent `SMAppService` registered by its label.
     func restart() throws {
-        let arguments = ["kickstart", "-k", LlamaCppAgent.service]
-        let result = LlamaCppAgent.launchctl(arguments)
+        let arguments = ["kickstart", "-k", target]
+        let result = launchctl(arguments)
         guard result.status == 0 else {
             throw LlamaCppAgent.Failure.launchctl(arguments: arguments, status: result.status, output: result.output)
         }
@@ -516,10 +567,16 @@ struct LoginItemAgent: LlamaCppAgentControl {
     /// label, loaded by `launchctl` and since removed, left Background Items reporting the app's agent enabled, and
     /// the restart failed with "Could not find service".
     ///
+    /// - Parameters:
+    ///   - service: The agent's `SMAppService`.
+    ///   - target: The launchd domain target, `gui/<uid>/<label>`.
+    ///   - launchctl: Runs `launchctl`.
     /// - Throws: `Failure.loginItem`.
-    static func registerHere() throws {
-        let service = SMAppService.agent(plistName: LlamaCppAgent.plistName)
-        if service.status == .enabled, LlamaCppAgent.launchctl(["kickstart", "-k", LlamaCppAgent.service]).status == 0 {
+    static func registerHere(
+        service: any LoginItemService = AppServiceAgent(), target: String = LlamaCppAgent.service,
+        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
+    ) throws {
+        if service.status == .enabled, launchctl(["kickstart", "-k", target]).status == 0 {
             return
         }
         do {
@@ -531,9 +588,9 @@ struct LoginItemAgent: LlamaCppAgentControl {
 
     /// Unregisters the main bundle's agent from `SMAppService`, when registered.
     ///
+    /// - Parameter service: The agent's `SMAppService`.
     /// - Throws: `Failure.loginItem`.
-    static func unregisterHere() throws {
-        let service = SMAppService.agent(plistName: LlamaCppAgent.plistName)
+    static func unregisterHere(service: any LoginItemService = AppServiceAgent()) throws {
         guard service.status != .notRegistered, service.status != .notFound else { return }
         do {
             try service.unregister()
@@ -541,9 +598,6 @@ struct LoginItemAgent: LlamaCppAgentControl {
             throw LlamaCppAgent.Failure.loginItem(error.localizedDescription)
         }
     }
-
-    /// The main bundle's agent's status, as `wisp llamacpp agent status` prints it.
-    static var statusHere: String { name(of: SMAppService.agent(plistName: LlamaCppAgent.plistName).status) }
 
     /// A status's name.
     ///
@@ -590,18 +644,35 @@ extension LlamaCppAgent {
     /// - Returns: What to print.
     /// - Throws: `Failure`, or `Failure.refused` for another verb or outside the app.
     public static func loginItem(_ verb: String) throws -> String {
-        guard case .app = AppInstall.source(of: PackageLayout.current) else {
+        try loginItem(verb, source: AppInstall.source(of: PackageLayout.current), service: AppServiceAgent())
+    }
+
+    /// `loginItem(_:)` for a given install and `SMAppService`, so tests use a fake.
+    ///
+    /// - Parameters:
+    ///   - verb: `register`, `unregister`, or `status`.
+    ///   - source: Where the running `wisp` came from.
+    ///   - service: The agent's `SMAppService`.
+    ///   - target: The launchd domain target, `gui/<uid>/<label>`.
+    ///   - launchctl: Runs `launchctl`.
+    /// - Returns: What to print.
+    /// - Throws: `Failure`, or `Failure.refused` for another verb or outside the app.
+    static func loginItem(
+        _ verb: String, source: AppInstall.Source, service: any LoginItemService,
+        target: String = LlamaCppAgent.service,
+        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
+    ) throws -> String {
+        guard case .app = source else {
             throw Failure.refused("wisp llamacpp agent is for Wisp.app's own wisp")
         }
         switch verb {
         case "register":
-            try LoginItemAgent.registerHere()
-            return LoginItemAgent.statusHere
+            try LoginItemAgent.registerHere(service: service, target: target, launchctl: launchctl)
         case "unregister":
-            try LoginItemAgent.unregisterHere()
-            return LoginItemAgent.statusHere
-        case "status": return LoginItemAgent.statusHere
+            try LoginItemAgent.unregisterHere(service: service)
+        case "status": break
         default: throw Failure.refused("no verb \(verb); register, unregister, or status")
         }
+        return LoginItemAgent.name(of: service.status)
     }
 }
