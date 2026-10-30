@@ -129,6 +129,16 @@ Agreed by the operator on 2026-10-29:
     `llama-server` failing to bind its port exits 1; restarting on every non-zero exit would loop every 30 s with the
     same refusal. A crash is started again; anything else waits for the person, whose next approval or setting
     restarts it.
+  - **KeepAlive, amended the same day after the trial on this Mac.** `{ SuccessfulExit: false }`, and a refusal to
+    start exits 0. With `Crashed`, launchd started the router again after SIGABRT but not after SIGKILL, the signal
+    macOS frees memory with, which would have left the server down until the person turned it off and on. A killed
+    model process heals itself: the router survived a SIGKILL of the 9B's process and loaded it again on the next
+    request, in 5.3 s. Now a crash or a kill of the router is started again, a refusal is not, and `llama-server`
+    failing to bind its port is retried every 30 s, logged, until the port is free.
+  - **A stale Login Item.** In the same trial, a LaunchAgent file of the same label, loaded by `launchctl` and since
+    removed, left `SMAppService` reporting the app's agent enabled with no job in launchd, so the restart wisp sent
+    in place of registering failed ("Could not find service"). Registering now restarts only a job launchd has, and
+    otherwise registers.
   - **Restart on change.** Setting `llamacpp.server wisp` registers (or, registered, starts it again); setting it
     otherwise, unsetting it, or `wisp uninstall` from `Wisp.app` unregisters it. A change to a `server…` setting, an
     approval of the binary, and a model added or removed restart it with `launchctl kickstart -k` when registered: the

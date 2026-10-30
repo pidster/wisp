@@ -337,7 +337,7 @@ import Testing
         #expect(plist["Label"] as? String == "com.pidster.wisp.llamacpp")
         #expect(plist["ProgramArguments"] as? [String] == ["/opt/homebrew/opt/wisp/libexec/wisp", "llamacpp", "serve"])
         #expect(plist["RunAtLoad"] as? Bool == true)
-        #expect((plist["KeepAlive"] as? [String: Bool]) == ["Crashed": true])
+        #expect((plist["KeepAlive"] as? [String: Bool]) == ["SuccessfulExit": false])
         #expect(plist["ThrottleInterval"] as? Int == 30)
     }
 

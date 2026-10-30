@@ -335,8 +335,10 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   you can turn it off; macOS may ask you to allow it there first, which wisp and `wisp doctor` say. A Homebrew install,
   or a build, writes `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` naming its own `wisp` (Homebrew's
   `opt` link, so an upgrade of wisp keeps it working) and loads it with `launchctl bootstrap gui/<uid>`. launchd starts
-  it at once and at each login, and again if it crashes (`KeepAlive` `Crashed`, after 30 s at the soonest); a refusal
-  to start exits non-zero and waits for you rather than starting again in a loop. With `WISP_HOME` set, or
+  it at once and at each login, and again after any exit but a clean one, a crash or a kill such as one that frees memory (`KeepAlive`
+  `SuccessfulExit` false, after 30 s at the soonest); a refusal to start exits 0 and waits for you rather than starting
+  again in a loop. A killed model process is not the agent's to restart: the router starts it again on the next
+  request. With `WISP_HOME` set, or
   `WISP_LLAMACPP_AGENT=off`, nothing is registered: wisp says so and you run `wisp llamacpp serve` yourself.
 
   The agent runs `wisp llamacpp serve`, a hidden subcommand. It reads the configuration, refuses unless the setting is

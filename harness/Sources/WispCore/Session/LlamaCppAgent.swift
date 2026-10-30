@@ -152,16 +152,17 @@ public enum LlamaCppAgent {
     }
 
     /// The agent's properties, as both of its files carry them (`scripts/wisp-app` writes the app's with the same
-    /// keys): the label; the program and its arguments; started when loaded; started again only after a crash
-    /// (`KeepAlive` `Crashed`), so a refusal to start, which exits non-zero, waits for the person rather than looping;
-    /// and `ThrottleInterval`.
+    /// keys): the label; the program and its arguments; started when loaded; started again after any exit but a
+    /// clean one (`KeepAlive` `SuccessfulExit` false), so a crash or a kill, such as one that frees memory, is
+    /// started again, while a refusal to start, which exits 0, waits for the person rather than looping; and
+    /// `ThrottleInterval`.
     ///
     /// - Parameter program: The program's absolute path.
     /// - Returns: The dictionary.
     static func properties(program: URL) -> [String: Any] {
         [
             "Label": label, "ProgramArguments": [program.path] + serveArguments, "RunAtLoad": true,
-            "KeepAlive": ["Crashed": true], "ThrottleInterval": throttleSeconds,
+            "KeepAlive": ["SuccessfulExit": false], "ThrottleInterval": throttleSeconds,
         ]
     }
 
@@ -509,14 +510,15 @@ struct LoginItemAgent: LlamaCppAgentControl {
         }
     }
 
-    /// Registers the main bundle's agent with `SMAppService`; when it is registered already, starts it again.
+    /// Registers the main bundle's agent with `SMAppService`; when it is registered already, starts it again. A
+    /// status of enabled that launchd has no job for is registered again: on 2026-10-30 a LaunchAgent file of the same
+    /// label, loaded by `launchctl` and since removed, left Background Items reporting the app's agent enabled, and
+    /// the restart failed with "Could not find service".
     ///
     /// - Throws: `Failure.loginItem`.
     static func registerHere() throws {
         let service = SMAppService.agent(plistName: LlamaCppAgent.plistName)
-        if service.status == .enabled {
-            let result = LlamaCppAgent.launchctl(["kickstart", "-k", LlamaCppAgent.service])
-            guard result.status == 0 else { throw LlamaCppAgent.Failure.loginItem(result.output) }
+        if service.status == .enabled, LlamaCppAgent.launchctl(["kickstart", "-k", LlamaCppAgent.service]).status == 0 {
             return
         }
         do {

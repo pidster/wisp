@@ -35,7 +35,7 @@ Added:
 - wisp's own llama.cpp server, `llamacpp.server wisp` (ADR 0082): one `llama-server` router over the models you added,
   on `127.0.0.1` port 8933 (`llamacpp.serverPort`), without llama.cpp's web UI, with a key wisp makes once and keeps in a file only you can read,
   never shown or logged. `wisp config set llamacpp.server wisp` registers a LaunchAgent, `com.pidster.wisp.llamacpp`,
-  that starts it now, at login, and after a crash: from `Wisp.app` a Login Item (System Settings > General > Login
+  that starts it now, at login, and after a crash or a kill: from `Wisp.app` a Login Item (System Settings > General > Login
   Items & Extensions), otherwise a file in `~/Library/LaunchAgents`; setting it otherwise, or `wisp uninstall` from
   the app, unregisters it. The agent runs the hidden `wisp llamacpp serve`, which checks the approved binary and
   becomes `llama-server`, logging to `~/Library/Logs/Wisp/llamacpp.log`. Memory settings, each explained by

@@ -21,9 +21,10 @@ struct LlamaCppCommand: ParsableCommand {
                 + "add linked, on 127.0.0.1 with the key, its output going to llamacpp.log in ~/Library/Logs/Wisp.",
             shouldDisplay: false)
 
-        /// The exit status of a refusal: `EX_CONFIG`, non-zero, so launchd, which restarts the server only after a
-        /// crash, does not start it again until the person changes something.
-        static let refused: Int32 = 78
+        /// The exit status of a refusal: 0, a clean exit, so launchd, which starts the server again after any other
+        /// exit (`KeepAlive` `SuccessfulExit` false), does not start it again until the person changes something. The
+        /// refusal is in the log, the audit, and `wisp doctor`.
+        static let refused: Int32 = 0
 
         func run() throws {
             let session = try Wisp.begin(.init(entryPoint: .llamacpp))

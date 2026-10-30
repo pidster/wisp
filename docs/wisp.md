@@ -1609,7 +1609,8 @@ the Login Item in the audit log. The default policy refuses both to the model.
 What the LaunchAgent of wisp's own llama.cpp server runs ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md),
 decision 4), left out of `--help`: you turn the server on and off with `wisp config set llamacpp.server`, not with
 this. It refuses unless `llamacpp.server` is `wisp` and the approved `llama-server` passes its check, with exit status
-78 and the reason on stderr and in the server's log, so launchd does not start it again in a loop;
+0, a clean exit, and the reason on stderr and in the server's log, so launchd, which starts it again after any other
+exit, does not start it again in a loop;
 otherwise it makes the key file once, records `llamacpp.server.start`, sends its output to
 `~/Library/Logs/Wisp/llamacpp.log`, and replaces itself with `llama-server` ([backends.md](backends.md) has the
 arguments). Run by hand, as under `WISP_HOME`, it serves in the foreground until stopped. `wisp llamacpp agent
