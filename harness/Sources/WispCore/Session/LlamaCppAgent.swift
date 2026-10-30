@@ -5,7 +5,8 @@ import ServiceManagement
 /// The LaunchAgent that keeps wisp's own llama.cpp server running
 /// ([ADR 0082](../../../../docs/decisions/0082-a-llama-cpp-server-wisp-starts.md), decision 4). It runs the hidden
 /// `wisp llamacpp serve`, which checks the binary and replaces itself with `llama-server` (`LlamaCppRouter`), so
-/// launchd supervises the server: it starts it at login and when registered, and starts it again after a crash.
+/// launchd supervises the server: it starts it at login and when registered, and starts it again after a crash or a
+/// kill.
 ///
 /// `Wisp.app` carries the agent's file, `Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist`, and registers
 /// it with `SMAppService`, so it shows in Login Items, where the person can turn it off. A Homebrew install, or a
@@ -267,7 +268,7 @@ public enum LlamaCppAgent {
         case .server where wanted:
             say(
                 "registering wisp's llama.cpp server as \(means.text); launchd starts it now and at each login, and "
-                    + "again if it crashes")
+                    + "again if it crashes or is killed")
             guard act("register", { try control.register() }) else { return false }
             if control.state() == .requiresApproval {
                 say(

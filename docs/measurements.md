@@ -485,6 +485,37 @@ clearly worse at drafts. Neither runtime is the reason for the speed: granite's 
 loaded by llama-server) generate at 72.0 tokens a second on llama.cpp and 72.1 on Ollama, and read the prompt at 657
 and 721, on this M4 Max on 2026-10-17.
 
+### Bonsai 2 9B through wisp's router against granite4.2, 2026-10-30
+
+To see whether Bonsai could be the daily delegation model: `llamacpp:Ternary-Bonsai-2-9B-Q2_0` served by wisp's own
+llama.cpp router ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md); its LaunchAgent, llama-server 0.7.0,
+a 65,536-token context, 1 slot), with `think` `low`, against `ollama:granite4.2:8b` not thinking, the default since
+2026-10-27, with `scripts/check eval compare` on the release's subsets in the operator's own configuration (2 h 17 min,
+not recorded). Cases passed, median time per case where measured:
+
+| Suite | Bonsai 2 9B, think `low` | granite4.2:8b, not thinking |
+| --- | --- | --- |
+| classifier, model alone | 321/392, 2.0 s, 3 dangerous rated safe | 296/392, 4.5 s, 7 dangerous rated safe |
+| classifier with rules | 348/392, 1.9 s | 347/392, 4.0 s, 1 dangerous rated safe |
+| context scenario | not run (below) | 5/6, 22.5 s |
+| `summarise_diff` | 5/5, 2.2 s, 1 file unsummarised | 5/5, 3.3 s |
+| `system_info` | 23/24, 7.2 s | 22/24, 5.8 s |
+| `edit_file` line replace | 36/36, 14.5 s | 36/36, 12.5 s |
+| `edit_file` whitespace | 6/8, 12.4 s | 8/8, 12.8 s |
+| schema replies | 5/6 | 5/6 |
+| triage | 7/7 | 7/7 |
+| drafts, small | 8/12, 3.7 s | 11/12, 5.1 s |
+| drafts, medium | 3/4, 19.0 s | 4/4, 23.0 s |
+| drafts, large | 1/2, 52.4 s | 0/2, 66.1 s |
+
+On the tools the two were level: both perfect on `edit_file`'s line replacements and triage, Bonsai a case ahead on
+`system_info` and two behind on whitespace. Bonsai was the better and twice as fast classifier, rating fewer dangerous
+commands safe, and faster at `summarise_diff`; granite was faster at `system_info` and line replacements, and better at small drafts
+(11/12 to 8/12), the commit messages delegation writes most. Bonsai's medium drafts rose from 1/4 on 2026-10-17 to
+3/4; with four cases, that is not yet a trend. The context scenario did not run for Bonsai: the eval resolves it from
+a configuration of its own with the defaults, where `llamacpp.server` is `off` and the base URL port 8080, so it found
+no server; a gap in the eval, not the model.
+
 ### Bonsai 2 at 2B, 4B, and 9B in chat, 2026-10-19
 
 Prism ML released Bonsai 2 at 2B, 4B, and 9B on 2026-10-15 (built on Qwen3.5, ternary weights). The three Q2_0
