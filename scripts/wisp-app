@@ -2,8 +2,9 @@
 # Assemble Wisp.app from a release stage and sign it (ADR 0072): wisp, the app's executable, and wisp-tui in
 # Contents/MacOS; Wisp Notifier.app, already built and signed by scripts/notifier-app, in Contents/Helpers; MLX's Metal
 # library in Contents/Resources/mlx-swift_Cmlx.bundle, where MLX looks once wisp has opened its own bundle, since a
-# data file in Contents/MacOS breaks the app's signature. The Info.plist declares where each part is (WispLayout),
-# which wisp and its doctor's package finding read. Signed inside out with the Developer ID named by
+# data file in Contents/MacOS breaks the app's signature; and the LaunchAgent for wisp's own llama.cpp server in
+# Contents/Library/LaunchAgents, which wisp registers with SMAppService (ADR 0082). The Info.plist declares where each
+# part is (WispLayout), which wisp and its doctor's package finding read. Signed inside out with the Developer ID named by
 # WISP_SIGN_IDENTITY when it is set (hardened runtime, secure timestamp), ad hoc otherwise.
 # Usage: scripts/wisp-app <stage directory> <directory to put the app in> <version>
 # The stage holds wisp, wisp-tui, mlx.metallib, and Wisp Notifier.app, as scripts/release stages them.
@@ -21,7 +22,8 @@ done
 
 APP="$DIRECTORY/Wisp.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/mlx-swift_Cmlx.bundle"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/mlx-swift_Cmlx.bundle" \
+    "$APP/Contents/Library/LaunchAgents"
 cp "$STAGE/wisp" "$STAGE/wisp-tui" "$APP/Contents/MacOS/"
 ditto "$STAGE/Wisp Notifier.app" "$APP/Contents/Helpers/Wisp Notifier.app"
 cp "$STAGE/mlx.metallib" "$APP/Contents/Resources/mlx-swift_Cmlx.bundle/default.metallib"
@@ -65,6 +67,41 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 plutil -lint -s "$APP/Contents/Info.plist"
+# wisp's own llama.cpp server's agent (ADR 0082, decision 4), with the keys LlamaCppAgent.properties gives the file a
+# Homebrew install writes: wisp llamacpp serve, started at load and again only after a crash, so a refusal to start
+# waits for the person. BundleProgram is relative to the app; SMAppService registers it as a Login Item of Wisp.
+cat > "$APP/Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pidster.wisp.llamacpp</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/wisp</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>wisp</string>
+        <string>llamacpp</string>
+        <string>serve</string>
+    </array>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.pidster.wisp</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>
+PLIST
+plutil -lint -s "$APP/Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist"
 # Inside out: the helper keeps the signature scripts/notifier-app gave it; wisp-tui, then the app, whose signature
 # covers its executable, wisp, and seals the resources.
 if [ -n "${WISP_SIGN_IDENTITY:-}" ]; then

@@ -83,8 +83,8 @@ Agreed by the operator on 2026-10-29:
 6. **Access.** It listens on `127.0.0.1` only, with a key wisp generates, kept in a file only the person can read and
    passed by `--api-key-file`, and never logged or shown (as `llamacpp.apiKey` is today).
 7. **Memory, set in configuration**, each setting explained by `wisp config` and `wisp doctor` with what it costs:
-   a 65,536-token context, 1 slot, up to 2 models loaded at once, and sleep after 600 s idle by default (the 9B's
-   memory at that context is to be measured with the build; it was 3.8 GB at 32,768). The operator chose these over 32,768 tokens and one model, and over llama.cpp's own defaults
+   a 65,536-token context, 1 slot, up to 2 models loaded at once, and sleep after 600 s idle by default (the 9B took about 5 GB at that
+   context with one slot, measured with the build on 2026-10-30; 3.8 GB at 32,768). The operator chose these over 32,768 tokens and one model, and over llama.cpp's own defaults
    (11.4 GB for the 9B alone), as long as each is configurable and its effect is plain to the person. `wisp doctor`
    reports the server, its models, and what is loaded.
 8. **Off by default**: `llamacpp.server` is `off`; without a change wisp behaves as today.
@@ -107,3 +107,44 @@ Agreed by the operator on 2026-10-29:
   `llamacpp.serverPath`, so a path written there by hand is not approved. The digest covers the `llama-server`
   executable only: the libraries it loads from its install (Homebrew's Cellar: `libllama`, `libggml*`) are not
   checked, so a change to them alone is not seen. A known limit, not solved here.
+- Amended on 2026-10-30, with decisions 1, 4, 6, and 7 built:
+  - **Names.** The settings are `llamacpp.serverContextLength` (65,536), `llamacpp.serverSlots` (1),
+    `llamacpp.serverModelsLoaded` (2), `llamacpp.serverIdleSeconds` (600; 0 never sleeps), and `llamacpp.serverPort`,
+    beside `llamacpp.serverPath`: `llamacpp.server` holds a word, so they cannot sit under it, and the `server` prefix
+    keeps them apart from a context length a request asks for. The agent's label is `com.pidster.wisp.llamacpp`, after
+    the notifier's.
+  - **Port.** 8933 by default: not 8080, where `off` looks for a server the person starts, nor 9931, llama-server's
+    default and Llama.app's, nor Ollama's or LM Studio's, and not assigned in `/etc/services`. Under `wisp`,
+    `llamacpp.baseURL` is not used: wisp asks `http://127.0.0.1:<llamacpp.serverPort>`.
+  - **No web UI.** The router is started with `--no-ui` (llama-server 0.7.0's name; `--no-webui` is its deprecated
+    alias): wisp needs only the API, and a smaller surface on the port fits decision 6. Probed on 2026-10-30:
+    with it `/` answers 404 instead of 415, the API answers as before with the key, and the router passes it on to each
+    model's process, which logs "The UI is disabled".
+  - **Key.** 32 random bytes as 64 hex digits in `~/Library/Application Support/Wisp/llamacpp/api-key` (folder 0700,
+    file 0600, made once at the first start, with `O_EXCL`, and reused). Under `wisp` it is the only key wisp sends:
+    `llamacpp.apiKey` and `WISP_LLAMACPP_API_KEY` are not used, since the server answers no other, and a key that wins
+    over the file could only ever be refused.
+  - **KeepAlive.** `{ Crashed: true }` with `RunAtLoad` and a `ThrottleInterval` of 30 s, rather than
+    `SuccessfulExit: false`: `wisp llamacpp serve` refusing to start (binary changed, setting off) exits 78, and
+    `llama-server` failing to bind its port exits 1; restarting on every non-zero exit would loop every 30 s with the
+    same refusal. A crash is started again; anything else waits for the person, whose next approval or setting
+    restarts it.
+  - **Restart on change.** Setting `llamacpp.server wisp` registers (or, registered, starts it again); setting it
+    otherwise, unsetting it, or `wisp uninstall` from `Wisp.app` unregisters it. A change to a `server…` setting, an
+    approval of the binary, and a model added or removed restart it with `launchctl kickstart -k` when registered: the
+    router reads its models folder only when it starts (probed on 2026-10-30: a link added while it ran was not
+    listed). All are said before they are done and audited as `llamacpp.agent`. Every `llamacpp.server…` setting is
+    the person's: the default policy refuses `wisp config set|unset llamacpp.server…` to the model, and chat's
+    `/config` sends the person to a terminal.
+  - **Registration.** From `Wisp.app`, `SMAppService.agent(plistName:)` with the app's own agent file; it reads the
+    main bundle, so a `wisp` started through a link (whose main bundle is the link's folder) asks the app's own `wisp`
+    (`wisp llamacpp agent register|unregister|status`). Otherwise a file in `~/Library/LaunchAgents`, naming
+    Homebrew's `opt` path for a Homebrew install, loaded with `launchctl bootstrap gui/<uid>`. A home other than the
+    person's, or `WISP_LLAMACPP_AGENT=off`, registers nothing. launchd keeps no output: `wisp llamacpp serve` sends its
+    own and `llama-server`'s to `~/Library/Logs/Wisp/llamacpp.log`.
+  - **Signals.** `wisp llamacpp serve` runs on a thread of Swift's concurrency pool, which blocks signals, and a
+    program keeps its caller's signal mask across `execve`: the first build's `llama-server`, and the model process it
+    started, ignored SIGTERM. Every signal is now unblocked and set to its default before `execve`; the router and its
+    model then stopped within a second of SIGTERM (2026-10-30).
+  - **Not tried for real.** Registering with `SMAppService` and `launchctl` was built behind a protocol and tested with
+    fakes; the measurement ran the server in the foreground from a scratch home, where nothing is registered.

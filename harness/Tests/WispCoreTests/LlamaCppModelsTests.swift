@@ -176,11 +176,11 @@ import WispTestSupport
         #expect(OpenAICompatibleBackend.notServable("absent", home: home)?.contains("wisp models add PATH") == true)
         #expect(OpenAICompatibleBackend.notServable("gone", home: home)?.contains("which is missing") == true)
         #expect(OpenAICompatibleBackend.notServable("q", home: home) == nil)
-        // Linked, it gets as far as the server, which is not built yet.
+        // Linked, it gets as far as the server, which has no key yet, and is told why: no llama-server is approved.
         #expect {
             try backend.resolve("q", config: wisp, home: home)
         } throws: { error in
-            "\(error)".contains(LlamaCppServer.notBuilt)
+            "\(error)".contains("wisp will not start its llama-server: no llama-server is approved")
         }
         let plan = try await backend.removal("q", config: wisp, home: home, purgeCache: false)
         #expect(plan.steps.count == 1 && plan.kept.first?.contains("stays where it is") == true)

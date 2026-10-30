@@ -4,8 +4,7 @@ import Testing
 @testable import WispCore
 
 /// `llamacpp.server` (ADR 0082, decision 3): `off` as before, `llama-app` at Llama.app's port with its open server
-/// said plainly, `wisp` accepted and refused at every use until its server is built, and the choice refused for LM
-/// Studio. What needs a server is in `OpenAICompatibleBackendTests`, which share the fake server.
+/// said plainly, `wisp` at its own server's port, and the choice refused for LM Studio. What needs a server is in `OpenAICompatibleBackendTests`, which share the fake server.
 @Suite struct LlamaCppServerTests {
     /// Loads `json` as `config.json`, returning the refusal's text, or nil when it loads.
     private func refusal(_ json: String) throws -> String? {
@@ -40,7 +39,6 @@ import Testing
         let settings = Config().resolved.llamacpp
         #expect(settings.server == .off && settings.baseURL.absoluteString == "http://127.0.0.1:8080")
         #expect(settings.startHint(for: .llamaCpp) == OpenAICompatibleDialect.llamaCpp.startHint)
-        #expect(LlamaCppServer.off.unusable == nil && LlamaCppServer.llamaApp.unusable == nil)
     }
 
     @Test func llamaAppTakesItsPortUnlessABaseURLIsSet() {
@@ -58,13 +56,13 @@ import Testing
         }
         #expect(try refusal(#"{"llamacpp":{"server":"ollama"}}"#) != nil)
         let studio = try refusal(#"{"lmstudio":{"server":"llama-app"}}"#)
-        #expect(studio?.hasPrefix("lmstudio: server is not taken: it is llama.cpp's choice") == true, "\(studio ?? "")")
+        #expect(studio?.hasPrefix("lmstudio: server is not taken: it is llama.cpp's") == true, "\(studio ?? "")")
     }
 
     @Test func configSetExplainsEachChoice() throws {
         let setting = try #require(ConfigSettings.setting("llamacpp.server"))
         #expect(setting.kind == .choice(["off", "wisp", "llama-app"]))
-        for word in ["off", "llama-app", "wisp", "not built yet", "no key"] {
+        for word in ["off", "llama-app", "wisp", "LaunchAgent", "no key"] {
             #expect(setting.summary.contains(word), "\(word)")
         }
         #expect(ConfigSettings.defaultValue("llamacpp.server") == "off")
@@ -76,7 +74,11 @@ import Testing
             "llamacpp.server", to: "llama-app", in: Data(#"{"llamacpp":{"baseURL":"http://h:1"}}"#.utf8))
         #expect(overridden.warning?.contains("so wisp connects there") == true)
         let wisp = try ConfigEdit.set("llamacpp.server", to: "wisp", in: nil)
-        #expect(wisp.warning?.contains("not built yet") == true)
+        #expect(wisp.warning?.contains("wisp config set llamacpp.serverPath PATH") == true, "\(wisp.warning ?? "")")
+        #expect(wisp.warning?.contains("llamacpp.baseURL is set and not used") == false)
+        let ignored = try ConfigEdit.set(
+            "llamacpp.server", to: "wisp", in: Data(#"{"llamacpp":{"baseURL":"http://h:1"}}"#.utf8))
+        #expect(ignored.warning?.contains("llamacpp.baseURL is set and not used") == true)
         #expect(try ConfigEdit.set("llamacpp.server", to: "off", in: nil).warning == nil)
         #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set("llamacpp.server", to: "llamaapp", in: nil) }
         #expect(throws: ConfigEdit.Failure.self) { try ConfigEdit.set("lmstudio.server", to: "llama-app", in: nil) }
@@ -112,7 +114,7 @@ import Testing
         let wisp = try #require(
             Doctor.llamaCppServer(
                 Config(llamacpp: .init(server: .wisp)).resolved.llamacpp, installed: nil, answer: nil))
-        #expect(!wisp.ok && wisp.detail.contains("not built yet") && wisp.name == "llama.cpp server")
+        #expect(!wisp.ok && wisp.detail.contains("its state was not read") && wisp.name == "llama.cpp server")
         var settings = Config(llamacpp: .init(server: .llamaApp)).resolved.llamacpp
         settings.llamaApp = LlamaApp(candidates: [missing])
         let running = try #require(

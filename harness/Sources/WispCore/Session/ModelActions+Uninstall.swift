@@ -122,6 +122,12 @@ extension ModelActions {
             throw error
         }
         record("removed", reason: nil)
+        // wisp's own llama.cpp server reads its models when it starts, so it starts again without the link.
+        if scheme == OpenAICompatibleDialect.llamaCpp.scheme, config.llamacpp.server == .wisp {
+            LlamaCppAgent.follow(
+                .models(plan.model), server: .wisp, control: LlamaCppAgent.control(home: home), audit: audit,
+                source: face.rawValue, say: { dialog.show($0) })
+        }
         return true
     }
 

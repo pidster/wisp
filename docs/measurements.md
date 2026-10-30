@@ -554,8 +554,30 @@ GGUF files, `--models-max 1`, `127.0.0.1`, and `--api-key-file`; then the same 9
 | After 20 s idle under `--sleep-idle-seconds 20` | 217 MB; the next request 0.74 s, the one after 0.07 s |
 | Stopping the router | Its model's process stopped with it |
 
-The router passes its own context and slot settings on to each model it starts. Not measured: the 9B at a 65,536-token
-context, the default the operator chose.
+The router passes its own context and slot settings on to each model it starts. Not measured that day: the 9B at a
+65,536-token context, the default the operator chose; measured with the build the next day, below.
+
+**Added 2026-10-30: wisp's own server, as built.** `wisp llamacpp serve` from a debug build, in the foreground from a
+scratch `WISP_HOME` (so no LaunchAgent was registered), with the Homebrew `llama-server` 0.7.0 approved, the 9B linked
+with `wisp models add`, port 8935, and `llamacpp.think low`; the prompt `Use run_command to run: uname -m` with
+`--model llamacpp:Ternary-Bonsai-2-9B-Q2_0 --yes`. Memory is `ps`'s resident size of the model's process.
+
+| Measure | Result |
+| --- | --- |
+| The router alone, nothing loaded | 126 to 130 MB resident (126,416 to 133,568 KiB) |
+| The 9B at the defaults (65,536 tokens, 1 slot), loaded | 5.3 to 5.4 GB resident (5,160,352 to 5,275,392 KiB), four readings over two starts; 3.8 GB at 32,768 the day before |
+| The prompt, the 9B loaded from disk at its first request | 8.2 s the first time, 5.2 s from the page cache after a restart; the right answer (`arm64`), one `run_command` call |
+| The prompt with the 9B loaded | 1.5 and 1.7 s |
+| After 30 s idle under `llamacpp.serverIdleSeconds 20` | 387 MB resident (377,776 KiB) |
+| The prompt waking it | 5.0 s, back to 5.4 GB |
+| A model linked while the router ran | Not listed by `/v1/models` until the router started again |
+| `/v1/models` `status` | `{"value": "loaded"}` or `"unloaded"`, with the model's own arguments, which carry the router's `--ctx-size`, `--parallel`, and `--sleep-idle-seconds` |
+| `--no-ui` given to the router (the 2B, a scratch folder) | `/` answers 404 rather than 415; the API answers with the key as before; each model's process is started with `--no-webui` and logs "The UI is disabled" |
+| SIGTERM to the router | The router and its model gone within 1 s, once wisp unblocked signals before `execve`; before that fix, both ignored SIGTERM and SIGINT and needed SIGKILL |
+
+Waking the 9B took 5.0 s here, against 0.74 s at 32,768 tokens the day before: a sleeping model gives back its
+context's memory and takes it again on waking, so a larger context wakes more slowly. After the measurement no
+`llama-server` from the scratch home was left (`ps`), and the folder was removed.
 
 ### Planning a task tree and its grant, 2026-10-23
 

@@ -35,6 +35,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case threads
     /// `wisp update`, or the Finder dialog's check and update (ADR 0074).
     case update
+    /// `wisp llamacpp serve`: wisp's own llama.cpp server starting, as its LaunchAgent runs it (ADR 0082).
+    case llamacpp
 
     /// The entry point of a further conversation opened under this one.
     public var thread: EntryPoint {

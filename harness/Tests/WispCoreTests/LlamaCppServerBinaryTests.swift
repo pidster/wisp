@@ -225,22 +225,23 @@ import WispTestSupport
         #expect(Doctor.serverBinary(off, home: home) == nil)
         var settings = Config(llamacpp: .init(server: .wisp, serverPath: file.path)).resolved.llamacpp
         #expect(settings.serverPath == file.path)
-        let unapproved = try #require(
-            Doctor.llamaCppServer(
-                settings, installed: nil, answer: nil, binary: Doctor.serverBinary(settings, home: home)))
-        #expect(!unapproved.ok && unapproved.detail.contains("not built yet"))
-        #expect(unapproved.detail.contains("; llama-server: \(file.path) is not approved"), "\(unapproved.detail)")
+        /// The finding with the binary as checked now, no agent, and nothing asked.
+        func finding() throws -> Doctor.Finding {
+            let router = Doctor.RouterState(
+                binary: try #require(Doctor.serverBinary(settings, home: home)), agent: .manual("a test"),
+                means: .manual("a test"), keyExists: false, log: LlamaCppRouter.log(home: home))
+            return try #require(Doctor.llamaCppServer(settings, installed: nil, answer: nil, router: router))
+        }
+        let unapproved = try finding()
+        #expect(!unapproved.ok)
+        #expect(unapproved.detail.contains("wisp: llama-server: \(file.path) is not approved"), "\(unapproved.detail)")
         _ = try LlamaCppServerBinary(home: home).change(
             file.path, configFile: home.configFile, workingDirectory: root, audit: nil, source: "cli")
-        let approved = try #require(
-            Doctor.llamaCppServer(
-                settings, installed: nil, answer: nil, binary: Doctor.serverBinary(settings, home: home)))
-        #expect(approved.detail.contains("; llama-server: \(file.path) approved and unchanged"), "\(approved.detail)")
+        let approved = try finding()
+        #expect(
+            approved.detail.contains("wisp: llama-server \(file.path) approved and unchanged"), "\(approved.detail)")
         settings.serverPath = nil
-        let unset = try #require(
-            Doctor.llamaCppServer(
-                settings, installed: nil, answer: nil, binary: Doctor.serverBinary(settings, home: home)))
-        #expect(unset.detail.contains("no llama-server is approved"))
+        #expect(try finding().detail.contains("no llama-server is approved"))
     }
 
     @Test func onlyThePersonApproves() throws {

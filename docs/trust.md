@@ -62,6 +62,21 @@ turn both off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
 ([run_command](tools/run_command.md#running-outside-the-sandbox),
 [ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)).
 
+**wisp's own llama.cpp server, when you turn it on.** With `llamacpp.server wisp`
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), [backends.md](backends.md)), wisp keeps a process
+running after the command that wanted it has ended: a LaunchAgent, `com.pidster.wisp.llamacpp` (a Login Item of
+`Wisp.app`, or a file in `~/Library/LaunchAgents` for a Homebrew install), which launchd starts at login and again
+after a crash. It runs `llama-server`, a program wisp did not build, **outside wisp's sandbox**, with your privileges:
+only the file you approved with `wisp config set llamacpp.serverPath`, checked by its SHA-256 before every start
+(the libraries it loads from its install are not checked). It listens on `127.0.0.1` only, so no other machine can
+reach it, serves no web UI (`--no-ui`), and every request must carry a key wisp generated (32 random bytes), kept in a file only you can read
+(`~/Library/Application Support/Wisp/llamacpp/api-key`), passed to the server by file and never on its command line,
+and never logged or shown; any process running as you can read that file, as it can read the rest of your files.
+It serves only the GGUF files you added. It is off by default; turning it on or off, changing what it runs with, and
+approving the binary are yours: the default policy refuses them to the model and chat's `/config` sends you to a
+terminal. `wisp config set llamacpp.server off` unregisters it, which stops it; so does turning Wisp off in Login
+Items.
+
 **Commands you type yourself.** In `wisp chat` and `wisp-tui`, a line that starts with `!` (`! git status`)
 runs that command as yours, through the same runner as `run_command`
 ([ADR 0049](decisions/0049-commands-typed-in-chat.md)). It passes the same deny and allow lists and runs
@@ -263,8 +278,12 @@ not judge whether a conclusion follows from the output, and misses a result put 
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
-- Remove everything wisp keeps: delete `~/.wisp`, and `~/Library/Application Support/Wisp` (the links
-  `wisp models add` made and the approved `llama-server`'s record). Nothing else is written outside the sandbox's
+- Stop wisp's own llama.cpp server for good: `wisp config set llamacpp.server off`, which unregisters its
+  LaunchAgent (do this before uninstalling a Homebrew wisp, whose agent file in `~/Library/LaunchAgents` would
+  otherwise stay).
+- Remove everything wisp keeps: delete `~/.wisp`, `~/Library/Application Support/Wisp` (the links
+  `wisp models add` made, the approved `llama-server`'s record, and its server's key), and `~/Library/Logs/Wisp`
+  (that server's log). Nothing else is written outside the sandbox's
   writable set, except what a command run outside the sandbox wrote (one you approved, or typed after `!!`), the
   models you pulled into the Hugging Face cache, which Hugging Face's own tools share (delete
   `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions install`
@@ -282,6 +301,9 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |
 | `~/.zsh/completions/_wisp`, bash-completion's or fish's per-user completions directory | the shell completion script, only when you run `wisp completions install`; it replaces only a file wisp wrote ([wisp.md](wisp.md), "`wisp completions`") | your default (umask) |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
+| `~/Library/Application Support/Wisp/llamacpp/api-key` | the key of wisp's own llama.cpp server, made at its first start under `llamacpp.server wisp` | user-only (folder 0700, file 0600) |
+| `~/Library/Logs/Wisp/llamacpp.log` | that server's output, moved aside to `llamacpp.log.1` past 8 MiB | user-only |
+| `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` | that server's LaunchAgent, for a Homebrew install or a build, written by `wisp config set llamacpp.server wisp` and removed by setting it otherwise; `Wisp.app` carries its own inside the app | yours |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | chats saved before 0.27.0, and each one's links to the audit log; read by `wisp chat --resume`, never written now | user-only |

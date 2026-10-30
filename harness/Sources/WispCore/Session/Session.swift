@@ -213,12 +213,16 @@ public struct Session: Sendable {
         Prompting(systemPromptExtension: config.systemPromptExtension, instructions: request.instructions)
     }
 
-    /// Reads `config.json` under `home`, mapping every failure to `Failure.malformedConfig`.
+    /// Reads `config.json` under `home`, mapping every failure to `Failure.malformedConfig`; under
+    /// `llamacpp.server wisp`, with the key of wisp's own server from the home's support folder.
     ///
     /// - Throws: `Failure.malformedConfig`.
     public static func loadConfig(home: Home) throws -> Config.Resolved {
         do {
-            return try Config.load(from: home.configFile).resolved
+            var resolved = try Config.load(from: home.configFile).resolved
+            // wisp's own llama.cpp server's key is in the home's support folder (ADR 0082, decision 6).
+            resolved.llamacpp = resolved.llamacpp.withRouterKey(home: home)
+            return resolved
         } catch let failure as CommandPolicy.Failure {
             throw Failure.malformedConfig(path: home.configFile.path, problem: .invalidPolicy(failure))
         } catch let failure as CustomTool.Failure {

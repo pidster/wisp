@@ -15,7 +15,8 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
     public enum Failure: Error, CustomStringConvertible, Equatable {
         /// No server answered at the base URL; the hint says what to start (`OpenAICompatibleSettings.startHint`).
         case unreachable(OpenAICompatibleDialect, URL, String, hint: String)
-        /// wisp will not ask the server anything, and says why: `llamacpp.server wisp`, whose server is not built yet.
+        /// wisp will not ask the server anything, and says why: under `llamacpp.server wisp`, its own server has no
+        /// key yet, which its first start makes.
         case unusable(OpenAICompatibleDialect, String)
         /// The server serves no model by that name; the names it serves are listed.
         case noSuchModel(OpenAICompatibleDialect, String, served: [String])
@@ -86,6 +87,8 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         public var maximumContext: Int?
         /// Whether a llama.cpp router serves it among others, so `/props` names it.
         public var routed = false
+        /// What a llama.cpp router says of it: `loaded`, `unloaded`, `loading`, or another word; nil when not routed.
+        public var status: String?
 
         /// Creates a record.
         public init(id: String, name: String? = nil) {
@@ -206,6 +209,10 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         return request
     }
 
+    /// Why wisp's own llama.cpp server cannot be asked before its first start.
+    static let noKey =
+        "wisp's llama.cpp server has not started yet: the key its first start makes is not there; wisp doctor says why"
+
     /// GETs `path` and returns the body of a 200.
     ///
     /// - Parameters:
@@ -219,8 +226,11 @@ public struct OpenAICompatibleModel: LanguageModel, Sendable {
         _ path: String, query: [URLQueryItem] = [], dialect: OpenAICompatibleDialect,
         settings: OpenAICompatibleSettings
     ) async throws -> Data? {
-        // Every question to the server comes through here, so a server wisp will not use is refused once, here.
-        if dialect == .llamaCpp, let reason = settings.server.unusable { throw Failure.unusable(dialect, reason) }
+        // Every question to the server comes through here, so a server wisp cannot ask is refused once, here: wisp's
+        // own, before its first start has made the key it answers to.
+        if dialect == .llamaCpp, settings.server == .wisp, settings.apiKey == nil {
+            throw Failure.unusable(dialect, Self.noKey)
+        }
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(
@@ -423,6 +433,8 @@ enum Catalogs {
             // The quantisation, as Ollama's listing shows it beside the family; llama.cpp reports no family.
             served.format = meta?["ftype"]?.stringValue
             served.routed = entry["status"] != nil
+            // llama-server 0.7.0's router: `"status": {"value": "unloaded", "args": […]}` (probed 2026-10-30).
+            served.status = entry["status"]?.objectValue?["value"]?.stringValue ?? entry["status"]?.stringValue
             return served
         }
     }

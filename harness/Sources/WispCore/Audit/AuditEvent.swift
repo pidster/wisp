@@ -90,6 +90,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case modelAdd
         case llamaCppServerApprove
         case llamaCppServerRefused
+        case llamaCppServerStart
+        case llamaCppAgent
         case classifierVerdict
         case classifierTrained
         case configChange
@@ -160,6 +162,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .modelAdd,
             .llamaCppServerApprove,
             .llamaCppServerRefused,
+            .llamaCppServerStart,
+            .llamaCppAgent,
             .classifierVerdict,
             .classifierTrained,
             .configChange,
@@ -230,6 +234,8 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .modelAdd: "model.add"
             case .llamaCppServerApprove: "llamacpp.server.approve"
             case .llamaCppServerRefused: "llamacpp.server.refused"
+            case .llamaCppServerStart: "llamacpp.server.start"
+            case .llamaCppAgent: "llamacpp.agent"
             case .classifierVerdict: "classifier.verdict"
             case .classifierTrained: "classifier.train"
             case .configChange: "config.change"

@@ -16,18 +16,35 @@ public struct Home: Sendable, Equatable {
     /// home given its root, `$WISP_HOME` or a test's, `<root>/support`, so a scratch home never reads or changes the
     /// person's own.
     public let support: URL
+    /// wisp's folder in `~/Library/Logs`, for the logs of the processes it keeps (ADR 0082, decision 4: wisp's own
+    /// llama.cpp server's). `~/Library/Logs/Wisp` for the person's home; `<root>/logs` for a home given its root.
+    public let libraryLogs: URL
 
     /// Creates a home rooted at `root`.
     ///
     /// - Parameters:
     ///   - root: The directory.
     ///   - support: wisp's folder in Application Support; nil puts it at `<root>/support`.
-    public init(root: URL, support: URL? = nil) {
+    ///   - libraryLogs: wisp's folder in `~/Library/Logs`; nil puts it at `<root>/logs`.
+    public init(root: URL, support: URL? = nil, libraryLogs: URL? = nil) {
         self.root = root
         self.support = support ?? root.appending(path: "support", directoryHint: .isDirectory)
+        self.libraryLogs = libraryLogs ?? root.appending(path: "logs", directoryHint: .isDirectory)
     }
 
-    /// Resolves the home from `environment`, falling back to `~/.wisp` and `~/Library/Application Support/Wisp`.
+    /// The person's own Application Support folder for wisp, `~/Library/Application Support/Wisp`.
+    static var personsSupport: URL {
+        URL.applicationSupportDirectory.appending(path: "Wisp", directoryHint: .isDirectory)
+    }
+
+    /// Whether this is the person's own home, whose support folder is `~/Library/Application Support/Wisp`, rather
+    /// than one given its root by `WISP_HOME` or a test: what may register a LaunchAgent (ADR 0082, decision 4).
+    public var isPersons: Bool {
+        support.standardizedFileURL.path == Self.personsSupport.standardizedFileURL.path
+    }
+
+    /// Resolves the home from `environment`, falling back to `~/.wisp`, `~/Library/Application Support/Wisp`, and
+    /// `~/Library/Logs/Wisp`.
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> Home {
         if let override = environment[environmentKey], !override.isEmpty {
             return Home(root: URL(fileURLWithPath: override, isDirectory: true))
@@ -35,7 +52,8 @@ public struct Home: Sendable, Equatable {
         return Home(
             root: FileManager.default.homeDirectoryForCurrentUser.appending(
                 path: ".wisp", directoryHint: .isDirectory),
-            support: URL.applicationSupportDirectory.appending(path: "Wisp", directoryHint: .isDirectory))
+            support: personsSupport,
+            libraryLogs: URL.libraryDirectory.appending(path: "Logs/Wisp", directoryHint: .isDirectory))
     }
 
     /// The JSON configuration file.

@@ -188,6 +188,16 @@ extension ChatLoop {
                         + "wisp config set \(path) PATH, or unset it with wisp config unset \(path)"))
             return false
         }
+        // Turning wisp's own llama.cpp server on or off, or changing what it runs with, registers, unregisters, or
+        // restarts its LaunchAgent (ADR 0082); that too is done from a terminal, where what it does is said.
+        guard !path.hasPrefix("llamacpp.server") else {
+            io.note(
+                style.ember(
+                    "error: \(path) changes wisp's own llama.cpp server, which runs outside wisp's sandbox under a "
+                        + "LaunchAgent; change it from a terminal with wisp config set \(path) VALUE, or "
+                        + "wisp config unset \(path)"))
+            return false
+        }
         do {
             let outcome = try edit(try ConfigEdit.existing(at: url))
             try ConfigEdit.write(outcome, to: url)

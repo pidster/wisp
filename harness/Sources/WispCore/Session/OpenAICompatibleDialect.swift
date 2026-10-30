@@ -101,13 +101,16 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     public var serverPath: String?
     /// Where Llama.app is looked for under `llama-app`, so a test need not depend on the Mac it runs on.
     public var llamaApp: LlamaApp
+    /// The port and memory settings of wisp's own server, which under `wisp` also give `baseURL` (ADR 0082,
+    /// decision 7); the defaults for LM Studio, which has none.
+    public var router: LlamaCppRouter.Settings
 
     /// Creates settings.
     public init(
         baseURL: URL, timeout: Duration = .seconds(120), apiKey: String? = nil, apiKeySource: String? = nil,
         think: OllamaThink? = nil, thinkingBudget: [String: Int] = defaultThinkingBudget,
         declared: [String: Config.MLXModelConfig] = [:], server: LlamaCppServer = .off, serverPath: String? = nil,
-        llamaApp: LlamaApp = .standard
+        llamaApp: LlamaApp = .standard, router: LlamaCppRouter.Settings = .defaults
     ) {
         self.baseURL = baseURL
         self.timeout = timeout
@@ -119,15 +122,22 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
         self.server = server
         self.serverPath = serverPath
         self.llamaApp = llamaApp
+        self.router = router
     }
 
-    /// What to do when nothing answers at `baseURL`: the runtime's own way to start a server, or, under
-    /// `llamacpp.server llama-app`, to start Llama.app or that it is not installed.
+    /// What to do when nothing answers at `baseURL`: the runtime's own way to start a server; under
+    /// `llamacpp.server llama-app`, to start Llama.app or that it is not installed; under `wisp`, that `wisp doctor`
+    /// says why wisp's own server does not answer (`OpenAICompatibleBackend.resolve` says it in full).
     ///
     /// - Parameter dialect: The runtime.
     /// - Returns: The hint.
     func startHint(for dialect: OpenAICompatibleDialect) -> String {
-        dialect == .llamaCpp && server == .llamaApp ? llamaApp.startHint : dialect.startHint
+        guard dialect == .llamaCpp else { return dialect.startHint }
+        switch server {
+        case .off: return dialect.startHint
+        case .llamaApp: return llamaApp.startHint
+        case .wisp: return LlamaCppRouter.unansweredHint(router)
+        }
     }
 
     /// The budgets a level thinks within when `llamacpp.thinkingBudget` does not set its own: `low` 1,024 tokens,
@@ -143,7 +153,10 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
         OpenAICompatibleSettings(baseURL: dialect.defaultBaseURL)
     }
 
-    /// The settings a file section and the environment give: the environment's key wins over the file's.
+    /// The settings a file section and the environment give: the environment's key wins over the file's. Under
+    /// `llamacpp.server wisp` the base URL is wisp's own server's, `http://127.0.0.1:<llamacpp.serverPort>`, whatever
+    /// `llamacpp.baseURL` says, and no key is taken from either: the server's only key is the one in wisp's key file,
+    /// which `Session.loadConfig(home:)` reads (`withRouterKey(home:)`), since the server refuses any other.
     ///
     /// - Parameters:
     ///   - section: The `llamacpp` or `lmstudio` section, if any.
@@ -157,15 +170,37 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
         let fromFile = section?.apiKey.flatMap { $0.isEmpty ? nil : $0 }
         // Whose server is llama.cpp's choice alone; an explicit `baseURL` wins over the port the choice implies.
         let server = dialect == .llamaCpp ? section?.server ?? .off : .off
+        let router = dialect == .llamaCpp ? LlamaCppRouter.Settings.resolve(section) : .defaults
+        let configured =
+            section?.baseURL.flatMap(URL.init(string:)) ?? server.defaultBaseURL ?? dialect.defaultBaseURL
         return OpenAICompatibleSettings(
-            baseURL: section?.baseURL.flatMap(URL.init(string:)) ?? server.defaultBaseURL ?? dialect.defaultBaseURL,
-            timeout: .seconds(section?.timeoutSeconds ?? 120), apiKey: fromEnvironment ?? fromFile,
+            baseURL: server == .wisp ? router.baseURL : configured,
+            timeout: .seconds(section?.timeoutSeconds ?? 120),
+            apiKey: server == .wisp ? nil : fromEnvironment ?? fromFile,
             apiKeySource: fromEnvironment != nil ? dialect.apiKeyVariable : "config.json",
             think: dialect.takesThink ? section?.think : nil,
             thinkingBudget: defaultThinkingBudget.merging(section?.thinkingBudget ?? [:]) { _, configured in configured
             },
             declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:], server: server,
-            serverPath: dialect == .llamaCpp ? section?.serverPath.flatMap { $0.isEmpty ? nil : $0 } : nil)
+            serverPath: dialect == .llamaCpp ? section?.serverPath.flatMap { $0.isEmpty ? nil : $0 } : nil,
+            router: router)
+    }
+
+    /// Where the key is said to come from under `llamacpp.server wisp`.
+    static let keyFileSource = "wisp's key file"
+
+    /// These settings with wisp's own server's key, read from its key file in `home`'s support folder, under
+    /// `llamacpp.server wisp`; as they are under any other server, or when the file holds no key yet (the server's
+    /// first start makes it).
+    ///
+    /// - Parameter home: wisp's home.
+    /// - Returns: The settings.
+    func withRouterKey(home: Home) -> OpenAICompatibleSettings {
+        guard server == .wisp else { return self }
+        var settings = self
+        settings.apiKey = LlamaCppRouter.KeyFile(home: home).read()
+        settings.apiKeySource = settings.apiKey == nil ? nil : Self.keyFileSource
+        return settings
     }
 
     /// Whether a key is set and where from, never the key: `set (WISP_LLAMACPP_API_KEY)`, `unset`.

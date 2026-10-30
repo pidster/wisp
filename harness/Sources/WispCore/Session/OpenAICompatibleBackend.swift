@@ -62,7 +62,42 @@ public struct OpenAICompatibleBackend: ModelBackend {
                 asset: "\(settings.baseURL.absoluteString) \(model.serverID)", contextSize: model.window,
                 contextNote: model.windowReason)
         } catch let failure as OpenAICompatibleModel.Failure {
-            throw ModelSelection.Failure.unavailable(model: selection.description, reason: failure.description)
+            let reason =
+                dialect == .llamaCpp && settings.server == .wisp
+                ? Self.routerReason(failure, settings: settings, home: home, agent: LlamaCppAgent.control(home: home))
+                : failure.description
+            throw ModelSelection.Failure.unavailable(model: selection.description, reason: reason)
+        }
+    }
+
+    /// Why wisp's own llama.cpp server did not serve, in plain words with the fix (ADR 0082): for no answer, or no
+    /// key yet, what stands in the way (`LlamaCppRouter.diagnosis`); for a refused key, that the server runs with
+    /// another; anything else as it is.
+    ///
+    /// - Parameters:
+    ///   - failure: What asking the server met.
+    ///   - settings: The `llamacpp` settings.
+    ///   - home: wisp's home.
+    ///   - agent: The LaunchAgent's control, for its state.
+    /// - Returns: The reason.
+    static func routerReason(
+        _ failure: OpenAICompatibleModel.Failure, settings: OpenAICompatibleSettings, home: Home,
+        agent: any LlamaCppAgentControl
+    ) -> String {
+        func diagnosis(_ detail: String?) -> String {
+            LlamaCppRouter.diagnosis(
+                binary: Doctor.serverBinary(settings, home: home) ?? .failure(.notSet), agent: agent.state(),
+                keyExists: LlamaCppRouter.KeyFile(home: home).read() != nil, settings: settings.router,
+                log: LlamaCppRouter.log(home: home), detail: detail)
+        }
+        switch failure {
+        case .unreachable(_, _, let detail, _): return diagnosis(detail)
+        case .unusable: return diagnosis(nil)
+        case .refused:
+            return
+                "wisp's llama.cpp server at \(settings.baseURL.absoluteString) refused the key in wisp's key file: it "
+                + "runs with another; wisp config set llamacpp.server wisp starts it again"
+        default: return failure.description
         }
     }
 
@@ -110,7 +145,8 @@ public struct OpenAICompatibleBackend: ModelBackend {
     }
 
     /// Base URL, timeout, whether a key is set (never the key), and, for llama.cpp, whose server it is (`server`), the
-    /// `llama-server` it would run (`serverPath`, as set; whether it is approved is `wisp doctor`'s),
+    /// `llama-server` it would run (`serverPath`, as set; whether it is approved is `wisp doctor`'s), the port and
+    /// memory settings of wisp's own server,
     /// `think`, and the thinking budgets, with each model's own `think`.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
         let settings = config[server: dialect]
@@ -123,6 +159,13 @@ public struct OpenAICompatibleBackend: ModelBackend {
         if dialect == .llamaCpp {
             values["server"] = .string(settings.server.rawValue)
             values["serverPath"] = .string(settings.serverPath ?? "none approved")
+            // What wisp's own server runs with, used under `server` `wisp` (ADR 0082, decision 7).
+            let router = settings.router
+            values["serverPort"] = .int(router.port)
+            values["serverContextLength"] = .int(router.contextLength)
+            values["serverSlots"] = .int(router.slots)
+            values["serverModelsLoaded"] = .int(router.modelsLoaded)
+            values["serverIdleSeconds"] = .int(router.idleSeconds)
         }
         if dialect.takesThink {
             values["think"] = settings.think.map { .string($0.text) } ?? .string("unset")

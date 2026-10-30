@@ -157,7 +157,12 @@ When a model will not start:
 | `Ollama has no model '<name>'; installed: …` | `ollama pull <name>`, or pick one of those listed |
 | `model 'X' is disabled; enable it with …` | `wisp models enable X` |
 | `no llama.cpp server at …` | Start `llama-server`, or set `llamacpp.baseURL`; under `llamacpp.server llama-app`, the message says to start Llama.app, or that it is not installed |
-| `llamacpp.server is wisp, wisp's own llama.cpp server, which arrives in a later stage of 0.33.0 and is not built yet; …` | `wisp config set llamacpp.server off` (a `llama-server` you start) or `llama-app` (Llama.app's) |
+| `wisp's llama.cpp server does not answer at …: wisp will not start its llama-server: …` | Under `llamacpp.server wisp`, the approved `llama-server` is not set, not approved, or has changed (after `brew upgrade llama.cpp`); run the `wisp config set llamacpp.serverPath …` command the message names |
+| `wisp's llama.cpp server does not answer at …: its LaunchAgent is not registered; …` | `wisp config set llamacpp.server wisp` registers and starts it |
+| `… its Login Item waits for your approval in System Settings > General > Login Items & Extensions …` | Turn on Wisp there; macOS asks before an app's background item runs |
+| `… wisp registers no LaunchAgent here (…); start it yourself with wisp llamacpp serve` | `WISP_HOME` or `WISP_LLAMACPP_AGENT=off` is set; run `wisp llamacpp serve` in another terminal, or unset them |
+| `wisp's llama.cpp server has not started yet: …` or `… is registered and the server is not running, or still starting …` | Read `~/Library/Logs/Wisp/llamacpp.log` (the message names it), then `wisp config set llamacpp.server wisp` to start it again; `wisp doctor` shows the whole state |
+| `wisp's llama.cpp server at … refused the key in wisp's key file …` | It runs with another key; `wisp config set llamacpp.server wisp` restarts it with the one in the key file |
 
 When chat's configured model is unavailable as it starts, chat starts on `system` and says so. A one-shot
 `wisp "…"` and an MCP `respond` fail with the message instead.

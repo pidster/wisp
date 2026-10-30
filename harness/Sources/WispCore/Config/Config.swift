@@ -592,12 +592,25 @@ public struct Config: Codable, Equatable, Sendable {
         /// llamacpp.serverPath`, which also records its digest outside this file (ADR 0082, decision 5). A path set
         /// here by hand is not approved.
         public var serverPath: String?
+        /// llama.cpp only, under `server` `wisp`: the port on `127.0.0.1` wisp's server listens on; default 8933
+        /// (ADR 0082, decision 7, as `LlamaCppRouter.Settings` gives each default).
+        public var serverPort: Int?
+        /// llama.cpp only, under `server` `wisp`: the tokens of context each model is loaded with; default 65,536.
+        public var serverContextLength: Int?
+        /// llama.cpp only, under `server` `wisp`: the requests a model answers at once; default 1.
+        public var serverSlots: Int?
+        /// llama.cpp only, under `server` `wisp`: the models kept loaded at once; default 2.
+        public var serverModelsLoaded: Int?
+        /// llama.cpp only, under `server` `wisp`: seconds idle before a loaded model sleeps; 0 never; default 600.
+        public var serverIdleSeconds: Int?
 
         /// Creates settings; nil fields take defaults.
         public init(
             baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: OllamaThink? = nil,
             thinkingBudget: [String: Int]? = nil, models: [String: MLXModelConfig]? = nil,
-            server: LlamaCppServer? = nil, serverPath: String? = nil
+            server: LlamaCppServer? = nil, serverPath: String? = nil, serverPort: Int? = nil,
+            serverContextLength: Int? = nil, serverSlots: Int? = nil, serverModelsLoaded: Int? = nil,
+            serverIdleSeconds: Int? = nil
         ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
@@ -607,6 +620,19 @@ public struct Config: Codable, Equatable, Sendable {
             self.models = models
             self.server = server
             self.serverPath = serverPath
+            self.serverPort = serverPort
+            self.serverContextLength = serverContextLength
+            self.serverSlots = serverSlots
+            self.serverModelsLoaded = serverModelsLoaded
+            self.serverIdleSeconds = serverIdleSeconds
+        }
+
+        /// The names of the router's settings this section sets, as `config.json` spells them.
+        var routerSettingsSet: [String] {
+            [
+                ("serverPort", serverPort), ("serverContextLength", serverContextLength), ("serverSlots", serverSlots),
+                ("serverModelsLoaded", serverModelsLoaded), ("serverIdleSeconds", serverIdleSeconds),
+            ].compactMap { $0.1 == nil ? nil : $0.0 }
         }
     }
 
@@ -848,15 +874,18 @@ public struct Config: Codable, Equatable, Sendable {
             }
         }
         // Whose server is a choice for llama.cpp alone: LM Studio always runs its own (ADR 0082).
-        if lmstudio?.server != nil || lmstudio?.serverPath != nil {
+        let studio =
+            (lmstudio?.server != nil ? ["server"] : []) + (lmstudio?.serverPath != nil ? ["serverPath"] : [])
+            + (lmstudio?.routerSettingsSet ?? [])
+        if let first = studio.first {
             throw DecodingError.dataCorrupted(
                 .init(
                     codingPath: [],
                     debugDescription:
-                        "lmstudio: \(lmstudio?.server != nil ? "server" : "serverPath") is not taken: it is "
-                        + "llama.cpp's choice (llamacpp.server, llamacpp.serverPath); LM Studio runs its own server, "
-                        + "started from its Developer tab"))
+                        "lmstudio: \(first) is not taken: it is llama.cpp's (llamacpp.\(first)); LM Studio runs its "
+                        + "own server, started from its Developer tab"))
         }
+        try validateRouter()
         // LM Studio sets thinking per model in the app; a model's `think` there would be read past.
         if let model = (lmstudio?.models ?? [:]).keys.sorted().first(where: { lmstudio?.models?[$0]?.think != nil }) {
             throw DecodingError.dataCorrupted(
@@ -864,6 +893,29 @@ public struct Config: Codable, Equatable, Sendable {
                     codingPath: [],
                     debugDescription:
                         "lmstudio: models.\(model).think is not taken: LM Studio sets thinking per model in the app"))
+        }
+    }
+
+    /// Checks the settings wisp's own llama.cpp server runs with (ADR 0082, decision 7) are within their ranges.
+    ///
+    /// - Throws: `DecodingError.dataCorrupted` naming the setting and its range.
+    func validateRouter() throws {
+        typealias Router = LlamaCppRouter.Settings
+        let checks: [(String, Int?, ClosedRange<Int>, String)] = [
+            ("serverPort", llamacpp?.serverPort, Router.portRange, ""),
+            ("serverContextLength", llamacpp?.serverContextLength, Self.contextLengthRange, " tokens"),
+            ("serverSlots", llamacpp?.serverSlots, Router.slotsRange, ""),
+            ("serverModelsLoaded", llamacpp?.serverModelsLoaded, Router.modelsLoadedRange, ""),
+            ("serverIdleSeconds", llamacpp?.serverIdleSeconds, Router.idleSecondsRange, " (0 never sleeps)"),
+        ]
+        for (key, value, range, unit) in checks {
+            guard let value, !range.contains(value) else { continue }
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: [],
+                    debugDescription:
+                        "llamacpp: \(key) must be between \(range.lowerBound) and \(range.upperBound)\(unit) "
+                        + "(it was \(value))"))
         }
     }
 

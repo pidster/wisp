@@ -42,10 +42,15 @@ extension ModelActions {
             return ["\(model) is linked already, to \(link.target.path); nothing changed"]
         }
         let size = ModelRemoval.formatted(Int64(link.bytes ?? 0))
-        return [
+        var lines = [
             "added \(model): \(link.link.path) links to \(link.target.path) (\(size)), which stays where it is",
-            "wisp's llama.cpp server serves it as \(model) once the server is built; wisp models uninstall \(model) "
-                + "removes the link, never the file",
+            "wisp's llama.cpp server serves it as \(model), loading it on its first request; wisp models uninstall "
+                + "\(model) removes the link, never the file",
         ]
+        // The server reads its models when it starts (probed 2026-10-30), so it starts again to serve this one.
+        LlamaCppAgent.follow(
+            .models(model), server: .wisp, control: LlamaCppAgent.control(home: session.home), audit: audit,
+            source: face.rawValue, say: { lines.append($0) })
+        return lines
     }
 }

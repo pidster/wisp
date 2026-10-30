@@ -46,8 +46,8 @@ public struct Doctor: Sendable {
         /// thinks; nil when none answers, or its model does not think (`ThinkingBudgetCheck.probe(_:)`).
         public var thinkingBudget: @Sendable (Config.Resolved) async -> Finding?
         /// The `llama.cpp server` finding for `llamacpp.server` (ADR 0082): nil under `off`; under `llama-app`, whether
-        /// Llama.app is installed and its server answers; under `wisp`, the approved `llama-server`'s state, checked
-        /// against its record in the home's support folder (`Doctor.llamaCppServer(_:installed:answer:binary:)`).
+        /// Llama.app is installed and its server answers; under `wisp`, the approved `llama-server`'s state, the
+        /// LaunchAgent's, and whether wisp's own server answers with its models (`Doctor.llamaCppServer`).
         public var llamaCppServer: @Sendable (Config.Resolved, Home) async -> Finding?
         /// Where `wisp-tui` is, or nil, and the places looked, for the `front end` finding.
         public var frontEnd: @Sendable () -> (found: URL?, looked: [URL])
@@ -97,9 +97,10 @@ public struct Doctor: Sendable {
             thinkingBudget: { await ThinkingBudgetCheck.probe($0.llamacpp) },
             llamaCppServer: { config, home in
                 let settings = config.llamacpp
+                let wisp = await Doctor.askWispServer(settings, home: home, agent: LlamaCppAgent.control(home: home))
+                let answer = settings.server == .wisp ? wisp.answer : await Doctor.askLlamaCppServer(settings)
                 return Doctor.llamaCppServer(
-                    settings, installed: settings.llamaApp.installed, answer: await Doctor.askLlamaCppServer(settings),
-                    binary: Doctor.serverBinary(settings, home: home))
+                    settings, installed: settings.llamaApp.installed, answer: answer, router: wisp.router)
             },
             frontEnd: {
                 guard let executable = FrontEnd.runningExecutable else { return (nil, []) }

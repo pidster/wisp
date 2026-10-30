@@ -21,7 +21,7 @@ struct Wisp: AsyncParsableCommand {
             Redact.self, Watch.self,
             Draft.self,
             ClassifierCommand.self, CompletionsCommand.self, InstallCommand.self, UninstallCommand.self,
-            UpdateCommand.self,
+            UpdateCommand.self, LlamaCppCommand.self,
         ],
         defaultSubcommand: Respond.self
     )
@@ -1035,6 +1035,31 @@ struct ConfigCommand: ParsableCommand {
         print("\(LlamaCppServerBinary.setting): \(old) → \(new); used from the next session on")
         for line in change.lines { print(line) }
         if let warning = change.outcome.warning { FileHandle.standardError.write(Data("note: \(warning)\n".utf8)) }
+        // A new approval reaches a running server only when it starts again; a revoked one stops it at its next start.
+        if text != nil { try follow(LlamaCppServerBinary.setting, session: session) }
+    }
+
+    /// Registers, unregisters, or restarts wisp's own llama.cpp server's LaunchAgent after a change to `path`, when the
+    /// change asks it (`LlamaCppAgent.follow`): `llamacpp.server`, the router's settings, and the approved binary.
+    ///
+    /// - Parameters:
+    ///   - path: The setting changed.
+    ///   - session: The session the change was recorded under.
+    /// - Throws: `ExitCode.failure` when an action failed, which was said.
+    static func follow(_ path: String, session: Session) throws {
+        let trigger: LlamaCppAgent.Trigger
+        if path == "llamacpp.server" {
+            trigger = .server
+        } else if path == LlamaCppServerBinary.setting || LlamaCppRouter.restartingSettings.contains(path) {
+            trigger = .setting(path)
+        } else {
+            return
+        }
+        let config = try Wisp.usage { try Session.loadConfig(home: Wisp.home) }
+        let done = LlamaCppAgent.follow(
+            trigger, server: config.llamacpp.server, control: LlamaCppAgent.control(home: Wisp.home),
+            audit: session.audit, source: "cli", say: { print($0) })
+        guard done else { throw ExitCode.failure }
     }
 
     /// Edits the file, audits the change, and says what changed.
@@ -1055,12 +1080,13 @@ struct ConfigCommand: ParsableCommand {
             throw ExitCode.failure
         }
         let session = try Wisp.begin(.init(entryPoint: .config))
+        defer { session.end() }
         session.audit.record(.configChange, details: AuditEvent.Details.configChange(outcome, source: "cli"))
-        session.end()
         let old = outcome.old.map(ChatLoop.shown) ?? "(default)"
         let new = outcome.new.map(ChatLoop.shown) ?? "(default)"
         print("\(path): \(old) → \(new); used from the next session on")
         if let warning = outcome.warning { FileHandle.standardError.write(Data("note: \(warning)\n".utf8)) }
+        try follow(path, session: session)
     }
 }
 

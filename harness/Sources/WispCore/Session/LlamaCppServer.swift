@@ -7,8 +7,8 @@ public enum LlamaCppServer: String, Codable, CaseIterable, Sendable {
     /// A server the person starts: wisp connects to `llamacpp.baseURL` and starts nothing. The default, and wisp's
     /// behaviour before 0.33.0.
     case off
-    /// wisp's own router, which wisp starts for the models it knows. Not built yet: every use says so
-    /// (`unusable`) until it arrives in a later stage of 0.33.0.
+    /// wisp's own router, which a LaunchAgent keeps running for the models wisp knows (`LlamaCppRouter`,
+    /// `LlamaCppAgent`).
     case wisp
     /// Llama.app's router: wisp connects to it and starts nothing; the person adds models in Llama.app.
     case llamaApp = "llama-app"
@@ -22,7 +22,9 @@ public enum LlamaCppServer: String, Codable, CaseIterable, Sendable {
     public var effect: String {
         switch self {
         case .off: "wisp connects to llamacpp.baseURL, a server you start, and starts nothing"
-        case .wisp: "wisp starts its own llama.cpp server for the models it knows (not built yet)"
+        case .wisp:
+            "wisp runs its own llama.cpp server for the models you add, kept running by a LaunchAgent, on "
+                + "127.0.0.1 with a key"
         case .llamaApp:
             "wisp uses Llama.app's server (port \(Self.llamaAppPort) unless llamacpp.baseURL is set) and starts "
                 + "nothing; add models in Llama.app"
@@ -30,7 +32,8 @@ public enum LlamaCppServer: String, Codable, CaseIterable, Sendable {
     }
 
     /// The base URL this choice puts in place of llama.cpp's default when `llamacpp.baseURL` is unset: Llama.app's
-    /// port for `llama-app`; nil for the others, which keep `http://127.0.0.1:8080`.
+    /// port for `llama-app`; nil for the others: `off` keeps `http://127.0.0.1:8080`, and `wisp` takes its own
+    /// server's port (`LlamaCppRouter.Settings.baseURL`), whatever `llamacpp.baseURL` says.
     var defaultBaseURL: URL? {
         guard self == .llamaApp else { return nil }
         var components = URLComponents()
@@ -39,18 +42,6 @@ public enum LlamaCppServer: String, Codable, CaseIterable, Sendable {
         components.port = Self.llamaAppPort
         return components.url
     }
-
-    /// Why wisp will not ask this server anything, or nil when it may: `wisp`'s server is not built yet. The one
-    /// place a later stage of 0.33.0 replaces with starting the server, or saying why it would not.
-    var unusable: String? {
-        guard self == .wisp else { return nil }
-        return Self.notBuilt
-    }
-
-    /// What `wisp`'s server being missing means for the person.
-    static let notBuilt =
-        "llamacpp.server is wisp, wisp's own llama.cpp server, which arrives in a later stage of 0.33.0 and is not "
-        + "built yet; set llamacpp.server to off (a llama-server you start) or llama-app (Llama.app's server)"
 }
 
 /// Llama.app (`app.llama.Llama`), found where it is installed, so `llamacpp.server llama-app` can say whether it is.

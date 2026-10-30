@@ -146,7 +146,8 @@ public enum ConfigSettings {
                 path: "llamacpp.server",
                 summary:
                     "whose llama.cpp server wisp uses: off, one you start at llamacpp.baseURL; llama-app, Llama.app's "
-                    + "(no key, open to any web page); wisp, its own (not built yet)",
+                    + "(no key, open to any web page); wisp, its own, which setting it registers as a LaunchAgent and "
+                    + "starts, and setting it otherwise stops",
                 kind: .choice(LlamaCppServer.allCases.map(\.rawValue))),
             Setting(
                 path: LlamaCppServerBinary.setting,
@@ -154,6 +155,36 @@ public enum ConfigSettings {
                     "the llama-server wisp's own server runs; setting it approves that file by its digest, and setting "
                     + "it again approves a new one (after brew upgrade llama.cpp)",
                 kind: .text),
+            Setting(
+                path: "llamacpp.serverContextLength",
+                summary:
+                    "wisp's llama.cpp server: tokens of conversation a model holds; more costs memory (the 9B "
+                    + "Bonsai took 3.8 GB at 32,768, \(LlamaCppRouter.measuredDefaultMemory) at 65,536)",
+                kind: .integer(Config.contextLengthRange)),
+            Setting(
+                path: "llamacpp.serverSlots",
+                summary:
+                    "wisp's llama.cpp server: requests a model answers at once; each more slot costs memory, as more "
+                    + "context does",
+                kind: .integer(LlamaCppRouter.Settings.slotsRange)),
+            Setting(
+                path: "llamacpp.serverModelsLoaded",
+                summary:
+                    "wisp's llama.cpp server: models kept in memory at once; asking for one more unloads the least "
+                    + "recently used, which takes seconds to load again",
+                kind: .integer(LlamaCppRouter.Settings.modelsLoadedRange)),
+            Setting(
+                path: "llamacpp.serverIdleSeconds",
+                summary:
+                    "wisp's llama.cpp server: seconds without a request before a model sleeps, giving back most of its "
+                    + "memory; the next request wakes it in about a second; 0 never sleeps",
+                kind: .integer(LlamaCppRouter.Settings.idleSecondsRange)),
+            Setting(
+                path: "llamacpp.serverPort",
+                summary:
+                    "wisp's llama.cpp server: its port on 127.0.0.1 (not 8080, a llama-server you start, nor 9931, "
+                    + "Llama.app's)",
+                kind: .integer(LlamaCppRouter.Settings.portRange)),
             Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
             Setting(
                 path: "llamacpp.think",
@@ -336,6 +367,11 @@ public enum ConfigSettings {
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
         case "llamacpp.server": return .string(d.llamacpp.server.rawValue)
         case LlamaCppServerBinary.setting: return .string("none approved")
+        case "llamacpp.serverContextLength": return .int(d.llamacpp.router.contextLength)
+        case "llamacpp.serverSlots": return .int(d.llamacpp.router.slots)
+        case "llamacpp.serverModelsLoaded": return .int(d.llamacpp.router.modelsLoaded)
+        case "llamacpp.serverIdleSeconds": return .int(d.llamacpp.router.idleSeconds)
+        case "llamacpp.serverPort": return .int(d.llamacpp.router.port)
         case "llamacpp.baseURL": return .string(d.llamacpp.baseURL.absoluteString)
         case "llamacpp.think": return d.llamacpp.think.map { .string($0.text) } ?? .string("the template's default")
         case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)
@@ -625,7 +661,8 @@ public enum ConfigEdit {
     }
 
     /// What choosing `server` means: for `llama-app` that its server is open to every
-    /// process and web page, and whether `llamacpp.baseURL` overrides its port; for `wisp`, that it is not built yet.
+    /// process and web page, and whether `llamacpp.baseURL` overrides its port; for `wisp`, what it needs, and that
+    /// `llamacpp.baseURL`, when set, is not used.
     ///
     /// - Parameters:
     ///   - server: The choice.
@@ -636,7 +673,10 @@ public enum ConfigEdit {
         case .off:
             return nil
         case .wisp:
-            return LlamaCppServer.notBuilt
+            return "\(server.effect); it runs the llama-server you approve with wisp config set llamacpp.serverPath "
+                + "PATH, and serves the models you add with wisp models add PATH; "
+                + (baseURLSet ? "llamacpp.baseURL is set and not used: wisp asks its own server; " : "")
+                + "wisp doctor says how it is"
         case .llamaApp:
             let port =
                 baseURLSet

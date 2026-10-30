@@ -85,8 +85,10 @@ every local step and prints the remote ones instead of executing them.
    ([ADR 0070](decisions/0070-a-notification-helper.md)); the staged `wisp doctor`'s `notifier` finding must name the
    staged bundle, and a signed release notarises the bundle with the binaries. A signed release then assembles
    `Wisp.app` with `scripts/wisp-app` from the same staged parts (`wisp` and `wisp-tui` in `Contents/MacOS`, the
-   helper in `Contents/Helpers`, the library in `Contents/Resources/mlx-swift_Cmlx.bundle`, the `Info.plist`
-   declaring each), signs it inside out, and checks that its `wisp doctor`'s `package` finding has every declared
+   helper in `Contents/Helpers`, the library in `Contents/Resources/mlx-swift_Cmlx.bundle`, the LaunchAgent of wisp's own
+   llama.cpp server in `Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist`, which wisp registers with
+   `SMAppService` ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)), the `Info.plist` declaring each),
+   signs it inside out, and checks that its `wisp doctor`'s `package` finding has every declared
    part and that `wisp`, started through a link outside the app, loads the app's library; the app goes in the same
    notarisation as the binaries and is stapled, then `scripts/wisp-dmg` packs it into the DMG, which is signed,
    notarised, stapled, and checked with `spctl` (`--dry-run` builds both and prints the submissions). MLX

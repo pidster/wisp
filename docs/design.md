@@ -103,9 +103,11 @@ than its window becomes `contextSizeExceeded`, which `Agent` condenses for. The 
 it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)). Whose llama.cpp server it is,
 `LlamaCppServer` (`llamacpp.server`: `off`, `llama-app`, `wisp`), is part of the llama.cpp settings
 (`OpenAICompatibleSettings.server`): `llama-app` moves the default base URL to Llama.app's port and its start hint to
-Llama.app's (`LlamaApp`, found by bundle identifier), and `wisp`, whose server is not built yet, is refused in
-`OpenAICompatibleModel.get`, the one way every question reaches the server, so no request is sent
-([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)). The models wisp's server will serve are
+Llama.app's (`LlamaApp`, found by bundle identifier), and `wisp` puts its own server's port,
+`LlamaCppRouter.Settings.baseURL`, in place of `llamacpp.baseURL` and takes no key from `config.json` or the
+environment; `Session.loadConfig` adds the key from the key file (`withRouterKey(home:)`), and until there is one
+`OpenAICompatibleModel.get`, the one way every question reaches the server, refuses before sending anything
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)). The models wisp's server serves are
 `LlamaCppModels`: links, `<name>.gguf`, in `Home.support`'s `llamacpp/models` (`~/Library/Application Support/Wisp`,
 or `<root>/support` for a home given its root, so `WISP_HOME` and tests never reach the person's own). Under `wisp`,
 `OpenAICompatibleBackend` lists that folder instead of asking a server (`ModelLocation.linkedFile`, `brokenLink`),
@@ -117,6 +119,26 @@ The `llama-server` it would run is `LlamaCppServerBinary`: `wisp config set llam
 its digest, returning the resolved file to run (so a link re-pointed after the check is not followed), and `verify`
 records a refusal as `llamacpp.server.refused`. `Session.begin` adds `Home.support` to the paths commands may not
 write when it lies outside the home.
+
+wisp's own server is `LlamaCppRouter` and its LaunchAgent `LlamaCppAgent`. `wisp llamacpp serve`, the hidden
+subcommand the agent runs, calls `LlamaCppRouter.prepare`: the setting must be `wisp`, `verify` must pass, the
+`KeyFile` is made once (32 random bytes as hex, created 0600 with `O_EXCL` and renamed into place), the models folder
+exists, and `llamacpp.server.start` is recorded; the arguments come from the pure `arguments(_:models:keyFile:)`, the
+environment from `environment(_:)`, which drops `LLAMA_*`. The command then points standard output and error at
+`Home.libraryLogs`' `llamacpp.log`, unblocks every signal and sets each to its default (it runs on a thread of
+Swift's concurrency pool, which blocks signals, and a program keeps its caller's mask across `execve`: before this,
+`llama-server` ignored the SIGTERM launchd stops it with, probed 2026-10-30), and `execve`s the approved file, so
+the process launchd supervises is `llama-server` itself. Registration is behind `LlamaCppAgentControl`:
+`LoginItemAgent` (`SMAppService.agent(plistName:)`, which reads the agent's file from the main bundle, so a `wisp`
+started through a link asks the app's own `wisp` to do it with `wisp llamacpp agent`), `LaunchAgentFile` (a plist in
+`~/Library/LaunchAgents`, `launchctl bootstrap`, `bootout`, and `kickstart -k`, through an injected runner), and
+`UnregisteredAgent`. `LlamaCppAgent.means` chooses from `AppInstall.source` and the home: a home that is not the
+person's (`Home.isPersons`) or `WISP_LLAMACPP_AGENT=off` registers nothing, which keeps tests and scratch homes away
+from launchd. `LlamaCppAgent.follow` maps a change (`llamacpp.server`, a restarting setting, an approval, a model
+added or removed, `wisp uninstall`) to register, unregister, or restart, says each before doing it, and records
+`llamacpp.agent`; the CLI calls it after the configuration is written. When the server does not serve,
+`OpenAICompatibleBackend.routerReason` puts the binary's check, the agent's state, and the key file through
+`LlamaCppRouter.diagnosis`, and `wisp doctor` reads the same with the router's `/v1/models` statuses.
 
 `ModelSelection` names the model (`system`, `private-cloud`, or `<backend>:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session

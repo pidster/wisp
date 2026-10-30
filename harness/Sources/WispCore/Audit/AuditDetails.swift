@@ -980,6 +980,8 @@ extension AuditEvent {
                 "reason", "source",
             ]
         case .llamaCppServerRefused: ["path", "refusal", "resolved", "sha256", "approvedSha256", "reason", "source"]
+        case .llamaCppServerStart: ["outcome", "reason", "executable", "sha256", "arguments", "port"]
+        case .llamaCppAgent: ["action", "means", "trigger", "outcome", "reason", "source"]
         case .modelVerified:
             [
                 "model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds",

@@ -271,7 +271,7 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   | --- | --- |
   | `off` (the default) | Connects to `llamacpp.baseURL` (`http://127.0.0.1:8080`), a `llama-server` you start, and starts nothing, as before 0.33.0 |
   | `llama-app` | Uses Llama.app's server and starts nothing; you add models in Llama.app |
-  | `wisp` | wisp's own server, started for the models you added (below): arrives in a later stage of 0.33.0 and is not built yet. Accepted by `config.json`, and every use of a `llamacpp:` model and `wisp doctor` say so, asking no server anything |
+  | `wisp` | wisp's own server, a `llama-server` router over the models you added, kept running by a LaunchAgent, on `127.0.0.1` port 8933 with a key wisp makes ("wisp's own server, end to end", below) |
 
   Llama.app (bundle identifier `app.llama.Llama`) runs llama.cpp's router on `127.0.0.1` port 9931, llama-server's own
   default. It writes the port nowhere wisp could find (not in its defaults, its `models.ini`, or
@@ -293,8 +293,9 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   its name is 1 to 64 characters from `[A-Za-z0-9._-]`; a name linked to another file is refused. `wisp models` then
   lists the folder rather than asking a server: each link as `llamacpp:<name>`, with its file's size, `WHERE`
   `linked file`, or `broken link` when the file is gone, every one shown whether or not it can be used. Until the
-  server is built, using one says it is not built yet; a name with no link says to add it, and a broken link that its
-  file is missing. `wisp models uninstall llamacpp:<name>` removes the link only, saying where the file stays, and
+  using one is refused before the server is asked: a name with no link says to add it, and a broken link that its
+  file is missing. The router reads the folder only when it starts (probed on 2026-10-30: a link added while it ran
+  was not listed), so adding or removing a model restarts it when its LaunchAgent is registered, and says so. `wisp models uninstall llamacpp:<name>` removes the link only, saying where the file stays, and
   clears `llamacpp.models.<name>`. Adding is the person's: the model's `models` tool does not offer it, and the
   default policy refuses `wisp models add` to the model. Under `off` and `llama-app` the folder is not read, and
   `wisp models add` is refused.
@@ -318,6 +319,75 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   `wisp config set|unset llamacpp.serverPath` to the model, chat's `/config` sends you to a terminal for it, and a
   session's commands may not write the support folder. The digest covers the executable alone: the libraries
   `llama-server` loads from its install (Homebrew's `libllama`, `libggml*`) are not checked.
+- **wisp's own server, end to end.** Under `llamacpp.server wisp` (ADR 0082, decisions 1, 4, 6, and 7):
+
+  ```
+  wisp config set llamacpp.serverPath /opt/homebrew/bin/llama-server   # approve the binary
+  wisp models add ~/models/Ternary-Bonsai-2-9B-Q2_0.gguf               # link a model
+  wisp config set llamacpp.server wisp                                 # register and start the server
+  wisp doctor                                                          # is it running, and what is loaded
+  wisp --model llamacpp:Ternary-Bonsai-2-9B-Q2_0 "…"
+  ```
+
+  Setting `llamacpp.server wisp` registers a LaunchAgent, `com.pidster.wisp.llamacpp`, and says so before it does.
+  From `Wisp.app` the agent is the app's own (`Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist`),
+  registered with `SMAppService`, so it shows in System Settings > General > Login Items & Extensions as Wisp, where
+  you can turn it off; macOS may ask you to allow it there first, which wisp and `wisp doctor` say. A Homebrew install,
+  or a build, writes `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` naming its own `wisp` (Homebrew's
+  `opt` link, so an upgrade of wisp keeps it working) and loads it with `launchctl bootstrap gui/<uid>`. launchd starts
+  it at once and at each login, and again if it crashes (`KeepAlive` `Crashed`, after 30 s at the soonest); a refusal
+  to start exits non-zero and waits for you rather than starting again in a loop. With `WISP_HOME` set, or
+  `WISP_LLAMACPP_AGENT=off`, nothing is registered: wisp says so and you run `wisp llamacpp serve` yourself.
+
+  The agent runs `wisp llamacpp serve`, a hidden subcommand. It reads the configuration, refuses unless the setting is
+  `wisp` and the approved `llama-server` passes its check (above), makes the key file once, records
+  `llamacpp.server.start`, and then replaces itself with `llama-server` (`execve`), so launchd supervises the server
+  itself. The server is started as:
+
+  ```
+  llama-server --models-dir <support>/llamacpp/models --models-max 2 --ctx-size 65536 --parallel 1 \
+    --sleep-idle-seconds 600 --no-ui --host 127.0.0.1 --port 8933 --api-key-file <support>/llamacpp/api-key
+  ```
+
+  with llama.cpp's own `LLAMA_*` environment variables left out, so none of them can change the host or the key.
+  `--no-ui` turns off llama.cpp's web UI, which wisp does not use: `/` answers 404 rather than serving the page, and
+  the router passes the setting on to each model's process (`--no-webui`, the name 0.7.0 calls deprecated, in the
+  model's own arguments; probed on 2026-10-30). It
+  loads a model on the first request that names it; the router passes its context, slot, and idle settings on to each
+  model's process. Its output, and `wisp llamacpp serve`'s own lines, go to `~/Library/Logs/Wisp/llamacpp.log`
+  (`$WISP_HOME/logs/llamacpp.log` under `WISP_HOME`), moved aside to `llamacpp.log.1` at a start once past 8 MiB.
+
+  **The key.** 32 random bytes, written as 64 hex digits to `~/Library/Application Support/Wisp/llamacpp/api-key`,
+  a file only you can read in a folder only you can open, made at the first start and kept. It is passed by file, never
+  on the command line, and never logged or shown: not in the audit, `wisp doctor`, `wisp config`, or an error. Under
+  `wisp` it is the only key wisp sends: `llamacpp.apiKey` and `WISP_LLAMACPP_API_KEY` are not used, since the server
+  answers no other (a request without it gets 401), and `llamacpp.baseURL` is not used either: wisp asks
+  `http://127.0.0.1:<llamacpp.serverPort>`.
+
+  **The settings**, each changed with `wisp config set` from a terminal, which restarts the server when it is
+  registered (`launchctl kickstart -k`), and says so; a loaded model loads again on its next request:
+
+  | Setting | Default | What it does, and what it costs |
+  | --- | --- | --- |
+  | `llamacpp.serverContextLength` | 65,536 | Tokens of conversation a model holds. More costs memory: the 9B Bonsai took 3.8 GB at 32,768 and about 5 GB at 65,536, one slot (2026-10-30), 11.4 GB at llama.cpp's own 262,144 and 4 slots |
+  | `llamacpp.serverSlots` | 1 | Requests a model answers at once. Each slot costs memory as more context does |
+  | `llamacpp.serverModelsLoaded` | 2 | Models in memory at once; asking for one more unloads the least recently used, which then takes seconds to load again (1.4 to 2.4 s for the Bonsai models, 2026-10-29) |
+  | `llamacpp.serverIdleSeconds` | 600 | Seconds without a request before a model sleeps, giving back most of its memory: the 9B fell from about 5 GB to under 400 MB; the next request woke it (2026-10-30). 0 never sleeps |
+  | `llamacpp.serverPort` | 8933 | Its port on `127.0.0.1`: not 8080, where `off` looks for a server you start, nor 9931, llama-server's default and Llama.app's |
+
+  Approving another `llama-server` (after `brew upgrade llama.cpp`) restarts it too. Turning it off: `wisp config set
+  llamacpp.server off` (or `llama-app`, or `unset`) unregisters the agent, which stops the server and its models;
+  `wisp uninstall`, from `Wisp.app`, unregisters it as well; turning Wisp off in Login Items stops it until you turn it
+  on. Uninstalling a Homebrew wisp leaves its file in `~/Library/LaunchAgents`, so set the setting to `off` first.
+  These are the person's: the default policy refuses `wisp config set|unset llamacpp.server…` to the model, and chat's
+  `/config` sends you to a terminal.
+
+  **When it does not answer**, using a `llamacpp:` model says why, with what to do: the binary is not approved or has
+  changed; the agent is not registered (`wisp config set llamacpp.server wisp` registers it); it waits for your
+  approval in Login Items; no agent is registered for this home (run `wisp llamacpp serve`); it has not started yet
+  (no key); or it is registered and not running, with the log to read. `wisp doctor`'s `llama.cpp server` finding gives
+  the binary's state, the agent's, whether the server answers with the key and each model it lists with its status
+  (`loaded`, `unloaded`, …), the settings, and the log.
 - **Names.** `/v1/models` lists the model by the `-m` path or the `--alias` given; a path is named by its file's
   name without `.gguf` (`llamacpp:Qwen3-8B-Q4_K_M`), and the path itself is accepted too. A router serving several
   models (`--models-dir`) lists each, and wisp asks `/props` about the one it uses.

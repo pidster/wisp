@@ -14,7 +14,7 @@ Added:
 - `llamacpp.server`, whose llama.cpp server `llamacpp:` models use (ADR 0082): `off`, the default, a `llama-server`
   you start, as before; `llama-app`, Llama.app's server on port 9931 (or `llamacpp.baseURL` when set), with
   `wisp doctor` saying whether Llama.app is installed and its server answers, and warning that the server has no API
-  key and answers any web page; `wisp`, wisp's own server, accepted but not built yet, which every use says.
+  key and answers any web page; `wisp`, wisp's own server (below).
   `wisp config set llamacpp.server` explains each. Llama.app's model names, such as
   `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0`, work as given.
 - `wisp models add PATH`, and chat's `/models add PATH`, for `llamacpp.server wisp` (ADR 0082): links a GGUF file
@@ -32,6 +32,19 @@ Added:
   `wisp doctor` shows the state under `llamacpp.server wisp`. Audited as `llamacpp.server.approve` and
   `llamacpp.server.refused`; the default policy refuses setting it to the model, and chat's `/config` sends you to
   a terminal. The digest covers the executable, not the libraries it loads from its install.
+- wisp's own llama.cpp server, `llamacpp.server wisp` (ADR 0082): one `llama-server` router over the models you added,
+  on `127.0.0.1` port 8933 (`llamacpp.serverPort`), without llama.cpp's web UI, with a key wisp makes once and keeps in a file only you can read,
+  never shown or logged. `wisp config set llamacpp.server wisp` registers a LaunchAgent, `com.pidster.wisp.llamacpp`,
+  that starts it now, at login, and after a crash: from `Wisp.app` a Login Item (System Settings > General > Login
+  Items & Extensions), otherwise a file in `~/Library/LaunchAgents`; setting it otherwise, or `wisp uninstall` from
+  the app, unregisters it. The agent runs the hidden `wisp llamacpp serve`, which checks the approved binary and
+  becomes `llama-server`, logging to `~/Library/Logs/Wisp/llamacpp.log`. Memory settings, each explained by
+  `wisp config list`: `llamacpp.serverContextLength` (65,536; the 9B Bonsai took about 5 GB), `serverSlots` (1),
+  `serverModelsLoaded` (2), and `serverIdleSeconds` (600; a sleeping model fell under 400 MB); changing one, approving
+  a binary, or adding or removing a model restarts the server. `wisp doctor` shows the binary, the agent, whether the
+  server answers, and each model loaded or not; a model it cannot serve says why and what to do. Under `WISP_HOME`, or
+  `WISP_LLAMACPP_AGENT=off`, nothing is registered. Audited as `llamacpp.server.start` and `llamacpp.agent`; every
+  `llamacpp.server…` setting is the person's, refused to the model and sent to a terminal from chat.
 
 ## 0.32.0
 

@@ -57,7 +57,8 @@ struct UninstallCommand: ParsableCommand {
         abstract: "Remove the links to Wisp.app's wisp and wisp-tui from ~/.local/bin, or a folder you name.",
         discussion:
             "Removes wisp and wisp-tui from the folder only when they are links into the Wisp.app it runs from, and "
-            + "names anything else it leaves. It does not remove Wisp.app (drag it to the Bin) or ~/.wisp.")
+            + "names anything else it leaves, and unregisters wisp's own llama.cpp server's Login Item when it is "
+            + "registered. It does not remove Wisp.app (drag it to the Bin) or ~/.wisp.")
 
     @Argument(help: "The folder the links are in; ~/.local/bin when omitted.", completion: .directory)
     var folder: String?
@@ -72,6 +73,13 @@ struct UninstallCommand: ParsableCommand {
             FileHandle.standardError.write(Data("Error: \(failure)\n".utf8))
             throw ExitCode.failure
         }
+        // The app's Login Item for wisp's own llama.cpp server goes with it (ADR 0082, decision 4).
+        let session = try Wisp.begin(.init(entryPoint: .config))
+        defer { session.end() }
+        let done = LlamaCppAgent.follow(
+            .uninstall, server: session.config.llamacpp.server, control: LlamaCppAgent.control(home: Wisp.home),
+            audit: session.audit, source: "cli", say: { print($0) })
+        guard done else { throw ExitCode.failure }
     }
 }
 
