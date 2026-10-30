@@ -213,7 +213,8 @@ coverage_baseline() {
 # their floors. `eval record` also writes each task's
 # measurement into the embedded measurements.json, to commit; a plain eval (what a release runs)
 # leaves the file alone, since the sets are small and a rerun re-rolls the numbers. `eval compare` runs the
-# suites that decide delegation on each model WISP_EVAL_MODELS names, one model at a time (docs/measurements.md).
+# suites that decide delegation on each model WISP_EVAL_MODELS names, one model at a time (docs/measurements.md);
+# `eval context compare` only the context scenario of those, on each model.
 # `eval checkpoint` runs context checkpoint 2 (docs/proposals/2026-10-06-context-checkpoint-2.md), the parts
 # WISP_CHECKPOINT names (all by default), and ends with its own table, a row per model and cell. `eval plan` runs
 # the plan probe (ADR 0081), whether a model keeps its plan while it works, under four variants; no floor.
@@ -228,6 +229,7 @@ eval_() {
     # `eval context`; the plain eval, which a release runs, covers every other suite and its floors.
     record=""
     compare=""
+    context=""
     checkpoint=""
     # The suites one after another: the on-device model serves one request at a time, so running them in parallel
     # saves almost nothing and its load lowered the scores (docs/measurements.md, 2026-10-16).
@@ -236,7 +238,7 @@ eval_() {
     for arg in "$@"; do
         case "$arg" in
             record) record="$ROOT/harness/Sources/WispCore/Resources/measurements.json" ;;
-            context) scope="--no-parallel --filter ContextEvalTests"; label="the context eval only" ;;
+            context) scope="--no-parallel --filter ContextEvalTests"; label="the context eval only"; context=1 ;;
             plan) scope="--no-parallel --filter PlanEvalTests"; label="the plan probe only" ;;
             compare) compare=1 ;;
             checkpoint)
@@ -244,7 +246,7 @@ eval_() {
                 scope="--no-parallel --filter ContextCheckpointTests"
                 label="context checkpoint 2: $checkpoint"
                 ;;
-            *) echo "usage: scripts/check eval [context|plan|compare|checkpoint] [record]" >&2; exit 64 ;;
+            *) echo "usage: scripts/check eval [context|plan|compare|context compare|checkpoint] [record]" >&2; exit 64 ;;
         esac
     done
     out="$ROOT/harness/Evals/.build/evals"
@@ -270,12 +272,19 @@ eval_() {
         # time and each case's time is that model's alone. A model that fails or is missing fails its cells only.
         models="$(echo "$WISP_EVAL_MODELS" | tr ',' ' ')"
         failed_models=""
+        # `eval context compare` runs only the context scenario, a few minutes a model, not every suite.
+        suites="$EVAL_COMPARE_SUITES"
+        what="tool calls, schema replies, system_info, triage, summarise_diff, draft_change, the model classifier, one context scenario"
+        if [ -n "$context" ]; then
+            suites="ContextEvalTests/comparisonOnEachModel"
+            what="the context scenario only"
+        fi
         for model in $models; do
-            echo "==> eval compare on $model: tool calls, schema replies, system_info, triage, summarise_diff, draft_change, the model classifier, one context scenario"
+            echo "==> eval compare on $model: $what"
             # A model that fails goes on to the next (its cells say why); the summary names it below.
             # shellcheck disable=SC2086 # $SWIFT_SANDBOX and $mlx are split into words on purpose
             eval_swift_test "$log" env WISP_MODEL_TESTS=1 WISP_EVAL_MODELS="$model" WISP_EVAL_RECORD="$record" \
-                swift test $SWIFT_SANDBOX $mlx --no-parallel --filter "$EVAL_COMPARE_SUITES" \
+                swift test $SWIFT_SANDBOX $mlx --no-parallel --filter "$suites" \
                 || failed_models="$failed_models $model (exit $EVAL_STATUS)"
         done
     else
@@ -898,5 +907,5 @@ case "${1:-all}" in
     docs-site) docs_site ;;
     all) hygiene; palette; launcher; docs_links; lint; build; evals_build; test_ ;;
     install-hooks) install_hooks ;;
-    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|plan|compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|docs-links|docs-site|hygiene|palette|launcher|all|install-hooks]" >&2; exit 64 ;;
+    *) echo "usage: scripts/check [lint|build|evals-build|mlx-build|test|format|coverage|coverage-gate|coverage-baseline|classifier-default|eval [context|plan|compare|context compare|checkpoint] [record]|eval-stream-probe|mlx-live <model directory>|completions|mcp-build|docs-links|docs-site|hygiene|palette|launcher|all|install-hooks]" >&2; exit 64 ;;
 esac

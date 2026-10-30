@@ -514,7 +514,16 @@ commands safe, and faster at `summarise_diff`; granite was faster at `system_inf
 (11/12 to 8/12), the commit messages delegation writes most. Bonsai's medium drafts rose from 1/4 on 2026-10-17 to
 3/4; with four cases, that is not yet a trend. The context scenario did not run for Bonsai: the eval resolves it from
 a configuration of its own with the defaults, where `llamacpp.server` is `off` and the base URL port 8080, so it found
-no server; a gap in the eval, not the model, closed the same day: the comparison now resolves with the operator's llama.cpp, LM Studio, and per-model Ollama thinking settings, and holds each model at the scenario's window (`ResolvedModel.held(window:)`), since a server's window cannot be asked for per request.
+no server; a gap in the eval, not the model, closed the same day: the comparison now resolves with the operator's llama.cpp, LM Studio, and per-model Ollama thinking settings, and holds each model at the scenario's window (`ResolvedModel.held(window:)`), since a server's window cannot be asked for per request. Rerun that evening with `scripts/check eval context compare`,
+the scenario alone (14 turns, then six questions, the window held at 8,192 tokens):
+
+| Model | Answers right | Median a turn | 95th percentile |
+| --- | --- | --- | --- |
+| Bonsai 2 9B, think `low`, through wisp's router | 6/6 | 5.8 s | 6.8 s |
+| granite4.2:8b, not thinking | 5/6 | 22.9 s | 73.5 s |
+
+granite's figures are the morning's again (5/6, 22.5 s), now with its configured thinking, so its slower turns are not
+thinking's; Bonsai answered every question at a quarter of the time.
 
 ### Bonsai 2 at 2B, 4B, and 9B in chat, 2026-10-19
 

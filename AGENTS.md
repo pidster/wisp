@@ -42,7 +42,7 @@ scripts/check                      # hygiene + strict lint + warnings-as-errors 
 scripts/check format               # swift-format and rustfmt auto-fix
 scripts/check coverage             # per-file line coverage (not in the gate)
 scripts/check docs-site            # docs-links (in the gate: every page in SUMMARY.md, every link resolving), then the site into book/: the homepage, and the book under book/docs/
-scripts/check eval [context|plan|compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval and the plan probe, or only one of them, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama: or mlx:), or (checkpoint) context checkpoint 2; record rewrites measurements.json; WISP_EVAL_FULL=1 runs the whole case sets, not the release's subsets
+scripts/check eval [context|plan|compare|context compare|checkpoint] [record]  # model evaluation (harness/Evals); slow; not in the gate; every suite but the context eval and the plan probe, or only one of them, or (compare) the delegation suites on each model in WISP_EVAL_MODELS (ollama:, llamacpp:, or mlx:), or (context compare) only their context scenario, or (checkpoint) context checkpoint 2; record rewrites measurements.json; WISP_EVAL_FULL=1 runs the whole case sets, not the release's subsets
 scripts/check mlx-live <model dir> # MLX live test on real weights, built with --traits MLX; not in the gate
 scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote steps printed (docs/release.md); --skip-eval when the eval passed on this code
 
