@@ -66,7 +66,7 @@ turn both off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
 ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), [backends.md](backends.md)), wisp keeps a process
 running after the command that wanted it has ended: a LaunchAgent, `com.pidster.wisp.llamacpp` (a Login Item of
 `Wisp.app`, or a file in `~/Library/LaunchAgents` for a Homebrew install), which launchd starts at login and again
-after a crash. It runs `llama-server`, a program wisp did not build, **outside wisp's sandbox**, with your privileges:
+after a crash or a kill. It runs `llama-server`, a program wisp did not build, **outside wisp's sandbox**, with your privileges:
 only the file you approved with `wisp config set llamacpp.serverPath`, checked by its SHA-256 before every start
 (the libraries it loads from its install are not checked). It listens on `127.0.0.1` only, so no other machine can
 reach it, serves no web UI (`--no-ui`), and every request must carry a key wisp generated (32 random bytes), kept in a file only you can read
@@ -99,7 +99,9 @@ command output stay local.
 An MLX or Core AI model runs in wisp's own process, on the Mac. An Ollama, llama.cpp, or LM Studio model
 runs in that runtime's server, and wisp sends it every request over HTTP: the conversation, the tools'
 descriptions, and their output. By default each server is on this Mac (`http://127.0.0.1:11434`,
-`:8080`, and `:1234`), so nothing leaves it. `ollama.baseURL`, `llamacpp.baseURL`, and `lmstudio.baseURL`
+`:8080`, and `:1234`; under `llamacpp.server`, `:9931` for Llama.app's and `:8933` for wisp's own), so nothing
+leaves it. Llama.app's server has no key and answers any origin, so any process on the Mac, and any web page you open,
+can use its models; wisp says so when you choose it and in `wisp doctor`. `ollama.baseURL`, `llamacpp.baseURL`, and `lmstudio.baseURL`
 take any address, and wisp does not check that one is local: pointed at another machine, prompts, files the
 model reads, and command output go to that machine. A llama.cpp or LM Studio key (`WISP_LLAMACPP_API_KEY`,
 `WISP_LMSTUDIO_API_KEY`, or `apiKey` in `config.json`) is sent to that server alone, as `Authorization`, and
@@ -301,6 +303,8 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | the Hugging Face cache (`HF_HUB_CACHE`, `$HF_HOME/hub`, or `~/.cache/huggingface/hub`) | the files `wisp models pull` fetched, in Hugging Face's own layout | readable by all (0644) |
 | `~/.zsh/completions/_wisp`, bash-completion's or fish's per-user completions directory | the shell completion script, only when you run `wisp completions install`; it replaces only a file wisp wrote ([wisp.md](wisp.md), "`wisp completions`") | your default (umask) |
 | `~/.wisp/logs/audit.jsonl` | the audit log, rotated | user-only |
+| `~/Library/Application Support/Wisp/llamacpp/models/` | links to the GGUF files `wisp models add` added for wisp's own llama.cpp server, removed by `wisp models uninstall`; the files stay where they are | user-only (folder 0700) |
+| `~/Library/Application Support/Wisp/llamacpp/server.json` | the approved `llama-server`: the path, its real path, its SHA-256, and when, written by `wisp config set llamacpp.serverPath` | user-only (0600) |
 | `~/Library/Application Support/Wisp/llamacpp/api-key` | the key of wisp's own llama.cpp server, made at its first start under `llamacpp.server wisp` | user-only (folder 0700, file 0600) |
 | `~/Library/Logs/Wisp/llamacpp.log` | that server's output, moved aside to `llamacpp.log.1` past 8 MiB | user-only |
 | `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` | that server's LaunchAgent, for a Homebrew install or a build, written by `wisp config set llamacpp.server wisp` and removed by setting it otherwise; `Wisp.app` carries its own inside the app | yours |

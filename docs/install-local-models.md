@@ -13,7 +13,7 @@ each runtime: how the window is sized, what each declares, and every error.
 | --- | --- | --- |
 | [Ollama](#ollama) | You want the simplest start. Most models measured with wisp are Ollama models | `ollama:<name>` |
 | [MLX](#mlx) | You want the model in wisp's own process, with nothing else to run. wisp fetches it for you | `mlx:<name>` |
-| [llama.cpp](#llamacpp-and-lm-studio) | You already serve GGUF files with `llama-server` | `llamacpp:<name>` |
+| [llama.cpp](#llamacpp-and-lm-studio) | You have GGUF files: a `llama-server` you start, Llama.app's, or one wisp starts and keeps running for you (`llamacpp.server`) | `llamacpp:<name>` |
 | [LM Studio](#llamacpp-and-lm-studio) | You already use LM Studio | `lmstudio:<name>` |
 | [Core AI](#core-ai) | You want to try Apple's Core AI framework with a model you export yourself | `coreai:<name>` |
 
@@ -73,18 +73,41 @@ only be used with tools off.
 
 ## llama.cpp and LM Studio
 
-Start the server, then name its model:
+For llama.cpp, `llamacpp.server` says whose server wisp uses
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)):
+
+| `llamacpp.server` | The server | Models |
+| --- | --- | --- |
+| `off` (the default) | A `llama-server` you start, at `llamacpp.baseURL` (`http://127.0.0.1:8080`) | The ones it serves |
+| `llama-app` | Llama.app's, on port 9931; it has no key and answers any web page you open, which `wisp doctor` says | The ones you add in Llama.app, such as `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0` |
+| `wisp` | wisp's own `llama-server`, kept running by a LaunchAgent on port 8933, with a key only you can read | The GGUF files you add with `wisp models add` |
+
+With a server you start, start it, then name its model:
 
 ```bash
 llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768    # llama.cpp: named llamacpp:Qwen3-8B-Q4_K_M
 wisp models enable llamacpp:Qwen3-8B-Q4_K_M               # checks whether it calls tools
 ```
 
+With wisp's own server, approve the `llama-server` it runs, add your models, and turn it on:
+
+```bash
+brew install llama.cpp
+wisp config set llamacpp.serverPath /opt/homebrew/bin/llama-server   # approved by its digest; again after brew upgrade
+wisp models add ~/models/Qwen3-8B-Q4_K_M.gguf                        # linked, not copied: llamacpp:Qwen3-8B-Q4_K_M
+wisp config set llamacpp.server wisp                                 # registers the LaunchAgent and starts it
+wisp doctor                                                          # the binary, the agent, the server, each model
+```
+
+It starts at login and again after a crash or a kill, loads a model on the first request, and lets an idle one sleep; its memory
+settings (`llamacpp.serverContextLength`, 65,536 tokens by default, and the rest) are in `wisp config list`.
+`wisp config set llamacpp.server off` stops it. The details are in [backends.md](backends.md), "llama.cpp".
+
 For LM Studio, download a model in the app and start its server from the Developer tab (or `lms server start`).
 The model is then `lmstudio:<key>`, such as `lmstudio:qwen/qwen3-8b`.
 
-The window is the one the server holds the model at, so start `llama-server` with `-c`, or load the model in LM
-Studio at the window you want. If the server needs a key, set `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY`.
+The window is the one the server holds the model at, so start `llama-server` with `-c` (wisp's own server: `llamacpp.serverContextLength`), or load the model in LM
+Studio at the window you want. If a server you start needs a key, set `WISP_LLAMACPP_API_KEY` or `WISP_LMSTUDIO_API_KEY`.
 wisp never logs or shows it. The details are in [backends.md](backends.md), "llama.cpp and LM Studio".
 
 ## Core AI

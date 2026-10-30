@@ -58,6 +58,7 @@ could, which is why you are asked about each one ([ADR 0064](../decisions/0064-a
 | Check replies with a model too, or not at all | `verification.mode`: `off`, `readers`, or `model` | `readers` |
 | Keep a thinking model from thinking, or set its level | `ollama.models.<name>.think false` (or `low` to `max`), or `ollama.think` for every model; the same under `llamacpp` and, `true` or `false` only, `mlx` | unset |
 | Hold a model to a window | `ollama.models.<name>.contextLength` | sized from memory |
+| Have wisp run a llama.cpp server for your GGUF files, or use Llama.app's | `llamacpp.server`: `off`, `llama-app`, or `wisp` (with `llamacpp.serverPath` approving the `llama-server` it runs, and `wisp models add`); set from a terminal, never by the model ([install guide](../install-local-models.md#llamacpp-and-lm-studio)) | `off` |
 
 ## Editing the file by hand
 
@@ -99,6 +100,7 @@ thread starts.
 
 | Variable | Effect |
 | --- | --- |
-| `WISP_HOME` | Moves wisp's home, `~/.wisp`, elsewhere: a scratch directory to try something without touching your state |
+| `WISP_HOME` | Moves wisp's home, `~/.wisp`, elsewhere: a scratch directory to try something without touching your state (its support folder, wisp's llama.cpp models and approval, goes under it as `support`, and no LaunchAgent is registered) |
 | `WISP_LOG` | `debug`, `info`, or `error`: mirror wisp's diagnostics to stderr ([Logging](../logging.md#diagnostic-log)) |
-| `WISP_LLAMACPP_API_KEY`, `WISP_LMSTUDIO_API_KEY` | A llama.cpp or LM Studio server's key, kept out of `config.json` |
+| `WISP_LLAMACPP_API_KEY`, `WISP_LMSTUDIO_API_KEY` | The key of a llama.cpp server you start, or of LM Studio's, kept out of `config.json` |
+| `WISP_LLAMACPP_AGENT` | `off`: `llamacpp.server wisp` registers no LaunchAgent; you run `wisp llamacpp serve` yourself |

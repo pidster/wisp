@@ -155,7 +155,8 @@ an entitlement that a command-line binary cannot carry, even signed with a Devel
 ([backends.md](docs/backends.md)). Any model a local Ollama serves can be chosen with `--model
 ollama:<name>` when a task needs a larger window than the on-device model's 8k tokens, and a model in MLX
 layout with `--model mlx:<name>`, run in wisp's own process on the GPU; a model a local llama.cpp
-`llama-server` or LM Studio serves is `llamacpp:<name>` or `lmstudio:<name>`. `wisp models` lists what
+`llama-server` or LM Studio serves is `llamacpp:<name>` or `lmstudio:<name>`, and the llama.cpp server can be one you
+start, Llama.app's, or wisp's own, which it keeps running for the GGUF files you give it with `wisp models add`. `wisp models` lists what
 will work, `wisp models pull` fetches an MLX model into the Hugging Face cache after asking, `wisp
 models disable` hides one you do not want offered, and `wisp models uninstall` removes one after you type its name.
 
@@ -199,7 +200,8 @@ and delete.
 | Models | The on-device model by default; Ollama, MLX, Core AI, llama.cpp, and LM Studio models by name; Private Cloud Compute as an explicit opt-in | [install-local-models.md](docs/install-local-models.md), [backends.md](docs/backends.md), [ADR 0058](docs/decisions/0058-a-shared-http-executor.md) |
 | | A context window sized from the Mac's free memory for each Ollama and MLX model, or set for one model; a llama.cpp or LM Studio model's is the server's | [wisp.md](docs/wisp.md#context-window), [ADR 0043](docs/decisions/0043-context-window-from-memory.md) |
 | | `wisp models`: every model this Mac can run as one table; enable or disable a model, and have its capabilities checked when you enable it | [wisp.md](docs/wisp.md#wisp-models), [ADR 0056](docs/decisions/0056-models-enabled-and-disabled.md) |
-| | Models in chat: `/models pull`, `trust`, `cancel`, and `uninstall` beside `enable`, `disable`, and `check`; the model's own `models` tool (off by default), whose every change asks you | [tools/models.md](docs/tools/models.md), [ADR 0059](docs/decisions/0059-one-set-of-model-actions.md) |
+| | Models in chat: `/models pull`, `trust`, `cancel`, `add`, and `uninstall` beside `enable`, `disable`, and `check`; the model's own `models` tool (off by default), whose every change asks you | [tools/models.md](docs/tools/models.md), [ADR 0059](docs/decisions/0059-one-set-of-model-actions.md) |
+| | A llama.cpp server wisp starts (`llamacpp.server wisp`): one `llama-server` router over the GGUF files you add with `wisp models add`, an approved binary checked by its digest, a key only you can read, kept running by a LaunchAgent, idle models put to sleep; or Llama.app's server (`llama-app`) | [backends.md](docs/backends.md#llamacpp), [ADR 0082](docs/decisions/0082-a-llama-cpp-server-wisp-starts.md) |
 | | `wisp models pull`: an MLX model fetched into, or reused from, the Hugging Face cache, after asking; an interrupted download resumes | [backends.md](docs/backends.md#mlx-swift), [ADR 0052](docs/decisions/0052-mlx-on-a-par-with-ollama.md) |
 | | A reasoning model's thinking shown while it thinks, on Ollama, MLX, and llama.cpp, kept for you and never sent back to the model; `ollama.think`, `mlx.think`, and `llamacpp.think`, or per model, or `/think` in chat, a level held to a token budget on llama.cpp; wisp's own side calls do not think | [ADR 0053](docs/decisions/0053-the-models-thinking-shown.md), [backends.md](docs/backends.md) |
 | | Which local model suits which work, as measured: the local-model and Falcon comparisons | [measurements.md](docs/measurements.md#comparing-models) |

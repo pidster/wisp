@@ -247,6 +247,12 @@ own work.
   file cut off part-way and seeding the Hugging Face cache from a real directory, and Core AI's listing following
   links ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md), refined 2026-10-09); and `qwen3.8:27b`
   re-measured, with no slowdown in tool work ([measurements.md](measurements.md)).
+- Done 2026-10-30, for 0.33.0: a llama.cpp server wisp starts
+  ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)): `llamacpp.server` `off`, `llama-app` (Llama.app's
+  router), or `wisp`, wisp's own `llama-server` router over the GGUF files `wisp models add` links, from a binary
+  approved by its digest (`llamacpp.serverPath`), on `127.0.0.1` with a key, kept by a LaunchAgent, with its memory
+  settings. Open: adding a model by download (decision 2 names it; only a path is built), and the libraries
+  `llama-server` loads, which the digest does not cover.
 - Done 2026-10-12: one set of model actions for the person and the model
   ([ADR 0059](decisions/0059-one-set-of-model-actions.md)): `ModelActions` behind `wisp models`, `/models`, and
   `/model`; `/models pull`, `trust`, and `cancel` in chat and `wisp-tui`, with the picker's pull row; and a `models`
@@ -307,8 +313,8 @@ contract 2, and latency in every classifier measurement. Next, in order:
 Candidates recorded on 2026-09-20 with the MLX and Core AI work, not implemented: ONNX Runtime; PyTorch and
 Hugging Face Transformers; vLLM. llama.cpp and LM Studio were built on 2026-10-09 through a shared HTTP executor
 with a dialect per runtime ([ADR 0058](decisions/0058-a-shared-http-executor.md)); vLLM serves the same API, so it
-is most of the way there. Still to do for those two: a check against a real `llama-server` and LM Studio, neither
-of which was on this Mac when they were built. Embeddings, reranking, and other
+is most of the way there. llama.cpp has run live since 2026-10-17 (Homebrew's `llama-server` 0.7.0, and from 0.33.0
+wisp's own router); still to do: a check against a real LM Studio, which has been tested only against a fake server. Embeddings, reranking, and other
 non-conversational models are not `LanguageModel`s and need task-specific interfaces (an `embed` tool, a
 `rerank` tool) rather than a backend; that is a separate design. The MLX packaging chores are done
 (2026-10-03, [ADR 0047](decisions/0047-mlx-in-the-release.md)): the release carries `mlx.metallib` beside

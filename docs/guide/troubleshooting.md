@@ -16,6 +16,7 @@ what just happened ([Logging](../logging.md)).
 | `no Ollama server at …` | Start Ollama (`brew services start ollama`, or open the app), or set `ollama.baseURL` |
 | `Ollama has no model '<name>'; installed: …` | `ollama pull <name>`, or pick one of those listed |
 | `model 'X' is disabled; enable it with …` | `wisp models enable X` |
+| `no llama.cpp server at …` | Start `llama-server`, or set `llamacpp.baseURL`; under `llamacpp.server llama-app`, the message says to start Llama.app, or that it is not installed |
 | `wisp's llama.cpp server does not answer at …: wisp will not start its llama-server: …` | Under `llamacpp.server wisp`, the approved `llama-server` is not set, not approved, or has changed (after `brew upgrade llama.cpp`); run the `wisp config set llamacpp.serverPath …` command the message names |
 | `wisp's llama.cpp server does not answer at …: its LaunchAgent is not registered; …` | `wisp config set llamacpp.server wisp` registers and starts it |
 | `… its Login Item waits for your approval in System Settings > General > Login Items & Extensions …` | Turn on Wisp there; macOS asks before an app's background item runs |

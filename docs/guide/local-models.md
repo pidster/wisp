@@ -19,7 +19,7 @@ astray; or when you delegate repeated work from a coding agent and want a thread
 | --- | --- | --- |
 | Ollama | You want the simplest start; most models measured with wisp are Ollama models | `ollama:<name>` |
 | MLX | You want the model in wisp's own process, with nothing else to run; `wisp models pull` fetches it | `mlx:<name>` |
-| llama.cpp | You already serve GGUF files with `llama-server` | `llamacpp:<name>` |
+| llama.cpp | You have GGUF files: served by a `llama-server` you start, by Llama.app, or by wisp's own server, which `wisp models add` gives them to (`llamacpp.server`) | `llamacpp:<name>` |
 | LM Studio | You already use LM Studio | `lmstudio:<name>` |
 | Core AI | You want to try a model you exported yourself with Apple's Core AI tools | `coreai:<name>` |
 

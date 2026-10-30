@@ -1,6 +1,7 @@
 # ADR 0082: A llama.cpp server wisp starts for the models it knows
 
-Date: 2026-10-27. Status: accepted by the operator on 2026-10-29, after the probe below; to be built for 0.33.0.
+Date: 2026-10-27. Status: accepted by the operator on 2026-10-29, after the probe below; built for 0.33.0 (decisions 1 to 8; of
+decision 2, adding a path, not a download).
 Agreed by the operator on 2026-10-27: wisp should be able to start llama.cpp's `llama-server` for the models it knows
 about, as a release of its own after 0.32.0. Builds on [ADR 0058](0058-a-shared-http-executor.md), which talks to a
 server someone else started.
@@ -158,3 +159,13 @@ Agreed by the operator on 2026-10-29:
     model then stopped within a second of SIGTERM (2026-10-30).
   - **Not tried for real.** Registering with `SMAppService` and `launchctl` was built behind a protocol and tested with
     fakes; the measurement ran the server in the foreground from a scratch home, where nothing is registered.
+    Superseded the same day by the trial on this Mac (the two bullets above on `KeepAlive` and a stale Login Item):
+    the agent ran for real under launchd, with a file in `~/Library/LaunchAgents` and with `Wisp.app`'s Login Item,
+    whose stale state that trial found, and the router it kept served the comparison of 2026-10-30
+    ([measurements.md](../measurements.md)). The automated tests still use fakes.
+
+Amended 2026-10-30, at the docs sweep for 0.33.0: two statements above are overtaken by what was built and measured.
+Decision 4's "about 200 MB" asleep was 217 MB on 2026-10-29 at a 32,768-token context and 387 MB on 2026-10-30 at the
+default 65,536 ([measurements.md](../measurements.md)). The consequence that the binary's digest and the key file sit
+in `~/.wisp` is overtaken by stages 3 and 4: both are in `~/Library/Application Support/Wisp/llamacpp`, with the
+models' links (decision 2).

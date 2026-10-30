@@ -28,14 +28,17 @@ and fish. From 0.30.1 the binaries and `Wisp Notifier.app` are signed with a Dev
 release's tarball also runs when downloaded directly; `wisp doctor`'s `signature` line names the signer.
 
 Upgrade with `brew upgrade pidster/tap/wisp`, remove it with `brew uninstall wisp`, and delete `~/.wisp` to
-forget everything it kept ([What wisp can do to your Mac](../trust.md), "Undoing").
+forget everything it kept ([What wisp can do to your Mac](../trust.md), "Undoing"). If you turned on wisp's own
+llama.cpp server, run `wisp config set llamacpp.server off` before uninstalling, so its LaunchAgent goes too, and
+delete `~/Library/Application Support/Wisp` and `~/Library/Logs/Wisp` with `~/.wisp`.
 
 ### Or: the disk image
 
 From 0.31.0 each release also has `Wisp-X.Y.Z.dmg` on its
 [GitHub release page](https://github.com/pidster/wisp/releases), signed and notarised. Open it and drag `Wisp.app`
 onto Applications. `Wisp.app` holds the same four parts: `wisp` and `wisp-tui` in `Contents/MacOS`,
-`Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`. Then put `wisp` on your
+`Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`, with the LaunchAgent of
+wisp's own llama.cpp server in `Contents/Library/LaunchAgents`, registered only if you turn that server on. Then put `wisp` on your
 `PATH`: open `Wisp.app` and choose **Install**, or run
 
 ```bash
