@@ -387,6 +387,16 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   2026-10-30, after an update, `SMAppService` said the app's agent was not found while launchd kept its job, and
   unregistering did nothing.
 
+  **Registered by another install.** One label serves every install, and launchd holds one job of it. A `wisp` that
+  did not register that job, such as a Homebrew wisp or a build while `Wisp.app`'s Login Item runs the server, reads
+  who did from `launchctl print gui/<uid>/com.pidster.wisp.llamacpp` (`managed_by = com.apple.xpc.ServiceManagement`
+  is the Login Item; a `path` is a LaunchAgent file) and reports the agent "registered by Wisp.app's Login Item, not
+  by this wisp", which `wisp doctor` passes when the server answers. It never registers a second job of the label,
+  which would boot out the other or fight it: setting `llamacpp.server wisp`, a restarting setting, an approval, or a
+  model change restarts the job that is there (`kickstart -k`; the router reads the same `~/.wisp`); setting it off
+  and `wisp llamacpp agent repair` are refused, naming the command for the wisp that registered it, such as
+  `/Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server off`; `wisp uninstall` leaves it and says so.
+
   **After an update.** `wisp update`, once the new `Wisp.app` is in place, registers it with Launch Services again
   (`lsregister -f`) and, when the agent is registered, waiting for approval, or held by launchd, unregisters it and
   registers it again through the new app's own `wisp`, so launchd runs the app as it now is; the server stops and

@@ -139,7 +139,10 @@ added or removed, `wisp uninstall`) to register, unregister, or restart, says ea
 `llamacpp.agent`; the CLI calls it after the configuration is written. `LoginItemAgent` reads launchd as well as
 `SMAppService` (`launchctl print`): a job held while `SMAppService` reports none is `orphaned`, removed with `bootout`
 by unregistering and before registering, and a registered job whose last exit is 78 with nothing running is
-`refusedByLaunchd`. `LlamaCppAgent.mend` registers the app with Launch Services again (`lsregister -f`, behind an
+`refusedByLaunchd`. A job another install registered (`LlamaCppAgent.holder` reads `launchctl print`: `managed_by`
+`SMAppService` is `Wisp.app`'s Login Item, a `path` a LaunchAgent file) is `registeredElsewhere`, from
+`LaunchAgentFile` and, for a file's job, from the app's own `wisp` (`held-by-file PATH`): `follow` restarts it and
+never registers a second job of the label, and refuses to unregister or repair it, naming the holder's own command. `LlamaCppAgent.mend` registers the app with Launch Services again (`lsregister -f`, behind an
 injected runner) and unregisters and registers a present agent: `wisp update` runs it once the app is replaced,
 through a control that always asks the new app's own `wisp` (`delegates`), and `wisp llamacpp agent repair` on the
 person's word. When the server does not serve,

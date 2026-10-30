@@ -18,6 +18,14 @@ Fixed:
   update. Updating to 0.33.1 runs 0.33.0's update, which lacks this: after it, run `wisp llamacpp agent repair` once.
 - Unregistering the Login Item (`wisp config set llamacpp.server off`, `wisp uninstall`) now also removes a job launchd
   still holds for it when macOS reports no Login Item, which before did nothing, and says so.
+- A `wisp` outside `Wisp.app` (a Homebrew install, a build, the release's staged binary) reported the llama.cpp
+  server's LaunchAgent "not registered", and `wisp doctor` failed, while `Wisp.app`'s Login Item ran the server and it
+  answered. The agent's state now reads the job launchd holds for its label: "registered by Wisp.app's Login Item, not
+  by this wisp" (or by another LaunchAgent file, or another install), which `wisp doctor` passes when the server
+  answers. Such a wisp never registers a second job of the label: turning the server on, or a setting or model
+  changing, restarts the job that is there; turning it off, and `wisp llamacpp agent repair`, are refused with the
+  command for the wisp that registered it (`/Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server
+  off`) (ADR 0082, amended 2026-10-30).
 
 Added:
 

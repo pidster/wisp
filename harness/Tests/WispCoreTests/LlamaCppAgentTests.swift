@@ -236,9 +236,11 @@ import Testing
                 launchctl: { FakeLaunchctl(loaded: true, printed: refused).run($0) }) == "refused-by-launchd")
         // A file agent launchd refused reads the same.
         defer { try? FileManager.default.removeItem(at: root) }
+        let plist = root.appending(path: "LaunchAgents/\(LlamaCppAgent.plistName)")
+        let ownJob = refused.replacing("{\n", with: "{\n\tpath = \(plist.path)\n")
         let file = LaunchAgentFile(
-            program: URL(filePath: "/w/wisp"), file: root.appending(path: "LaunchAgents/\(LlamaCppAgent.plistName)"),
-            service: target, launchctl: { FakeLaunchctl(loaded: true, printed: refused).run($0) })
+            program: URL(filePath: "/w/wisp"), file: plist, service: target,
+            launchctl: { FakeLaunchctl(loaded: true, printed: ownJob).run($0) })
         try file.register()
         #expect(file.state() == .refusedByLaunchd)
     }
@@ -251,6 +253,138 @@ import Testing
         }
         #expect(ok && agent.calls == ["unregister"])
         #expect(said.first?.contains(", and the job launchd still holds for it; launchd stops the server") == true)
+    }
+
+    // MARK: - A job another install registered (2026-10-30)
+
+    /// `launchctl print` of `Wisp.app`'s Login Item as on 2026-10-30, trimmed.
+    private let loginItemJob =
+        "gui/501/com.pidster.wisp.llamacpp = {\n\tactive count = 1\n\tpath = (submitted by smd.96282)\n"
+        + "\ttype = Submitted\n\tmanaged_by = com.apple.xpc.ServiceManagement\n\tstate = running\n}"
+
+    @Test func whoRegisteredAJobIsReadFromLaunchd() {
+        #expect(LlamaCppAgent.holder(loginItemJob) == .loginItem)
+        #expect(
+            LlamaCppAgent.holder("x = {\n\tpath = /Users/p/Library/LaunchAgents/a.plist\n\tstate = running\n}")
+                == .file("/Users/p/Library/LaunchAgents/a.plist"))
+        #expect(LlamaCppAgent.holder("") == .other)
+        #expect(LlamaCppAgent.Holder.other.text == "another install")
+        #expect(
+            LlamaCppAgent.Holder.file("/a.plist").command("config set llamacpp.server off")
+                == "wisp config set llamacpp.server off, run with the wisp /a.plist names")
+        #expect(
+            LlamaCppAgent.Holder.other.command("x") == "wisp x, run with the wisp that registered it")
+    }
+
+    @Test func aLaunchAgentFileSeesTheAppsLoginItemAndNeverCompetesWithIt() throws {
+        // As on 2026-10-30: the release's staged wisp found no file while Wisp.app's Login Item ran the server.
+        defer { try? FileManager.default.removeItem(at: root) }
+        let launchctl = FakeLaunchctl(loaded: true, printed: loginItemJob)
+        let file = root.appending(path: "LaunchAgents/\(LlamaCppAgent.plistName)")
+        let agent = LaunchAgentFile(
+            program: URL(filePath: "/w/wisp"), file: file, service: target, launchctl: { launchctl.run($0) })
+        #expect(agent.state() == .registeredElsewhere(.loginItem) && !agent.state().isPresent)
+        #expect(
+            agent.state().text == "registered by Wisp.app's Login Item, not by this wisp; launchd holds its job")
+        // Registering would boot out the Login Item's job and load a second one: refused, nothing changed.
+        #expect {
+            try agent.register()
+        } throws: { error in
+            "\(error)"
+                == "wisp cannot register its llama.cpp server here: launchd holds its job, registered by Wisp.app's "
+                + "Login Item; /Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server wisp changes it"
+        }
+        try agent.unregister()
+        #expect(changes(launchctl).isEmpty && !FileManager.default.fileExists(atPath: file.path))
+        // A restart reaches the job by its label.
+        try agent.restart()
+        #expect(changes(launchctl) == [["kickstart", "-k", target]])
+        // A file of this agent's that launchd does not hold, beside the Login Item's job, is still the Login Item's.
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: file)
+        #expect(agent.state() == .registeredElsewhere(.loginItem))
+        // Another file's job, and one launchd says nothing of while this file is missing.
+        let other = "x = {\n\tpath = /Users/q/Library/LaunchAgents/\(LlamaCppAgent.plistName)\n}"
+        let elsewhere = LaunchAgentFile(
+            program: URL(filePath: "/w/wisp"), file: file, service: target,
+            launchctl: { FakeLaunchctl(loaded: true, printed: other).run($0) })
+        #expect(
+            elsewhere.state() == .registeredElsewhere(.file("/Users/q/Library/LaunchAgents/\(LlamaCppAgent.plistName)"))
+        )
+        try FileManager.default.removeItem(at: file)
+        let unsaid = LaunchAgentFile(
+            program: URL(filePath: "/w/wisp"), file: file, service: target,
+            launchctl: { FakeLaunchctl(loaded: true).run($0) })
+        #expect(unsaid.state() == .registeredElsewhere(.other))
+        // This file's own job, loaded while the file is gone, is not registered, as before.
+        let stale = LaunchAgentFile(
+            program: URL(filePath: "/w/wisp"), file: file, service: target,
+            launchctl: { FakeLaunchctl(loaded: true, printed: "x = {\n\tpath = \(file.path)\n}").run($0) })
+        #expect(stale.state() == .notRegistered)
+    }
+
+    @Test func theAppSeesAJobALaunchAgentFileRegistered() throws {
+        let path = "/Users/p/Library/LaunchAgents/\(LlamaCppAgent.plistName)"
+        let printed = "x = {\n\tpath = \(path)\n\tstate = running\n}"
+        let status = try LlamaCppAgent.loginItem(
+            "status", source: .app(app), service: FakeLoginItemService(.notRegistered), target: target,
+            launchctl: { FakeLaunchctl(loaded: true, printed: printed).run($0) })
+        #expect(status == "held-by-file \(path)")
+        #expect(LoginItemAgent.state(named: status + "\n") == .registeredElsewhere(.file(path)))
+        // A job SMAppService manages and no longer reports is still the app's own, held by launchd.
+        let agent = inBundle(
+            FakeLoginItemService(.notFound), launchctl: FakeLaunchctl(loaded: true, printed: loginItemJob))
+        #expect(agent.state() == .orphaned)
+    }
+
+    @Test func changesFromAnotherInstallRestartTheJobAndNeverRegisterASecond() {
+        let sink = MemoryAuditSink()
+        func run(
+            _ trigger: LlamaCppAgent.Trigger, _ server: LlamaCppServer, _ agent: FakeAgent
+        ) -> (ok: Bool, said: [String]) {
+            var said: [String] = []
+            let ok = LlamaCppAgent.follow(
+                trigger, server: server, control: agent, audit: AuditLog(session: "s", sink: sink), source: "cli",
+                say: { said.append($0) })
+            return (ok, said)
+        }
+        let on = FakeAgent(state: .registeredElsewhere(.loginItem))
+        let wanted = run(.server, .wisp, on)
+        #expect(wanted.ok && on.calls == ["restart"], "\(wanted.said)")
+        #expect(wanted.said.first?.contains("registers no second job of the same label") == true)
+        let setting = FakeAgent(state: .registeredElsewhere(.loginItem))
+        #expect(run(.setting("llamacpp.serverSlots"), .wisp, setting).ok && setting.calls == ["restart"])
+        let model = FakeAgent(state: .registeredElsewhere(.other))
+        #expect(run(.models("m"), .wisp, model).ok && model.calls == ["restart"])
+        // Off: refused, naming the app's own wisp; nothing unregistered.
+        let off = FakeAgent(state: .registeredElsewhere(.loginItem))
+        let refused = run(.server, .off, off)
+        #expect(!refused.ok && off.calls.isEmpty)
+        #expect(
+            refused.said
+                == [
+                    "error: wisp's llama.cpp server is registered by Wisp.app's Login Item, not by this wisp; launchd "
+                        + "holds its job; /Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server off "
+                        + "unregisters it"
+                ])
+        // Uninstalling leaves it, and says so.
+        let uninstall = FakeAgent(state: .registeredElsewhere(.file("/a.plist")))
+        let left = run(.uninstall, .wisp, uninstall)
+        #expect(left.ok && uninstall.calls.isEmpty && left.said.last?.hasSuffix("; this wisp leaves it") == true)
+        let outcomes = sink.events.filter { $0.kind == .llamaCppAgent }.map { $0.details["outcome"] }
+        #expect(outcomes == ["done", "done", "done", "refused", "skipped"])
+    }
+
+    @Test func repairLeavesAJobAnotherInstallRegistered() {
+        let agent = FakeAgent(state: .registeredElsewhere(.loginItem))
+        let repaired = mend(.repair, app: nil, control: agent)
+        #expect(!repaired.ok && agent.calls.isEmpty)
+        #expect(
+            repaired.said.last?.hasSuffix(
+                "/Applications/Wisp.app/Contents/MacOS/wisp llamacpp agent repair repairs it") == true,
+            "\(repaired.said)")
+        let updated = mend(.update, app: nil, control: agent)
+        #expect(updated.ok && updated.said.isEmpty && agent.calls.isEmpty)
     }
 
     // MARK: - After an update, and repair
@@ -379,7 +513,7 @@ import Testing
             return reason.hasPrefix(unwritable.file.path) && "\(error)".hasPrefix("the LaunchAgent's file could not")
         }
         // Loading was not tried: only the earlier agent was unloaded.
-        #expect(launchctl.calls == [["bootout", target]])
+        #expect(changes(launchctl) == [["bootout", target]])
         // A file in a folder it cannot be removed from.
         let folder = root.appending(path: "Locked")
         try manager.createDirectory(at: folder, withIntermediateDirectories: true)

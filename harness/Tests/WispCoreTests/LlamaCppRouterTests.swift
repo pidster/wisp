@@ -303,6 +303,22 @@ import Testing
         let stopped = try #require(
             Doctor.llamaCppServer(settings, installed: nil, answer: .failed("refused"), router: router))
         #expect(!stopped.ok && stopped.detail.contains("its LaunchAgent is not registered"))
+        // Registered by another install, as Wisp.app's Login Item seen from a Homebrew wisp on 2026-10-30: it passes
+        // when the server answers, and says whose it is.
+        router.agent = .registeredElsewhere(.loginItem)
+        let elsewhere = try #require(
+            Doctor.llamaCppServer(settings, installed: nil, answer: .routed([]), router: router))
+        #expect(elsewhere.ok, "\(elsewhere.detail)")
+        #expect(
+            elsewhere.detail.contains(
+                "LaunchAgent: registered by Wisp.app's Login Item, not by this wisp; launchd holds its job"))
+        let silent = try #require(
+            Doctor.llamaCppServer(settings, installed: nil, answer: .failed("refused"), router: router))
+        #expect(
+            !silent.ok
+                && silent.detail.contains(
+                    "/Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server wisp starts it again"),
+            "\(silent.detail)")
     }
 
     @Test func aStartIsRefusedWhenItsFilesCannotBeMade() throws {
@@ -486,12 +502,12 @@ import Testing
         try agent.restart()
         try agent.unregister()
         #expect(!FileManager.default.fileExists(atPath: file.path) && agent.state() == .notRegistered)
+        let service = "gui/501/com.pidster.wisp.llamacpp"
         #expect(
             fake.calls == [
-                ["bootout", "gui/501/com.pidster.wisp.llamacpp"],
-                ["bootstrap", "gui/501", file.path], ["print", "gui/501/com.pidster.wisp.llamacpp"],
-                ["kickstart", "-k", "gui/501/com.pidster.wisp.llamacpp"],
-                ["bootout", "gui/501/com.pidster.wisp.llamacpp"],
+                ["print", service], ["print", service], ["bootout", service], ["bootstrap", "gui/501", file.path],
+                ["print", service], ["kickstart", "-k", service], ["print", service], ["bootout", service],
+                ["print", service],
             ])
         let failing = LaunchAgentFile(
             program: URL(filePath: "/w/wisp"), file: file, service: "gui/501/com.pidster.wisp.llamacpp",

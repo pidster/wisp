@@ -38,7 +38,8 @@ extension Doctor {
     ///
     /// - `wisp` gives the approved `llama-server`'s state, the LaunchAgent's, whether the server answers with wisp's
     ///   key and the models it lists with their status, its settings, and its log; it passes when the binary is
-    ///   approved, the agent registered (or none is, by choice), and the server answers, and otherwise says why and
+    ///   approved, the agent registered (by this install or another, such as `Wisp.app`'s Login Item seen from a
+    ///   Homebrew `wisp`, or none is, by choice), and the server answers, and otherwise says why and
     ///   what to do (`LlamaCppRouter.diagnosis`).
     /// - `llama-app` says whether Llama.app is installed and whether its server answers, and warns that the server
     ///   has no key and answers any origin; it fails only when Llama.app is not installed and nothing answers.
@@ -122,7 +123,7 @@ extension Doctor {
         }
         let registered: Bool =
             switch router.agent {
-            case .registered, .manual: true
+            case .registered, .registeredElsewhere, .manual: true
             default: false
             }
         let binaryOK = if case .success = router.binary { true } else { false }

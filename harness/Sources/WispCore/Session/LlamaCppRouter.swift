@@ -374,6 +374,9 @@ public enum LlamaCppRouter {
             return "wisp's llama.cpp server does not answer at \(at): launchd refused to start its LaunchAgent (last "
                 + "exit code 78, EX_CONFIG), as after an update on 2026-10-30, and nothing reached its log; "
                 + "\(LlamaCppAgent.repairCommand) registers Wisp.app with Launch Services and the agent again"
+        case .registeredElsewhere(let holder):
+            return "wisp's llama.cpp server does not answer at \(at): its LaunchAgent is \(agent.text); its log, "
+                + "\(log.path), says why; \(holder.command("config set llamacpp.server wisp")) starts it again"
         case .manual(let reason):
             return "wisp's llama.cpp server does not answer at \(at): wisp registers no LaunchAgent here (\(reason)); "
                 + "start it yourself with wisp llamacpp serve"

@@ -70,6 +70,14 @@ extension LlamaCppAgent {
             break
         }
         let state = control.state()
+        if case .registeredElsewhere(let holder) = state {
+            // Not this install's to register again: a second job of the label would compete with it.
+            guard reason == .repair else { return ok }
+            let why = "\(state.text); \(holder.command("llamacpp agent repair")) repairs it"
+            record("unregister", "refused", why)
+            say("error: wisp's llama.cpp server is \(why)")
+            return false
+        }
         guard state.isPresent else {
             if reason == .repair {
                 say(

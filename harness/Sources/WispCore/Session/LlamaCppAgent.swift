@@ -41,6 +41,10 @@ public enum LlamaCppAgent {
         /// 2026-10-30 after `wisp update`, with a launch constraint listing no code hashes; registering the app with
         /// Launch Services again, then the agent, mended it.
         case refusedByLaunchd
+        /// Not registered by this install, while launchd holds a job of the agent's label that another one registered:
+        /// on 2026-10-30 a `wisp` outside the app (the release's staged binary) found no file in
+        /// `~/Library/LaunchAgents` while `Wisp.app`'s Login Item ran the server, and `wisp doctor` failed.
+        case registeredElsewhere(Holder)
         /// wisp registers nothing here, for this reason: the person runs the server.
         case manual(String)
         /// The state could not be read, for this reason.
@@ -58,6 +62,8 @@ public enum LlamaCppAgent {
             case .refusedByLaunchd:
                 "registered, but launchd refused to start it (last exit code 78, EX_CONFIG); \(repairCommand) "
                     + "registers Wisp.app with Launch Services and the agent again"
+            case .registeredElsewhere(let holder):
+                "registered by \(holder.text), not by this wisp; launchd holds its job"
             case .manual(let reason): "none (\(reason)); run wisp llamacpp serve yourself"
             case .unknown(let reason): "unknown (\(reason))"
             }
@@ -68,9 +74,66 @@ public enum LlamaCppAgent {
         var isPresent: Bool {
             switch self {
             case .registered, .requiresApproval, .orphaned, .refusedByLaunchd: true
-            case .notRegistered, .manual, .unknown: false
+            case .notRegistered, .registeredElsewhere, .manual, .unknown: false
             }
         }
+
+        /// Whether launchd holds a job that a restart (`launchctl kickstart -k`) reaches: registered here or by another
+        /// install. The router reads the same `~/.wisp`, so either one runs with a changed setting once restarted.
+        var isRestartable: Bool {
+            switch self {
+            case .registered, .registeredElsewhere: true
+            default: false
+            }
+        }
+    }
+
+    /// Who registered a job launchd holds for the agent's label, as `launchctl print` says it.
+    public enum Holder: Equatable, Sendable {
+        /// `Wisp.app`'s Login Item: launchd says `managed_by = com.apple.xpc.ServiceManagement`.
+        case loginItem
+        /// A LaunchAgent file, at the path `launchctl print` names.
+        case file(String)
+        /// Another install, of which launchd says nothing more.
+        case other
+
+        /// The holder in words.
+        public var text: String {
+            switch self {
+            case .loginItem: "Wisp.app's Login Item"
+            case .file(let path): "the LaunchAgent file \(path)"
+            case .other: "another install"
+            }
+        }
+
+        /// The `wisp` that registered the job, which alone changes it, for the person to run `arguments` with.
+        ///
+        /// - Parameter arguments: What to run, after `wisp`.
+        /// - Returns: The command, or where to run it.
+        func command(_ arguments: String) -> String {
+            switch self {
+            case .loginItem: "\(LlamaCppAgent.appWisp) \(arguments)"
+            case .file(let path): "wisp \(arguments), run with the wisp \(path) names"
+            case .other: "wisp \(arguments), run with the wisp that registered it"
+            }
+        }
+    }
+
+    /// `Wisp.app`'s own `wisp`, which alone changes the app's Login Item.
+    public static let appWisp = "/Applications/Wisp.app/Contents/MacOS/wisp"
+
+    /// Who registered the job `launchctl print` describes: `Wisp.app`'s Login Item when `SMAppService` manages it, a
+    /// LaunchAgent file when it names one as its `path`, another install otherwise.
+    ///
+    /// - Parameter printed: `launchctl print gui/<uid>/<label>`'s output.
+    /// - Returns: The holder.
+    static func holder(_ printed: String) -> Holder {
+        let lines = printed.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        if lines.contains("managed_by = com.apple.xpc.ServiceManagement") { return .loginItem }
+        if let path = lines.first(where: { $0.hasPrefix("path = /") })?.dropFirst("path = ".count) {
+            return .file(String(path))
+        }
+        return .other
     }
 
     /// The command that registers the agent again from scratch (`mend(_:app:control:launchServices:audit:source:say:)`).
@@ -292,6 +355,12 @@ public enum LlamaCppAgent {
         let present = state.isPresent
         switch trigger {
         case .server where wanted:
+            if case .registeredElsewhere = state {
+                say(
+                    "wisp's llama.cpp server is \(state.text); this wisp registers no second job of the same label, "
+                        + "and starts that one again")
+                return act("restart", { try control.restart() })
+            }
             say(
                 "registering wisp's llama.cpp server as \(means.text); launchd starts it now and at each login, and "
                     + "again if it crashes or is killed")
@@ -303,6 +372,17 @@ public enum LlamaCppAgent {
             }
             return true
         case .server, .uninstall:
+            if case .registeredElsewhere(let holder) = state {
+                let why = "\(state.text); \(holder.command("config set llamacpp.server off")) unregisters it"
+                guard trigger == .uninstall else {
+                    record("unregister", "refused", why)
+                    say("error: wisp's llama.cpp server is \(why)")
+                    return false
+                }
+                record("unregister", "skipped", why)
+                say("wisp's llama.cpp server is \(why); this wisp leaves it")
+                return true
+            }
             guard present else { return true }
             say(
                 "unregistering wisp's llama.cpp server's LaunchAgent (\(means.text))"
@@ -310,13 +390,13 @@ public enum LlamaCppAgent {
                     + "; launchd stops the server")
             return act("unregister", { try control.unregister() })
         case .setting(let path):
-            guard server == .wisp, state == .registered else { return true }
+            guard server == .wisp, state.isRestartable else { return true }
             say(
                 "restarting wisp's llama.cpp server so it runs with the new \(path); a model loads again on its next "
                     + "request")
             return act("restart", { try control.restart() })
         case .models(let model):
-            guard server == .wisp, state == .registered else { return true }
+            guard server == .wisp, state.isRestartable else { return true }
             say(
                 "restarting wisp's llama.cpp server, which reads its models only when it starts, so it serves "
                     + "\(model) as it now stands")
@@ -449,17 +529,34 @@ struct LaunchAgentFile: LlamaCppAgentControl {
     /// The user's domain, `gui/<uid>`.
     var domain: String { service.split(separator: "/").prefix(2).joined(separator: "/") }
 
-    /// Registered when launchd has it loaded (`launchctl print` succeeds), or refused when launchd could not start it;
-    /// not registered otherwise.
+    /// Registered when the file is there and launchd has it loaded (`launchctl print` succeeds), or refused when
+    /// launchd could not start it; registered elsewhere when launchd holds a job of the label that this file did not
+    /// make (`Wisp.app`'s Login Item, or another file); not registered otherwise.
     func state() -> LlamaCppAgent.State {
-        guard FileManager.default.fileExists(atPath: file.path) else { return .notRegistered }
         let printed = launchctl(["print", service])
         guard printed.status == 0 else { return .notRegistered }
+        let holder = LlamaCppAgent.holder(printed.output)
+        let exists = FileManager.default.fileExists(atPath: file.path)
+        switch holder {
+        case .file(let path) where path == file.path:
+            guard exists else { return .notRegistered }
+        case .other where exists:
+            break
+        default:
+            return .registeredElsewhere(holder)
+        }
         return LlamaCppAgent.refusedByLaunchd(printed.output) ? .refusedByLaunchd : .registered
     }
 
-    /// Unloads any earlier agent, writes the file naming `program`, and loads it, which starts the server.
+    /// Unloads any earlier agent, writes the file naming `program`, and loads it, which starts the server. Refuses when
+    /// another install registered the label's job (`State.registeredElsewhere`), so a second job never competes with
+    /// it; `LlamaCppAgent.follow` restarts that one instead.
     func register() throws {
+        if case .registeredElsewhere(let holder) = state() {
+            throw LlamaCppAgent.Failure.refused(
+                "launchd holds its job, registered by \(holder.text); "
+                    + holder.command("config set llamacpp.server wisp") + " changes it")
+        }
         _ = launchctl(["bootout", service])
         do {
             try FileManager.default.createDirectory(
@@ -477,9 +574,9 @@ struct LaunchAgentFile: LlamaCppAgentControl {
         }
     }
 
-    /// Unloads the agent, which stops the server, and removes its file.
+    /// Unloads the agent, which stops the server, and removes its file; leaves a job another install registered.
     func unregister() throws {
-        _ = launchctl(["bootout", service])
+        if case .registeredElsewhere = state() {} else { _ = launchctl(["bootout", service]) }
         guard FileManager.default.fileExists(atPath: file.path) else { return }
         do {
             try FileManager.default.removeItem(at: file)
@@ -690,7 +787,8 @@ struct LoginItemAgent: LlamaCppAgentControl {
     }
 
     /// The agent's status by name: `SMAppService`'s (`name(of:)`), or `held-by-launchd` when it reports none and
-    /// launchd holds a job of the label, or `refused-by-launchd` when it is registered and launchd refused to start
+    /// launchd holds a job of the label, `held-by-file PATH` when that job is a LaunchAgent file another install
+    /// wrote, or `refused-by-launchd` when it is registered and launchd refused to start
     /// it (`LlamaCppAgent.refusedByLaunchd(_:)`).
     ///
     /// - Parameters:
@@ -708,7 +806,10 @@ struct LoginItemAgent: LlamaCppAgentControl {
             return printed.status == 0 && LlamaCppAgent.refusedByLaunchd(printed.output)
                 ? "refused-by-launchd" : name(of: status)
         case .notRegistered, .notFound:
-            return launchctl(["print", target]).status == 0 ? "held-by-launchd" : name(of: status)
+            let printed = launchctl(["print", target])
+            guard printed.status == 0 else { return name(of: status) }
+            if case .file(let path) = LlamaCppAgent.holder(printed.output) { return "held-by-file \(path)" }
+            return "held-by-launchd"
         default:
             return name(of: status)
         }
@@ -747,6 +848,8 @@ struct LoginItemAgent: LlamaCppAgentControl {
         case "not-registered": .notRegistered
         case "held-by-launchd": .orphaned
         case "refused-by-launchd": .refusedByLaunchd
+        case let held where held.hasPrefix("held-by-file /"):
+            .registeredElsewhere(.file(String(held.dropFirst("held-by-file ".count))))
         case "not-found":
             .unknown(
                 "SMAppService finds no agent file \(LlamaCppAgent.plistName) in Wisp.app; after an update, "

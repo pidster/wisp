@@ -187,3 +187,22 @@ running; `wisp llamacpp serve` never exits 78), which `wisp doctor` reports with
 `wisp llamacpp agent repair` (Launch Services, unregister, register). Registering does not repair a refusal by itself:
 a heuristic acting on launchd's output was judged less safe than naming the command. Tested with fakes; not yet tried
 for real.
+
+Amended 2026-10-30, for 0.33.1: a job another install registered. On this Mac the router ran as `Wisp.app`'s Login
+Item (launchd's `gui/501/com.pidster.wisp.llamacpp`, type Submitted, `managed_by = com.apple.xpc.ServiceManagement`,
+`path = (submitted by smd…)`) and answered on 127.0.0.1:8933 with wisp's key, while a `wisp` outside the app (the
+release's staged binary, a build) chose a file in `~/Library/LaunchAgents`, found none, and reported the agent "not
+registered", so `wisp doctor` failed and `scripts/release` stopped. The agent's state is now read from launchd as well
+as from this install's means: a job of the label that this install did not register is "registered by" its holder,
+read from `launchctl print` (`managed_by` `SMAppService` is `Wisp.app`'s Login Item; a `path` naming another file is
+that LaunchAgent file; neither is another install), "not by this wisp", and `wisp doctor` passes it when the server
+answers. From the app, a job `SMAppService` does not report is still "held by launchd" (`orphaned`) when it is
+`SMAppService`'s or says nothing of itself, and "registered by" a LaunchAgent file when it names one. Such a wisp never
+registers a second job of the label: `launchctl bootout` before its own `bootstrap` would remove the Login Item's job
+behind Background Items' back, and the two would fight at the next login. Turning the server on, or a change that
+restarts it, restarts the job that is there (`kickstart -k`), since the router reads the same `~/.wisp`; turning it off
+and `wisp llamacpp agent repair` are refused, naming the holder's own command
+(`/Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server off`); `wisp uninstall` leaves it. Handing off
+to the app's own `wisp`, as a link does, was judged and set aside: the two may be different versions, and the person
+running the app's own command sees which install acts. Tested with fakes, and the read checked against this Mac's
+`launchctl print`.
