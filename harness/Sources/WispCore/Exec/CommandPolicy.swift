@@ -98,7 +98,7 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
     public static let defaultDeny: [String] = [
         #"(^|[\s;&|(])sudo(\s|$)"#,
         #"(^|[\s;&|(])rm\s+(-[A-Za-z]*r[A-Za-z]*f|-[A-Za-z]*f[A-Za-z]*r)\S*\s+/+\*?(\s|$)"#,
-        #"\|\s*(ba|z|da)?sh(\s|$)"#,
+        #"\|\s*((ba|z|da|k)?sh|fish)(\s|$|[;&|)`'"])"#,
         #"(^|[\s;&|(])(mkfs|diskutil\s+erase|newfs_)"#,
         #"(^|[\s;&|(])dd\s.*\bof=/dev/"#,
         // Answering a pending approval is the person's alone (ADR 0046); the model never answers its own. Quotes

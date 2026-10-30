@@ -101,6 +101,10 @@ configured under `commandPolicy` in `config.json`:
 | `sandbox.writablePaths` | `~/Library/Caches`, `~/.cargo/registry`, `~/.cargo/git` | Writable in addition to the directory wisp was launched in, `$TMPDIR`, the per-user cache directory (`getconf DARWIN_USER_CACHE_DIR`, where Clang keeps its module cache), and `/private/tmp`. A command's own `workingDirectory` never widens this. `~` expands. |
 | `sandbox.allowOutsideSandbox` | `true` | Whether the model may ask to run one command outside the sandbox (`outsideSandbox`), which the person approves each time; `false` refuses every such request. The policy's one field `wisp config set` changes ([below](#running-outside-the-sandbox)). |
 
+The default pipe-to-shell deny pattern covers `sh`, `bash`, `zsh`, `dash`, `ksh`, and `fish`, including a shell
+followed immediately by a command delimiter, a closing substitution, or a quote. The risk classifier recognises
+the same forms as dangerous. This blocks piping content into those shells, not ordinary standalone shell commands.
+
 Inside the sandbox everything is readable and executable, but writes outside the writable set fail with
 `Operation not permitted`. So do writes to wisp's own home (`~/.wisp`, or `WISP_HOME`), wherever it is: the
 profile denies it after the allow rule (Seatbelt applies the last rule that matches), so a sandboxed command can

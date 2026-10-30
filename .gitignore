@@ -17,3 +17,7 @@ target/
 
 # The documentation site, as mdBook builds it from docs/ (book.toml, ADR 0065)
 /book/
+
+# Local agent artefacts
+.dialogue/
+.serena/

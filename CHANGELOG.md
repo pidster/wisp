@@ -7,6 +7,13 @@ Notable changes in each release of wisp.
      version-bump commit renames it. -->
 
 
+## Unreleased
+
+Fixed:
+
+- The default pipe-to-shell command policy now matches the risk classifier: it denies pipes into `fish` and `ksh`
+  as well as `sh`, `bash`, `zsh`, and `dash`, including shells followed immediately by command delimiters or quotes.
+
 ## 0.32.0
 
 Added:
