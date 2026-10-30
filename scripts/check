@@ -870,9 +870,9 @@ docs_site() {
     [ -n "$release" ] || { echo "docs-site: CHANGELOG.md has no release section for the homepage" >&2; exit 1; }
     released="$(git log -1 --format=%cd --date=format:'%-d %B %Y' -S"## $release" -- CHANGELOG.md 2>/dev/null || true)"
     if [ -n "$released" ]; then
-        sed -i.orig -e "s/{{version}}/$release/" -e "s/{{date}}/$released/" book/index.html
+        sed -i.orig -e "s/{{version}}/$release/g" -e "s/{{date}}/$released/" book/index.html
     else
-        sed -i.orig -e "s/{{version}}/$release/" -e 's/<span class="release-date">[^<]*<\/span>//' book/index.html
+        sed -i.orig -e "s/{{version}}/$release/g" -e 's/<span class="release-date">[^<]*<\/span>//' book/index.html
     fi
     rm -f book/index.html.orig
     if grep -q '{{' book/index.html; then echo "docs-site: a placeholder is left in the homepage" >&2; exit 1; fi

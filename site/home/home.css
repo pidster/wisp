@@ -168,6 +168,9 @@ html.light .hero-art img {
 .copy:hover { color: var(--strong); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 1.4rem; }
+.steps { color: var(--muted); font-size: 0.92rem; margin: 0.9rem 0 0; max-width: 460px; }
+.steps strong { color: var(--strong); font-weight: 600; }
+.alt { color: var(--muted); font-size: 0.88rem; margin: 1.1rem 0 0.45rem; }
 .button {
     display: inline-flex;
     align-items: center;

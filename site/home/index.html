@@ -63,14 +63,17 @@
             <p class="lede">wisp drives Apple's on-device Foundation Model, or a model you run in Ollama, MLX, llama.cpp,
                 or LM Studio, and gives it tools: it runs commands, reads and edits files, and reports on the machine.
                 No prompt, file, or output leaves the Mac. There is no key, account, or bill.</p>
-            <div class="install" aria-label="Install">
-                <pre><code><span class="dim">$</span> brew install pidster/tap/wisp
-<span class="dim">$</span> wisp chat</code></pre>
-                <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the install command">Copy</button>
-            </div>
             <div class="actions">
-                <a class="button primary" href="docs/guide/install.html">Install and first run</a>
-                <a class="button" href="docs/">Read the docs</a>
+                <a class="button primary" href="https://github.com/pidster/wisp/releases/download/v{{version}}/Wisp-{{version}}.dmg">Download Wisp.app</a>
+                <a class="button" href="docs/guide/install.html">Install and first run</a>
+            </div>
+            <p class="steps">Open the disk image, drag <strong>Wisp.app</strong> to Applications, open it, and choose
+                <strong>Install</strong> to put <code>wisp</code> on your path. Signed and notarised; <code>wisp update</code>
+                keeps it current.</p>
+            <p class="alt">Or with Homebrew:</p>
+            <div class="install" aria-label="Install with Homebrew">
+                <pre><code><span class="dim">$</span> brew install pidster/tap/wisp</code></pre>
+                <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the Homebrew install command">Copy</button>
             </div>
             <!-- Filled when the site is built (scripts/check docs-site): the newest release in CHANGELOG.md, and the date
                  of the commit that added its section, the version bump. -->
@@ -236,13 +239,10 @@
 <section class="closing">
     <div class="wrap closing-inner">
         <img src="mark.png" alt="" width="56" height="56">
-        <h2>Start with one command.</h2>
-        <div class="install small">
-            <pre><code><span class="dim">$</span> brew install pidster/tap/wisp</code></pre>
-            <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the install command">Copy</button>
-        </div>
+        <h2>Start with one download.</h2>
         <div class="actions">
-            <a class="button primary" href="docs/guide/install.html">Install and first run</a>
+            <a class="button primary" href="https://github.com/pidster/wisp/releases/download/v{{version}}/Wisp-{{version}}.dmg">Download Wisp.app</a>
+            <a class="button" href="docs/guide/install.html">Install and first run</a>
             <a class="button" href="docs/trust.html">What wisp can do to your Mac</a>
         </div>
     </div>
