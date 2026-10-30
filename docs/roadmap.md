@@ -7,30 +7,22 @@ What each carried is in [CHANGELOG.md](https://github.com/pidster/wisp/blob/main
 thinking set from chat and a status line that reads the version control off the prompt's path, shipped on
 2026-10-15, and 0.26.1 and 0.26.2, a help mode and the parts of a turn set apart, the same day; 0.26.3, four
 fixes found while mapping the thread store, on 2026-10-16, and 0.26.4, llama.cpp's thinking on a par with Ollama's,
-on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. 0.31.1, `wisp models uninstall`, the first release a `Wisp.app` updated to with `wisp update`, shipped the same day too. 0.32.0, the model's `plan` tool, off by default, with the sandbox told to the model and no project folder in a privileged folder, shipped on 2026-10-29. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
+on 2026-10-18; 0.27.0, one thread store, every thread saved and resumed by any face, on 2026-10-19, and 0.27.1, two fixes to the answer reader and the facts blocks, the same day; 0.27.2, a call's time limit only lengthening the thread's and clearer tool lines in `wisp-tui`, on 2026-10-20; 0.28.0, the thread store's phase 3, `wisp threads`, `/resume`, and a thread picker in `wisp-tui`, on 2026-10-22. 0.29.0, `wisp-tui`'s conversation in a pane of its own, with long outputs folded, each element reachable from the keyboard, and copying, shipped the same day. 0.29.1, the release's optional signing and notarisation, off by default, and `wisp doctor`'s signature line, shipped the same day too. 0.30.0, `Wisp Notifier.app`, notifications from wisp itself as "Wisp" with its own icon, shipped the same day as well. 0.30.1, the first release signed with a Developer ID and notarised, signing on by default, shipped on 2026-10-23. 0.31.0, `Wisp.app` in a signed and notarised disk image, with `wisp install`, `wisp update`, and each package declaring its layout, shipped the same day. 0.31.1, `wisp models uninstall`, the first release a `Wisp.app` updated to with `wisp update`, shipped the same day too. 0.32.0, the model's `plan` tool, off by default, with the sandbox told to the model and no project folder in a privileged folder, shipped on 2026-10-29. 0.33.0, a llama.cpp server wisp starts, `llamacpp.server` `off`, `llama-app`, or `wisp`, with `wisp models add` and a router kept by a LaunchAgent, shipped on 2026-10-30. Each release carries one or two larger items and a few smaller ones; a small item sits with the larger
 one it touches. These are plans, not commitments: an item may move when its work shows it should, and the page is
 edited when it does. When an item ships it leaves this page for the changelog, and anything not yet scheduled stays
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Next is 0.33.0, a llama.cpp server wisp starts, below. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next is 0.33.1, below. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
-## 0.33.0: a llama.cpp server wisp starts
+## 0.33.1: the Login Item after an update
 
-Chosen by the operator on 2026-10-29 ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), accepted that
-day after a probe). llama.cpp is the one local runtime the person starts by hand, and it serves the fastest accurate
-model for tool work (Ternary Bonsai 2). `llamacpp.server` chooses: `off` (today's behaviour, the default), `wisp`, or
-`llama-app`. Under `wisp`, one `llama-server` in router mode (`--models-dir`) serves the GGUF models the person links
-with `wisp models`, kept in `~/Library/Application Support/Wisp/llamacpp/models`, from a binary the person approved and
-wisp checks by digest, on `127.0.0.1` with a key of its own, kept running by a LaunchAgent with idle sleep, with a
-65,536-token context, one slot, two models, and 600 s idle by default, each configurable. Under `llama-app`, wisp
-uses `Llama.app`'s router.
-
-Built on 2026-10-29 and 2026-10-30, decisions 1 to 8, with `wisp models add PATH` (and `/models add`) linking a
-GGUF file; adding one by download, which decision 2 also names, is not built and is in the [backlog](backlog.md). Tried on this Mac on 2026-10-30: the
-router under its LaunchAgent served `eval compare` with Bonsai 2 9B ([measurements.md](measurements.md)), and the
-trial found and fixed a restart after a kill and a stale Login Item. The tests fake `SMAppService` and `launchctl`;
-the libraries `llama-server` loads from its install are not covered by the digest.
+Found on 2026-10-30, moving wisp's llama.cpp router from the repository's build to the updated `Wisp.app`'s Login Item:
+launchd refused to start it (exit 78, `EX_CONFIG`, an empty list of allowed code hashes), and `SMAppService` reported
+the agent not found while launchd still held its job, so wisp's unregister did nothing. Registering `Wisp.app` with
+Launch Services again (`lsregister -f`), then unregistering and registering, mended it. Two fixes: `wisp update`
+registers the new app with Launch Services and, when the router's Login Item is registered, registers it again; and
+unregistering removes a job launchd still holds when `SMAppService` says there is none.
 
 ## Later: protecting wisp's state from other agents
 
