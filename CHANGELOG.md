@@ -24,6 +24,8 @@ Added:
 - `wisp llamacpp agent repair` (hidden): registers `Wisp.app` with Launch Services again, then unregisters and
   registers the llama.cpp server's Login Item. `wisp doctor` names it when launchd refused to start the agent
   (last exit code 78) or holds a job Login Items does not list.
+- A security policy, `SECURITY.md`: report a vulnerability privately through GitHub's private vulnerability
+  reporting; only the latest release gets fixes.
 
 ## 0.33.0
 
