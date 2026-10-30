@@ -63,17 +63,28 @@
             <p class="lede">wisp drives Apple's on-device Foundation Model, or a model you run in Ollama, MLX, llama.cpp,
                 or LM Studio, and gives it tools: it runs commands, reads and edits files, and reports on the machine.
                 No prompt, file, or output leaves the Mac. There is no key, account, or bill.</p>
-            <div class="actions">
-                <a class="button primary" href="https://github.com/pidster/wisp/releases/download/v{{version}}/Wisp-{{version}}.dmg">Download Wisp.app</a>
-                <a class="button" href="docs/guide/install.html">Install and first run</a>
+            <div class="installer" data-tabs>
+                <div class="tabs" role="tablist" aria-label="How to install">
+                    <button type="button" role="tab" id="tab-app" aria-controls="panel-app" aria-selected="true">Wisp.app <span class="tab-note">recommended</span></button>
+                    <button type="button" role="tab" id="tab-brew" aria-controls="panel-brew" aria-selected="false" tabindex="-1">Homebrew</button>
+                </div>
+                <div class="panel" role="tabpanel" id="panel-app" aria-labelledby="tab-app">
+                    <a class="button primary" href="https://github.com/pidster/wisp/releases/download/v{{version}}/Wisp-{{version}}.dmg">Download Wisp.app</a>
+                    <p class="install-note">Open the disk image, drag <strong>Wisp.app</strong> to Applications, open it, and choose
+                        <strong>Install</strong> to put <code>wisp</code> on your path. Signed and notarised;
+                        <code>wisp update</code> keeps it current.</p>
+                </div>
+                <div class="panel" role="tabpanel" id="panel-brew" aria-labelledby="tab-brew" hidden>
+                    <div class="install" aria-label="Install with Homebrew">
+                        <pre><code><span class="dim">$</span> brew install pidster/tap/wisp</code></pre>
+                        <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the Homebrew install command">Copy</button>
+                    </div>
+                    <p class="install-note">For people who keep their tools in Homebrew; <code>brew upgrade</code> keeps it current.</p>
+                </div>
             </div>
-            <p class="steps">Open the disk image, drag <strong>Wisp.app</strong> to Applications, open it, and choose
-                <strong>Install</strong> to put <code>wisp</code> on your path. Signed and notarised; <code>wisp update</code>
-                keeps it current.</p>
-            <p class="alt">Or with Homebrew:</p>
-            <div class="install" aria-label="Install with Homebrew">
-                <pre><code><span class="dim">$</span> brew install pidster/tap/wisp</code></pre>
-                <button type="button" class="copy" data-copy="brew install pidster/tap/wisp" aria-label="Copy the Homebrew install command">Copy</button>
+            <div class="actions">
+                <a class="button" href="docs/guide/install.html">Install and first run</a>
+                <a class="button" href="docs/">Read the docs</a>
             </div>
             <!-- Filled when the site is built (scripts/check docs-site): the newest release in CHANGELOG.md, and the date
                  of the commit that added its section, the version bump. -->
@@ -291,6 +302,27 @@
         });
         show();
     })();
+
+    // The installer's tabs: a click or the arrow keys choose one, as the ARIA tabs pattern has it.
+    document.querySelectorAll("[data-tabs]").forEach(function (box) {
+        var tabs = Array.prototype.slice.call(box.querySelectorAll('[role="tab"]'));
+        var choose = function (tab, focus) {
+            tabs.forEach(function (other) {
+                var chosen = other === tab;
+                other.setAttribute("aria-selected", chosen ? "true" : "false");
+                other.tabIndex = chosen ? 0 : -1;
+                document.getElementById(other.getAttribute("aria-controls")).hidden = !chosen;
+            });
+            if (focus) tab.focus();
+        };
+        tabs.forEach(function (tab, index) {
+            tab.addEventListener("click", function () { choose(tab, false); });
+            tab.addEventListener("keydown", function (event) {
+                var step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                if (step) choose(tabs[(index + step + tabs.length) % tabs.length], true);
+            });
+        });
+    });
 
     document.querySelectorAll("button.copy").forEach(function (button) {
         button.addEventListener("click", function () {
