@@ -261,13 +261,13 @@ _wisp_models() {
     unset 'unparsed_words[0]'
     unparsed_words=("${unparsed_words[@]}")
     case "${subcommand}" in
-    list|enable|disable|check|pull|uninstall)
+    list|enable|disable|check|pull|add|uninstall)
         # Offer subcommand argument completions
         "_wisp_models_${subcommand}"
         ;;
     *)
         # Offer subcommand completions
-        COMPREPLY+=($(compgen -W 'list enable disable check pull uninstall' -- "${cur}"))
+        COMPREPLY+=($(compgen -W 'list enable disable check pull add uninstall' -- "${cur}"))
         ;;
     esac
 }
@@ -318,6 +318,22 @@ _wisp_models_pull() {
     repeating_options=()
     non_repeating_options=()
     __wisp_offer_flags_options 1
+}
+
+_wisp_models_add() {
+    repeating_flags=()
+    non_repeating_flags=(--version -h --help)
+    repeating_options=()
+    non_repeating_options=()
+    __wisp_offer_flags_options 1
+
+    # Offer positional completions
+    case "${positional_number}" in
+    1)
+        __wisp_add_completions -o plusdirs -fX '!*.@(gguf)'
+        return
+        ;;
+    esac
 }
 
 _wisp_models_uninstall() {

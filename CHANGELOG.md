@@ -17,6 +17,13 @@ Added:
   key and answers any web page; `wisp`, wisp's own server, accepted but not built yet, which every use says.
   `wisp config set llamacpp.server` explains each. Llama.app's model names, such as
   `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0`, work as given.
+- `wisp models add PATH`, and chat's `/models add PATH`, for `llamacpp.server wisp` (ADR 0082): links a GGUF file
+  into `~/Library/Application Support/Wisp/llamacpp/models` as `llamacpp:<name>`, its file name without `.gguf`, the
+  file left where it is; refused for a file that is not a readable GGUF file or whose name would not make a model
+  name, and for a name linked to another file. Under `wisp`, `wisp models` lists that folder, marking a link whose
+  file is missing, and `wisp models uninstall llamacpp:<name>` removes the link, never the file. Audited as
+  `model.add`; the model's `models` tool does not offer it. With `WISP_HOME` set, the folder is under
+  `$WISP_HOME/support`.
 
 ## 0.32.0
 

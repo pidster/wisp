@@ -242,11 +242,12 @@ extension OpenAICompatibleExecutorTests {
         let resolving = #expect(throws: (any Error).self) {
             _ = try ModelSelection.local(backend: "llamacpp", name: "Qwen3-8B-Q4_K_M").resolve(config: config)
         }
-        #expect(resolving.map { "\($0)" }?.contains("is not built yet") == true)
-        let listing = await #expect(throws: (any Error).self) {
-            _ = try await OpenAICompatibleBackend(.llamaCpp).installed(config: config, home: OfflineBackends.home)
-        }
-        #expect(listing.map { "\($0)" }?.contains("arrives in a later stage of 0.33.0") == true)
+        // Not added to wisp's folder, it is refused before the server; one added gets as far as the server, which is
+        // not built yet (LlamaCppModelsTests).
+        #expect(resolving.map { "\($0)" }?.contains("add its GGUF file with wisp models add PATH") == true)
+        // The listing reads wisp's folder, empty here, not the server.
+        #expect(
+            try await OpenAICompatibleBackend(.llamaCpp).installed(config: config, home: OfflineBackends.home).isEmpty)
         #expect(await ThinkingBudgetCheck.probe(config.llamacpp) == nil)
         #expect(FakeChatServer.requests.withLock { $0.count } == before)
         // LM Studio is not touched by it.

@@ -21,14 +21,19 @@ public struct OpenAICompatibleBackend: ModelBackend {
         OpenAICompatibleModel.Served.shortName(name)
     }
 
-    /// Refuses: the server's models are its own (ADR 0075).
+    /// Under `llamacpp.server wisp`, the link in wisp's llama.cpp models folder, its GGUF file kept (ADR 0082);
+    /// otherwise refuses: the server's models are its own (ADR 0075).
     ///
-    /// - Throws: `ModelRemoval.Failure.notWisps`, saying where to remove it.
+    /// - Throws: `ModelRemoval.Failure.notInstalled` for a name wisp's folder does not link;
+    ///   `ModelRemoval.Failure.notWisps`, saying where to remove it, for another server's model.
     public func removal(
         _ name: String, config: Config.Resolved, home: Home, purgeCache: Bool
     ) async throws
         -> ModelRemoval
     {
+        if dialect == .llamaCpp, config.llamacpp.server == .wisp {
+            return try LlamaCppModels(home: home).removal(name, purgeCache: purgeCache)
+        }
         let reason =
             switch (dialect, config.llamacpp.server) {
             case (.llamaCpp, .llamaApp): "Llama.app keeps its own models; remove it there"
@@ -47,6 +52,9 @@ public struct OpenAICompatibleBackend: ModelBackend {
         let settings = config[server: dialect]
         let selection = ModelSelection.local(backend: scheme, name: name)
         _ = try CapabilityName.parse(settings.declared[name]?.capabilities ?? [], forModel: selection.description)
+        if dialect == .llamaCpp, settings.server == .wisp, let reason = Self.notServable(name, home: home) {
+            throw ModelSelection.Failure.unavailable(model: selection.description, reason: reason)
+        }
         do {
             let model = try OpenAICompatibleModel(dialect: dialect, name: name, settings: settings).checked()
             return ResolvedModel(
@@ -58,9 +66,39 @@ public struct OpenAICompatibleBackend: ModelBackend {
         }
     }
 
-    /// The models the server lists.
+    /// Why wisp's own server could not serve `name` from its folder (ADR 0082): no link, or a broken one; nil when the
+    /// link is there.
+    ///
+    /// - Parameters:
+    ///   - name: The model's name, after `llamacpp:`.
+    ///   - home: wisp's home, whose Application Support folder holds the links.
+    /// - Returns: The reason.
+    static func notServable(_ name: String, home: Home) -> String? {
+        let models = LlamaCppModels(home: home)
+        guard let link = models.link(named: name) else {
+            return "it is not among the models wisp's llama.cpp server serves (\(models.folder.path)); add its GGUF "
+                + "file with wisp models add PATH"
+        }
+        guard link.broken else { return nil }
+        return "its link points to \(link.target.path), which is missing; wisp models uninstall llamacpp:\(name) "
+            + "removes the link"
+    }
+
+    /// The models the server lists; under `llamacpp.server wisp`, the links in wisp's llama.cpp models folder, read
+    /// from the folder rather than a server (ADR 0082), a broken one marked so.
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {
         let settings = config[server: dialect]
+        if dialect == .llamaCpp, settings.server == .wisp {
+            return LlamaCppModels(home: home).linked().map { link in
+                InstalledModel(
+                    selection: .local(backend: scheme, name: link.name),
+                    detail: link.bytes.map {
+                        ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
+                    } ?? "broken link: \(link.target.path) is missing",
+                    bytes: link.bytes, location: link.broken ? .brokenLink : .linkedFile,
+                    verified: settings.declared[link.name]?.verified?.date)
+            }
+        }
         return try await OpenAICompatibleModel.served(by: dialect, at: settings).map { served in
             let size = served.bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
             return InstalledModel(

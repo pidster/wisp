@@ -30,6 +30,8 @@ public struct ModelActions: Sendable {
         case switchModel = "switch"
         /// Remove a model where wisp knows its files, and its settings (ADR 0075).
         case uninstall
+        /// Link a GGUF file into wisp's llama.cpp models folder (ADR 0082).
+        case add
 
         /// What it reads.
         public var reads: String {
@@ -41,6 +43,7 @@ public struct ModelActions: Sendable {
             case .check: "the model itself, loaded and asked three questions"
             case .switchModel: "the model's backend"
             case .uninstall: "the model's runtime or folder, the Hugging Face cache, config.json"
+            case .add: "the GGUF file's first bytes, wisp's llama.cpp models folder"
             }
         }
 
@@ -54,12 +57,13 @@ public struct ModelActions: Sendable {
             case .check: "config.json's mlx.models.<name> declaration"
             case .switchModel: "the conversation's model"
             case .uninstall: "removes the model's files (Ollama's copy, a link, a folder to the Bin) and its settings"
+            case .add: "a link in wisp's llama.cpp models folder to the GGUF file, which stays where it is"
             }
         }
 
-        /// Whether the model's `models` tool offers it: `trust` and `uninstall` are the person's alone, and a model
-        /// choosing its own successor (`switch`) is a decision not taken.
-        public var forModel: Bool { self != .trust && self != .switchModel && self != .uninstall }
+        /// Whether the model's `models` tool offers it: `trust`, `uninstall`, and `add` are the person's alone, and a
+        /// model choosing its own successor (`switch`) is a decision not taken.
+        public var forModel: Bool { ![.trust, .switchModel, .uninstall, .add].contains(self) }
 
         /// Whether the model's request for it asks the person: every action that changes something.
         public var asksPerson: Bool { forModel && changes != nil }
@@ -71,7 +75,7 @@ public struct ModelActions: Sendable {
             switch self {
             case .pull: .once
             case .enable, .disable, .check: .session
-            case .list, .show, .trust, .switchModel, .uninstall: nil
+            case .list, .show, .trust, .switchModel, .uninstall, .add: nil
             }
         }
     }

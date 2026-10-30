@@ -517,6 +517,7 @@ What a session shows, and where it goes:
 | `/models pull REPOSITORY` | Fetch an MLX model from Hugging Face and link it, as `wisp models pull` does (below), with the same plan, checks, resume, and audit (`source` `chat`). The plan and the publisher question's lines are notes; the answers are the face's choice dialog: for a publisher not in `mlx.trustedPublishers`, refuse (the default), pull it once, or trust it from now on; the download and replacing a real directory, no (the default) or yes. While it downloads, the status line (the working line in the terminal chat, the busy box in `wisp-tui`) says how far it has gone, `pulling mlx-community/q: 1.2 GB of 4.5 GB, file 2 of 7 · Ctrl-C stops it`, and notes still arrive; Ctrl-C stops it, as it stops a command you typed, keeping what arrived, and the same `/models pull` resumes it ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
 | `/models trust PUBLISHER` | Trust a Hugging Face organisation from now on: added to `mlx.trustedPublishers` in `config.json`, recorded as `config.change`, so its pulls ask only about the download. The person's alone: the model's `models` tool cannot. |
 | `/models cancel [REPOSITORY]` | Stop a pull the model asked for, running in the background (all of them without a name); what arrived is kept, and the conversation gets a note saying so. |
+| `/models add PATH` | Add a GGUF file for wisp's own llama.cpp server, as `wisp models add` does (below): linked into wisp's llama.cpp models folder, the file left where it is, under `llamacpp.server wisp` only; the rest of the line is the path, spaces and all. Audited with `source` `chat` ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)). |
 | `/models uninstall NAME [--purge-cache]` | Remove a model and its settings, as `wisp models uninstall` does (below): the plan as notes, then the model's name typed at the prompt, or in `wisp-tui`'s text box, to go ahead; anything else leaves it ([ADR 0075](decisions/0075-wisp-models-uninstall.md)). |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities; in `wisp-tui` (and any front end that answers a `choice`) it then offers, as a picker titled "Switch to which model?", the models it can switch to, the enabled ones that can serve the conversation's tools, the one in use marked: choosing one switches, and no answer or the one in use says `model unchanged`. The status bar's model item sends it. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/think [on\|off\|LEVEL]` | Whether the conversation's model thinks: `on`, `off`, or for Ollama and llama.cpp a level (`low`, `medium`, `high`, `max`). Saved as the model's default, `<runtime>.models.<name>.think`, as `/config set` saves it (audited as a `config.change`), and applied to the conversation at once, as `respond`'s `think` is, where a setting changed with `/config` is read only as a session starts; switching back to the model later in the session keeps it. No argument shows it (`thinking: off (ollama.models.granite4.2:8b.think)`) and, in `wisp-tui`, offers the choices in a picker. A model that cannot think, or whose runtime has no such setting (Apple's, LM Studio's), is refused: `system has no thinking to turn on or off`. The status line shows the choice ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-15). |
@@ -746,7 +747,11 @@ model each local backend serves, each shown only if it can serve a conversation.
 list of names: the model must resolve (installed, reachable, entitled, and able to converse; an Ollama model that
 does not report `completion`, such as an embedding model, cannot) and must declare tool calling, since a
 conversation has tools. The listing also shows what you can turn on: every disabled model, and, in a build with MLX,
-every complete `mlx-community` model in the Hugging Face cache that the MLX models folder does not link yet. A
+every complete `mlx-community` model in the Hugging Face cache that the MLX models folder does not link yet. Under
+`llamacpp.server wisp`, the `llamacpp:` models are the GGUF files you added with
+[`wisp models add`](#wisp-models-add-path), read from wisp's llama.cpp models folder rather than from a server, and
+each is listed whether or not it can be used, a link whose file is missing as `broken link`; under `off` and
+`llama-app` they are what the server lists, as before. A
 backend that does not answer gets one line in parentheses. The configured default is marked `*`
 ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). Apple's two come first, then each backend in the
 alphabetical order of its scheme (`coreai`, `llamacpp`, `lmstudio`, `mlx`, `ollama`), its models by name with numbers
@@ -763,7 +768,7 @@ same order.
 | `FORMAT` | Family or architecture and quantisation: Ollama's `granite Q4_K_M`, an MLX model's `qwen3 4-bit`, a Core AI bundle's kind and compression |
 | `CONTEXT` | The context window wisp would use, in tokens |
 | `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `model config` (the model's own `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `server` (reported by the llama.cpp or LM Studio server that holds the model, [ADR 0058](decisions/0058-a-shared-http-executor.md)), `default` (8,192, with no shape to size from, or an LM Studio model not loaded), `model` (the model's own, Apple's) |
-| `WHERE` | MLX only: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it) |
+| `WHERE` | MLX: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it). llama.cpp under `llamacpp.server wisp`: `linked file` (a GGUF file you added), `broken link` (its file is missing) |
 | `ENABLED` | `yes`, or `no` for a model you disabled or a cached one not linked |
 | `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only`; `thinking` with the default a model is sent in brackets when one is configured, `thinking (false)` for `ollama.models.<name>.think false` ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11); `(verified)` after them when wisp checked them on the model ([`wisp models check`](#wisp-models-check-name)), led by `text only` when the check found it calls no tools (such a model is listed, with the reason, though it cannot serve a conversation with tools) |
 
@@ -801,7 +806,8 @@ Piped, each model is one tab-separated line with every column, in the order abov
 so a field is at the same position on every line; the name comes after `* ` or two spaces, and a model that cannot
 be used has its reason as one more field. `--json` is the form for scripts: `models`, one object per model with a
 field per column (`model`, `runtime`, `parameters`, `size` and `bytes`, `format`, `context` as a number,
-`contextFrom` and `contextNote`, `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`,
+`contextFrom` and `contextNote`, `location` as `modelsFolder`, `hubCache`, `hubCacheNotLinked`, `linkedFile`, or
+`brokenLink`, `enabled`,
 `capabilities`, and `capabilitiesFrom`, how they are known: `verified 2026-10-04`, `config`, `runtime`, or
 `framework`), `default`, `usable`, and `problem`, absent facts null; and `unreachable`, the backends that did not
 answer.
@@ -828,8 +834,8 @@ Compute".
 `wisp tools --markdown` and `--json` include a `Measured:` line, or a `measurements` field, for each
 tool the eval harness has measured ([measurements.md](measurements.md)).
 
-`wisp models` is `wisp models list`; its other subcommands turn models on and off, check what a model can do, and
-fetch a model.
+`wisp models` is `wisp models list`; its other subcommands turn models on and off, check what a model can do,
+fetch a model, add a GGUF file for wisp's llama.cpp server, and remove a model.
 
 #### `wisp models enable|disable <name>…`
 
@@ -988,6 +994,34 @@ setting. `--yes`, which approves commands elsewhere, is not an option of `wisp m
 
 See [backends.md](backends.md), "MLX Swift", and [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md).
 
+#### `wisp models add <path>`
+
+Adds a GGUF file for wisp's own llama.cpp server, `llamacpp.server wisp`
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), decision 2), by linking it into wisp's llama.cpp
+models folder, `~/Library/Application Support/Wisp/llamacpp/models` (`$WISP_HOME/support/llamacpp/models` when
+`WISP_HOME` is set). The link is `<name>.gguf`, pointing to the file's real path; the file is never copied or moved.
+The model is `llamacpp:<name>`, the file's name without `.gguf`, as llama-server's router names each file in its
+`--models-dir`. wisp does not look for GGUF files anywhere else: the folder holds what you add.
+
+```
+$ wisp models add ~/models/Ternary-Bonsai-2-9B-Q2_0.gguf
+added llamacpp:Ternary-Bonsai-2-9B-Q2_0: …/Wisp/llamacpp/models/Ternary-Bonsai-2-9B-Q2_0.gguf links to /Users/you/models/Ternary-Bonsai-2-9B-Q2_0.gguf (3.3 GB), which stays where it is
+```
+
+| Rule | Detail |
+| --- | --- |
+| When | Only under `llamacpp.server wisp`; under `off` it is refused naming the setting, and under `llama-app` saying Llama.app keeps its own models |
+| Path | Absolute, `~/…`, or relative to the working directory; links in it are followed to the file, while the name comes from the path as you gave it |
+| File | A regular file you can read, whose name ends in `.gguf` (any case) and whose first four bytes are GGUF's magic, `GGUF` |
+| Name | 1 to 64 characters from `[A-Za-z0-9._-]`, not starting with `.`; otherwise rename the file |
+| Already there | The same file again changes nothing and says so; another file under the same name is refused, naming the file linked, until `wisp models uninstall llamacpp:<name>` removes that link |
+| Folder | Made when missing, readable only by you |
+| Who | The person, here or with `/models add PATH` in chat; the model's `models` tool does not offer it, and the default policy refuses `wisp models add` to the model |
+| Audit | `model.add`, with the outcome `added`, `unchanged`, or `refused` ([logging.md](logging.md)) |
+
+wisp's server itself arrives in a later stage of 0.33.0: until then a model added here is listed, and using it says
+the server is not built yet.
+
 #### `wisp models uninstall <name> [--purge-cache] [--yes]`
 
 Removes a model where wisp knows its files, and its settings in `config.json`, after you type its name
@@ -997,7 +1031,8 @@ Removes a model where wisp knows its files, and its settings in `config.json`, a
 | --- | --- |
 | `ollama:` | Ollama's copy, through Ollama's `DELETE /api/delete`; every app using Ollama loses it |
 | `mlx:`, `coreai:` | The entry in wisp's models folder: a link is removed, and what it points to stays; a real folder is moved to the Bin. A model named by its path is refused |
-| `llamacpp:`, `lmstudio:`, `system`, `private-cloud` | Refused, saying where it is removed: llama.cpp's GGUF file, LM Studio's My Models, macOS |
+| `llamacpp:` under `llamacpp.server wisp` | The link in wisp's llama.cpp models folder ([`wisp models add`](#wisp-models-add-path)); the GGUF file it points to stays where it is, and the plan says where. A broken link is removed the same way |
+| `llamacpp:` otherwise, `lmstudio:`, `system`, `private-cloud` | Refused, saying where it is removed: the GGUF file `llama-server` was started with, or Llama.app under `llama-app`; LM Studio's My Models; macOS |
 
 An MLX model's files in the Hugging Face cache stay, and the plan says how much they hold; `--purge-cache` removes the
 repository's whole folder there, `models--org--name`, every revision, for every tool that shares the cache. Another
@@ -1643,6 +1678,11 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
 
+One thing lives outside it, in wisp's folder in Application Support, `~/Library/Application Support/Wisp`
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), decision 2): `llamacpp/models/`, the links to GGUF
+files `wisp models add` makes for wisp's own llama.cpp server, in a folder only you can read. With `WISP_HOME` set,
+that folder is `$WISP_HOME/support` instead, so a scratch home never reads or changes your own models.
+
 `config.json` fields, all optional:
 
 | Field | Default | Meaning |
@@ -1676,7 +1716,7 @@ recorded with `verified` by `wisp models enable` and `check`. `contextLength`, w
 | `audit` | `{ "enabled": true, "maxFileBytes": 10485760, "keepFiles": 5 }` | Audit log switch and rotation. |
 | `approval` | `{ "threshold": "moderate", "classifier": "coreml", "coremlMinimumConfidence": 0.6, "timeoutSeconds": 600, "persistDays": 30, "outOfBand": true, "bannerDelaySeconds": 10 }` | When to ask a human before `run_command`, which classifier judges commands (`coreml`, the shipped version unless `coremlModel` names another, with `coremlMinimumConfidence`; `system-model`; or `rules`), how long silence is tolerated before it counts as a refusal (`0` waits forever), how long persisted approvals last, and whether `wisp mcp` also files each waiting command for `wisp approvals` and `wisp-tui`, with a notification (`outOfBand`; `false` asks through the client's dialog alone), and how long the client's dialog may go unanswered before that notification is posted (`bannerDelaySeconds`, 0 to 3600 and shorter than a bounded `timeoutSeconds`; `0` at once; a client with no dialog is told at once whatever it says); see [approval.md](approval.md). |
 
-Environment: `WISP_HOME` relocates the directory; `WISP_LOG=debug|info|error` mirrors diagnostics to
+Environment: `WISP_HOME` relocates the directory, and wisp's Application Support folder to `$WISP_HOME/support`; `WISP_LOG=debug|info|error` mirrors diagnostics to
 stderr. `WISP_TUI` names the `wisp-tui` that `wisp chat` hands a terminal to, ahead of the one the package declares and
 those found beside `wisp`. `wisp models pull` and `wisp models` find the Hugging Face cache through `huggingface_hub`'s variables
 (`HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HOME`, `XDG_CACHE_HOME`). `WISP_LLAMACPP_API_KEY` and

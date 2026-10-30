@@ -973,6 +973,7 @@ extension AuditEvent {
             ["repository", "publisher", "decision", "asked", "licence", "bytes", "reason", "source", "approval"]
         case .modelUninstall:
             ["model", "steps", "bytes", "purgeCache", "settings", "default", "outcome", "reason", "source"]
+        case .modelAdd: ["model", "path", "file", "link", "bytes", "outcome", "reason", "source"]
         case .modelVerified:
             [
                 "model", "trigger", "outcome", "checks", "recorded", "kept", "removed", "unchecked", "seconds",

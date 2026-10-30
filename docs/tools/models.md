@@ -3,7 +3,7 @@
 The models wisp can run, for the model: the same actions the person has in `wisp models` and `/models`
 ([ADR 0059](../decisions/0059-one-set-of-model-actions.md)), less the person's own. The model can read the listing and
 one model's facts at once, and ask the person to pull, enable, disable, or check a model; it cannot trust a publisher,
-remove a model, or switch the conversation to another model. Every rule (a disabled model refused under any spelling, the capability
+add or remove a model, or switch the conversation to another model. Every rule (a disabled model refused under any spelling, the capability
 check on enable, the publisher question before a pull) is the person's own, from one place, `ModelActions`.
 
 **Off by default.** Like `memory` ([ADR 0057](../decisions/0057-context-defaults-from-checkpoint-2.md)), a
@@ -42,7 +42,7 @@ So the MCP git thread of `AGENTS.md` (`tools: ["run_command"]`) never sees it.
 | `show NAME` | Every fact the listing has for the model, a line each, and whether it is usable | No |
 | `pull REPO` | At once, once approved: `pulling REPO in the background (approval ID): about 2.3 GB in 4 of 7 files. Its end will arrive as a note in this conversation; do not call models to check on it.` | Always, every pull |
 | `enable NAME`, `disable NAME`, `check NAME` | The lines `/models enable\|disable\|check` would note, once done | Yes; an answer of "this session" covers the same action for the session, never longer |
-| `trust`, `switch` | `error: trusting a publisher is the person's alone: …`, `error: switch is not offered to the model` | Never asked |
+| `trust`, `switch`, `uninstall`, `add` | `error: trusting a publisher is the person's alone: …`, `error: switch is not offered to the model` (and so for `uninstall` and `add`) | Never asked |
 
 Every reply is at most 4 KiB. A refusal is `error: not approved: <reason>`; a name that is not a model or a
 repository is `error: …` naming what a name must be.
@@ -102,5 +102,6 @@ Each call is `tool.call` and `tool.result`. A change asked for records `classifi
   names, files, sizes, digests, lock, and link rules apply.
 - The listing asks every backend, as `/models` does: an Ollama that is not running is one line in parentheses.
 - Not offered: `trust` (the person's, `/models trust PUBLISHER` or `t` to a pull's question), `uninstall` (the
-  person's, after typing the model's name; ADR 0075), and `switch` (a model choosing its own successor is a decision
+  person's, after typing the model's name; ADR 0075), `add` (linking a GGUF file for wisp's llama.cpp server, the
+  person's with `wisp models add` or `/models add`; ADR 0082), and `switch` (a model choosing its own successor is a decision
   not taken; ADR 0059).

@@ -14,7 +14,8 @@ public struct InstalledModel: Equatable, Sendable {
     public var bytes: Int?
     /// The architecture and quantisation, such as `granite Q4_K_M` or `qwen3 4-bit`; nil when unknown.
     public var format: String?
-    /// Where an MLX model lives; nil for runtimes that keep their own models.
+    /// Where an MLX model or a GGUF file wisp's llama.cpp server serves lives; nil for runtimes that keep their own
+    /// models.
     public var location: ModelLocation?
     /// The day wisp last checked the capabilities the configuration declares for it (`YYYY-MM-DD`); nil when it
     /// has not.
@@ -43,6 +44,10 @@ public enum ModelLocation: String, Equatable, Sendable, CaseIterable {
     case hubCache
     /// The Hugging Face cache, complete, and not linked: enabling it links it.
     case hubCacheNotLinked
+    /// A GGUF file the person added, linked from wisp's llama.cpp models folder (ADR 0082).
+    case linkedFile
+    /// A link in wisp's llama.cpp models folder whose GGUF file is missing.
+    case brokenLink
 
     /// The words the listing shows.
     public var label: String {
@@ -50,6 +55,8 @@ public enum ModelLocation: String, Equatable, Sendable, CaseIterable {
         case .modelsFolder: "models folder"
         case .hubCache: "HF cache"
         case .hubCacheNotLinked: "HF cache, not linked"
+        case .linkedFile: "linked file"
+        case .brokenLink: "broken link"
         }
     }
 }

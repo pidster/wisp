@@ -277,6 +277,10 @@ public enum ChatInput: Equatable, Sendable {
         HelpEntry(
             usage: "/models cancel [REPOSITORY]", about: "stop a pull the model asked for, running in the background"),
         HelpEntry(
+            usage: "/models add PATH",
+            about: "link a GGUF file into wisp's llama.cpp models folder, for llamacpp.server wisp; the file stays "
+                + "where it is"),
+        HelpEntry(
             usage: "/models uninstall NAME [--purge-cache]",
             about: "remove a model and its settings after you type its name: Ollama's copy, a link or folder in wisp's "
                 + "models folder; --purge-cache also an MLX model's files in the Hugging Face cache"),
@@ -516,6 +520,8 @@ public enum ModelsRequest: Equatable, Sendable {
     /// Remove a model and its settings, after the person types its name; with `purgeCache`, an MLX model's folder in
     /// the Hugging Face cache too (ADR 0075).
     case uninstall(String, purgeCache: Bool)
+    /// Link a GGUF file into wisp's llama.cpp models folder, the path as typed, spaces kept (ADR 0082).
+    case add(String)
     /// Anything else, with the word that was not understood, or `enable`, `disable`, `check`, `pull`, or `trust`
     /// with no name.
     case unknown(String)
@@ -523,7 +529,7 @@ public enum ModelsRequest: Equatable, Sendable {
     /// How to use `/models`, as an unknown argument is answered.
     public static let usage =
         "/models, or /models enable|disable|check NAME…, pull REPOSITORY, trust PUBLISHER, cancel [REPOSITORY], "
-        + "uninstall NAME [--purge-cache]"
+        + "add PATH, uninstall NAME [--purge-cache]"
 
     /// Parses what follows `/models`.
     public init(_ argument: String?) {
@@ -536,6 +542,10 @@ public enum ModelsRequest: Equatable, Sendable {
         case "pull" where parts.count == 2: self = .pull(parts[1])
         case "trust" where parts.count == 2: self = .trust(parts[1])
         case "cancel" where parts.count <= 2: self = .cancel(parts.count == 2 ? parts[1] : nil)
+        case "add" where parts.count > 1:
+            // The rest of the line, so a path with spaces in it arrives whole.
+            let rest = (argument ?? "").drop { $0.isWhitespace }.dropFirst("add".count)
+            self = .add(rest.trimmingCharacters(in: .whitespaces))
         case "uninstall" where parts.count == 2 && parts[1] != "--purge-cache":
             self = .uninstall(parts[1], purgeCache: false)
         case "uninstall" where parts.count == 3 && parts.filter({ $0 == "--purge-cache" }).count == 1:

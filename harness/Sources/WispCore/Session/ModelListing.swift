@@ -68,6 +68,10 @@ public enum ModelListing {
         /// Whether a conversation could run on it now, were it enabled.
         public var usable: Bool { problem == nil && linked }
 
+        /// Whether the person added it to wisp's llama.cpp models folder (ADR 0082): listed whether or not it can be
+        /// used, so they see what they added, a broken link among it, and why.
+        public var added: Bool { location == .linkedFile || location == .brokenLink }
+
         /// Whether `/model` and Tab offer it: usable and enabled.
         public var offered: Bool { usable && enabled }
 
@@ -148,10 +152,13 @@ public enum ModelListing {
         }
 
         /// The entries a listing shows: with `all`, every one; otherwise those that can serve the conversation, those
-        /// the operator can turn on (a disabled model, a cached model not linked), whether or not they can, and a
-        /// model a check enabled for use with tools off, with what the check found.
+        /// the operator can turn on (a disabled model, a cached model not linked), whether or not they can, a model
+        /// a check enabled for use with tools off, with what the check found, and a GGUF file the person added for
+        /// wisp's llama.cpp server.
         public func shown(all: Bool) -> [Entry] {
-            entries.filter { all || $0.usable || !$0.enabled || ($0.verified != nil && $0.capabilitySource != nil) }
+            entries.filter {
+                all || $0.usable || !$0.enabled || $0.added || ($0.verified != nil && $0.capabilitySource != nil)
+            }
         }
     }
 

@@ -105,7 +105,12 @@ it holds the model at ([ADR 0058](decisions/0058-a-shared-http-executor.md)). Wh
 (`OpenAICompatibleSettings.server`): `llama-app` moves the default base URL to Llama.app's port and its start hint to
 Llama.app's (`LlamaApp`, found by bundle identifier), and `wisp`, whose server is not built yet, is refused in
 `OpenAICompatibleModel.get`, the one way every question reaches the server, so no request is sent
-([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)).
+([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)). The models wisp's server will serve are
+`LlamaCppModels`: links, `<name>.gguf`, in `Home.support`'s `llamacpp/models` (`~/Library/Application Support/Wisp`,
+or `<root>/support` for a home given its root, so `WISP_HOME` and tests never reach the person's own). Under `wisp`,
+`OpenAICompatibleBackend` lists that folder instead of asking a server (`ModelLocation.linkedFile`, `brokenLink`),
+refuses to resolve a name with no link or a broken one, and plans an uninstall as the link alone
+(`ModelRemoval.Step.unlink`); `ModelActions.add`, the person's alone, makes a link, recorded as `model.add`.
 
 `ModelSelection` names the model (`system`, `private-cloud`, or `<backend>:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session

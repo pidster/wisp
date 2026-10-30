@@ -7,7 +7,8 @@ extension ChatLoop {
     /// together, with a "pull a model…" row where this build can pull; with `enable` or `disable`, those models turned
     /// on or off, and an enabled model whose capabilities are undeclared checked; with `check`, those models checked
     /// again; with `pull`, a model fetched after the publisher and download questions; with `trust`, a publisher
-    /// trusted from now on; with `cancel`, a pull the model asked for stopped.
+    /// trusted from now on; with `cancel`, a pull the model asked for stopped; with `add`, a GGUF file linked for wisp's
+    /// llama.cpp server (ADR 0082).
     ///
     /// - Parameter request: What followed `/models`.
     func models(_ request: ModelsRequest) async {
@@ -33,6 +34,13 @@ extension ChatLoop {
                     ? "no pull is running" + (repository.map { " for \($0)" } ?? "")
                     : "cancelling the pull of \(cancelled.joined(separator: ", ")); what arrived is kept")
         case .uninstall(let name, let purgeCache): await uninstall(actions, name, purgeCache: purgeCache)
+        case .add(let path):
+            do {
+                let directory = URL(filePath: FileManager.default.currentDirectoryPath)
+                for line in try actions.add(path, workingDirectory: directory) { io.note(line) }
+            } catch {
+                io.note(style.ember("error: \(error)"))
+            }
         case .unknown(let word):
             io.note("unknown /models argument '\(word)'; \(ModelsRequest.usage)")
         case .list:

@@ -1,6 +1,7 @@
 import Foundation
 
-/// The per-user wisp directory: `$WISP_HOME`, or `~/.wisp` by default.
+/// The per-user wisp directory: `$WISP_HOME`, or `~/.wisp` by default; and wisp's folder in Application Support
+/// beside it (`support`).
 ///
 /// Holds `config.json`, `logs/`, and `threads/`, among others. Nothing is created until `ensure()` is called, so
 /// read-only commands never touch the file system.
@@ -10,20 +11,31 @@ public struct Home: Sendable, Equatable {
 
     /// The directory itself.
     public let root: URL
+    /// wisp's folder in Application Support, for what other agents should not reach (ADR 0082, decision 2): the
+    /// models wisp's own llama.cpp server serves. `~/Library/Application Support/Wisp` for the person's home; for a
+    /// home given its root, `$WISP_HOME` or a test's, `<root>/support`, so a scratch home never reads or changes the
+    /// person's own.
+    public let support: URL
 
     /// Creates a home rooted at `root`.
-    public init(root: URL) {
+    ///
+    /// - Parameters:
+    ///   - root: The directory.
+    ///   - support: wisp's folder in Application Support; nil puts it at `<root>/support`.
+    public init(root: URL, support: URL? = nil) {
         self.root = root
+        self.support = support ?? root.appending(path: "support", directoryHint: .isDirectory)
     }
 
-    /// Resolves the home from `environment`, falling back to `~/.wisp`.
+    /// Resolves the home from `environment`, falling back to `~/.wisp` and `~/Library/Application Support/Wisp`.
     public static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> Home {
         if let override = environment[environmentKey], !override.isEmpty {
             return Home(root: URL(fileURLWithPath: override, isDirectory: true))
         }
         return Home(
             root: FileManager.default.homeDirectoryForCurrentUser.appending(
-                path: ".wisp", directoryHint: .isDirectory))
+                path: ".wisp", directoryHint: .isDirectory),
+            support: URL.applicationSupportDirectory.appending(path: "Wisp", directoryHint: .isDirectory))
     }
 
     /// The JSON configuration file.

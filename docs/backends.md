@@ -271,7 +271,7 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   | --- | --- |
   | `off` (the default) | Connects to `llamacpp.baseURL` (`http://127.0.0.1:8080`), a `llama-server` you start, and starts nothing, as before 0.33.0 |
   | `llama-app` | Uses Llama.app's server and starts nothing; you add models in Llama.app |
-  | `wisp` | wisp's own server, started for the models it knows: arrives in a later stage of 0.33.0 and is not built yet. Accepted by `config.json`, and every use of a `llamacpp:` model, `wisp models`, and `wisp doctor` says so, asking the server nothing |
+  | `wisp` | wisp's own server, started for the models you added (below): arrives in a later stage of 0.33.0 and is not built yet. Accepted by `config.json`, and every use of a `llamacpp:` model and `wisp doctor` say so, asking no server anything |
 
   Llama.app (bundle identifier `app.llama.Llama`) runs llama.cpp's router on `127.0.0.1` port 9931, llama-server's own
   default. It writes the port nowhere wisp could find (not in its defaults, its `models.ini`, or
@@ -283,6 +283,21 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   their Hugging Face repository and quantisation, `llamacpp:ggml-org/gemma-4-E4B-it-GGUF:Q8_0`, which wisp takes as
   given (the scheme ends at the first colon). Removing such a model is Llama.app's to do. The setting is llama.cpp's
   alone: `lmstudio.server` is refused as `config.json` loads.
+- **The models wisp's server knows.** Under `wisp`, the `llamacpp:` models are the GGUF files you add with
+  `wisp models add PATH` (or chat's `/models add PATH`), each linked into wisp's llama.cpp models folder,
+  `~/Library/Application Support/Wisp/llamacpp/models` (ADR 0082, decision 2), as `<name>.gguf` pointing to the
+  file's real path. The file is never copied or moved, and wisp does not look for GGUF files anywhere else. The name
+  is the file's name without `.gguf`, which is how llama-server's router names each file in `--models-dir` (probed on
+  2026-10-29, [measurements.md](measurements.md), "A llama.cpp router for wisp's models"), so the folder is what the
+  router will be started on. A file is added only if its name ends in `.gguf`, it begins with GGUF's magic bytes, and
+  its name is 1 to 64 characters from `[A-Za-z0-9._-]`; a name linked to another file is refused. `wisp models` then
+  lists the folder rather than asking a server: each link as `llamacpp:<name>`, with its file's size, `WHERE`
+  `linked file`, or `broken link` when the file is gone, every one shown whether or not it can be used. Until the
+  server is built, using one says it is not built yet; a name with no link says to add it, and a broken link that its
+  file is missing. `wisp models uninstall llamacpp:<name>` removes the link only, saying where the file stays, and
+  clears `llamacpp.models.<name>`. Adding is the person's: the model's `models` tool does not offer it, and the
+  default policy refuses `wisp models add` to the model. Under `off` and `llama-app` the folder is not read, and
+  `wisp models add` is refused.
 - **Names.** `/v1/models` lists the model by the `-m` path or the `--alias` given; a path is named by its file's
   name without `.gguf` (`llamacpp:Qwen3-8B-Q4_K_M`), and the path itself is accepted too. A router serving several
   models (`--models-dir`) lists each, and wisp asks `/props` about the one it uses.

@@ -1038,8 +1038,40 @@ struct Models: AsyncParsableCommand {
         abstract:
             "List, enable, or disable the models usable with --model and config.json, fetch an MLX model, or remove "
             + "one.",
-        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self, Uninstall.self],
+        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self, Add.self, Uninstall.self],
         defaultSubcommand: List.self)
+
+    /// Links a GGUF file into wisp's llama.cpp models folder, for wisp's own llama.cpp server (ADR 0082).
+    struct Add: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Add a GGUF file for wisp's own llama.cpp server (llamacpp.server wisp), by linking it.",
+            discussion:
+                "Links the file into ~/Library/Application Support/Wisp/llamacpp/models as <name>.gguf, pointing to "
+                + "its real path; the file is never copied or moved. The model is llamacpp:<name>, the file's name "
+                + "without .gguf, as llama-server's router names it. Refused unless llamacpp.server is wisp, and for "
+                + "a path that is not a readable GGUF file (its name ends in .gguf and it begins with GGUF's magic "
+                + "bytes), a name that is not 1-64 characters from [A-Za-z0-9._-], or a name linked to another file. "
+                + "Adding the same file again changes nothing. 'wisp models uninstall llamacpp:<name>' removes the "
+                + "link, never the file.")
+
+        @Argument(
+            help: "The GGUF file, such as ~/models/Qwen3-8B-Q4_K_M.gguf.", completion: .file(extensions: ["gguf"]))
+        var path: String
+
+        func run() async throws {
+            let session = try Wisp.begin(.init(entryPoint: .models))
+            defer { session.end() }
+            do {
+                let lines = try ModelActions(session: session, face: .cli).add(
+                    path, workingDirectory: URL(filePath: FileManager.default.currentDirectoryPath))
+                for line in lines { print(line) }
+            } catch {
+                // A refusal is the file's or the setting's, not the command line's: no usage after it.
+                FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+                throw ExitCode.failure
+            }
+        }
+    }
 
     /// Removes a model where wisp knows its files, and its settings, after the person types its name (ADR 0075).
     struct Uninstall: AsyncParsableCommand {
@@ -1052,8 +1084,9 @@ struct Models: AsyncParsableCommand {
                 + "a warning when it is the default model. You type the model's name to go ahead; --yes skips that "
                 + "for a script, and without a terminal nothing is removed unless --yes is given. An MLX model's "
                 + "files in the Hugging Face cache stay unless --purge-cache is given, which removes the "
-                + "repository's whole folder there, for every tool sharing the cache. llama.cpp's, LM Studio's, and "
-                + "Apple's models are refused, saying where to remove them.")
+                + "repository's whole folder there, for every tool sharing the cache. Under llamacpp.server wisp, a "
+                + "llama.cpp model's link in wisp's llama.cpp models folder (its GGUF file stays). Other llama.cpp "
+                + "models, LM Studio's, and Apple's are refused, saying where to remove them.")
 
         @Argument(
             help: "The model, as wisp models lists it, such as ollama:llama3.2:3b.",

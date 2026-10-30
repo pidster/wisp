@@ -148,7 +148,7 @@ final class FakePuller: ModelPuller {
         typealias Action = ModelActions.Action
         #expect(
             Action.allCases.map(\.rawValue) == [
-                "list", "show", "pull", "trust", "enable", "disable", "check", "switch", "uninstall",
+                "list", "show", "pull", "trust", "enable", "disable", "check", "switch", "uninstall", "add",
             ])
         #expect(Action.allCases.filter(\.forModel) == [.list, .show, .pull, .enable, .disable, .check])
         #expect(Action.allCases.filter(\.asksPerson) == [.pull, .enable, .disable, .check])
