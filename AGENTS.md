@@ -48,7 +48,7 @@ scripts/release X.Y.Z --dry-run    # release preflight, build, package; remote s
 
 cd harness && swift build                                        # -> .build/debug/wisp
 cd harness && swift test --filter CommandRunnerTests             # one suite; append /testName for one test
-scripts/check mcp-build             # -> harness/.build/release/wisp (what .mcp.json runs), MLX trait; leaves the lockfile alone
+scripts/check mcp-build             # -> harness/.build/release/wisp (what .mcp.json runs), MLX trait, Wisp Notifier.app beside it; leaves the lockfile alone
 ```
 
 Smoke-testing against the live model (never in unit tests):

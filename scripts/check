@@ -595,6 +595,11 @@ mcp_build() {
         # shellcheck disable=SC2086 # $SWIFT_SANDBOX is empty or one word on purpose
         swift build --package-path harness $SWIFT_SANDBOX -c release
     fi
+    # Wisp Notifier.app beside the binary, as a release puts it (ADR 0070): without it the server's banners take the
+    # osascript route, which macOS shows as Script Editor's. Signed ad hoc, or with WISP_SIGN_IDENTITY when set.
+    echo "==> Wisp Notifier.app beside it"
+    version="$(sed -n 's/.*public static let current = "\(.*\)"/\1/p' harness/Sources/WispCore/Audit/AuditEvent.swift)"
+    scripts/notifier-app harness/.build/release/WispNotifier harness/.build/release "$version" >/dev/null
     echo "==> built harness/.build/release/wisp; reconnect the server (/mcp in Claude Code)"
 }
 
