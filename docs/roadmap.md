@@ -27,7 +27,7 @@ wisp checks by digest, on `127.0.0.1` with a key of its own, kept running by a L
 uses `Llama.app`'s router.
 
 Built on 2026-10-29 and 2026-10-30, decisions 1 to 8, with `wisp models add PATH` (and `/models add`) linking a
-GGUF file; adding one by download, which decision 2 also names, is not built. Tried on this Mac on 2026-10-30: the
+GGUF file; adding one by download, which decision 2 also names, is not built and is in the [backlog](backlog.md). Tried on this Mac on 2026-10-30: the
 router under its LaunchAgent served `eval compare` with Bonsai 2 9B ([measurements.md](measurements.md)), and the
 trial found and fixed a restart after a kill and a stale Login Item. The tests fake `SMAppService` and `launchctl`;
 the libraries `llama-server` loads from its install are not covered by the digest.

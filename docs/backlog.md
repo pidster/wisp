@@ -251,8 +251,11 @@ own work.
   ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)): `llamacpp.server` `off`, `llama-app` (Llama.app's
   router), or `wisp`, wisp's own `llama-server` router over the GGUF files `wisp models add` links, from a binary
   approved by its digest (`llamacpp.serverPath`), on `127.0.0.1` with a key, kept by a LaunchAgent, with its memory
-  settings. Open: adding a model by download (decision 2 names it; only a path is built), and the libraries
-  `llama-server` loads, which the digest does not cover.
+  settings. Open: the libraries `llama-server` loads, which the digest does not cover.
+- A GGUF added to wisp's llama.cpp server by download, through the models flow that already asks before pulling,
+  then served as a model `wisp models add` linked; the command and where the file is kept are to be decided.
+  ADR 0082 decision 2 names it; 0.33.0 built only adding by path. Moved to the backlog by the operator on
+  2026-10-30.
 - Done 2026-10-12: one set of model actions for the person and the model
   ([ADR 0059](decisions/0059-one-set-of-model-actions.md)): `ModelActions` behind `wisp models`, `/models`, and
   `/model`; `/models pull`, `trust`, and `cancel` in chat and `wisp-tui`, with the picker's pull row; and a `models`
