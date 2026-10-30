@@ -30,9 +30,15 @@ import Testing
     ]
 
     private func renderedConfiguration() throws -> JSONValue {
+        try renderedConfigurationAndRoot().top
+    }
+
+    /// The default configuration's view, with the scratch home's path it names, so a bound on its size can leave
+    /// out the path, whose length is the temporary directory's (longer inside wisp's sandbox than outside).
+    private func renderedConfigurationAndRoot() throws -> (top: JSONValue, root: String) {
         let home = try scratchHome()
         defer { try? FileManager.default.removeItem(at: home.root) }
-        return Introspection(home: home, config: Config().resolved).configuration
+        return (Introspection(home: home, config: Config().resolved).configuration, home.root.path)
     }
 
     @Test func configurationShowsEverySectionOfTheConfigFile() throws {
@@ -48,7 +54,7 @@ import Testing
     }
 
     @Test func configurationShowsEverySettableKeyWithItsDefault() throws {
-        let top = try renderedConfiguration()
+        let (top, root) = try renderedConfigurationAndRoot()
         let moved: [String: [String]] = [
             "commandTimeoutSeconds": ["runCommand", "timeoutSeconds"],
             "commandMaxTimeoutSeconds": ["runCommand", "maxTimeoutSeconds"],
@@ -67,7 +73,8 @@ import Testing
         #expect(top.objectValue?["assessment"]?.objectValue?["taskChanges"] == "restated")
         #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.6))
         #expect(top.objectValue?["context"]?.objectValue?["memory"] == false)
-        #expect(Introspection.render(top).utf8.count < 6_500, "the configuration view stays bounded")
+        let rendered = Introspection.render(top).replacingOccurrences(of: root, with: "~/.wisp")
+        #expect(rendered.utf8.count < 6_500, "the configuration view stays bounded")
     }
 
     @Test func configurationShowsEffectiveValuesAndPaths() throws {
