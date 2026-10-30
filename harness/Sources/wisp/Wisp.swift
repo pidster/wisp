@@ -988,7 +988,9 @@ struct ConfigCommand: ParsableCommand {
         var value: [String]
 
         func run() throws {
-            try ConfigCommand.apply(path) { try ConfigEdit.set(path, to: value.joined(separator: " "), in: $0) }
+            let text = value.joined(separator: " ")
+            if path == LlamaCppServerBinary.setting { return try ConfigCommand.serverPath(text) }
+            try ConfigCommand.apply(path) { try ConfigEdit.set(path, to: text, in: $0) }
         }
     }
 
@@ -1000,8 +1002,39 @@ struct ConfigCommand: ParsableCommand {
         var path: String
 
         func run() throws {
+            if path == LlamaCppServerBinary.setting { return try ConfigCommand.serverPath(nil) }
             try ConfigCommand.apply(path) { try ConfigEdit.unset(path, in: $0) }
         }
+    }
+
+    /// Sets `llamacpp.serverPath` and approves the file it names, or unsets it and removes the approval (ADR 0082,
+    /// decision 5): the approval is recorded in wisp's support folder, and audited with the edit.
+    ///
+    /// - Parameter text: The path as typed, or nil to unset.
+    /// - Throws: A usage error when the path cannot be approved or the edit is refused; `ExitCode.failure` when the
+    ///   file exists but cannot be read, and nothing is written.
+    static func serverPath(_ text: String?) throws {
+        let session = try Wisp.begin(.init(entryPoint: .config))
+        defer { session.end() }
+        let change: LlamaCppServerBinary.Change
+        do {
+            change = try LlamaCppServerBinary(home: Wisp.home).change(
+                text, configFile: Wisp.home.configFile,
+                workingDirectory: URL(filePath: FileManager.default.currentDirectoryPath, directoryHint: .isDirectory),
+                audit: session.audit, source: "cli")
+        } catch let failure as LlamaCppServerBinary.Failure {
+            throw ValidationError("\(failure)")
+        } catch let failure as ConfigEdit.Failure {
+            throw ValidationError("\(failure)")
+        } catch let failure as ConfigEdit.Unreadable {
+            Wisp.note("Error: \(failure)")
+            throw ExitCode.failure
+        }
+        let old = change.outcome.old.map(ChatLoop.shown) ?? "(default)"
+        let new = change.outcome.new.map(ChatLoop.shown) ?? "(default)"
+        print("\(LlamaCppServerBinary.setting): \(old) → \(new); used from the next session on")
+        for line in change.lines { print(line) }
+        if let warning = change.outcome.warning { FileHandle.standardError.write(Data("note: \(warning)\n".utf8)) }
     }
 
     /// Edits the file, audits the change, and says what changed.

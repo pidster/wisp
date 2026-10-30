@@ -258,8 +258,11 @@ public struct Session: Sendable {
     ///   `dependencies.makeSink` throws.
     public static func begin(_ request: Request, home: Home, dependencies: Dependencies = .live) throws -> Session {
         var config = try loadConfig(home: home)
-        // The session's own home, not the default one, is what commands and edit_file may never write.
-        config.runner.protectedPaths = [home.root.path]
+        // The session's own home, not the default one, is what commands and edit_file may never write; so is its
+        // support folder, which holds the approved llama-server's record (ADR 0082), when it is not inside the home.
+        config.runner.protectedPaths =
+            [home.root.path]
+            + [home.support.path].filter { !CommandPolicy.contains(home.root.path, $0) }
         var notes: [String] = []
         if let model = request.model {
             if model.isAmong(config.disabledModels, config: config, home: home) {

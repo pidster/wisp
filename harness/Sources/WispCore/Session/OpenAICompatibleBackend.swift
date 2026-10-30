@@ -109,7 +109,8 @@ public struct OpenAICompatibleBackend: ModelBackend {
         }
     }
 
-    /// Base URL, timeout, whether a key is set (never the key), and, for llama.cpp, whose server it is (`server`),
+    /// Base URL, timeout, whether a key is set (never the key), and, for llama.cpp, whose server it is (`server`), the
+    /// `llama-server` it would run (`serverPath`, as set; whether it is approved is `wisp doctor`'s),
     /// `think`, and the thinking budgets, with each model's own `think`.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
         let settings = config[server: dialect]
@@ -119,7 +120,10 @@ public struct OpenAICompatibleBackend: ModelBackend {
             "apiKey": .string(settings.apiKeyState),
             "contextLength": .string("reported by the server (ADR 0058)"),
         ]
-        if dialect == .llamaCpp { values["server"] = .string(settings.server.rawValue) }
+        if dialect == .llamaCpp {
+            values["server"] = .string(settings.server.rawValue)
+            values["serverPath"] = .string(settings.serverPath ?? "none approved")
+        }
         if dialect.takesThink {
             values["think"] = settings.think.map { .string($0.text) } ?? .string("unset")
             values["thinkingBudget"] = .object(

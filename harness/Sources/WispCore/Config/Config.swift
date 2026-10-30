@@ -588,12 +588,16 @@ public struct Config: Codable, Equatable, Sendable {
         /// llama.cpp only: whose server serves its models, `off` (one the person starts, the default), `wisp`, or
         /// `llama-app` (ADR 0082).
         public var server: LlamaCppServer?
+        /// llama.cpp only: the `llama-server` wisp's own server runs, as the person approved it with `wisp config set
+        /// llamacpp.serverPath`, which also records its digest outside this file (ADR 0082, decision 5). A path set
+        /// here by hand is not approved.
+        public var serverPath: String?
 
         /// Creates settings; nil fields take defaults.
         public init(
             baseURL: String? = nil, timeoutSeconds: Int? = nil, apiKey: String? = nil, think: OllamaThink? = nil,
             thinkingBudget: [String: Int]? = nil, models: [String: MLXModelConfig]? = nil,
-            server: LlamaCppServer? = nil
+            server: LlamaCppServer? = nil, serverPath: String? = nil
         ) {
             self.baseURL = baseURL
             self.timeoutSeconds = timeoutSeconds
@@ -602,6 +606,7 @@ public struct Config: Codable, Equatable, Sendable {
             self.thinkingBudget = thinkingBudget
             self.models = models
             self.server = server
+            self.serverPath = serverPath
         }
     }
 
@@ -843,13 +848,14 @@ public struct Config: Codable, Equatable, Sendable {
             }
         }
         // Whose server is a choice for llama.cpp alone: LM Studio always runs its own (ADR 0082).
-        if lmstudio?.server != nil {
+        if lmstudio?.server != nil || lmstudio?.serverPath != nil {
             throw DecodingError.dataCorrupted(
                 .init(
                     codingPath: [],
                     debugDescription:
-                        "lmstudio: server is not taken: it is llama.cpp's choice (llamacpp.server); LM Studio runs its "
-                        + "own server, started from its Developer tab"))
+                        "lmstudio: \(lmstudio?.server != nil ? "server" : "serverPath") is not taken: it is "
+                        + "llama.cpp's choice (llamacpp.server, llamacpp.serverPath); LM Studio runs its own server, "
+                        + "started from its Developer tab"))
         }
         // LM Studio sets thinking per model in the app; a model's `think` there would be read past.
         if let model = (lmstudio?.models ?? [:]).keys.sorted().first(where: { lmstudio?.models?[$0]?.think != nil }) {

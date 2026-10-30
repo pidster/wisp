@@ -96,6 +96,9 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     public var declared: [String: Config.MLXModelConfig]
     /// Whose server this is, for llama.cpp (`llamacpp.server`, ADR 0082); `off` for LM Studio, which has no choice.
     public var server: LlamaCppServer
+    /// The `llama-server` wisp's own server would run, as `llamacpp.serverPath` names it; nil when unset, and for LM
+    /// Studio. Approved only with the record `LlamaCppServerBinary` keeps (ADR 0082, decision 5).
+    public var serverPath: String?
     /// Where Llama.app is looked for under `llama-app`, so a test need not depend on the Mac it runs on.
     public var llamaApp: LlamaApp
 
@@ -103,7 +106,8 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
     public init(
         baseURL: URL, timeout: Duration = .seconds(120), apiKey: String? = nil, apiKeySource: String? = nil,
         think: OllamaThink? = nil, thinkingBudget: [String: Int] = defaultThinkingBudget,
-        declared: [String: Config.MLXModelConfig] = [:], server: LlamaCppServer = .off, llamaApp: LlamaApp = .standard
+        declared: [String: Config.MLXModelConfig] = [:], server: LlamaCppServer = .off, serverPath: String? = nil,
+        llamaApp: LlamaApp = .standard
     ) {
         self.baseURL = baseURL
         self.timeout = timeout
@@ -113,6 +117,7 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
         self.thinkingBudget = thinkingBudget
         self.declared = declared
         self.server = server
+        self.serverPath = serverPath
         self.llamaApp = llamaApp
     }
 
@@ -159,7 +164,8 @@ public struct OpenAICompatibleSettings: Equatable, Sendable, CustomStringConvert
             think: dialect.takesThink ? section?.think : nil,
             thinkingBudget: defaultThinkingBudget.merging(section?.thinkingBudget ?? [:]) { _, configured in configured
             },
-            declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:], server: server)
+            declared: dialect.declaresCapabilities ? section?.models ?? [:] : [:], server: server,
+            serverPath: dialect == .llamaCpp ? section?.serverPath.flatMap { $0.isEmpty ? nil : $0 } : nil)
     }
 
     /// Whether a key is set and where from, never the key: `set (WISP_LLAMACPP_API_KEY)`, `unset`.

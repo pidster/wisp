@@ -298,6 +298,26 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   clears `llamacpp.models.<name>`. Adding is the person's: the model's `models` tool does not offer it, and the
   default policy refuses `wisp models add` to the model. Under `off` and `llama-app` the folder is not read, and
   `wisp models add` is refused.
+- **Which `llama-server` wisp's server runs.** The one you approve, `llamacpp.serverPath`, never the first on `PATH`
+  (ADR 0082, decision 5). Approving is setting it:
+
+  ```
+  wisp config set llamacpp.serverPath /opt/homebrew/bin/llama-server
+  ```
+
+  wisp keeps the path as you gave it (a Homebrew link stays the link), and records the real path it resolves to, the
+  file's SHA-256, and when, in `~/Library/Application Support/Wisp/llamacpp/server.json` (`$WISP_HOME/support/…`
+  under `WISP_HOME`), a folder and file only you can read; `config.json` holds only the path. The file must be a
+  regular file you can execute whose first bytes are a Mach-O header; its name is not checked, so a renamed copy is
+  fine. Before every start, wisp's server checks the path against the record and refuses when it is not set, not
+  approved (a path written into `config.json` by hand is not), resolves to another file, is missing, or has another
+  digest, saying which, with both digests' first 12 digits, and the command that approves it again. Every
+  `brew upgrade llama.cpp` moves the link to a new Cellar folder and changes the digest, so after one, run the same
+  `wisp config set` again; it says what it replaced. `wisp config unset llamacpp.serverPath` removes the approval.
+  `wisp doctor` shows the state under `llamacpp.server wisp`. Approving is the person's: the default policy refuses
+  `wisp config set|unset llamacpp.serverPath` to the model, chat's `/config` sends you to a terminal for it, and a
+  session's commands may not write the support folder. The digest covers the executable alone: the libraries
+  `llama-server` loads from its install (Homebrew's `libllama`, `libggml*`) are not checked.
 - **Names.** `/v1/models` lists the model by the `-m` path or the `--alias` given; a path is named by its file's
   name without `.gguf` (`llamacpp:Qwen3-8B-Q4_K_M`), and the path itself is accepted too. A router serving several
   models (`--models-dir`) lists each, and wisp asks `/props` about the one it uses.

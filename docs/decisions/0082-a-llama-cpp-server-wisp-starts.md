@@ -102,3 +102,8 @@ Agreed by the operator on 2026-10-29:
   as under `-m`.
 - `Llama.app`'s router, open to any local process and web page, is the person's choice under `llama-app`; wisp says so
   rather than refusing it.
+- Amended on 2026-10-30, with decision 5 built: the approval (path as given, real path, SHA-256, when) is kept in
+  `~/Library/Application Support/Wisp/llamacpp/server.json`, owner only, not in `~/.wisp`, and `config.json` holds only
+  `llamacpp.serverPath`, so a path written there by hand is not approved. The digest covers the `llama-server`
+  executable only: the libraries it loads from its install (Homebrew's Cellar: `libllama`, `libggml*`) are not
+  checked, so a change to them alone is not seen. A known limit, not solved here.

@@ -121,6 +121,9 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         // Nor does it remove one (ADR 0075), or add a GGUF file for wisp's llama.cpp server (ADR 0082): both are the
         // person's alone.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?models["']?\s+["']?(uninstall|add)\b"#,
+        // Nor does it approve the llama-server wisp's own server runs, or take the approval away (ADR 0082): what wisp
+        // runs outside its sandbox is the person's to name.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?config["']?\s+["']?(set|unset)["']?\s+["']?llamacpp\.serverPath\b"#,
         // Nor does it put wisp on PATH or take it off (ADR 0073): what a shell runs as wisp is the person's choice.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?(un)?install\b"#,
         // Nor does it replace wisp with a newer release (ADR 0074): an update is the person's to make.

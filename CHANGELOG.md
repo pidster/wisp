@@ -24,6 +24,14 @@ Added:
   file is missing, and `wisp models uninstall llamacpp:<name>` removes the link, never the file. Audited as
   `model.add`; the model's `models` tool does not offer it. With `WISP_HOME` set, the folder is under
   `$WISP_HOME/support`.
+- `llamacpp.serverPath`, the `llama-server` wisp's own server will run (ADR 0082): never the first on `PATH`.
+  `wisp config set llamacpp.serverPath /opt/homebrew/bin/llama-server` approves it, recording its real path and
+  SHA-256 in `~/Library/Application Support/Wisp/llamacpp/server.json` (owner only), not in `config.json`; only a
+  Mach-O executable you can run is approved. A path set by hand, re-pointed, missing, or changed (as every
+  `brew upgrade llama.cpp` makes it) is refused, naming both digests and the command that approves it again.
+  `wisp doctor` shows the state under `llamacpp.server wisp`. Audited as `llamacpp.server.approve` and
+  `llamacpp.server.refused`; the default policy refuses setting it to the model, and chat's `/config` sends you to
+  a terminal. The digest covers the executable, not the libraries it loads from its install.
 
 ## 0.32.0
 

@@ -179,6 +179,15 @@ extension ChatLoop {
             io.note("the configuration cannot be changed here")
             return false
         }
+        // Approving the llama-server wisp runs records its digest beside the setting (ADR 0082); that is done from a
+        // terminal, where the file is read as the person names it.
+        guard path != LlamaCppServerBinary.setting else {
+            io.note(
+                style.ember(
+                    "error: \(path) approves the llama-server wisp's own server runs; set it from a terminal with "
+                        + "wisp config set \(path) PATH, or unset it with wisp config unset \(path)"))
+            return false
+        }
         do {
             let outcome = try edit(try ConfigEdit.existing(at: url))
             try ConfigEdit.write(outcome, to: url)

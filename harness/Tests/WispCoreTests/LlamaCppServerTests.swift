@@ -134,7 +134,7 @@ import Testing
     @Test func theDoctorRunsTheProbeAndPlacesItsFinding() async {
         let probes = Doctor.Probes(
             systemModel: { nil }, configuredModel: { _, _, _ in nil },
-            llamaCppServer: { _ in Doctor.Finding(name: "llama.cpp server", ok: true, detail: "probed") })
+            llamaCppServer: { _, _ in Doctor.Finding(name: "llama.cpp server", ok: true, detail: "probed") })
         let findings = await Doctor(
             home: Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-dr-\(UUID().uuidString)")),
             probes: probes

@@ -111,6 +111,12 @@ or `<root>/support` for a home given its root, so `WISP_HOME` and tests never re
 `OpenAICompatibleBackend` lists that folder instead of asking a server (`ModelLocation.linkedFile`, `brokenLink`),
 refuses to resolve a name with no link or a broken one, and plans an uninstall as the link alone
 (`ModelRemoval.Step.unlink`); `ModelActions.add`, the person's alone, makes a link, recorded as `model.add`.
+The `llama-server` it would run is `LlamaCppServerBinary`: `wisp config set llamacpp.serverPath` goes through its
+`change`, which reads the file once for its Mach-O magic and SHA-256 and writes the approval to `Home.support`'s
+`llamacpp/server.json` before `config.json`; `check` compares the setting with the record, the path's real file, and
+its digest, returning the resolved file to run (so a link re-pointed after the check is not followed), and `verify`
+records a refusal as `llamacpp.server.refused`. `Session.begin` adds `Home.support` to the paths commands may not
+write when it lies outside the home.
 
 `ModelSelection` names the model (`system`, `private-cloud`, or `<backend>:<name>`); `resolve()` checks
 availability and returns a `ResolvedModel`, which erases the concrete `LanguageModel` behind session

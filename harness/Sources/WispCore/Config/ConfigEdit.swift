@@ -148,6 +148,12 @@ public enum ConfigSettings {
                     "whose llama.cpp server wisp uses: off, one you start at llamacpp.baseURL; llama-app, Llama.app's "
                     + "(no key, open to any web page); wisp, its own (not built yet)",
                 kind: .choice(LlamaCppServer.allCases.map(\.rawValue))),
+            Setting(
+                path: LlamaCppServerBinary.setting,
+                summary:
+                    "the llama-server wisp's own server runs; setting it approves that file by its digest, and setting "
+                    + "it again approves a new one (after brew upgrade llama.cpp)",
+                kind: .text),
             Setting(path: "llamacpp.baseURL", summary: "where llama.cpp's llama-server serves", kind: .text),
             Setting(
                 path: "llamacpp.think",
@@ -329,6 +335,7 @@ public enum ConfigSettings {
         case "ollama.contextLength": return d.ollama.contextLength.map { .int($0) } ?? .string("sized per model")
         case "ollama.think": return d.ollama.think.map { .string($0.text) } ?? .string("the model's default")
         case "llamacpp.server": return .string(d.llamacpp.server.rawValue)
+        case LlamaCppServerBinary.setting: return .string("none approved")
         case "llamacpp.baseURL": return .string(d.llamacpp.baseURL.absoluteString)
         case "llamacpp.think": return d.llamacpp.think.map { .string($0.text) } ?? .string("the template's default")
         case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)

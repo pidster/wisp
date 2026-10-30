@@ -33,7 +33,7 @@ own privileges, inside a Seatbelt sandbox ([run_command](tools/run_command.md)):
 
 | The sandbox confines | It does not confine |
 | --- | --- |
-| **Writes**: only under the directory wisp was launched in (none when that is a privileged folder: the home folder or above it, `~/Library`, or a system folder), the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is. A command you approve to run outside the sandbox is not confined at all (below). | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
+| **Writes**: only under the directory wisp was launched in (none when that is a privileged folder: the home folder or above it, `~/Library`, or a system folder), the temporary directory, `/private/tmp`, and configured build caches. A command's own working directory never widens this, and `edit_file` is held to the same list. Never wisp's own home (`~/.wisp`), wherever it is, nor wisp's folder in Application Support (`~/Library/Application Support/Wisp`), which holds the approval of the `llama-server` wisp's own server runs. A command you approve to run outside the sandbox is not confined at all (below). | **Reads**: any file the user can read. `read_file` and `run_command` can read your home directory. Credential-like paths ask first. |
 | **Network**, only if you set `sandbox.allowNetwork: false`. | **Network by default**: on, because builds fetch dependencies. |
 | **The process tree**: a timeout kills the whole group. | **Inter-process messaging and the rest of macOS**: unchanged. |
 
@@ -263,7 +263,8 @@ not judge whether a conclusion follows from the output, and misses a result put 
 - Forget a fact: `/fact delete <id>` in chat; delete `~/.wisp/facts.json` to forget every permanent fact.
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
-- Remove everything wisp keeps: delete `~/.wisp`. Nothing else is written outside the sandbox's
+- Remove everything wisp keeps: delete `~/.wisp`, and `~/Library/Application Support/Wisp` (the links
+  `wisp models add` made and the approved `llama-server`'s record). Nothing else is written outside the sandbox's
   writable set, except what a command run outside the sandbox wrote (one you approved, or typed after `!!`), the
   models you pulled into the Hugging Face cache, which Hugging Face's own tools share (delete
   `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions install`
