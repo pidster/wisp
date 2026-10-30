@@ -7,6 +7,24 @@ Notable changes in each release of wisp.
      version-bump commit renames it. -->
 
 
+## Unreleased
+
+Fixed:
+
+- After `wisp update` replaced `Wisp.app`, launchd could refuse to start wisp's own llama.cpp server's Login Item
+  (exit 78, `EX_CONFIG`) until the app was registered with Launch Services again (ADR 0082, amended 2026-10-30).
+  `wisp update`, and the Finder dialog's update, now register the new app with Launch Services and, when the Login
+  Item is registered, register it again from the new app, saying so; a failure there is a warning, not a failed
+  update. Updating to 0.33.1 runs 0.33.0's update, which lacks this: after it, run `wisp llamacpp agent repair` once.
+- Unregistering the Login Item (`wisp config set llamacpp.server off`, `wisp uninstall`) now also removes a job launchd
+  still holds for it when macOS reports no Login Item, which before did nothing, and says so.
+
+Added:
+
+- `wisp llamacpp agent repair` (hidden): registers `Wisp.app` with Launch Services again, then unregisters and
+  registers the llama.cpp server's Login Item. `wisp doctor` names it when launchd refused to start the agent
+  (last exit code 78) or holds a job Login Items does not list.
+
 ## 0.33.0
 
 Added:

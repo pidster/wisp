@@ -34,6 +34,9 @@ import Testing
             })
     }
 
+    /// The calls that change something: all but `launchctl print`.
+    private func changes(_ launchctl: FakeLaunchctl) -> [[String]] { launchctl.calls.filter { $0.first != "print" } }
+
     // MARK: - From the app itself
 
     @Test func theAppsOwnAgentRegistersThroughSMAppServiceAndRestartsWhenRegistered() throws {
@@ -44,12 +47,12 @@ import Testing
         #expect(
             agent.means.text == "a Login Item of \(app.path) (System Settings > General > Login Items & Extensions)")
         #expect(agent.state() == .notRegistered)
-        // Not registered: registered, and launchd is not asked to restart what it does not have.
+        // Not registered: registered, and launchd is only asked whether it holds a job, not to restart one.
         try agent.register()
-        #expect(service.calls == ["register"] && launchctl.calls.isEmpty && agent.state() == .registered)
+        #expect(service.calls == ["register"] && changes(launchctl).isEmpty && agent.state() == .registered)
         // Registered and known to launchd: restarted, not registered again.
         try agent.register()
-        #expect(service.calls == ["register"] && launchctl.calls == [["kickstart", "-k", target]])
+        #expect(service.calls == ["register"] && changes(launchctl) == [["kickstart", "-k", target]])
         // Unregistered once; asked again with nothing registered, `SMAppService` is not asked.
         try agent.unregister()
         try agent.unregister()
@@ -83,7 +86,11 @@ import Testing
                 == "the Login Item could not be changed: Operation not permitted")
         // An app without the agent's file.
         service.set(.notFound)
-        #expect(agent.state() == .unknown("Wisp.app carries no agent file com.pidster.wisp.llamacpp.plist"))
+        #expect(
+            agent.state()
+                == .unknown(
+                    "SMAppService finds no agent file com.pidster.wisp.llamacpp.plist in Wisp.app; after an update, "
+                        + "wisp llamacpp agent repair registers the app with Launch Services and the agent again"))
         #expect(service.calls == ["register", "unregister"])
     }
 
@@ -146,7 +153,7 @@ import Testing
         #expect(try run("register") == "registered")
         #expect(try run("unregister") == "not-registered")
         #expect(service.calls == ["register", "unregister"])
-        #expect(throws: LlamaCppAgent.Failure.refused("no verb restart; register, unregister, or status")) {
+        #expect(throws: LlamaCppAgent.Failure.refused("no verb restart; register, unregister, status, or repair")) {
             try run("restart")
         }
         #expect(throws: LlamaCppAgent.Failure.refused("wisp llamacpp agent is for Wisp.app's own wisp")) {
@@ -159,6 +166,182 @@ import Testing
         #expect(
             [SMAppService.Status.enabled, .requiresApproval, .notRegistered, .notFound].map(LoginItemAgent.name(of:))
                 == ["registered", "requires-approval", "not-registered", "not-found"])
+    }
+
+    // MARK: - A job launchd holds, and launchd's refusal (2026-10-30)
+
+    @Test func aJobLaunchdStillHoldsIsSeenAndRemovedWhenUnregistering() throws {
+        // As after the update on 2026-10-30: `SMAppService` said not found, and launchd kept the job.
+        let service = FakeLoginItemService(.notFound)
+        let launchctl = FakeLaunchctl(loaded: true)
+        let agent = inBundle(service, launchctl: launchctl)
+        #expect(agent.state() == .orphaned && agent.state().isPresent)
+        #expect(agent.state().text.contains("launchd still holds its job; wisp llamacpp agent repair"))
+        try agent.unregister()
+        #expect(changes(launchctl) == [["bootout", target]] && service.calls.isEmpty)
+        // Gone from launchd too: the state is `SMAppService`'s again, and unregistering asks nothing more.
+        #expect(agent.state() == LoginItemAgent.state(named: "not-found"))
+        try agent.unregister()
+        #expect(changes(launchctl) == [["bootout", target]])
+        // The app's own wisp says what it removed, then the status.
+        let held = FakeLaunchctl(loaded: true)
+        let said = try LlamaCppAgent.loginItem(
+            "unregister", source: .app(app), service: FakeLoginItemService(.notRegistered), target: target,
+            launchctl: { held.run($0) })
+        #expect(
+            said == "Login Items lists no agent, but launchd still held \(target); removed it (launchctl bootout)\n"
+                + "not-registered")
+        #expect(
+            try LlamaCppAgent.loginItem(
+                "status", source: .app(app), service: FakeLoginItemService(.notRegistered), target: target,
+                launchctl: { FakeLaunchctl(loaded: true).run($0) }) == "held-by-launchd")
+    }
+
+    @Test func aJobThatCannotBeRemovedIsSaid() {
+        let service = FakeLoginItemService(.notRegistered)
+        let agent = inBundle(service, launchctl: FakeLaunchctl())
+        let failing = LoginItemAgent(
+            app: app, mainBundle: app, service: service, target: target,
+            launchctl: { $0.first == "bootout" ? (5, "Boot-out failed: 5: Input/output error") : (0, "") },
+            run: agent.run)
+        #expect(
+            throws: LlamaCppAgent.Failure.launchctl(
+                arguments: ["bootout", target], status: 5, output: "Boot-out failed: 5: Input/output error")
+        ) { try failing.unregister() }
+    }
+
+    @Test func registeringRemovesAJobLaunchdHoldsFirst() throws {
+        let service = FakeLoginItemService(.notRegistered)
+        let launchctl = FakeLaunchctl(loaded: true)
+        try inBundle(service, launchctl: launchctl).register()
+        #expect(launchctl.calls == [["print", target], ["bootout", target]] && service.calls == ["register"])
+    }
+
+    @Test func launchdsRefusalToStartTheAgentIsRead() throws {
+        // `launchctl print` as on 2026-10-30, trimmed.
+        let refused =
+            "gui/501/com.pidster.wisp.llamacpp = {\n\tactive count = 0\n\tstate = spawn scheduled\n"
+            + "\tlast exit code = 78: EX_CONFIG\n}"
+        #expect(LlamaCppAgent.refusedByLaunchd(refused))
+        #expect(!LlamaCppAgent.refusedByLaunchd(refused.replacing("spawn scheduled", with: "running")))
+        #expect(!LlamaCppAgent.refusedByLaunchd(refused.replacing("78: EX_CONFIG", with: "(never exited)")))
+        #expect(!LlamaCppAgent.refusedByLaunchd(refused.replacing("78: EX_CONFIG", with: "780")))
+        #expect(LlamaCppAgent.refusedByLaunchd("last exit code = 78"))
+        let agent = inBundle(FakeLoginItemService(.enabled), launchctl: FakeLaunchctl(loaded: true, printed: refused))
+        #expect(agent.state() == .refusedByLaunchd && agent.state().isPresent)
+        #expect(agent.state().text.contains("(last exit code 78, EX_CONFIG); wisp llamacpp agent repair"))
+        #expect(
+            try LlamaCppAgent.loginItem(
+                "status", source: .app(app), service: FakeLoginItemService(.enabled), target: target,
+                launchctl: { FakeLaunchctl(loaded: true, printed: refused).run($0) }) == "refused-by-launchd")
+        // A file agent launchd refused reads the same.
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = LaunchAgentFile(
+            program: URL(filePath: "/w/wisp"), file: root.appending(path: "LaunchAgents/\(LlamaCppAgent.plistName)"),
+            service: target, launchctl: { FakeLaunchctl(loaded: true, printed: refused).run($0) })
+        try file.register()
+        #expect(file.state() == .refusedByLaunchd)
+    }
+
+    @Test func turningTheServerOffRemovesAJobLaunchdHolds() {
+        let agent = FakeAgent(state: .orphaned, means: .loginItem(app: app))
+        var said: [String] = []
+        let ok = LlamaCppAgent.follow(.server, server: .off, control: agent, audit: nil, source: "cli") {
+            said.append($0)
+        }
+        #expect(ok && agent.calls == ["unregister"])
+        #expect(said.first?.contains(", and the job launchd still holds for it; launchd stops the server") == true)
+    }
+
+    // MARK: - After an update, and repair
+
+    /// Runs `mend` with a fake Launch Services answering `status`, and returns what was said, recorded, and asked.
+    private func mend(
+        _ reason: LlamaCppAgent.Mend, app: URL?, control: any LlamaCppAgentControl, lsregister: Int32 = 0
+    ) -> (ok: Bool, said: [String], recorded: [AuditEvent], registered: [URL]) {
+        let sink = MemoryAuditSink()
+        var asked: [URL] = []
+        var said: [String] = []
+        let ok = LlamaCppAgent.mend(
+            reason, app: app, control: control,
+            launchServices: { app in
+                asked.append(app)
+                return (lsregister, lsregister == 0 ? "" : "spawn failed")
+            }, audit: AuditLog(session: "s", sink: sink), source: "cli", say: { said.append($0) })
+        return (ok, said, sink.events.filter { $0.kind == .llamaCppAgent }, asked)
+    }
+
+    @Test func anUpdateRegistersTheAppWithLaunchServicesAndARegisteredAgentAgain() {
+        let agent = FakeAgent(state: .registered, means: .loginItem(app: app))
+        let result = mend(.update, app: app, control: agent)
+        #expect(result.ok && result.registered == [app] && agent.calls == ["unregister", "register"])
+        #expect(
+            result.said.first
+                == "registering \(app.path) with Launch Services again, so macOS knows the app as it now is")
+        #expect(result.said.last?.hasPrefix("registering wisp's llama.cpp server again as a Login Item of") == true)
+        #expect(result.recorded.map { $0.details["action"] } == ["launch services", "unregister", "register"])
+        #expect(result.recorded.allSatisfy { $0.details["trigger"] == "update" && $0.details["outcome"] == "done" })
+        // No agent: only Launch Services is asked.
+        let none = FakeAgent(state: .notRegistered, means: .loginItem(app: app))
+        let quiet = mend(.update, app: app, control: none)
+        #expect(quiet.ok && none.calls.isEmpty && quiet.said.count == 1 && quiet.recorded.count == 1)
+    }
+
+    @Test func aFailureAfterAnUpdateIsAWarningThatNamesRepair() {
+        let none = FakeAgent(state: .notRegistered, means: .loginItem(app: app))
+        let unregistered = mend(.update, app: app, control: none, lsregister: 1)
+        #expect(!unregistered.ok && none.calls.isEmpty)
+        #expect(
+            unregistered.said.last
+                == "warning: lsregister -f failed (status 1): spawn failed; the update is done, and wisp llamacpp agent "
+                + "repair tries again")
+        #expect(unregistered.recorded.first?.details["outcome"] == "failed")
+        let refusing = FakeAgent(
+            state: .refusedByLaunchd, means: .loginItem(app: app), failure: .loginItem("Operation not permitted"))
+        let failed = mend(.update, app: app, control: refusing)
+        #expect(!failed.ok && refusing.calls == ["unregister"])
+        #expect(
+            failed.said.last
+                == "warning: the Login Item could not be changed: Operation not permitted; the update is done, and "
+                + "wisp llamacpp agent repair tries again")
+        #expect(failed.recorded.map { $0.details["outcome"] } == ["done", "failed"])
+    }
+
+    @Test func afterAnUpdateTheNewAppsOwnWispIsAsked() throws {
+        let wisp = FakeAppWisp(["status": (0, "held-by-launchd\n"), "unregister": (0, ""), "register": (0, "")])
+        let agent = LoginItemAgent(
+            app: app, mainBundle: app, service: FakeLoginItemService(.enabled), target: target,
+            launchctl: { _ in (0, "") }, run: { wisp.run($0, $1) }, delegates: true)
+        #expect(!agent.inBundle)
+        let result = mend(.update, app: app, control: agent)
+        #expect(result.ok)
+        #expect(wisp.calls.map { $0.last } == ["status", "unregister", "register", "status"])
+    }
+
+    @Test func repairRegistersAgainAndSaysWhenThereIsNothingToRepair() {
+        // An agent waiting for approval stays waiting, and is said so.
+        let service = FakeLoginItemService(.requiresApproval, becoming: .requiresApproval)
+        let waiting = mend(.repair, app: app, control: inBundle(service, launchctl: FakeLaunchctl()))
+        #expect(waiting.ok && service.calls == ["unregister", "register"])
+        #expect(waiting.said.last?.hasPrefix("it waits for your approval") == true)
+        // Not registered: nothing to register again.
+        let none = FakeAgent(state: .notRegistered)
+        let idle = mend(.repair, app: nil, control: none)
+        #expect(idle.ok && none.calls.isEmpty && idle.registered.isEmpty)
+        #expect(
+            idle.said == [
+                "wisp's llama.cpp server's LaunchAgent is not registered, so there is nothing to register again; wisp "
+                    + "config set llamacpp.server wisp registers it"
+            ])
+        // A failure in repair is an error.
+        let failing = FakeAgent(state: .registered, failure: .file("x"))
+        #expect(
+            mend(.repair, app: nil, control: failing).said.last
+                == "error: the LaunchAgent's file could not be changed: x")
+        // A scratch home registers nothing, and asks Launch Services nothing.
+        var said: [String] = []
+        #expect(LlamaCppAgent.repair(home: Home(root: root.appending(path: "home")), audit: nil) { said.append($0) })
+        #expect(said.count == 1 && said[0].hasPrefix("wisp registers no LaunchAgent here ("), "\(said)")
     }
 
     // MARK: - Nothing registered, and a file that cannot be written

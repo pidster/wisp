@@ -169,3 +169,21 @@ Decision 4's "about 200 MB" asleep was 217 MB on 2026-10-29 at a 32,768-token co
 default 65,536 ([measurements.md](../measurements.md)). The consequence that the binary's digest and the key file sit
 in `~/.wisp` is overtaken by stages 3 and 4: both are in `~/Library/Application Support/Wisp/llamacpp`, with the
 models' links (decision 2).
+
+Amended 2026-10-30, for 0.33.1: the Login Item after an update. After `wisp update` replaced `Wisp.app` (0.32.0 to
+0.33.0) on this Mac, and after a trial app of the same bundle identifier had been built in a temporary folder,
+registered, unregistered, and deleted, registering the agent left `SMAppService` reporting it registered while launchd
+refused to start it (last exit code 78, `EX_CONFIG`, state "spawn scheduled", a launch constraint with an empty list of
+code hashes), and nothing reached the log. `wisp llamacpp agent unregister` then found `SMAppService` reporting the
+agent not found and did nothing, while launchd still held the job (type Submitted, managed by
+`com.apple.xpc.ServiceManagement`). `lsregister -f /Applications/Wisp.app`, then unregistering (which now removed the
+job) and registering, mended it. The cause is not proven; a record in Launch Services of a copy since deleted or
+replaced is the leading guess. Three changes follow. `wisp update`, and the Finder dialog's update, register the new
+app with Launch Services and, when the agent is registered, waiting for approval, or held by launchd, unregister and
+register it again through the new app's own `wisp`; a failure there is a warning, never a failed update. Unregistering
+removes a job launchd holds for the label when `SMAppService` reports none (`launchctl bootout`), and registering
+removes one first. The agent's state gains "held by launchd" and "refused by launchd" (a last exit of 78 with nothing
+running; `wisp llamacpp serve` never exits 78), which `wisp doctor` reports with the mend, the hidden
+`wisp llamacpp agent repair` (Launch Services, unregister, register). Registering does not repair a refusal by itself:
+a heuristic acting on launchd's output was judged less safe than naming the command. Tested with fakes; not yet tried
+for real.

@@ -12,7 +12,8 @@ struct UpdateCommand: AsyncParsableCommand {
         discussion:
             "Asks GitHub for the latest release. When it is newer, downloads Wisp-X.Y.Z.dmg and its sha256 to "
             + "~/Downloads, checks the checksum, that the app inside is signed by wisp's team and notarised, and "
-            + "replaces Wisp.app whole, keeping the old one until the new one is in place. When macOS will not let "
+            + "replaces Wisp.app whole, keeping the old one until the new one is in place, then registers the new app with Launch "
+            + "Services and, when wisp's llama.cpp server's Login Item is registered, registers it again. When macOS will not let "
             + "it replace the app, it leaves the app as it was and opens the disk image for you to drag the new one. "
             + "A Homebrew install is told to run brew upgrade pidster/tap/wisp. updates.check (off by default) checks "
             + "once a day and shows a newer version in wisp doctor and the chat's status line.")
@@ -63,6 +64,8 @@ struct UpdateCommand: AsyncParsableCommand {
         case .replaced(let app, let from, let to):
             print("updated \(app.path) from \(from) to \(to)")
             print("wisp processes already running, such as MCP servers, keep \(from) until they are started again")
+            // Launch Services and the router's Login Item learn of the new app; nothing here fails the update.
+            LlamaCppAgent.afterUpdate(app: app, home: Wisp.home, audit: session.audit, say: { print($0) })
         case .blocked(let reason, let image):
             print("\(app.path) is unchanged: \(reason)")
             _ = AppUpdate.run("/usr/bin/open", [image.path])

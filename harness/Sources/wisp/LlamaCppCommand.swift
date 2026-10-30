@@ -82,16 +82,29 @@ struct LlamaCppCommand: ParsableCommand {
     }
 
     /// `SMAppService` calls made by `Wisp.app`'s own `wisp`, where the main bundle is the app: what a `wisp` started
-    /// through a link asks it to do.
+    /// through a link asks it to do; and `repair`, which the person runs from any `wisp` to register the agent again
+    /// from scratch (`LlamaCppAgent.repair`).
     struct Agent: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Register, unregister, or read Wisp.app's Login Item for the server (internal).",
+            abstract: "Register, unregister, read, or repair Wisp.app's Login Item for the server (internal).",
+            discussion:
+                "repair registers Wisp.app with Launch Services again (lsregister -f), unregisters the server's "
+                + "LaunchAgent, removing a job launchd still holds for it, and registers it again. wisp doctor names "
+                + "it when launchd refused to start the agent or holds a job Login Items does not list.",
             shouldDisplay: false)
 
-        @Argument(help: "register, unregister, or status.")
+        @Argument(help: "register, unregister, status, or repair.")
         var verb: String
 
         func run() throws {
+            if verb == "repair" {
+                let session = try Wisp.begin(.init(entryPoint: .config))
+                defer { session.end() }
+                guard LlamaCppAgent.repair(home: Wisp.home, audit: session.audit, say: { print($0) }) else {
+                    throw ExitCode.failure
+                }
+                return
+            }
             do {
                 print(try LlamaCppAgent.loginItem(verb))
             } catch {

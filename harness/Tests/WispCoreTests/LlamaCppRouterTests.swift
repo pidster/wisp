@@ -234,6 +234,11 @@ import Testing
         #expect(
             said(.manual("a scratch home")).contains("(a scratch home); start it yourself with wisp llamacpp serve"))
         #expect(said(.registered, key: false).contains("has not started yet"))
+        #expect(said(.orphaned).contains("launchd still holds its job; wisp llamacpp agent repair removes the job"))
+        #expect(said(.refusedByLaunchd).contains("(last exit code 78, EX_CONFIG)"))
+        #expect(
+            said(.refusedByLaunchd).hasSuffix(
+                "wisp llamacpp agent repair registers Wisp.app with Launch Services and the agent again"))
         let silent = said(.registered)
         #expect(silent.contains("http://127.0.0.1:8933 (refused)") && silent.contains("/L/llamacpp.log"))
     }
@@ -559,13 +564,18 @@ import Testing
 /// a failure, every call fails with it.
 final class FakeLaunchctl: Sendable {
     /// The calls, in order, and whether the agent is loaded.
-    private let state = Mutex<(calls: [[String]], loaded: Bool)>(([], false))
+    private let state: Mutex<(calls: [[String]], loaded: Bool)>
     /// The status and output every call fails with, if any.
     private let failure: (status: Int32, output: String)?
+    /// What `print` says of a loaded job.
+    private let printed: String
 
-    /// A `launchctl` that succeeds, or fails every call with `status` and `output`.
-    init(failing status: Int32? = nil, output: String = "") {
+    /// A `launchctl` that succeeds, or fails every call with `status` and `output`; holding a job already when
+    /// `loaded`, which `print` describes with `printed`.
+    init(failing status: Int32? = nil, output: String = "", loaded: Bool = false, printed: String = "") {
         failure = status.map { ($0, output) }
+        state = Mutex(([], loaded))
+        self.printed = printed
     }
 
     /// The calls so far.
@@ -579,7 +589,7 @@ final class FakeLaunchctl: Sendable {
             switch arguments.first {
             case "bootstrap": state.loaded = true
             case "bootout": state.loaded = false
-            case "print": return (state.loaded ? 0 : 113, "")
+            case "print": return state.loaded ? (0, printed) : (113, "")
             default: break
             }
             return (0, "")

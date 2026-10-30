@@ -1164,7 +1164,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | Finding | Not ok when |
 | --- | --- |
 | `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason, for an Ollama or MLX model), configured for this model (`ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), configured (`ollama.contextLength` or `mlx.contextLength`), declared by a Core AI bundle's `metadata.json`, reported by a llama.cpp or LM Studio server, the default when the model gave no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
-| `llama.cpp server` | Present only when `llamacpp.server` is not `off`. Under `wisp`: the state of `llamacpp.serverPath`, approved and unchanged (the path, its real path, and the digest's first 12 digits) or why it would not be started (not set, not approved, resolving elsewhere, missing, or changed, both digests named) with the `wisp config set llamacpp.serverPath` command that approves it; the LaunchAgent's state (registered, not registered, waiting for your approval in Login Items, or none for this home); whether the server answers `/v1/models` at its port with wisp's key, and each model it lists with its status (`loaded`, `unloaded`, …), or, when it does not answer, why and what to do; its settings; and its log. Ok when the binary is approved, the agent registered (or none is, by choice), and the server answers. Under `llama-app`, it says whether Llama.app is installed (in `/Applications` or `~/Applications`, by its bundle identifier) and whether its server answers `/v1/models` and with how many models, and warns that the server has no API key and answers any origin; not ok only when Llama.app is not installed and nothing answers. |
+| `llama.cpp server` | Present only when `llamacpp.server` is not `off`. Under `wisp`: the state of `llamacpp.serverPath`, approved and unchanged (the path, its real path, and the digest's first 12 digits) or why it would not be started (not set, not approved, resolving elsewhere, missing, or changed, both digests named) with the `wisp config set llamacpp.serverPath` command that approves it; the LaunchAgent's state (registered, not registered, waiting for your approval in Login Items, held by launchd while not registered, registered but refused by launchd with last exit code 78 (`EX_CONFIG`), or none for this home; the last two name `wisp llamacpp agent repair`); whether the server answers `/v1/models` at its port with wisp's key, and each model it lists with its status (`loaded`, `unloaded`, …), or, when it does not answer, why and what to do; its settings; and its log. Ok when the binary is approved, the agent registered (or none is, by choice), and the server answers. Under `llama-app`, it says whether Llama.app is installed (in `/Applications` or `~/Applications`, by its bundle identifier) and whether its server answers `/v1/models` and with how many models, and warns that the server has no API key and answers any origin; not ok only when Llama.app is not installed and nothing answers. |
 | `llama.cpp thinking budget` | The configured llama.cpp server (`llamacpp.baseURL`) serves a model whose template thinks, and, asked a risk verdict to think within 32 tokens (`thinking_budget_tokens`), it thought past them, or did not answer: then `low`, `medium`, and `high` think without a limit on it. The detail names the server's build and the tokens used (`32 tokens asked, 37 used`), and what to do: start `llama-server` with `--reasoning-budget`, or use `true` or `false`. Absent when no server answers within 2 s or its model does not think. One request, cut at 400 tokens ([backends.md](backends.md), "llama.cpp"). |
 | `MLX` | This build carries MLX (the release does) and its Metal library is missing from where MLX looks, or does not load on the GPU. The detail names the library found (`Metal library <path> loads`), or the directory searched and the fix: copy the build's `default.metallib` beside `wisp` as `mlx.metallib` ([backends.md](backends.md), [ADR 0047](decisions/0047-mlx-in-the-release.md)). A build without the `MLX` trait passes with `not in this build`. |
 | `settings` | `facts.share` or `facts.summaryShare` is outside 0 to 0.5, `context.target` outside 0.1 to 0.8, `context.headroomTurns` outside 0 to 64, `context.outputDays` outside 0 to 3,650, or `commandMaxTimeoutSeconds` outside 1 to 86,400, which loading the config refuses. The finding also states `commandTimeoutSeconds`, `commandMaxTimeoutSeconds`, and `commandPolicy.sandbox.allowOutsideSandbox` as resolved. A negative `inlineOutputBytes` or `shownOutputLines` is clamped to 0, and a `context.target` above 0.65 is used as 0.65, so each is ok with a note. |
@@ -1615,7 +1615,15 @@ otherwise it makes the key file once, records `llamacpp.server.start`, sends its
 `~/Library/Logs/Wisp/llamacpp.log`, and replaces itself with `llama-server` ([backends.md](backends.md) has the
 arguments). Run by hand, as under `WISP_HOME`, it serves in the foreground until stopped. `wisp llamacpp agent
 register|unregister|status`, also internal, is what a `wisp` started through a link asks `Wisp.app`'s own `wisp` to do
-with `SMAppService`, which finds the agent's file only in the app it runs from.
+with `SMAppService`, which finds the agent's file only in the app it runs from. `unregister` also removes a job
+launchd still holds for the label when `SMAppService` reports none, and says so; `status` answers `registered`,
+`requires-approval`, `not-registered`, `not-found`, `held-by-launchd`, or `refused-by-launchd`.
+
+`wisp llamacpp agent repair`, hidden too, is the person's: it registers `Wisp.app` with Launch Services again
+(`lsregister -f`) when the agent is the app's Login Item, then unregisters the agent and registers it again, saying
+each step and recording each as `llamacpp.agent` with `trigger` `repair`; exit 1 when a step failed. It registers
+nothing that is not registered. `wisp doctor` names it when launchd refused to start the agent or holds a job Login
+Items does not list ([backends.md](backends.md), "Mending it").
 
 Opening `Wisp.app` from the Finder shows a dialog instead of starting a conversation: it offers **Install**, which
 does what `wisp install` does and shows the result; once installed, it says where; with something in the way, or
@@ -1639,6 +1647,13 @@ copy, swaps the two in one step, and removes the old one; the links `wisp instal
 stops it with the reason, and the app is unchanged (exit 1). When macOS will not let it replace the app (the folder
 is not yours to write, or App Management refuses the terminal), it leaves the app as it was, says why, opens the
 checked image in the Finder for you to drag the new app over, and exits 1. It never asks for a password.
+
+Once the new app is in place it registers it with Launch Services again (`lsregister -f`) and, when the Login Item of
+wisp's own llama.cpp server is registered (or launchd holds its job), unregisters and registers it again through the
+new app's own `wisp`, so launchd runs the new app; the server stops and starts again ([backends.md](backends.md),
+"After an update"). Each step is said and recorded as `llamacpp.agent` with `trigger` `update`. A failure here does
+not fail the update: it is a warning naming `wisp llamacpp agent repair`. The Finder dialog's update does the same and
+shows any warning.
 
 ```
 $ wisp update

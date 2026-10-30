@@ -34,6 +34,13 @@ public enum LlamaCppAgent {
         case notRegistered
         /// Registered with `SMAppService` and waiting for the person to allow it in Login Items.
         case requiresApproval
+        /// Not registered by `SMAppService`'s account, while launchd still holds a job of the agent's label: on
+        /// 2026-10-30, after `wisp update`, `SMAppService` said the app's agent was not found and launchd kept its job.
+        case orphaned
+        /// Registered, and launchd refused to start it: its last exit was 78 (`EX_CONFIG`) and nothing runs. Seen on
+        /// 2026-10-30 after `wisp update`, with a launch constraint listing no code hashes; registering the app with
+        /// Launch Services again, then the agent, mended it.
+        case refusedByLaunchd
         /// wisp registers nothing here, for this reason: the person runs the server.
         case manual(String)
         /// The state could not be read, for this reason.
@@ -45,11 +52,29 @@ public enum LlamaCppAgent {
             case .registered: "registered"
             case .notRegistered: "not registered"
             case .requiresApproval: "waiting for your approval in Login Items"
+            case .orphaned:
+                "not registered, but launchd still holds its job; \(repairCommand) removes the job and registers "
+                    + "the agent again"
+            case .refusedByLaunchd:
+                "registered, but launchd refused to start it (last exit code 78, EX_CONFIG); \(repairCommand) "
+                    + "registers Wisp.app with Launch Services and the agent again"
             case .manual(let reason): "none (\(reason)); run wisp llamacpp serve yourself"
             case .unknown(let reason): "unknown (\(reason))"
             }
         }
+
+        /// Whether there is an agent to unregister or register again: registered, waiting for approval, or held by
+        /// launchd.
+        var isPresent: Bool {
+            switch self {
+            case .registered, .requiresApproval, .orphaned, .refusedByLaunchd: true
+            case .notRegistered, .manual, .unknown: false
+            }
+        }
     }
+
+    /// The command that registers the agent again from scratch (`mend(_:app:control:launchServices:audit:source:say:)`).
+    public static let repairCommand = "wisp llamacpp agent repair"
 
     /// How this wisp registers the agent.
     public enum Means: Equatable, Sendable {
@@ -208,7 +233,8 @@ public enum LlamaCppAgent {
     /// records each action as `llamacpp.agent`:
     ///
     /// - `llamacpp.server` set to `wisp` registers the agent, which starts the server (again, when it ran);
-    /// - set to anything else, or `wisp uninstall`, unregisters it when it is registered, which stops the server;
+    /// - set to anything else, or `wisp uninstall`, unregisters it when it is registered, waiting for approval, or held
+    ///   by launchd (`State.isPresent`), which stops the server;
     /// - a setting, the approved binary, or the models changing under `wisp` restarts it when registered.
     ///
     /// - Parameters:
@@ -263,7 +289,7 @@ public enum LlamaCppAgent {
             break
         }
         let state = control.state()
-        let present = state == .registered || state == .requiresApproval
+        let present = state.isPresent
         switch trigger {
         case .server where wanted:
             say(
@@ -278,7 +304,10 @@ public enum LlamaCppAgent {
             return true
         case .server, .uninstall:
             guard present else { return true }
-            say("unregistering wisp's llama.cpp server's LaunchAgent (\(means.text)); launchd stops the server")
+            say(
+                "unregistering wisp's llama.cpp server's LaunchAgent (\(means.text))"
+                    + (state == .orphaned ? ", and the job launchd still holds for it" : "")
+                    + "; launchd stops the server")
             return act("unregister", { try control.unregister() })
         case .setting(let path):
             guard server == .wisp, state == .registered else { return true }
@@ -321,6 +350,31 @@ public enum LlamaCppAgent {
     /// - Returns: The exit status and output.
     @Sendable static func launchctl(_ arguments: [String]) -> (status: Int32, output: String) {
         AppUpdate.run("/bin/launchctl", arguments)
+    }
+
+    /// Launch Services' registration tool, which has no other path.
+    static let lsregister =
+        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+    /// Registers `app` with Launch Services again (`lsregister -f`), so what it knows of the bundle identifier is the
+    /// app as it now is.
+    ///
+    /// - Parameter app: The app.
+    /// - Returns: The exit status and output.
+    @Sendable static func launchServices(_ app: URL) -> (status: Int32, output: String) {
+        AppUpdate.run(lsregister, ["-f", app.path])
+    }
+
+    /// Whether `launchctl print`'s output says launchd refused to start the job: its last exit code is 78
+    /// (`EX_CONFIG`, launchd's own for a job it cannot spawn) and it is not running. `wisp llamacpp serve` never exits
+    /// 78: its refusals exit 0.
+    ///
+    /// - Parameter printed: `launchctl print gui/<uid>/<label>`'s output.
+    /// - Returns: True when refused.
+    static func refusedByLaunchd(_ printed: String) -> Bool {
+        let lines = printed.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        let exited78 = lines.contains { $0 == "last exit code = 78" || $0.hasPrefix("last exit code = 78:") }
+        return exited78 && !lines.contains("state = running")
     }
 }
 
@@ -395,10 +449,13 @@ struct LaunchAgentFile: LlamaCppAgentControl {
     /// The user's domain, `gui/<uid>`.
     var domain: String { service.split(separator: "/").prefix(2).joined(separator: "/") }
 
-    /// Registered when launchd has it loaded (`launchctl print` succeeds); not registered otherwise.
+    /// Registered when launchd has it loaded (`launchctl print` succeeds), or refused when launchd could not start it;
+    /// not registered otherwise.
     func state() -> LlamaCppAgent.State {
         guard FileManager.default.fileExists(atPath: file.path) else { return .notRegistered }
-        return launchctl(["print", service]).status == 0 ? .registered : .notRegistered
+        let printed = launchctl(["print", service])
+        guard printed.status == 0 else { return .notRegistered }
+        return LlamaCppAgent.refusedByLaunchd(printed.output) ? .refusedByLaunchd : .registered
     }
 
     /// Unloads any earlier agent, writes the file naming `program`, and loads it, which starts the server.
@@ -484,13 +541,17 @@ struct LoginItemAgent: LlamaCppAgentControl {
     let launchctl: @Sendable ([String]) -> (status: Int32, output: String)
     /// Runs a program with arguments (the app's own `wisp`); a fake in tests.
     let run: @Sendable (String, [String]) -> (status: Int32, output: String)
+    /// Whether to ask the app's own `wisp` even when the main bundle is the app: for `wisp update`, whose own bundle
+    /// was the app it has just replaced.
+    let delegates: Bool
 
     /// A control for `app`, through the real main bundle, `SMAppService`, `launchctl`, and processes unless given.
     init(
         app: URL, mainBundle: URL = Bundle.main.bundleURL, service: any LoginItemService = AppServiceAgent(),
         target: String = LlamaCppAgent.service,
         launchctl: @escaping @Sendable ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl,
-        run: @escaping @Sendable (String, [String]) -> (status: Int32, output: String) = AppUpdate.run
+        run: @escaping @Sendable (String, [String]) -> (status: Int32, output: String) = AppUpdate.run,
+        delegates: Bool = false
     ) {
         self.app = app
         self.mainBundle = mainBundle
@@ -498,15 +559,18 @@ struct LoginItemAgent: LlamaCppAgentControl {
         self.target = target
         self.launchctl = launchctl
         self.run = run
+        self.delegates = delegates
     }
 
     /// The means.
     var means: LlamaCppAgent.Means { .loginItem(app: app) }
 
-    /// Whether the main bundle is the app, so `SMAppService` reads the app's agent file.
+    /// Whether the main bundle is the app, so `SMAppService` reads the app's agent file, and this control does not
+    /// always ask the app's own `wisp`.
     var inBundle: Bool {
-        mainBundle.resolvingSymlinksInPath().standardizedFileURL.path
-            == app.resolvingSymlinksInPath().standardizedFileURL.path
+        !delegates
+            && mainBundle.resolvingSymlinksInPath().standardizedFileURL.path
+                == app.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     /// The app's own `wisp`.
@@ -523,7 +587,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
         return result.output
     }
 
-    /// `SMAppService`'s status, read here or by the app's `wisp`.
+    /// `SMAppService`'s status with what launchd holds, read here or by the app's `wisp`.
     func state() -> LlamaCppAgent.State {
         guard inBundle else {
             do {
@@ -532,7 +596,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
                 return .unknown("\(error)")
             }
         }
-        return Self.state(of: service.status)
+        return Self.state(named: Self.status(service: service, target: target, launchctl: launchctl))
     }
 
     /// Registers with `SMAppService`, or, registered already, starts the server again.
@@ -550,7 +614,7 @@ struct LoginItemAgent: LlamaCppAgentControl {
             _ = try delegate("unregister")
             return
         }
-        try Self.unregisterHere(service: service)
+        _ = try Self.unregisterHere(service: service, target: target, launchctl: launchctl)
     }
 
     /// `launchctl kickstart -k`, which reaches an agent `SMAppService` registered by its label.
@@ -565,7 +629,8 @@ struct LoginItemAgent: LlamaCppAgentControl {
     /// Registers the main bundle's agent with `SMAppService`; when it is registered already, starts it again. A
     /// status of enabled that launchd has no job for is registered again: on 2026-10-30 a LaunchAgent file of the same
     /// label, loaded by `launchctl` and since removed, left Background Items reporting the app's agent enabled, and
-    /// the restart failed with "Could not find service".
+    /// the restart failed with "Could not find service". A job of the label that launchd holds while `SMAppService`
+    /// reports none (`State.orphaned`) is removed first, as unregistering does, so the registration is the only one.
     ///
     /// - Parameters:
     ///   - service: The agent's `SMAppService`.
@@ -576,8 +641,13 @@ struct LoginItemAgent: LlamaCppAgentControl {
         service: any LoginItemService = AppServiceAgent(), target: String = LlamaCppAgent.service,
         launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
     ) throws {
-        if service.status == .enabled, launchctl(["kickstart", "-k", target]).status == 0 {
-            return
+        switch service.status {
+        case .enabled:
+            if launchctl(["kickstart", "-k", target]).status == 0 { return }
+        case .notRegistered, .notFound:
+            if launchctl(["print", target]).status == 0 { _ = launchctl(["bootout", target]) }
+        default:
+            break
         }
         do {
             try service.register()
@@ -586,16 +656,61 @@ struct LoginItemAgent: LlamaCppAgentControl {
         }
     }
 
-    /// Unregisters the main bundle's agent from `SMAppService`, when registered.
+    /// Unregisters the main bundle's agent from `SMAppService`, when registered. When `SMAppService` reports none,
+    /// a job of the label that launchd still holds is removed with `launchctl bootout`: on 2026-10-30, after
+    /// `wisp update`, `SMAppService` said the app's agent was not found while launchd kept its job (type Submitted,
+    /// managed by `com.apple.xpc.ServiceManagement`), and unregistering did nothing.
     ///
-    /// - Parameter service: The agent's `SMAppService`.
-    /// - Throws: `Failure.loginItem`.
-    static func unregisterHere(service: any LoginItemService = AppServiceAgent()) throws {
-        guard service.status != .notRegistered, service.status != .notFound else { return }
+    /// - Parameters:
+    ///   - service: The agent's `SMAppService`.
+    ///   - target: The launchd domain target, `gui/<uid>/<label>`.
+    ///   - launchctl: Runs `launchctl`.
+    /// - Returns: What was done beyond `SMAppService`, to say, or nil.
+    /// - Throws: `Failure.loginItem`, or `Failure.launchctl` when the job could not be removed.
+    static func unregisterHere(
+        service: any LoginItemService = AppServiceAgent(), target: String = LlamaCppAgent.service,
+        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
+    ) throws -> String? {
+        guard service.status != .notRegistered, service.status != .notFound else {
+            guard launchctl(["print", target]).status == 0 else { return nil }
+            let arguments = ["bootout", target]
+            let result = launchctl(arguments)
+            guard result.status == 0 else {
+                throw LlamaCppAgent.Failure.launchctl(
+                    arguments: arguments, status: result.status, output: result.output)
+            }
+            return "Login Items lists no agent, but launchd still held \(target); removed it (launchctl bootout)"
+        }
         do {
             try service.unregister()
         } catch {
             throw LlamaCppAgent.Failure.loginItem(error.localizedDescription)
+        }
+        return nil
+    }
+
+    /// The agent's status by name: `SMAppService`'s (`name(of:)`), or `held-by-launchd` when it reports none and
+    /// launchd holds a job of the label, or `refused-by-launchd` when it is registered and launchd refused to start
+    /// it (`LlamaCppAgent.refusedByLaunchd(_:)`).
+    ///
+    /// - Parameters:
+    ///   - service: The agent's `SMAppService`.
+    ///   - target: The launchd domain target, `gui/<uid>/<label>`.
+    ///   - launchctl: Runs `launchctl`.
+    /// - Returns: The name, for `state(named:)`.
+    static func status(
+        service: any LoginItemService, target: String, launchctl: ([String]) -> (status: Int32, output: String)
+    ) -> String {
+        let status = service.status
+        switch status {
+        case .enabled:
+            let printed = launchctl(["print", target])
+            return printed.status == 0 && LlamaCppAgent.refusedByLaunchd(printed.output)
+                ? "refused-by-launchd" : name(of: status)
+        case .notRegistered, .notFound:
+            return launchctl(["print", target]).status == 0 ? "held-by-launchd" : name(of: status)
+        default:
+            return name(of: status)
         }
     }
 
@@ -630,7 +745,12 @@ struct LoginItemAgent: LlamaCppAgentControl {
         case "registered": .registered
         case "requires-approval": .requiresApproval
         case "not-registered": .notRegistered
-        case "not-found": .unknown("Wisp.app carries no agent file \(LlamaCppAgent.plistName)")
+        case "held-by-launchd": .orphaned
+        case "refused-by-launchd": .refusedByLaunchd
+        case "not-found":
+            .unknown(
+                "SMAppService finds no agent file \(LlamaCppAgent.plistName) in Wisp.app; after an update, "
+                    + "\(LlamaCppAgent.repairCommand) registers the app with Launch Services and the agent again")
         case let other: .unknown(other)
         }
     }
@@ -665,14 +785,18 @@ extension LlamaCppAgent {
         guard case .app = source else {
             throw Failure.refused("wisp llamacpp agent is for Wisp.app's own wisp")
         }
+        var said: [String] = []
         switch verb {
         case "register":
             try LoginItemAgent.registerHere(service: service, target: target, launchctl: launchctl)
         case "unregister":
-            try LoginItemAgent.unregisterHere(service: service)
+            if let note = try LoginItemAgent.unregisterHere(service: service, target: target, launchctl: launchctl) {
+                said.append(note)
+            }
         case "status": break
-        default: throw Failure.refused("no verb \(verb); register, unregister, or status")
+        default: throw Failure.refused("no verb \(verb); register, unregister, status, or repair")
         }
-        return LoginItemAgent.name(of: service.status)
+        return (said + [LoginItemAgent.status(service: service, target: target, launchctl: launchctl)])
+            .joined(separator: "\n")
     }
 }

@@ -86,3 +86,8 @@ Probed on 2026-10-23 with the code built here:
   ignores it.
 - The README's "nothing leaves your machine" stays true by default; the trust page lists the check and the update beside
   the model downloads the person asks for.
+
+Amended 2026-10-30, for 0.33.1: once the new app is in place, `wisp update` (and the Finder dialog's update) registers
+it with Launch Services again and, when the Login Item of wisp's own llama.cpp server is present, registers that again
+through the new app's own `wisp` ([ADR 0082](0082-a-llama-cpp-server-wisp-starts.md), amendment of the same date). A
+failure in these steps is a warning naming `wisp llamacpp agent repair`, and the update still succeeds.

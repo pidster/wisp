@@ -170,10 +170,15 @@ enum FinderLaunch {
         panel.close()
         switch outcome {
         case .success(.replaced(_, _, let to)):
+            // Launch Services and the router's Login Item learn of the new app; a warning is shown, not a failure.
+            var said: [String] = []
+            let mended = LlamaCppAgent.afterUpdate(
+                app: app, home: Wisp.home, audit: session.audit, say: { said.append($0) })
+            let warnings = mended ? "" : "\n\n" + said.filter { $0.hasPrefix("warning: ") }.joined(separator: "\n")
             _ = alert(
                 "Wisp is updated to \(to)",
                 "The links wisp install made still work. Wisp chats and MCP servers already running keep \(current) until "
-                    + "they are started again.", buttons: ["OK"]
+                    + "they are started again.\(warnings)", buttons: ["OK"]
             )
             .runModal()
         case .success(.blocked(let reason, let image)):

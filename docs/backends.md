@@ -382,11 +382,36 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   `wisp uninstall`, from `Wisp.app`, unregisters it as well; turning Wisp off in Login Items stops it until you turn it
   on. Uninstalling a Homebrew wisp leaves its file in `~/Library/LaunchAgents`, so set the setting to `off` first.
   These are the person's: the default policy refuses `wisp config set|unset llamacpp.server…` to the model, and chat's
-  `/config` sends you to a terminal.
+  `/config` sends you to a terminal. Unregistering also removes a job launchd still holds for the label when
+  `SMAppService` reports no agent (`launchctl bootout gui/<uid>/com.pidster.wisp.llamacpp`), and says so: on
+  2026-10-30, after an update, `SMAppService` said the app's agent was not found while launchd kept its job, and
+  unregistering did nothing.
+
+  **After an update.** `wisp update`, once the new `Wisp.app` is in place, registers it with Launch Services again
+  (`lsregister -f`) and, when the agent is registered, waiting for approval, or held by launchd, unregisters it and
+  registers it again through the new app's own `wisp`, so launchd runs the app as it now is; the server stops and
+  starts again, and each step is said. On 2026-10-30, after `wisp update` replaced the app (0.32.0 to 0.33.0), and after
+  a trial app of the same bundle identifier had been registered and deleted, registering the agent left launchd
+  refusing to start it (last exit code 78, `EX_CONFIG`, a launch constraint listing no code hashes), with nothing in
+  the log; `lsregister -f` on the app, unregistering, and registering mended it. The cause is not proven: a record in
+  Launch Services of a copy since deleted or replaced is the leading guess. A failure in these steps does not fail the
+  update: it is said as a warning naming the mend. Updating to 0.33.1 runs 0.33.0's `wisp update`, which lacks this
+  step, so after that one update run the mend once by hand.
+
+  **Mending it.** `wisp llamacpp agent repair` (hidden from `--help`) does the same by hand: registers `Wisp.app` with
+  Launch Services again, when the agent is its Login Item, unregisters the agent, removing a job launchd still holds,
+  and registers it again. It registers nothing that is not registered; `wisp config set llamacpp.server wisp` does
+  that. `wisp doctor` names it when launchd refused to start the agent, or holds a job Login Items does not list.
+
+  ```
+  wisp llamacpp agent repair    # Launch Services, then the agent, again
+  wisp doctor                   # the llama.cpp server finding: LaunchAgent: registered
+  ```
 
   **When it does not answer**, using a `llamacpp:` model says why, with what to do: the binary is not approved or has
   changed; the agent is not registered (`wisp config set llamacpp.server wisp` registers it); it waits for your
-  approval in Login Items; no agent is registered for this home (run `wisp llamacpp serve`); it has not started yet
+  approval in Login Items; launchd refused to start it (last exit code 78) or holds its job while Login Items lists
+  none (run `wisp llamacpp agent repair`); no agent is registered for this home (run `wisp llamacpp serve`); it has not started yet
   (no key); or it is registered and not running, with the log to read. `wisp doctor`'s `llama.cpp server` finding gives
   the binary's state, the agent's, whether the server answers with the key and each model it lists with its status
   (`loaded`, `unloaded`, …), the settings, and the log.

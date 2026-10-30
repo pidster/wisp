@@ -341,7 +341,8 @@ public enum LlamaCppRouter {
     }
 
     /// What `wisp`'s router failing to answer means, in plain words, with the fix: the binary refused, the agent not
-    /// registered or waiting for approval, no agent for this home, not started yet, or registered and silent.
+    /// registered, waiting for approval, held by launchd alone, or refused by launchd, no agent for this home, not
+    /// started yet, or registered and silent.
     ///
     /// - Parameters:
     ///   - binary: The approved binary's check.
@@ -366,6 +367,13 @@ public enum LlamaCppRouter {
         case .requiresApproval:
             return "wisp's llama.cpp server does not answer at \(at): its Login Item waits for your approval in "
                 + "System Settings > General > Login Items & Extensions; turn on Wisp there"
+        case .orphaned:
+            return "wisp's llama.cpp server does not answer at \(at): its Login Item is not registered, but launchd "
+                + "still holds its job; \(LlamaCppAgent.repairCommand) removes the job and registers the agent again"
+        case .refusedByLaunchd:
+            return "wisp's llama.cpp server does not answer at \(at): launchd refused to start its LaunchAgent (last "
+                + "exit code 78, EX_CONFIG), as after an update on 2026-10-30, and nothing reached its log; "
+                + "\(LlamaCppAgent.repairCommand) registers Wisp.app with Launch Services and the agent again"
         case .manual(let reason):
             return "wisp's llama.cpp server does not answer at \(at): wisp registers no LaunchAgent here (\(reason)); "
                 + "start it yourself with wisp llamacpp serve"

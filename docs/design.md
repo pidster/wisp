@@ -136,7 +136,13 @@ started through a link asks the app's own `wisp` to do it with `wisp llamacpp ag
 person's (`Home.isPersons`) or `WISP_LLAMACPP_AGENT=off` registers nothing, which keeps tests and scratch homes away
 from launchd. `LlamaCppAgent.follow` maps a change (`llamacpp.server`, a restarting setting, an approval, a model
 added or removed, `wisp uninstall`) to register, unregister, or restart, says each before doing it, and records
-`llamacpp.agent`; the CLI calls it after the configuration is written. When the server does not serve,
+`llamacpp.agent`; the CLI calls it after the configuration is written. `LoginItemAgent` reads launchd as well as
+`SMAppService` (`launchctl print`): a job held while `SMAppService` reports none is `orphaned`, removed with `bootout`
+by unregistering and before registering, and a registered job whose last exit is 78 with nothing running is
+`refusedByLaunchd`. `LlamaCppAgent.mend` registers the app with Launch Services again (`lsregister -f`, behind an
+injected runner) and unregisters and registers a present agent: `wisp update` runs it once the app is replaced,
+through a control that always asks the new app's own `wisp` (`delegates`), and `wisp llamacpp agent repair` on the
+person's word. When the server does not serve,
 `OpenAICompatibleBackend.routerReason` puts the binary's check, the agent's state, and the key file through
 `LlamaCppRouter.diagnosis`, and `wisp doctor` reads the same with the router's `/v1/models` statuses.
 
