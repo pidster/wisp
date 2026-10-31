@@ -14,6 +14,13 @@ Changed:
 - In `wisp-tui`, Down (or Shift-Down) on the conversation's last element returns to the input, as Esc does, so
   stepping down through the conversation ends where you type.
 
+Fixed:
+
+- With the `plan` tool on, `edit_file`'s results now end with the plan's reminder to mark the task, as every other
+  tool's do; it was the one tool left out.
+- A name wisp turns into a file name (a saved transcript's name, an output's id) can no longer
+  be `.` or `..`, which would name the directory itself or its parent. Thread ids already refused them.
+
 ## 0.33.1
 
 Fixed:

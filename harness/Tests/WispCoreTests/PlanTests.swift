@@ -214,8 +214,13 @@ import WispTestSupport
         let output = try await date.call(arguments: .init(timeZone: "UTC"))
         #expect(output.hasSuffix(reminder))
         #expect(sink.events.last?.details["output"] == .string(output))
-        // The registry wires the conversation's plan into every tool but `plan`.
+        // The registry wires the conversation's plan into every tool but `plan`: `edit_file` too, whose result, here
+        // a refusal of its arguments that touches no file, ends with the same reminder.
         #expect(registry.select(["plan", "current_date"]).tools.count == 2)
+        let edit = try #require(registry.select(["edit_file"]).tools.first as? AuditedTool<EditFileTool>)
+        let refused = try await edit.call(
+            arguments: .init(path: "a.txt", mode: "replace", content: "x", find: nil, line: nil))
+        #expect(refused.hasPrefix("error: replace needs line") && refused.hasSuffix(reminder))
         var update = PlanTool.Arguments(action: "update")
         update.id = "t1.1"
         update.status = "running"

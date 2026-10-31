@@ -72,7 +72,7 @@ public struct ToolRegistry: Sendable {
             AuditedTool(ReadFileTool(reader: reader, approval: approval), audit: audit, ledger: ledger, plan: book),
             AuditedTool(
                 EditFileTool(writer: FileWriter(options: runner), approval: approval, audit: audit), audit: audit,
-                ledger: ledger),
+                ledger: ledger, plan: book),
             AuditedTool(
                 InspectTool(introspection: introspection, budget: budget, store: store), audit: audit, ledger: ledger,
                 plan: book),

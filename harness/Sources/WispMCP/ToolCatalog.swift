@@ -768,10 +768,14 @@ public enum ToolCatalog {
 ///
 /// - Throws: `MCPError.invalidParams` otherwise.
 func validateThreadID(_ id: String) throws {
-    guard SafeName.isValid(id), id.unicodeScalars.count <= threadIDLimit else {
+    // A name whose only fault is its leading dot is told so; `.` and `..` fail `SafeName` too, but the dot is the
+    // better reason to give them. Anything else wrong (`../x`) gets the rule.
+    if id == "." || id == ".." || (SafeName.isValid(id) && id.hasPrefix(".")) {
+        throw MCPError.invalidParams("'thread_id' must not start with '.'")
+    }
+    guard ThreadStore.isValid(id), id.unicodeScalars.count <= threadIDLimit else {
         throw MCPError.invalidParams("'thread_id' must be 1-\(threadIDLimit) characters from [A-Za-z0-9._-]")
     }
-    guard ThreadStore.isValid(id) else { throw MCPError.invalidParams("'thread_id' must not start with '.'") }
 }
 
 /// The longest `thread_id`. Each opening's audit session is `<thread_id>-<8 characters>`

@@ -23,4 +23,11 @@ import Testing
             #expect(!SafeName.isValid(name), "\(name)")
         }
     }
+
+    @Test func theDirectoryAndItsParentAreNotNames() {
+        // Their characters are allowed, but joined to a directory they name it or its parent, not a file in it; a
+        // name that only starts with dots is an ordinary file name.
+        #expect(!SafeName.isValid(".") && !SafeName.isValid(".."))
+        #expect(SafeName.isValid("...") && SafeName.isValid("..a") && SafeName.isValid(".a"))
+    }
 }

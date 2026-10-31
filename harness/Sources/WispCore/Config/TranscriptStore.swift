@@ -5,7 +5,7 @@ import FoundationModels
 public struct TranscriptStore: Sendable {
     /// Why a transcript name or file was rejected.
     public enum Failure: Error, CustomStringConvertible, Equatable {
-        /// The name contains characters outside `[A-Za-z0-9._-]` or is too long.
+        /// The name contains characters outside `[A-Za-z0-9._-]`, is too long, or is `.` or `..`.
         case invalidName(String)
         /// No transcript has this name.
         case notFound(String)
@@ -23,7 +23,7 @@ public struct TranscriptStore: Sendable {
         /// Human-readable explanation.
         public var description: String {
             switch self {
-            case .invalidName(let name): "invalid transcript name '\(name)': use 1-64 of [A-Za-z0-9._-]"
+            case .invalidName(let name): "invalid transcript name '\(name)': use \(SafeName.rule)"
             case .notFound(let name): "no saved transcript named '\(name)'"
             case .notResumable(let name):
                 "transcript '\(name)' was saved by an older wisp and cannot be resumed; start a new conversation"
@@ -205,7 +205,7 @@ public struct TranscriptStore: Sendable {
             .sorted()
     }
 
-    /// Validates a name: 1 to 64 characters from `[A-Za-z0-9._-]`.
+    /// Validates a name: 1 to 64 characters from `[A-Za-z0-9._-]`, other than `.` and `..` (``SafeName``).
     ///
     /// - Throws: `Failure.invalidName`.
     public static func validate(_ name: String) throws {
