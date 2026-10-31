@@ -7,6 +7,13 @@ Notable changes in each release of wisp.
      version-bump commit renames it. -->
 
 
+## Unreleased
+
+Changed:
+
+- In `wisp-tui`, Down (or Shift-Down) on the conversation's last element returns to the input, as Esc does, so
+  stepping down through the conversation ends where you type.
+
 ## 0.33.1
 
 Fixed:

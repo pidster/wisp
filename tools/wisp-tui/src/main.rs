@@ -433,6 +433,7 @@ fn apply_key(app: &mut App, key: Key) -> Action {
 }
 
 /// A key while an element is selected (ADR 0068): Up and Down (with Shift or without) step through the elements,
+/// Down from the last returning to the input,
 /// Right unfolds the one selected, Left folds it, Enter toggles it, Ctrl-O shows its output whole in the panel, and
 /// `PageUp` and `PageDown` scroll; Esc returns the keys to the input, and any other key returns them and does there what
 /// it always does, so a character typed goes in and Ctrl-C quits as it would.
@@ -911,6 +912,25 @@ mod tests {
         assert_eq!(app.pane.selected, Some(2));
         // Nothing was typed or sent meanwhile.
         assert!(app.editor.is_empty() && !app.busy);
+    }
+
+    #[test]
+    fn down_from_the_last_element_returns_the_keys_to_the_input() {
+        for down in [Key::SelectNext, Key::RecallNext] {
+            let mut app = after_a_turn();
+            apply_key(&mut app, Key::SelectPrevious);
+            apply_key(&mut app, Key::SelectPrevious);
+            assert_eq!(app.pane.selected, Some(1));
+            apply_key(&mut app, down.clone());
+            assert_eq!(app.pane.selected, Some(2), "the last element first");
+            apply_key(&mut app, down.clone());
+            assert!(!app.navigating(), "then the input, as Esc does");
+            // From the input, Shift-Down does nothing more, and a character goes into the input.
+            apply_key(&mut app, Key::SelectNext);
+            assert!(!app.navigating());
+            apply_key(&mut app, Key::Edit(Edit::Insert('x')));
+            assert_eq!(app.editor.text(), "x");
+        }
     }
 
     #[test]

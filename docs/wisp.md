@@ -86,7 +86,7 @@ input lists the keys while one is selected:
 
 | Keys | Effect |
 | --- | --- |
-| Shift-Up, Shift-Down (or Up, Down) | The previous or next element, brought into view; Shift-Up from the input selects the last. |
+| Shift-Up, Shift-Down (or Up, Down) | The previous or next element, brought into view; Shift-Up from the input selects the last, and Down from the last returns to the input, as Esc does. |
 | Shift-Right, Right | Unfold the element's output or thinking: all of what the event carried, under `▾`. |
 | Shift-Left, Left | Fold it again. |
 | Enter | Unfold or fold. |

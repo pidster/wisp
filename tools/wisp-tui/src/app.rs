@@ -1468,13 +1468,19 @@ impl App {
     }
 
     /// Shift-Up or Shift-Down, or Up or Down while an element is selected: the previous or next element, staying at
-    /// either end; Shift-Up from the input selects the last. The element is brought into view.
+    /// the first; Shift-Up from the input selects the last. The element is brought into view. Down from the last
+    /// element returns the keys to the input, as Esc does: the input is where stepping down leads, so a person
+    /// stepping down through the conversation lands back where they type.
     pub fn step_element(&mut self, forward: bool) {
         if self.approval.is_some() || self.picker.is_some() || self.panel.is_some() {
             return;
         }
         let count = self.transcript.elements.len();
         if count == 0 {
+            return;
+        }
+        if forward && self.pane.selected.is_some_and(|index| index + 1 >= count) {
+            self.leave_elements();
             return;
         }
         self.bar = None;
