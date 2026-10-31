@@ -90,13 +90,12 @@
                     </div>
                 </div>
             </div>
-            <div class="actions">
-                <a class="button" href="docs/guide/install.html">Install and first run</a>
-                <a class="button" href="docs/">Read the docs</a>
-            </div>
+            <!-- Where to read next: hints, not actions, so links rather than buttons, set right under the cards. -->
+            <p class="next"><a href="docs/guide/install.html">Install and first run <span aria-hidden="true">→</span></a><a href="docs/">Read the docs <span aria-hidden="true">→</span></a></p>
             <!-- Filled when the site is built (scripts/check docs-site): the newest release in CHANGELOG.md, and the date
-                 of the commit that added its section, the version bump. -->
-            <p class="release"><a href="docs/changelog.html">Latest release <strong>{{version}}</strong><span class="release-date">, {{date}}</span> · What's new <span class="release-arrow" aria-hidden="true">→</span></a></p>
+                 of the commit that added its section, the version bump; without a date the build drops the
+                 release-date span, leaving the changelog's link. -->
+            <p class="release"><span class="release-date">Latest release {{date}} · </span><a href="docs/changelog.html">Changelog – what's new in <strong>{{version}}</strong> <span class="release-arrow" aria-hidden="true">→</span></a></p>
             <p class="needs">Needs an Apple silicon Mac on <strong>macOS 27</strong> or later; M4 or above is recommended. Open source, MIT licensed.</p>
         </div>
         <figure class="hero-art">
