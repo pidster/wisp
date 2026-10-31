@@ -19,9 +19,13 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     /// Output is the base tool's.
     public typealias Output = String
 
+    /// The tool the model's call reaches.
     private let base: Base
+    /// The conversation's log, where `tool.call` and `tool.result` (or the error) go.
     private let audit: AuditLog
+    /// The turn's calls, for the repeated-call line; nil never notes one.
     private let ledger: CallLedger?
+    /// The conversation's plan, whose reminder ends each result; nil adds none.
     private let plan: PlanBook?
 
     /// Wraps `base` to record into `audit`.
@@ -53,6 +57,12 @@ public struct AuditedTool<Base: WispTool>: WispTool {
 
     /// Records the call, invokes the base tool, records the result or error.
     ///
+    /// The call is recorded before the base tool runs, so a call that hangs or crashes the process is still in the
+    /// log. A result is recorded with its seconds, and with `repeat` when the call repeated an earlier one.
+    ///
+    /// - Parameter arguments: The model's arguments, recorded as the JSON it generated.
+    /// - Returns: The base tool's result, with the repeated-call line above it and the plan's reminder below it
+    ///   when they apply.
     /// - Throws: Whatever the base tool throws.
     public func call(arguments: Arguments) async throws -> String {
         let call = ShortID.make()

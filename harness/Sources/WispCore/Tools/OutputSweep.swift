@@ -38,7 +38,8 @@ struct OutputSweep: Sendable {
         var removed: [String] = []
         /// Bytes their files took.
         var bytes = 0
-        /// Sessions old enough to remove that the bound left for the next start.
+        /// Sessions the bound left for the next start: those old enough by their directory's own time, not yet
+        /// examined, so a few may turn out to have newer files and not be due after all.
         var deferred = 0
 
         /// Whether there is anything to record: a removal, or sessions left for later.

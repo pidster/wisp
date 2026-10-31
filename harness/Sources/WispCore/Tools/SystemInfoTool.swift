@@ -34,6 +34,7 @@ public struct SystemInfoTool: WispTool {
         public var path: String?
     }
 
+    /// The reporter, over the configured runner.
     private let info: SystemInfo
     /// The bound on a report.
     private let budget: ToolBudget
@@ -60,7 +61,7 @@ public struct SystemInfoTool: WispTool {
         configured.approval = nil
         configured.store = nil
         configured.options.maxOutputBytes = 1 << 20
-        // du over a large folder takes longer than a typical command; allow half a minute.
+        // du over a large folder takes longer than a typical command; allow at least half a minute.
         configured.options.timeout = max(configured.options.timeout, .seconds(30))
         let runner = configured
         let probe: SystemInfo.Probe = { line in

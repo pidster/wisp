@@ -23,8 +23,11 @@ final class DelayedNotice: Sendable {
 
     /// The notice's state: the outcome, the poster until it is used or dropped, and the alarm while it is set.
     private struct State {
+        /// What became of the notice so far.
         var outcome = Outcome.waiting
+        /// Posts the notice; dropped once used or settled, so nothing it captured outlives the wait.
         var post: (@Sendable () -> Void)?
+        /// The pending alarm, cancelled when the notice is posted or settled first.
         var alarm: Alarm?
     }
 

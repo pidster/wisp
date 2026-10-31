@@ -5,8 +5,8 @@ import Synchronization
 ///
 /// `ModelSelection.resolve` is synchronous because agents are created synchronously (the MCP thread
 /// store builds a thread inside one actor step), while checking a runtime or loading an asset is
-/// async. This is the one bridge; use it only for local, bounded work such as a tags request or a
-/// tokenizer load, never for generation.
+/// async. This is the one bridge; use it only for local, bounded work such as a tags request, a model's
+/// metadata, or compiling a Core ML classifier, never for generation.
 ///
 /// The caller's thread waits, and callers are usually on Swift's cooperative pool, which has one thread per core
 /// and does not grow when one blocks. So the operation never runs there: it runs on a task executor of its own
@@ -15,8 +15,11 @@ import Synchronization
 /// blocked in this bridge waited for operations that could not get a pool thread, holding every `Task.sleep` timer
 /// in the process off for tens of seconds (docs/design.md, "Concurrency").
 public enum Blocking {
-    /// Runs `operation` on a task executor off the cooperative pool and waits for its result.
+    /// Runs `operation` on a task executor off the cooperative pool and waits for its result. The caller's thread
+    /// blocks on a semaphore until it ends, so nothing here bounds the wait; the operation must bound itself.
     ///
+    /// - Parameter operation: The work, short and local.
+    /// - Returns: What it returned.
     /// - Throws: Whatever `operation` throws.
     public static func run<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) throws -> T {
         let slot = Slot<T>()
@@ -47,6 +50,7 @@ public enum Blocking {
 
     /// A one-shot result slot.
     private final class Slot<T: Sendable>: Sendable {
+        /// The operation's result, set once by the task before it signals; nil until then.
         let result = Mutex<Result<T, any Error>?>(nil)
     }
 

@@ -59,7 +59,8 @@ public struct PlanTool: WispTool {
     /// The lines a page of a result holds.
     static let pageLines = 40
 
-    /// The conversation's plan.
+    /// The conversation's plan. Internal rather than private because `ToolRegistry` hands the same book to every
+    /// other tool's ``AuditedTool``, whose results end with the plan's reminder (ADR 0081, decision 12).
     let book: PlanBook
     /// The conversation's log, for `plan.add`, `plan.depend`, and `plan.update`.
     private let audit: AuditLog?
@@ -97,10 +98,11 @@ public struct PlanTool: WispTool {
         self.store = store
     }
 
-    /// Runs one action.
+    /// Runs one action and fits its result to the tool-output budget, the rest kept in the output store.
     ///
     /// - Parameter arguments: The action and its arguments.
-    /// - Returns: The result, or `error: …` saying what to correct; never throws.
+    /// - Returns: The result, or `error: …` saying what to correct; never throws, so a mistaken call costs the
+    ///   model one correction rather than the turn.
     public func call(arguments: Arguments) async -> String {
         let text: String
         do {
@@ -111,7 +113,9 @@ public struct PlanTool: WispTool {
         return ToolOutput.fitted(text, tool: name, budget: budget, store: store)
     }
 
-    /// Runs one action against the book.
+    /// Runs one action against the book. A change goes through ``PlanBook/change(_:)``, so it is checked and applied
+    /// whole or not at all, and an `update` that sets a status tells the book a task was marked this turn, which
+    /// stops the reminder (``PlanBook/noteMarked()``).
     ///
     /// - Parameters:
     ///   - arguments: The action and its arguments.

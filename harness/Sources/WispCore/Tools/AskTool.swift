@@ -8,7 +8,8 @@ import FoundationModels
 /// the pending channel (`wisp questions answer`) and, behind `inquiry.elicitation`, the client's dialog, held for
 /// 60 s before the turn parks and the answer reaches the thread's next turn as a note. Never a permission: no
 /// answer runs anything. A question for a secret is refused by rule, and a credential-shaped answer is masked
-/// (D5). Off by default: a conversation given every tool gets it with `tools.ask` on, or by naming it (D2).
+/// (ADR 0062, D5). Off by default: a conversation given every tool gets it with `tools.ask` on, or by naming it
+/// (ADR 0062, D2). See `docs/tools/ask.md`.
 public struct AskTool: WispTool {
     /// The tool's name, as registries and the prompt name it.
     public static let toolName = "ask"
@@ -74,6 +75,11 @@ public struct AskTool: WispTool {
     }
 
     /// Asks, and returns the answer in a fixed form the model and the verification readers can read.
+    ///
+    /// A question that fails validation, or that `box` refuses (one already waiting, the turn's limit, a repeat), is
+    /// audited as `inquiry.settled` with outcome `refused` and never reaches the person. A parked question is
+    /// audited as `inquiry.parked` and left open in `box`, for its answer to arrive on a later turn; every other
+    /// outcome is masked, settled, and audited as `inquiry.settled`.
     ///
     /// - Parameter arguments: The question and its options.
     /// - Returns: `answer: …`, `chose: …`, or a line saying why there is none; never throws.

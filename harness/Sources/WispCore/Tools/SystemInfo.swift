@@ -10,11 +10,12 @@ public enum SystemTopic: String, Sendable, CaseIterable {
     case freeSpace
     /// The largest items directly inside a folder.
     case folderSizes
-    /// The processes using the most CPU.
+    /// This user's processes using the most CPU.
     case processes
     /// Memory in use, pressure, and the processes using the most.
     case memory
-    /// One process by id or name: its resources, command line, and listening ports.
+    /// One of this user's processes by id or name: its resources, and for a single match its command line, secrets
+    /// masked, and listening ports.
     case process
     /// Battery charge and power source.
     case battery
@@ -124,6 +125,13 @@ public struct SystemInfo: Sendable {
         return result.timedOut ? result.output + "\n(timed out; partial)" : result.output
     }
 
+    /// The `ports` report: every TCP socket listening, or with `target` every socket on that port, from `lsof`.
+    /// The target is checked to be a port number before it reaches the command line, which is what lets the probe
+    /// skip the approval gate.
+    ///
+    /// - Parameter target: The port, as the model gave it; nil for every listening socket.
+    /// - Returns: The table.
+    /// - Throws: `Failure.badTarget` for anything but a port from 1 to 65535, or what the probe throws.
     private func ports(_ target: String?) async throws -> String {
         if let target {
             guard let port = Int(target.trimmingCharacters(in: .whitespaces)), (1...65535).contains(port) else {
@@ -151,6 +159,14 @@ public struct SystemInfo: Sendable {
         return report + "\n(some folders could not be read, so sizes may be low)"
     }
 
+    /// The `process` report: this user's processes whose id is `target`, or whose name contains it, ignoring case.
+    /// Matched in process (`ProcessTable`), not by a command, since `ps` cannot run in the sandbox. For a single
+    /// match it adds the command line, with credential-shaped values masked (`SecretScanner`) since arguments often
+    /// carry tokens, and the TCP ports it listens on.
+    ///
+    /// - Parameter target: The process id or name; required.
+    /// - Returns: The report, or a line saying nothing matches.
+    /// - Throws: `Failure.badTarget` when the target is missing, or what the probe throws.
     private func process(_ target: String?) async throws -> String {
         guard let target = target?.trimmingCharacters(in: .whitespaces), !target.isEmpty else {
             throw Failure.badTarget(
@@ -224,7 +240,13 @@ public struct SystemInfo: Sendable {
         return rows
     }
 
-    /// The `ports` table.
+    /// The `ports` table, at most `maxRows` sockets, with a reminder that only this user's processes are visible:
+    /// `lsof` run without root shows no other user's sockets, so "nothing" does not mean the port is free.
+    ///
+    /// - Parameters:
+    ///   - output: `lsof -F pcPnT` output.
+    ///   - port: The port asked about; nil for every listening socket.
+    /// - Returns: The report.
     static func ports(_ output: String, port: Int?) -> String {
         let rows = portRows(output)
         let scope = port.map { "on port \($0)" } ?? "listening on TCP"

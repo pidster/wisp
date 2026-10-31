@@ -14,7 +14,10 @@ public final class FileWatcher {
     ]
 
     /// Whether a changed path counts: it has no ignored directory among its components and its file name
-    /// is not an editor's scratch file.
+    /// is not an editor's scratch file (`~` and `.swp` endings, Emacs's `.#` lock files) or Finder's `.DS_Store`.
+    ///
+    /// - Parameter path: The changed path, as FSEvents reports it.
+    /// - Returns: Whether it should start a run.
     public static func counts(_ path: String) -> Bool {
         let components = path.split(separator: "/").map(String.init)
         if components.contains(where: ignoredDirectories.contains) { return false }

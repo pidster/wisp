@@ -2,7 +2,8 @@ import Foundation
 import WispNotifierKit
 
 /// How a notification reached the person ([ADR 0044](../../../../docs/decisions/0044-host-effects.md)),
-/// in the order they are tried.
+/// in the order they are tried, but for a terminal whose sequence needs a setting turned on (iTerm2), which is tried
+/// after the app route (``NotificationRoutes``).
 public enum NotificationRoute: String, Sendable, CaseIterable {
     /// `Wisp Notifier.app`, beside `wisp`, posts it as "Wisp", once the person has allowed it
     /// ([ADR 0070](../../../../docs/decisions/0070-a-notification-helper.md)).
@@ -230,10 +231,14 @@ public struct NotificationRoutes: Sendable {
         self.writeTerminal = writeTerminal
     }
 
-    /// Only the process routes: the app route when on, then `osascript`.
+    /// No face's routes, only the process's: with the initialiser's defaults the helper and the app route are off,
+    /// so this is `osascript` alone. `Notifier.post`'s default.
     public static var headless: NotificationRoutes { NotificationRoutes(face: .headless) }
 
-    /// The plan: each route in order, tried or skipped with the reason.
+    /// The plan: each route in order, tried or skipped with the reason; with ``only``, that route alone. Kept apart
+    /// from delivery so `wisp doctor` and the tests can show which route would be taken and why the others would not.
+    ///
+    /// - Returns: The steps.
     func steps() -> [Step] {
         // A terminal whose sequence posts only after a setting (iTerm2) goes after the app route: the
         // write succeeds either way, so a terminal that shows nothing would lose the banner silently.
@@ -287,6 +292,7 @@ public struct NotificationRoutes: Sendable {
         return helper.post(app, request)
     }
 
+    /// The front-end route: tried only in `wisp chat --json` when the front end's `hello` declared `notify`.
     private func hostStep() -> Step {
         switch face {
         case .frontEnd(let frontEnd):
@@ -297,6 +303,8 @@ public struct NotificationRoutes: Sendable {
         }
     }
 
+    /// The terminal route: tried only in wisp's own terminal face (a front end or an MCP client owns the terminal
+    /// in the others), and only for a terminal the environment names that has a notification sequence.
     private func terminalStep() -> Step {
         switch face {
         case .frontEnd: return .skip(.terminal, "the front end owns the terminal")
@@ -314,6 +322,8 @@ public struct NotificationRoutes: Sendable {
         }
     }
 
+    /// The app route: tried when `notifications.viaTerminalApp` is on, or forced by `--route app`, and the
+    /// environment names the app wisp runs in by its bundle identifier.
     private func appStep(forced: Bool) -> Step {
         guard viaTerminalApp || forced else { return .skip(.app, "off (notifications.viaTerminalApp)") }
         guard let bundle = environment["__CFBundleIdentifier"], !bundle.isEmpty else {

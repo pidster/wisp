@@ -25,7 +25,8 @@ public struct CurrentDateTool: WispTool {
     /// Creates the tool.
     public init() {}
 
-    /// Formats the current instant in the requested zone.
+    /// Formats the current instant in the requested zone. An identifier the system does not know falls back to the
+    /// local zone rather than failing; the zone named in the result shows the model which it got.
     ///
     /// - Parameter arguments: The zone to report in.
     /// - Returns: An ISO 8601 timestamp with offset, followed by the zone identifier.
@@ -34,7 +35,13 @@ public struct CurrentDateTool: WispTool {
         return Self.format(Date(), in: zone)
     }
 
-    /// ISO 8601 with offset, then the zone identifier in parentheses. Pure, for tests.
+    /// ISO 8601 with offset, then the zone identifier in parentheses. Pure, for tests. A formatter per call, since
+    /// `DateFormatter` is not `Sendable`.
+    ///
+    /// - Parameters:
+    ///   - date: The instant.
+    ///   - zone: The zone to write it in.
+    /// - Returns: Such as `2026-10-31T18:15:00+09:00 (Asia/Tokyo)`.
     static func format(_ date: Date, in zone: TimeZone) -> String {
         let formatter = DateFormatter()
         formatter.timeZone = zone

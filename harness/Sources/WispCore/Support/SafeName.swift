@@ -1,7 +1,8 @@
 import Foundation
 
 /// A name safe to use as a file name or an id: 1 to 64 characters from `[A-Za-z0-9._-]`.
-/// Transcript names and MCP thread ids share this rule.
+/// Transcript names, MCP thread ids, and the output store's ids and session directories share this rule: no `/`, so
+/// a name joined to a directory stays one component of it. The characters admit `.` and `..` themselves.
 public enum SafeName {
     /// The rule in words, for error messages.
     public static let rule = "1-64 characters from [A-Za-z0-9._-]"

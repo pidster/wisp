@@ -194,6 +194,7 @@ enum ToolOutput {
         let bytes = budget.bytes
         guard text.utf8.count > bytes else { return text }
         let kept = store?.keep(text, id: ToolCallContext.outputID, tool: tool)
+        // The held-back note follows the fit; 400 bytes leaves it room, so the whole stays within the budget.
         let room = bytes - 400
         let fit = fit(head: text, tail: text, within: room)
         guard let held = fit.held else { return fit.shown }

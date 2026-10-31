@@ -47,7 +47,8 @@ public struct FileReader: Sendable {
         case isDirectory(String)
         /// The path is not a regular file: a FIFO, a device, or a socket, which a read could wait on forever.
         case notRegular(String, kind: String)
-        /// The file contains NUL bytes and is treated as binary.
+        /// The file's first chunk (`chunkSize` bytes) holds a NUL byte, so it is treated as binary. Only the first
+        /// chunk is checked, so a page costs no more than the bytes up to its end.
         case binary(String)
         /// `offset` or `limit` is below 1.
         case invalidRange
@@ -77,7 +78,12 @@ public struct FileReader: Sendable {
     /// Bytes read from disk per chunk.
     var chunkSize: Int
 
-    /// Creates a reader with a byte budget per window (default 4 KiB, the tool-output budget's floor).
+    /// Creates a reader with a byte budget per window (default 4 KiB, the tool-output budget's floor) and no
+    /// ``budget``; the conversation's registry sets the budget so the page follows the model's window.
+    ///
+    /// - Parameters:
+    ///   - maxBytes: The page when there is no budget.
+    ///   - chunkSize: Bytes read from disk at a time (64 KiB by default); also the span checked for binary content.
     public init(maxBytes: Int = ToolBudget.floor, chunkSize: Int = 65536) {
         self.maxBytes = maxBytes
         self.chunkSize = chunkSize
@@ -86,8 +92,9 @@ public struct FileReader: Sendable {
     /// The page in bytes now: the budget's, or `maxBytes`.
     public var pageBytes: Int { budget?.bytes ?? maxBytes }
 
-    /// What `path` is, for the refusal: `fifo`, `character device`, `block device`, `socket`, or `symlink`; nil
-    /// for a regular file, and for a path that does not exist.
+    /// What `path` is, for the refusal: `fifo`, `character device`, `block device`, `socket`, or `special file`;
+    /// nil for a regular file or a directory (refused on their own terms), and for a path that does not exist.
+    /// `stat` follows symbolic links, so a link is judged by what it points to.
     static func kind(of path: String) -> String? {
         var status = stat()
         guard stat(path, &status) == 0 else { return nil }
@@ -101,8 +108,17 @@ public struct FileReader: Sendable {
         }
     }
 
-    /// Reads up to `limit` lines starting at 1-based line `offset`.
+    /// Reads up to `limit` lines starting at 1-based line `offset`, within ``pageBytes``.
     ///
+    /// The page always holds at least the first line asked for, cut to the page on a UTF-8 boundary when it is
+    /// longer, so a file of one enormous line still reads; after that a line that would pass the page ends the
+    /// window early, with ``Window/truncatedByBytes`` set and the next offset pointing at it.
+    ///
+    /// - Parameters:
+    ///   - path: The file, absolute or relative to the process's current directory.
+    ///   - offset: The first line, from 1.
+    ///   - limit: The most lines, at least 1.
+    /// - Returns: The window.
     /// - Throws: `Failure` for missing (or wildcard), directory, special, or binary files, or a bad range.
     public func read(path: String, offset: Int = 1, limit: Int = 100) throws -> Window {
         guard offset >= 1, limit >= 1 else { throw Failure.invalidRange }
@@ -193,7 +209,8 @@ struct LineScanner {
     /// The most bytes of an open line kept.
     let keep: Int
 
-    /// Creates a scanner that keeps `keep` bytes of an open line (the page by default).
+    /// Creates a scanner that keeps `keep` bytes of an open line, at least 1; the tool-output budget's ceiling by
+    /// default, and ``FileReader`` passes its page.
     init(keep: Int = ToolBudget.ceiling) {
         self.keep = max(1, keep)
     }

@@ -25,6 +25,10 @@ public enum Timeout {
     /// (measured 2026-09-21: "no answer within 600 s" refusals returned after 11 to 56 minutes,
     /// when the client finally answered).
     ///
+    /// - Parameters:
+    ///   - duration: How long to wait.
+    ///   - operation: The work; it should honour cancellation, but the wait does not depend on it.
+    /// - Returns: What `operation` returned, when it settled first.
     /// - Throws: `Failure.elapsed` on timeout, or whatever `operation` throws.
     public static func run<T: Sendable>(
         _ duration: Duration, _ operation: @escaping @Sendable () async throws -> T
@@ -60,7 +64,14 @@ public enum Timeout {
         }
     }
 
-    /// `run` when `duration` is set; runs `operation` unbounded when it is nil.
+    /// `run` when `duration` is set; runs `operation` unbounded when it is nil, for a wait the operator has chosen
+    /// to leave open (a question's `inquiry.timeoutSeconds` of 0), which is quiet and safe, never taken as an answer.
+    ///
+    /// - Parameters:
+    ///   - duration: How long to wait; nil waits as long as it takes.
+    ///   - operation: The work.
+    /// - Returns: What `operation` returned.
+    /// - Throws: `Failure.elapsed` on timeout, or whatever `operation` throws.
     public static func run<T: Sendable>(
         _ duration: Duration?, _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {

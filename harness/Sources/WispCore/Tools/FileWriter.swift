@@ -147,9 +147,10 @@ public struct FileWriter: Sendable {
         case noParent(String)
         /// The path is a directory.
         case isDirectory(String)
-        /// The file contains NUL bytes.
+        /// The file contains a NUL byte. Checked only for a replacement, the one edit that loads the file; a write
+        /// or an append never reads what is there.
         case binary(String)
-        /// The file is larger than the writer will load for a replacement.
+        /// The file is larger than the writer will load for a replacement (``FileWriter/maxBytes``).
         case tooLarge(path: String, bytes: Int, limit: Int)
         /// The text to replace was not found.
         case notFound(find: String)
@@ -232,6 +233,10 @@ public struct FileWriter: Sendable {
     }
 
     /// Whether `path` (canonicalised) lies under one of the roots and under none of the protected directories.
+    /// Canonical, so a symbolic link or `..` cannot lead a write out of the set the sandbox would allow.
+    ///
+    /// - Parameter path: The path the model gave.
+    /// - Returns: Whether an edit may write it.
     public func permits(_ path: String) -> Bool {
         let canonical = CommandPolicy.canonical(path)
         guard !protected.contains(where: { CommandPolicy.contains($0, canonical) }) else { return false }
@@ -240,8 +245,13 @@ public struct FileWriter: Sendable {
     }
 
     /// Writes `data` to a temporary file beside `url`, gives it the existing file's mode, and renames
-    /// it over the target, so a reader never sees a partial file and a failure leaves the original.
+    /// it over the target, so a reader never sees a partial file and a failure leaves the original. Beside, not in
+    /// the temporary directory, so the rename stays on one volume and is atomic.
     ///
+    /// - Parameters:
+    ///   - data: The file's new bytes.
+    ///   - url: The file.
+    ///   - exists: Whether it exists, so its mode is carried over.
     /// - Throws: A file-system error; the temporary file is removed on failure.
     static func writeAtomically(_ data: Data, to url: URL, replacing exists: Bool) throws {
         let directory = url.deletingLastPathComponent()
@@ -267,7 +277,7 @@ public struct FileWriter: Sendable {
     /// - Parameters:
     ///   - data: The bytes to add.
     ///   - url: The file.
-    ///   - exists: Whether it exists.
+    ///   - exists: Whether it exists, so its bytes are copied and its mode carried over.
     /// - Returns: The size after.
     /// - Throws: A file-system error; the temporary file is removed on failure.
     static func appendAtomically(_ data: Data, to url: URL, replacing exists: Bool) throws -> Int {

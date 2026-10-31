@@ -81,8 +81,12 @@ public struct CustomTool: WispTool {
     /// `{name}` placeholders in a command.
     static let placeholderPattern = #"\{([a-z][a-z0-9_]*)\}"#
 
-    /// Checks every definition against the rules and against `reserved` names and each other.
+    /// Checks every definition against the rules and against `reserved` names and each other. Run when the config
+    /// loads, so a bad definition is reported as a malformed config rather than found at the model's first call.
     ///
+    /// - Parameters:
+    ///   - definitions: The config's `tools.custom`.
+    ///   - reserved: The built-in tools' names, which a custom tool may not take.
     /// - Throws: `Failure.invalid` for the first problem.
     public static func validate(_ definitions: [Definition], reserved: Set<String>) throws {
         var seen = reserved
@@ -218,7 +222,8 @@ public struct CustomTool: WispTool {
             dependencies: [])
     }
 
-    /// The values the model gave, as JSON by argument name.
+    /// The values the model gave, as JSON by argument name; empty when they do not decode as an object, so each
+    /// argument without a default is then reported as required.
     static func values(in content: GeneratedContent) -> [String: JSONValue] {
         guard let data = content.jsonString.data(using: .utf8),
             let object = (try? JSONDecoder().decode(JSONValue.self, from: data))?.objectValue
@@ -253,7 +258,9 @@ public struct CustomTool: WispTool {
             + (arguments.isEmpty ? "." : " with " + arguments.joined(separator: " and ") + ".")
     }
 
-    /// Creates the tool over the conversation's runner.
+    /// Creates the tool over the conversation's runner. A definition's `timeoutSeconds` replaces the runner's
+    /// default limit for this tool's commands; like the operator's default, it is not clamped to
+    /// `commandMaxTimeoutSeconds`, since both come from the user's own config.
     ///
     /// - Parameters:
     ///   - definition: A validated declaration.

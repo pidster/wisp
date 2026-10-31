@@ -4,6 +4,10 @@ import Synchronization
 /// One conversation's live plan, shared by its `plan` tool, which the framework calls from its own task, and its
 /// agent, which saves it with the record when each turn ends and roots the trees the turn began
 /// ([ADR 0081](../../../../docs/decisions/0081-the-plan-tool.md)). Changes go through `change`, one at a time.
+///
+/// A `final class` with a `Mutex`, since every operation is a short synchronous critical section (`docs/design.md`,
+/// "Concurrency"); a change is a pure function of the plan run inside the lock, so a failed one leaves nothing half
+/// applied.
 public final class PlanBook: Sendable {
     /// The plan, and what the turn under way did to it.
     struct State: Sendable {

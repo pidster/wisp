@@ -54,7 +54,12 @@ public enum ProcessTable {
         }
     }
 
-    /// Two snapshots `interval` apart, giving each process's CPU use between them.
+    /// Two snapshots `interval` apart, giving each process's CPU use between them: what `top` shows, where one
+    /// snapshot gives only the CPU time used since a process started. A process absent from the first snapshot,
+    /// or whose counter went backwards (a reused pid), counts as none.
+    ///
+    /// - Parameter interval: How long to sample over.
+    /// - Returns: Each process in the second snapshot, with its CPU use.
     public static func sample(over interval: Duration = .milliseconds(500)) async -> [Sample] {
         let before = Dictionary(snapshot().map { ($0.pid, $0.cpuNanoseconds) }, uniquingKeysWith: { first, _ in first })
         let start = ContinuousClock.now
@@ -72,7 +77,12 @@ public enum ProcessTable {
         elapsed > 0 ? Double(used) / elapsed * 100 : 0
     }
 
-    /// The process's arguments, joined by spaces, from `KERN_PROCARGS2`; nil when they cannot be read.
+    /// The process's arguments, joined by spaces, from `KERN_PROCARGS2`; nil when they cannot be read (another
+    /// user's process, or one that has exited). Arguments can carry secrets; `SystemInfo` masks them before the model
+    /// sees the line.
+    ///
+    /// - Parameter pid: The process.
+    /// - Returns: The command line, or nil.
     public static func commandLine(of pid: Int32) -> String? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0

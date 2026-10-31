@@ -22,14 +22,18 @@ public struct Entitlements: Sendable {
         self.lookup = lookup
     }
 
-    /// The running process's own entitlements, read from its code signature.
+    /// The running process's own entitlements, read from its code signature (`SecTaskCopyValueForEntitlement`); an
+    /// entitlement whose value is not a Boolean `true` counts as not held.
     public static let process = Entitlements { key in
         guard let task = SecTaskCreateFromSelf(nil) else { return false }
         guard let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil) else { return false }
         return (value as? Bool) ?? false
     }
 
-    /// A set that holds exactly `keys`; for tests and for `wisp models` explanations.
+    /// A set that holds exactly `keys`, so a test can show what an entitled build would do without being one.
+    ///
+    /// - Parameter keys: The entitlements held.
+    /// - Returns: The set.
     public static func granting(_ keys: Set<String>) -> Entitlements {
         Entitlements { keys.contains($0) }
     }
@@ -38,5 +42,8 @@ public struct Entitlements: Sendable {
     public static let none = Entitlements { _ in false }
 
     /// Whether `key` is held.
+    ///
+    /// - Parameter key: The entitlement's name, such as ``privateCloudCompute``.
+    /// - Returns: Whether this set holds it.
     public func has(_ key: String) -> Bool { lookup(key) }
 }

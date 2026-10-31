@@ -38,7 +38,9 @@ public struct Plan: Codable, Sendable, Equatable {
 
     /// One task.
     public struct Task: Codable, Sendable, Equatable {
-        /// `t<tree>.<n>`, `n` from 1 in the order the tree's tasks were added; never reused.
+        /// `t<tree>.<n>`, `n` one more than the highest number the tree's tasks and their dependencies name, so never
+        /// reused; or the id the model asked for, when `adding` keeps it, which may be deeper (`t1.2.1`) for a task
+        /// under another.
         public var id: String
         /// The tree it belongs to.
         public var tree: Int

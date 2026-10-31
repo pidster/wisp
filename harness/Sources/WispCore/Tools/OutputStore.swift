@@ -86,7 +86,11 @@ public final class OutputStore: Sendable {
         OutputStore(directory: home.outputs.appending(path: audit.session, directoryHint: .isDirectory), audit: audit)
     }
 
-    /// The file holding output `id`.
+    /// The file holding output `id`. The id is not checked here; every read and write goes through a check that it
+    /// is a safe name (`SafeName`), so an id cannot name a path outside the directory.
+    ///
+    /// - Parameter id: The output's id.
+    /// - Returns: The file's URL, which may not exist.
     public func url(_ id: String) -> URL { directory.appending(path: id) }
 
     /// The record of output `id`.
@@ -239,13 +243,20 @@ public final class OutputStore: Sendable {
         return (handle, url(name))
     }
 
-    /// The record of output `id`, or nil when the store does not hold it.
+    /// The record of output `id`, or nil when the store does not hold it or `id` is not a safe name.
+    ///
+    /// - Parameter id: The output's id, as a held-back marker names it.
+    /// - Returns: The record, or nil.
     public func kept(_ id: String) -> Kept? {
         guard SafeName.isValid(id), let data = try? Data(contentsOf: sidecar(id)) else { return nil }
         return try? JSONDecoder().decode(Kept.self, from: data)
     }
 
-    /// Output `id`'s bytes, or nil when the store does not hold it.
+    /// Output `id`'s bytes, or nil when the store does not hold it. Only an output with a record counts as held, so
+    /// a spill file (``spill(_:)``) or a file whose writer never finished is never served.
+    ///
+    /// - Parameter id: The output's id.
+    /// - Returns: The bytes, or nil.
     public func data(_ id: String) -> Data? {
         guard SafeName.isValid(id), FileManager.default.fileExists(atPath: sidecar(id).path) else { return nil }
         return try? Data(contentsOf: url(id))
@@ -287,7 +298,7 @@ public final class OutputStore: Sendable {
         return page.map { (String(decoding: $0.data, as: UTF8.self), $0.count) }
     }
 
-    /// Bytes the store's files take, for `doctor`.
+    /// Bytes the store's files take, records and spill files included, for `doctor`; 0 before the directory exists.
     public var bytes: Int {
         let files =
             (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey]))
@@ -295,7 +306,10 @@ public final class OutputStore: Sendable {
         return files.reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 
-    /// Saves the record beside the file and audits it.
+    /// Saves the record beside the file, user-only, and audits it as `output.kept` under the output's id, which is
+    /// the call id, so the event joins the call's `tool.call` and `tool.result`.
+    ///
+    /// - Parameter kept: The record.
     private func record(_ kept: Kept) {
         if let data = try? JSONEncoder().encode(kept) {
             try? data.write(to: sidecar(kept.id), options: .atomic)
@@ -304,7 +318,12 @@ public final class OutputStore: Sendable {
         audit?.record(.outputKept, call: kept.id, details: kept.details)
     }
 
-    /// Opens output `id`'s file for writing, user-only and close-on-exec, creating the directory; nil on failure.
+    /// Opens output `id`'s file for writing, user-only and close-on-exec (so no command the runner spawns inherits
+    /// it), truncating any earlier file of that name and creating the directory; nil on failure, logged as a
+    /// diagnostic, and for an id that is not a safe name.
+    ///
+    /// - Parameter id: The file's name.
+    /// - Returns: The handle, or nil.
     private func open(_ id: String) -> FileHandle? {
         guard SafeName.isValid(id) else { return nil }
         do {

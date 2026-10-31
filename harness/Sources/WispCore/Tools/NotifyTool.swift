@@ -24,7 +24,9 @@ public struct NotifyTool: WispTool {
         public var message: String
     }
 
+    /// The face's effects, whose notifier bounds, rate-limits, and routes the post.
     private let host: SessionHost
+    /// Where the `notification` event goes; nil records nothing.
     private let audit: AuditLog?
 
     /// Bounds, from the notifier's limits.

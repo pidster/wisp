@@ -104,7 +104,8 @@ public struct NotifierHelper: Sendable {
         app.appending(path: "Contents/MacOS").appending(path: NotifierProtocol.executableName)
     }
 
-    /// The permission a run printed, or nil when it printed none.
+    /// The permission a run printed: the one it names, `unknown` for text that names none (a newer helper's word), or
+    /// nil when it printed nothing.
     private static func permission(from result: (status: Int32, output: String)) -> NotifierProtocol.Permission? {
         NotifierProtocol.Permission(rawValue: result.output) ?? (result.output.isEmpty ? nil : .unknown)
     }

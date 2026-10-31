@@ -44,6 +44,8 @@ public struct InspectTool: WispTool {
         public var turn: Int?
     }
 
+    /// The views of wisp's state, shared with `wisp://` resources and chat's `/inspect`, so every face shows the
+    /// same thing.
     private let introspection: Introspection
     /// The bound on a view.
     private let budget: ToolBudget
@@ -64,6 +66,11 @@ public struct InspectTool: WispTool {
 
     /// `value` as pretty JSON when that fits `bytes`, else as compact JSON, so a view near the bound is not cut
     /// short for its indentation (the configuration, with the default deny list, ADR 0054).
+    ///
+    /// - Parameters:
+    ///   - value: The view.
+    ///   - bytes: The budget it should fit.
+    /// - Returns: The JSON text.
     static func fitted(_ value: JSONValue, within bytes: Int) -> String {
         let pretty = Introspection.render(value)
         guard pretty.utf8.count > bytes else { return pretty }
@@ -72,6 +79,9 @@ public struct InspectTool: WispTool {
 
     /// `call` for the chat's `/inspect` and `/audit`: a bare view, or `audit` followed by `sessions` (the
     /// sessions in the log) or a session id (that session's latest events).
+    ///
+    /// - Parameter what: The words after the command.
+    /// - Returns: The view, bounded as the tool's are.
     public func show(_ what: String) async -> String {
         let words = what.split(separator: " ", maxSplits: 1).map(String.init)
         guard words.count == 2, words[0].lowercased() == "audit" else {

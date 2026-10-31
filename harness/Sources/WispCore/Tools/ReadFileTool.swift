@@ -44,13 +44,19 @@ public struct ReadFileTool: WispTool {
     public let examplePrompt = "Use read_file to read /path/to/file.md, then summarise it in three bullet points."
 
     /// Creates the tool over a reader that supplies the byte budget.
+    ///
+    /// - Parameters:
+    ///   - reader: The reader; its budget, when set, makes the page follow the model's window.
+    ///   - defaultLimit: Lines per page when the model asks for no limit.
+    ///   - approval: The gate that asks before a credential-like path is read; nil never asks.
     public init(reader: FileReader = FileReader(), defaultLimit: Int = 100, approval: ApprovalGate? = nil) {
         self.reader = reader
         self.defaultLimit = defaultLimit
         self.approval = approval
     }
 
-    /// Reads the requested page and renders it for the model.
+    /// Reads the requested page and renders it for the model. A relative path is read against the process's
+    /// current directory, which is also the directory the gate judges it in.
     ///
     /// - Parameter arguments: Path and optional line range.
     /// - Returns: Numbered lines followed by a continuation or end-of-file marker.

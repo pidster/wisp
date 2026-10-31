@@ -5,8 +5,9 @@ import Synchronization
 /// ([ADR 0030](../../../../docs/decisions/0030-notifications.md), amended by
 /// [ADR 0044](../../../../docs/decisions/0044-host-effects.md)).
 ///
-/// Text is bounded and stripped of control characters, posts are limited per minute across the whole
-/// process, and the off switch is checked, before any route; then the face's `NotificationRoutes` post it
+/// Text is bounded and stripped of control characters, posts are limited per minute across every conversation
+/// that shares the notifier (`Session.begin` makes one for the session, which its `SessionHost` hands to each
+/// thread), and the off switch is checked, before any route; then the face's `NotificationRoutes` post it
 /// by the first route that works: the front end, the terminal's escape sequence, the terminal app, or
 /// `osascript`'s `display notification`. The AppleScript routes pass every piece of text as an argument,
 /// never spliced into the script, so nothing the model writes can become AppleScript. Every attempt is
@@ -54,7 +55,7 @@ public final class Notifier: Sendable {
         case refused(String)
     }
 
-    /// Characters kept in each field.
+    /// Characters kept in the title and the subtitle.
     public static let titleLimit = 64
     /// Characters kept in the body.
     public static let bodyLimit = 256
@@ -63,10 +64,16 @@ public final class Notifier: Sendable {
     /// routes.
     public typealias Runner = @Sendable ([String]) -> Int32
 
+    /// Whether anything is posted (`notifications.enabled`).
     private let enabled: Bool
+    /// The most posts in any sixty seconds (`notifications.perMinute`).
     private let perMinute: Int
+    /// Runs `osascript` for the AppleScript routes; replaced in tests.
     private let run: Runner
+    /// The time, for the rate limit; replaced in tests.
     private let clock: @Sendable () -> Date
+    /// When the posts of the last sixty seconds were let through: a sliding window, so a burst cannot pass the limit
+    /// by straddling a minute's boundary. Behind a `Mutex`, since the session's conversations share the notifier.
     private let recent = Mutex<[Date]>([])
 
     /// Creates a notifier.
@@ -178,6 +185,13 @@ public final class Notifier: Sendable {
         return outcome
     }
 
+    /// Whether `message` may be posted, and the route that took it: the off switch, then an empty body, then the rate
+    /// limit, each refusing before any route is tried; a refused post does not count against the limit.
+    ///
+    /// - Parameters:
+    ///   - message: What to show.
+    ///   - routes: The face's routes.
+    /// - Returns: The outcome, and the routes tried and passed over, for the audit.
     private func decide(_ message: Message, routes: NotificationRoutes) -> (Outcome, skipped: [String]) {
         guard enabled else { return (.refused("notifications are turned off (notifications.enabled)"), []) }
         guard !Self.cleaned(message.body, limit: Self.bodyLimit).isEmpty else {
@@ -198,7 +212,8 @@ public final class Notifier: Sendable {
     public static let osascript: Runner = spawner("/usr/bin/osascript", timeout: 5)
 
     /// A runner that spawns `path` with the arguments and returns its exit status: -1 when it cannot
-    /// start or outlives `timeout` seconds (it is then terminated).
+    /// start or outlives `timeout` seconds (it is then terminated). It polls every 20 ms rather than waiting without
+    /// limit, so an `osascript` that hangs cannot hold the caller past `timeout`; its output goes to the null device.
     static func spawner(_ path: String, timeout: TimeInterval) -> Runner {
         { arguments in
             let process = Process()
