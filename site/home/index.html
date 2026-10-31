@@ -243,14 +243,27 @@
                 pick per conversation, or per thread over MCP.</p>
             <a class="more" href="docs/guide/local-models.html">Local models</a>
         </div>
-        <ul class="chips" aria-label="Model runtimes">
-            <li><code>system</code> Apple, on device</li>
-            <li><code>ollama:</code> Ollama</li>
-            <li><code>mlx:</code> MLX, in process</li>
-            <li><code>llamacpp:</code> llama.cpp, yours or wisp's</li>
-            <li><code>lmstudio:</code> LM Studio</li>
-            <li><code>coreai:</code> Core AI</li>
-        </ul>
+        <div class="models-side">
+            <ul class="chips" aria-label="Model runtimes">
+                <li><code>system</code> Apple, on device</li>
+                <li><code>ollama:</code> Ollama</li>
+                <li><code>mlx:</code> MLX, in process</li>
+                <li><code>llamacpp:</code> llama.cpp, yours or wisp's</li>
+                <li><code>lmstudio:</code> LM Studio</li>
+                <li><code>coreai:</code> Core AI</li>
+            </ul>
+            <!-- The models this project runs wisp on, from the guide's measured table (docs/guide/local-models.md). -->
+            <div class="ours">
+                <h3>What we run with wisp</h3>
+                <dl>
+                    <div><dt><code>granite4.2:8b</code></dt><dd>Everyday tool work, git, and delegation, thinking off</dd><dd class="size">5.35 GB</dd></div>
+                    <div><dt><code>gemma4:12b</code></dt><dd>Multi-step work over several files</dd><dd class="size">8.0 GB</dd></div>
+                    <div><dt><code>qwen3.8:27b</code></dt><dd>Large diffs and long drafts</dd><dd class="size">17.7 GB</dd></div>
+                    <div><dt><code>Bonsai 2 9B</code></dt><dd>Fast tool work and summaries, on wisp's own llama.cpp server</dd><dd class="size">2.6 GB</dd></div>
+                </dl>
+                <p class="next"><a href="docs/guide/local-models.html#which-model-as-measured">How they measured <span aria-hidden="true">→</span></a></p>
+            </div>
+        </div>
     </div>
 </section>
 

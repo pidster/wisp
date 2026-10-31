@@ -23,7 +23,7 @@ The model's `inspect` tool and the MCP resource `wisp://config` show the same vi
 ## Change a setting
 
 ```bash
-wisp config set model ollama:granite4.1:8b
+wisp config set model ollama:granite4.2:8b
 wisp config set approval.timeoutSeconds 300
 wisp config set routing.ladder system ollama:qwen3.8:27b     # a list: words, or a JSON array
 wisp config unset approval.timeoutSeconds                    # back to the default

@@ -29,17 +29,29 @@ against a fake server
 
 ## Which model, as measured
 
-From the local-model comparison of 2026-10-04 on this project's Mac, and `granite4.1` against `granite4.2` on
-2026-10-10 ([Measurements](../measurements.md)):
+From the local-model comparison of 2026-10-04 on this project's Mac, `granite4.1` against `granite4.2` on
+2026-10-10, and Bonsai 2 against `granite4.2` through wisp's own llama.cpp server on 2026-10-30
+([Measurements](../measurements.md)):
 
 | Work | Model | Size | Why |
 | --- | --- | --- | --- |
 | Most things: single commands, short lookups, git | `granite4.2:8b`, thinking off | 5.35 GB | Not thinking, as fast as `granite4.1:8b` on the tools (a median of 3.2 s a request), and every draft right |
 | Multi-step tasks, reasoning over several files | `gemma4:12b` | 8.0 GB | Perfect on tools (30/30, 16/16) at 12 to 18 s a request; it thinks before it answers |
 | Large diffs and long drafts | `qwen3.8:27b` | 17.7 GB | As accurate, and the only one with both large-diff drafts right, but much slower |
+| Fast tool work, diff summaries, triage, on llama.cpp | `Ternary-Bonsai-2-9B-Q2_0`, think `low` | 2.6 GB | Level with `granite4.2:8b` on the tools, the better and twice as fast classifier, and 6/6 on the context scenario in a quarter of the time; behind on small drafts (8/12 to 11/12), so not for commit messages |
 
 Not for tool work: `llama3.2:3b`, which writes tool calls as text and misses edits, and `ministral-3:14b`, which
 made no calls in that comparison.
+
+### What we use ourselves
+
+wisp is built with wisp: the coding agent that works on this repository hands it every git command and other small,
+self-contained jobs over MCP ([Delegating](delegating.md)). That work runs on `ollama:granite4.2:8b` with thinking
+off, the default since 2026-10-27, which follows a fixed instruction reliably and keeps a thread going over many
+commits. Work that reads and reasons over several files goes to `ollama:gemma4:12b`, and large diffs and long drafts
+to `ollama:qwen3.8:27b`. Bonsai 2 9B runs on wisp's own llama.cpp server (`llamacpp.server wisp`) on the same Mac, at
+5.3 GB loaded with its 65,536-token window and under 400 MB asleep; it is being tried for the fast tool work above
+and is not yet the default. The on-device model stays the fallback when Ollama is not running.
 
 A thinking model can be told not to think, which is often much faster: on 2026-10-10 `granite4.2:8b` without
 thinking ran at `granite4.1:8b`'s speed, where thinking made it 4 to 15 times slower, and still got every draft
@@ -62,19 +74,20 @@ choose instead, with `"think": false` (or `true`) on the `respond` call that sta
 ```bash
 brew install ollama
 brew services start ollama
-ollama pull granite4.1:8b
-wisp models                                    # lists ollama:granite4.1:8b
-wisp --model ollama:granite4.1:8b "What is listening on port 8080?"
+ollama pull granite4.2:8b
+wisp config set ollama.models.granite4.2:8b.think false
+wisp models                                    # lists ollama:granite4.2:8b
+wisp --model ollama:granite4.2:8b "What is listening on port 8080?"
 ```
 
 ## Using a model
 
 | Where | How |
 | --- | --- |
-| One command | `wisp --model ollama:granite4.1:8b "…"` |
-| Every session from now on | `wisp config set model ollama:granite4.1:8b`; `wisp doctor` then checks it is available |
-| In chat | `/model ollama:granite4.1:8b`, mid-conversation; `/models` lists what this Mac can run; `/think on\|off` sets a thinking model's thinking |
-| An MCP thread | `"model": "ollama:granite4.1:8b"` on the `respond` call that starts it |
+| One command | `wisp --model ollama:granite4.2:8b "…"` |
+| Every session from now on | `wisp config set model ollama:granite4.2:8b`; `wisp doctor` then checks it is available |
+| In chat | `/model ollama:granite4.2:8b`, mid-conversation; `/models` lists what this Mac can run; `/think on\|off` sets a thinking model's thinking |
+| An MCP thread | `"model": "ollama:granite4.2:8b"` on the `respond` call that starts it |
 
 If chat's configured model is unavailable as it starts (Ollama not running, say), chat starts on `system` and
 says so; a one-shot `wisp "…"` and an MCP `respond` fail with the reason instead, and never fall back.

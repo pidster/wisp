@@ -359,6 +359,31 @@ html.light .hero-art img {
 .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
 .chips li { background: var(--raised); border: 1px solid var(--rule); border-radius: 999px; padding: 8px 16px; color: var(--muted); font-size: 0.92rem; }
 .chips code { color: var(--strong); margin-right: 4px; }
+.ours {
+    margin-top: 24px;
+    padding: 18px 20px 14px;
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+}
+.ours h3 { margin: 0 0 10px; font-size: 0.82rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ours dl { margin: 0; }
+.ours dl > div {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr auto;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 8px 0;
+    border-top: 1px solid var(--rule);
+}
+.ours dt code { color: var(--strong); font-size: 0.88rem; }
+.ours dd { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+.ours dd.size { font-size: 0.8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ours .next { margin-top: 0.6rem; max-width: none; font-size: 0.9rem; }
+@media (max-width: 520px) {
+    .ours dl > div { grid-template-columns: 1fr auto; }
+    .ours dl > div dd:not(.size) { grid-column: 1 / -1; grid-row: 2; }
+}
 
 /* Closing and footer */
 
