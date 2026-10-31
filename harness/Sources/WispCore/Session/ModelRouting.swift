@@ -5,7 +5,7 @@ import Foundation
 /// The input is measured before anything runs, so routing costs nothing and needs no judgement from the
 /// model; the small model is never asked how well it did.
 public enum ModelRouting {
-    /// The pass rate a band must reach to count.
+    /// The pass rate a band must reach to count: 80% or better (ADR 0037).
     public static let passRate = 0.8
 
     /// The model measured best for each task's model pass, used when neither the caller nor
@@ -15,7 +15,9 @@ public enum ModelRouting {
     public static let taskDefaults: [String: ModelSelection] = ["secrets": .system]
 
     /// The model for `task`'s model pass: nil when the caller named one, which always wins, or when
-    /// the task has no default; otherwise the configured or measured default, with the reason.
+    /// `models` has no entry for the task (no measured default and no `routing.tasks` setting); otherwise the
+    /// configured or measured default, with the reason. The reason calls it measured whenever it equals
+    /// `taskDefaults`' entry, even when the operator set the same model.
     ///
     /// - Parameters:
     ///   - task: The task, such as `secrets`.
@@ -57,7 +59,9 @@ public enum ModelRouting {
         return trusted
     }
 
-    /// The model for `task` on an input of `inputBytes`, or nil when there is no ladder.
+    /// The model for `task` on an input of `inputBytes`, or nil when there is no ladder (`routing.ladder` empty
+    /// turns routing off). Falling back to the most capable model, rather than refusing, keeps a large input
+    /// served; `ChangeDraft.route` passes over a choice that cannot be opened.
     ///
     /// - Parameters:
     ///   - task: The measured task, such as `draft_change.commit`.

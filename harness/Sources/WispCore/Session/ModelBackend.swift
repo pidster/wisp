@@ -93,11 +93,16 @@ public struct ModelLink: Equatable, Sendable {
     }
 }
 
-/// A runtime on this Mac that serves models under one scheme (`ollama:`, `coreai:`, `mlx:`), plugged
-/// into `LanguageModelSession` through a `LanguageModel` ([ADR 0019](../../../../docs/decisions/0019-model-backends.md)).
+/// A runtime on this Mac that serves models under one scheme (`ollama:`, `llamacpp:`, `lmstudio:`, `coreai:`,
+/// `mlx:`), plugged into `LanguageModelSession` through a `LanguageModel`
+/// ([ADR 0019](../../../../docs/decisions/0019-model-backends.md)).
 ///
 /// A backend resolves a name into a checked model with declared capabilities; it never downloads.
-/// Acquisition of assets is the operator's job, and a missing asset is a clear `unavailable` failure.
+/// Acquisition of assets is the operator's job, or a pull's (`ModelPuller`, which `ModelActions` drives, ADR 0059),
+/// and a missing asset is a clear `unavailable` failure. Besides resolving, it answers everything `ModelActions`
+/// asks of a runtime: what is installed, what could be linked, where its capabilities are declared, the one
+/// spelling of a name, and what an uninstall would remove; the defaults below suit a runtime that keeps its own
+/// models.
 public protocol ModelBackend: Sendable {
     /// The prefix before the colon in a selection.
     var scheme: String { get }
@@ -205,6 +210,7 @@ extension ModelBackend {
 /// servers wisp needs no library to talk to (ADR 0016, ADR 0058); the executable registers the others at launch so
 /// `WispCore` never links their runtimes.
 public enum ModelBackends {
+    /// The backends by scheme: the built-in HTTP ones from the start, the executable's added by `register(_:)`.
     private static let registry = Mutex<[String: any ModelBackend]>(
         [
             "ollama": OllamaBackend(), "llamacpp": OpenAICompatibleBackend(.llamaCpp),
@@ -221,7 +227,7 @@ public enum ModelBackends {
         registry.withLock { $0[scheme] }
     }
 
-    /// Every registered backend, by scheme.
+    /// Every registered backend, sorted by scheme, so listings come in a stable order.
     public static var all: [any ModelBackend] {
         registry.withLock { $0.values.sorted { $0.scheme < $1.scheme } }
     }

@@ -132,7 +132,9 @@ public struct ModelActions: Sendable {
     /// Where the actions are recorded: the asking conversation's log (an MCP thread's, so its audit resource shows a
     /// pull it asked for), or the session's.
     public let audit: AuditLog
-    /// Lists the models for a conversation with these tools; tests replace it.
+    /// Lists the models for a conversation with these tools, judged with the capabilities this session's checks
+    /// recorded (`Session.declaredModels`) and the session's disabled models, so a change made here shows in the next
+    /// listing without a restart; tests replace it.
     var listing: @Sendable ([any Tool]) async -> ModelListing.Listing
     /// How long each of a check's questions may take.
     var limits: ModelVerification.Limits = .standard
@@ -156,7 +158,8 @@ public struct ModelActions: Sendable {
         }
     }
 
-    /// What fetches models here: the session's, else the registered one.
+    /// What fetches models here: the session's (tests set one), else the one the executable registered
+    /// (`ModelPullers`); nil in a build that registers none, where a pull fails with `Failure.noPuller`.
     var puller: (any ModelPuller)? { session.puller ?? ModelPullers.current }
 
     /// The models this Mac can run, judged for a conversation with `tools`, with those this session turned off

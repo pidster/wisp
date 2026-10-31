@@ -19,7 +19,8 @@ public enum ModelListing {
         public var bytes: Int?
         /// The architecture and quantisation, such as `granite Q4_K_M`, when known.
         public var format: String?
-        /// Where an MLX model lives; nil for the rest.
+        /// Where an MLX model, or a GGUF file added for wisp's llama.cpp server, lives; nil for the models a runtime
+        /// keeps itself.
         public var location: ModelLocation?
         /// The context window wisp would use, when the model resolved and states or sizes one.
         public var contextSize: Int?

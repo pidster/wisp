@@ -13,6 +13,10 @@ public struct ChatMessage: Equatable, Sendable {
         public var arguments: JSONValue
 
         /// Creates a call.
+        ///
+        /// - Parameters:
+        ///   - name: The tool's name.
+        ///   - arguments: The arguments, as an object.
         public init(name: String, arguments: JSONValue) {
             self.name = name
             self.arguments = arguments
@@ -29,6 +33,12 @@ public struct ChatMessage: Equatable, Sendable {
     public var toolName: String?
 
     /// Creates a message.
+    ///
+    /// - Parameters:
+    ///   - role: `system`, `user`, `assistant`, or `tool`.
+    ///   - content: The text.
+    ///   - toolCalls: The calls an assistant message makes.
+    ///   - toolName: For a `tool` message, the tool whose output it carries.
     public init(role: String, content: String, toolCalls: [ToolCall] = [], toolName: String? = nil) {
         self.role = role
         self.content = content
@@ -38,7 +48,8 @@ public struct ChatMessage: Equatable, Sendable {
 
     /// Maps the framework transcript onto chat messages: instructions become the system message, prompts and
     /// responses alternate, tool calls ride on an assistant message, and tool outputs are `tool` messages
-    /// naming the tool. Reasoning and anything else the transcript holds are left out.
+    /// naming the tool. Reasoning and anything else the transcript holds are left out, and call ids are not carried:
+    /// a `tool` message names its tool instead.
     ///
     /// - Parameter transcript: The transcript a request carries.
     /// - Returns: The messages, in order.
@@ -80,7 +91,8 @@ public struct ChatMessage: Equatable, Sendable {
         }.joined()
     }
 
-    /// Parses JSON text into a value, or an empty object when it does not parse.
+    /// Parses JSON text into a value, or an empty object when it does not parse, so text that is not JSON, such as
+    /// a model's malformed arguments, becomes no fields rather than failing the request that carries it.
     ///
     /// - Parameter text: JSON text.
     /// - Returns: The value.

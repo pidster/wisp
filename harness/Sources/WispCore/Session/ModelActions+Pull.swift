@@ -53,7 +53,7 @@ public struct PullDialog {
 
 /// How a pull ended.
 public struct PullResult: Equatable, Sendable {
-    /// The outcome, as `model.pull` records it.
+    /// The outcome, as `model.pull` records it. A failed pull has none: it is recorded as `failed` and thrown.
     public enum Outcome: String, Sendable {
         /// Files were downloaded and the model linked.
         case fetched

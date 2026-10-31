@@ -1,19 +1,35 @@
 import Foundation
 import FoundationModels
 
-/// A tool-using agent over the on-device Apple Foundation Model.
+/// A tool-using agent over one model: the on-device Apple Foundation Model, Private Cloud Compute, or a registered
+/// backend's model (``ResolvedModel``, [ADR 0019](../../../../docs/decisions/0019-model-backends.md)).
 ///
-/// `Agent` keeps the conversation in a `ThreadRecord` and asks a `ContextComposer` for the transcript
+/// `Agent` keeps the conversation in a ``ThreadRecord`` and asks a ``ContextComposer`` for the transcript
 /// each request carries. A `LanguageModelSession` over that transcript runs the tool-call loop: the model
 /// requests a tool, the framework invokes the matching `Tool`, and the result is fed back until the model
 /// replies; the turn's new entries then go into the store, linked to the audit events that recorded them.
-/// When the context window overflows, `contextPolicy` decides whether the active view is condensed and
-/// the prompt retried.
+/// The store, not the session, is the conversation: a session is only the view one request carries, so it is
+/// replaced whenever the composition changes (``materialise(fresh:)``), and the store keeps every entry, active or
+/// dropped, with its audit sources ([ADR 0045](../../../../docs/decisions/0045-layered-context.md)).
+///
+/// A turn runs in one order: notes waiting for the conversation are stored, the turn clock advances, earlier tool
+/// outputs switch to references, the request is assessed when that is on, the facts frame is refreshed, the
+/// context is condensed ahead of the window when it would not fit, and the request is sent with recovery from an
+/// unregistered tool and from overflow. Once it replies, the new entries are stored, presentational text is cut,
+/// and three checks are set beside the reply from the agent's own records: `ran:`
+/// ([ADR 0051](../../../../docs/decisions/0051-the-turns-tool-calls-beside-the-reply.md)), cited entries the store
+/// lacks ([ADR 0055](../../../../docs/decisions/0055-cited-entries-checked.md)), and the verification pass
+/// ([ADR 0060](../../../../docs/decisions/0060-a-verification-pass.md)). When the context window overflows,
+/// ``contextPolicy`` decides whether the active view is condensed and the prompt retried
+/// (`docs/context-management.md`).
+///
+/// It is a plain `final class`, not an actor, because `LanguageModelSession` is not `Sendable`: its async methods
+/// are `nonisolated(nonsending)`, so the actor that owns it (`ThreadActor`) runs them on its own executor.
 public final class Agent {
     /// The model every session is created on; kept so sessions can be rebuilt.
     public let model: ResolvedModel
-    /// Tools bound to every session, in registration order.
-    /// The tools the model may call.
+    /// The tools the conversation allows, in registration order. A session registers all of them unless an
+    /// assessment selects fewer for a request (``registeredTools``).
     public let tools: [any Tool]
     /// Every entry of the conversation, active or dropped, with the audit events that recorded it.
     public internal(set) var store: ThreadRecord
@@ -202,7 +218,7 @@ public final class Agent {
     ///   - instructions: System-level guidance the model follows for the whole session.
     ///   - tools: Tools the model may call; each must have a unique `name`.
     ///   - model: Which model; defaults to the on-device system model.
-    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to a token target (`ContextPolicy.default`).
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     /// - Throws: `ModelSelection.Failure` if the model cannot be used.
@@ -226,7 +242,7 @@ public final class Agent {
     ///   - instructions: System-level guidance the model follows for the whole session.
     ///   - tools: Tools the model may call; each must have a unique `name`.
     ///   - model: The resolved model.
-    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to a token target (`ContextPolicy.default`).
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     public init(
@@ -250,7 +266,7 @@ public final class Agent {
     ///   - transcript: A transcript previously read from `Agent.transcript`.
     ///   - tools: Tools the model may call; they must match the names the transcript refers to.
     ///   - model: The resolved model.
-    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to a token target (`ContextPolicy.default`).
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     ///   - links: The store links saved with the transcript (`TranscriptStore.Saved.links`); the store keeps
@@ -280,7 +296,7 @@ public final class Agent {
     ///   - store: The store of the agent being replaced (`Agent.store`).
     ///   - tools: Tools the model may call; they must match the names the store's entries refer to.
     ///   - model: The resolved model.
-    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to a token target (`ContextPolicy.default`).
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     public init(
@@ -304,7 +320,7 @@ public final class Agent {
     ///   - transcript: A transcript previously read from `Agent.transcript`.
     ///   - tools: Tools the model may call; they must match the names the transcript refers to.
     ///   - model: Which model; defaults to the on-device system model.
-    ///   - contextPolicy: Overflow handling; defaults to condensing to the last four turns.
+    ///   - contextPolicy: Overflow handling; defaults to condensing to a token target (`ContextPolicy.default`).
     ///   - audit: Where to record turns; nil records nothing.
     ///   - turns: The conversation's clock; defaults to the audit log's, or a fresh one.
     ///   - links: The store links saved with the transcript, as for the resolved-model initialiser.
@@ -447,8 +463,10 @@ public final class Agent {
             .sessionStart, details: AuditEvent.Details.sessionRestart(tools: tools.map(\.name), model: model.selection))
     }
 
-    /// Runs `operation`; on context overflow under a `.condense` policy, condenses the store's active view
-    /// as it was before the call to the policy's turn count, and retries once on a fresh session.
+    /// Runs `operation`; on a context overflow, records the window the error reports, then recovers by the policy:
+    /// under `.target` it condenses to the target and retries once (`retryToTarget(_:_:)`); under `.condense` it
+    /// condenses the store's active view as it was before the call to the policy's turn count and retries once on a
+    /// fresh session; under `.failFast` it rethrows. Any other error is rethrown as it is.
     nonisolated(nonsending) private func withOverflowRecovery<T>(_ operation: () async throws -> T) async throws -> T {
         do {
             return try await operation()
@@ -469,10 +487,11 @@ public final class Agent {
         }
     }
 
-    /// Applies a condensation: counts it, saves the transcript before and after, records the
-    /// `context.condensation` event, distils the prose of the turns it drops into facts and, when a batch is
-    /// due, adds them to the running summary when the agent keeps facts (`handOn(_:staying:)`), marks the dropped entries in the store with the event, and moves the session onto the condensed
-    /// view with the facts in force.
+    /// Applies a phase-2 condensation (`.condense(keepTurns:)`): counts it, saves the transcript before and after,
+    /// records the `context.condensation` event, distils the prose of the turns it drops into facts and, when a
+    /// batch is due, adds them to the running summary when the agent keeps facts (`handOn(_:staying:)`), marks the
+    /// dropped entries in the store with the event, and moves the session onto the condensed view with the facts in
+    /// force. Condensing to a target records itself instead (`AgentCondensing.swift`).
     ///
     /// - Parameters:
     ///   - condensation: What the composer decided.
@@ -751,7 +770,14 @@ public final class Agent {
         /// The line beside `cited` when a claim is unsupported (`ReplyVerification.line`); nil otherwise.
         public var verified: String?
 
-        /// Creates a reply.
+        /// Creates a reply; the turn sets the checks beside it once its entries are stored.
+        ///
+        /// - Parameters:
+        ///   - text: The final assistant text.
+        ///   - condensed: Whether the turn condensed the context.
+        ///   - facts: The facts the turn recorded or changed that are in force.
+        ///   - contextNote: The note when condensing reached its floor.
+        ///   - ran: The `ran:` line.
         public init(
             text: String, condensed: Bool, facts: [Fact] = [], contextNote: String? = nil, ran: String? = nil
         ) {
@@ -763,7 +789,11 @@ public final class Agent {
         }
     }
 
-    /// Sends one user turn and returns the reply.
+    /// Sends one user turn and returns the reply, asking the model for the conversation's thinking (``thinking``).
+    ///
+    /// - Parameter prompt: The person's or caller's request.
+    /// - Returns: The reply, with the checks set beside it.
+    /// - Throws: `ContextFailure` when the context cannot be made to fit; framework errors.
     nonisolated(nonsending) public func respond(to prompt: String) async throws -> Reply {
         try await turn(prompt, think: thinking) { try await session.respond(to: prompt).content }
     }

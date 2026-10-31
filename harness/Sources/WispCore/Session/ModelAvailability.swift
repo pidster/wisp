@@ -292,7 +292,11 @@ extension Session {
         return try ConfigEdit.current(keys: keys, in: data)?.objectValue?["capabilities"] == nil
     }
 
-    /// Turns one model on or off in `models.disabled`, as `setModels` does, writing and auditing only a change.
+    /// Turns one model on or off in `models.disabled`, as `setModels` does, writing and auditing only a change: a
+    /// check's outcome on enable (`checkModels` keeps disabled a model that cannot converse, and enables one that can)
+    /// and an uninstall's
+    /// clearing of the entry use it. Every spelling of the model is taken out before it is added back as given.
+    /// When nothing changes, `disabledModels` is still refreshed from the file.
     ///
     /// - Parameters:
     ///   - selection: The model.

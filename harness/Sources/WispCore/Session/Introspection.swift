@@ -4,7 +4,9 @@ import Foundation
 /// MCP `wisp://` resources, and the CLI ([ADR 0018](../../../../docs/decisions/0018-introspection.md)).
 ///
 /// Everything here is local state the operator already owns: the effective configuration, this
-/// conversation's status, the standing approvals, and the audit log. Nothing is written.
+/// conversation's status, the standing approvals, and the audit log. Nothing is written, so a view needs no
+/// approval and cannot change what it reports on. One type renders every view, so the model, an MCP caller,
+/// and the person read the same fields; `Session.introspection` builds one per conversation.
 public struct Introspection: Sendable {
     /// Where the audit files and config live.
     public let home: Home
@@ -12,7 +14,9 @@ public struct Introspection: Sendable {
     public let config: Config.Resolved
     /// Standing approvals; nil outside a session.
     public let store: ApprovalStore?
-    /// This conversation's live facts, supplied by whoever set it up.
+    /// This conversation's live status (its session, turn, model, tools, and session approvals), supplied by
+    /// whoever set it up (`Session.introspection(for:tools:model:)`); a closure so each read is current.
+    /// Empty by default, for the CLI's views of the configuration and the log.
     public let status: @Sendable () -> [String: JSONValue]
 
     /// Creates views over `home` and `config`.
@@ -26,7 +30,9 @@ public struct Introspection: Sendable {
         self.status = status
     }
 
-    /// The effective configuration with every default applied, plus where it came from.
+    /// The effective configuration with every default applied, plus where it came from: `wisp config show`,
+    /// `wisp://config`, and `inspect`'s `config`. A time limit of none is shown as 0, as the settings write it;
+    /// each backend's section is its own `settings(in:home:)` where the backend is registered in this process.
     public var configuration: JSONValue {
         let policy = config.runner.policy
         return .object([
@@ -133,7 +139,9 @@ public struct Introspection: Sendable {
     }
 
     /// What `config.json` sets for a backend this process may not have registered, so every settable key is
-    /// shown; a registered backend's own settings replace it.
+    /// shown; a registered backend's own settings replace it. Only MLX is listed: its backend is registered by
+    /// the `wisp` executable from a target of its own (`WispMLX`), so a process that does not register it still
+    /// shows its keys.
     ///
     /// - Parameter config: The effective configuration.
     /// - Returns: The settings, by scheme.
@@ -166,8 +174,11 @@ public struct Introspection: Sendable {
             })
     }
 
-    /// Audit events matching `query`, oldest first, read from the current and rotated files.
+    /// Audit events matching `query`, oldest first, read from the current and rotated files: the oldest
+    /// rotated file first, up to the `audit.keepFiles` kept, then the current one. A missing file is skipped.
     ///
+    /// - Parameter query: The filter.
+    /// - Returns: The matching events.
     /// - Throws: File-system errors other than a missing file.
     public func audit(_ query: AuditQuery) throws -> [AuditEvent] {
         var files = Array(
@@ -201,7 +212,8 @@ public struct Introspection: Sendable {
         }
     }
 
-    /// The sessions in the audit log, the most recently active last, at most `last` of them.
+    /// The sessions in the audit log, the most recently active last, at most `last` of them. It reads the
+    /// whole log (`audit(_:)`), current and rotated files.
     ///
     /// - Parameter last: How many to keep.
     /// - Returns: The sessions.

@@ -1,6 +1,8 @@
 import Foundation
 
-/// What became of a command the person typed in chat after `!` (ADR 0049).
+/// What became of a command the person typed in chat after `!` or `!!`
+/// ([ADR 0049](../../../../docs/decisions/0049-commands-typed-in-chat.md)), for the chat to show and
+/// `wisp chat --json` to report.
 public struct TypedCommand: Sendable, Equatable {
     /// How it ended.
     public enum Result: Sendable, Equatable {
@@ -19,12 +21,14 @@ public struct TypedCommand: Sendable, Equatable {
     public var directory: String
     /// How it ended.
     public var result: Result
-    /// The facts its output gave (`FactExtraction`, source `person`) that are in force.
+    /// The facts its output gave (`FactExtraction`) that are in force: observations with source `tool` and the
+    /// detail `FactExtraction.personCommandDetail`, so a later run supersedes them (ADR 0049, refined 2026-10-09).
     public var facts: [Fact] = []
 }
 
 extension Agent {
-    /// What a command printed, as the person is shown it: stdout, then stderr, each as captured.
+    /// What a command printed, as the person is shown it and the store keeps it: stdout, then stderr, each as captured
+    /// and ended with a newline so the two never run together.
     ///
     /// - Parameter outcome: The command's outcome.
     /// - Returns: The text; empty when it printed nothing.
@@ -38,8 +42,9 @@ extension Agent {
     /// policy's deny and allow lists, the sandbox, the output bound, and the audit apply, the classifier and the
     /// approval do not. The outcome is audited as `command.typed`; a command that ran is stored as the person's
     /// command (`ThreadRecord.Kind.command`), which the next request carries as a notice with its reference, and
-    /// its output gives facts as `run_command`'s does, with source `person`. A refused command is audited and not
-    /// stored: it did nothing the model needs to know.
+    /// its output gives facts as `run_command`'s does, as observations marked as the person's command (source
+    /// `tool`, not `person`: what a command printed is an observation whoever ran it, ADR 0049 refined 2026-10-09).
+    /// A refused command is audited and not stored: it did nothing the model needs to know.
     ///
     /// It has no timeout (ADR 0049, amended 2026-10-09): the person stops it through `stop`, and one stopped is
     /// recorded as it ended, `stopped` in its audit and its entry.
@@ -104,8 +109,10 @@ extension Agent {
             facts: facts)
     }
 
-    /// Extracts the facts a typed command's output gives, as `run_command`'s would (`FactExtraction`), as observations
-    /// ranked with a tool's and marked as the person's command (`FactExtraction.personCommandDetail`), records them, and refreshes the facts the next request carries.
+    /// Extracts the facts a typed command's output gives, as `run_command`'s would (`FactExtraction`), as
+    /// observations ranked with a tool's and marked as the person's command (`FactExtraction.personCommandDetail`),
+    /// records them against the next turn, the one whose request first carries the command, and refreshes the facts
+    /// that request carries. Nothing when the conversation keeps no facts.
     ///
     /// - Parameters:
     ///   - line: The command line.

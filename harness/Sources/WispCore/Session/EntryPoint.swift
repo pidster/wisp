@@ -1,5 +1,8 @@
 /// Which face of wisp a session belongs to. Recorded on `session.start` and on standing approvals,
 /// and the closed set `docs/logging.md` documents.
+///
+/// Every face begins its session through `Session.begin` with one of these, so the audit can tell which command a
+/// session's events came from; a further conversation opened under a session takes ``thread``.
 public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     /// `wisp respond`: one prompt, one reply.
     case respond
@@ -29,7 +32,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     case facts
     /// `wisp questions pending`, `answer`, or `decline`: the person answering the model's question (ADR 0062).
     case questions
-    /// `wisp models pull`: the person fetching a model (ADR 0052).
+    /// `wisp models add`, `uninstall`, `check`, `enable`, `disable`, or `pull`: the person changing the models wisp
+    /// can run (ADR 0052, ADR 0059).
     case models
     /// `wisp threads delete` or `hand`: the person changing the thread store (ADR 0066, phase 3).
     case threads
@@ -38,7 +42,8 @@ public enum EntryPoint: String, Sendable, Codable, CaseIterable {
     /// `wisp llamacpp serve`: wisp's own llama.cpp server starting, as its LaunchAgent runs it (ADR 0082).
     case llamacpp
 
-    /// The entry point of a further conversation opened under this one.
+    /// The entry point of a further conversation opened under this one: an MCP thread under `mcp`, otherwise the
+    /// same face.
     public var thread: EntryPoint {
         self == .mcp ? .mcpThread : self
     }

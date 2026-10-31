@@ -3,16 +3,23 @@ import Foundation
 /// What `wisp models uninstall` removes for one model, as its backend reads it before anything changes
 /// ([ADR 0075](../../../../docs/decisions/0075-wisp-models-uninstall.md)): Ollama's copy through Ollama's own delete;
 /// a link in wisp's models folder, removed, leaving what it points to; a real folder there, moved to the Bin; and,
-/// asked for with `--purge-cache`, an MLX model's whole folder in the Hugging Face cache, removed. Apple's models are
-/// the system's, and llama.cpp's and LM Studio's their servers', so their backends refuse.
+/// asked for with `--purge-cache`, an MLX model's whole folder in the Hugging Face cache, removed. Under
+/// `llamacpp.server wisp`, a GGUF file the person added is a link in wisp's llama.cpp models folder, and only the
+/// link goes (`LlamaCppModels.removal`, [ADR 0082](../../../../docs/decisions/0082-a-llama-cpp-server-wisp-starts.md)).
+/// Apple's models are the system's, and the models of LM Studio and of a llama.cpp server wisp did not start are
+/// their servers', so those are refused (`Failure.notWisps`).
+///
+/// The plan is read first and carried out only after the person confirms, so what they are shown is what goes; a
+/// removal stopped partway has reported each step it finished (`perform(ollama:report:trash:delete:)`).
 public struct ModelRemoval: Equatable, Sendable {
     /// One thing removed.
     public enum Step: Equatable, Sendable {
         /// Ollama's copy, by its name, through `DELETE /api/delete`.
         case ollama(String)
-        /// A link in the models folder, and what it points to, which stays.
+        /// A link in a models folder (MLX's, Core AI's, or wisp's llama.cpp one), and what it points to, which stays.
         case unlink(URL, pointsTo: URL)
-        /// A real folder in the models folder, moved to the Bin.
+        /// A real folder in the models folder, moved to the Bin rather than deleted, so it can be put back until the
+        /// Bin is emptied (and takes its space until then).
         case trash(URL)
         /// A repository's folder in the Hugging Face cache, every revision and blob in it, removed. Blobs its blobs
         /// link to in a store at the cache's root, which another tool keeps, are not touched.

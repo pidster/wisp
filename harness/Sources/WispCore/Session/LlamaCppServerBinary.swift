@@ -77,7 +77,8 @@ public struct LlamaCppServerBinary: Equatable, Sendable {
     }
 
     /// Why wisp would not start the server named by the setting, as the check before each start and `wisp doctor`
-    /// say it; each but `notSet` ends with the one command that approves the file now at the path.
+    /// say it; each but `notSet` and `unreadable` ends with the one command that approves the file now at the path
+    /// (an unreadable file could not be approved either).
     public enum Refusal: Error, CustomStringConvertible, Equatable {
         /// `llamacpp.serverPath` is not set.
         case notSet
@@ -147,8 +148,9 @@ public struct LlamaCppServerBinary: Equatable, Sendable {
 
     /// A file that passed the check: what to run.
     ///
-    /// Stage 4 runs `executable`, the resolved path that was hashed, not the setting's path, so a link re-pointed
-    /// after the check is not followed. What remains is the moment between hashing and running: whoever can write
+    /// The router's start (``LlamaCppRouter/prepare(_:home:audit:)``, then `execve` in `wisp llamacpp serve`) runs
+    /// `executable`, the resolved path that was hashed, not the setting's path, so a link re-pointed after the check
+    /// is not followed. What remains is the moment between hashing and running: whoever can write
     /// the file itself (for Homebrew, the person's own account, which owns its Cellar) can replace it in that window,
     /// and could as well have replaced it before; macOS has no `fexecve` to run the very bytes hashed.
     public struct Approved: Equatable, Sendable {
@@ -255,7 +257,7 @@ public struct LlamaCppServerBinary: Equatable, Sendable {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// The recorded approval; nil when there is none.
+    /// The recorded approval; nil when there is none, or the file cannot be read at all.
     ///
     /// - Returns: The record.
     /// - Throws: The decoder's error for a record that does not read.

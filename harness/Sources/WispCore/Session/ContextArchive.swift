@@ -5,9 +5,11 @@ import FoundationModels
 /// as Markdown a person can read, each entry under a heading in order. `/inspect context` in chat saves the
 /// transcript the next request will carry, and `Agent` saves the transcript before and after every
 /// condensation, so what was dropped can be seen, not guessed
-/// ([context-management.md](../../../../docs/context-management.md)).
+/// ([context-management.md](../../../../docs/context-management.md)). There is an archive only while the audit
+/// is on (`audit.enabled`, `WispThread`), since the files are the audit's companions, named after its session.
+/// The files are private (0600 in a 0700 directory): a context holds whatever the conversation read.
 public struct ContextArchive: Sendable {
-    /// Where the files go: `<home>/context`, user-only.
+    /// Where the files go: `<home>/context` (`Home.contexts`), user-only.
     public let directory: URL
     /// The audit session the files are named after.
     public let session: String
@@ -19,6 +21,7 @@ public struct ContextArchive: Sendable {
     }
 
     /// Writes `<session>-<label>.md` and `.json`, readable only by the user, and returns the Markdown file.
+    /// Each file is written atomically, so a reader never sees half of one; a file of the same name is replaced.
     ///
     /// - Parameters:
     ///   - transcript: The context to save.
@@ -43,7 +46,9 @@ public struct ContextArchive: Sendable {
     }
 
     /// The transcript as Markdown: a heading per entry naming its kind (and a tool's name), then its text
-    /// exactly, with tool arguments as JSON.
+    /// exactly, with tool arguments as JSON. Prompts are numbered as turns in the order they appear, which after a
+    /// condensation is not the conversation's own numbering; an entry of a kind not listed is printed as Swift
+    /// describes it, so nothing the model saw is left out.
     public static func markdown(_ transcript: Transcript) -> String {
         var sections: [String] = []
         var turn = 0
@@ -69,7 +74,8 @@ public struct ContextArchive: Sendable {
         return "# Context: \(turn) turn\(turn == 1 ? "" : "s")\n\n" + sections.joined(separator: "\n\n") + "\n"
     }
 
-    /// The text of a list of segments, structured content as JSON.
+    /// The text of a list of segments, structured content as JSON; segments of any other kind (an image) are
+    /// left out. ``ContextView`` reads instructions through it too.
     static func text(_ segments: [Transcript.Segment]) -> String {
         segments.compactMap {
             switch $0 {

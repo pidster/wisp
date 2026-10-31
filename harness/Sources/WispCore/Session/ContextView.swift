@@ -2,10 +2,14 @@ import Foundation
 import FoundationModels
 
 /// The model's context as a person reads it, at no cost to the model
-/// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), decision D12): the
+/// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), decision D12;
+/// [ADR 0045](../../../../docs/decisions/0045-layered-context.md), "Consequences"): the
 /// context the next request carries, or the one composed at the start of an earlier turn, entry by entry
-/// under its store id, and a list of the conversation's turns with what changed at each. Chat's `/context`,
-/// `wisp-tui`'s live view, and the MCP `wisp://threads/{thread_id}/context` resources all render it here.
+/// under its store id, and a list of the conversation's turns with what changed at each. Chat's
+/// `/inspect context next|N|turns` (`ChatView`), `wisp-tui`'s panel over it, and the MCP
+/// `wisp://threads/{thread_id}/context` resources all render it here, so every face shows the same thing.
+/// It reads the store and recomposes (`Agent.composition(atTurn:)`); nothing is sent to the model.
+/// Token counts here are estimates at four bytes a token, for comparing turns, not the model's own count.
 public enum ContextView {
     /// One turn of the conversation, as the turn list shows it.
     public struct Turn: Equatable, Sendable {
@@ -37,11 +41,13 @@ public enum ContextView {
         }
     }
 
-    /// How many characters of a prompt a turn row shows.
+    /// How many characters of a prompt a turn row shows; a longer one is cut and ends with an ellipsis.
     static let promptCharacters = 60
 
     /// The turns `agent`'s store can show, oldest first: those since its first (`ThreadRecord.firstTurn`)
-    /// up to the current one.
+    /// up to the current one; turns before the store began (a `/new` starts one at the turn it was typed) are not
+    /// its to show. Each turn's tokens are those of its composition before its tool loop ran: the context it
+    /// started with and its prompt.
     ///
     /// - Parameter agent: The conversation.
     /// - Returns: The turns.

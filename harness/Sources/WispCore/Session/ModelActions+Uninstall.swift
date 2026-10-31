@@ -39,6 +39,10 @@ extension ModelActions {
     /// ([ADR 0075](../../../../docs/decisions/0075-wisp-models-uninstall.md)): shows what goes (the backend's plan, the
     /// bytes, the settings cleared, and a warning when it is the default), asks the person to type its name unless
     /// `yes`, then removes it, recorded as `model.uninstall` and a `config.change` per setting. The person's alone.
+    /// The confirmation is the name typed, not a yes (ADR 0075, decision 3): the name as given, as the plan spells
+    /// it, or without its scheme. The default model's setting is left, with the warning, rather than changed for the
+    /// person. Under `llamacpp.server wisp`, wisp's server is restarted afterwards when launchd has a job to restart
+    /// (`LlamaCppAgent.follow`), since it reads its models only when it starts.
     ///
     /// - Parameters:
     ///   - name: The model, as `--model` spells it.

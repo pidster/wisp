@@ -85,7 +85,8 @@ public enum LlamaCppRouter {
     /// `wisp config`'s words on the context length.
     static let measuredDefaultMemory = "about 5 GB"
 
-    /// The settings that change how the router runs, so changing one restarts it when it runs.
+    /// The settings that change how the router runs, so changing one restarts it when it runs
+    /// (``LlamaCppAgent/Trigger/setting(_:)``): the router reads them only when it starts.
     public static let restartingSettings = [
         "llamacpp.serverPort", "llamacpp.serverContextLength", "llamacpp.serverSlots", "llamacpp.serverModelsLoaded",
         "llamacpp.serverIdleSeconds",
@@ -156,8 +157,11 @@ public enum LlamaCppRouter {
 
     /// Checks everything the start needs and records it: the setting is `wisp`; the approved binary passes its check
     /// (`LlamaCppServerBinary.verify`, which records a refusal as `llamacpp.server.refused`); the key file exists,
-    /// made once; the models folder exists. Records `llamacpp.server.start`, with the arguments, which name the key
-    /// file and never hold the key. The caller replaces its process with the launch.
+    /// made once; the models folder exists, owner only. Records `llamacpp.server.start`, outcome `started` with the
+    /// executable, its digest, and the arguments, which name the key file and never hold the key; or outcome `refused`
+    /// with the reason, for any of the refusals above (a refused binary is so recorded twice, once by each event).
+    /// The caller, `wisp llamacpp serve`, replaces its process with the launch, so launchd supervises `llama-server`
+    /// itself rather than a wisp waiting on it.
     ///
     /// - Parameters:
     ///   - config: The `llamacpp` settings.
@@ -340,9 +344,11 @@ public enum LlamaCppRouter {
         }
     }
 
-    /// What `wisp`'s router failing to answer means, in plain words, with the fix: the binary refused, the agent not
-    /// registered, waiting for approval, held by launchd alone, or refused by launchd, no agent for this home, not
-    /// started yet, or registered and silent.
+    /// What `wisp`'s router failing to answer means, in plain words, with the fix, for `wisp doctor` and a request
+    /// that cannot connect: the binary refused (checked first, since no agent state helps then), the agent not
+    /// registered, waiting for approval, held by launchd alone, refused by launchd, registered by another install, no
+    /// agent for this home, its state unreadable, not started yet (registered, with no key made), or registered and
+    /// silent.
     ///
     /// - Parameters:
     ///   - binary: The approved binary's check.

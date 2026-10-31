@@ -23,12 +23,14 @@ public enum LlamaCppAgent {
     public static let environmentKey = "WISP_LLAMACPP_AGENT"
     /// The arguments after the program: the hidden subcommand.
     public static let serveArguments = ["llamacpp", "serve"]
-    /// Seconds launchd waits before starting the server again after it ended.
+    /// launchd's `ThrottleInterval`: the least seconds between two starts of the job, so a server that ends at once
+    /// (`llama-server` failing to bind a port in use) is retried every 30 s, logged, rather than in a tight loop.
     public static let throttleSeconds = 30
 
     /// Where the agent is registered, or not.
     public enum State: Equatable, Sendable {
-        /// Registered and loaded: launchd runs it.
+        /// Registered by this install and not refused by launchd: for a Login Item, as `SMAppService` reports it; for
+        /// a file in `~/Library/LaunchAgents`, the file there and its job loaded. It may be between starts.
         case registered
         /// Not registered.
         case notRegistered
@@ -295,10 +297,17 @@ public enum LlamaCppAgent {
     /// Registers, unregisters, or restarts the agent as `trigger` asks, saying what it does before it does it, and
     /// records each action as `llamacpp.agent`:
     ///
-    /// - `llamacpp.server` set to `wisp` registers the agent, which starts the server (again, when it ran);
+    /// - `llamacpp.server` set to `wisp` registers the agent, which starts the server (again, when it ran); where
+    ///   another install registered the label's job (`State.registeredElsewhere`), it restarts that job instead, since
+    ///   a second job of the label would compete with it and the router reads the same `~/.wisp`;
     /// - set to anything else, or `wisp uninstall`, unregisters it when it is registered, waiting for approval, or held
-    ///   by launchd (`State.isPresent`), which stops the server;
-    /// - a setting, the approved binary, or the models changing under `wisp` restarts it when registered.
+    ///   by launchd (`State.isPresent`), which stops the server; another install's job is not this wisp's to remove,
+    ///   so turning the server off is refused, naming the holder's command, and `wisp uninstall` leaves it;
+    /// - a setting, the approved binary, or the models changing under `wisp` restarts it when launchd has a job to
+    ///   restart (`State.isRestartable`), since the router reads them only when it starts.
+    ///
+    /// Where this wisp registers nothing (`Means.manual` or `Means.refused`), only turning the server on says so
+    /// (`manual` is skipped, `refused` fails); every other trigger does nothing.
     ///
     /// - Parameters:
     ///   - trigger: What changed.
@@ -531,7 +540,8 @@ struct LaunchAgentFile: LlamaCppAgentControl {
 
     /// Registered when the file is there and launchd has it loaded (`launchctl print` succeeds), or refused when
     /// launchd could not start it; registered elsewhere when launchd holds a job of the label that this file did not
-    /// make (`Wisp.app`'s Login Item, or another file); not registered otherwise.
+    /// make (`Wisp.app`'s Login Item, another file, or, with this file missing, a job that names none); not registered
+    /// otherwise, including a job of this file's path whose file has been removed (registering boots it out first).
     func state() -> LlamaCppAgent.State {
         let printed = launchctl(["print", service])
         guard printed.status == 0 else { return .notRegistered }
@@ -684,7 +694,9 @@ struct LoginItemAgent: LlamaCppAgentControl {
         return result.output
     }
 
-    /// `SMAppService`'s status with what launchd holds, read here or by the app's `wisp`.
+    /// `SMAppService`'s status with what launchd holds (`status(service:target:launchctl:)`), read here when the
+    /// main bundle is the app, or otherwise by the app's own `wisp` (`wisp llamacpp agent status`); a delegation that
+    /// fails is `State.unknown` with its output.
     func state() -> LlamaCppAgent.State {
         guard inBundle else {
             do {
@@ -865,7 +877,8 @@ extension LlamaCppAgent {
     ///
     /// - Parameter verb: `register`, `unregister`, or `status`.
     /// - Returns: What to print.
-    /// - Throws: `Failure`, or `Failure.refused` for another verb or outside the app.
+    /// - Throws: `Failure`, or `Failure.refused` for another verb or outside the app. `repair` never reaches here:
+    ///   the command runs it itself (``repair(home:audit:say:)``), from any `wisp`.
     public static func loginItem(_ verb: String) throws -> String {
         try loginItem(verb, source: AppInstall.source(of: PackageLayout.current), service: AppServiceAgent())
     }

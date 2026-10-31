@@ -3,6 +3,12 @@ import Foundation
 /// Chooses a local model's context window from its shape and the Mac's memory: the largest window whose
 /// key-value cache, with the weights and working buffers, fits the budget, capped at the model's maximum
 /// ([ADR 0043](../../../../docs/decisions/0043-context-window-from-memory.md)).
+///
+/// Ollama sizes its cache to the window it is asked for and reloads the model whenever that changes, so the window
+/// is chosen once, when the model is selected, from what can be read without loading it: `OllamaModel` reads the
+/// shape from `/api/show` and the MLX backend from the model directory's `config.json`. Every estimate errs towards
+/// a smaller window (16-bit cache entries, 32-bit recurrent state), which costs condensing sooner rather than a
+/// model that spills to the CPU or fails to load.
 public enum ContextSizing {
     /// What sizing needs to know about a model, from Ollama's `/api/show` `model_info` or an MLX model's
     /// `config.json`.
@@ -218,7 +224,9 @@ public enum ContextSizing {
 
     /// Windows are multiples of this.
     public static let step = 4096
-    /// The smallest window chosen, as before this rule.
+    /// The smallest window chosen, even when it does not fit the budget (the reason then says so): the window
+    /// window an Ollama model had before this rule, the on-device model's, and the one a model without a readable
+    /// shape still gets.
     public static let floor = 8192
     /// Working buffers that do not grow with the window; 0.2 GiB measured, with margin.
     public static let overhead = 512 << 20
@@ -374,6 +382,12 @@ public enum ContextSizing {
 
     /// The window for a model of `shape` whose weights take `weights` bytes, given `memory` now and
     /// `held` bytes the runtime already holds for this model, which count as available.
+    ///
+    /// The budget is the smaller of `availableShare` of the memory available (with `held`) and `installedShare` of
+    /// installed memory. The window is the largest multiple of `step` at which the weights, the overhead, the
+    /// fixed bytes at the model's maximum window, and the cache per token fit it, capped at `shape.maxContext`,
+    /// and never below `floor` (or the maximum, if smaller): a model that does not fit at the floor is given it
+    /// anyway, slower rather than unusable, and the reason ends with `shortfall`.
     ///
     /// - Parameters:
     ///   - shape: The model's shape.

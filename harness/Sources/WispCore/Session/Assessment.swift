@@ -100,8 +100,9 @@ enum ToolCatalogue {
     static let segmentID = "wisp.catalogue"
 
     /// The catalogue's first line.
+    ///
     /// Measured with `tokenCount(for:)` on the on-device model, 2026-10-01: 14 tokens, where a longer line saying how
-    /// registration works took 25; the eight clauses take 128.
+    /// registration works took 25; the eight clauses there were then took 128.
     static let header = "Tools (each request names its own; call any by name):"
 
     /// One clause per built-in tool, written for the catalogue (D4 measured a hand-written one at 103 tokens for
@@ -120,7 +121,7 @@ enum ToolCatalogue {
         "plan": "a plan of tasks kept across turns",
     ]
 
-    /// The longest a custom tool's clause may be, in characters.
+    /// The longest a custom tool's clause may be, in characters, so one long description cannot outweigh the rest.
     static let customCharacters = 80
 
     /// The clause for `tool`: wisp's own, or the first sentence of a custom tool's description, shortened.
@@ -256,8 +257,9 @@ enum AssessmentRules {
 
     /// The rules' decision for `request`.
     ///
-    /// The tools are settled when there is nothing to choose (no selection, or every allowed tool is always registered), when the
-    /// request names a tool's domain, when it is short, or when it follows up a turn that used tools. The task is
+    /// The tools are settled when there is nothing to choose (no selection, or every allowed tool is always
+    /// registered), when the request names a tool's domain, when it is short, or when it follows up a turn that used
+    /// tools. The task is
     /// settled when it is not inferred here (over MCP), when the person or a caller set it, or when the request is
     /// short or a follow-up. The rules settle the request when both are.
     ///

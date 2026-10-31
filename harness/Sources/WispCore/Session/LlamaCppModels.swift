@@ -49,7 +49,7 @@ public struct LlamaCppModels: Equatable, Sendable {
         public var link: URL
         /// The file it points to, as the link records it.
         public var target: URL
-        /// The file's bytes; nil when it is missing, the link broken.
+        /// The file's bytes; nil when what the link points to is missing or is not a regular file, the link broken.
         public var bytes: Int?
 
         /// Whether the file it points to is missing.

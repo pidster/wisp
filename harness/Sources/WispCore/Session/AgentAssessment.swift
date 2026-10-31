@@ -2,7 +2,8 @@ import Foundation
 import FoundationModels
 
 /// What an agent's assessment carries from one request to the next (phase 4d of the
-/// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)).
+/// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md)). Kept with the store
+/// (`ThreadRecord.Continuity`), so an agent that takes the store over (`/model`) goes on with the same task's tools.
 struct AssessmentState: Sendable, Equatable {
     /// The tools the previous turn called: a follow-up keeps them.
     var previous: Set<String> = []
@@ -23,7 +24,9 @@ extension Agent {
     /// Assesses the request `prompt` before it is sent (decision D12): the rules first, else one model call outside
     /// the context; then records an inferred task, sets the tools the request's session registers and the facts the
     /// now block repeats, and audits it all as `context.assessment`. A failed call falls back to every allowed tool
-    /// with the task unchanged, and never fails the turn.
+    /// with the task unchanged, and never fails the turn. The model call is a side call: it asks for no thinking and
+    /// its session is never the conversation's. Off by default (`assessment.enabled`): the phase-6 checkpoint found it
+    /// cost more than it gave ([ADR 0045](../../../../docs/decisions/0045-layered-context.md)).
     ///
     /// - Parameter prompt: The person's request.
     nonisolated(nonsending) func assess(_ prompt: String) async {

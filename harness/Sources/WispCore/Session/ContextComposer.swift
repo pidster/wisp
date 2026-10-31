@@ -3,7 +3,11 @@ import FoundationModels
 
 /// Builds each request's transcript from a thread's record, within the model's window
 /// ([layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), "What changes in
-/// wisp").
+/// wisp", recorded as [ADR 0045](../../../../docs/decisions/0045-layered-context.md); the defaults since
+/// [ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
+///
+/// The store (`ThreadRecord`) is the faithful record; the model's context is composed from it for each request, so
+/// condensing, cutting, and referencing change only what is sent, never what is kept.
 ///
 /// A request carries the store's active entries, in order: literal turns, as phase 2 of the proposal built
 /// it to reproduce what `Agent` did when it continued one session. Phase 3 adds output handling: with
@@ -15,10 +19,11 @@ import FoundationModels
 /// the same entry id. Condensing keeps the instructions and the last turns (`Transcript.condensed(keepTurns:)`),
 /// ahead of the window at `budget` or on overflow, and the store marks the rest dropped rather than forgetting
 /// them: under phase 2's `.condense(keepTurns:)` a fixed count (`ahead`, `overflow`), under the default
-/// `.target` (phase 5) as many as `TargetCondensing` finds bring the context to its goal (`goal`, `headroom`). Phase 4a adds the facts (`facts`, a `FactFrame` the agent
-/// renders), and phase 4b the running summary of the dropped turns at the end of the earlier block
-/// (`summarises`, `summaryShare`, `summaryBatchTurns`). The composer is pure: it decides, and `Agent` counts
-/// tokens, saves the archive, records the audit events, and applies the result.
+/// `.target` (phase 5) as many as `TargetCondensing` finds bring the context to its goal (`goal`, `headroom`).
+/// Phase 4a adds the facts (`facts`, a `FactFrame` the agent renders), and phase 4b the running summary of the
+/// dropped turns at the end of the earlier block (`summarises`, `summaryShare`, `summaryBatchTurns`). The composer
+/// is pure: it decides, and `Agent` counts tokens, saves the archive, records the audit events, and applies the
+/// result, which keeps every decision testable without a model.
 public struct ContextComposer: Sendable {
     /// A decision to condense: the active view before and after, and the estimate that prompted it.
     public struct Condensation: Sendable {
@@ -30,13 +35,16 @@ public struct ContextComposer: Sendable {
         public let estimate: Int?
     }
 
-    /// Bytes of prompt per token assumed when estimating a new prompt's cost.
+    /// Bytes of text per token assumed wherever the composer estimates rather than counts: a new prompt's cost,
+    /// and the facts' and summary's caps in bytes. Four is the usual rough figure for English text.
     static let bytesPerToken = 4
 
     /// What happens when a prompt no longer fits the context window, and how condensing ahead of it works.
     public var policy: ContextPolicy
     /// The fraction of the context window a turn may start at before the transcript is condensed first: the
-    /// high-water mark. Under `.target`, the turn's headroom counts toward it (`isOverBudget`).
+    /// high-water mark. 0.85; no setting changes it, and only code does (`Agent.contextBudget`, for the evals and
+    /// tests). Under `.target`, the turn's headroom counts toward it (`isOverBudget`), and the target's share is
+    /// capped below it (`effectiveShare(of:)`).
     public var budget = 0.85
     /// Whether the earlier block is squeezed below its cap for this turn: the facts at their 1 KiB floor and no
     /// summary. Set by a condensation to a target that reached its floor (D5's second cut); the agent clears it
@@ -106,7 +114,7 @@ public struct ContextComposer: Sendable {
 
     /// Creates a composer.
     ///
-    /// - Parameter policy: Overflow handling; defaults to condensing to the last four turns.
+    /// - Parameter policy: Overflow handling; defaults to condensing to the default target (`ContextPolicy.default`).
     public init(policy: ContextPolicy = .default) {
         self.policy = policy
     }
@@ -132,8 +140,9 @@ public struct ContextComposer: Sendable {
     }
 
     /// The transcript the next request carries: the store's active entries, in order, each reply with its
-    /// cuts and each tool output as a reference, as the switches say, and never the model's reasoning. Every stored turn is over when this
-    /// is called (a turn's entries are stored when it ends), so every stored output is referenced.
+    /// cuts and each tool output as a reference, as the switches say, and never the model's reasoning
+    /// ([ADR 0053](../../../../docs/decisions/0053-the-models-thinking-shown.md)). Every stored turn is over when
+    /// this is called (a turn's entries are stored when it ends), so every stored output is referenced.
     ///
     /// - Parameter store: The thread's record.
     /// - Returns: The transcript.

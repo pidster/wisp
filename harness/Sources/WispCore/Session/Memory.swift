@@ -6,6 +6,11 @@ import Synchronization
 /// the agent records as facts when the turn ends. The tool, which the framework calls from its own task, never
 /// touches the agent. A turn's own entries are not in the copy: they are stored when the turn ends, and the model
 /// has them whole until then.
+///
+/// A class, shared by the conversation's agent and its `MemoryTool` (`WispThread` makes one per conversation), with
+/// its state behind a lock, since the two run on different tasks. The tool itself is off by default and on with
+/// `context.memory` ([ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md));
+/// `docs/tools/memory.md` describes it as the model meets it.
 public final class MemorySource: Sendable {
     /// One published copy.
     struct Material: Sendable {
@@ -80,7 +85,8 @@ public final class MemorySource: Sendable {
 /// [layered-context proposal](../../../../docs/proposals/2026-09-29-layered-context.md), as widened on 2026-09-30):
 /// a verb, then its object, as the person's chat commands are written. `recall …` restores stored material
 /// (`Recall`); `note SUBJECT NAME = VALUE` records a fact as the model, below the person's and a tool's (D2). A
-/// request with no verb is a recall, so a model that writes only `entry 7` still gets it. Pure.
+/// request with no verb is a recall, so a model that writes only `entry 7` still gets it. Pure: parsing and the
+/// rules for what may be noted live here, and `MemoryTool` does the reading, the audit, and the model calls.
 enum Memory {
     /// What a request asks for.
     enum Command: Equatable, Sendable {
@@ -180,7 +186,8 @@ enum Memory {
         case off
         /// The turn already has `notesPerTurn`.
         case full
-        /// The person or a caller set the task, which the model never replaces (D6).
+        /// The person or a caller set the task, which the model never replaces (D6). The message names the person
+        /// in both cases.
         case pinned(String)
         /// A `task` request with no task before its objective.
         case taskShape

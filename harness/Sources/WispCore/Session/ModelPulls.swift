@@ -61,7 +61,7 @@ public final class ModelPulls: Sendable {
         public var conversation: String
         /// How far it has gone, once it has started fetching.
         public var progress: PullProgress?
-        /// Its task.
+        /// Its task; cancelling it cancels the fetch (`ModelActions.run(_:started:approval:dialog:)`).
         let task: Task<Void, Never>
     }
 
@@ -71,7 +71,7 @@ public final class ModelPulls: Sendable {
     /// Creates an empty set.
     public init() {}
 
-    /// The pulls running, by repository.
+    /// The pulls running, sorted by repository.
     public var all: [Running] { running.withLock { $0.values.sorted { $0.repository < $1.repository } } }
 
     /// Whether `repository` is being pulled.
@@ -105,7 +105,8 @@ public final class ModelPulls: Sendable {
         }
     }
 
-    /// Cancels the pull of `repository`, or every pull when nil.
+    /// Cancels the pull of `repository`, or every pull when nil (`/models cancel`, and the session's end). An entry
+    /// stays until its task ends, which records `cancelled` and posts its note.
     ///
     /// - Parameter repository: The repository; nil for all.
     /// - Returns: The repositories cancelled.

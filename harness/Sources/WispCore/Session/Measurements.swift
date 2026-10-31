@@ -2,10 +2,11 @@ import Foundation
 import Synchronization
 
 /// One measured result of a task the model performs: how many of the eval's cases passed, on which
-/// model, when. Recorded by `scripts/check eval` into `Resources/measurements.json`, embedded at
-/// build time, and published with the tool catalogue so a caller knows which delegations are
-/// reliable ([ADR 0026](../../../../docs/decisions/0026-task-catalogue.md)). A measurement describes
-/// an eval run on one Mac; it is not a certification.
+/// model, when. Recorded by `scripts/check eval record` into `Resources/measurements.json`, embedded at
+/// build time by the `EmbedSystemPrompt` plugin, and published with the tool catalogue (`ToolDescriptions`, the
+/// `wisp://tools` resource) so a caller knows which delegations are reliable
+/// ([ADR 0026](../../../../docs/decisions/0026-task-catalogue.md)). Model routing reads them too
+/// (`ModelRouting`). A measurement describes an eval run on one Mac; it is not a certification.
 public struct Measurement: Codable, Equatable, Sendable {
     /// The task, such as `triage`, `edit_file.replace`, `respond.schema`, `classifier.system-model`.
     public var task: String
@@ -22,15 +23,17 @@ public struct Measurement: Codable, Equatable, Sendable {
     /// What a case is and what counted as a pass, in one sentence.
     public var notes: String
     /// The largest input among the cases, in bytes, when the task routes by input size: the result is
-    /// evidence for inputs up to this size and no further ([ADR 0037](../../../../docs/decisions/0037-routing-by-input-size.md)).
+    /// evidence for inputs up to this size and no further
+    /// ([ADR 0037](../../../../docs/decisions/0037-routing-by-input-size.md)).
     public var maxInputBytes: Int?
     /// The median time per case in milliseconds, when speed is part of what is measured, as it is for
-    /// a classifier that runs on every command ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
+    /// a classifier that runs on every command
+    /// ([ADR 0038](../../../../docs/decisions/0038-fast-specialised-classifiers.md)).
     public var p50Milliseconds: Double?
     /// The 95th-percentile time per case in milliseconds, beside `p50Milliseconds`.
     public var p95Milliseconds: Double?
 
-    /// Creates a measurement dated today.
+    /// Creates a measurement dated today, in the local time zone.
     public init(
         task: String, tool: String? = nil, model: String, passed: Int, total: Int, notes: String,
         maxInputBytes: Int? = nil, p50Milliseconds: Double? = nil, p95Milliseconds: Double? = nil
@@ -47,7 +50,8 @@ public struct Measurement: Codable, Equatable, Sendable {
         self.notes = notes
     }
 
-    /// `passed/total` and the rate.
+    /// `passed/total` and the rate, rounded to a whole percent (0 for no cases), then the median and
+    /// 95th-percentile times when measured; with only a median, it stands for both.
     public var summary: String {
         let rate = total > 0 ? Int((Double(passed) / Double(total) * 100).rounded()) : 0
         let speed = p50Milliseconds.map { p50 in
@@ -59,18 +63,20 @@ public struct Measurement: Codable, Equatable, Sendable {
 
 /// The embedded measurements and how eval runs record new ones.
 public enum Measurements {
-    /// Every measurement shipped in this build, from `Resources/measurements.json`.
+    /// Every measurement shipped in this build, from `Resources/measurements.json`; empty if the embedded text
+    /// does not decode, so a bad file costs the catalogue its numbers, not the process.
     public static let embedded: [Measurement] = decode(MeasurementsText.text) ?? []
 
     /// The environment variable naming the file eval runs record into.
     public static let recordVariable = "WISP_EVAL_RECORD"
 
-    /// Decodes a JSON array of measurements.
+    /// Decodes a JSON array of measurements; nil when the text is not one.
     public static func decode(_ text: String) -> [Measurement]? {
         try? JSONDecoder().decode([Measurement].self, from: Data(text.utf8))
     }
 
-    /// The measurements as pretty JSON, sorted by task, then model, then input size.
+    /// The measurements as pretty JSON, sorted by task, then model, then input size, with a final newline: a
+    /// stable order and layout, so a recorded file's diff shows only what changed.
     public static func encode(_ measurements: [Measurement]) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -81,7 +87,9 @@ public enum Measurements {
         return String(decoding: data, as: UTF8.self) + "\n"
     }
 
-    /// `existing` with `new` replacing any measurement of the same task, model, and input size.
+    /// `existing` with `new` replacing any measurement of the same task, model, and input size: a rerun replaces
+    /// its earlier result rather than accumulating beside it, and a task measured at several input sizes keeps
+    /// one result for each.
     public static func merge(_ existing: [Measurement], with new: Measurement) -> [Measurement] {
         existing.filter { $0.task != new.task || $0.model != new.model || $0.maxInputBytes != new.maxInputBytes }
             + [new]
@@ -175,7 +183,7 @@ public enum Measurements {
         try body()
     }
 
-    /// The measurements for one tool, by name.
+    /// The measurements for one tool, by name: what its catalogue entry shows (`ToolDescriptions`).
     public static func forTool(_ name: String, in measurements: [Measurement] = embedded) -> [Measurement] {
         measurements.filter { $0.tool == name }
     }

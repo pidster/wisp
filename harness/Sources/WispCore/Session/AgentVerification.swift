@@ -13,7 +13,9 @@ public enum VerificationMode: String, Codable, CaseIterable, Sendable {
     case model
 }
 
-/// What the verification pass found for one reply.
+/// What the verification pass found for one reply
+/// ([ADR 0060](../../../../docs/decisions/0060-a-verification-pass.md)): carried on ``Agent/Reply``, returned by
+/// `respond` as `verification`, and recorded as `response.verification`. A reply with nothing to check has none.
 public struct Verification: Equatable, Sendable {
     /// Whether a claim was unsupported.
     public enum Status: String, Sendable {
@@ -31,9 +33,10 @@ public struct Verification: Equatable, Sendable {
         case model
     }
 
-    /// The status.
+    /// Whether a claim was unsupported.
     public var status: Status
-    /// The method.
+    /// Which check spoke last: `model` once the model step ran, even when it failed and the readers' verdict
+    /// stands (`failure` says so).
     public var method: Method
     /// The unsupported claims; empty when verified.
     public var claims: [ReplyVerification.Claim]
@@ -43,6 +46,13 @@ public struct Verification: Equatable, Sendable {
     public var failure: String?
 
     /// Creates a verification.
+    ///
+    /// - Parameters:
+    ///   - status: Whether a claim was unsupported.
+    ///   - method: Which check spoke last.
+    ///   - claims: The unsupported claims.
+    ///   - calls: How many of the turn's calls were checked against.
+    ///   - failure: Why the model step gave no verdict.
     public init(status: Status, method: Method, claims: [ReplyVerification.Claim], calls: Int, failure: String? = nil) {
         self.status = status
         self.method = method
@@ -83,7 +93,8 @@ public enum ReplyVerifier {
         var verdict: Status
     }
 
-    /// The verdict's two values.
+    /// The verdict's two values, as the model generates them; kept apart from ``Verification/Status``, which is
+    /// public and not `@Generable`.
     @Generable
     enum Status: String {
         /// Every result reported comes from a listed call.
@@ -92,8 +103,8 @@ public enum ReplyVerifier {
         case unsupported
     }
 
-    /// The most bytes the prompt holds in all: about 1,500 tokens, so the on-device model's window takes it with
-    /// the instructions.
+    /// The most bytes the prompt holds in all: about 1,500 tokens, so the on-device model's 8,192-token window
+    /// takes it with the instructions. Calls past the budget are left out and counted.
     public static let inputBytes = 6_000
     /// The most bytes of the reply the prompt holds.
     public static let replyBytes = 2_400
@@ -146,7 +157,8 @@ public enum ReplyVerifier {
         return (text, listed)
     }
 
-    /// How a call ended, in a few words.
+    /// How a call ended, in a few words, by the same reading as the `ran:` line (`TurnToolSummary.outcome(of:)`), so
+    /// the two never disagree.
     static func outcome(of call: TurnCalls.Call) -> String {
         switch TurnToolSummary.outcome(of: call) {
         case .denied: return "denied by the policy, never ran"
@@ -161,7 +173,8 @@ public enum ReplyVerifier {
         }
     }
 
-    /// `text` within `excerptBytes`: whole when it fits, else its head and tail with the cut noted, on one line.
+    /// `text` within `excerptBytes`: whole when it fits, else its head and tail with the cut noted, on one line,
+    /// newlines shown as `⏎` so each call stays one entry of the list.
     static func excerpt(_ text: String) -> String {
         let folded = text.split(whereSeparator: \.isNewline).joined(separator: " ⏎ ")
         guard folded.utf8.count > excerptBytes else { return folded }
@@ -223,7 +236,9 @@ public enum ReplyVerifier {
 }
 
 extension Agent {
-    /// The most earlier calls kept as the verification pass's second support.
+    /// The most earlier calls kept as the verification pass's second support: a claim only an earlier turn's call
+    /// supports is not flagged, since a reply may report what an earlier turn found (ADR 0060). The oldest go first,
+    /// so the record kept with the store stays bounded however long the conversation runs.
     static let earlierCallsLimit = 256
 
     /// Checks `reply` against `calls`, the turn's complete call list, by the mode (ADR 0060): the exact readers
@@ -231,6 +246,10 @@ extension Agent {
     /// model; records `response.verification` when something was checked; and keeps the calls as earlier support
     /// for the next reply. Nil when nothing was checked: the pass is off, there is no call list, or the reply has no
     /// result language. A failed model call never fails the turn.
+    ///
+    /// Besides the calls, two records support a claim without being calls: an answer the person gave to the model's
+    /// question, delivered as a fact after the turn parked (ADR 0062), and the person's own prompts, for a reply that
+    /// says they said something.
     ///
     /// - Parameters:
     ///   - reply: The reply's text.

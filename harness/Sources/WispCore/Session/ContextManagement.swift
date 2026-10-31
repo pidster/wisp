@@ -1,8 +1,12 @@
 import FoundationModels
 
-/// How an `Agent` reacts when a prompt no longer fits the model's context window.
+/// How an `Agent` reacts when a prompt no longer fits the model's context window, and whether it condenses ahead
+/// of it. The default condenses to a token target
+/// ([ADR 0045](../../../../docs/decisions/0045-layered-context.md), amending
+/// [ADR 0025](../../../../docs/decisions/0025-context-estimation.md)); `docs/context-management.md`, "Condensing",
+/// describes each step.
 public enum ContextPolicy: Sendable, Equatable {
-    /// Surface `LanguageModelError.contextSizeExceeded` to the caller.
+    /// Surface `LanguageModelError.contextSizeExceeded` to the caller, and never condense ahead of the window.
     case failFast
     /// Phase 2's condensing: keep the instructions and the last `keepTurns` turns, with no check that the result
     /// fits, ahead of the window and on overflow (then retry once). Kept for the equivalence suite and for tests
@@ -19,7 +23,8 @@ public enum ContextPolicy: Sendable, Equatable {
     public static let fixed = ContextPolicy.condense(keepTurns: 4)
 }
 
-/// What condensing to a target aims for (`ContextPolicy.target`).
+/// What condensing to a target aims for (`ContextPolicy.target`), set by `context.target` and
+/// `context.headroomTurns` ([ADR 0057](../../../../docs/decisions/0057-context-defaults-from-checkpoint-2.md)).
 public struct ContextTarget: Sendable, Equatable {
     /// The low-water mark: the share of the window a condensation brings the context down to. 0.6 by default
     /// since context checkpoint 2 (ADR 0057), which scored it above 0.5 on the on-device model and granite4.1:8b
@@ -163,7 +168,8 @@ extension ThreadRecord {
 }
 
 /// Why a request could not be fitted into the model's window after condensing (phase 5 of the layered-context
-/// proposal): the overflow retry either sends something that fits or reports this.
+/// proposal): the overflow retry either sends something that fits or reports this, in place of the framework's
+/// bare overflow error, so the person is told what to do.
 public enum ContextFailure: Error, CustomStringConvertible, Equatable {
     /// Condensed to its floor, the instructions, the last turn, and the request still need `tokens` of a
     /// `window`-token window, as the model counted them or wisp estimated them.
