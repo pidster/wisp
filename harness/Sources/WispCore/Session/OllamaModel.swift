@@ -636,7 +636,8 @@ public struct OllamaModel: LanguageModel, Sendable {
             }
             var input = 0
             var output = 0
-            var relay = ReplyRelay(request: request, channel: channel)
+            var relay = ReplyRelay(
+                request: request, channel: channel, thinks: model.reported?.contains("thinking") == true)
             var done = false
             do {
                 for try await line in bytes.lines {

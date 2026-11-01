@@ -365,6 +365,21 @@ final class FakeChatServer: URLProtocol {
         #expect(!second.contains("7 times") && second.contains("and 97?"), "\(second)")
     }
 
+    @Test func thinkingWrittenIntoTheReplyIsThinking() async throws {
+        // LM Studio's qwen3-8b reports reasoning; with thinking off the server separates none, and the reply's text
+        // carries the block closed by a lone tag.
+        let content = ["Two words", " asked.", "</think>", "\n\nNo."].map { Self.chunk(["content": .string($0)]) }
+        FakeChatServer.serve(
+            Self.studio, Self.chat, content.joined() + Self.chunk([:], finish: "stop") + Self.done)
+        let sink = MemoryAuditSink()
+        let agent = Agent(
+            instructions: "x", tools: [], model: try Self.resolved(.lmStudio, Self.toolModel(.lmStudio)),
+            audit: AuditLog(session: "s", sink: sink))
+        #expect(try await agent.stream("Is 91 prime?") { _ in }.text == "No.")
+        let thought = sink.events.last { $0.kind == .modelReasoning && $0.details["phase"] == "end" }
+        #expect(thought?.details["text"] == "Two words asked.")
+    }
+
     @Test func aReasoningCountTheServerReportsIsUsed() async throws {
         FakeChatServer.serve(
             Self.llama, Self.chat,

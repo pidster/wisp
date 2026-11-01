@@ -16,6 +16,10 @@ Changed:
 
 Fixed:
 
+- A model that reasons with thinking off, writing its working-out into the reply and closing it with `</think>`
+  (`granite4.2:8b` through Ollama, now and then), no longer has that taken for its answer: on Ollama, llama.cpp,
+  and LM Studio it is kept as the turn's thinking, as MLX already did. In chat, a thinking model's reply with
+  thinking off now appears whole rather than streamed, since wisp cannot tell it is thinking until the tag.
 - With the `plan` tool on, `edit_file`'s results now end with the plan's reminder to mark the task, as every other
   tool's do; it was the one tool left out.
 - A name wisp turns into a file name (a saved transcript's name, an output's id) can no longer

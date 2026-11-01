@@ -12,7 +12,26 @@ import Synchronization
 /// calls written as text in Mistral's format (`TextToolCalls.mistral`), with any calls the runtime parsed meanwhile
 /// waiting behind it so the calls keep the order the model wrote them in; it is sent as the reply once it plainly is
 /// not, or read as calls at the end when it is exactly that.
+///
+/// For a model that thinks, the reply's text may carry thinking the runtime did not separate: a `<think>` block, or,
+/// with thinking off, reasoning closed by a lone `</think>` (`granite4.2:8b` through Ollama, 9 replies in the audit log
+/// by 2026-11-01). Text that opens with the tag is thinking from the start and streams as such; other text is held
+/// until a closing tag makes what came before it thinking, or the reply ends and it was all reply. Once the runtime
+/// sends thinking of its own, it is the one separating, and the text is the reply as it comes.
 struct ReplyRelay {
+    /// The tags a thinking block is written in, by the templates wisp has met.
+    static let tags = ThinkingFormat(open: "<think>", close: "</think>", toggle: false)
+
+    /// Where the reply's text stands against a thinking block written into it.
+    private enum Written {
+        /// Not yet known: held, while it may be thinking.
+        case unsure
+        /// Split by the tags as it comes.
+        case split(ThinkingSplitter)
+        /// The reply, as it comes.
+        case reply
+    }
+
     /// The request, for its tools' schemas and its id.
     let request: LanguageModelExecutorGenerationRequest
     /// Where the events go.
@@ -29,22 +48,28 @@ struct ReplyRelay {
     private var heldText = ""
     /// Calls the runtime parsed while text was held.
     private var heldCalls: [ChatMessage.ToolCall] = []
+    /// Where the text stands against a thinking block written into it.
+    private var written: Written
+    /// The text held while that is unsure.
+    private var unsureText = ""
 
     /// A relay for one request.
     ///
     /// - Parameters:
     ///   - request: The request.
     ///   - channel: Where events go.
+    ///   - thinks: Whether the model thinks, so its text may carry thinking.
     ///   - observer: The turn's reasoning observer, by default the one bound for the turn.
     init(
         request: LanguageModelExecutorGenerationRequest, channel: LanguageModelExecutorGenerationChannel,
-        observer: ReasoningObserver? = ReasoningObserver.current
+        thinks: Bool = false, observer: ReasoningObserver? = ReasoningObserver.current
     ) {
         self.request = request
         self.channel = channel
         thinking = ThinkingStretch(observer: observer)
         offered = Set(request.enabledToolDefinitions.map(\.name))
         holding = !offered.isEmpty && request.schema == nil
+        written = thinks ? .unsure : .reply
     }
 
     /// Tokens of thinking in the whole request, as the chunks counted them.
@@ -57,14 +82,88 @@ struct ReplyRelay {
     ///   - tokens: Its tokens; a chunk is one by default, as the runtimes stream them.
     nonisolated(nonsending) mutating func think(_ text: String, tokens: Int = 1) async {
         guard !text.isEmpty else { return }
+        if case .unsure = written, unsureText.isEmpty { written = .reply }
+        await thought(text, tokens: tokens)
+    }
+
+    /// Sends thinking.
+    ///
+    /// - Parameters:
+    ///   - text: The thinking.
+    ///   - tokens: Its tokens.
+    nonisolated(nonsending) private mutating func thought(_ text: String, tokens: Int = 1) async {
         thinking.think(text, tokens: tokens)
         await channel.send(.reasoning(action: .appendText(text, tokenCount: tokens)))
     }
 
-    /// Relays a chunk of the reply's text, ending any thinking; held while it may be calls written as text.
+    /// Relays a chunk of the reply's text: split from thinking written into it, held while that is unsure.
     ///
     /// - Parameter text: The text.
     nonisolated(nonsending) mutating func reply(_ text: String) async {
+        guard !text.isEmpty else { return }
+        switch written {
+        case .reply:
+            await answer(text)
+        case .split(var splitter):
+            let pieces = splitter.feed(text)
+            written = .split(splitter)
+            await route(pieces)
+        case .unsure:
+            unsureText += text
+            let start = unsureText.drop { $0.isWhitespace }
+            if start.hasPrefix(Self.tags.open) {
+                await begin(primed: false)
+            } else if unsureText.contains(Self.tags.close) {
+                await begin(primed: true)
+            }
+        }
+    }
+
+    /// Splits the held text, and what follows it, by the tags.
+    ///
+    /// - Parameter primed: Whether the text began inside a block, its opening tag never written.
+    nonisolated(nonsending) private mutating func begin(primed: Bool) async {
+        var splitter = ThinkingSplitter(format: Self.tags, primed: primed)
+        let pieces = splitter.feed(unsureText)
+        unsureText = ""
+        written = .split(splitter)
+        await route(pieces)
+    }
+
+    /// Sends the pieces a splitter resolved, each as what it is.
+    ///
+    /// - Parameter pieces: The pieces.
+    nonisolated(nonsending) private mutating func route(_ pieces: [ThinkingSplitter.Piece]) async {
+        for piece in pieces {
+            switch piece {
+            case .thought(let text): await thought(text)
+            case .reply(let text): await answer(text)
+            }
+        }
+    }
+
+    /// Ends the text's thinking: held text was the reply after all, and an open block ends where a call follows.
+    nonisolated(nonsending) private mutating func settle() async {
+        switch written {
+        case .reply:
+            return
+        case .unsure:
+            let text = unsureText
+            unsureText = ""
+            written = .reply
+            await answer(text)
+        case .split(var splitter):
+            let pieces = splitter.finish()
+            splitter.leaveThinking()
+            written = .split(splitter)
+            await route(pieces)
+        }
+    }
+
+    /// Relays reply text, ending any thinking; held while it may be calls written as text.
+    ///
+    /// - Parameter text: The text.
+    nonisolated(nonsending) private mutating func answer(_ text: String) async {
         guard !text.isEmpty else { return }
         thinking.end()
         guard holding else {
@@ -88,6 +187,7 @@ struct ReplyRelay {
     ///   - name: The tool's name.
     ///   - arguments: The arguments as the model wrote them.
     nonisolated(nonsending) mutating func call(_ name: String, _ arguments: JSONValue) async {
+        await settle()
         thinking.end()
         if holding && !heldText.isEmpty {
             heldCalls.append(ChatMessage.ToolCall(name: name, arguments: arguments))
@@ -99,6 +199,7 @@ struct ReplyRelay {
     /// Ends the reply once the runtime said it is done: thinking ends, and held text is sent as calls when it is
     /// exactly calls in Mistral's format, else as the reply, followed by the calls that waited behind it.
     nonisolated(nonsending) mutating func finish() async {
+        await settle()
         thinking.end()
         guard !heldText.isEmpty else { return }
         if let recovered = TextToolCalls.mistral(heldText, offered: offered) {

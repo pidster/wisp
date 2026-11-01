@@ -471,6 +471,40 @@ final class FakeOllama: URLProtocol {
         #expect(!second.contains("7 times") && second.contains("and 97?"), "\(second)")
     }
 
+    /// The reply and the thinking a model that thinks gives when its stream's `content` is `contents`, and Ollama
+    /// sends no thinking of its own.
+    static func written(
+        _ contents: [String], capabilities: String = #""completion","thinking""#
+    ) async throws
+        -> (reply: String, thinking: String?)
+    {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: #"{"capabilities":[\#(capabilities)]}"#)
+        FakeOllama.serve("/api/chat", body: Self.chunks(contents))
+        let config = Config(ollama: .init(baseURL: "http://fake.ollama:1", timeoutSeconds: 5, think: .off)).resolved
+        let sink = MemoryAuditSink()
+        let agent = Agent(
+            instructions: "x", tools: [], model: try ModelSelection.ollama("q").resolve(config: config),
+            audit: AuditLog(session: "s", sink: sink))
+        let reply = try await agent.stream("hi") { _ in }
+        let thought = sink.events.last { $0.kind == .modelReasoning && $0.details["phase"] == "end" }
+        return (reply.text, thought?.details["text"]?.stringValue)
+    }
+
+    @Test func reasoningClosedByALoneTagInTheReplyIsThinking() async throws {
+        // granite4.2:8b with thinking off, as the audit log had it nine times by 2026-11-01: no opening tag, the
+        // closing one split across chunks.
+        let lone = try await Self.written(["The user", " wants a word.", "</th", "ink>", "\n\nNo", "."])
+        #expect(lone.reply == "No." && lone.thinking == "The user wants a word.", "\(lone)")
+        let opened = try await Self.written(["\n<think>", "Is 91 prime?", "</think>\n", "No."])
+        #expect(opened.reply == "No." && opened.thinking == "Is 91 prime?", "\(opened)")
+        // Without the tags it is all the reply, and a model that cannot think is never split.
+        let plain = try await Self.written(["No", "."])
+        #expect(plain.reply == "No." && plain.thinking == nil, "\(plain)")
+        let unthinking = try await Self.written(["a", "</think>", "b"], capabilities: #""completion""#)
+        #expect(unthinking.reply == "a</think>b" && unthinking.thinking == nil, "\(unthinking)")
+    }
+
     @Test func thinkIsSentOnlyWhenConfiguredAndTheModelCanThink() async throws {
         FakeOllama.serve("/api/tags", body: Self.tags)
         FakeOllama.serve("/api/chat", body: #"{"message":{"role":"assistant","content":"ok"},"done":true}"# + "\n")

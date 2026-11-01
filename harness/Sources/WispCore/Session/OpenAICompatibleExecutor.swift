@@ -223,7 +223,8 @@ extension OpenAICompatibleModel {
                 }
                 throw refusal(status: status, body: body, window: model.window)
             }
-            var relay = ReplyRelay(request: request, channel: channel)
+            var relay = ReplyRelay(
+                request: request, channel: channel, thinks: model.capabilities.contains(.reasoning))
             var stream = StreamState()
             do {
                 for try await line in bytes.lines {

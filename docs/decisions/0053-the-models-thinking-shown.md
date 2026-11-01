@@ -1,6 +1,6 @@
 # ADR 0053: The model's thinking shown
 
-Date: 2026-10-04. Status: accepted. Amended on 2026-10-11: thinking chosen per model and per call (below).
+Date: 2026-10-04. Status: accepted. Amended on 2026-10-11: thinking chosen per model and per call (below). Amended on 2026-11-01: thinking written into the reply (at the end).
 
 ## Context
 
@@ -203,3 +203,17 @@ every level think without a limit and say nothing. A reply that thinks past its 
 `wisp doctor` asks a llama.cpp server whose model thinks to keep to 32 tokens (the `llama.cpp thinking budget`
 finding; 0.7.0 used 37). The executor does not stop such a reply, which is the model's own answer, nor turn the
 level into `true` silently; the log and the doctor say what happened.
+
+Amended on 2026-11-01: thinking written into the reply. With thinking off, `granite4.2:8b` through Ollama sometimes
+reasons anyway and writes it into `content`, closed by a lone `</think>`: 9 of the audit log's 492 replies by that day,
+none with an opening tag and none with thinking Ollama separated. Its template writes the opening tag into the prompt
+(`<think>\n` with thinking on, `<think></think>` off), so the block begins where the output does. wisp passed it on as
+the reply, which verification then marked unsupported. The splitter the MLX executor uses (`ThinkingFormat`,
+`ThinkingSplitter`) moved into `WispCore`, and `ReplyRelay`, which the Ollama and OpenAI-compatible executors share,
+splits by it for a model that thinks: text that opens with `<think>` is thinking from the start and streams as such;
+other text is held until a closing tag makes what came before it thinking, or the reply ends and it was all reply.
+Once the runtime sends thinking of its own it is the one separating, and the text streams as the reply. The person
+chose holding over streaming and cleaning the record afterwards, so the screen and the record never differ; a reply
+to `respond` never streamed, and in chat the cost is a reply from a thinking model with thinking off shown whole.
+Tests without a model: both shapes through Ollama's executor and LM Studio's, a reply without tags, and a model that
+cannot think left alone.
