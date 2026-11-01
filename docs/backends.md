@@ -102,6 +102,13 @@ How each runtime takes it:
 
 A model that cannot think is sent nothing, whatever is asked. MLX's bridge executor decides for itself.
 
+A model asked not to think may think anyway and write it into the reply: `granite4.2:8b` through Ollama now and then
+reasons and closes it with a lone `</think>`, its template having opened the block in the prompt. For a model that
+can think, wisp takes such text as thinking on every runtime, not only MLX: a reply that opens with `<think>` is
+thinking until the tag closes, and other text is held until a closing tag makes what came before it thinking, or the
+reply ends and it was all reply; once the runtime sends thinking of its own, the text streams as it comes
+([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-11-01).
+
 ## Ollama
 
 Install and run [Ollama](https://ollama.com); `ollama pull <name>` fetches a model. `config.json`:
