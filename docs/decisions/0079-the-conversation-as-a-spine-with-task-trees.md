@@ -8,7 +8,8 @@ tool's scope: the model can read, write, and search and filter the tree. Everyth
 agreed. On 2026-10-24 the operator chose that plans are Agent Skills the person configures
 ([ADR 0080](0080-agent-skills.md)): a skill's body is a brief, and using a skill roots a tree. On 2026-10-24 the operator also chose to build
 the tool first, recording and tracking only: [ADR 0081](0081-the-plan-tool.md), the `plan` tool, built for 0.32.0. ADR 0078 keeps what a plan may do and when it runs (the grant, triggers, channels, protection) and builds on
-this one.
+this one. Amended on 2026-11-02: what 0.32.0 built of this record, and the next part, agreed by the operator (at the
+end).
 
 ## Context
 
@@ -124,3 +125,47 @@ audited; and a way to give each step only the context it needs.
   [roadmap](../roadmap.md)'s track on protecting wisp's state from other agents.
 - The store, the composer, the audit, the thread store, and the `wisp://threads` resources all change; the turn
   remains the unit they are built around, which is why a tree is rooted at one.
+
+## Amendment of 2026-11-02: what is built, and the next part
+
+The `plan` tool ([ADR 0081](0081-the-plan-tool.md), 0.32.0) built part of this record under another name. Read
+against it on 2026-11-02:
+
+| Decision | State |
+| --- | --- |
+| 1, the conversation is the spine | Built: trees hang off turns and are saved and resumed with the thread |
+| 2, a tree rooted at a turn | Built, as ADR 0081 decision 5 changed it: trees `t1`, tasks `t1.2`, the prompt's store id recorded beside. A turn that plans nothing is not a tree of one leaf |
+| 3, the spine sees a reference | Built: a now-block line a tree, `to see it: plan tree t1` (ADR 0081 decision 9) |
+| 4, a trigger adds a point | Not built; waits on ADR 0078's triggers |
+| 5, a task's fields | Goal, status, dependencies, and a note built; primitive, brief, result as a reference, and `waiting` not |
+| 6, dependencies cross trees | Built, cycles refused |
+| 7, a task links to the record | Not built |
+| 8 to 10, briefs | Not built; they matter once a task runs as a turn of its own |
+| 11, the tool | Built as `plan`, every action, off by default; `find` has no search by time |
+| 12, who may change what | The model changes everything; the runner's rule waits for a runner (ADR 0081 decision 2); the person reads only |
+| 13, the person sees it | Built: `/plan`, `wisp threads plan`, `wisp://threads/{thread_id}/plan`; kept in `record.store`, not `tasks.json` |
+| 14, audited | Built: `plan.add`, `plan.depend`, `plan.update`; turn events carry no task id |
+| 15 to 18, running | Not built: no runner |
+
+Agreed by the operator on 2026-11-02:
+
+19. **The rest of this record extends `plan`**; there is no second `tasks` tool. Where this record says `tasks`, read
+    `plan`.
+20. **The next part is used interactively before anything runs on its own** (the order agreed on 2026-11-01: this
+    part built and used with the person present and the usual approvals; then ADR 0078's grants held only for one
+    conversation; stored and scheduled grants only after the protection track). It has four pieces:
+    - **A, links to the record** (decision 7): the tool calls and audit events made while a task is running carry its
+      id, and `plan show` lists what it ran and its output as references.
+    - **B, the person changes the plan**: done, skip, reopen, and add from chat, `wisp-tui`, and a terminal, audited
+      as the person's changes, where today the person only reads it.
+    - **C, `waiting` tied to `ask`**: a task waits on a question put to the person, and settles when it is answered.
+    - **D, the planning nudge**: a variant in the plan probe first, for a turn asked to plan that adds no task (ADR
+      0081's consequence on `granite4.2:8b`), and a reminder only if the probe shows it helps.
+
+    **Pending**, to be proposed with the build: for A, which events carry the id and how a call is matched to a task
+    when none or several are running; for B, the commands' names, whether the person's change is a turn on the
+    spine, and how the model learns of it; for C, whether the model or wisp sets `waiting`, and what the answer does
+    to the task's status; for D, the probe variant's prompt and the bar for adopting it.
+
+Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
+with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).
