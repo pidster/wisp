@@ -356,6 +356,7 @@ html.light .hero-art img {
 .models-inner { display: grid; gap: 32px; align-items: center; }
 @media (min-width: 900px) { .models-inner { grid-template-columns: 1fr 1fr; } }
 .models .section-lede { margin-bottom: 0; }
+.section-lede .more { margin-top: 0; white-space: nowrap; }
 .chips { list-style: none; margin: 24px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
 .chips li { background: var(--raised); border: 1px solid var(--rule); border-radius: 999px; padding: 8px 16px; color: var(--muted); font-size: 0.92rem; }
 .chips code { color: var(--strong); margin-right: 4px; }
