@@ -225,6 +225,11 @@ Agreed by the operator on 2026-11-02, for D:
     call, so a request of one call never sees it. A one-step control problem joins the probe under every variant,
     counting whether a model plans what needs no plan. It is built behind `PlanBook(nudgesPlanning:)`, off wherever
     wisp opens a book, as the probe's `next` variant is; whether it ships, the operator decides on the results.
+    Measured on 2026-11-02 ([measurements.md](../measurements.md), "A nudge to plan"): no change on `granite4.2:8b`,
+    which still did the reading problem without a task in every conversation, nudged or not; nothing to do on Bonsai 2
+    9B, which always planned; none on `gemma4:12b`; and no model planned the control. **Not adopted**: it stays a probe
+    variant, off. `granite4.2:8b` seems not to link "make a plan" with the tool, which its description may address
+    instead, measured as a variant of its own.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

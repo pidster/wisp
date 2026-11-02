@@ -762,6 +762,34 @@ most conversations. Those conversations count five stalled turns each, since "go
 empty and nothing was left to do; the stalls measure the probe there, not the model. A conversation took about 80 s
 not thinking against about 30 s for `granite4.1:8b`.
 
+### A nudge to plan, 2026-11-02
+
+The plan probe again, for [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decision 25, with
+a fifth variant, `planning`: the shipped reminder, and, from a turn's second result of another tool while the plan had
+no open task and the turn had rooted no tree, a line ending the result (`[plan: this work has several steps and the
+plan has none for it; add them with plan add, then mark each as you go]`). A one-step control problem ("Which version
+of macOS is this Mac running?") joined every variant, counting whether a model planned what needed no plan. Two runs a
+cell, 74 minutes in all; each model as configured (`granite4.2:8b` not thinking, Bonsai 2 9B on wisp's own llama.cpp
+router thinking `low`, `gemma4:12b` thinking).
+
+| Variant | `granite4.2:8b` | `llamacpp:Ternary-Bonsai-2-9B-Q2_0` | `gemma4:12b` |
+| --- | --- | --- | --- |
+| `none` | 4/6 | 5/6 | 5/6 |
+| `next` | 4/6 | 5/6 | 6/6 |
+| `reminder` (shipped) | 3/6 | 3/6 | 6/6 |
+| `both` | 4/6 | 4/6 | 6/6 |
+| `planning` | 3/6 | 6/6 | 5/6 |
+| Control planned | 0/10 | 0/10 | 0/10 |
+
+The nudge changed nothing measured. `granite4.2:8b` missed the problem of reading three files in all ten of its
+conversations, the two nudged ones included: it read the files without adding a task, and the line did not turn it to
+the plan; it planned the other two problems under every variant. Bonsai planned before working in every conversation
+that ran, so the line had nothing to do; its misses under `next`, `reminder`, and `both` were six conversations ended by
+the framework's "Session ended without producing a response", an empty response after tool calls that its earlier
+evals show too (2026-10-17, 2026-10-30), and none came under `planning` by chance. `gemma4:12b`'s miss under
+`planning` was the conversation its miss under `none` was: three of four tasks settled, then five stalled turns. No
+model planned the control under any variant. The operator chose not to ship it.
+
 ## Context checkpoint 2
 
 ```
