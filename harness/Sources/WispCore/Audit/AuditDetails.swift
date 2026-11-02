@@ -937,6 +937,7 @@ extension AuditEvent {
         case .prompt: ["text", "schema", "think"]
         case .response: ["text", "condensed", "seconds", "usage"]
         case .turnStopped: ["seconds", "killed"]
+        case .turnEmpty: ["outcome"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
         case .toolCall: ["tool", "arguments", "task"]
         case .toolResult: ["tool", "output", "bytes", "seconds", "repeat"]

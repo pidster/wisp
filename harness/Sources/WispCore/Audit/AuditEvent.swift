@@ -70,6 +70,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case prompt
         case response
         case turnStopped
+        case turnEmpty
         case modelReasoning
         case toolCall
         case toolResult
@@ -143,6 +144,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .prompt,
             .response,
             .turnStopped,
+            .turnEmpty,
             .modelReasoning,
             .toolCall,
             .toolResult,
@@ -216,6 +218,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .prompt: "prompt"
             case .response: "response"
             case .turnStopped: "turn.stopped"
+            case .turnEmpty: "turn.empty"
             case .modelReasoning: "model.reasoning"
             case .toolCall: "tool.call"
             case .toolResult: "tool.result"

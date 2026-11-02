@@ -345,7 +345,11 @@ session of its own with a `@Generable` answer, adds tools (only allowed ones), a
 entry's definitions to the registered tools (`instructed`), and the agent builds each session with only those tools
 (`registeredTools`), starting a new session when the set changes. The now block gains the relevant facts and the tools
 line (`requestNotes`, `FactFrame.addingNow`). `withToolRecovery`, outside the overflow recovery, retries a request
-once with every tool when the framework refuses a call to an unregistered tool. Each assessment and retry records
+once with every tool when the framework refuses a call to an unregistered tool, and `withEmptyRecovery`, outside both,
+asks once more when a response came back empty ([ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)):
+the framework keeps nothing of that turn, so it rebuilds the turn from the tool events (`ToolEventTrail.events(turn:)`,
+`stoppedEntries`, `answered`), opens a session on the context with it, and sends `emptyReplyNote` through the turn's
+own operation, which takes the text it sends; `remember` keeps the note as a notice. Each assessment and retry records
 `context.assessment`; the store keeps each turn's tool set (`ThreadRecord.toolSets`, in memory) so an earlier turn's
 context shows the definitions it carried.
 

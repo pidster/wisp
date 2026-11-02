@@ -10,6 +10,9 @@ Notable changes in each release of wisp.
 
 Added:
 
+- A turn whose model response came back with neither a reply nor a tool call, which failed with "Session ended
+  without producing a response", now asks the model once more from the turn's record, so nothing runs again, and ends
+  with "(the model ended its turn without a reply)" if that is empty too (ADR 0083).
 - The `plan` tool's tasks keep the tool calls that did their work: a call made while one task alone is running is
   that task's, and calls made with none or several running go to the next task the turn settles. `plan show`,
   `/plan t1.2`, and `wisp threads plan` list them, with where a call's whole output is kept, and the audit's

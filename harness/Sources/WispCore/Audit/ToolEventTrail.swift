@@ -35,6 +35,13 @@ public final class ToolEventTrail: AuditSink, Sendable {
         }
     }
 
+    /// The events of `turn`, in the order they were written, kept: for a turn rebuilt from its record before it ends
+    /// (`Agent`'s recovery from an empty response).
+    ///
+    /// - Parameter turn: The turn.
+    /// - Returns: Its events.
+    func events(turn: Int) -> [AuditEvent] { events.withLock { all in all.filter { $0.turn == turn } } }
+
     /// The events of `turn`, in the order they were written; forgets that turn and earlier ones.
     func take(turn: Int) -> [AuditEvent] {
         events.withLock { all in

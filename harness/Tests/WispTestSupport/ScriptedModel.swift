@@ -22,6 +22,9 @@ public struct ScriptedModel: LanguageModel {
         /// Stream `text`, then wait, as a slow model does, until the turn is stopped (`TurnStop`) or the request
         /// cancelled, and throw as a cancelled connection does.
         case hang(String)
+        /// End the response with neither text nor a tool call, as Bonsai 2 9B now and then does after tool calls; the
+        /// framework ends the turn on it.
+        case silent
     }
 
     /// Mutable script state, behind a Mutex in a class as the concurrency rules require.
@@ -122,7 +125,7 @@ public struct ScriptedModel: LanguageModel {
             }
             thinking.end()
             switch step {
-            case .think:
+            case .think, .silent:
                 break
             case .hang(let text):
                 if !text.isEmpty { await channel.send(.response(action: .appendText(text, tokenCount: 1))) }

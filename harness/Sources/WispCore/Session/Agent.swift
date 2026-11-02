@@ -487,6 +487,78 @@ public final class Agent {
         }
     }
 
+    /// The note wisp sends when a model's response came back with neither a reply nor a tool call, which the framework
+    /// ends the turn on: it continues the turn, so nothing the model ran is run again.
+    static let emptyReplyNote =
+        "[wisp: your last response had no reply and no tool call. Reply to the person now, from what you have done "
+        + "this turn.]"
+
+    /// The reply wisp gives when the model's response came back empty and the note brought no reply either.
+    static let emptyReplyLine = "(the model ended its turn without a reply)"
+
+    /// Whether `error` is the framework's end of a turn whose response held neither text nor a tool call, as Bonsai 2
+    /// 9B's and `granite4.1:8b`'s did now and then after tool calls (docs/measurements.md, 2026-10-17 to 2026-11-02).
+    ///
+    /// - Parameter error: The error.
+    /// - Returns: Whether it is that one.
+    static func endedEmpty(_ error: any Error) -> Bool {
+        String(describing: error).contains("Session ended without producing a response")
+    }
+
+    /// Whether `entry` is wisp's note after an empty response, which the store keeps as a notice, not the person's.
+    ///
+    /// - Parameter entry: A transcript entry.
+    /// - Returns: Whether it is the note.
+    static func isEmptyReplyNote(_ entry: Transcript.Entry) -> Bool {
+        guard case .prompt(let prompt) = entry else { return false }
+        let text = prompt.segments.compactMap { if case .text(let text) = $0 { text.content } else { nil } }.joined()
+        return text == emptyReplyNote
+    }
+
+    /// Runs the turn's request with tool and overflow recovery; when the response comes back empty, which ends the
+    /// turn in the framework and keeps nothing of it in the session, rebuilds the turn from its record, the prompt and
+    /// each call with its output as the tool events hold them (as a stopped turn is, ``stoppedEntries(prompt:events:)``),
+    /// opens a session on the context with the turn after it, and asks once with ``emptyReplyNote``, so the turn goes
+    /// on from what it did and nothing runs again. When that is empty too, or there are no tool events to rebuild from,
+    /// gives ``emptyReplyLine`` instead of failing the turn. Audited as `turn.empty`; the end of the turn records the
+    /// rebuilt entries as the turn's, and the note as wisp's notice.
+    ///
+    /// - Parameters:
+    ///   - prompt: The turn's prompt.
+    ///   - operation: The request, sending the text it is given.
+    /// - Returns: The reply.
+    /// - Throws: What the request threw, but for an empty response.
+    nonisolated(nonsending) private func withEmptyRecovery(
+        _ prompt: String, _ operation: (String) async throws -> String
+    ) async throws -> String {
+        do {
+            return try await withToolRecovery { try await withOverflowRecovery { try await operation(prompt) } }
+        } catch {
+            guard Self.endedEmpty(error) else { throw error }
+            // The framework keeps nothing of a turn it ended this way (probed with ScriptedModel, 2026-11-02): the
+            // session holds the context composed before it, which the turn rebuilt from the record follows.
+            guard let trail = toolEvents else {
+                audit?.record(.turnEmpty, details: ["outcome": .string("nothing to rebuild")])
+                return Self.emptyReplyLine
+            }
+            let rebuilt = Self.answered(Self.stoppedEntries(prompt: prompt, events: trail.events(turn: turns.current)))
+            let context = Array(session.transcript).filter { entry in
+                if case .prompt = entry { store.contains(entry) || FactFrame.isFrame(entry) } else { true }
+            }
+            replaceSession(
+                with: model.session(tools: registeredTools, transcript: Transcript(entries: context + rebuilt)))
+            do {
+                let text = try await operation(Self.emptyReplyNote)
+                let replied = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                audit?.record(.turnEmpty, details: ["outcome": .string(replied ? "replied" : "empty again")])
+                return replied ? text : Self.emptyReplyLine
+            } catch let again where Self.endedEmpty(again) {
+                audit?.record(.turnEmpty, details: ["outcome": .string("empty again")])
+                return Self.emptyReplyLine
+            }
+        }
+    }
+
     /// Applies a phase-2 condensation (`.condense(keepTurns:)`): counts it, saves the transcript before and after,
     /// records the `context.condensation` event, distils the prose of the turns it drops into facts and, when a
     /// batch is due, adds them to the running summary when the agent keeps facts (`handOn(_:staying:)`), marks the
@@ -642,7 +714,10 @@ public final class Agent {
             {
                 time = event.time
             }
-            store.record(entry, origin: .turn, turn: turn, sources: references, time: time)
+            // wisp's note after an empty response is a notice, never the person's prompt.
+            store.record(
+                entry, kind: Self.isEmptyReplyNote(entry) ? .notice : nil, origin: .turn, turn: turn,
+                sources: Self.isEmptyReplyNote(entry) ? [] : references, time: time)
         }
         extractFacts(from: events, turn: turn)
         if let plan {
@@ -795,7 +870,7 @@ public final class Agent {
     /// - Returns: The reply, with the checks set beside it.
     /// - Throws: `ContextFailure` when the context cannot be made to fit; framework errors.
     nonisolated(nonsending) public func respond(to prompt: String) async throws -> Reply {
-        try await turn(prompt, think: thinking) { try await session.respond(to: prompt).content }
+        try await turn(prompt, think: thinking) { try await session.respond(to: $0).content }
     }
 
     /// Sends one user turn and returns the reply as JSON shaped by `schema`, through the framework's
@@ -829,7 +904,7 @@ public final class Agent {
         let think = keepsThinking ? thinking : thinking ?? .off
         return try await turn(prompt, schema: schema.source, think: think) {
             try await session.respond(
-                to: prompt, schema: schema.schema, options: .init(maximumResponseTokens: maximumSchemaTokens)
+                to: $0, schema: schema.schema, options: .init(maximumResponseTokens: maximumSchemaTokens)
             ).content.jsonString
         }
     }
@@ -859,7 +934,7 @@ public final class Agent {
         // from what the caller has already seen instead of repeating it.
         var emitted = ""
         return try await turn(prompt, think: thinking, stop: stop) {
-            for try await snapshot in session.streamResponse(to: prompt) {
+            for try await snapshot in session.streamResponse(to: $0) {
                 // A runtime that cannot be cancelled mid-request stops at its next words.
                 try stop?.check()
                 let full = snapshot.content
@@ -894,19 +969,20 @@ public final class Agent {
                 seconds: Date().timeIntervalSince(started), failure: failure, inputTokens: conversationInputTokens))
     }
 
-    /// Records the prompt, runs `operation` with overflow recovery, and records the response or error.
+    /// Records the prompt, runs `operation` with overflow, tool, and empty-reply recovery, and records the response or
+    /// error.
     ///
     /// - Parameters:
     ///   - prompt: The prompt.
     ///   - schema: The caller's JSON Schema, for the audit.
     ///   - think: The thinking the turn's requests ask of the model (`RequestThinking`); nil leaves its default.
     ///   - stop: What stops the turn when the person asks, bound for its requests and commands; nil for none.
-    ///   - operation: The request.
+    ///   - operation: The request, sending the text it is given: the prompt, or wisp's note after an empty reply.
     /// - Returns: The reply.
     /// - Throws: What the request threw; `TurnStop.Failure.stopped` when the person stopped it.
     nonisolated(nonsending) private func turn(
         _ prompt: String, schema: JSONValue? = nil, think: OllamaThink?, stop: TurnStop? = nil,
-        _ operation: () async throws -> String
+        _ operation: (String) async throws -> String
     ) async throws -> Reply {
         takeNotices()
         turns.advance()
@@ -929,7 +1005,7 @@ public final class Agent {
             let text = try await ReasoningObserver.$current.withValue(ReasoningObserver.recording(to: audit)) {
                 try await RequestThinking.$current.withValue(think) {
                     try await TurnStop.$current.withValue(stop) {
-                        try await withToolRecovery { try await withOverflowRecovery(operation) }
+                        try await withEmptyRecovery(prompt, operation)
                     }
                 }
             }
