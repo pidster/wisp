@@ -187,6 +187,9 @@ task and the call that marks it ([ADR 0081](../decisions/0081-the-plan-tool.md),
 ```
 
 A mark quiets it until the next turn. The audit's `tool.result` records the result with the line, as the model saw it.
+A second line, for a turn doing work of several steps with no task open (`[plan: this work has several steps and the
+plan has none for it; …]`), is under measurement by the plan probe and not shown in a conversation
+([ADR 0079](../decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decision 25).
 Without it, `granite4.1:8b` did the work but marked no task in any of six conversations; with it, it finished five of
 six (the plan probe, 2026-10-26, [measurements.md](../measurements.md)).
 

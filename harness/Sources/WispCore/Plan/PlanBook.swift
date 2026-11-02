@@ -26,6 +26,8 @@ public final class PlanBook: Sendable {
         var heldDropped = 0
         /// The changes from outside the model's turns that the turn under way tells it of, taken as it began.
         var told: [String] = []
+        /// The turn's results of other tools so far, for the planning nudge.
+        var results = 0
     }
 
     /// The state, behind a lock.
@@ -39,23 +41,38 @@ public final class PlanBook: Sendable {
     /// (ADR 0081, decision 12); on wherever wisp opens a book, off for the plan probe's variants without it.
     let reminds: Bool
 
+    /// Whether other tools' results carry `PlanText.planningNudge` from the turn's second, while the plan has no open
+    /// task and the turn rooted no tree (ADR 0079, decision 25), a variant under measurement by the plan probe; off
+    /// everywhere wisp opens a book.
+    let nudgesPlanning: Bool
+
     /// An empty book.
     ///
     /// - Parameters:
     ///   - namesNext: Whether later turns' lines name each tree's next task.
     ///   - reminds: Whether other tools' results carry the reminder to mark a task.
-    public init(namesNext: Bool = false, reminds: Bool = true) {
+    ///   - nudgesPlanning: Whether other tools' results carry the nudge to plan work of several steps.
+    public init(namesNext: Bool = false, reminds: Bool = true, nudgesPlanning: Bool = false) {
         self.namesNext = namesNext
         self.reminds = reminds
+        self.nudgesPlanning = nudgesPlanning
     }
 
-    /// The line to append to another tool's result: the reminder to mark the running or next task, when the book
-    /// reminds, a task is running or ready, and the turn has marked none.
+    /// The line to append to another tool's result, counting the result for the turn: the reminder to mark the running
+    /// or next task, when the book reminds, a task is running or ready, and the turn has marked none; else, when the
+    /// book nudges planning, the nudge to plan, from the turn's second result while no task is open and the turn has
+    /// rooted no tree (ADR 0079, decision 25).
     ///
     /// - Returns: The line, or nil.
     public func reminder() -> String? {
-        guard reminds else { return nil }
-        return state.withLock { $0.marked ? nil : PlanText.nudge($0.plan) }
+        state.withLock { state in
+            state.results += 1
+            if reminds, !state.marked, let line = PlanText.nudge(state.plan) { return line }
+            guard nudgesPlanning, state.results >= 2, state.current == nil,
+                state.plan.tasks.allSatisfy(\.status.isSettled)
+            else { return nil }
+            return PlanText.planningNudge
+        }
     }
 
     /// The plan as it stands.
@@ -87,6 +104,7 @@ public final class PlanBook: Sendable {
             state.marked = false
             state.held = []
             state.heldDropped = 0
+            state.results = 0
         }
     }
 

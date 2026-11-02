@@ -313,3 +313,33 @@ import WispTestSupport
         #expect(byWisp.allSatisfy { $0.details["question"] == .string(id) && $0.details["task"] == "t1.1" })
     }
 }
+
+/// The nudge to plan (ADR 0079, decision 25), a variant under measurement: from the turn's second result of another
+/// tool while no task is open and the turn rooted no tree; never in a book that does not nudge.
+@Suite struct PlanningNudgeTests {
+    @Test func theNudgeComesFromTheSecondResultWhileNothingIsPlanned() throws {
+        let book = PlanBook(nudgesPlanning: true)
+        #expect(book.reminder() == nil)
+        #expect(book.reminder() == PlanText.planningNudge)
+        #expect(book.reminder() == PlanText.planningNudge)
+        book.beginTurn()
+        #expect(book.reminder() == nil)
+        // A task added this turn roots a tree and is open: the reminder to mark it comes instead.
+        _ = try book.change { plan, current in
+            let added = try plan.adding(
+                goal: "Read b.txt", parent: nil, dependsOn: [], currentTree: current, now: Date())
+            return (added.plan, added.currentTree, ())
+        }
+        #expect(book.reminder()?.hasPrefix("[plan: t1.") == true)
+        // Settled, and in a later turn: nothing open, so the nudge again from the second result.
+        let settled = try book.plan.tasks.reduce(book.plan) { plan, task in
+            try plan.updating(task.id, status: .skipped, note: nil, now: Date())
+        }
+        let fresh = PlanBook(nudgesPlanning: true)
+        fresh.seed(settled)
+        #expect(fresh.reminder() == nil && fresh.reminder() == PlanText.planningNudge)
+        // A book that does not nudge never does.
+        let plain = PlanBook()
+        #expect(plain.reminder() == nil && plain.reminder() == nil)
+    }
+}

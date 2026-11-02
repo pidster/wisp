@@ -8,7 +8,10 @@ import Testing
 /// the plan turn after turn instead of working. Each problem runs under four variants of what the model is shown: no
 /// help (`none`, what shipped before decision 12), a line naming the tree's next task and how to mark it in later
 /// turns (`next`), the reminder after each other tool's result while a task is running or ready and none was marked
-/// this turn (`reminder`, what wisp ships, decision 12), and both. Scored from the conversation's plan and audit, never
+/// this turn (`reminder`, what wisp ships, decision 12), both, and the reminder with the nudge to plan from the turn's
+/// second call while no task is open (`planning`, ADR 0079 decision 25, for models that do the work without adding a
+/// task). A one-step control problem, run under each variant, is not scored as finished: it counts whether the model
+/// planned what needed no plan. Scored from the conversation's plan and audit, never
 /// from the replies: whether every task was settled within the turns (finished), how many updates were made, how many
 /// turns after the first made no call (stalls), and how many tasks were marked done ahead of the work (ahead: the
 /// count of `done` marks so far exceeding the count of other tools' calls so far, which a task needing no call, or
@@ -19,19 +22,27 @@ import Testing
 struct PlanEvalTests {
     /// What the model is shown beyond the plan tool itself.
     enum Variant: String, CaseIterable, Sendable {
-        case none, next, reminder, both
+        case none, next, reminder, both, planning
 
         /// Whether later turns' lines name the next task.
         var namesNext: Bool { self == .next || self == .both }
         /// Whether other tools' results carry the reminder.
-        var reminds: Bool { self == .reminder || self == .both }
+        var reminds: Bool { self == .reminder || self == .both || self == .planning }
+        /// Whether other tools' results carry the nudge to plan.
+        var nudgesPlanning: Bool { self == .planning }
     }
 
     /// One problem: the first message, given the scratch folder's path.
     struct Problem: Sendable {
         let id: String
         let prompt: @Sendable (String) -> String
+        /// Whether it is the one-step control, which needs no plan.
+        var control = false
     }
+
+    /// The control: one step, one call, no plan needed.
+    static let control = Problem(
+        id: "control", prompt: { _ in "Which version of macOS is this Mac running?" }, control: true)
 
     static let problems = [
         Problem(id: "files") { dir in
@@ -95,7 +106,8 @@ struct PlanEvalTests {
         let gate = ApprovalGate(
             classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
             threshold: .level(.moderate), audit: audit)
-        let book = PlanBook(namesNext: variant.namesNext, reminds: variant.reminds)
+        let book = PlanBook(
+            namesNext: variant.namesNext, reminds: variant.reminds, nudgesPlanning: variant.nudgesPlanning)
         let registry = ToolRegistry(
             runner: .init(writableRoot: dir), audit: audit, approval: gate, plan: PlanTool(book: book, audit: audit))
         let tools = registry.select(["plan", "run_command", "read_file", "system_info"]).tools
@@ -146,31 +158,40 @@ struct PlanEvalTests {
                 var ahead = 0
                 var unplanned = 0
                 var times: [Double] = []
-                let runs = Self.problems.flatMap { problem in (1...Self.attempts).map { (problem, $0) } }
+                var controlPlanned = 0
+                let runs = (Self.problems + [Self.control]).flatMap { problem in
+                    (1...Self.attempts).map { (problem, $0) }
+                }
                 for (problem, round) in runs {
                     let label = "plan eval: \(problem.id) \(variant.rawValue) #\(round)"
                     let (outcome, milliseconds) = await EvalModels.attempt(label, on: selection) {
                         try await Self.converse(problem, variant, in: path, on: model)
                     }
-                    times.append(milliseconds)
                     guard let outcome else { continue }
+                    print(
+                        "\(label) on \(selection): \(problem.control ? (outcome.tasks > 0 ? "PLANNED" : "unplanned") : outcome.finished ? "finished" : "UNFINISHED") "
+                            + "tasks=\(outcome.tasks) settled=\(outcome.settled) updates=\(outcome.updates) "
+                            + "work=\(outcome.work) stalls=\(outcome.stalls) ahead=\(outcome.ahead) "
+                            + "turns=\(outcome.turns) "
+                            + "ms=\(Int(milliseconds))")
+                    if problem.control {
+                        if outcome.tasks > 0 { controlPlanned += 1 }
+                        continue
+                    }
+                    times.append(milliseconds)
                     if outcome.finished { finished += 1 }
                     updates += outcome.updates
                     stalls += outcome.stalls
                     ahead += outcome.ahead
                     if outcome.tasks == 0 { unplanned += 1 }
-                    print(
-                        "\(label) on \(selection): \(outcome.finished ? "finished" : "UNFINISHED") "
-                            + "tasks=\(outcome.tasks) settled=\(outcome.settled) updates=\(outcome.updates) "
-                            + "work=\(outcome.work) stalls=\(outcome.stalls) ahead=\(outcome.ahead) "
-                            + "turns=\(outcome.turns) "
-                            + "ms=\(Int(milliseconds))")
                 }
-                print("plan eval: on \(selection) \(variant.rawValue) measured: \(finished)/\(runs.count) finished")
+                let scored = runs.count(where: { !$0.0.control })
+                print("plan eval: on \(selection) \(variant.rawValue) measured: \(finished)/\(scored) finished")
                 EvalModels.result(
-                    "plan.\(variant.rawValue)", on: selection, passed: finished, total: runs.count,
+                    "plan.\(variant.rawValue)", on: selection, passed: finished, total: scored,
                     milliseconds: times,
-                    note: "\(updates) updates, \(stalls) stalled turns, \(ahead) marked ahead, \(unplanned) unplanned")
+                    note: "\(updates) updates, \(stalls) stalled turns, \(ahead) marked ahead, \(unplanned) unplanned, "
+                        + "control planned \(controlPlanned)/\(Self.attempts)")
             }
         }
     }

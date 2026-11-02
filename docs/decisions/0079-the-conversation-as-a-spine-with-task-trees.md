@@ -162,7 +162,7 @@ Agreed by the operator on 2026-11-02:
     - **D, the planning nudge**: a variant in the plan probe first, for a turn asked to plan that adds no task (ADR
       0081's consequence on `granite4.2:8b`), and a reminder only if the probe shows it helps.
 
-    **Pending**, to be proposed with the build: for D, the probe variant's prompt and the bar for adopting it.
+    The details of each were agreed with its build, below (decisions 21 to 25).
 
 Agreed by the operator on 2026-11-02, for A:
 
@@ -215,6 +215,16 @@ Agreed by the operator on 2026-11-02, for C:
     meanwhile keeps its status. In chat a question is answered within the turn, so this matters most for a question
     parked under `wisp mcp`, where the task shows `waiting` until the person answers. Audited as `plan.update` with
     `by` `wisp` and `question`.
+
+Agreed by the operator on 2026-11-02, for D:
+
+25. **A nudge to plan, measured before it ships.** The plan probe gains a variant, `planning`: the shipped reminder,
+    and, from the turn's second result of another tool while the plan has no open task and the turn has rooted no tree,
+    a line ending the result, `[plan: this work has several steps and the plan has none for it; add them with plan
+    add, then mark each as you go]`. Mechanical, so wisp never reads the prompt for the word "plan"; from the second
+    call, so a request of one call never sees it. A one-step control problem joins the probe under every variant,
+    counting whether a model plans what needs no plan. It is built behind `PlanBook(nudgesPlanning:)`, off wherever
+    wisp opens a book, as the probe's `next` variant is; whether it ships, the operator decides on the results.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

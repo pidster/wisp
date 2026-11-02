@@ -186,6 +186,13 @@ public enum PlanText {
             + "plan update \(task.id) done]"
     }
 
+    /// The nudge to plan, for a turn doing work of several steps with no task open (ADR 0079, decision 25): a variant
+    /// under measurement by the plan probe, since `granite4.2:8b` often did the work without adding a task, so the
+    /// reminder, which needs an open task, never appeared (2026-10-26).
+    static let planningNudge =
+        "[plan: this work has several steps and the plan has none for it; add them with plan add, then mark each as "
+        + "you go]"
+
     /// The plan as the person asks to see it, in chat's `/plan` and `wisp threads plan`: with nothing named, every
     /// tree's outline, a blank line between them; with a tree (`t1`), its outline; with a task (`t1.2`), the task in
     /// full.
