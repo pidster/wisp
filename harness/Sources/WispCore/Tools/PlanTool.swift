@@ -113,9 +113,10 @@ public struct PlanTool: WispTool {
         return ToolOutput.fitted(text, tool: name, budget: budget, store: store)
     }
 
-    /// Runs one action against the book. A change goes through ``PlanBook/change(_:)``, so it is checked and applied
-    /// whole or not at all, and an `update` that sets a status tells the book a task was marked this turn, which
-    /// stops the reminder (``PlanBook/noteMarked()``).
+    /// Runs one action against the book. A change goes through ``PlanBook/change(_:)``, or `update` through
+    /// ``PlanBook/update(_:status:note:now:)``, so it is checked and applied whole or not at all; an `update` that
+    /// sets a status quiets the reminder for the turn, and one that settles a task links to it the calls the turn
+    /// made while no single task was running (ADR 0079, decision 21).
     ///
     /// - Parameters:
     ///   - arguments: The action and its arguments.
@@ -141,7 +142,7 @@ public struct PlanTool: WispTool {
                 guard let tree = plan.tree(named: id) else { throw Plan.Failure.unknown(id) }
                 return paged(PlanText.outline(tree, in: plan), page: arguments.page, action: "tree \(tree.name)")
             }
-            return PlanText.detail(task, in: plan).joined(separator: "\n")
+            return PlanText.detail(task, in: plan, kept: { store?.kept($0) != nil }).joined(separator: "\n")
         case "ready":
             let plan = book.plan
             let ready = plan.ready.map { PlanText.line($0, in: plan) }
@@ -173,17 +174,13 @@ public struct PlanTool: WispTool {
             guard status != nil || (raw.isEmpty && noted) else {
                 throw Refusal.badStatus(arguments.status, allowingReady: false)
             }
-            let plan = try book.change { plan, current in
-                let changed = try plan.updating(id, status: status, note: arguments.note, now: now)
-                return (changed, current, changed)
-            }
-            if status != nil { book.noteMarked() }
-            audit?.record(
-                .planUpdate,
-                details: [
-                    "task": .string(id), "status": .string(plan.task(id)?.status.rawValue ?? raw),
-                    "note": plan.task(id)?.note.map { .string($0) } ?? .null,
-                ])
+            let (plan, linked) = try book.update(id, status: status, note: arguments.note, now: now)
+            var details: [String: JSONValue] = [
+                "task": .string(id), "status": .string(plan.task(id)?.status.rawValue ?? raw),
+                "note": plan.task(id)?.note.map { .string($0) } ?? .null,
+            ]
+            if !linked.isEmpty { details["calls"] = .array(linked.map { .string($0.id) }) }
+            audit?.record(.planUpdate, details: details)
             var lines = [plan.task(id).map { PlanText.line($0, in: plan) } ?? id]
             let freed = plan.dependents(of: id).filter(plan.isReady)
             if status == .done, !freed.isEmpty {

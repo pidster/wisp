@@ -66,13 +66,16 @@ public enum PlanText {
         return parts.joined(separator: ", ")
     }
 
-    /// One task in full: its line, then where it sits, what it depends on and what depends on it, and when it changed.
+    /// One task in full: its line, then where it sits, what it depends on and what depends on it, when it changed,
+    /// and the calls that did its work.
     ///
     /// - Parameters:
     ///   - task: The task.
     ///   - plan: The plan.
+    ///   - kept: Whether the output store holds a call's whole output, by its id; a face without the store says
+    ///     none is.
     /// - Returns: The lines.
-    public static func detail(_ task: Plan.Task, in plan: Plan) -> [String] {
+    public static func detail(_ task: Plan.Task, in plan: Plan, kept: (String) -> Bool = { _ in false }) -> [String] {
         var lines = [line(task, in: plan)]
         lines.append("  tree: t\(task.tree)" + (task.parent.map { ", under \($0)" } ?? ", at the top"))
         let children = plan.children(of: task.id).map(\.id)
@@ -87,7 +90,28 @@ public enum PlanText {
             lines.append("  waiting for: \(waiting.joined(separator: ", "))")
         }
         lines.append("  added \(stamp(task.created)), changed \(stamp(task.updated))")
+        lines += calls(task, kept: kept)
         return lines
+    }
+
+    /// The lines naming the calls that did a task's work (ADR 0079, decision 21): a heading counting them, then a
+    /// call a line, its audit call id, tool, and what it was asked, whether it failed, and where its whole output is
+    /// kept when the output store holds it. None for a task with no calls.
+    ///
+    /// - Parameters:
+    ///   - task: The task.
+    ///   - kept: Whether the output store holds a call's whole output, by its id.
+    /// - Returns: The lines.
+    static func calls(_ task: Plan.Task, kept: (String) -> Bool) -> [String] {
+        guard !task.calls.isEmpty else { return [] }
+        let count = task.calls.count + task.droppedCalls
+        var heading = "  ran: \(count) call\(count == 1 ? "" : "s")"
+        if task.droppedCalls > 0 { heading += ", the last \(task.calls.count) listed" }
+        return [heading]
+            + task.calls.map { call in
+                "    \(call.id) \(call.tool) \(call.summary)" + (call.failed ? " (failed)" : "")
+                    + (kept(call.id) ? "; whole output kept as output \(call.id)" : "")
+            }
     }
 
     /// The lines a later turn carries for the plan, in the request's now block: one for each tree with a task not

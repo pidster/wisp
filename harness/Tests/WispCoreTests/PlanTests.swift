@@ -235,6 +235,112 @@ import WispTestSupport
         #expect(quiet.reminder() == nil && book.reminder() != nil)
     }
 
+    /// ADR 0079 decision 21: a call made while one task alone is running is that task's, named in its `tool.call`;
+    /// one made with none or several running is held for the next task the turn settles, which the `plan.update`
+    /// records; a new turn lets go of what it held; `show` lists a task's calls.
+    @Test func callsAreLinkedToTheRunningTaskOrTheNextSettled() async throws {
+        let sink = MemoryAuditSink()
+        let audit = AuditLog(session: "s", sink: sink)
+        let book = PlanBook()
+        let plan = PlanTool(book: book, audit: audit)
+        let date = AuditedTool(CurrentDateTool(), audit: audit, plan: book)
+        func call(_ action: String, _ fill: (inout PlanTool.Arguments) -> Void = { _ in }) async -> String {
+            var arguments = PlanTool.Arguments(action: action)
+            fill(&arguments)
+            return await plan.call(arguments: arguments)
+        }
+        func now() async throws -> String {
+            _ = try await date.call(arguments: .init(timeZone: "UTC"))
+            return try #require(sink.events.last(where: { $0.kind == .toolCall })?.call)
+        }
+        _ = await call("add") { $0.goal = "First" }
+        _ = await call("add") { $0.goal = "Second" }
+        let held = try await now()
+        #expect(sink.events.last(where: { $0.kind == .toolCall })?.details["task"] == nil)
+        _ = await call("update") {
+            $0.id = "t1.1"
+            $0.status = "running"
+        }
+        let running = try await now()
+        #expect(sink.events.last(where: { $0.kind == .toolCall })?.details["task"] == .string("t1.1"))
+        #expect(book.plan.task("t1.1")?.calls.map(\.id) == [running])
+        _ = await call("update") {
+            $0.id = "t1.1"
+            $0.status = "done"
+        }
+        #expect(book.plan.task("t1.1")?.calls.map(\.id) == [running, held])
+        #expect(sink.events.last?.details["calls"] == .array([.string(held)]))
+        let shown = await call("show") { $0.id = "t1.1" }
+        #expect(shown.contains("  ran: 2 calls\n    \(running) current_date {"))
+        // Held calls are the turn's: a new turn starts with none, and a note alone settles nothing.
+        _ = try await now()
+        book.beginTurn()
+        let later = try await now()
+        _ = await call("update") {
+            $0.id = "t1.2"
+            $0.note = "looked"
+        }
+        #expect(book.plan.task("t1.2")?.calls.isEmpty == true)
+        _ = await call("update") {
+            $0.id = "t1.2"
+            $0.status = "skipped"
+        }
+        #expect(book.plan.task("t1.2")?.calls.map(\.id) == [later])
+        // Two running (the new turn's tree, t2): neither takes the call; a task no longer in the plan holds it too.
+        _ = await call("add") { $0.goal = "Third" }
+        _ = await call("add") { $0.goal = "Fourth" }
+        for id in ["t2.1", "t2.2"] {
+            _ = await call("update") {
+                $0.id = id
+                $0.status = "running"
+            }
+        }
+        #expect(book.runningTask() == nil)
+        book.link(Plan.Call(id: "gone", tool: "x", arguments: "{}", failed: true), to: "t9.9")
+        _ = await call("update") {
+            $0.id = "t2.1"
+            $0.status = "failed"
+        }
+        #expect(book.plan.task("t2.1")?.calls.map(\.id) == ["gone"])
+        #expect(
+            PlanText.calls(try #require(book.plan.task("t2.1")), kept: { $0 == "gone" }).last
+                == "    gone x {} (failed); whole output kept as output gone")
+    }
+
+    /// A task keeps its last `callsPerTask` calls and counts the rest; so does a turn's held calls.
+    @Test func aTasksCallsAreBoundedAndTheRestCounted() throws {
+        let calls = (1...40).map { Plan.Call(id: "c\($0)", tool: "run_command", arguments: "{}", failed: false) }
+        let plan = try Self.sample().linking(calls, to: "t1.1", dropped: 2).linking(calls, to: "t9.9")
+        let task = try #require(plan.task("t1.1"))
+        #expect(task.calls.count == Plan.callsPerTask && task.calls.first?.id == "c9" && task.droppedCalls == 10)
+        #expect(PlanText.calls(task, kept: { _ in false }).first == "  ran: 42 calls, the last 32 listed")
+        #expect(PlanText.detail(try #require(plan.task("t1.2")), in: plan).allSatisfy { !$0.contains("ran:") })
+        let book = PlanBook()
+        _ = try book.change { plan, _ in try (Self.sample(), nil, ()) }
+        for call in calls { book.link(call, to: nil) }
+        let linked = try book.update("t1.1", status: .done, note: nil, now: Self.now).linked
+        #expect(linked.count == Plan.callsPerTask && book.plan.task("t1.1")?.droppedCalls == 8)
+    }
+
+    /// A call's summary is the command it ran, else the path it touched, else its arguments, on one line and cut short.
+    @Test func aCallsSummaryIsItsCommandOrPathOrArguments() {
+        #expect(Plan.Call.summary(of: #"{"command":"df -h\nls","path":"x"}"#) == "df -h ls")
+        #expect(Plan.Call.summary(of: #"{"path":"/tmp/a.txt","mode":"read"}"#) == "/tmp/a.txt")
+        #expect(Plan.Call.summary(of: #"{"timeZone":"UTC"}"#) == #"{"timeZone":"UTC"}"#)
+        let long = Plan.Call.summary(of: #"{"command":""# + String(repeating: "a", count: 100) + #""}"#)
+        #expect(long.count == Plan.Call.summaryLimit && long.hasSuffix("…"))
+    }
+
+    /// A plan saved before tasks were linked to calls resumes, its tasks with none.
+    @Test func aPlanSavedWithoutCallsDecodes() throws {
+        var encoded = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.sample())) as? [String: Any])
+        let tasks = try #require(encoded["tasks"] as? [[String: Any]])
+        encoded["tasks"] = tasks.map { $0.filter { $0.key != "calls" && $0.key != "droppedCalls" } }
+        let decoded = try JSONDecoder().decode(Plan.self, from: JSONSerialization.data(withJSONObject: encoded))
+        #expect(decoded == (try Self.sample()))
+    }
+
     @Test func theToolActsAndAuditsAndRefusesWithReasons() async throws {
         let sink = MemoryAuditSink()
         let book = PlanBook()

@@ -162,10 +162,22 @@ Agreed by the operator on 2026-11-02:
     - **D, the planning nudge**: a variant in the plan probe first, for a turn asked to plan that adds no task (ADR
       0081's consequence on `granite4.2:8b`), and a reminder only if the probe shows it helps.
 
-    **Pending**, to be proposed with the build: for A, which events carry the id and how a call is matched to a task
-    when none or several are running; for B, the commands' names, whether the person's change is a turn on the
+    **Pending**, to be proposed with the build: for B, the commands' names, whether the person's change is a turn on the
     spine, and how the model learns of it; for C, whether the model or wisp sets `waiting`, and what the answer does
     to the task's status; for D, the probe variant's prompt and the bar for adopting it.
+
+Agreed by the operator on 2026-11-02, for A:
+
+21. **A call is linked to the task it did the work of.** A call made while one task alone is `running` is that task's at
+    once, and its `tool.call` event names it (`task`). A call made while none or several are running is held, and goes
+    to the next task the model settles (`done`, `failed`, `skipped`) in the same turn, which its `plan.update` records
+    (`calls`); a new turn lets go of what the last one held. Models often go from `pending` to `done` without
+    `running` (ADR 0081's probes), so linking only while a task runs would leave most work unlinked. The task keeps
+    its calls (the last 32, the rest counted): each call's audit id, which already joins its `tool.call`,
+    `tool.result`, and output in the output store, its tool, and what it was asked, short; `plan show`, `/plan t1.2`,
+    `wisp threads plan`, and the resource list them, and the tool's own `show` says where a call's whole output is
+    kept. A plan saved before this resumes with no calls. The operator chose the task keeping its calls over finding
+    them in the audit log, which rotates.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

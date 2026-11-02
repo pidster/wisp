@@ -92,7 +92,7 @@ The id offered is the tree's next number, past any a task already waits for.
 | `depend` | `t1.3 now waits for t1.2` |
 | `update` | The task's line; after `done`, `now ready: …` naming the tasks it freed; after `failed` or `skipped`, `cannot go on while this is failed: …` |
 | `tree` | With no `id`, each tree's heading; with one, the tree's outline, a task a line, indented under its parent |
-| `show` | One task: its line, its tree and parent, the tasks under it, what it depends on and what depends on it, what it waits for, and when it was added and changed. Given a tree (`t1`), the tree's outline, as `tree` gives it |
+| `show` | One task: its line, its tree and parent, the tasks under it, what it depends on and what depends on it, what it waits for, when it was added and changed, and the calls that did its work (below). Given a tree (`t1`), the tree's outline, as `tree` gives it |
 | `ready` | The tasks that can start, a line each |
 | `find` | The tasks matching every criterion given, a line each, or `no task matches` |
 
@@ -120,7 +120,35 @@ start or finish yet (`t1.2 depends on t1.1, not done yet; finish or settle it fi
 | Dependencies a task | 8 |
 | Goal | 200 characters |
 | Note | 300 characters |
+| Calls a task keeps | 32, the last linked; earlier ones counted |
 | A result | 40 lines a page, the last line naming the next page; and the tool-output budget ([ADR 0050](../decisions/0050-tool-output-budget-and-overflow.md)) |
+
+## What each task ran
+
+Every other tool's call is linked to the task it did the work of ([ADR 0079](../decisions/0079-the-conversation-as-a-spine-with-task-trees.md),
+decision 21), so the plan says what was run for each step:
+
+| When the call is made | It goes to |
+| --- | --- |
+| One task alone is `running` | That task, at once; the call's `tool.call` audit event names it (`task`) |
+| No task is running, or several are | The next task the model marks `done`, `failed`, or `skipped` in the same turn; that `plan.update` event lists them (`calls`). Those still held when the turn ends are let go |
+
+`show` lists them under the task, a call a line: its audit call id, the tool, what it was asked (the command, the
+path, or the arguments, cut at 80 characters), `(failed)` when the tool failed outright, and, from the tool, where the
+whole output is kept when the output store holds it:
+
+```
+t1.2 [done] List the largest folders (after t1.1) — ~/Library is the largest
+  tree: t1, at the top
+  added 2026-11-02 10:14Z, changed 2026-11-02 10:15Z
+  ran: 2 calls
+    3f9a2c1b run_command du -sh ~/* | sort -h | tail; whole output kept as output 3f9a2c1b
+    7c0e5d22 read_file /Users/me/notes.txt
+```
+
+The call id is the one its `tool.call` and `tool.result` events carry, and the kept output's id. A model that goes
+from `pending` straight to `done` without marking a task `running`, as models often do, still gets its calls linked,
+to the task it marks.
 
 ## The reminder
 

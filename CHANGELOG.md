@@ -6,6 +6,14 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Added:
+
+- The `plan` tool's tasks keep the tool calls that did their work: a call made while one task alone is running is
+  that task's, and calls made with none or several running go to the next task the turn settles. `plan show`,
+  `/plan t1.2`, and `wisp threads plan` list them, with where a call's whole output is kept, and the audit's
+  `tool.call` names the task (ADR 0079, decision 21).
 
 ## 0.33.2
 

@@ -58,6 +58,54 @@ public struct Plan: Codable, Sendable, Equatable {
         public var created: Date
         /// When it last changed.
         public var updated: Date
+        /// The tool calls that did its work, in the order linked, at most `callsPerTask`: those made while it was the one task
+        /// running, and those made this turn while no single task was running, which go to the next task settled
+        /// ([ADR 0079](../../../../docs/decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decision 21).
+        public var calls: [Call] = []
+        /// Calls linked to it earlier than those `calls` keeps, past its bound.
+        public var droppedCalls = 0
+    }
+
+    /// A tool call linked to a task: enough to say what ran, and its audit call id, which joins it to its `tool.call`
+    /// and `tool.result` events and to its output in the output store.
+    public struct Call: Codable, Sendable, Equatable {
+        /// The audit call id.
+        public var id: String
+        /// The tool called.
+        public var tool: String
+        /// What it was asked, short: a command, a path, or the arguments, up to `summaryLimit` characters.
+        public var summary: String
+        /// Whether the tool threw rather than returning a result.
+        public var failed: Bool
+
+        /// The most characters a summary keeps.
+        static let summaryLimit = 80
+
+        /// A call to link.
+        ///
+        /// - Parameters:
+        ///   - id: The audit call id.
+        ///   - tool: The tool.
+        ///   - arguments: The arguments, as the JSON the model generated, from which the summary is taken.
+        ///   - failed: Whether the tool threw.
+        public init(id: String, tool: String, arguments: String, failed: Bool) {
+            self.id = id
+            self.tool = tool
+            self.summary = Self.summary(of: arguments)
+            self.failed = failed
+        }
+
+        /// The short form of a call's arguments: the `command` a command tool ran, else the `path` a file tool read
+        /// or changed, else the arguments' JSON, cut to `summaryLimit` characters.
+        ///
+        /// - Parameter arguments: The arguments' JSON.
+        /// - Returns: The summary, on one line.
+        static func summary(of arguments: String) -> String {
+            let object = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? [String: Any]
+            let picked = ["command", "path"].lazy.compactMap { object?[$0] as? String }.first ?? arguments
+            let line = picked.split(whereSeparator: \.isNewline).joined(separator: " ")
+            return line.count > summaryLimit ? String(line.prefix(summaryLimit - 1)) + "…" : line
+        }
     }
 
     /// Why an operation was refused, said to the model so it can correct the call.
@@ -114,6 +162,8 @@ public struct Plan: Codable, Sendable, Equatable {
     static let depthLimit = 6
     /// The most tasks one task may depend on.
     static let dependencyLimit = 8
+    /// The most calls a task keeps; earlier ones are counted, not kept.
+    static let callsPerTask = 32
 
     /// The trees, in the order they were rooted.
     public private(set) var trees: [Tree] = []
@@ -394,6 +444,29 @@ public struct Plan: Codable, Sendable, Equatable {
         return plan
     }
 
+    /// The plan with `calls` linked to task `id`, the oldest past `callsPerTask` counted rather than kept.
+    ///
+    /// - Parameters:
+    ///   - calls: The calls, oldest first.
+    ///   - id: The task; a task not in the plan leaves the plan as it is.
+    ///   - dropped: Calls made before `calls` that were already let go, to count.
+    /// - Returns: The plan.
+    func linking(_ calls: [Call], to id: String, dropped: Int = 0) -> Plan {
+        guard let index = tasks.firstIndex(where: { $0.id == id }), !calls.isEmpty || dropped > 0 else { return self }
+        var plan = self
+        let all = plan.tasks[index].calls + calls
+        let over = max(0, all.count - Self.callsPerTask)
+        plan.tasks[index].calls = Array(all.dropFirst(over))
+        plan.tasks[index].droppedCalls += over + dropped
+        return plan
+    }
+
+    /// The one task running, which a call made now does the work of; nil when none or several are.
+    var soleRunning: Task? {
+        let running = tasks.filter { $0.status == .running }
+        return running.count == 1 ? running.first : nil
+    }
+
     /// The plan with tree `id`'s prompt entry set, once the turn that rooted it has been stored.
     ///
     /// - Parameters:
@@ -495,5 +568,27 @@ public struct Plan: Codable, Sendable, Equatable {
     static func distinct(_ ids: [String]) -> [String] {
         var seen: Set<String> = []
         return ids.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
+extension Plan.Task {
+    /// Decodes a task, its `calls` and `droppedCalls` absent from a plan saved before tasks were linked to calls
+    /// (0.33 and earlier), so such a thread resumes with none.
+    ///
+    /// - Parameter decoder: The decoder.
+    /// - Throws: `DecodingError` for a task missing what every task has had since 0.32.0.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        tree = try container.decode(Int.self, forKey: .tree)
+        parent = try container.decodeIfPresent(String.self, forKey: .parent)
+        goal = try container.decode(String.self, forKey: .goal)
+        status = try container.decode(Plan.Status.self, forKey: .status)
+        dependsOn = try container.decode([String].self, forKey: .dependsOn)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        created = try container.decode(Date.self, forKey: .created)
+        updated = try container.decode(Date.self, forKey: .updated)
+        calls = try container.decodeIfPresent([Plan.Call].self, forKey: .calls) ?? []
+        droppedCalls = try container.decodeIfPresent(Int.self, forKey: .droppedCalls) ?? 0
     }
 }

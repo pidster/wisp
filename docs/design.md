@@ -600,7 +600,11 @@ calls the tool from its own task; the thread's agent marks each turn's start on 
 store id of the turn's prompt on the tree the turn rooted and saves the plan into `ThreadRecord.plan`, which the
 snapshot writes to `record.store`. `requestNotes` adds `PlanText.reference`, a line an open tree, to every request's
 now block. `/plan`, `wisp threads plan` (`ThreadAdmin.plan`, from the saved record), and the MCP resources
-(`PlanResources`, through `RespondingThread.plan`) read it.
+(`PlanResources`, through `RespondingThread.plan`) read it. `AuditedTool` links every other tool's call to a task
+through the same book (ADR 0079, decision 21): it asks `PlanBook.runningTask()` as the call is made, names the task in
+`tool.call` when one alone is running, and once the call ends hands a `Plan.Call` to `PlanBook.link`, which adds it to
+that task or holds it; `PlanBook.update`, the `plan` tool's `update`, links the held calls to the task it settles in
+the same critical section, and a new turn lets go of them.
 
 ### Tools
 

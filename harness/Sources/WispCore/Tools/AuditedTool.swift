@@ -12,7 +12,9 @@ import Synchronization
 /// result, so a model that asks the same question six times in a turn (session `ce87576a`, 2026-10-04) is told
 /// (ADR 0050). With the conversation's plan, a result also ends with the plan's reminder to mark the task it may have
 /// finished, while one is open and none was marked this turn (ADR 0081, decision 12); the audit records the result as
-/// the model sees it.
+/// the model sees it. And the call is linked to the plan's task it did the work of: the one task running when it was
+/// made, named in its `tool.call` event, or, with none or several running, the next task the turn settles
+/// (ADR 0079, decision 21).
 public struct AuditedTool<Base: WispTool>: WispTool {
     /// Arguments are the base tool's.
     public typealias Arguments = Base.Arguments
@@ -25,7 +27,8 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     private let audit: AuditLog
     /// The turn's calls, for the repeated-call line; nil never notes one.
     private let ledger: CallLedger?
-    /// The conversation's plan, whose reminder ends each result; nil adds none.
+    /// The conversation's plan, whose reminder ends each result and whose tasks the calls are linked to; nil does
+    /// neither.
     private let plan: PlanBook?
 
     /// Wraps `base` to record into `audit`.
@@ -34,7 +37,8 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     ///   - base: The tool.
     ///   - audit: Where its calls and results go.
     ///   - ledger: The conversation's record of the turn's calls, for the repeated-call line; nil never notes one.
-    ///   - plan: The conversation's plan, whose reminder ends each result; nil, or the `plan` tool itself, adds none.
+    ///   - plan: The conversation's plan, whose reminder ends each result and whose tasks the calls are linked to;
+    ///     nil, as for the `plan` tool itself, does neither.
     public init(_ base: Base, audit: AuditLog, ledger: CallLedger? = nil, plan: PlanBook? = nil) {
         self.base = base
         self.audit = audit
@@ -58,7 +62,9 @@ public struct AuditedTool<Base: WispTool>: WispTool {
     /// Records the call, invokes the base tool, records the result or error.
     ///
     /// The call is recorded before the base tool runs, so a call that hangs or crashes the process is still in the
-    /// log. A result is recorded with its seconds, and with `repeat` when the call repeated an earlier one.
+    /// log. A result is recorded with its seconds, and with `repeat` when the call repeated an earlier one. The call
+    /// is recorded with `task` when one task alone is running; once it ends, the call is linked to that task or held
+    /// for the next one settled (``PlanBook/link(_:to:)``).
     ///
     /// - Parameter arguments: The model's arguments, recorded as the JSON it generated.
     /// - Returns: The base tool's result, with the repeated-call line above it and the plan's reminder below it
@@ -68,8 +74,10 @@ public struct AuditedTool<Base: WispTool>: WispTool {
         let call = ShortID.make()
         let started = Date()
         let argumentsJSON = arguments.generatedContent.jsonString
-        audit.record(
-            .toolCall, call: call, details: AuditEvent.Details.toolCall(tool: base.name, arguments: argumentsJSON))
+        let task = plan?.runningTask()
+        var callDetails = AuditEvent.Details.toolCall(tool: base.name, arguments: argumentsJSON)
+        if let task { callDetails["task"] = .string(task) }
+        audit.record(.toolCall, call: call, details: callDetails)
         Diagnostics.tools.debug("call \(call) \(base.name) \(argumentsJSON)")
         let repeats = ledger?.note(tool: base.name, arguments: argumentsJSON, turn: audit.currentTurn) ?? 1
         do {
@@ -80,9 +88,11 @@ public struct AuditedTool<Base: WispTool>: WispTool {
                 tool: base.name, output: output, seconds: Date().timeIntervalSince(started))
             if repeats > 1 { details["repeat"] = .int(repeats) }
             audit.record(.toolResult, call: call, details: details)
+            plan?.link(Plan.Call(id: call, tool: base.name, arguments: argumentsJSON, failed: false), to: task)
             return output
         } catch {
             audit.error(error, call: call, context: "tool \(base.name)")
+            plan?.link(Plan.Call(id: call, tool: base.name, arguments: argumentsJSON, failed: true), to: task)
             Diagnostics.tools.error("call \(call) \(base.name) failed: \(error)")
             throw error
         }

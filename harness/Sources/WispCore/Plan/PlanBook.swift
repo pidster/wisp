@@ -19,6 +19,11 @@ public final class PlanBook: Sendable {
         var changed = false
         /// Whether the turn under way marked a task (`update`).
         var marked = false
+        /// The turn's calls made while no single task was running, oldest first, at most `Plan.callsPerTask`, for the
+        /// next task settled (ADR 0079, decision 21).
+        var held: [Plan.Call] = []
+        /// Calls held this turn and let go past the bound, counted on the task that takes the rest.
+        var heldDropped = 0
     }
 
     /// The state, behind a lock.
@@ -51,9 +56,6 @@ public final class PlanBook: Sendable {
         return state.withLock { $0.marked ? nil : PlanText.nudge($0.plan) }
     }
 
-    /// Records that the turn under way marked a task, which quiets the reminder until the next turn.
-    func noteMarked() { state.withLock { $0.marked = true } }
-
     /// The plan as it stands.
     public var plan: Plan { state.withLock { $0.plan } }
 
@@ -73,12 +75,69 @@ public final class PlanBook: Sendable {
     /// Empties the book, for a conversation started afresh (`/new`).
     func reset() { state.withLock { $0 = State() } }
 
-    /// Marks the start of a turn: no tree rooted yet, nothing changed.
+    /// Marks the start of a turn: no tree rooted yet, nothing changed, no call held.
     func beginTurn() {
         state.withLock { state in
             state.current = nil
             state.changed = false
             state.marked = false
+            state.held = []
+            state.heldDropped = 0
+        }
+    }
+
+    /// The one task running, whose work a call made now is; nil when none or several are, and the call is held.
+    ///
+    /// - Returns: The task's id, or nil.
+    public func runningTask() -> String? { state.withLock { $0.plan.soleRunning?.id } }
+
+    /// Links a finished call to the task that was running when it was made, or holds it for the next task settled
+    /// this turn when none was, or that task has gone (ADR 0079, decision 21). Linking is not a change the turn made
+    /// to the plan: it is saved with the plan, but `respond` does not report the plan for it.
+    ///
+    /// - Parameters:
+    ///   - call: The call.
+    ///   - task: What ``runningTask()`` said when the call was made.
+    public func link(_ call: Plan.Call, to task: String?) {
+        state.withLock { state in
+            if let task, state.plan.task(task) != nil {
+                state.plan = state.plan.linking([call], to: task)
+                return
+            }
+            state.held.append(call)
+            if state.held.count > Plan.callsPerTask {
+                state.held.removeFirst()
+                state.heldDropped += 1
+            }
+        }
+    }
+
+    /// Updates a task's status or note, and, when the update settles it (`done`, `failed`, `skipped`), links to it
+    /// the calls held this turn, in one critical section, so no call is held or linked between the two.
+    ///
+    /// - Parameters:
+    ///   - id: The task.
+    ///   - status: Its new status; nil keeps it.
+    ///   - note: Its new note; nil or empty keeps it.
+    ///   - now: The time.
+    /// - Returns: The plan, and the calls linked.
+    /// - Throws: `Plan.Failure`, with the plan and the held calls unchanged.
+    func update(
+        _ id: String, status: Plan.Status?, note: String?, now: Date
+    ) throws -> (plan: Plan, linked: [Plan.Call]) {
+        try state.withLock { state in
+            var plan = try state.plan.updating(id, status: status, note: note, now: now)
+            var linked: [Plan.Call] = []
+            if let status, status.isSettled {
+                linked = state.held
+                plan = plan.linking(linked, to: id, dropped: state.heldDropped)
+                state.held = []
+                state.heldDropped = 0
+            }
+            state.plan = plan
+            state.changed = true
+            if status != nil { state.marked = true }
+            return (plan, linked)
         }
     }
 
