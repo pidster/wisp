@@ -45,8 +45,11 @@ The operator's answers on 2026-11-02:
 ## Consequences
 
 - A turn that ended empty after a model's tool calls now usually ends with a reply, and otherwise with wisp's line
-  rather than an error a caller must handle; whether the note brings a reply from Bonsai 2 9B is to be measured, by
-  rerunning the plan probe and the `edit_file` suite on it.
+  rather than an error a caller must handle. Measured on Bonsai 2 9B on 2026-11-02: ten empty responses in the plan
+  probe and `edit_file`, every one replied after the note, the plan probe 30/30 against 23/30 that morning
+  ([measurements.md](../measurements.md), "An empty response asked once more"). The evals of the plan probe,
+  `edit_file`, and `system_info` give their agents a tool-event trail, as a face's thread has, and print each case's
+  outcome.
 - The second request carries the turn's outputs as the record holds them, as a stopped turn's are: whole when they
   fit the tool-output budget, the held-back part kept in the output store ([ADR 0050](0050-tool-output-budget-and-overflow.md)).
 - A schema reply is asked again the same way, its note sent with the schema, so the reply is still shaped.

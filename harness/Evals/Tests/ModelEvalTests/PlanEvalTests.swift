@@ -102,7 +102,7 @@ struct PlanEvalTests {
         async throws -> Outcome
     {
         let sink = MemoryAuditSink()
-        let audit = AuditLog(session: "eval", sink: sink)
+        let (audit, trail) = EvalModels.traced(sink)
         let gate = ApprovalGate(
             classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
             threshold: .level(.moderate), audit: audit)
@@ -115,6 +115,7 @@ struct PlanEvalTests {
             instructions: Prompting().rendered(toolsAvailable: true, memory: false), tools: tools, model: model,
             audit: audit)
         agent.plan = book
+        agent.toolEvents = trail
         var used = 0
         for turn in 1...turns {
             let plan = book.plan
@@ -123,6 +124,7 @@ struct PlanEvalTests {
             used = turn
         }
         let events = sink.events
+        EvalModels.reportEmpty(events, "plan eval: \(problem.id) \(variant.rawValue)", on: model.selection)
         let calls = events.filter { $0.kind == .toolCall }
         let tool = { (event: AuditEvent) in event.details["tool"]?.stringValue ?? "" }
         let stalls = (2...max(2, used)).filter { turn in turn <= used && !calls.contains { $0.turn == turn } }.count

@@ -96,12 +96,14 @@ struct ToolEvalTests {
             let root = dir.path
             let (calls, milliseconds) = await EvalModels.attempt("tool eval: edit_file \(item.id)", on: selection) {
                 let sink = MemoryAuditSink()
-                let audit = AuditLog(session: "eval", sink: sink)
+                let (audit, trail) = EvalModels.traced(sink)
                 let registry = ToolRegistry(runner: .init(writableRoot: root), audit: audit)
                 let tools = registry.select(["read_file", "edit_file"]).tools
                 let agent = Agent(
                     instructions: Prompting.systemPrompt(memory: false), tools: tools, model: model, audit: audit)
+                agent.toolEvents = trail
                 _ = try await agent.respond(to: prompt)
+                EvalModels.reportEmpty(sink.events, "tool eval: \(suite) \(item.id)", on: selection)
                 return sink.events.filter { $0.kind == .toolCall && $0.details["tool"] == "edit_file" }
                     .map { $0.details["arguments"]?.stringValue ?? "" }
             }

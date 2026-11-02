@@ -220,7 +220,7 @@ coverage_baseline() {
 # the plan probe (ADR 0081), whether a model keeps its plan while it works, under four variants; no floor.
 # Every run ends with a summary table, model by suite, saved with the run's whole output under
 # harness/Evals/.build/evals.
-EVAL_LINES='model classifier|measured:|eval:|checkpoint:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run'
+EVAL_LINES='model classifier|empty response:|measured:|eval:|checkpoint:|^  [a-z]+ -> |^[a-z-]+	|✔|✘|Test run'
 # The suites that decide delegation: tool calls and schema replies, system_info's topics, triage, summarise_diff,
 # draft_change, the classifier's model fallback alone and beside the rules, and one context scenario.
 EVAL_COMPARE_SUITES='ToolEvalTests|SystemInfoEvalTests|TriageEvalTests|DiffSummaryEvalTests|DraftEvalTests|ClassifierEvalTests/(measuresTheModelAlone|theDefaultAsTheGateRunsIt)|ContextEvalTests/comparisonOnEachModel'

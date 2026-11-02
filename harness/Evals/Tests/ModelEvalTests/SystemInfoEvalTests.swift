@@ -46,7 +46,7 @@ struct SystemInfoEvalTests {
                 "system_info eval: \(question)", on: selection
             ) {
                 let sink = MemoryAuditSink()
-                let audit = AuditLog(session: "eval", sink: sink)
+                let (audit, trail) = EvalModels.traced(sink)
                 let gate = ApprovalGate(
                     classifier: RuleRiskClassifier.standard, approver: DenyingApprover(reason: "not during the eval"),
                     threshold: .level(.moderate), audit: audit)
@@ -56,6 +56,7 @@ struct SystemInfoEvalTests {
                 let agent = Agent(
                     instructions: Prompting.systemPrompt(memory: true), tools: tools, model: model, audit: audit)
                 agent.memory = memory
+                agent.toolEvents = trail
                 // The calls are what is scored, so a turn that ends in an error still counts the calls it made.
                 do {
                     _ = try await agent.respond(to: question)
@@ -63,6 +64,7 @@ struct SystemInfoEvalTests {
                     EvalModels.serviceFaults.record(error, on: selection)
                     print("system_info eval: on \(selection) \(question): error \(error)")
                 }
+                EvalModels.reportEmpty(sink.events, "system_info eval: \(question)", on: selection)
                 return sink.events.filter { $0.kind == .toolCall }.map {
                     Call(
                         tool: $0.details["tool"]?.stringValue ?? "",

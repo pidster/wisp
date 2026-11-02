@@ -790,6 +790,28 @@ evals show too (2026-10-17, 2026-10-30), and none came under `planning` by chanc
 `planning` was the conversation its miss under `none` was: three of four tasks settled, then five stalled turns. No
 model planned the control under any variant. The operator chose not to ship it.
 
+### An empty response asked once more, 2026-11-02
+
+Bonsai 2 9B through wisp's router, after [ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md): the plan
+probe (`scripts/check eval plan`) and `eval compare`, run twice the same afternoon. In the first run the evals' agents
+had no tool-event trail, so an empty response ended the turn with wisp's line, unasked; in the second they carry one,
+as a face's thread does, so the turn is rebuilt from its record and the note sent, and each case prints how it ended
+(`empty response: … replied`).
+
+| Suite | Before ADR 0083 (morning) | No trail | With the trail |
+| --- | --- | --- | --- |
+| Plan probe, all variants | 23/30 | 29/30 | 30/30 |
+| `edit_file` replace | 35/36 (2026-10-17) | 35/36 | 36/36 |
+| `edit_file` whitespace | | 7/8 | 7/8 |
+| `system_info` topics | 22/24 (2026-10-17) | 23/24 | 22/24 |
+| Empty responses | 6, each ending its conversation | not counted | 10, every one replied after the note |
+
+The ten came six in the plan probe (four under `reminder`, one under `both`, one under `planning`), three in
+`edit_file` replace, and one in `edit_file` whitespace; none came empty again, and no turn failed. The first run's one
+miss was a `system_info` call with the topic `"0"`, which the framework refused. The other suites moved within a run's
+noise and met no empty response: triage 7/7 both times, `summarise_diff` 5/5, the context scenario 6/6, schema
+replies 5/6 then 4/6, small drafts 9/12 then 10/12, large 0/2 then 1/2.
+
 ## Context checkpoint 2
 
 ```

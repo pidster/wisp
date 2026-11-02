@@ -303,3 +303,29 @@ enum EvalModels {
                 + (median.map { String(format: "%.0f", $0) } ?? "") + "\t\(shown)")
     }
 }
+
+extension EvalModels {
+    /// An eval agent's audit log with a tool-event trail beside it, as a face's thread has (`WispThread.setUp`), so a
+    /// response that comes back empty is asked once more from the turn's record rather than ended at once (ADR 0083).
+    /// Give the tools the returned log, and the agent the log and the trail.
+    ///
+    /// - Parameter sink: The case's sink, which still receives every event.
+    /// - Returns: The log and the trail.
+    static func traced(_ sink: MemoryAuditSink) -> (audit: AuditLog, trail: ToolEventTrail) {
+        let trail = ToolEventTrail()
+        return (AuditLog(session: "eval", sink: sink).alsoRecording(to: trail), trail)
+    }
+
+    /// Prints a line for each response that came back empty in a case, with how wisp's recovery ended (`turn.empty`'s
+    /// `outcome`: `replied`, `empty again`, or `nothing to rebuild`), so a run counts how often the note brings a reply.
+    ///
+    /// - Parameters:
+    ///   - events: The case's audit events.
+    ///   - label: The case, as its own lines name it.
+    ///   - selection: The model.
+    static func reportEmpty(_ events: [AuditEvent], _ label: String, on selection: ModelSelection) {
+        for event in events where event.kind == .turnEmpty {
+            print("empty response: \(label) on \(selection): \(event.details["outcome"]?.stringValue ?? "?")")
+        }
+    }
+}
