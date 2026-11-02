@@ -66,6 +66,7 @@ The id offered is the tree's next number, past any a task already waits for.
 | `pending` | Not started | Adding a task; or the model, to reopen one |
 | `ready` | Pending, and everything it depends on done | Derived, never stored |
 | `running` | Being worked on | The model; refused while a task it depends on is not done |
+| `waiting` | Running, and waiting on a question the model asked you with `ask` ([ask.md](ask.md)); what depends on it is not ready | wisp only, below; the model is refused it |
 | `done` | Finished | The model; refused while a task it depends on is not done |
 | `failed` | Tried, and did not succeed; what depends on it cannot go on | The model |
 | `skipped` | Not done, on purpose; what depends on it cannot go on | The model |
@@ -149,6 +150,32 @@ t1.2 [done] List the largest folders (after t1.1) — ~/Library is the largest
 The call id is the one its `tool.call` and `tool.result` events carry, and the kept output's id. A model that goes
 from `pending` straight to `done` without marking a task `running`, as models often do, still gets its calls linked,
 to the task it marks.
+
+## Waiting on you
+
+When the model asks you a question with `ask`, wisp marks the task it is taken to be about `waiting` and keeps the
+question's id on it: the one task `running`, or, with none running, the first ready, the task the reminder names
+(small models often go from `pending` to `done` without marking a task running) ([ADR 0079](../decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decision
+24). When the question ends, however it ends, the task is `running` again, with a note of how it ended, and the model
+decides whether it is done:
+
+```
+t1.2 [running] Find the codename — question a1b2c3d4: the person answered: BLUE HERON
+```
+
+| The question | The note |
+| --- | --- |
+| Answered | `the person answered: …` (masked as the answer is everywhere else) or `the person chose: …` |
+| None of the options | `the person chose none of the options` |
+| Declined | `the person declined to answer` |
+| Past its deadline | `no answer before the question's deadline` |
+| Withdrawn (the thread closed, the server stopped) | `the question was withdrawn: …` |
+
+In chat and `wisp-tui` the question is answered within the turn, so the task waits only while it is on screen. Under
+`wisp mcp` a question nobody answers within 60 s parks ([ask.md](ask.md)), and the task stays `waiting`, in `/plan`,
+`wisp threads plan`, and the resource, until you answer. With several running, or none running or ready, no task
+waits and the question is asked as before. A task you or the model move on from while it waits keeps the status you gave it. wisp's
+changes are audited as `plan.update` with `by` `wisp` and `question`.
 
 ## The reminder
 

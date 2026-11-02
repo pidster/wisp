@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 import Testing
 import WispTestSupport
 
@@ -205,5 +206,110 @@ import WispTestSupport
         #expect(policy.check("wisp threads plan git reopen t1.1") != .allowed)
         #expect(policy.check("wisp threads plan git") == .allowed)
         #expect(policy.check("wisp threads plan git t1.2 --json") == .allowed)
+    }
+}
+
+/// A task waiting on a question the model asked the person (ADR 0079, decision 24): set and cleared by wisp, never by
+/// the model, back to running with a note however the question ends.
+@Suite struct PlanWaitingTests {
+    /// A fixed time.
+    static let now = PlanTests.now
+
+    @Test func theOneTaskRunningWaitsAndRunsAgainWithANote() throws {
+        let plan = try PlanTests.sample().updating("t1.1", status: .running, note: nil, now: Self.now)
+        let waiting = plan.waiting(on: "q1", now: Self.now)
+        #expect(waiting.task == "t1.1" && waiting.plan.task("t1.1")?.status == .waiting)
+        #expect(waiting.plan.task("t1.1")?.question == "q1" && waiting.plan.soleRunning == nil)
+        #expect(!waiting.plan.isReady(try #require(waiting.plan.task("t1.2"))))
+        let resumed = waiting.plan.resuming(after: "q1", note: "question q1: the person answered: blue", now: Self.now)
+        #expect(resumed.task == "t1.1" && resumed.plan.task("t1.1")?.status == .running)
+        #expect(resumed.plan.task("t1.1")?.note == "question q1: the person answered: blue")
+        #expect(resumed.plan.task("t1.1")?.question == nil)
+        // A note past the limit is cut; an unknown question changes nothing.
+        let long = waiting.plan.resuming(after: "q1", note: String(repeating: "x", count: 400), now: Self.now)
+        #expect(long.plan.task("t1.1")?.note?.count == Plan.noteLimit)
+        #expect(waiting.plan.resuming(after: "q9", note: "n", now: Self.now).task == nil)
+        // A task moved on meanwhile keeps its status and loses only the question.
+        let skipped = try PlanEdit.skip("t1.1", note: nil).apply(
+            to: waiting.plan, by: .person, lastPrompt: nil, now: Self.now)
+        let after = skipped.plan.resuming(after: "q1", note: "n", now: Self.now)
+        #expect(
+            after.task == nil && after.plan.task("t1.1")?.status == .skipped && after.plan.task("t1.1")?.question == nil
+        )
+        // None running: the first ready waits, as the reminder names it; none ready either, or two running: none.
+        #expect(try PlanTests.sample().waiting(on: "q1", now: Self.now).task == "t1.1")
+        let settled = try PlanTests.sample().updating("t1.1", status: .skipped, note: nil, now: Self.now)
+        #expect(settled.waiting(on: "q1", now: Self.now).task == nil)
+        var two = try Plan().adding(goal: "One", parent: nil, dependsOn: [], currentTree: nil, now: Self.now).plan
+        two = try two.adding(goal: "Two", parent: nil, dependsOn: [], currentTree: 1, now: Self.now).plan
+        two = try two.updating("t1.1", status: .running, note: nil, now: Self.now)
+        two = try two.updating("t1.2", status: .running, note: nil, now: Self.now)
+        #expect(two.waiting(on: "q1", now: Self.now).task == nil)
+    }
+
+    @Test func theModelCannotSetWaiting() async throws {
+        let book = PlanBook()
+        book.seed(try PlanTests.sample())
+        var update = PlanTool.Arguments(action: "update")
+        update.id = "t1.1"
+        update.status = "waiting"
+        #expect(
+            await PlanTool(book: book).call(arguments: update)
+                == "error: waiting is set by wisp while a question you asked the person is open; use running, done, "
+                + "failed, skipped, or pending")
+        update.status = "paused"
+        #expect(
+            await PlanTool(book: book).call(arguments: update)
+                == "error: unknown status \"paused\"; use pending, running, done, failed, skipped")
+    }
+
+    @Test func everyEndingOfAQuestionIsANote() {
+        #expect(PlanText.questionEnded(.answered("blue"), question: "q1") == "question q1: the person answered: blue")
+        #expect(PlanText.questionEnded(.chose("b"), question: "q1") == "question q1: the person chose: b")
+        #expect(PlanText.questionEnded(.declined, question: "q1") == "question q1: the person declined to answer")
+        #expect(PlanText.questionEnded(.withdrawn, question: "q1").hasPrefix("question q1: the question was withdrawn"))
+        for outcome: Question.Outcome in [
+            .noneOfThese, .unanswered(.seconds(5)), .stopped, .abandoned, .nobody("x"), .failed("y"),
+            .parked(waited: .zero),
+        ] {
+            #expect(PlanText.questionEnded(outcome, question: "q1").hasPrefix("question q1: "))
+        }
+    }
+
+    @Test func theBoxTellsItsObserverWhenAQuestionIsAskedAndWhenItEnds() throws {
+        let box = InquiryBox()
+        let seen = Mutex<[String]>([])
+        box.observe(
+            asked: { question in seen.withLock { $0.append("asked \(question.text)") } },
+            settled: { question, outcome in seen.withLock { $0.append("settled \(question.text) \(outcome.name)") } })
+        let question = try Question.validate(text: "Which?", options: nil, thread: "t", timeout: nil)
+        try box.begin(question, turn: 1)
+        box.settle(question.id, outcome: .declined)
+        box.settle(question.id, outcome: .answered("late"))
+        #expect(seen.withLock { $0 } == ["asked Which?", "settled Which? declined"])
+    }
+
+    @Test func aRunningTaskWaitsWhileTheModelAsksAndRunsAgainWithTheAnswer() async throws {
+        let place = try InquiryTests.Place()
+        defer { place.remove() }
+        let asker = ScriptedAsker([.answered("BLUE HERON")])
+        let thread = try place.session.thread(
+            id: "t", host: place.session.host(approver: DenyingApprover(reason: "no"), asker: asker),
+            tools: .named(["ask", "plan"]))
+        let agent = try place.agent(
+            thread,
+            steps: [
+                .call(name: "plan", arguments: #"{"action": "add", "goal": "Find the codename"}"#),
+                .call(name: "plan", arguments: #"{"action": "update", "id": "t1.1", "status": "running"}"#),
+                InquiryTests.ask("What is the codename?"), .say("ok"),
+            ])
+        _ = try await agent.respond(to: "find the codename")
+        let task = try #require(agent.plan?.plan.task("t1.1"))
+        let id = try #require(thread.inquiries.records.first?.question.id)
+        #expect(task.status == .running && task.question == nil)
+        #expect(task.note == "question \(id): the person answered: BLUE HERON")
+        let byWisp = place.events(.planUpdate).filter { $0.details["by"] == "wisp" }
+        #expect(byWisp.map { $0.details["status"] } == ["waiting", "running"])
+        #expect(byWisp.allSatisfy { $0.details["question"] == .string(id) && $0.details["task"] == "t1.1" })
     }
 }

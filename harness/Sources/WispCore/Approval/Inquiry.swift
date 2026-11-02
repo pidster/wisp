@@ -484,6 +484,11 @@ public final class InquiryBox: Sendable {
     public let conversation: String
     /// What records an answer taken after a park as the thread's fact (D14); set by the face that owns the agent.
     private let onAnswer = Mutex<(@Sendable (Question, String) async -> Void)?>(nil)
+    /// What is told when a question is admitted and when it ends, for the conversation's plan, whose running task waits
+    /// on it meanwhile (ADR 0079, decision 24); set by the face's thread.
+    private let observers = Mutex<
+        (asked: (@Sendable (Question) -> Void)?, settled: (@Sendable (Question, Question.Outcome) -> Void)?)
+    >((nil, nil))
     /// How many settled records are kept.
     static let historyLimit = 100
 
@@ -502,6 +507,17 @@ public final class InquiryBox: Sendable {
     /// - Parameter record: Records the question and its answer.
     public func onAnswer(_ record: @escaping @Sendable (Question, String) async -> Void) {
         onAnswer.withLock { $0 = record }
+    }
+
+    /// Sets what is told when a question is admitted and when one ends, however it ends.
+    ///
+    /// - Parameters:
+    ///   - asked: Told the question, once `begin` admits it.
+    ///   - settled: Told the question and how it ended, once `settle` settles it.
+    public func observe(
+        asked: @escaping @Sendable (Question) -> Void, settled: @escaping @Sendable (Question, Question.Outcome) -> Void
+    ) {
+        observers.withLock { $0 = (asked, settled) }
     }
 
     /// Every record, oldest first.
@@ -532,6 +548,7 @@ public final class InquiryBox: Sendable {
             contents.asked = [turn: asked + [question.text]]
             contents.records.append(Record(question: question, turn: turn, state: .waiting, asked: Date()))
         }
+        observers.withLock { $0.asked }?(question)
     }
 
     /// Settles `id` with `outcome`, delivered `delivered`; nothing changes for a question not waiting.
@@ -546,6 +563,19 @@ public final class InquiryBox: Sendable {
     /// - Returns: The record, or nil when no such question waits.
     @discardableResult
     public func settle(_ id: String, outcome: Question.Outcome, delivered: String? = nil) -> Record? {
+        let record = settleRecord(id, outcome: outcome, delivered: delivered)
+        if let record, record.state == .settled { observers.withLock { $0.settled }?(record.question, outcome) }
+        return record
+    }
+
+    /// The record of `settle`, changed under the lock; the observer is told after it is released.
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - outcome: How it ended.
+    ///   - delivered: How the answer reached the model.
+    /// - Returns: The record, or nil when no such question waits.
+    private func settleRecord(_ id: String, outcome: Question.Outcome, delivered: String?) -> Record? {
         contents.withLock { contents in
             contents.watches[id] = nil
             contents.pending[id] = nil

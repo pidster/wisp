@@ -85,6 +85,28 @@ public struct WispThread: Sendable {
         let condenser = OutputCondenser()
         let inquiries = InquiryBox(conversation: audit.session, notices: session.notices)
         let plan = PlanBook()
+        // The task running, or else the first ready, waits while a question the model asked is open, and runs again when it ends, with a
+        // note of how (ADR 0079, decision 24); audited as wisp's changes to the plan.
+        inquiries.observe(
+            asked: { [audit] question in
+                guard let task = plan.wait(on: question.id) else { return }
+                audit.record(
+                    .planUpdate,
+                    details: [
+                        "task": .string(task), "status": .string(Plan.Status.waiting.rawValue), "note": .null,
+                        "by": .string("wisp"), "question": .string(question.id),
+                    ])
+            },
+            settled: { [audit] question, outcome in
+                let note = PlanText.questionEnded(outcome, question: question.id)
+                guard let task = plan.resume(after: question.id, note: note) else { return }
+                audit.record(
+                    .planUpdate,
+                    details: [
+                        "task": .string(task), "status": .string(Plan.Status.running.rawValue), "note": .string(note),
+                        "by": .string("wisp"), "question": .string(question.id),
+                    ])
+            })
         // `--yes` answers approvals ahead of time; it answers no question, so nobody is asked (ADR 0062).
         let asker: any Asker = session.request.autoApprove ? NobodyAsker(face: "--yes") : host.asker
         let registry = ToolRegistry(

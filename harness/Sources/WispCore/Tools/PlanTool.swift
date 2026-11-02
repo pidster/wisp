@@ -174,6 +174,8 @@ public struct PlanTool: WispTool {
             guard status != nil || (raw.isEmpty && noted) else {
                 throw Refusal.badStatus(arguments.status, allowingReady: false)
             }
+            // wisp sets `waiting` while a question the model asked is open, and clears it (ADR 0079, decision 24).
+            guard status != .waiting else { throw Refusal.waitingIsWisps }
             let (plan, linked) = try book.update(id, status: status, note: arguments.note, now: now)
             var details: [String: JSONValue] = [
                 "task": .string(id), "status": .string(plan.task(id)?.status.rawValue ?? raw),
@@ -279,6 +281,8 @@ public struct PlanTool: WispTool {
         case missing(String, action: String)
         /// The status is not one the tool knows.
         case badStatus(String?, allowingReady: Bool)
+        /// The model tried to set `waiting`, which wisp sets.
+        case waitingIsWisps
 
         /// The refusal as the model reads it.
         var description: String {
@@ -288,7 +292,12 @@ public struct PlanTool: WispTool {
             case .missing(let argument, let action): "\(action) needs \(argument)"
             case .badStatus(let status, let ready):
                 "unknown status \"\(status ?? "")\"; use "
-                    + (Plan.Status.allCases.map(\.rawValue) + (ready ? ["ready"] : [])).joined(separator: ", ")
+                    + (Plan.Status.allCases.filter { ready || $0 != .waiting }.map(\.rawValue)
+                    + (ready ? ["ready"] : []))
+                    .joined(separator: ", ")
+            case .waitingIsWisps:
+                "waiting is set by wisp while a question you asked the person is open; use running, done, failed, "
+                    + "skipped, or pending"
             }
         }
     }

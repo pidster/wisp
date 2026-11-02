@@ -1064,7 +1064,7 @@ extension AuditEvent {
             ["inquiry", "question", "thread", "outcome", "via", "delivered", "answer", "redacted", "reason", "seconds"]
         case .planAdd: ["task", "tree", "parent", "goal", "dependsOn", "by", "thread", "queued"]
         case .planDepend: ["task", "dependsOn"]
-        case .planUpdate: ["task", "status", "note", "calls", "by", "thread", "queued"]
+        case .planUpdate: ["task", "status", "note", "calls", "by", "thread", "queued", "question"]
         case .planQueued: ["thread", "change", "queued", "outcome", "reason", "holder"]
         case .approvalDecided:
             [

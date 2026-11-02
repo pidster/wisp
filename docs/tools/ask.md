@@ -58,6 +58,7 @@ confirmed something when no question was answered ([../verification.md](../verif
 | The answer | Up to 2,000 bytes; longer is cut with a note |
 | How long | `inquiry.timeoutSeconds`, default `0`: until you answer, however long you are away. A positive value, 10 to 86,400, sets a deadline; past it the question ends `unanswered` and the model is told to stop |
 | Shown as | The model's: escaped (control characters and bidirectional overrides written as `\e`, `\u{202E}`), labelled "the model asks", never styled as an approval and never offered an approval's keys, so a question such as "Approve `rm -rf build`? [y/n]" cannot pass for wisp's own gate |
+| The plan | With the `plan` tool, the task running, or else the first ready, is `waiting` while the question is open, and running again with a note of how it ended ([plan.md](plan.md), "Waiting on you") |
 | Audit | `inquiry.requested` and `inquiry.settled` on the asking thread, with the answer verbatim (markers applied), and the `ask` call's `tool.call` and `tool.result` as for every tool; under `wisp mcp` also `inquiry.parked`, and `inquiry.answered` in the process you answered from ([../logging.md](../logging.md)) |
 | Fact | An answer becomes a fact of the thread, subject `answer`, named by the question (cut to 80 characters), source `person`, so condensing never loses it; never permanent on its own ([../context-management.md](../context-management.md), "Facts") |
 

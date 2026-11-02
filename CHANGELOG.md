@@ -17,6 +17,8 @@ Added:
 - You can change the plan yourself: `/plan done|skip|reopen TASK [NOTE]` and `/plan add GOAL [under …] [after …]` in
   chat and `wisp-tui`, and `wisp threads plan ID done …` from a terminal, queued for the next turn of a thread a chat
   or an MCP server has open. You may mark a task done before what it depends on (ADR 0079, decisions 22 and 23).
+- A running task waits while the model's question to you is open (`waiting` in the plan), and runs again with a
+  note of your answer, or of why there is none (ADR 0079, decision 24).
 - MCP: `change_plan` changes an open thread's plan as the caller, in the same words. The model is told of every
   change from outside it at its next turn, with who made it.
 

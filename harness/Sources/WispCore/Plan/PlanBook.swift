@@ -95,6 +95,36 @@ public final class PlanBook: Sendable {
     /// - Parameter line: The line, naming who made the change.
     func tell(_ line: String) { state.withLock { $0.plan.tellModel(line) } }
 
+    /// Sets the task the question is taken to be about `waiting` on question `id`, when the model asks the person
+    /// something (ADR 0079, decision 24): the one running, else the first ready.
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - now: The time.
+    /// - Returns: The task that waits, or nil when several were running or none was running or ready.
+    func wait(on id: String, now: Date = Date()) -> String? {
+        state.withLock { state in
+            let (plan, task) = state.plan.waiting(on: id, now: now)
+            state.plan = plan
+            return task
+        }
+    }
+
+    /// Sets the task waiting on question `id` running again, with `note` saying how it ended (decision 24).
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - note: How it ended.
+    ///   - now: The time.
+    /// - Returns: The task running again, or nil when none was waiting on it.
+    func resume(after id: String, note: String, now: Date = Date()) -> String? {
+        state.withLock { state in
+            let (plan, task) = state.plan.resuming(after: id, note: note, now: now)
+            state.plan = plan
+            return task
+        }
+    }
+
     /// The changes from outside the model's turns that the turn under way tells it of.
     var told: [String] { state.withLock { $0.told } }
 

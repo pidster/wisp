@@ -205,6 +205,31 @@ public enum PlanText {
         return ["no task or tree \(named) in this conversation's plan"]
     }
 
+    /// The note a task waiting on a question gets when the question ends, however it ends (ADR 0079, decision 24): what
+    /// the person answered, already masked, or why there is no answer. The model reads it beside the task and decides
+    /// whether the task is done.
+    ///
+    /// - Parameters:
+    ///   - outcome: How the question ended.
+    ///   - question: The question's id.
+    /// - Returns: The note.
+    public static func questionEnded(_ outcome: Question.Outcome, question: String) -> String {
+        let said =
+            switch outcome {
+            case .answered(let text): "the person answered: \(text)"
+            case .chose(let option): "the person chose: \(option)"
+            case .noneOfThese: "the person chose none of the options"
+            case .declined: "the person declined to answer"
+            case .unanswered: "no answer before the question's deadline"
+            case .stopped, .abandoned: "the question was stopped before an answer"
+            case .withdrawn: "the question was withdrawn: the thread closed or the server stopped"
+            case .nobody: "no person could answer here"
+            case .failed(let reason): "the question could not be asked: \(reason)"
+            case .parked: "the question waits for the person"
+            }
+        return "question \(question): \(said)"
+    }
+
     /// The lines telling the model of the changes the person or the caller made to the plan since its last turn
     /// (ADR 0079, decision 22): a heading, then a change a line, each naming who made it; none when there were none.
     ///

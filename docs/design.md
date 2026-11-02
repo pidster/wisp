@@ -612,7 +612,10 @@ queue), and `ThreadAdmin.editPlan` to a saved record under the thread's lock, or
 thread, files it in `PlanQueue` (`~/.wisp/pending/plan/<thread>/`), which the holder drains with
 `Agent.applyQueuedPlanChanges` before each turn: chat before a message, the MCP server inside `respond`'s turn queue.
 Each change adds a line naming who made it to `Plan.untold`; `PlanBook.beginTurn` takes them for the turn, and
-`requestNotes` adds them to its requests' now block (`PlanText.told`).
+`requestNotes` adds them to its requests' now block (`PlanText.told`). A task waits on a question (decision 24)
+through `InquiryBox.observe`, which `WispThread` sets when it makes the box and the book: a question admitted sets
+the task running, or else the first ready, `waiting` (`PlanBook.wait`), and a question settled, in the tool or after a park, sets it running
+again with `PlanText.questionEnded` as its note (`PlanBook.resume`).
 
 ### Tools
 

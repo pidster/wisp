@@ -162,8 +162,7 @@ Agreed by the operator on 2026-11-02:
     - **D, the planning nudge**: a variant in the plan probe first, for a turn asked to plan that adds no task (ADR
       0081's consequence on `granite4.2:8b`), and a reminder only if the probe shows it helps.
 
-    **Pending**, to be proposed with the build: for C, whether the model or wisp sets `waiting`, and what the answer does
-    to the task's status; for D, the probe variant's prompt and the bar for adopting it.
+    **Pending**, to be proposed with the build: for D, the probe variant's prompt and the bar for adopting it.
 
 Agreed by the operator on 2026-11-02, for A:
 
@@ -201,6 +200,21 @@ Agreed by the operator on 2026-11-02, for B:
     makes it as the person's as the thread's next turn begins, in the order filed. A change that no longer applies
     then is told to the model as refused and audited, since the person is not there to see it fail. A thread no process
     holds is changed at once, under its lock.
+
+Agreed by the operator on 2026-11-02, for C:
+
+24. **wisp sets `waiting`, and the question's end clears it.** When the model calls `ask`, wisp marks the task the
+    question is taken to be about `waiting` and keeps the question's id on it: the one task `running`, or, with none
+    running, the first ready, the task the reminder names. Built first for a sole running task alone, as calls follow
+    (decision 21); a review the same day noted that small models often go from `pending` to `done` without `running`,
+    so the task would seldom wait, and the operator answered that a task is made to wait when one is running or ready,
+    and none when none is. With several running there is no way to tell, and none waits. The model may not set `waiting` itself: the probes found the models
+    poor at bookkeeping, and a status wisp sets from the record is never wrong. When the question ends, answered,
+    declined, past a deadline, or withdrawn, the task is `running` again with a note of how (the answer masked as
+    everywhere else), and the model decides whether it is done; nothing is settled for it. A task moved on from
+    meanwhile keeps its status. In chat a question is answered within the turn, so this matters most for a question
+    parked under `wisp mcp`, where the task shows `waiting` until the person answers. Audited as `plan.update` with
+    `by` `wisp` and `question`.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

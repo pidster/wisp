@@ -25,6 +25,9 @@ public struct Plan: Codable, Sendable, Equatable {
         case pending
         /// Being worked on.
         case running
+        /// Running, and waiting on a question the model put to the person with `ask`; set and cleared by wisp, never
+        /// by the model (ADR 0079, decision 24).
+        case waiting
         /// Finished.
         case done
         /// Tried, and did not succeed; what depends on it cannot go on.
@@ -64,6 +67,8 @@ public struct Plan: Codable, Sendable, Equatable {
         public var calls: [Call] = []
         /// Calls linked to it earlier than those `calls` keeps, past its bound.
         public var droppedCalls = 0
+        /// The id of the question it waits on, while it is `waiting`.
+        public var question: String?
     }
 
     /// A tool call linked to a task: enough to say what ran, and its audit call id, which joins it to its `tool.call`
@@ -491,6 +496,47 @@ public struct Plan: Codable, Sendable, Equatable {
         return (plan, untold)
     }
 
+    /// The plan with the task the question is taken to be about set `waiting` on question `id` (ADR 0079, decision 24):
+    /// the one task running, or, with none running, the first ready, the task the reminder names, since small models
+    /// often go from `pending` to `done` without `running`. Unchanged when several are running, which leaves no way to
+    /// tell, or when none is running or ready, when no task needs to wait.
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - now: The time.
+    /// - Returns: The plan, and the task that waits, if one does.
+    func waiting(on id: String, now: Date) -> (plan: Plan, task: String?) {
+        let running = tasks.filter { $0.status == .running }
+        guard let task = running.isEmpty ? ready.first : (running.count == 1 ? running.first : nil),
+            let index = tasks.firstIndex(where: { $0.id == task.id })
+        else { return (self, nil) }
+        var plan = self
+        plan.tasks[index].status = .waiting
+        plan.tasks[index].question = id
+        plan.tasks[index].updated = now
+        return (plan, task.id)
+    }
+
+    /// The plan with the task that waits on question `id` running again, `note` saying how the question ended
+    /// (decision 24). A task the model or the person moved on from `waiting` meanwhile keeps its status and loses only
+    /// the question.
+    ///
+    /// - Parameters:
+    ///   - id: The question's id.
+    ///   - note: How it ended, cut to a note's limit.
+    ///   - now: The time.
+    /// - Returns: The plan, and the task that was running again, if one was waiting.
+    func resuming(after id: String, note: String, now: Date) -> (plan: Plan, task: String?) {
+        guard let index = tasks.firstIndex(where: { $0.question == id }) else { return (self, nil) }
+        var plan = self
+        plan.tasks[index].question = nil
+        guard plan.tasks[index].status == .waiting else { return (plan, nil) }
+        plan.tasks[index].status = .running
+        plan.tasks[index].note = note.count > Self.noteLimit ? String(note.prefix(Self.noteLimit - 1)) + "…" : note
+        plan.tasks[index].updated = now
+        return (plan, plan.tasks[index].id)
+    }
+
     /// The one task running, which a call made now does the work of; nil when none or several are.
     var soleRunning: Task? {
         let running = tasks.filter { $0.status == .running }
@@ -620,6 +666,7 @@ extension Plan.Task {
         updated = try container.decode(Date.self, forKey: .updated)
         calls = try container.decodeIfPresent([Plan.Call].self, forKey: .calls) ?? []
         droppedCalls = try container.decodeIfPresent(Int.self, forKey: .droppedCalls) ?? 0
+        question = try container.decodeIfPresent(String.self, forKey: .question)
     }
 }
 
