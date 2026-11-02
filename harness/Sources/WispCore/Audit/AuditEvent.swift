@@ -107,6 +107,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case planAdd
         case planDepend
         case planUpdate
+        case planQueued
         case condensation
         case presentationCut
         case outputReferenced
@@ -179,6 +180,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .planAdd,
             .planDepend,
             .planUpdate,
+            .planQueued,
             .condensation,
             .presentationCut,
             .outputReferenced,
@@ -251,6 +253,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .planAdd: "plan.add"
             case .planDepend: "plan.depend"
             case .planUpdate: "plan.update"
+            case .planQueued: "plan.queued"
             case .condensation: "context.condensation"
             case .presentationCut: "context.cut"
             case .outputReferenced: "context.reference"

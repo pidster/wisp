@@ -190,7 +190,8 @@ extension Agent {
     }
 
     /// `frame` with the request's own lines at the end of the now block (D7 and D4): a line for each open tree of the
-    /// conversation's plan and one for the ids this turn's tasks take (ADR 0081), then the facts the assessment found
+    /// conversation's plan and one for the ids this turn's tasks take (ADR 0081), the person's changes to the plan since
+    /// the last turn (ADR 0079, decision 22), then the facts the assessment found
     /// relevant, repeated, and the tools registered for the request. Unchanged without a plan or an assessment.
     ///
     /// - Parameters:
@@ -199,7 +200,9 @@ extension Agent {
     /// - Returns: The frame.
     func requestNotes(_ frame: FactFrame, view: FactView?) -> FactFrame {
         let frame = frame.addingNow(
-            plan.map { PlanText.reference($0.plan, next: $0.namesNext) + [PlanText.turn($0.plan)] } ?? [])
+            plan.map {
+                PlanText.reference($0.plan, next: $0.namesNext) + [PlanText.turn($0.plan)] + PlanText.told($0.told)
+            } ?? [])
         guard let settings = assessment else { return frame }
         var lines: [String] = []
         if let view {

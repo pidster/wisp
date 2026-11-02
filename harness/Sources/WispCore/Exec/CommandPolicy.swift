@@ -153,6 +153,9 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         // Nor does it delete a saved thread or hand one to another client (ADR 0066, phase 3): either changes what an
         // agent may open, so no agent takes another's thread through run_command.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?threads["']?\s+["']?(delete|hand)\b"#,
+        // Nor does it change a thread's plan as the person (ADR 0079, decision 22): the person's changes outrank the
+        // model's checks, and an agent's would pass for the person's.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?threads["']?\s+["']?plan["']?\s+\S+\s+["']?(done|skip|reopen|add)\b"#,
         // Nor does it start a wisp of its own (ADR 0054): `wisp respond`, `wisp chat`, `wisp mcp`, or the bare
         // `wisp "prompt"`, which is `respond`, is a nested agent with its own model, tools, and approvals, and under
         // the sandbox it fails anyway, unable to write wisp's home. Matched where wisp is the program a simple

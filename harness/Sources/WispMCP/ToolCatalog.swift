@@ -531,11 +531,39 @@ public enum ToolCatalog {
         annotations: .init(title: "Set a fact's scope", readOnlyHint: false, idempotentHint: true, openWorldHint: false)
     )
 
+    /// Changes a thread's plan as the caller (ADR 0079, decision 22): done, skip, reopen, or add, as the person's
+    /// `/plan` takes them; the model is told at the thread's next turn.
+    public static let changePlan = Tool(
+        name: "change_plan",
+        description:
+            "Change an open thread's plan (the model's plan tool's tasks, wisp://threads/{thread_id}/plan) as the "
+            + "caller: \"done t1.2 [note]\", \"skip t1.2 [note]\", \"reopen t1.2 [note]\", or \"add GOAL [under "
+            + "t1.2|t1] [after t1.1,t1.3]\" (without under, at the top of the newest tree). Checked as the model's "
+            + "changes are: a task finishes only after what it depends on. The model is told at the thread's next "
+            + "turn, as the caller's change.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "thread_id": .object([
+                    "type": .string("string"),
+                    "description": .string("The open thread whose plan to change."),
+                ]),
+                "change": .object([
+                    "type": .string("string"),
+                    "description": .string(
+                        "The change, such as \"skip t1.2 not needed\" or \"add Run the tests after t1.3\"."),
+                ]),
+            ]),
+            "required": .array([.string("thread_id"), .string("change")]),
+        ]),
+        annotations: .init(title: "Change a plan", readOnlyHint: false, idempotentHint: false, openWorldHint: false)
+    )
+
     /// Every tool, in the order clients see them.
     public static var all: [Tool] {
         [
             respond, triage, summariseDiff, draftChange, scanSecrets, redact, condenseLog, jsonShape, dependencyAudit,
-            flakyTests, hotPaths, setFactScope, closeThread,
+            flakyTests, hotPaths, setFactScope, changePlan, closeThread,
         ]
     }
 
@@ -1185,6 +1213,39 @@ public struct CloseThreadRequest: Equatable, Sendable {
         }
         try validateThreadID(id)
         threadID = id
+    }
+}
+
+/// Decoded arguments for the `change_plan` tool.
+public struct ChangePlanRequest: Equatable, Sendable {
+    /// The thread whose plan changes.
+    public var threadID: String
+    /// The change, read as the person's `/plan` reads it.
+    public var edit: PlanEdit
+
+    /// Decodes and validates MCP call arguments.
+    ///
+    /// - Parameter arguments: The raw `tools/call` arguments.
+    /// - Throws: `MCPError.invalidParams` if an argument is missing or malformed, or the change is not one.
+    public init(arguments: [String: Value]?) throws {
+        guard let id = arguments?["thread_id"]?.stringValue else {
+            throw MCPError.invalidParams("'thread_id' is required and must be a string")
+        }
+        try validateThreadID(id)
+        guard let change = arguments?["change"]?.stringValue else {
+            throw MCPError.invalidParams("'change' is required: done, skip, reopen, or add, as in \"skip t1.2\"")
+        }
+        let words = change.split(whereSeparator: \.isWhitespace).map(String.init)
+        let edit: PlanEdit?
+        do {
+            edit = try PlanEdit.parse(words)
+        } catch {
+            throw MCPError.invalidParams("'change': \(error)")
+        }
+        guard let edit else {
+            throw MCPError.invalidParams("'change' must begin with done, skip, reopen, or add")
+        }
+        (threadID, self.edit) = (id, edit)
     }
 }
 

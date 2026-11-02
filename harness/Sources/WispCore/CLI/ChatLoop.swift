@@ -423,7 +423,7 @@ public struct ChatLoop {
             case .fact(let request):
                 fact(request)
             case .plan(let argument):
-                for line in PlanText.view(argument, in: agent.plan?.plan ?? agent.store.plan) { io.print(line) }
+                planCommand(argument)
             case .task(nil):
                 io.print(FactReport.task(agent.taskHistory))
             case .task(let text?):
@@ -486,6 +486,9 @@ public struct ChatLoop {
                 saveThread()
             case .message(let text):
                 guard !text.isEmpty else { continue }
+                // Changes the person queued for this thread from a terminal while the chat held it are made first, so
+                // this turn tells the model of them (ADR 0079, decision 23).
+                if let thread { agent.applyQueuedPlanChanges(from: PlanQueue(beside: thread.store), thread: thread.id) }
                 // The agent advances the clock as the prompt arrives, so this is the number the turn's
                 // audit events carry.
                 let number = agent.turns.current + 1

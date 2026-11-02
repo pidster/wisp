@@ -1,16 +1,52 @@
 import Foundation
 import MCP
 import Testing
-import WispCore
+import WispTestSupport
 
+@testable import WispCore
 @testable import WispMCP
 
 @Suite struct ToolCatalogTests {
+    /// `change_plan` reads its change as `/plan` does, and refuses what is not one (ADR 0079, decision 22).
+    @Test func changePlanReadsItsChangeAndRefusesWhatIsNotOne() throws {
+        let request = try ChangePlanRequest(arguments: ["thread_id": "git", "change": "skip t1.2  not needed"])
+        #expect(request.threadID == "git" && request.edit == .skip("t1.2", note: "not needed"))
+        for arguments: [String: Value] in [
+            ["change": "skip t1.2"], ["thread_id": "git"], ["thread_id": "git", "change": "t1.2"],
+            ["thread_id": "git", "change": "done"], ["thread_id": "../x", "change": "done t1.1"],
+        ] {
+            #expect(throws: MCPError.self) { _ = try ChangePlanRequest(arguments: arguments) }
+        }
+    }
+
+    /// A thread's agent takes the caller's change, as the caller's, and the person's queued ones before a turn.
+    @Test func aThreadChangesItsPlanForTheCallerAndMakesThePersonsQueuedChanges() async throws {
+        let agent = Agent(
+            instructions: "x", tools: [],
+            model: ResolvedModel(selection: .system, custom: ScriptedModel(steps: [.say("ok")])))
+        agent.plan = PlanBook()
+        let thread = ThreadActor(id: "work", agent: agent)
+        let added = try await thread.changePlan(.add(goal: "Check", under: nil, after: []))
+        #expect(added.line == "added t1.1 Check" && added.details["by"] == .string("caller"))
+        await #expect(throws: Plan.Failure.self) { _ = try await thread.changePlan(.done("t9.9", note: nil)) }
+        let home = Home(root: FileManager.default.temporaryDirectory.appending(path: "wisp-queue-\(UUID().uuidString)"))
+        try home.ensure()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let queue = PlanQueue(home: home)
+        _ = try queue.file(.skip("t1.1", note: "later"), thread: "work")
+        await thread.applyQueuedPlanChanges(from: queue)
+        #expect(await thread.plan()?.task("t1.1")?.status == .skipped)
+        #expect(await thread.plan()?.untold == ["the caller: added t1.1 Check", "the person: t1.1 skipped: later"])
+        #expect(PlanQueue(beside: ThreadStore(home: home)).root == queue.root)
+        await #expect(throws: Plan.Failure.self) { _ = try await NoRecordThread().changePlan(.done("t1.1", note: nil)) }
+    }
+
     @Test func advertisesRespondAndRunCommand() {
         #expect(
             ToolCatalog.all.map(\.name) == [
                 "respond", "triage", "summarise_diff", "draft_change", "scan_secrets", "redact", "condense_log",
-                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "set_fact_scope", "close_thread",
+                "json_shape", "dependency_audit", "flaky_tests", "hot_paths", "set_fact_scope", "change_plan",
+                "close_thread",
             ])
     }
 
@@ -243,4 +279,9 @@ import WispCore
             #expect(throws: MCPError.self) { try FlakyTestsRequest(arguments: bad) }
         }
     }
+}
+
+/// A thread without a thread record, for the protocol's defaults.
+private struct NoRecordThread: RespondingThread {
+    func respond(to prompt: String, schema: OutputSchema?) async throws -> Agent.Reply { throw FactFailure.off }
 }

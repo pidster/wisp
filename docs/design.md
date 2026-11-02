@@ -604,7 +604,15 @@ now block. `/plan`, `wisp threads plan` (`ThreadAdmin.plan`, from the saved reco
 through the same book (ADR 0079, decision 21): it asks `PlanBook.runningTask()` as the call is made, names the task in
 `tool.call` when one alone is running, and once the call ends hands a `Plan.Call` to `PlanBook.link`, which adds it to
 that task or holds it; `PlanBook.update`, the `plan` tool's `update`, links the held calls to the task it settles in
-the same critical section, and a new turn lets go of them.
+the same critical section, and a new turn lets go of them. Changes from outside the model (ADR 0079,
+decisions 22 and 23) are a `PlanEdit`, parsed from `/plan`, `wisp threads plan`, or `change_plan`, with who made it
+(`PlanEdit.Changer`), and applied as a pure function of the plan: `Agent.editPlan` applies one to the book, or the
+record's plan without one (chat's `/plan`, and the caller's through `ThreadActor.changePlan`, run in the thread's turn
+queue), and `ThreadAdmin.editPlan` to a saved record under the thread's lock, or, when another process holds the
+thread, files it in `PlanQueue` (`~/.wisp/pending/plan/<thread>/`), which the holder drains with
+`Agent.applyQueuedPlanChanges` before each turn: chat before a message, the MCP server inside `respond`'s turn queue.
+Each change adds a line naming who made it to `Plan.untold`; `PlanBook.beginTurn` takes them for the turn, and
+`requestNotes` adds them to its requests' now block (`PlanText.told`).
 
 ### Tools
 

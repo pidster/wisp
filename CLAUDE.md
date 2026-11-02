@@ -17,7 +17,7 @@ Claude Code-only guidance below the import, and harness-neutral guidance to `AGE
 - wisp's tools are `mcp__wisp__respond`, `mcp__wisp__triage`, `mcp__wisp__summarise_diff`, `mcp__wisp__draft_change`,
   `mcp__wisp__scan_secrets`, `mcp__wisp__redact`, `mcp__wisp__condense_log`, `mcp__wisp__json_shape`,
   `mcp__wisp__dependency_audit`, `mcp__wisp__flaky_tests`, `mcp__wisp__hot_paths`,
-  `mcp__wisp__set_fact_scope`, and `mcp__wisp__close_thread`; its resources are read with the MCP resource tools. If the session starts with the `wisp` server failed to connect, follow the
+  `mcp__wisp__set_fact_scope`, `mcp__wisp__change_plan`, and `mcp__wisp__close_thread`; its resources are read with the MCP resource tools. If the session starts with the `wisp` server failed to connect, follow the
   release-build note in `AGENTS.md` and then `/mcp`.
 - A stuck approval dialog can be answered by the user with `wisp approvals approve ID` from a terminal
   (the notification names the id); failing that, `/mcp reconnect wisp` clears it; retry the turn afterwards.

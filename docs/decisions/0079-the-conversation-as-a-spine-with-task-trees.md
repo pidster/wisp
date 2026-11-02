@@ -162,8 +162,7 @@ Agreed by the operator on 2026-11-02:
     - **D, the planning nudge**: a variant in the plan probe first, for a turn asked to plan that adds no task (ADR
       0081's consequence on `granite4.2:8b`), and a reminder only if the probe shows it helps.
 
-    **Pending**, to be proposed with the build: for B, the commands' names, whether the person's change is a turn on the
-    spine, and how the model learns of it; for C, whether the model or wisp sets `waiting`, and what the answer does
+    **Pending**, to be proposed with the build: for C, whether the model or wisp sets `waiting`, and what the answer does
     to the task's status; for D, the probe variant's prompt and the bar for adopting it.
 
 Agreed by the operator on 2026-11-02, for A:
@@ -178,6 +177,30 @@ Agreed by the operator on 2026-11-02, for A:
     `wisp threads plan`, and the resource list them, and the tool's own `show` says where a call's whole output is
     kept. A plan saved before this resumes with no calls. The operator chose the task keeping its calls over finding
     them in the audit log, which rotates.
+
+Agreed by the operator on 2026-11-02, for B:
+
+22. **The plan is changed from outside the model's turns by the person and by an MCP caller.** The person with
+    `/plan done|skip|reopen TASK [NOTE]` and `/plan add GOAL [under TASK|TREE] [after TASK,…]` in chat and `wisp-tui`,
+    and `wisp threads plan ID …` from a terminal, which needs a terminal, as `wisp threads delete` does, and which the
+    default policy refuses to wisp's model. An MCP caller with the tool `change_plan`, taking the same words, on a thread
+    open on its server, in the thread's turn queue so the thread is never saved mid-turn: the operator asked for it on
+    seeing that MCP threads have no `/plan`. A change is not a turn: it is audited when made (`plan.update` or
+    `plan.add`, with `by` `person` or `caller`), kept with the plan, and the next turn's requests carry it in the now
+    block, naming who made it (`The plan was changed since your last turn:` then `[plan: the person: t1.2 skipped]`), as
+    the plan's own lines are carried; the spine stays the person's prompts and the model's turns. Changes keep the
+    model's limits and checks, except that the person may mark a task done while one it depends on is not, knowing it
+    done some other way; the caller, an agent, may not. A task added without `under` goes at the top of the newest
+    tree, and into an empty plan roots a tree at the last prompt.
+23. **A terminal's change to a thread another process holds is queued for it.** The operator first chose to refuse
+    one, naming the holder, so that it was made where the thread is open; a review the same day found that a thread
+    used through the MCP server is held for as long as the server runs and has no `/plan` there, so the person could
+    not correct an agent's plan mid-session. So the change is filed in `~/.wisp/pending/plan/<thread>/` (a directory
+    of this user's, mode 0700, as the approvals channel's, since whoever writes there makes the person's change),
+    audited as `plan.queued`, and the holder, chat before a message or the MCP server inside `respond`'s turn queue,
+    makes it as the person's as the thread's next turn begins, in the order filed. A change that no longer applies
+    then is told to the model as refused and audited, since the person is not there to see it fail. A thread no process
+    holds is changed at once, under its lock.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

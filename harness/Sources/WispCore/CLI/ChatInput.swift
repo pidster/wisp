@@ -40,7 +40,8 @@ public enum ChatInput: Equatable, Sendable {
     case fact(FactRequest)
     /// Show the task and its history, or with text set it as the person: `/task [text]`.
     case task(String?)
-    /// Show the conversation's plan (ADR 0081): every tree, one tree's outline (`t1`), or one task (`t1.2`).
+    /// Show the conversation's plan (ADR 0081): every tree, one tree's outline (`t1`), or one task (`t1.2`); or change
+    /// it as the person, the argument beginning with one of `PlanEdit.verbs` (ADR 0079, decision 22).
     case plan(String?)
     /// List the models the session could switch to, or turn some on or off (ADR 0056).
     case models(ModelsRequest)
@@ -248,6 +249,12 @@ public enum ChatInput: Equatable, Sendable {
             usage: "/plan [TREE|TASK]",
             about: "the conversation's plan: every tree, one tree such as t1, or one task such as t1.2",
             names: ["plan"], command: { .plan($0) }),
+        HelpEntry(
+            usage: "/plan done|skip|reopen TASK [NOTE]",
+            about: "change a task yourself; the model is told at its next turn"),
+        HelpEntry(
+            usage: "/plan add GOAL [under TASK|TREE] [after TASK,…]",
+            about: "add a task yourself, by default at the top of the newest tree"),
         HelpEntry(
             usage: "/task [text]", about: "show the task and its history, or set it", names: ["task"],
             command: { .task($0) }),

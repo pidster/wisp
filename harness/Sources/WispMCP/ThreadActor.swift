@@ -32,6 +32,20 @@ public protocol RespondingThread: Sendable {
     /// the thread cannot show one.
     func plan() async -> Plan?
 
+    /// Changes the thread's plan as the caller's action (`Agent.editPlan`, ADR 0079, decision 22), between turns or
+    /// while one runs; the model is told at its next turn.
+    ///
+    /// - Parameter edit: The change.
+    /// - Returns: What it gave.
+    /// - Throws: `Plan.Failure`.
+    func changePlan(_ edit: PlanEdit) async throws -> PlanEdit.Applied
+
+    /// Makes the changes the person queued for the thread from a terminal while this server held it, as the person's
+    /// (decision 23); run before each turn.
+    ///
+    /// - Parameter queue: The queue.
+    func applyQueuedPlanChanges(from queue: PlanQueue) async
+
     /// Moves one of the thread's facts, or a session fact, to `target` as the caller's action
     /// (`Agent.setFactScope`).
     ///
@@ -74,6 +88,14 @@ public protocol RespondingThread: Sendable {
 }
 
 extension RespondingThread {
+    /// Refused: a thread without a thread record keeps no plan.
+    public func changePlan(_ edit: PlanEdit) async throws -> PlanEdit.Applied {
+        throw Plan.Failure.limit("this thread keeps no plan")
+    }
+
+    /// Nothing: a thread without a thread record keeps no plan, and nothing is queued for it.
+    public func applyQueuedPlanChanges(from queue: PlanQueue) async {}
+
     /// None: a thread without a thread record cannot show its context.
     public func context(_ argument: String) async -> Result<ChatView, ChatView.Failure>? { nil }
 
@@ -171,6 +193,16 @@ public actor ThreadActor: RespondingThread {
 
     /// The agent's plan: its live book's when the thread has the `plan` tool, else the one saved with its record.
     public func plan() async -> Plan? { agent.plan?.plan ?? agent.store.plan }
+
+    /// Changes the plan as the caller's.
+    public func changePlan(_ edit: PlanEdit) async throws -> PlanEdit.Applied {
+        try agent.editPlan(edit, by: .caller)
+    }
+
+    /// Makes the person's queued changes.
+    public func applyQueuedPlanChanges(from queue: PlanQueue) async {
+        agent.applyQueuedPlanChanges(from: queue, thread: id)
+    }
 
     /// The agent's running summary's versions, or nil when it keeps no facts.
     public func summaries() async -> [RunningSummary]? {

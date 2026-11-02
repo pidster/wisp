@@ -272,6 +272,8 @@ public struct WispServer: Sendable {
             case ToolCatalog.setFactScope.name:
                 let request = try SetFactScopeRequest(arguments: params.arguments)
                 result = await setFactScope(request)
+            case ToolCatalog.changePlan.name:
+                result = await changePlan(try ChangePlanRequest(arguments: params.arguments))
             case ToolCatalog.closeThread.name:
                 let request = try CloseThreadRequest(arguments: params.arguments)
                 result = await closeThread(request)
@@ -442,6 +444,9 @@ public struct WispServer: Sendable {
         let resumed = opened.created && opened.thread.kept?.resumed == true
         do {
             return try await opened.thread.turns.run {
+                // The person's changes queued from a terminal while this server held the thread go first, so the turn
+                // tells the model of them (ADR 0079, decision 23).
+                await opened.thread.thread.applyQueuedPlanChanges(from: PlanQueue(beside: threadStore))
                 let result = await turn(request, schema: schema, on: opened, id: id, resumed: resumed)
                 // Saved inside the queue, so a snapshot is never taken mid-turn (ADR 0066, D4).
                 await save(opened.thread, state: .open)
@@ -1000,6 +1005,36 @@ public struct WispServer: Sendable {
                 structuredContent: .object([
                     "thread_id": .string(request.threadID), "from": .string(request.factID),
                     "fact": Value(json: rows.first ?? .null),
+                ]), isError: false)
+        } catch {
+            return failure("\(error)")
+        }
+    }
+
+    /// Changes an open thread's plan as the caller (`plan.update` or `plan.add`, `by: caller`; ADR 0079, decision 22) and
+    /// saves the thread; the model is told at its next turn. Run in the thread's turn queue, so it waits for a turn under
+    /// way and the thread is never saved mid-turn. A thread not open here, or a change the plan refuses, is a tool
+    /// error.
+    private func changePlan(_ request: ChangePlanRequest) async -> CallTool.Result {
+        guard let open = await threads.peek(request.threadID) else {
+            return failure("no open thread \(request.threadID); respond starts or resumes one")
+        }
+        do {
+            let applied = try await open.turns.run {
+                let applied = try await open.thread.changePlan(request.edit)
+                await save(open, state: .open)
+                return applied
+            }
+            return .init(
+                content: [
+                    .text(
+                        text: "\(applied.line); the model is told at the thread's next turn", annotations: nil,
+                        _meta: nil)
+                ],
+                structuredContent: .object([
+                    "thread_id": .string(request.threadID), "change": .string(request.edit.words),
+                    "line": .string(applied.line), "task": Value(json: applied.details["task"] ?? .null),
+                    "plan": .string(ToolCatalog.threadURI(request.threadID) + "/plan"),
                 ]), isError: false)
         } catch {
             return failure("\(error)")

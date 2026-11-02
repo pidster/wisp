@@ -24,6 +24,8 @@ public final class PlanBook: Sendable {
         var held: [Plan.Call] = []
         /// Calls held this turn and let go past the bound, counted on the task that takes the rest.
         var heldDropped = 0
+        /// The changes from outside the model's turns that the turn under way tells it of, taken as it began.
+        var told: [String] = []
     }
 
     /// The state, behind a lock.
@@ -75,14 +77,42 @@ public final class PlanBook: Sendable {
     /// Empties the book, for a conversation started afresh (`/new`).
     func reset() { state.withLock { $0 = State() } }
 
-    /// Marks the start of a turn: no tree rooted yet, nothing changed, no call held.
+    /// Marks the start of a turn: no tree rooted yet, nothing changed, no call held, and the changes made since the last
+    /// turn from outside it taken from the plan for this one's requests to tell (ADR 0079, decision 22).
     func beginTurn() {
         state.withLock { state in
+            (state.plan, state.told) = state.plan.takingUntold()
             state.current = nil
             state.changed = false
             state.marked = false
             state.held = []
             state.heldDropped = 0
+        }
+    }
+
+    /// Keeps `line` for the next turn to tell the model: a change that could not be made, which is still news to it.
+    ///
+    /// - Parameter line: The line, naming who made the change.
+    func tell(_ line: String) { state.withLock { $0.plan.tellModel(line) } }
+
+    /// The changes from outside the model's turns that the turn under way tells it of.
+    var told: [String] { state.withLock { $0.told } }
+
+    /// Applies a change the person or the caller made (ADR 0079, decision 22), kept in the plan for the next turn to
+    /// tell the model.
+    ///
+    /// - Parameters:
+    ///   - edit: The change.
+    ///   - by: Who made it.
+    ///   - lastPrompt: The store id of the conversation's last prompt, for a tree a task added to an empty plan roots.
+    ///   - now: The time.
+    /// - Returns: What it gave.
+    /// - Throws: `Plan.Failure`, with the plan unchanged.
+    func apply(_ edit: PlanEdit, by: PlanEdit.Changer, lastPrompt: Int?, now: Date) throws -> PlanEdit.Applied {
+        try state.withLock { state in
+            let applied = try edit.apply(to: state.plan, by: by, lastPrompt: lastPrompt, now: now)
+            state.plan = applied.plan
+            return applied
         }
     }
 

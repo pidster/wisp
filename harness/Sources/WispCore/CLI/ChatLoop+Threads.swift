@@ -99,3 +99,24 @@ extension ChatLoop {
             + "as it left it; /new starts a thread of your own"
     }
 }
+
+extension ChatLoop {
+    /// `/plan`: with nothing, a tree, or a task, shows it; with `done`, `skip`, `reopen`, or `add`, changes the plan as
+    /// the person (ADR 0079, decision 22), saves the thread, and says that the model is told at its next turn.
+    ///
+    /// - Parameter argument: What followed `/plan`.
+    func planCommand(_ argument: String?) {
+        let words = (argument ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+        do {
+            guard let edit = try PlanEdit.parse(words) else {
+                for line in PlanText.view(argument, in: agent.plan?.plan ?? agent.store.plan) { io.print(line) }
+                return
+            }
+            let applied = try agent.editPlan(edit)
+            saveThread()
+            io.note("plan: \(applied.line); the model is told at its next turn")
+        } catch {
+            io.note(style.ember("error: \(error)"))
+        }
+    }
+}

@@ -14,6 +14,11 @@ Added:
   that task's, and calls made with none or several running go to the next task the turn settles. `plan show`,
   `/plan t1.2`, and `wisp threads plan` list them, with where a call's whole output is kept, and the audit's
   `tool.call` names the task (ADR 0079, decision 21).
+- You can change the plan yourself: `/plan done|skip|reopen TASK [NOTE]` and `/plan add GOAL [under …] [after …]` in
+  chat and `wisp-tui`, and `wisp threads plan ID done …` from a terminal, queued for the next turn of a thread a chat
+  or an MCP server has open. You may mark a task done before what it depends on (ADR 0079, decisions 22 and 23).
+- MCP: `change_plan` changes an open thread's plan as the caller, in the same words. The model is told of every
+  change from outside it at its next turn, with who made it.
 
 ## 0.33.2
 

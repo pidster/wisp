@@ -150,6 +150,46 @@ public struct ThreadAdmin: Sendable {
         return record.plan
     }
 
+    /// What a terminal's change to a thread's plan came to.
+    public enum PlanChange: Equatable, Sendable {
+        /// Made at once, to a thread no process holds.
+        case applied(PlanEdit.Applied)
+        /// Filed for the process that holds the thread, which applies it as the thread's next turn begins.
+        case queued(PlanQueue.Item, holder: ThreadLock.Holder?)
+    }
+
+    /// Applies a change the person made to thread `id`'s plan from a terminal
+    /// ([ADR 0079](../../../../docs/decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decisions 22 and 23):
+    /// under the thread's lock, saving the record, when no process holds it; when one does, a chat or an MCP server,
+    /// filed in `queue` for that process to apply at the thread's next turn. Either way the model is told at that turn.
+    ///
+    /// - Parameters:
+    ///   - id: The thread.
+    ///   - edit: The change.
+    ///   - queue: Where a held thread's change waits.
+    ///   - now: The time.
+    /// - Returns: What it came to; an applied change's audit details name the thread.
+    /// - Throws: `Failure.notFound`, `ThreadStore.Failure` (invalid id, unreadable), `Plan.Failure`, `PlanQueue.Failure`,
+    ///   or the file system's error.
+    public func editPlan(_ id: String, _ edit: PlanEdit, queue: PlanQueue, now: Date = Date()) throws -> PlanChange {
+        guard try store.settings(id) != nil else { throw Failure.notFound(id) }
+        let lock: ThreadLock
+        do {
+            lock = try store.lock(id, owner: "wisp threads")
+        } catch ThreadStore.Failure.held(_, let holder) {
+            return .queued(try queue.file(edit, thread: id, now: now), holder: holder)
+        }
+        defer { lock.release() }
+        guard let settings = try store.settings(id), var record = try store.record(id) else {
+            throw Failure.notFound(id)
+        }
+        var applied = try edit.apply(to: record.plan, by: .person, lastPrompt: record.lastPromptEntry, now: now)
+        record.plan = applied.plan
+        try store.save(settings, record: record)
+        applied.details["thread"] = .string(id)
+        return .applied(applied)
+    }
+
     /// Deletes thread `id` under its lock: its directory, and the stored outputs of each audit session it had that no
     /// other thread names (a chat's `/new` carries its session into the next thread). A thread whose settings cannot
     /// be read is deleted too, with no outputs, which is how the person clears one this build cannot resume.

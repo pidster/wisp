@@ -189,16 +189,49 @@ list lacks `plan` carries no lines, though its record keeps the plan.
 ## Where it is kept, and who sees it
 
 The plan is saved with the conversation's record (`threads/<id>/record.store`) after every turn, so a resumed thread
-has it, and chat's `/new` starts an empty one. The person and an MCP caller read it; neither changes it:
+has it, and chat's `/new` starts an empty one. The person and an MCP caller read it, and both may change it
+(below):
 
 | Face | How |
 | --- | --- |
 | Chat and `wisp-tui` | `/plan` (every tree), `/plan t1` (one tree), `/plan t1.2` (one task) |
 | A terminal | `wisp threads plan ID [t1 \| t1.2] [--json]`, read from the thread's saved record |
+| Changing it | The person: `/plan done\|skip\|reopen TASK [NOTE]` and `/plan add GOAL [under …] [after …]` in chat and `wisp-tui`, `wisp threads plan ID done …` from a terminal. An MCP caller: `change_plan` ([mcp.md](../mcp.md)) |
 | MCP | `wisp://threads/{thread_id}/plan` and `…/plan/{t1 \| t1.2}`, and `respond`'s `plan` when a turn changed it ([mcp.md](../mcp.md)) |
 
 Every change is audited: `plan.add`, `plan.depend`, `plan.update` ([logging.md](../logging.md)), beside the tool's
 own `tool.call` and `tool.result`.
+
+## Changes from outside the model
+
+You, and an MCP caller, may change the plan between the model's turns
+([ADR 0079](../decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decisions 22 and 23):
+
+| Change | Does |
+| --- | --- |
+| `done TASK [NOTE]` | Marks it done. You may do so even while a task it depends on is not, knowing it done some other way; the caller and the model may not |
+| `skip TASK [NOTE]` | Marks it skipped; what depends on it cannot go on |
+| `reopen TASK [NOTE]` | Sets it back to pending |
+| `add GOAL [under TASK\|TREE] [after TASK,…]` | Adds a task: under a task, at the top of a tree, or, with neither, at the top of the newest tree; into an empty plan, at the top of a new tree rooted at the last prompt |
+
+Otherwise every change keeps the model's limits and checks: an unknown task, a cycle, or a limit is refused with the
+reason.
+
+| Who | Where | When it is made |
+| --- | --- | --- |
+| You, in chat or `wisp-tui` | `/plan …` | At once; the thread is saved |
+| You, from a terminal | `wisp threads plan ID …`, refused without a terminal and, by the default policy, to wisp's model | At once on a thread no process holds. On one a chat or an MCP server holds, it is queued (`~/.wisp/pending/plan/<thread>/`) and the holder makes it as the thread's next turn begins; a change that no longer applies then (its task gone) is told to the model as refused |
+| An MCP caller | `change_plan` ([mcp.md](../mcp.md)) | On a thread open on its server, once a turn under way ends; the thread is saved |
+
+A change is not a turn of its own. It is audited when made (`plan.update` or `plan.add`, with `by` `person` or
+`caller`; a queued one also as `plan.queued` when filed), and kept with the plan, the last eight, until the thread's
+next turn, whose requests carry them in the now block, each naming who made it:
+
+```
+The plan was changed since your last turn:
+[plan: the person: t1.2 skipped: not needed]
+[plan: the caller: added t1.4 Tidy up (after t1.3)]
+```
 
 ## Example
 

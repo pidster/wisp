@@ -169,6 +169,13 @@ public struct Plan: Codable, Sendable, Equatable {
     public private(set) var trees: [Tree] = []
     /// Every task, in the order it was added.
     public private(set) var tasks: [Task] = []
+    /// Changes made from outside the model's turns, by the person or an MCP caller, not yet told to the model: a line
+    /// each naming who made it (`the person: t1.2 skipped`), oldest first, at most `untoldKept`. The next turn's
+    /// requests carry them in the now block, and the turn takes them (ADR 0079, decision 22).
+    public internal(set) var untold: [String] = []
+
+    /// The most changes kept for the model; earlier ones are let go, the latest being what holds.
+    static let untoldKept = 8
 
     /// An empty plan.
     public init() {}
@@ -420,20 +427,26 @@ public struct Plan: Codable, Sendable, Equatable {
     }
 
     /// Sets a task's status, and its note when one is given. Starting or finishing a task whose dependencies are not
-    /// done is refused; failing or skipping it is not.
+    /// done is refused; failing or skipping it is not. The person may finish one anyway, knowing it done some other way
+    /// (ADR 0079, decision 22).
     ///
     /// - Parameters:
     ///   - id: The task.
     ///   - status: Its new status; nil keeps the one it has, for a note alone.
     ///   - note: What the model found, or why; nil keeps the note it had.
     ///   - now: The time.
+    ///   - byPerson: Whether the person made the change, who may mark a task done while one it depends on is not.
     /// - Returns: The plan with the task changed.
     /// - Throws: `Failure` for an unknown task, a long note, or a task still waiting on another.
-    func updating(_ id: String, status: Status?, note: String?, now: Date) throws(Failure) -> Plan {
+    func updating(
+        _ id: String, status: Status?, note: String?, now: Date, byPerson: Bool = false
+    ) throws(Failure)
+        -> Plan
+    {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { throw missing(id) }
         let note = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let note, note.count > Self.noteLimit { throw Failure.badNote }
-        if status == .running || status == .done {
+        if status == .running || (status == .done && !byPerson) {
             let waiting = unfinished(tasks[index].dependsOn)
             guard waiting.isEmpty else { throw Failure.blocked(task: id, by: waiting) }
         }
@@ -459,6 +472,23 @@ public struct Plan: Codable, Sendable, Equatable {
         plan.tasks[index].calls = Array(all.dropFirst(over))
         plan.tasks[index].droppedCalls += over + dropped
         return plan
+    }
+
+    /// Keeps `line`, a change made from outside the model's turns, for its next turn, letting go of the oldest past the bound.
+    ///
+    /// - Parameter line: The change.
+    mutating func tellModel(_ line: String) {
+        untold.append(line)
+        if untold.count > Self.untoldKept { untold.removeFirst() }
+    }
+
+    /// The plan with its untold changes taken, and the changes, for the turn that tells the model of them.
+    ///
+    /// - Returns: The plan with none left to tell, and the lines.
+    func takingUntold() -> (plan: Plan, lines: [String]) {
+        var plan = self
+        plan.untold = []
+        return (plan, untold)
     }
 
     /// The one task running, which a call made now does the work of; nil when none or several are.
@@ -590,5 +620,18 @@ extension Plan.Task {
         updated = try container.decode(Date.self, forKey: .updated)
         calls = try container.decodeIfPresent([Plan.Call].self, forKey: .calls) ?? []
         droppedCalls = try container.decodeIfPresent(Int.self, forKey: .droppedCalls) ?? 0
+    }
+}
+
+extension Plan {
+    /// Decodes a plan, its `untold` absent from one saved before others could change it (0.33 and earlier).
+    ///
+    /// - Parameter decoder: The decoder.
+    /// - Throws: `DecodingError` for a plan missing its trees or tasks.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        trees = try container.decode([Tree].self, forKey: .trees)
+        tasks = try container.decode([Task].self, forKey: .tasks)
+        untold = try container.decodeIfPresent([String].self, forKey: .untold) ?? []
     }
 }

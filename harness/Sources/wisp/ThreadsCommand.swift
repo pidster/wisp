@@ -59,28 +59,78 @@ struct ThreadsCommand: AsyncParsableCommand {
         }
     }
 
-    /// Shows one thread's plan (ADR 0081).
+    /// Shows one thread's plan (ADR 0081), or changes it as the person (ADR 0079, decision 22).
     struct Plan: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Show a thread's plan: every tree, one tree, or one task, as its last turn left it.")
+            abstract:
+                "Show a thread's plan: every tree, one tree, or one task, as its last turn left it; or change it.",
+            discussion:
+                "done|skip|reopen TASK [NOTE] and add GOAL [under TASK|TREE] [after TASK,...] change it, from a "
+                + "terminal. A thread a process holds (a chat, an MCP server) gets the change at its next turn. The "
+                + "model is told at that turn.")
 
         @Argument(help: "The thread's id, as 'wisp threads' lists it.", completion: DynamicCompletions.threads)
         var id: String
 
-        @Argument(help: "A tree such as t1, or a task such as t1.2; leave out for every tree.")
-        var item: String?
+        @Argument(
+            parsing: .captureForPassthrough,
+            help: "A tree such as t1, or a task such as t1.2, to show; or a change: done, skip, reopen, add.")
+        var words: [String] = []
 
-        @Flag(name: .long, help: "Print the plan as JSON.")
+        @Flag(name: .long, help: "Print the plan, or the change, as JSON.")
         var json = false
 
         func run() async throws {
-            let plan = try ThreadsCommand.attempt { try ThreadAdmin(home: Wisp.home).plan(id) }
-            if json {
-                try ThreadsCommand.printJSON(plan)
-            } else {
-                for line in PlanText.view(item, in: plan) { print(line) }
+            let words = json ? words.filter { $0 != "--json" } : words
+            let json = json || words.count != self.words.count
+            let edit = try ThreadsCommand.attempt { try PlanEdit.parse(words) }
+            guard let edit else {
+                let plan = try ThreadsCommand.attempt { try ThreadAdmin(home: Wisp.home).plan(id) }
+                if json {
+                    try ThreadsCommand.printJSON(plan)
+                } else {
+                    for line in PlanText.view(words.first, in: plan) { print(line) }
+                }
+                return
+            }
+            try ThreadsCommand.requireTerminal("plan \(words[0])", because: "is a change the person makes")
+            let session = try Wisp.begin(.init(entryPoint: .threads))
+            defer { session.end() }
+            let change = try ThreadsCommand.attempt {
+                try ThreadAdmin(home: Wisp.home).editPlan(id, edit, queue: PlanQueue(home: Wisp.home))
+            }
+            switch change {
+            case .applied(let applied):
+                session.audit.record(applied.kind, details: applied.details)
+                if json {
+                    try ThreadsCommand.printJSON(applied.details)
+                } else {
+                    print("plan of thread \(id): \(applied.line); the model is told at the thread's next turn")
+                }
+            case .queued(let item, let holder):
+                let details: [String: JSONValue] = [
+                    "thread": .string(id), "change": .string(edit.words), "queued": .string(item.id),
+                    "outcome": .string("filed"),
+                    "holder": holder.map { .string(ThreadsCommand.describe($0)) } ?? .null,
+                ]
+                session.audit.record(.planQueued, details: details)
+                if json {
+                    try ThreadsCommand.printJSON(details)
+                } else {
+                    print(
+                        "thread \(id) is open\(holder.map { " in \(ThreadsCommand.describe($0))" } ?? " elsewhere"); "
+                            + "\(edit.words) is queued, and made as its next turn begins")
+                }
             }
         }
+    }
+
+    /// Who holds a thread, as the person reads it: `pid 4242, claude-code`.
+    ///
+    /// - Parameter holder: The holder.
+    /// - Returns: The text.
+    static func describe(_ holder: ThreadLock.Holder) -> String {
+        "pid \(holder.pid)" + (holder.owner.map { ", \($0)" } ?? "")
     }
 
     /// Deletes one thread with its stored outputs.
@@ -174,15 +224,16 @@ struct ThreadsCommand: AsyncParsableCommand {
         (try? Session.loadConfig(home: Wisp.home))?.threadsKeepDays ?? Config.ThreadsConfig.defaultKeepDays
     }
 
-    /// Refuses `delete` and `hand` without a terminal: an agent's shell has none, and these change what an agent may
+    /// Refuses `delete`, `hand`, and a change to a plan without a terminal: an agent's shell has none, and these change what an agent may
     /// open (ADR 0046's rule, as `wisp approvals approve` has it).
     ///
-    /// - Parameter verb: The subcommand.
+    /// - Parameters:
+    ///   - verb: The subcommand.
+    ///   - because: Why it is the person's, as the refusal says it.
     /// - Throws: A validation error when standard input is not a terminal.
-    static func requireTerminal(_ verb: String) throws {
+    static func requireTerminal(_ verb: String, because: String = "changes what an agent may open") throws {
         guard isatty(STDIN_FILENO) != 0 else {
-            throw ValidationError(
-                "wisp threads \(verb) changes what an agent may open, so it runs only from a terminal")
+            throw ValidationError("wisp threads \(verb) \(because), so it runs only from a terminal")
         }
     }
 

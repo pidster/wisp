@@ -3,7 +3,7 @@
 `wisp mcp` speaks the Model Context Protocol over stdio, so other agent harnesses can delegate work to the
 on-device model. It advertises `respond`; ten condensing tools that keep raw material on the Mac and
 return a small result (`triage`, `summarise_diff`, `draft_change`, `scan_secrets`, `redact`,
-`condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`); `set_fact_scope`; and `close_thread`. wisp's own tools (`run_command`, `read_file`, `system_info`, and the
+`condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`); `set_fact_scope`; `change_plan`; and `close_thread`. wisp's own tools (`run_command`, `read_file`, `system_info`, and the
 rest) are not exposed directly; they are reachable only by asking `respond` to use them, so every command runs under the model's policy, sandbox, and approval with the audit trail of a
 turn ([ADR 0006](decisions/0006-mcp-server-over-stdio.md), amended). Stdout is the protocol channel; diagnostics go to stderr. The
 server runs until the client closes stdin.
@@ -987,6 +987,24 @@ and counted.
 "topPaths": [ { "frames", "samples" } ] }`: the 15 functions with the most self time (samples in which
 they were the innermost frame) with their total time (samples in which they were on the stack), and the
 8 heaviest stacks, each shortened to its 6 innermost frames. The text gives both as shares of all samples.
+
+### `change_plan`
+
+Change an open thread's plan, the tasks its model keeps with the `plan` tool ([tools/plan.md](tools/plan.md),
+"Changes from outside the model"), as the caller: `done t1.2 [NOTE]`, `skip t1.2 [NOTE]`, `reopen t1.2 [NOTE]`, or
+`add GOAL [under t1.2|t1] [after t1.1,t1.3]`, written as the person's `/plan` takes them. Checked as the model's
+changes are, so a task is finished only after what it depends on; the person, and not the caller, may finish one
+early. It waits for a turn under way on the thread, then saves the thread. The model is told at the thread's next
+turn (`[plan: the caller: t1.2 skipped: not needed]`), and the change is audited as `plan.update` or `plan.add` with
+`by` `caller`. A thread not open on this server, or a change the plan refuses, is a tool error.
+
+| Argument | Type | Required |
+| --- | --- | --- |
+| `thread_id` | string | yes |
+| `change` | string | yes |
+
+The text is the change in a line (`t1.2 skipped: not needed; the model is told at the thread's next turn`);
+`structuredContent` is `{ "thread_id", "change", "line", "task", "plan" }`, `plan` the resource to read it whole.
 
 ### `close_thread`
 

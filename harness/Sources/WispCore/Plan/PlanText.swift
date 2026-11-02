@@ -205,6 +205,16 @@ public enum PlanText {
         return ["no task or tree \(named) in this conversation's plan"]
     }
 
+    /// The lines telling the model of the changes the person or the caller made to the plan since its last turn
+    /// (ADR 0079, decision 22): a heading, then a change a line, each naming who made it; none when there were none.
+    ///
+    /// - Parameter changes: The changes, oldest first.
+    /// - Returns: The lines.
+    public static func told(_ changes: [String]) -> [String] {
+        guard !changes.isEmpty else { return [] }
+        return ["The plan was changed since your last turn:"] + changes.map { "[plan: \($0)]" }
+    }
+
     /// Every tree's heading, a line each, for `plan tree` with no tree named; a line saying so for an empty plan.
     ///
     /// - Parameter plan: The plan.

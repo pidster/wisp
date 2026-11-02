@@ -775,7 +775,7 @@ _wisp_threads_plan() {
     non_repeating_flags=(--json --version -h --help)
     repeating_options=()
     non_repeating_options=()
-    __wisp_offer_flags_options 2
+    __wisp_offer_flags_options -1
 
     # Offer positional completions
     case "${positional_number}" in

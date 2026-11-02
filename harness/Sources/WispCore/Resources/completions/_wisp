@@ -654,7 +654,7 @@ _wisp_threads() {
         local -ar subcommands=(
             'list:List the saved threads, most recently used first.'
             'show:Show a thread'\''s settings, turns, sessions, size on disk, and when it is swept.'
-            'plan:Show a thread'\''s plan: every tree, one tree, or one task, as its last turn left it.'
+            'plan:Show a thread'\''s plan: every tree, one tree, or one task, as its last turn left it; or change it.'
             'delete:Delete a saved thread and its stored outputs, from a terminal.'
             'hand:Give a saved thread to another client, so its agent may resume it, from a terminal.'
         )
@@ -701,8 +701,8 @@ _wisp_threads_plan() {
     local -i ret=1
     local -ar arg_specs=(
         ':id:{__wisp_custom_complete ---completion threads plan -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
-        ':item:'
-        '--json[Print the plan as JSON.]'
+        '*:words:'
+        '--json[Print the plan, or the change, as JSON.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

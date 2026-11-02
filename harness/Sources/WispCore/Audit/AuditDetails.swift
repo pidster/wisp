@@ -938,7 +938,7 @@ extension AuditEvent {
         case .response: ["text", "condensed", "seconds", "usage"]
         case .turnStopped: ["seconds", "killed"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
-        case .toolCall: ["tool", "arguments"]
+        case .toolCall: ["tool", "arguments", "task"]
         case .toolResult: ["tool", "output", "bytes", "seconds", "repeat"]
         case .policyDecision:
             [
@@ -1062,9 +1062,10 @@ extension AuditEvent {
         case .inquiryAnswered: ["inquiry", "via", "delivery", "reason"]
         case .inquirySettled:
             ["inquiry", "question", "thread", "outcome", "via", "delivered", "answer", "redacted", "reason", "seconds"]
-        case .planAdd: ["task", "tree", "parent", "goal", "dependsOn"]
+        case .planAdd: ["task", "tree", "parent", "goal", "dependsOn", "by", "thread", "queued"]
         case .planDepend: ["task", "dependsOn"]
-        case .planUpdate: ["task", "status", "note"]
+        case .planUpdate: ["task", "status", "note", "calls", "by", "thread", "queued"]
+        case .planQueued: ["thread", "change", "queued", "outcome", "reason", "holder"]
         case .approvalDecided:
             [
                 "command", "pattern", "line", "decision", "scope", "reason", "approvalID", "expiresAt",
