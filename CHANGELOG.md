@@ -13,6 +13,8 @@ Fixed:
 - The default command policy now denies a pipe into `ksh` or `fish`, and into a shell followed at once by `;`, `&`,
   `|`, `)`, a backtick, or a quote, as the risk classifier already rated them dangerous; the two share one pattern
   (issue #1, reported and first fixed by Sam Carrington).
+- Plan changes queued from a terminal within the same millisecond are made in the order you gave them; they could
+  be made in either order.
 
 ## 0.34.0
 

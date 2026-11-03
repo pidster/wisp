@@ -175,6 +175,19 @@ import WispTestSupport
         }
     }
 
+    /// Changes filed in the same millisecond are taken in the order filed, not in their UUIDs' order (the terminal's
+    /// test above failed by chance on 2026-11-03 when its two changes shared one).
+    @Test func changesFiledInOneMillisecondAreTakenInTheirOrder() throws {
+        let home = Home(
+            root: FileManager.default.temporaryDirectory.appending(path: "wisp-plan-queue-\(UUID().uuidString)"))
+        try home.ensure()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let queue = PlanQueue(home: home)
+        let edits = (1...12).map { PlanEdit.done("t1.\($0)", note: nil) }
+        for edit in edits { _ = try queue.file(edit, thread: "work", now: Self.now) }
+        #expect(queue.take(thread: "work").map(\.edit) == edits)
+    }
+
     /// What the tests throw on a case they did not expect.
     enum Failure: Error { case unexpected }
 

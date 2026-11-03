@@ -79,8 +79,14 @@ public struct PlanQueue: Sendable {
         for path in [root.path, directory.path] {
             if let problem = PendingApprovals.problem(with: path) { throw .io(problem) }
         }
-        // Milliseconds first, so a listing sorts in the order filed; a UUID after, so two filed at once differ.
-        let id = String(format: "%013.0f", (now.timeIntervalSince1970 * 1000).rounded()) + "-" + UUID().uuidString
+        // Milliseconds first, so a listing sorts in the order filed; then how many this millisecond already holds, so
+        // two filed in the same one still sort in their order (the UUID alone sorted them by chance); a UUID last, so
+        // two filed at once by two processes differ.
+        let stamp = String(format: "%013.0f", (now.timeIntervalSince1970 * 1000).rounded())
+        let earlier =
+            (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?
+            .count(where: { $0.hasPrefix(stamp + "-") }) ?? 0
+        let id = stamp + "-" + String(format: "%04d", earlier) + "-" + UUID().uuidString
         let item = Item(id: id, edit: edit, filed: now)
         let data: Data
         do {
