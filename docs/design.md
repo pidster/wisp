@@ -708,7 +708,7 @@ agent (`CommandPolicy.nestedWisp`).
 
 `WispMCP.WispServer` serves stdio MCP (`wisp mcp`) through `CompatibilityTransport`, which
 normalises messages the SDK cannot decode although the protocol allows them (see `docs/mcp.md`). It advertises `respond`, the condensing tools (`triage`,
-`summarise_diff`, `draft_change`, `scan_secrets`, `redact`, `condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`), `set_fact_scope`, and `close_thread` from `ToolCatalog`, whose JSON Schemas and descriptions are the contract other harnesses see; wisp's own tools
+`summarise_diff`, `draft_change`, `scan_secrets`, `redact`, `condense_log`, `json_shape`, `dependency_audit`, `flaky_tests`, `hot_paths`), `set_fact_scope`, `change_plan`, and `close_thread` from `ToolCatalog`, whose JSON Schemas and descriptions are the contract other harnesses see; wisp's own tools
 are reachable only through `respond`, and are described to clients by the `wisp://tools` resources,
 generated from `ToolRegistry.descriptions` (schema from each tool's `GenerationSchema`, limits and example
 prompt from the tool's own `WispTool` conformance, so a changed default shows up in the catalogue).

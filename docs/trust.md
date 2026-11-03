@@ -10,7 +10,8 @@ The model has eleven tools: `current_date`, `read_file`, `inspect`, `notify`, `s
 `plan`, `edit_file`, and `run_command`. Only the last two change anything on the Mac by themselves; `ask` puts a question
 to you and changes nothing (off by default; who answers it is below); `plan`, which a conversation has only with
 `tools.plan` on or a tool list that names it (off by default), keeps the conversation's list of tasks in its own
-thread record, and records only: it runs nothing and grants nothing ([plan](tools/plan.md)); `models` asks you
+thread record, which you and an MCP caller (`change_plan`) can change too, and records only: it runs nothing and grants
+nothing ([plan](tools/plan.md)); `models` asks you
 before it pulls, enables, disables, or checks a model (below); `notify` shows a banner, at
 most a few a minute, through `Wisp Notifier.app` once you allow it, your terminal, or `osascript`, and changes
 nothing ([notify](tools/notify.md));
@@ -309,7 +310,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/Library/Logs/Wisp/llamacpp.log` | that server's output, moved aside to `llamacpp.log.1` past 8 MiB | user-only |
 | `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` | that server's LaunchAgent, for a Homebrew install or a build, written by `wisp config set llamacpp.server wisp` and removed by setting it otherwise; `Wisp.app` carries its own inside the app | yours |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
-| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken | user-only (directory 0700, files 0600) |
+| `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken; and, under `plan/<thread>/`, your changes to the plan of a thread another process holds (`wisp threads plan`), until it makes them | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | chats saved before 0.27.0, and each one's links to the audit log; read by `wisp chat --resume`, never written now | user-only |
 | `~/.wisp/threads/<id>/` | every thread, each chat and each MCP `respond` thread, saved after each turn so a later chat or server can resume it: its owner, start settings, and record, tool output included; deleted by `wisp threads delete`, by `close_thread`, or 30 days after its last use (`threads.keepDays`) | user-only (directory 0700, files 0600) |
 | `~/.wisp/facts.json` | permanent facts: the ones you stated or kept, which every conversation is given | user-only |

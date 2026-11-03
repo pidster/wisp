@@ -223,7 +223,7 @@ complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'approvals' -d 'Show or revoke standing command approvals, and answer commands waiting for approval.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'facts' -d 'Answer requests to keep a fact as a permanent fact.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'questions' -d 'Answer the model\'s questions waiting under wisp mcp.'
-complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'threads' -d 'List, show, delete, and hand over saved threads, and show a thread\'s plan.'
+complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'threads' -d 'List, show, delete, and hand over saved threads, and show or change a thread\'s plan.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'notify' -d 'Show a macOS notification.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'scan' -d 'Scan text for credentials and personal data.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_positional "wisp" -eq 1' -fa 'redact' -d 'Redact credentials and personal data from text.'

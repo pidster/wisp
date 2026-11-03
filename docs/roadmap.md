@@ -13,7 +13,12 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-No release is planned next. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next: 0.34.0, the plan's next part ([ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md),
+decisions 21 to 24: tool calls linked to tasks, the person and an MCP caller changing the plan, `waiting` while the
+model's question is open) and an empty response asked once more
+([ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)). Then 0.35.0, agreed with the operator on
+2026-11-01: Homebrew installs `Wisp.app` from a cask, `wisp` in `pidster/tap`, in place of the formula, whose last
+version is a stub that says how to move. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
 
@@ -58,8 +63,9 @@ Raised by the operator on 2026-10-23, from an example: watch Homebrew with `brew
 given formula. The broader aim is that a person hands wisp a problem and it composes its primitives to solve it.
 Proposed in [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md): the conversation is the spine,
 and a problem becomes a tree of tasks rooted at one of its turns, with dependencies between branches and leaves and
-across trees, each task carrying a brief consumed when it runs, read, written, and searched by the model through a
-`tasks` tool. Proposed in [ADR 0080](decisions/0080-agent-skills.md): plans are Agent Skills the person configures, kept
+across trees, each task carrying a brief consumed when it runs, read, written, and searched by the model; the
+`plan` tool ([ADR 0081](decisions/0081-the-plan-tool.md)) built the first part for 0.32.0, the rest extends it rather
+than a second `tasks` tool (ADR 0079, decision 19), and 0.34.0 builds its next part. Proposed in [ADR 0080](decisions/0080-agent-skills.md): plans are Agent Skills the person configures, kept
 outside `~/.wisp` and checked by a digest, their grant in `allowed-tools`. Proposed in
 [ADR 0078](decisions/0078-tasks-a-plan-and-its-grant.md): the plan carries a
 grant (command templates with typed, sourced arguments, and how each runs) that the person approves with it; scheduled

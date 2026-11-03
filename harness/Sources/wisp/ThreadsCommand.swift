@@ -9,13 +9,13 @@ import WispCore
 struct ThreadsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "threads",
-        abstract: "List, show, delete, and hand over saved threads, and show a thread's plan.",
+        abstract: "List, show, delete, and hand over saved threads, and show or change a thread's plan.",
         discussion:
             "Every thread, chat's and an MCP agent's, is saved in ~/.wisp/threads after each turn and resumed by "
             + "any face (wisp chat --resume ID, or an agent naming its thread_id). 'list' shows them, 'show' one in "
-            + "full, and 'plan' its plan of tasks. 'delete' removes one with its stored outputs, and 'hand' gives one to another client, so that "
-            + "client's agent may resume it; both are refused while a process holds the thread, and run only from a "
-            + "terminal.",
+            + "full, and 'plan' its plan of tasks, or changes it as you, from a terminal. 'delete' removes one with "
+            + "its stored outputs, and 'hand' gives one to another client, so that client's agent may resume it; "
+            + "both are refused while a process holds the thread, and run only from a terminal.",
         subcommands: [List.self, Show.self, Plan.self, Delete.self, Hand.self],
         defaultSubcommand: List.self)
 

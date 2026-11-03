@@ -46,7 +46,7 @@ before it touches your Mac:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.svg">
-  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and four more, memory, models, ask, and plan, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
+  <img alt="You at the terminal (wisp, wisp chat, wisp-tui) and your coding agent over MCP (respond, ten condensing tools, set_fact_scope, change_plan, and close_thread) both open one wisp session. The session holds the config, approvals, threads, and facts, and runs the model, on device, through Ollama, or in process with MLX or Core AI, with its seven tools, and four more, memory, models, ask, and plan, that are off by default. A command the model asks for passes the gate in order: the policy deny list, the risk classifier, you when it matters, and the Seatbelt sandbox, and only then reaches your Mac. The session, the model, and the gate all write to one audit log." src="docs/images/overview-light.svg" width="960">
 </picture>
 
 The model never carries the whole conversation. The audit log keeps everything, and wisp composes each
@@ -115,7 +115,7 @@ For Claude Code, in `.mcp.json`:
 
 The agent then has `respond`, which runs a task on the local model with wisp's tools and returns the
 reply with a receipt of what it did; ten condensing tools that read something large on your Mac and
-return something small; and two that manage `respond`'s threads:
+return something small; and three that manage `respond`'s threads:
 
 | Tool | Gives back |
 | --- | --- |
@@ -131,6 +131,7 @@ return something small; and two that manage `respond`'s threads:
 | `flaky_tests` | Tests that pass in some runs and fail in others |
 | `hot_paths` | A profile's folded stacks as where the time goes |
 | `set_fact_scope` | Moves a fact of a `respond` thread to the thread or the session, or asks you to keep it as a permanent fact |
+| `change_plan` | Changes the plan the model of an open `respond` thread keeps: a task done, skipped, reopened, or added |
 | `close_thread` | Ends a `respond` thread and deletes it from the thread store |
 
 A failing `swift test` run comes back as a headline and a few `file:line: message` findings; two
@@ -216,7 +217,7 @@ and delete.
 | | One tool-output budget from the model's window, with what does not fit kept whole for the model to page, filter, summarise, or question, and for you to read whole (`/show`, `/last`, `wisp-tui`'s Ctrl-O) | [context-management.md](docs/context-management.md), [ADR 0050](docs/decisions/0050-tool-output-budget-and-overflow.md) |
 | | Ctrl-C stops a model's turn and the command it started, and returns to the prompt | [wisp.md](docs/wisp.md#wisp-chat) |
 | | The model asks you a question mid-turn with its `ask` tool (off by default), in chat, `wisp-tui`, or from an MCP session through `wisp questions`; never for a secret | [tools/ask.md](docs/tools/ask.md), [ADR 0062](docs/decisions/0062-the-inquiry-verb.md) |
-| | The model's plan: tasks with dependencies kept across turns with its `plan` tool (off by default), seen with `/plan`, `wisp threads plan`, and over MCP | [tools/plan.md](docs/tools/plan.md), [ADR 0081](docs/decisions/0081-the-plan-tool.md) |
+| | The model's plan: tasks with dependencies kept across turns with its `plan` tool (off by default), seen and changed with `/plan`, `wisp threads plan`, and over MCP (`change_plan`) | [tools/plan.md](docs/tools/plan.md), [ADR 0081](docs/decisions/0081-the-plan-tool.md) |
 | | Facts, the running summary, references to earlier output, and the model's `memory` tool (off by default) | [context-management.md](docs/context-management.md#facts), [tools/memory.md](docs/tools/memory.md) |
 | | Your own instructions on top of wisp's system prompt, per conversation or for every one | [ADR 0017](docs/decisions/0017-three-layer-instructions.md) |
 | | Settings changed from chat (`/config set`) or the command line (`wisp config set`) | [wisp.md](docs/wisp.md#wisp-config) |

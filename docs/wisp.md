@@ -561,7 +561,7 @@ Every chat is a thread in the thread store, `~/.wisp/threads/<id>/`, the one MCP
 characters, owned by `chat`, and saves it after every turn and every command you run with `!`, so a crash loses at most
 the turn under way; at exit it is saved and let go. `/save NAME` renames it, `/threads` lists every thread, `/new`
 saves it and starts another, and `/resume ID` saves it and opens another in its place. `wisp threads` lists, shows,
-deletes, and hands over threads outside chat (below). A chat quit before it had anything to save leaves nothing behind. Threads unused for
+deletes, and hands over threads outside chat, and shows or changes a thread's plan (below). A chat quit before it had anything to save leaves nothing behind. Threads unused for
 `threads.keepDays` days (30) are deleted at a later start, as MCP threads are.
 
 `--resume ID` opens a saved thread with its record, facts, and summary. A chat's own thread runs on the flags and
@@ -1468,9 +1468,10 @@ that called wisp can read the thread.
 ### `wisp threads`
 
 The thread store, `~/.wisp/threads`, outside chat ([ADR 0066](decisions/0066-one-thread-store.md), phase 3): every
-thread, chat's and every MCP agent's, saved after each turn. `list`, `show`, and `plan` only read; `delete` and `hand` change
-what an agent may open, so they run only from a terminal, and the default policy refuses
-`wisp threads delete|hand` when the model runs it. Each takes `--json`.
+thread, chat's and every MCP agent's, saved after each turn. `list`, `show`, and `plan` with a tree or task only read;
+`delete` and `hand` change what an agent may open, and `plan` with `done`, `skip`, `reopen`, or `add` changes the plan
+as you, so they run only from a terminal, and the default policy refuses `wisp threads delete|hand` and
+`wisp threads plan ID done|skip|reopen|add` when the model runs it. Each takes `--json`.
 
 `wisp threads` (or `list`) prints the threads as `/threads` does, most recently used first; `--json` gives
 `{"threads": [...]}`, each with `id`, `owner`, `model`, `turns`, `lastUsed`, `state` (`saved` or `open elsewhere`),
@@ -1718,7 +1719,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, moved there with `/fact ID permanent`, or kept with `wisp facts keep` (or in `wisp-tui`) when an MCP caller asked. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one, by every `wisp` process in turn under a lock, each change made to the file as it then is, so two processes never lose each other's changes. One wisp cannot read is moved aside as `facts.json.unreadable-<time>`, never overwritten, and wisp says so when it starts. Delete a fact with `/fact delete`, or the file to forget them all. |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
-| `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`), facts a caller asked to keep (`<id>.fact.json`), and the model's questions to you (`<id>.question.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, `wisp questions`, or `wisp-tui`. Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale. |
+| `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`), facts a caller asked to keep (`<id>.fact.json`), and the model's questions to you (`<id>.question.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, `wisp questions`, or `wisp-tui`; and `plan/<thread>/`, a change `wisp threads plan` made to the plan of a thread another process holds, one file a change, taken when that process begins the thread's next turn (ADR 0079, decision 23). Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale, and a plan change when taken. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |
 | `classifiers/risk/<version>/` | Risk classifier versions, each a read-only `model.mlmodel` and a `manifest.json`; `held-out.tsv` beside them is never trained on. See `wisp classifier`. |
 

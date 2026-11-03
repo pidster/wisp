@@ -47,7 +47,7 @@ the like. Codex needs wisp 0.1.5 or later, which accepts the `experimental` capa
 | `scan_secrets`, `redact` | Where credentials and personal data occur, values masked; the text with them replaced by markers |
 | `condense_log`, `json_shape` | A log as its distinct messages ranked by severity; a JSON document's structure without its data |
 | `dependency_audit`, `flaky_tests`, `hot_paths` | An npm, cargo, or pip audit as what needs action; tests that pass in some runs and fail in others; where a profile's time goes |
-| `set_fact_scope`, `close_thread` | Moves a thread's fact, or asks you to keep it as permanent; ends a thread and deletes it from the thread store |
+| `set_fact_scope`, `change_plan`, `close_thread` | Moves a thread's fact, or asks you to keep it as permanent; changes a thread's plan; ends a thread and deletes it from the thread store |
 
 wisp's own tools (`run_command`, `read_file`, `edit_file`, `system_info`, and the rest) are not MCP tools. The
 agent reaches them only by asking `respond`, so every command runs as a turn of wisp's model, under the policy,

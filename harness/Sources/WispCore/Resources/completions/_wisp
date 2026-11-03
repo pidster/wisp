@@ -62,7 +62,7 @@ _wisp() {
             'approvals:Show or revoke standing command approvals, and answer commands waiting for approval.'
             'facts:Answer requests to keep a fact as a permanent fact.'
             'questions:Answer the model'\''s questions waiting under wisp mcp.'
-            'threads:List, show, delete, and hand over saved threads, and show a thread'\''s plan.'
+            'threads:List, show, delete, and hand over saved threads, and show or change a thread'\''s plan.'
             'notify:Show a macOS notification.'
             'scan:Scan text for credentials and personal data.'
             'redact:Redact credentials and personal data from text.'

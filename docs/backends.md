@@ -539,7 +539,9 @@ revision tool calling is declared and demonstrated but not reliable. The live te
 declaration and the text reply and reports the tool-loop outcomes. Two things to know about thinking models: the bridge lets the model
 think before it answers and budgets 2048 tokens for reasoning models, so a small model that never
 closes its thinking ends the turn with the framework error "Session ended without producing a
-response" (wisp reports it as a turn error and audits it); and Qwen3's `/no_think` switch made the
+response" (since 0.34.0 wisp asks the model once more from the turn's record, and ends the turn with "(the model
+ended its turn without a reply)" if that is empty too, audited as `turn.empty`;
+[ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)); and Qwen3's `/no_think` switch made the
 bridge fail every tool call in that probe, so do not put it in the instructions of a tool-using thread.
 
 The context window is the one the bundle was exported for, read from `metadata.json`:
