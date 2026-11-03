@@ -6,7 +6,7 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
-## Unreleased
+## 0.34.0
 
 Added:
 
