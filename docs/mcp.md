@@ -27,7 +27,8 @@ args = ["mcp"]
 In this repository, `.mcp.json` runs `scripts/wisp-mcp`, which starts the release build under the name
 `wisp mcp (claude-code)`, from `WISP_MCP_CLIENT` in the server's `env` (`wisp mcp` when unset), so `ps` tells
 one harness's server from another's ([ADR 0061](decisions/0061-process-names-set-at-spawn.md)). A Codex
-configuration that runs the launcher may set `env = { WISP_MCP_CLIENT = "codex" }`.
+configuration that runs the launcher may set `env = { WISP_MCP_CLIENT = "codex" }`; this repository's own,
+`.codex/config.toml`, does, for Codex's project-scoped configuration.
 
 ## Client compatibility
 

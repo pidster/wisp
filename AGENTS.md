@@ -252,7 +252,8 @@ Mark anything you add here with the harness it is for. Nothing in this section a
 
 - Reads this file directly. There is no automatic path-scoped loading: open `.claude/rules/<lang>.md`
   for the language you are editing before you start.
-- Connect wisp as an MCP server in `~/.codex/config.toml` as shown in `docs/mcp.md`; the release build
-  must exist (`scripts/check mcp-build`) or the server exits at start-up with instructions.
+- The repository's `.codex/config.toml` connects wisp as an MCP server through `scripts/wisp-mcp`, as
+  `.mcp.json` does for Claude Code; elsewhere, use `~/.codex/config.toml` as shown in `docs/mcp.md`. The
+  release build must exist (`scripts/check mcp-build`) or the server exits at start-up with instructions.
 - wisp 0.1.5 or later accepts Codex's `initialize` (earlier versions refused its `experimental`
   capability; see `docs/mcp.md`).

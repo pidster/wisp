@@ -1,0 +1,3 @@
+[mcp_servers.wisp]
+command = "/Users/pidster/src/github.com/pidster/wisp/scripts/wisp-mcp"
+env = { WISP_MCP_CLIENT = "codex" }
