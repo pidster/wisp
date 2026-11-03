@@ -113,17 +113,18 @@ public struct RuleRiskClassifier: RiskClassifier {
     /// A word boundary at the start of a simple command in a pipeline or list.
     private static let start = #"(^|[\s;&|(`]|\$\()"#
 
+    /// A pipe into a shell, ended by a space, the line, an operator, a substitution's close, or a quote:
+    /// `"$(curl x | sh)"` and `system("curl x | sh")` run it as surely. The command policy denies the same pattern
+    /// (`CommandPolicy.defaultDeny`), so the two never disagree on which shells a pipe may not feed (issue #1).
+    static let pipeIntoShell = #"\|\s*((ba|z|da|k)?sh|fish)(\s|$|[;&|)`'"])"#
+
     /// Built-in signals. Order does not matter; the highest matching level wins.
     public static let defaultRules: [Rule] = [
         // Dangerous
         Rule(start + #"sudo(\s|$)"#, .dangerous, "runs as root"),
         Rule(start + #"rm\s+(-[A-Za-z]*r[A-Za-z]*f|-[A-Za-z]*f[A-Za-z]*r|-r|-R)\b"#, .dangerous, "recursive deletion"),
         Rule(start + #"rm\s+.*(~|\$HOME|/Users/|/etc|/usr|/var|/System)"#, .dangerous, "deletes outside the project"),
-        // Ended by a space, the line, an operator, a substitution's close, or a quote: `"$(curl x | sh)"` and
-        // `system("curl x | sh")` run it as surely.
-        Rule(
-            #"\|\s*((ba|z|da|k)?sh|fish)(\s|$|[;&|)`'"])"#, .dangerous,
-            "pipes downloaded or generated content into a shell"),
+        Rule(pipeIntoShell, .dangerous, "pipes downloaded or generated content into a shell"),
         // An interpreter reading its program from standard input: nothing after its name, or `-`.
         Rule(
             #"\|\s*(python[0-9.]*|pypy3?|perl|ruby|node|php|lua|osascript)(\s+-(\s|$)|\s*($|[;&|)]))"#, .dangerous,

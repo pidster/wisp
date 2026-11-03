@@ -6,6 +6,14 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Fixed:
+
+- The default command policy now denies a pipe into `ksh` or `fish`, and into a shell followed at once by `;`, `&`,
+  `|`, `)`, a backtick, or a quote, as the risk classifier already rated them dangerous; the two share one pattern
+  (issue #1, reported and first fixed by Sam Carrington).
+
 ## 0.34.0
 
 Added:
