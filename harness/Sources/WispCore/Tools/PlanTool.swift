@@ -11,8 +11,11 @@ public struct PlanTool: WispTool {
 
     /// The identifier the model uses to request this tool.
     public let name = PlanTool.toolName
-    /// What the model is told this tool does.
-    public let description =
+    /// What the model is told this tool does: `standardDescription` unless the plan probe tries another wording.
+    public let description: String
+
+    /// The description wisp ships.
+    public static let standardDescription =
         "The conversation's plan: tasks with dependencies, kept across turns. For work of several steps, add the "
         + "tasks first, then mark each running, done, failed, or skipped as you go, with a note of what you found. "
         + "It records; it runs nothing."
@@ -88,10 +91,12 @@ public struct PlanTool: WispTool {
     ///   - audit: The conversation's log.
     ///   - budget: The tool-output budget.
     ///   - store: The output store.
+    ///   - description: What the model is told the tool does; the plan probe measures other wordings against it.
     public init(
         book: PlanBook = PlanBook(), audit: AuditLog? = nil, budget: ToolBudget = ToolBudget(),
-        store: OutputStore? = nil
+        store: OutputStore? = nil, description: String = PlanTool.standardDescription
     ) {
+        self.description = description
         self.book = book
         self.audit = audit
         self.budget = budget

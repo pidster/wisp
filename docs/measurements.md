@@ -812,6 +812,30 @@ miss was a `system_info` call with the topic `"0"`, which the framework refused.
 noise and met no empty response: triage 7/7 both times, `summarise_diff` 5/5, the context scenario 6/6, schema
 replies 5/6 then 4/6, small drafts 9/12 then 10/12, large 0/2 then 1/2.
 
+### The plan tool's description, 2026-11-02
+
+The plan probe's sixth variant, `described` ([ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md),
+decision 26): the shipped reminder, with the `plan` tool's description worded so that the person's asking for a plan is
+a reason to use the tool, and the tasks are added before any of the work. Run on the three models the same evening,
+every variant again beside it (1 h 57 min):
+
+| Variant | `granite4.2:8b` (not thinking) | Bonsai 2 9B | `gemma4:12b` |
+| --- | --- | --- | --- |
+| `none` | 3/6 | 6/6 | 6/6 |
+| `next` | 3/6 | 6/6 | 6/6 |
+| `reminder` (shipped) | 3/6 | 5/6 | 6/6 |
+| `both` | 5/6 | 6/6 | 6/6 |
+| `planning` | 3/6 | 5/6 | 6/6 |
+| `described` | 4/6 | 5/6 | 6/6 |
+| Control planned | 0/12 | 0/12 | 1/12 |
+
+The wording changed nothing measured. `granite4.2:8b` did the reading problem without a task in both `described`
+conversations, as before; it planned that problem twice in twelve this run, once under `next` and once under `both`,
+so the variant's 4/6 against `reminder`'s 3/6 is within a run's noise. Bonsai matched its `reminder` score, and
+`gemma4:12b` finished everything; its one plan for the control, a two-task plan under `planning`, is the first any model
+made. Bonsai's responses came back empty nine times, every one replied after the note (ADR 0083). The operator chose
+not to adopt it: it stays a probe variant, and the shipped description is unchanged.
+
 ## Context checkpoint 2
 
 ```

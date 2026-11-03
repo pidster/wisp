@@ -230,6 +230,19 @@ Agreed by the operator on 2026-11-02, for D:
     9B, which always planned; none on `gemma4:12b`; and no model planned the control. **Not adopted**: it stays a probe
     variant, off. `granite4.2:8b` seems not to link "make a plan" with the tool, which its description may address
     instead, measured as a variant of its own.
+26. **The tool's description, measured before it changes.** The plan probe gains a variant, `described`: the shipped
+    reminder, with the `plan` tool's description worded so that the person's asking for a plan is a reason to use the
+    tool, and the tasks are added before any of the work:
+
+    ```
+    The conversation's plan: tasks with dependencies, kept across turns. When the person asks for a plan, or the work has several steps, add the tasks with this tool before doing any of them; then mark each running, done, failed, or skipped as you go, with a note of what you found. It records; it runs nothing.
+    ```
+
+    `PlanTool(description:)` takes it; wisp passes the shipped description everywhere. Whether it replaces the
+    shipped one, the operator decides on the results. Measured on 2026-11-02 ([measurements.md](../measurements.md),
+    "The plan tool's description"): no change; `granite4.2:8b` still did the reading problem without a task in both
+    conversations, Bonsai 2 9B matched the shipped variant, and `gemma4:12b` finished everything under every
+    variant. **Not adopted**: it stays a probe variant, and the shipped description is unchanged.
 
 Still proposed, unchanged: decisions 4, 8 to 10, 12's runner rule, and 15 to 18, the bridge to running, which begins
 with a task the person asks to run as a turn of its own (decision 17), composed from its brief (decision 8).

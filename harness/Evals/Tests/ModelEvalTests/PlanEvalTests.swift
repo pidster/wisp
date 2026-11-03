@@ -5,12 +5,13 @@ import Testing
 
 /// The plan probe (ADR 0081): whether a model keeps its plan while it works, over several turns, as a person drives a
 /// chat with "go on". A first chat on 2026-10-25 (granite4.1:8b) added its tasks but never marked one, and restated
-/// the plan turn after turn instead of working. Each problem runs under four variants of what the model is shown: no
+/// the plan turn after turn instead of working. Each problem runs under variants of what the model is shown: no
 /// help (`none`, what shipped before decision 12), a line naming the tree's next task and how to mark it in later
 /// turns (`next`), the reminder after each other tool's result while a task is running or ready and none was marked
 /// this turn (`reminder`, what wisp ships, decision 12), both, and the reminder with the nudge to plan from the turn's
 /// second call while no task is open (`planning`, ADR 0079 decision 25, for models that do the work without adding a
-/// task). A one-step control problem, run under each variant, is not scored as finished: it counts whether the model
+/// task), and the reminder with another wording of the tool's description, one that says to add the tasks before doing
+/// any of them when the person asks for a plan (`described`, ADR 0079 decision 26). A one-step control problem, run under each variant, is not scored as finished: it counts whether the model
 /// planned what needed no plan. Scored from the conversation's plan and audit, never
 /// from the replies: whether every task was settled within the turns (finished), how many updates were made, how many
 /// turns after the first made no call (stalls), and how many tasks were marked done ahead of the work (ahead: the
@@ -22,15 +23,25 @@ import Testing
 struct PlanEvalTests {
     /// What the model is shown beyond the plan tool itself.
     enum Variant: String, CaseIterable, Sendable {
-        case none, next, reminder, both, planning
+        case none, next, reminder, both, planning, described
 
         /// Whether later turns' lines name the next task.
         var namesNext: Bool { self == .next || self == .both }
         /// Whether other tools' results carry the reminder.
-        var reminds: Bool { self == .reminder || self == .both || self == .planning }
+        var reminds: Bool { self == .reminder || self == .both || self == .planning || self == .described }
         /// Whether other tools' results carry the nudge to plan.
         var nudgesPlanning: Bool { self == .planning }
+        /// What the `plan` tool's description says.
+        var description: String { self == .described ? PlanEvalTests.askedFirst : PlanTool.standardDescription }
     }
+
+    /// The `described` variant's wording of the `plan` tool's description: names the person's asking for a plan as a
+    /// reason to use the tool, and says to add the tasks before doing any of them, for a model that reads "make a plan"
+    /// as a request to plan in its head (`granite4.2:8b` on the files problem, 2026-11-02).
+    static let askedFirst =
+        "The conversation's plan: tasks with dependencies, kept across turns. When the person asks for a plan, or the "
+        + "work has several steps, add the tasks with this tool before doing any of them; then mark each running, done, "
+        + "failed, or skipped as you go, with a note of what you found. It records; it runs nothing."
 
     /// One problem: the first message, given the scratch folder's path.
     struct Problem: Sendable {
@@ -108,8 +119,8 @@ struct PlanEvalTests {
             threshold: .level(.moderate), audit: audit)
         let book = PlanBook(
             namesNext: variant.namesNext, reminds: variant.reminds, nudgesPlanning: variant.nudgesPlanning)
-        let registry = ToolRegistry(
-            runner: .init(writableRoot: dir), audit: audit, approval: gate, plan: PlanTool(book: book, audit: audit))
+        let planTool = PlanTool(book: book, audit: audit, description: variant.description)
+        let registry = ToolRegistry(runner: .init(writableRoot: dir), audit: audit, approval: gate, plan: planTool)
         let tools = registry.select(["plan", "run_command", "read_file", "system_info"]).tools
         let agent = Agent(
             instructions: Prompting().rendered(toolsAvailable: true, memory: false), tools: tools, model: model,
