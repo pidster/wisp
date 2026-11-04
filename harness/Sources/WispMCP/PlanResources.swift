@@ -64,7 +64,8 @@ extension WispServer {
         ])
     }
 
-    /// One task: its fields as the plan holds them, whether it is ready, its dependents, and its URI.
+    /// One task: its fields as the plan holds them, whether it is ready, its dependents, the tool calls linked to it
+    /// with the count of earlier ones let go, the question it waits on, and its URI.
     ///
     /// - Parameters:
     ///   - task: The task.
@@ -78,8 +79,21 @@ extension WispServer {
             "goal": .string(task.goal), "status": .string(task.status.rawValue), "ready": .bool(plan.isReady(task)),
             "dependsOn": .array(task.dependsOn.map { .string($0) }),
             "dependents": .array(plan.dependents(of: task.id).map { .string($0.id) }),
-            "note": task.note.map { .string($0) } ?? .null, "created": .string(task.created.ISO8601Format()),
+            "note": task.note.map { .string($0) } ?? .null,
+            "calls": .array(task.calls.map { Self.json(call: $0) }), "droppedCalls": .int(task.droppedCalls),
+            "question": task.question.map { .string($0) } ?? .null, "created": .string(task.created.ISO8601Format()),
             "updated": .string(task.updated.ISO8601Format()), "uri": .string("\(base)/\(task.id)"),
+        ])
+    }
+
+    /// One call linked to a task: its audit call id, the tool, what it was asked, short, and whether it failed.
+    ///
+    /// - Parameter call: The call.
+    /// - Returns: The JSON.
+    static func json(call: Plan.Call) -> JSONValue {
+        .object([
+            "id": .string(call.id), "tool": .string(call.tool), "summary": .string(call.summary),
+            "failed": .bool(call.failed),
         ])
     }
 }

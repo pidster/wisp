@@ -6,6 +6,13 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Fixed:
+
+- `wisp://threads/{thread_id}/plan` lists each task's linked tool calls (`calls`, `droppedCalls`) and the question it
+  waits on (`question`), as ADR 0079 said it would; they were kept but not served.
+
 ## 0.34.1
 
 Fixed:

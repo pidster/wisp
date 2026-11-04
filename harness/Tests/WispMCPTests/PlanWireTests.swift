@@ -1,9 +1,9 @@
 import Foundation
 import MCP
 import Testing
-import WispCore
 import WispTestSupport
 
+@testable import WispCore
 @testable import WispMCP
 
 /// A thread's plan under `wisp mcp` (ADR 0081), over the real protocol: `respond` returns `plan` when a turn changed
@@ -67,5 +67,28 @@ import WispTestSupport
         await #expect(throws: (any Error).self) { try await client.readResource(uri: "wisp://threads/p/plan/t9") }
         let summary = try await read(client, "wisp://threads/p")
         #expect(summary["resources"]?.objectValue?["plan"] == "wisp://threads/p/plan")
+    }
+
+    /// A task's JSON lists the calls linked to it, the count of earlier ones let go, and the question it waits on
+    /// (ADR 0079, decisions 21 and 24); a task with none has an empty list, 0, and null.
+    @Test func aTasksJSONListsItsCallsAndTheQuestionItWaitsOn() throws {
+        let added = try Plan().adding(goal: "Check", parent: nil, dependsOn: [], currentTree: nil, now: .now)
+        let call = Plan.Call(id: "c1", tool: "run_command", arguments: #"{"command":"df -h"}"#, failed: true)
+        let plan = added.plan.linking([call], to: "t1.1", dropped: 2).waiting(on: "q7", now: .now).plan
+        let waiting = try #require(plan.task("t1.1"))
+        let task = try #require(WispServer.json(task: waiting, in: plan, base: "b").objectValue)
+        #expect(task["status"] == .string("waiting") && task["question"] == .string("q7"))
+        #expect(task["droppedCalls"] == .int(2))
+        #expect(
+            task["calls"]
+                == .array([
+                    .object([
+                        "id": .string("c1"), "tool": .string("run_command"), "summary": .string("df -h"),
+                        "failed": .bool(true),
+                    ])
+                ]))
+        let unlinked = try #require(added.plan.task("t1.1"))
+        let bare = try #require(WispServer.json(task: unlinked, in: added.plan, base: "b").objectValue)
+        #expect(bare["calls"] == .array([]) && bare["droppedCalls"] == .int(0) && bare["question"] == .null)
     }
 }
