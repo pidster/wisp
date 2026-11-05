@@ -50,7 +50,7 @@ wisp looks for Ollama at `http://127.0.0.1:11434`, Ollama's default. If it runs 
 
 ## MLX
 
-MLX models run inside wisp itself, on the GPU. The Homebrew install includes everything they need, and
+MLX models run inside wisp itself, on the GPU. `Wisp.app`, from the disk image or Homebrew's cask, includes everything they need, and
 `wisp doctor`'s `MLX:` line confirms it. wisp fetches the model from Hugging Face:
 
 ```bash

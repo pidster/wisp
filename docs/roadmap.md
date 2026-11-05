@@ -13,9 +13,11 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Next: 0.35.0, agreed with the operator on
-2026-11-01: Homebrew installs `Wisp.app` from a cask, `wisp` in `pidster/tap`, in place of the formula, whose last
-version is a stub that says how to move. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+Next: Homebrew installs `Wisp.app` from a cask, `wisp` in `pidster/tap`, in place of the formula
+([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md), agreed with the operator on 2026-11-01 and
+2026-11-04), in two releases: 0.34.2, the formula's last, publishes the cask beside it and says how to move, since
+Homebrew's own move needs the cask or the tap trusted, which installing the formula by name did not give; then 0.35.0 deletes the
+formula and adds `tap_migrations.json`, which moves whoever trusts the tap or the cask. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
 

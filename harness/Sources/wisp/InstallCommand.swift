@@ -14,7 +14,8 @@ struct InstallCommand: ParsableCommand {
             "Run from Wisp.app: /Applications/Wisp.app/Contents/MacOS/wisp install. It makes the folder if need be, "
             + "needs no administrator's password, and says when the folder is not on PATH and what line to add; "
             + "shell start-up files are never edited. A file already there is never replaced, and a link to another "
-            + "wisp only with --force. A Homebrew install puts wisp on PATH itself and is refused.")
+            + "wisp only with --force. A Homebrew install puts wisp on PATH itself: the formula is refused, and with no "
+            + "folder named, the cask's links are found and nothing is added.")
 
     @Argument(help: "The folder to link into; ~/.local/bin when omitted.", completion: .directory)
     var folder: String?
@@ -25,18 +26,26 @@ struct InstallCommand: ParsableCommand {
     func run() throws {
         let environment = ProcessInfo.processInfo.environment
         let home = ShellCompletions.home(environment: environment)
-        let folder = AppInstall.folder(folder, home: home)
+        let target = AppInstall.folder(folder, home: home)
         let report: AppInstall.Report
         do {
-            report = try AppInstall.install(app: try InstallCommand.app(), folder: folder, force: force, home: home)
+            let app = try InstallCommand.app()
+            // Homebrew's cask already links wisp onto PATH (ADR 0084); a second set is made only into a folder named.
+            if self.folder == nil,
+                let linked = AppInstall.linkedElsewhere(app: app, folder: target, path: environment["PATH"])
+            {
+                print(AppInstall.alreadyLinked(linked, app: app, home: home))
+                return
+            }
+            report = try AppInstall.install(app: app, folder: target, force: force, home: home)
         } catch let failure as AppInstall.Failure {
             FileHandle.standardError.write(Data("Error: \(failure)\n".utf8))
             throw ExitCode.failure
         }
         for line in report.lines { print(line) }
-        if !AppInstall.isOnPath(folder, path: environment["PATH"]) {
+        if !AppInstall.isOnPath(target, path: environment["PATH"]) {
             let shell = ShellCompletions.detect(shellPath: environment["SHELL"])
-            for line in AppInstall.pathAdvice(folder, shell: shell, home: home) { print(line) }
+            for line in AppInstall.pathAdvice(target, shell: shell, home: home) { print(line) }
         }
     }
 
@@ -104,7 +113,12 @@ enum FinderLaunch {
         let home = ShellCompletions.home(environment: environment)
         let folder = AppInstall.folder(nil, home: home)
         let source = AppInstall.source(of: PackageLayout.current)
-        let welcome = AppInstall.welcome(source: source, folder: folder, home: home)
+        // The Finder's PATH is launchd's, without Homebrew's bin, so the cask's links are looked for there by name.
+        let brewBin = HomebrewMove.prefix(environment).appending(path: "bin").path
+        let linked = source.app.flatMap {
+            AppInstall.linkedElsewhere(app: $0, folder: folder, path: brewBin + ":" + (environment["PATH"] ?? ""))
+        }
+        let welcome = AppInstall.welcome(source: source, folder: folder, home: home, linked: linked)
         let answer = alert(
             welcome.title, welcome.text, buttons: welcome.offersInstall ? ["Install", "Cancel"] : ["OK"]
         )

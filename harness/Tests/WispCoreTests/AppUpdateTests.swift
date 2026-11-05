@@ -403,12 +403,7 @@ import Testing
     @Test func onlyTheAppUpdatesItself() throws {
         let app = URL(filePath: "/Applications/Wisp.app")
         #expect(try AppUpdate.app(of: .app(app)) == app)
-        #expect(
-            throws: AppUpdate.Failure.refused(
-                "this wisp was installed by Homebrew; update it with: brew upgrade pidster/tap/wisp")
-        ) {
-            try AppUpdate.app(of: .homebrew)
-        }
+        #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .homebrew) }
         #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .elsewhere) }
         #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .diskImage(app)) }
     }

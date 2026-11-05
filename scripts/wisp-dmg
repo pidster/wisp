@@ -29,7 +29,8 @@ Wisp $VERSION
    shell's start-up file if that folder is not on your PATH.
 3. In a new terminal, run: wisp doctor
 
-wisp keeps its state in ~/.wisp, shared with a Homebrew install of wisp.
+wisp keeps its state in ~/.wisp. Homebrew's cask (brew install --cask pidster/tap/wisp)
+installs this same app.
 Documentation: https://wisp.pidster.com/docs/
 README
 rm -f "$DMG"

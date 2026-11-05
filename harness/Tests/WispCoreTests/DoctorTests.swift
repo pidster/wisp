@@ -41,6 +41,7 @@ import WispTestSupport
             findings.map(\.name) == [
                 "macOS", "model", "classifier", "context window", "sandbox", "config", "settings", "facts store",
                 "subject kinds", "saved transcripts", "threads", "notify", "notifier", "front end", "package",
+                "install",
                 "signature", "home", "pending approvals", "output store",
             ])
         let broken = Doctor.Probes(
@@ -50,7 +51,7 @@ import WispTestSupport
             extra.map(\.name) == [
                 "macOS", "model", "classifier", "configured model", "context window", "sandbox", "config",
                 "settings", "facts store", "subject kinds", "saved transcripts", "threads", "notify", "notifier",
-                "front end", "package",
+                "front end", "package", "install",
                 "signature", "home",
                 "pending approvals", "output store",
             ])

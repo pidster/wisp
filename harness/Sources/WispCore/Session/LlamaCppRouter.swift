@@ -383,6 +383,8 @@ public enum LlamaCppRouter {
         case .registeredElsewhere(let holder):
             return "wisp's llama.cpp server does not answer at \(at): its LaunchAgent is \(agent.text); its log, "
                 + "\(log.path), says why; \(holder.command("config set llamacpp.server wisp")) starts it again"
+        case .abandoned:
+            return "wisp's llama.cpp server does not answer at \(at): its LaunchAgent is \(agent.text)"
         case .manual(let reason):
             return "wisp's llama.cpp server does not answer at \(at): wisp registers no LaunchAgent here (\(reason)); "
                 + "start it yourself with wisp llamacpp serve"

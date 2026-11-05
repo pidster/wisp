@@ -569,6 +569,11 @@ Where the parts of an installed wisp are, as the package declares them (ADR 0072
 beside `wisp`; `NotifierHelper.live` takes the declared `Wisp Notifier.app` before the one beside `wisp`. `wisp`'s
 `main` opens the app bundle it runs from, so MLX, which searches every opened bundle's resources, finds the Metal
 library there when `wisp` was started through a link. `Doctor.package` checks every declared part.
+`AppInstall.source` reads the install from the declaration: the formula's manifest is Homebrew's formula, the
+`Info.plist` is `Wisp.app`, whether Homebrew's cask or a download put it there. `HomebrewMove` reads what Homebrew
+holds of wisp (the cask in the Caskroom, the formula's keg in the Cellar, under `HOMEBREW_PREFIX` or `/opt/homebrew`)
+and the first `wisp` on `PATH`, and holds the move's three commands in their order; `Doctor.install` uses both, and
+`AppInstall.linkedElsewhere` finds the cask's links, so `wisp install` adds none (ADR 0084).
 
 ### `Introspection`
 

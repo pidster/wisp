@@ -66,7 +66,7 @@ turn both off, `wisp config set commandPolicy.sandbox.allowOutsideSandbox false`
 **wisp's own llama.cpp server, when you turn it on.** With `llamacpp.server wisp`
 ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md), [backends.md](backends.md)), wisp keeps a process
 running after the command that wanted it has ended: a LaunchAgent, `com.pidster.wisp.llamacpp` (a Login Item of
-`Wisp.app`, or a file in `~/Library/LaunchAgents` for a Homebrew install), which launchd starts at login and again
+`Wisp.app`, however it was installed, or a file in `~/Library/LaunchAgents` for the old Homebrew formula or a build), which launchd starts at login and again
 after a crash or a kill. It runs `llama-server`, a program wisp did not build, **outside wisp's sandbox**, with your privileges:
 only the file you approved with `wisp config set llamacpp.serverPath`, checked by its SHA-256 before every start
 (the libraries it loads from its install are not checked). It listens on `127.0.0.1` only, so no other machine can
@@ -282,8 +282,8 @@ not judge whether a conclusion follows from the output, and misses a result put 
   Only you put facts there: what a tool or the model proposes waits for you to move it, and what an MCP
   caller asks for waits for `wisp facts keep`.
 - Stop wisp's own llama.cpp server for good: `wisp config set llamacpp.server off`, which unregisters its
-  LaunchAgent (do this before uninstalling a Homebrew wisp, whose agent file in `~/Library/LaunchAgents` would
-  otherwise stay).
+  LaunchAgent (do this before uninstalling; a wisp from the old Homebrew formula leaves its agent file in
+  `~/Library/LaunchAgents` otherwise, and `Wisp.app`'s Login Item goes with the app).
 - Remove everything wisp keeps: delete `~/.wisp`, `~/Library/Application Support/Wisp` (the links
   `wisp models add` made, the approved `llama-server`'s record, and its server's key), and `~/Library/Logs/Wisp`
   (that server's log). Nothing else is written outside the sandbox's
@@ -291,7 +291,10 @@ not judge whether a conclusion follows from the output, and misses a result put 
   models you pulled into the Hugging Face cache, which Hugging Face's own tools share (delete
   `<cache>/models--<organisation>--<name>` to remove one), and the completion script `wisp completions install`
   wrote for your shell (delete the file it named).
-- Uninstall: `brew uninstall wisp`.
+- Uninstall: `brew uninstall --cask pidster/tap/wisp` removes the app and its links;
+  `brew uninstall --zap --cask pidster/tap/wisp` also deletes `~/.wisp`, the LaunchAgent file below, and wisp's
+  preferences (`WISP_HOME` elsewhere is not touched). A dragged `Wisp.app`: `wisp uninstall`, then move the app to the
+  Bin.
 
 ## Files wisp writes
 
@@ -308,7 +311,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/Library/Application Support/Wisp/llamacpp/server.json` | the approved `llama-server`: the path, its real path, its SHA-256, and when, written by `wisp config set llamacpp.serverPath` | user-only (0600) |
 | `~/Library/Application Support/Wisp/llamacpp/api-key` | the key of wisp's own llama.cpp server, made at its first start under `llamacpp.server wisp` | user-only (folder 0700, file 0600) |
 | `~/Library/Logs/Wisp/llamacpp.log` | that server's output, moved aside to `llamacpp.log.1` past 8 MiB | user-only |
-| `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` | that server's LaunchAgent, for a Homebrew install or a build, written by `wisp config set llamacpp.server wisp` and removed by setting it otherwise; `Wisp.app` carries its own inside the app | yours |
+| `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` | that server's LaunchAgent, for the old Homebrew formula or a build, written by `wisp config set llamacpp.server wisp` and removed by setting it otherwise; `Wisp.app` carries its own inside the app | yours |
 | `~/.wisp/approvals.json` | remembered approvals | user-only |
 | `~/.wisp/pending/` | commands waiting for your approval under `wisp mcp`, facts a caller asked you to keep, the model's questions to you, and your answers, until taken; and, under `plan/<thread>/`, your changes to the plan of a thread another process holds (`wisp threads plan`), until it makes them | user-only (directory 0700, files 0600) |
 | `~/.wisp/transcripts/*.json`, `*.store` | chats saved before 0.27.0, and each one's links to the audit log; read by `wisp chat --resume`, never written now | user-only |

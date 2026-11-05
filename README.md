@@ -3,7 +3,7 @@
 **An AI agent that lives on your Mac, and keeps your data there.**
 
 ```bash
-brew install pidster/tap/wisp
+brew install --cask pidster/tap/wisp
 wisp "What is listening on port 8080?"
 wisp chat
 ```
@@ -237,10 +237,13 @@ An Apple silicon Mac on **macOS 27** or later (M4 or above is recommended) with 
 Homebrew or the disk image.
 
 ```bash
-brew install pidster/tap/wisp   # installs wisp, wisp-tui, MLX's Metal library, and Wisp Notifier.app
-wisp doctor                     # checks the model, MLX, sandbox, classifier, config, home, notifications, pending requests, and the output store
+brew install --cask pidster/tap/wisp   # installs Wisp.app and links wisp and wisp-tui onto PATH
+wisp doctor                            # checks the model, MLX, sandbox, classifier, config, home, notifications, pending requests, and the output store
 wisp "What is the date in Tokyo?"
 ```
+
+The Homebrew formula ends at 0.34.2; to move from it to the cask, see the
+[install guide](docs/guide/install.md#moving-from-the-homebrew-formula).
 
 That is all wisp needs: it runs on Apple's on-device model. To add a local model through Ollama, MLX, llama.cpp,
 LM Studio, or Core AI, and to choose which, follow **[How to install local models](docs/install-local-models.md)**.
@@ -249,13 +252,14 @@ Or download `Wisp-X.Y.Z.dmg` from the [releases page](https://github.com/pidster
 to Applications, open it and choose **Install** (or run `/Applications/Wisp.app/Contents/MacOS/wisp install`), and
 update it later with `wisp update` ([install guide](docs/guide/install.md)).
 
-Homebrew also installs shell completions for zsh, bash, and fish; with any other install, `wisp completions install`
+Homebrew's cask also installs shell completions for zsh, bash, and fish; with any other install, `wisp completions install`
 writes them for your shell ([wisp.md](docs/wisp.md), "`wisp completions`").
 
 State lives in `~/.wisp`: an optional `config.json` (change it with `wisp config set` or `/config set`
 in chat), every chat and MCP thread saved as it goes (`threads/`), remembered approvals, the facts you keep (`facts.json`), the audit log, and
-the classifier versions. Upgrade
-with `brew upgrade pidster/tap/wisp`; remove with `brew uninstall wisp` and `rm -rf ~/.wisp`.
+the classifier versions. Update
+with `wisp update` (the cask or the app); remove with `brew uninstall --cask pidster/tap/wisp` and `rm -rf ~/.wisp`, or
+`brew uninstall --zap --cask pidster/tap/wisp`, which deletes `~/.wisp` too.
 
 ## Documentation
 

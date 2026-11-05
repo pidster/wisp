@@ -620,7 +620,9 @@ public enum AppUpdate {
         switch source {
         case .app(let app): return app
         case .homebrew:
-            throw Failure.refused("this wisp was installed by Homebrew; update it with: brew upgrade pidster/tap/wisp")
+            throw Failure.refused(
+                "this wisp is Homebrew's formula, which ends at 0.34.2; wisp is a cask from 0.35.0, which wisp update "
+                    + "keeps current. Move to it: \(HomebrewMove.line)")
         case .elsewhere:
             throw Failure.refused(
                 "this wisp is not in Wisp.app, so it cannot update itself; a build is updated from source")

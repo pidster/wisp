@@ -9,34 +9,60 @@ This guide takes you from nothing to a first answer, a first approval, and a con
 | --- | --- |
 | An Apple silicon Mac on **macOS 27** or later; M4 or above is recommended | wisp is built on the Foundation Models framework of macOS 27 ([ADR 0002](../decisions/0002-macos-27-baseline.md)); the on-device model needs Apple silicon |
 | Apple Intelligence turned on in System Settings, and its model downloaded | The default model is Apple's on-device model; until it is ready, wisp has no model to run unless you add one of your own ([Local models](local-models.md)) |
-| Homebrew, or the disk image | wisp is released through a Homebrew tap ([ADR 0012](../decisions/0012-homebrew-release.md)), and from 0.31.0 as `Wisp.app` in a disk image ([ADR 0072](../decisions/0072-a-dmg-and-a-declared-layout.md)) |
+| Homebrew, or the disk image | wisp is released as `Wisp.app` in a disk image from 0.31.0 ([ADR 0072](../decisions/0072-a-dmg-and-a-declared-layout.md)), which Homebrew's cask in the `pidster/tap` tap installs from 0.34.2 ([ADR 0012](../decisions/0012-homebrew-release.md), [ADR 0084](../decisions/0084-homebrew-installs-the-app-from-a-cask.md)) |
 
 Nothing else: no API key, no account, and no network for generation.
 
 ## Install
 
 ```bash
-brew install pidster/tap/wisp
+brew install --cask pidster/tap/wisp
 ```
 
-That installs four things: `wisp`, `wisp-tui` (the terminal front end `wisp chat` hands a terminal session to),
-MLX's Metal library, `mlx.metallib`, beside `wisp` in Homebrew's `libexec`, which wisp needs to run MLX models
-([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and `Wisp Notifier.app` beside it, which posts wisp's
-notifications as "Wisp" once you allow them: the first notification asks
-([ADR 0070](../decisions/0070-a-notification-helper.md)). Homebrew also installs the shell completions for zsh, bash,
-and fish. From 0.30.1 the binaries and `Wisp Notifier.app` are signed with a Developer ID and notarised by Apple, so the
-release's tarball also runs when downloaded directly; `wisp doctor`'s `signature` line names the signer.
+That is Homebrew's cask `wisp` ([ADR 0084](../decisions/0084-homebrew-installs-the-app-from-a-cask.md)). It installs
+`Wisp.app`, from the release's signed and notarised disk image, into `/Applications`, links its `wisp` and `wisp-tui`
+(the terminal front end `wisp chat` hands a terminal session to) into Homebrew's `bin`, and writes the shell
+completions for zsh, bash, and fish from `wisp completions`. `Wisp.app` holds two more parts wisp uses: MLX's Metal
+library, `mlx.metallib`, which wisp needs to run MLX models ([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and
+`Wisp Notifier.app`, which posts wisp's notifications as "Wisp" once you allow them: the first notification asks
+([ADR 0070](../decisions/0070-a-notification-helper.md)). `wisp doctor`'s `signature` line names the signer. Say
+`--cask`: while the old formula is still in the tap, `brew install pidster/tap/wisp` without it installs the formula.
+Installing the cask by its full name trusts it (Homebrew's tap trust); if Homebrew
+refuses it as untrusted all the same, run `brew trust pidster/tap` first.
 
-Upgrade with `brew upgrade pidster/tap/wisp`, remove it with `brew uninstall wisp`, and delete `~/.wisp` to
-forget everything it kept ([What wisp can do to your Mac](../trust.md), "Undoing"). If you turned on wisp's own
-llama.cpp server, run `wisp config set llamacpp.server off` before uninstalling, so its LaunchAgent goes too, and
-delete `~/Library/Application Support/Wisp` and `~/Library/Logs/Wisp` with `~/.wisp`.
+The cask updates itself: run `wisp update`, as for the disk image ([wisp.md](../wisp.md#wisp-update)). `brew upgrade`
+leaves it alone unless you pass `--greedy`. `brew uninstall --cask pidster/tap/wisp` removes the app and its links;
+`brew uninstall --zap --cask pidster/tap/wisp` also deletes `~/.wisp` (threads, approvals, facts, and the audit log),
+the llama.cpp server's LaunchAgent file, and wisp's preferences ([What wisp can do to your Mac](../trust.md),
+"Undoing"). If you turned on wisp's own llama.cpp server, run `wisp config set llamacpp.server off` before
+uninstalling, and delete `~/Library/Application Support/Wisp` and `~/Library/Logs/Wisp` too.
+
+### Moving from the Homebrew formula
+
+Until 0.34.2 Homebrew installed wisp from a formula, `pidster/tap/wisp`, into its Cellar. 0.34.2 is the formula's
+last version; from 0.35.0 it leaves the tap, and `brew update` moves a formula install to the cask only if you trust
+the cask or the whole tap, which installing the formula by name did not do. `wisp doctor` fails from the formula and
+`wisp update` refuses there, both naming these three commands. Run them in this order (the first trusts the whole
+tap, the cask with it; `brew trust --cask pidster/tap/wisp` trusts the cask alone, if you prefer):
+
+```bash
+brew trust pidster/tap
+brew uninstall --formula wisp
+brew install --cask pidster/tap/wisp
+```
+
+The order matters: installed while the formula's links are still in place, the cask installs without its own links
+or completions, so the `wisp` on `PATH` stays the formula's
+([ADR 0084](../decisions/0084-homebrew-installs-the-app-from-a-cask.md)). Your `~/.wisp` is kept. If Homebrew made the
+move for you and left the old keg installed, `wisp doctor` names `brew uninstall --formula --force wisp` to remove it.
+A llama.cpp server job the formula registered is replaced by the app's Login Item when you turn the server on or run
+`wisp llamacpp agent repair`.
 
 ### Or: the disk image
 
 From 0.31.0 each release also has `Wisp-X.Y.Z.dmg` on its
 [GitHub release page](https://github.com/pidster/wisp/releases), signed and notarised. Open it and drag `Wisp.app`
-onto Applications. `Wisp.app` holds the same four parts: `wisp` and `wisp-tui` in `Contents/MacOS`,
+onto Applications. `Wisp.app` holds the same four parts as the cask's: `wisp` and `wisp-tui` in `Contents/MacOS`,
 `Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`, with the LaunchAgent of
 wisp's own llama.cpp server in `Contents/Library/LaunchAgents`, registered only if you turn that server on. Then put `wisp` on your
 `PATH`: open `Wisp.app` and choose **Install**, or run
@@ -49,8 +75,9 @@ Either links `wisp` and `wisp-tui` into `~/.local/bin`, with no administrator's 
 shell's start-up file if that folder is not on `PATH`. `wisp uninstall` removes the links
 ([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). To update the app later, run `wisp update`, or turn on
 `wisp config set updates.check true` to hear when a newer release is out
-([wisp.md](../wisp.md#wisp-update)). Both installs keep their state in the same `~/.wisp`, so a
-Homebrew install and the app share threads, approvals, and facts; use one or the other on `PATH`.
+([wisp.md](../wisp.md#wisp-update)). The app is the same whether Homebrew's cask installed it or you dragged it; both keep their
+state in `~/.wisp`. `wisp install` says the commands are already on `PATH` when Homebrew's `bin` links them to the
+app, and adds no second set.
 
 ## Check the install: `wisp doctor`
 
@@ -60,9 +87,11 @@ wisp doctor
 
 `wisp doctor` checks what a working install needs and exits non-zero when anything fails: macOS 27, the
 on-device model answering a one-word request, the risk classifier, MLX's Metal library, `sandbox-exec`, your
-`config.json`, and a writable `~/.wisp`, along with the state wisp keeps. Each line is `ok` or not, with a detail.
-From a development build after 0.31.1 with a fresh home, started in `/private/tmp`, on 2026-10-29 (a Homebrew install
-names its own paths):
+`config.json`, and a writable `~/.wisp`, along with the state wisp keeps. Its `install` line names how wisp was
+installed (Homebrew's cask, `Wisp.app` from the disk image, or the old formula) and fails when the move from the
+formula is unfinished ([above](#moving-from-the-homebrew-formula)). Each line is `ok` or not, with a detail.
+From a development build after 0.31.1 with a fresh home, started in `/private/tmp`, on 2026-10-29 (an installed
+wisp names its own paths):
 
 ```
 ok   macOS: 27.0.0
@@ -106,7 +135,7 @@ wisp --yes "Run the tests in $PWD and tell me if they pass"
 wisp chat
 ```
 
-On a terminal, with `wisp-tui` installed beside `wisp` (Homebrew's install has it), `wisp chat` hands the session to
+On a terminal, with `wisp-tui` installed beside `wisp` (`Wisp.app` has it), `wisp chat` hands the session to
 `wisp-tui`: the conversation is drawn in a pane of its own above a pinned input and status line, the model's tool
 calls show as they happen, and long outputs fold (Shift with the arrows reaches each part, Ctrl-Y copies one). On
 quitting, the conversation is printed into your terminal's history. `wisp chat --plain` keeps the plain line-based chat, and a piped session is

@@ -67,9 +67,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 plutil -lint -s "$APP/Contents/Info.plist"
-# wisp's own llama.cpp server's agent (ADR 0082, decision 4), with the keys LlamaCppAgent.properties gives the file a
-# Homebrew install writes: wisp llamacpp serve, started at load and again only after a crash, so a refusal to start
-# waits for the person. BundleProgram is relative to the app; SMAppService registers it as a Login Item of Wisp.
+# wisp's own llama.cpp server's agent (ADR 0082, decision 4), with the keys LlamaCppAgent.properties gives the file
+# the Homebrew formula or a build writes: wisp llamacpp serve, started at load and again only after a crash, so a
+# refusal to start waits for the person. BundleProgram is relative to the app; SMAppService registers it as a Login Item of Wisp.
 cat > "$APP/Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

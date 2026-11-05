@@ -59,6 +59,8 @@ public struct Doctor: Sendable {
         public var signature: @Sendable () -> (executable: URL, signature: CodeSignature)?
         /// The layout the running package declares, for the `package` finding.
         public var layout: @Sendable () -> PackageLayout.Reading
+        /// What Homebrew holds of wisp, and the `wisp` on `PATH`, for the `install` finding.
+        public var homebrew: @Sendable () -> HomebrewMove
 
         /// Probes that ask the framework.
         public static let live = Probes(
@@ -115,7 +117,8 @@ public struct Doctor: Sendable {
                 guard let executable = FrontEnd.runningExecutable else { return nil }
                 return (executable, CodeSignature.of(executable))
             },
-            layout: { PackageLayout.current })
+            layout: { PackageLayout.current },
+            homebrew: { HomebrewMove.read(environment: ProcessInfo.processInfo.environment) })
 
         /// Creates probes.
         public init(
@@ -135,7 +138,8 @@ public struct Doctor: Sendable {
             frontEnd: @escaping @Sendable () -> (found: URL?, looked: [URL]) = { (nil, []) },
             helper: NotifierHelper = .none,
             signature: @escaping @Sendable () -> (executable: URL, signature: CodeSignature)? = { nil },
-            layout: @escaping @Sendable () -> PackageLayout.Reading = { .none }
+            layout: @escaping @Sendable () -> PackageLayout.Reading = { .none },
+            homebrew: @escaping @Sendable () -> HomebrewMove = { HomebrewMove() }
         ) {
             self.systemModel = systemModel
             self.systemModelAnswers = systemModelAnswers
@@ -152,6 +156,7 @@ public struct Doctor: Sendable {
             self.helper = helper
             self.signature = signature
             self.layout = layout
+            self.homebrew = homebrew
         }
     }
 
@@ -193,6 +198,7 @@ public struct Doctor: Sendable {
         var findings = [
             macOSVersion(), modelAvailability(), sandboxExec(), config(), settingsInRange(), factsStore(),
             subjectKinds(), savedTranscripts(), threads(), notifyRoute(), notifier(), frontEndFinding(), package(),
+            install(),
             signatureFinding(),
             homeWritable(),
             pendingApprovals(),

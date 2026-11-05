@@ -47,6 +47,11 @@ public enum LlamaCppAgent {
         /// on 2026-10-30 a `wisp` outside the app (the release's staged binary) found no file in
         /// `~/Library/LaunchAgents` while `Wisp.app`'s Login Item ran the server, and `wisp doctor` failed.
         case registeredElsewhere(Holder)
+        /// Not registered by this install, while launchd holds a job of the agent's label from a LaunchAgent file, at
+        /// this path, whose `wisp` no longer exists: the job Homebrew's formula registered, once the formula is
+        /// uninstalled on the move to the cask ([ADR 0084](../../../../docs/decisions/0084-homebrew-installs-the-app-from-a-cask.md),
+        /// decision 8). Nothing is behind it, so `Wisp.app` replaces it with its Login Item.
+        case abandoned(String)
         /// wisp registers nothing here, for this reason: the person runs the server.
         case manual(String)
         /// The state could not be read, for this reason.
@@ -66,6 +71,10 @@ public enum LlamaCppAgent {
                     + "registers Wisp.app with Launch Services and the agent again"
             case .registeredElsewhere(let holder):
                 "registered by \(holder.text), not by this wisp; launchd holds its job"
+            case .abandoned(let path):
+                "left by the LaunchAgent file \(path), whose wisp no longer exists (Homebrew's formula, once "
+                    + "uninstalled); wisp config set llamacpp.server wisp, or \(repairCommand), replaces it with "
+                    + "Wisp.app's Login Item"
             case .manual(let reason): "none (\(reason)); run wisp llamacpp serve yourself"
             case .unknown(let reason): "unknown (\(reason))"
             }
@@ -75,7 +84,7 @@ public enum LlamaCppAgent {
         /// launchd.
         var isPresent: Bool {
             switch self {
-            case .registered, .requiresApproval, .orphaned, .refusedByLaunchd: true
+            case .registered, .requiresApproval, .orphaned, .refusedByLaunchd, .abandoned: true
             case .notRegistered, .registeredElsewhere, .manual, .unknown: false
             }
         }
@@ -369,6 +378,9 @@ public enum LlamaCppAgent {
                     "wisp's llama.cpp server is \(state.text); this wisp registers no second job of the same label, "
                         + "and starts that one again")
                 return act("restart", { try control.restart() })
+            }
+            if case .abandoned(let path) = state {
+                say("wisp's llama.cpp server was left by \(path), whose wisp no longer exists; replacing it")
             }
             say(
                 "registering wisp's llama.cpp server as \(means.text); launchd starts it now and at each login, and "
@@ -745,16 +757,22 @@ struct LoginItemAgent: LlamaCppAgentControl {
     ///   - service: The agent's `SMAppService`.
     ///   - target: The launchd domain target, `gui/<uid>/<label>`.
     ///   - launchctl: Runs `launchctl`.
-    /// - Throws: `Failure.loginItem`.
+    ///   - files: Reads and removes a LaunchAgent file whose `wisp` is gone (`State.abandoned`).
+    /// - Throws: `Failure.loginItem`, or `Failure.file` when an abandoned file cannot be removed.
     static func registerHere(
         service: any LoginItemService = AppServiceAgent(), target: String = LlamaCppAgent.service,
-        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
+        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl,
+        files: LlamaCppAgent.AbandonedFiles = .live
     ) throws {
         switch service.status {
         case .enabled:
             if launchctl(["kickstart", "-k", target]).status == 0 { return }
         case .notRegistered, .notFound:
-            if launchctl(["print", target]).status == 0 { _ = launchctl(["bootout", target]) }
+            let printed = launchctl(["print", target])
+            if printed.status == 0 {
+                _ = launchctl(["bootout", target])
+                try files.removeIfAbandoned(printed.output)
+            }
         default:
             break
         }
@@ -774,19 +792,25 @@ struct LoginItemAgent: LlamaCppAgentControl {
     ///   - service: The agent's `SMAppService`.
     ///   - target: The launchd domain target, `gui/<uid>/<label>`.
     ///   - launchctl: Runs `launchctl`.
+    ///   - files: Reads and removes a LaunchAgent file whose `wisp` is gone (`State.abandoned`).
     /// - Returns: What was done beyond `SMAppService`, to say, or nil.
-    /// - Throws: `Failure.loginItem`, or `Failure.launchctl` when the job could not be removed.
+    /// - Throws: `Failure.loginItem`, `Failure.launchctl` when the job could not be removed, or `Failure.file`.
     static func unregisterHere(
         service: any LoginItemService = AppServiceAgent(), target: String = LlamaCppAgent.service,
-        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl
+        launchctl: ([String]) -> (status: Int32, output: String) = LlamaCppAgent.launchctl,
+        files: LlamaCppAgent.AbandonedFiles = .live
     ) throws -> String? {
         guard service.status != .notRegistered, service.status != .notFound else {
-            guard launchctl(["print", target]).status == 0 else { return nil }
+            let printed = launchctl(["print", target])
+            guard printed.status == 0 else { return nil }
             let arguments = ["bootout", target]
             let result = launchctl(arguments)
             guard result.status == 0 else {
                 throw LlamaCppAgent.Failure.launchctl(
                     arguments: arguments, status: result.status, output: result.output)
+            }
+            if try files.removeIfAbandoned(printed.output) {
+                return "launchd held \(target) from a LaunchAgent file whose wisp is gone; removed the job and the file"
             }
             return "Login Items lists no agent, but launchd still held \(target); removed it (launchctl bootout)"
         }
@@ -800,16 +824,18 @@ struct LoginItemAgent: LlamaCppAgentControl {
 
     /// The agent's status by name: `SMAppService`'s (`name(of:)`), or `held-by-launchd` when it reports none and
     /// launchd holds a job of the label, `held-by-file PATH` when that job is a LaunchAgent file another install
-    /// wrote, or `refused-by-launchd` when it is registered and launchd refused to start
-    /// it (`LlamaCppAgent.refusedByLaunchd(_:)`).
+    /// wrote, `abandoned-file PATH` when that file's `wisp` no longer exists, or `refused-by-launchd` when it is
+    /// registered and launchd refused to start it (`LlamaCppAgent.refusedByLaunchd(_:)`).
     ///
     /// - Parameters:
     ///   - service: The agent's `SMAppService`.
     ///   - target: The launchd domain target, `gui/<uid>/<label>`.
     ///   - launchctl: Runs `launchctl`.
+    ///   - files: Reads and removes an abandoned LaunchAgent file.
     /// - Returns: The name, for `state(named:)`.
     static func status(
-        service: any LoginItemService, target: String, launchctl: ([String]) -> (status: Int32, output: String)
+        service: any LoginItemService, target: String, launchctl: ([String]) -> (status: Int32, output: String),
+        files: LlamaCppAgent.AbandonedFiles = .live
     ) -> String {
         let status = service.status
         switch status {
@@ -820,7 +846,9 @@ struct LoginItemAgent: LlamaCppAgentControl {
         case .notRegistered, .notFound:
             let printed = launchctl(["print", target])
             guard printed.status == 0 else { return name(of: status) }
-            if case .file(let path) = LlamaCppAgent.holder(printed.output) { return "held-by-file \(path)" }
+            if case .file(let path) = LlamaCppAgent.holder(printed.output) {
+                return files.isAbandoned(path) ? "abandoned-file \(path)" : "held-by-file \(path)"
+            }
             return "held-by-launchd"
         default:
             return name(of: status)
@@ -862,6 +890,8 @@ struct LoginItemAgent: LlamaCppAgentControl {
         case "refused-by-launchd": .refusedByLaunchd
         case let held where held.hasPrefix("held-by-file /"):
             .registeredElsewhere(.file(String(held.dropFirst("held-by-file ".count))))
+        case let left where left.hasPrefix("abandoned-file /"):
+            .abandoned(String(left.dropFirst("abandoned-file ".count)))
         case "not-found":
             .unknown(
                 "SMAppService finds no agent file \(LlamaCppAgent.plistName) in Wisp.app; after an update, "

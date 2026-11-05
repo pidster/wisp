@@ -339,9 +339,9 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   Setting `llamacpp.server wisp` registers a LaunchAgent, `com.pidster.wisp.llamacpp`, and says so before it does.
   From `Wisp.app` the agent is the app's own (`Contents/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist`),
   registered with `SMAppService`, so it shows in System Settings > General > Login Items & Extensions as Wisp, where
-  you can turn it off; macOS may ask you to allow it there first, which wisp and `wisp doctor` say. A Homebrew install,
-  or a build, writes `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` naming its own `wisp` (Homebrew's
-  `opt` link, so an upgrade of wisp keeps it working) and loads it with `launchctl bootstrap gui/<uid>`. launchd starts
+  you can turn it off; macOS may ask you to allow it there first, which wisp and `wisp doctor` say. A wisp from the old
+  Homebrew formula, or a build, writes `~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist` naming its own `wisp`
+  (for the formula, Homebrew's `opt` link) and loads it with `launchctl bootstrap gui/<uid>`. launchd starts
   it at once and at each login, and again after any exit but a clean one, a crash or a kill such as one that frees memory (`KeepAlive`
   `SuccessfulExit` false, after 30 s at the soonest); a refusal to start exits 0 and waits for you rather than starting
   again in a loop. A killed model process is not the agent's to restart: the router starts it again on the next
@@ -387,7 +387,8 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   Approving another `llama-server` (after `brew upgrade llama.cpp`) restarts it too. Turning it off: `wisp config set
   llamacpp.server off` (or `llama-app`, or `unset`) unregisters the agent, which stops the server and its models;
   `wisp uninstall`, from `Wisp.app`, unregisters it as well; turning Wisp off in Login Items stops it until you turn it
-  on. Uninstalling a Homebrew wisp leaves its file in `~/Library/LaunchAgents`, so set the setting to `off` first.
+  on. Uninstalling the formula's wisp leaves its file in `~/Library/LaunchAgents`, so set the setting to `off` first;
+  `brew uninstall --zap --cask pidster/tap/wisp` removes that file.
   These are the person's: the default policy refuses `wisp config set|unset llamacpp.server…` to the model, and chat's
   `/config` sends you to a terminal. Unregistering also removes a job launchd still holds for the label when
   `SMAppService` reports no agent (`launchctl bootout gui/<uid>/com.pidster.wisp.llamacpp`), and says so: on
@@ -395,7 +396,7 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   unregistering did nothing.
 
   **Registered by another install.** One label serves every install, and launchd holds one job of it. A `wisp` that
-  did not register that job, such as a Homebrew wisp or a build while `Wisp.app`'s Login Item runs the server, reads
+  did not register that job, such as the formula's wisp or a build while `Wisp.app`'s Login Item runs the server, reads
   who did from `launchctl print gui/<uid>/com.pidster.wisp.llamacpp` (`managed_by = com.apple.xpc.ServiceManagement`
   is the Login Item; a `path` is a LaunchAgent file) and reports the agent "registered by Wisp.app's Login Item, not
   by this wisp", which `wisp doctor` passes when the server answers. It never registers a second job of the label,
@@ -403,6 +404,10 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   model change restarts the job that is there (`kickstart -k`; the router reads the same `~/.wisp`); setting it off
   and `wisp llamacpp agent repair` are refused, naming the command for the wisp that registered it, such as
   `/Applications/Wisp.app/Contents/MacOS/wisp config set llamacpp.server off`; `wisp uninstall` leaves it and says so.
+  The one exception is a job whose program is gone, such as the formula's LaunchAgent file once the formula is
+  uninstalled: from `Wisp.app`, turning the server on or `wisp llamacpp agent repair` removes that file and registers
+  the app's Login Item in its place, and says so
+  ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md), decision 8).
 
   **After an update.** `wisp update`, once the new `Wisp.app` is in place, registers it with Launch Services again
   (`lsregister -f`) and, when the agent is registered, waiting for approval, or held by launchd, unregisters it and
@@ -569,15 +574,18 @@ MLX Swift ([mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm)) runs mode
 safetensors layout in wisp's own process on the GPU. MLX compiles its Metal kernels at build time, so it is
 behind the `MLX` package trait: the ordinary build and the sandboxed pre-commit hook never need the Metal
 toolchain, and a build without the trait refuses every `mlx:` model with a message saying so. The release is built with the trait ([ADR 0047](decisions/0047-mlx-in-the-release.md)),
-so `brew install pidster/tap/wisp` runs MLX models.
+so `Wisp.app`, from the disk image or `brew install --cask pidster/tap/wisp`, runs MLX models.
 
 MLX loads its compiled kernels, one Metal library, when the GPU is first used. It looks for
 `mlx.metallib` in the directory of the binary holding its code (the real path, after links), then
 `Resources/mlx.metallib` there, then `default.metallib` in a `mlx-swift_Cmlx.bundle` beside the binary
-(what `swift build` leaves), then `Resources/default.metallib`. The release ships the build's library as
-`mlx.metallib` beside `wisp` (3.8 MB); the Homebrew formula installs both in the Cellar's `libexec` and
-links `bin/wisp` to it. `wisp doctor` repeats the search and loads what it finds; in that layout,
-reproduced under a scratch prefix on 2026-10-03, it reads:
+(what `swift build` leaves), then `Resources/default.metallib`. `Wisp.app`, which Homebrew's cask installs too
+([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)), carries the build's library in its resources'
+`mlx-swift_Cmlx.bundle`, which `wisp` opens at start-up, since a data file in `Contents/MacOS` breaks the app's
+signature ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)). The release's tarball carries it as
+`mlx.metallib` beside `wisp` (3.8 MB), the layout the old Homebrew formula installed in the Cellar's `libexec`.
+`wisp doctor` repeats the search and loads what it finds; in the formula's layout, reproduced under a scratch prefix
+on 2026-10-03, it read:
 
 ```
 ok   MLX: Metal library <prefix>/Cellar/wisp/0.17.0/libexec/mlx.metallib loads

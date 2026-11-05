@@ -54,7 +54,8 @@ fails as before, since you asked for that one, and so it does when `system` is u
 `wisp respond` and MCP `respond` never fall back ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)).
 
 On a terminal, when `wisp-tui` is installed beside `wisp`, or in a `bin` beside the folder `wisp` is in (the
-Homebrew formula installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp chat` hands the session to it;
+Homebrew formula, before 0.35.0, installs `wisp` in `libexec` and `wisp-tui` in `bin`), `wisp chat` hands the
+session to it;
 `wisp doctor`'s `front end` finding says where it found it, or where it looked: on the alternate screen, the
 conversation is drawn in a pane of its own above a band with the reply in progress, an approval dialog, the input,
 and the status ([ADR 0029](decisions/0029-tui-front-end.md), [ADR 0068](decisions/0068-the-conversation-in-a-pane.md)). `--plain` keeps the line-based chat below; a piped
@@ -1165,7 +1166,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | Finding | Not ok when |
 | --- | --- |
 | `context window` | Never; it says the window wisp would use for the configured model and how it is known: reported by the framework, sized from memory (with the [ADR 0043](decisions/0043-context-window-from-memory.md) reason, for an Ollama or MLX model), configured for this model (`ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), configured (`ollama.contextLength` or `mlx.contextLength`), declared by a Core AI bundle's `metadata.json`, reported by a llama.cpp or LM Studio server, the default when the model gave no shape, or unknown (wisp then assumes 8,192 tokens until an overflow tells it). It is `not checked` when the model check failed or the model does not resolve; for Ollama it reuses the configured-model check's bounded calls. |
-| `llama.cpp server` | Present only when `llamacpp.server` is not `off`. Under `wisp`: the state of `llamacpp.serverPath`, approved and unchanged (the path, its real path, and the digest's first 12 digits) or why it would not be started (not set, not approved, resolving elsewhere, missing, or changed, both digests named) with the `wisp config set llamacpp.serverPath` command that approves it; the LaunchAgent's state (registered, not registered, waiting for your approval in Login Items, held by launchd while not registered, registered but refused by launchd with last exit code 78 (`EX_CONFIG`), registered by another install (`Wisp.app`'s Login Item seen from a Homebrew wisp or a build, another LaunchAgent file, or another install, read from `launchctl print`), or none for this home; held and refused name `wisp llamacpp agent repair`); whether the server answers `/v1/models` at its port with wisp's key, and each model it lists with its status (`loaded`, `unloaded`, …), or, when it does not answer, why and what to do; its settings; and its log. Ok when the binary is approved, the agent registered (by this install or another, or none is, by choice), and the server answers. Under `llama-app`, it says whether Llama.app is installed (in `/Applications` or `~/Applications`, by its bundle identifier) and whether its server answers `/v1/models` and with how many models, and warns that the server has no API key and answers any origin; not ok only when Llama.app is not installed and nothing answers. |
+| `llama.cpp server` | Present only when `llamacpp.server` is not `off`. Under `wisp`: the state of `llamacpp.serverPath`, approved and unchanged (the path, its real path, and the digest's first 12 digits) or why it would not be started (not set, not approved, resolving elsewhere, missing, or changed, both digests named) with the `wisp config set llamacpp.serverPath` command that approves it; the LaunchAgent's state (registered, not registered, waiting for your approval in Login Items, held by launchd while not registered, registered but refused by launchd with last exit code 78 (`EX_CONFIG`), registered by another install (`Wisp.app`'s Login Item seen from the Homebrew formula's wisp or a build, another LaunchAgent file, or another install, read from `launchctl print`), left by a LaunchAgent file whose `wisp` no longer exists (the formula's, once uninstalled on the move to the cask, which `Wisp.app` replaces with its Login Item when the server is turned on, [ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)), or none for this home; held, refused, and left name `wisp llamacpp agent repair`); whether the server answers `/v1/models` at its port with wisp's key, and each model it lists with its status (`loaded`, `unloaded`, …), or, when it does not answer, why and what to do; its settings; and its log. Ok when the binary is approved, the agent registered (by this install or another, or none is, by choice), and the server answers. Under `llama-app`, it says whether Llama.app is installed (in `/Applications` or `~/Applications`, by its bundle identifier) and whether its server answers `/v1/models` and with how many models, and warns that the server has no API key and answers any origin; not ok only when Llama.app is not installed and nothing answers. |
 | `llama.cpp thinking budget` | The configured llama.cpp server (`llamacpp.baseURL`) serves a model whose template thinks, and, asked a risk verdict to think within 32 tokens (`thinking_budget_tokens`), it thought past them, or did not answer: then `low`, `medium`, and `high` think without a limit on it. The detail names the server's build and the tokens used (`32 tokens asked, 37 used`), and what to do: start `llama-server` with `--reasoning-budget`, or use `true` or `false`. Absent when no server answers within 2 s or its model does not think. One request, cut at 400 tokens ([backends.md](backends.md), "llama.cpp"). |
 | `MLX` | This build carries MLX (the release does) and its Metal library is missing from where MLX looks, or does not load on the GPU. The detail names the library found (`Metal library <path> loads`), or the directory searched and the fix: copy the build's `default.metallib` beside `wisp` as `mlx.metallib` ([backends.md](backends.md), [ADR 0047](decisions/0047-mlx-in-the-release.md)). A build without the `MLX` trait passes with `not in this build`. |
 | `settings` | `facts.share` or `facts.summaryShare` is outside 0 to 0.5, `context.target` outside 0.1 to 0.8, `context.headroomTurns` outside 0 to 64, `context.outputDays` outside 0 to 3,650, or `commandMaxTimeoutSeconds` outside 1 to 86,400, which loading the config refuses. The finding also states `commandTimeoutSeconds`, `commandMaxTimeoutSeconds`, and `commandPolicy.sandbox.allowOutsideSandbox` as resolved. A negative `inlineOutputBytes` or `shownOutputLines` is clamped to 0, and a `context.target` above 0.65 is used as 0.65, so each is ok with a note. |
@@ -1177,6 +1178,7 @@ state, so an ok that needs a caveat carries it in its detail.
 | `notifier` | Never; it says whether `Wisp Notifier.app` is used ([ADR 0070](decisions/0070-a-notification-helper.md)): `off (notifications.viaHelper)`, `no Wisp Notifier.app beside wisp`, or the bundle's path and its permission: `allowed; banners come from Wisp`, `not yet allowed; the next notification asks, or wisp notify --route helper "test" asks now`, or, refused, that notifications for Wisp are off and where to turn them on. |
 | `front end` | Never; it says where `wisp chat` finds `wisp-tui`, or the folders it looked in and that `wisp chat` is then the plain chat. |
 | `package` | When a part the package declares is missing, or the declaration cannot be read: `Wisp.app`'s `Info.plist` or the formula's `wisp-layout.json` names where `wisp-tui`, `Wisp Notifier.app`, and the Metal library are ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)). A build directory declares nothing and passes, searched beside `wisp`. |
+| `install` | It names the install: `Wisp.app`, installed by Homebrew's cask or dragged from the disk image, Homebrew's formula, or neither (a build directory, or a tarball unpacked by hand) ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)). It fails from the formula, which ends at 0.34.2, naming the move in its order: `brew trust pidster/tap && brew uninstall --formula wisp && brew install --cask pidster/tap/wisp`; from `Wisp.app` when the `wisp` first on `PATH` is still the formula's, the move unfinished, naming what finishes it (with the cask installed without its links, `brew uninstall --formula wisp && brew reinstall --cask pidster/tap/wisp`); and from the disk image or a copy macOS is running where it was downloaded, saying to move the app to Applications. When the formula's keg is still installed behind the app it passes, naming `brew uninstall --formula --force wisp`. |
 | `signature` | Never; it says who signed the running `wisp`: the certificate's name (`signed by Developer ID Application: …`) for a release signed and notarised ([ADR 0069](decisions/0069-signed-and-notarised-releases.md)), `signed ad hoc, with no Developer ID` for an unsigned release or a build from source, which the linker signs, `not signed`, or why its signature could not be read. |
 | `pending approvals` | `~/.wisp/pending` is not a directory, belongs to another user, or is open to others (fix: `chmod 700 <path>`). Absent is ok (`wisp mcp` makes it when it first waits for approval); present, the detail says how many commands wait, how many facts wait to be kept (`wisp facts pending`, when any do), and how many stale requests the next `wisp approvals pending` removes ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), [ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 | `output store` | Never; it says how many sessions `~/.wisp/output` holds and their size, what the next session's start would sweep (the sessions last used more than `context.outputDays` days ago, and their size, with `16 a start` when there are more than one start removes), or `never swept` at 0, and names what under `output/` is not wisp's and is left alone. Absent until a tool output first passes the budget. Doctor reports; it removes nothing. |
@@ -1525,8 +1527,9 @@ claude-code)`), and are audited under a session of their own (entry point `threa
 
 ### `wisp completions`
 
-Shell completion for zsh, bash, and fish: subcommands, flags, and their values. Homebrew installs it with wisp;
-otherwise `wisp completions install` puts it where your shell looks.
+Shell completion for zsh, bash, and fish: subcommands, flags, and their values. Homebrew's cask (and its formula,
+before 0.35.0) installs it with wisp, from `wisp completions`; otherwise `wisp completions install` puts it where your
+shell looks.
 
 ```
 wisp completions zsh                 # print the script (also: bash, fish; 'print zsh' is the same)
@@ -1583,7 +1586,9 @@ prompt; the gate fails when they no longer match the commands, and `scripts/chec
 ### `wisp install` and `wisp uninstall`
 
 Put `Wisp.app`, from the disk image, on your `PATH`, and take it off again
-([ADR 0073](decisions/0073-wisp-install-and-the-finder.md)). A Homebrew install does this itself.
+([ADR 0073](decisions/0073-wisp-install-and-the-finder.md)). A Homebrew install does this itself: the cask links
+`wisp` and `wisp-tui` into Homebrew's `bin`, and `wisp install` with no folder named then says they are already on
+`PATH` and adds nothing, as the Finder's dialog does ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)).
 
 ```
 /Applications/Wisp.app/Contents/MacOS/wisp install    # link wisp and wisp-tui into ~/.local/bin
@@ -1594,8 +1599,8 @@ wisp uninstall                                        # remove the links, if the
 
 `install` creates the folder, links `wisp` and `wisp-tui` to the app's `Contents/MacOS`, and needs no
 administrator's password; run again, it says the links are current. It runs only from `Wisp.app`: from the disk image
-or a copy macOS is running where it was downloaded it says to drag the app to Applications first, and from Homebrew,
-a build, or an unpacked tarball it refuses, saying why. A file already at a link's path is never replaced, and a link
+or a copy macOS is running where it was downloaded it says to drag the app to Applications first, and from Homebrew's
+formula, a build, or an unpacked tarball it refuses, saying why. A file already at a link's path is never replaced, and a link
 to anything else only with `--force`; when either is in the way, nothing changes and each is named, with exit 1.
 When the folder is not on `PATH`, it prints the line to add, and never edits a shell's start-up file:
 
@@ -1673,7 +1678,10 @@ updated /Applications/Wisp.app from 0.31.0 to 0.31.1
 wisp processes already running, such as MCP servers, keep 0.31.0 until they are started again
 ```
 
-From a Homebrew install it changes nothing and says to run `brew upgrade pidster/tap/wisp`; from a build or an
+From Homebrew's cask it updates the app as for a download: the cask's `auto_updates` leaves updating to wisp, and
+`brew upgrade --greedy` brings it to the cask's version too. From Homebrew's formula it changes nothing and names the
+move to the cask, which the formula ends at 0.34.2 for: `brew trust pidster/tap && brew uninstall
+--formula wisp && brew install --cask pidster/tap/wisp` ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)); from a build or an
 unpacked tarball, that it cannot update one; from the disk image, to move the app to Applications first. `--check`
 works from any of them. The default policy refuses `wisp update` to the model. Each check is an `update.check` event
 and each update an `update.install` event ([logging.md](logging.md)).

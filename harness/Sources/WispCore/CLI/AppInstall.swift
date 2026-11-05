@@ -26,6 +26,11 @@ public enum AppInstall {
         /// Neither: a build directory, or a tarball unpacked by hand.
         case elsewhere
 
+        /// The app it may be linked from, nil for every other source.
+        public var app: URL? {
+            if case .app(let app) = self { app } else { nil }
+        }
+
         /// Why `wisp install` or `uninstall` cannot run from here, or nil when it can.
         public var refusal: String? {
             switch self {
@@ -267,6 +272,40 @@ public enum AppInstall {
         }
     }
 
+    /// The folder on `PATH`, other than `folder`, that already links every executable to the app, as Homebrew's cask
+    /// links them into its `bin` ([ADR 0084](../../../../docs/decisions/0084-homebrew-installs-the-app-from-a-cask.md));
+    /// nil when none does.
+    ///
+    /// - Parameters:
+    ///   - app: The running `Wisp.app`.
+    ///   - folder: The folder `wisp install` would link into.
+    ///   - path: The value of `PATH`.
+    ///   - existing: What is at a path now.
+    /// - Returns: The folder, as `PATH` names it.
+    public static func linkedElsewhere(
+        app: URL, folder: URL, path: String?, existing: (URL) -> Existing = inspect(_:)
+    ) -> URL? {
+        let own = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        return (path ?? "").split(separator: ":").lazy
+            .map { URL(filePath: String($0), directoryHint: .isDirectory).standardizedFileURL }
+            .filter { $0.resolvingSymlinksInPath().path != own }
+            .first {
+                plan(app: app, folder: $0, force: false, existing: existing).allSatisfy { $0.action == .unchanged }
+            }
+    }
+
+    /// What `wisp install` says when another folder on `PATH` already links the executables to the app.
+    ///
+    /// - Parameters:
+    ///   - linked: The folder (`linkedElsewhere`).
+    ///   - app: The running `Wisp.app`.
+    ///   - home: The home directory, for shortening paths.
+    /// - Returns: The line.
+    public static func alreadyLinked(_ linked: URL, app: URL, home: URL) -> String {
+        "wisp and wisp-tui are already on PATH: \(ShellCompletions.tilde(linked.path, home: home)) links them to "
+            + "\(app.path), as Homebrew's cask does; nothing to add"
+    }
+
     /// Whether `folder` is one of `PATH`'s entries, links resolved on both sides.
     ///
     /// - Parameters:
@@ -341,10 +380,11 @@ public enum AppInstall {
     ///   - source: Where the running `wisp` came from.
     ///   - folder: The folder it would link into.
     ///   - home: The home directory.
+    ///   - linked: Another folder that already links the executables to the app (`linkedElsewhere`), if one does.
     ///   - existing: What is at a path now.
     /// - Returns: The dialog.
     public static func welcome(
-        source: Source, folder: URL, home: URL, existing: (URL) -> Existing = inspect(_:)
+        source: Source, folder: URL, home: URL, linked: URL? = nil, existing: (URL) -> Existing = inspect(_:)
     ) -> Welcome {
         let title = "Wisp is a command-line tool"
         guard case .app(let app) = source else {
@@ -352,6 +392,13 @@ public enum AppInstall {
         }
         let shown = ShellCompletions.tilde(folder.path, home: home)
         let entries = plan(app: app, folder: folder, force: false, existing: existing)
+        if let linked {
+            return Welcome(
+                title: title,
+                text: "wisp and wisp-tui are installed in \(ShellCompletions.tilde(linked.path, home: home)), as "
+                    + "Homebrew's cask links them. Open a terminal and run wisp chat, or wisp --help.",
+                offersInstall: false)
+        }
         if entries.allSatisfy({ $0.action == .unchanged }) {
             return Welcome(
                 title: title,

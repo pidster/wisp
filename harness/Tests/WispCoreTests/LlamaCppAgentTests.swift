@@ -337,6 +337,56 @@ import Testing
         #expect(agent.state() == .orphaned)
     }
 
+    /// The job Homebrew's formula registered, whose `wisp` is gone once the formula is uninstalled on the move to the
+    /// cask (ADR 0084, decision 8): the app sees it abandoned, and registering or unregistering removes the job and
+    /// its file. A file whose `wisp` still exists, or of another name, is another install's, as before.
+    @Test func theAppReplacesAJobWhoseWispIsGone() throws {
+        let folder = root.appending(path: "LaunchAgents")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: LlamaCppAgent.plistName)
+        func write(program: String) throws {
+            let plist: [String: Any] = [
+                "Label": LlamaCppAgent.label, "ProgramArguments": [program, "llamacpp", "serve"],
+            ]
+            try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: file)
+        }
+        let printed = "x = {\n\tpath = \(file.path)\n\tstate = not running\n}"
+        try write(program: root.appending(path: "opt/wisp/libexec/wisp").path)
+        let files = LlamaCppAgent.AbandonedFiles.live
+        #expect(files.isAbandoned(file.path))
+        let status = LoginItemAgent.status(
+            service: FakeLoginItemService(.notRegistered), target: target,
+            launchctl: { FakeLaunchctl(loaded: true, printed: printed).run($0) })
+        #expect(status == "abandoned-file \(file.path)")
+        #expect(LoginItemAgent.state(named: status) == .abandoned(file.path))
+        #expect(LlamaCppAgent.State.abandoned(file.path).isPresent)
+        // Registering boots the job out, removes the file, and registers the Login Item.
+        let launchctl = FakeLaunchctl(loaded: true, printed: printed)
+        let service = FakeLoginItemService(.notRegistered)
+        try LoginItemAgent.registerHere(service: service, target: target, launchctl: { launchctl.run($0) })
+        #expect(changes(launchctl) == [["bootout", target]])
+        #expect(!FileManager.default.fileExists(atPath: file.path) && service.calls == ["register"])
+        // Unregistering, with the server turned off, does the same and says so.
+        try write(program: root.appending(path: "opt/wisp/libexec/wisp").path)
+        let off = FakeLaunchctl(loaded: true, printed: printed)
+        let said = try LoginItemAgent.unregisterHere(
+            service: FakeLoginItemService(.notRegistered), target: target, launchctl: { off.run($0) })
+        #expect(said?.contains("whose wisp is gone; removed the job and the file") == true)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        // A file whose wisp exists is another install's, left alone.
+        let wisp = root.appending(path: "bin/wisp")
+        try FileManager.default.createDirectory(at: wisp.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: wisp)
+        try write(program: wisp.path)
+        #expect(!files.isAbandoned(file.path))
+        let kept = FakeLaunchctl(loaded: true, printed: printed)
+        try LoginItemAgent.registerHere(
+            service: FakeLoginItemService(.notRegistered), target: target, launchctl: { kept.run($0) })
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        // Nor is a file of another name judged at all.
+        #expect(!files.isAbandoned(folder.appending(path: "other.plist").path))
+    }
+
     @Test func changesFromAnotherInstallRestartTheJobAndNeverRegisterASecond() {
         let sink = MemoryAuditSink()
         func run(

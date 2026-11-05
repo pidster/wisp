@@ -8,6 +8,20 @@ Notable changes in each release of wisp.
 
 ## Unreleased
 
+Changed:
+
+- Homebrew installs `Wisp.app` from a cask: `brew install --cask pidster/tap/wisp` puts the app in Applications, links
+  `wisp` and `wisp-tui` into Homebrew's `bin`, and installs the shell completions; `wisp update` keeps it current. This
+  is the Homebrew formula's last release: from 0.35.0 wisp is the cask only. Move a formula install now, in this order:
+  `brew trust pidster/tap`, `brew uninstall --formula wisp`, `brew install --cask pidster/tap/wisp`.
+  Your threads, approvals, and facts in `~/.wisp` are kept (ADR 0084).
+- `wisp doctor` has an `install` finding: which install this is, failing from the formula with the move's commands,
+  and from the app when the `wisp` on `PATH` is still the formula's.
+- `wisp install` with no folder, and the Finder's dialog, say `wisp` is already on `PATH` when Homebrew's cask has
+  linked it, rather than adding a second set of links.
+- From `Wisp.app`, a llama.cpp router job left by the formula's LaunchAgent, whose `wisp` is gone, is replaced by the
+  app's Login Item when the server is turned on or `wisp llamacpp agent repair` runs.
+
 Fixed:
 
 - `wisp://threads/{thread_id}/plan` lists each task's linked tool calls (`calls`, `droppedCalls`) and the question it

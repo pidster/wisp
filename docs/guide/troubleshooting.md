@@ -21,11 +21,12 @@ what just happened ([Logging](../logging.md)).
 | `wisp's llama.cpp server does not answer at …: its LaunchAgent is not registered; …` | `wisp config set llamacpp.server wisp` registers and starts it |
 | `… its Login Item waits for your approval in System Settings > General > Login Items & Extensions …` | Turn on Wisp there; macOS asks before an app's background item runs |
 | `… launchd refused to start its LaunchAgent (last exit code 78, EX_CONFIG) …`, or `… its Login Item is not registered, but launchd still holds its job …` | Seen after `wisp update` replaced `Wisp.app`: run `wisp llamacpp agent repair`, which registers the app with Launch Services again and the agent again; `wisp doctor` then says `LaunchAgent: registered` ([backends.md](../backends.md), "Mending it") |
+| The llama.cpp server does not start after moving from the Homebrew formula | The formula's LaunchAgent file is left naming a wisp that is gone. From the app, `wisp llamacpp agent repair`, or turning the server on with `wisp config set llamacpp.server wisp`, replaces it with the app's Login Item |
 | `… wisp registers no LaunchAgent here (…); start it yourself with wisp llamacpp serve` | `WISP_HOME` or `WISP_LLAMACPP_AGENT=off` is set; run `wisp llamacpp serve` in another terminal, or unset them |
 | `wisp's llama.cpp server has not started yet: …` or `… is registered and the server is not running, or still starting …` | Read `~/Library/Logs/Wisp/llamacpp.log` (the message names it), then `wisp config set llamacpp.server wisp` to start it again; `wisp doctor` shows the whole state |
 | `wisp's llama.cpp server at … refused the key in wisp's key file …` | It runs with another key; `wisp config set llamacpp.server wisp` restarts it with the one in the key file |
 | Chat says it is using `system` instead of your configured model | That model was unavailable as chat started; fix it, then `/model <name>` ([ADR 0056](../decisions/0056-models-enabled-and-disabled.md)) |
-| `MLX` in `doctor` is not ok | MLX's Metal library is missing from beside `wisp`. A Homebrew install puts it there; reinstall with `brew reinstall pidster/tap/wisp` ([ADR 0047](../decisions/0047-mlx-in-the-release.md)) |
+| `MLX` in `doctor` is not ok | MLX's Metal library is missing from beside `wisp`. `Wisp.app` holds it; reinstall with `brew reinstall --cask pidster/tap/wisp`, or drag `Wisp.app` from the disk image again ([ADR 0047](../decisions/0047-mlx-in-the-release.md)) |
 
 ### Restarting Apple's model service
 
@@ -94,7 +95,11 @@ answer reaches the thread's next turn. The agent cannot answer it for you ([ask]
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Notifications come from your terminal or Script Editor, not from Wisp | `wisp doctor`'s `notifier` line says why. `not yet allowed`: the next notification asks, or `wisp notify --route helper "test"` asks now. Notifications for Wisp are off: turn them on in System Settings, Notifications, Wisp. `no Wisp Notifier.app beside wisp`: a Homebrew install has it; `brew reinstall pidster/tap/wisp`. `off (notifications.viaHelper)`: `wisp config set notifications.viaHelper true` ([notify](../tools/notify.md)) |
+| Notifications come from your terminal or Script Editor, not from Wisp | `wisp doctor`'s `notifier` line says why. `not yet allowed`: the next notification asks, or `wisp notify --route helper "test"` asks now. Notifications for Wisp are off: turn them on in System Settings, Notifications, Wisp. `no Wisp Notifier.app beside wisp`: `Wisp.app` holds it; `brew reinstall --cask pidster/tap/wisp`, or drag `Wisp.app` from the disk image again. `off (notifications.viaHelper)`: `wisp config set notifications.viaHelper true` ([notify](../tools/notify.md)) |
+| `install` in `doctor` fails, saying the formula ends at 0.34.2, or `wisp update` refuses from the formula | wisp came from the Homebrew formula, which ends at 0.34.2. Run `brew trust pidster/tap`, `brew uninstall --formula wisp`, and `brew install --cask pidster/tap/wisp`, in that order ([Install](install.md#moving-from-the-homebrew-formula)) |
+| `install` in `doctor` fails because the `wisp` on `PATH` is still the formula's | The move to the cask is unfinished: the cask was installed while the formula's links were in place, so it has none of its own. Run the three commands above in order |
+| `install` in `doctor` names `brew uninstall --formula --force wisp` | The old formula's keg is still installed, unlinked, after the move; run that command to remove it |
+| `brew install pidster/tap/wisp` installs the formula, not the app | With both in the tap, the name without `--cask` picks the formula: `brew install --cask pidster/tap/wisp`. If Homebrew refuses the cask as untrusted, run `brew trust pidster/tap` first |
 | `config` in `doctor` is not ok, or every command exits 64 naming `config.json` | The file does not parse, or a `commandPolicy` pattern is invalid; the message names it. Fix the file, or `wisp config unset` the setting |
 | `facts store` in `doctor` is not ok | `~/.wisp/facts.json` did not parse, was set aside, or is readable by others; the detail says which and how to fix it |
 | `pending approvals` in `doctor` is not ok | `~/.wisp/pending` is open to others or not yours: `chmod 700` it |
