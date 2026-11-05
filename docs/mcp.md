@@ -67,7 +67,7 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | --- | --- |
 | `wisp://config` | JSON: every setting with defaults applied, the model, the `run_command` policy, and the paths under `~/.wisp`. |
 | `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, and the count of standing approvals. |
-| `wisp://approvals` | JSON: the standing approvals with pattern, directory, scope, level, expiry, source, and `gone` (a project approval whose directory no longer exists, which can never match again; checked when read). |
+| `wisp://approvals` | JSON: the standing approvals with `pattern`, `workingDirectory` (where it was granted), `project` (where it applies: the repository's working tree, or the directory outside one), `scope`, `level`, `grantedAt`, `expiresAt` (null for `always`, which never expires), `source`, and `gone` (an approval whose project no longer exists, which can never match again; checked when read). |
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON: every session's audit events as the audit file holds them, oldest first, paged (`events`, 100 a page by default; `?page=N&limit=M`, `last` names the newest page). |
 | `wisp://audit/{session}` | JSON: every event of one session that is not a `respond` thread, paged the same way: the server's own, a condensing tool's (`triage-<id>`, `summarise-<id>`, …), a CLI run's. A thread of this server is refused here, by its `thread_id` or its `auditSession`, with a pointer to its `…/audit` below. |
@@ -587,11 +587,14 @@ is posted at once, as before.
 In the client's dialog, the command, directory, risk level, and
 reasons appear in the title, the message, and the field descriptions, because clients render different
 parts; the full command leads the description so it is never trimmed. **Accept runs the command with the
-scope picked in the form (this turn by default; session; project, 30 days in this directory; always, 30
-days anywhere); Decline or Cancel refuses it; no answer within `approval.timeoutSeconds` (default 600; `0`
+scope picked in the form's field "Remember this approval for": "This turn" (the default), "This session", "30
+days" (`approval.persistDays`, the configured number), or "Always", which never expires. The text names the
+pattern and where a remembered answer applies, "Remembered as: git push *, in this project, /Users/me/src/wisp":
+the command's git repository, with every subdirectory and worktree, or its directory outside one
+([ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)). Decline or Cancel refuses it; no answer within `approval.timeoutSeconds` (default 600; `0`
 waits forever) refuses it.** Persisted scopes never apply to dangerous commands
 ([approval.md](approval.md)). Approvals given here share the process: a "this session" answer covers every
-thread, and "project" and "always" are written to `~/.wisp/approvals.json` exactly as from the CLI.
+thread, and "30 days" and "Always" are written to `~/.wisp/approvals.json` exactly as from the CLI.
 With `approval.outOfBand` off and no elicitation, the model's tool call is refused with
 `command not approved: … this client does not support elicitation …`; the reply reports that in prose and
 `structuredContent.refusals` carries it structurally. The calling harness should run the command itself

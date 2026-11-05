@@ -1,6 +1,9 @@
 # ADR 0014: Approvals have four scopes; project and always persist under ~/.wisp
 
-Date: 2026-09-19. Status: accepted. Amends ADR 0011.
+Date: 2026-09-19. Status: accepted. Amends ADR 0011. Amended by
+[ADR 0085](0085-an-approval-lasts-a-time-in-its-project.md): the choice is how long only; `project` lasts
+`approval.persistDays` and `always` never expires, both in the command's project, its git repository with every
+worktree, or its directory outside one; nothing applies in any directory.
 
 ## Context
 

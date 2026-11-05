@@ -381,6 +381,12 @@ pub struct Approval {
     /// refused, never remembered.
     #[serde(default, rename = "outsideSandbox")]
     pub outside_sandbox: bool,
+    /// How many days a `project` answer keeps it (`approval.persistDays`); absent from a wisp before 0.35.1.
+    #[serde(default)]
+    pub days: Option<u32>,
+    /// Where a remembered answer applies: the repository's working tree, or the directory outside one (ADR 0085).
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// The fact a `wisp mcp` caller asked to keep as a permanent fact, as its thread holds it.

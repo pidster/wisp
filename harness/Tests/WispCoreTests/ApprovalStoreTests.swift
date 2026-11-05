@@ -64,7 +64,10 @@ import Testing
             pattern: "git *", directory: "/a", scope: .always, level: .moderate, source: "mcp")
         #expect(await store.find(pattern: "swift *", directory: "/a")?.id == project.id)
         #expect(await store.find(pattern: "swift *", directory: "/b") == nil)
-        #expect(await store.find(pattern: "git *", directory: "/anywhere")?.id == always.id)
+        // Always, like 30 days, applies in its project only, and never expires (ADR 0085).
+        #expect(await store.find(pattern: "git *", directory: "/a")?.id == always.id)
+        #expect(await store.find(pattern: "git *", directory: "/anywhere") == nil)
+        #expect(always.expiresAt == nil && project.expiresAt != nil)
         #expect(await store.find(pattern: "gh *", directory: "/a") == nil)
         let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
         #expect(permissions == 0o600)
@@ -81,9 +84,13 @@ import Testing
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let short = ApprovalStore(url: url, lifetime: .seconds(0))
-        _ = try await short.grant(pattern: "ls *", directory: "/", scope: .always, level: .moderate, source: "t")
+        _ = try await short.grant(pattern: "ls *", directory: "/", scope: .project, level: .moderate, source: "t")
         #expect(await short.find(pattern: "ls *", directory: "/") == nil)
         #expect(await ApprovalStore(url: url).all.isEmpty)
+        // Always is not ended by the lifetime.
+        let always = try await short.grant(
+            pattern: "cat *", directory: "/", scope: .always, level: .moderate, source: "t")
+        #expect(await short.find(pattern: "cat *", directory: "/")?.id == always.id)
     }
 
     @Test func unreadableFileMeansEmpty() async throws {

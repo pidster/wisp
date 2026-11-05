@@ -233,10 +233,12 @@ while a turn runs they are held, as above.
 
 An approval takes the input's place in the band: a rounded border in the level's colour, titled with
 the level, around the command (wrapped to four rows), the whole line when the command is one part of
-it, the directory, each reason, the pattern the answer is remembered under, and the keys, as `wisp
-chat` offers them. Lines too long for the dialog end in an ellipsis. The answer is recorded in the
-conversation as one line, `✓ approved for this session: git push` or `⚠ refused: …` (`⚠ approved once, outside the
-sandbox: …` for a run outside it, which deserves the warning), and the band gives
+it, the directory, each reason, the pattern the answer is remembered under and the project it applies in
+(`remembered as git push *, in /Users/me/src/wisp`), and the keys, `[y] this turn [s]ession [p] 30 days [a]lways
+[n]o` (the configured `approval.persistDays`; `[y]once [n]o` for a run outside the sandbox). Lines too long for the
+dialog end in an ellipsis. The answer is recorded in the conversation as one line, `✓ approved for this session: git
+push`, `✓ approved in this project for 30 days: …`, `✓ approved in this project until revoked: …`, or `⚠ refused: …`
+(`⚠ approved once, outside the sandbox: …` for a run outside it, which deserves the warning), and the band gives
 the rows back to the input. Ctrl-C or Ctrl-D refuses. A dialog takes its keys only once the keyboard has
 been quiet for half a second after it appears: a key pressed sooner was meant for the input (you were
 typing when it came up), so it is held for the box, as keys are while a turn runs, and the half second
@@ -494,7 +496,7 @@ What a session shows, and where it goes:
 | `/tokens` | Tokens used by the transcript, turns, and how often older turns were dropped. |
 | `/inspect context` | Save the exact context the next request carries, as Markdown and JSON, to `~/.wisp/context/<session>-turn<N>.md` and `.json`, and say where and how many tokens. Every condensation saves the context before and after it the same way ([context-management.md](context-management.md)). A reply that retyped a tool output of its turn shows there as the marker the model now reads in its place ("Output handling" on that page); what chat printed is unchanged. Needs `audit.enabled`. |
 | `/status` | wisp's own state, as the model's `inspect` tool shows it, in YAML: the model, tools, policy, and session. |
-| `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML, each with `gone: true` when it is a project approval whose folder no longer exists; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from, a gone one marked `(gone)`. `wisp approvals clear --gone` removes the gone ones. |
+| `/approvals`, `/approvals revoke [ID]` | The standing approvals, in YAML, each with `gone: true` when its project no longer exists; `revoke` removes one at once, in this session and later ones, and without an ID offers them to choose from, a gone one marked `(gone)`. `wisp approvals clear --gone` removes the gone ones. |
 | `/approvals pending` | What waits in `wisp mcp` servers for your answer: the commands waiting for approval, the facts waiting to be kept, and the model's questions, as `wisp approvals pending`, `wisp facts pending`, and `wisp questions pending` list them. |
 | `/approvals approve [ID] [once\|session\|project\|always]`, `/approvals deny [ID]` | Answer a command waiting in a `wisp mcp` server, as `wisp approvals approve\|deny` does: the scope is `once` unless given, and without an ID the waiting commands are offered to choose from. Says whether the server took the answer. Only when the chat's input is a terminal (see the plain chat's waiting requests, above). |
 | `/facts`, `/facts keep [ID]`, `/facts drop [ID]` | The facts `wisp mcp` callers asked to keep as permanent facts, or your answer to one, as `wisp facts` gives it: `keep` admits it as yours, `drop` leaves it in its thread; without an ID they are offered to choose from. |
@@ -545,10 +547,13 @@ log (`seconds` on `response` and `classifier.verdict`) is the durable record.
 
 When the model wants to run a risky command, chat asks on stderr with a compact dialog: the level and
 command, the whole line when the command is one part of it, the directory, each reason on a line
-(shortened to 110 characters), the pattern the answer is remembered under, and one key line:
-`[y]once [s]ession [p]roject 30d [a]lways 30d [n]o`. `y` approves it for the rest of this turn, `s`
-for the session, `p` for this project (30 days, this directory), `a` always (30 days, anywhere); `n`, an
-empty answer, or end of input refuses it ([approval.md](approval.md)). A command the model asks to run outside the
+(shortened to 110 characters), the pattern the answer is remembered under and the project it applies in
+(`remembered as: git push *, in ~/src/wisp`), and one key line:
+`[y] this turn  [s] this session  [p] 30 days  [a]lways  [n]o`. Each key says how long: `y` approves it for the
+rest of this turn, `s` until wisp exits, `p` for `approval.persistDays` days (the key shows the configured number),
+`a` until you revoke it; `n`, an empty answer, or end of input refuses it. Every one applies only in the command's
+project: its git repository, with every subdirectory and worktree, or its directory outside one
+([approval.md](approval.md)). A command the model asks to run outside the
 sandbox opens `⚠ approve OUTSIDE the sandbox`, says `never remembered`, and offers only `[y]once  [n]o`: it is asked
 every time, whatever its risk ([tools/run_command.md](tools/run_command.md#running-outside-the-sandbox)).
 
@@ -611,7 +616,7 @@ Out, to the front end:
 | `output` | `text` | A whole line, as `/help` or `/last` print; an empty one ends a reply. |
 | `event` | `kind`, `call`, `turn`, `details`, `text`, and for a `tool.result`, a `command.typed`, or a `model.reasoning` that ends a stretch of thinking `output` | Every audit event of the conversation, as `logging.md` describes them. `text` is the unstyled line the terminal chat shows for it, null when it shows none; a front end shows `text` so every face words tool activity alike, and reads the raw fields only for a view of its own. A `tool.result` also carries `output`, the tool's output for the front end to show, and so does a `command.typed` whose command printed something (what it printed, stdout then stderr), and a `model.reasoning` with `phase` `end` (the thinking): `id` (the event's, which `/show` takes), `text` (up to 16 KiB), `lines`, `bytes`, `truncated` (true when `text` is shorter than the output), and `shownLines`, how many lines the terminal chat shows before it folds (`shownOutputLines`). |
 | `view` | `kind` (`context`, `turns`, `facts`, `summary`, `thinking`, or `output`), `turn` (null for the next request's context, the turn list, and every turn's thinking), `turns` (how many turns the conversation has had), `text` (Markdown); for `output` also `id`, `session`, `page`, `pages`, `header`, `source`, `bytes`, `lines`, and for a stored one `cut` and `totalBytes` | The answer to `/inspect context next`, `N`, or `turns`, or to `/inspect facts [all]`, `/inspect summary [all]`, or `/inspect thinking [N]`: a view for a panel of the front end's own rather than the transcript. The terminal chat prints the same text. Kind `output` is one page of a tool's output whole ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)), answering an `output` request, or the first page of what `/show` or `/last` asks for: `id` and `session` name the event that recorded it, by which the front end asks for other pages; `page` (from 1) of `pages`; `text`, the page, 64 KiB at most unless a line is longer, ending at a line, so the pages joined are the output exactly; `header`, the line `/show` writes above it; `source`, `stored` (the whole from the output store), `returned` (nothing was held back), `not-kept` (held back with no store), `gone` (no longer in the store), or `missing` (no such output: `pages` 0 and no `text`); `bytes` and `lines` of the stored whole, or of what the tool returned, and for `stored` the store's `cut` and the output's `totalBytes`. A page past the last has `pages` and no `text`. |
-| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`); `outsideSandbox` (`true`) for a line the model asked to run outside the sandbox, which takes `once` or `no` and is never remembered ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
+| `approval` | `id`, `command`, `line`, `pattern`, `directory`, `level`, `reasons`; for a request waiting in a `wisp mcp` server also `source` (`mcp`), `thread`, `client`, and `request`; for a fact to keep also `kind` (`fact`) and `fact` (`id`, `subject`, `name`, `value`, `source`); `outsideSandbox` (`true`) for a line the model asked to run outside the sandbox, which takes `once` or `no` and is never remembered ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)); otherwise, for a command, `days` (how many days a `project` answer keeps it, `approval.persistDays`) and `project` (the folder a remembered answer applies in: the repository's working tree, or the directory outside one; [ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)) | A command needs a decision; answer with the `id` within `approval.timeoutSeconds` or it is refused. With `source` `mcp` it is another process's command, sent because the `hello` declared `approve-mcp`: the id is `mcp-<request>`, and the answer is written to the pending channel for that server ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). With `kind` `fact` it is a fact a `wisp mcp` caller asked to keep as a permanent fact, sent because the `hello` declared `keep-facts`; `command` and `line` are the fact as one line (`release codename = BLUE HERON`), and the answer is `keep` or `drop`; any other answer drops ([ADR 0048](decisions/0048-permanent-facts-over-mcp.md)). |
 | `withdrawn` | `id` | An `approval` or `choice` sent earlier no longer waits: a `wisp mcp` request answered another way first (the client's dialog, `wisp approvals` or `wisp facts`, another `wisp-tui`), timed out, or its server or thread stopped (a fact request waits on after both); or the chat's own approval or choice went unanswered for `approval.timeoutSeconds`. Drop the dialog or picker; an answer sent after this is ignored. |
 | `completions` | `id`, `from`, `candidates` | The answer to a `complete` request: the words that could replace the text from `from` to the cursor, sorted. `from`, like the request's `cursor`, counts Unicode scalars (a Rust `char`), not bytes or grapheme clusters, so a combining mark or an emoji sequence before the word counts as the front end's editor counts it. |
 | `choice` | `id`, `title`, `options` (each `value`, `label`, `detail`), `current`, `acceptsText`; for a choice with toggles also `toggles` (true), `columns` (each `heading` and `drop`), and on each option `cells` and `on`; for the model's question `kind` (`question`) and `thread`, and for one waiting in a `wisp mcp` server `source` (`mcp`), `client`, and `request` | A chat command asks something, such as `/config set` without a value; answer with `choose` within `approval.timeoutSeconds`, or nothing changes. With `kind` `question` it is the model's question through its `ask` tool ([ADR 0062](decisions/0062-the-inquiry-verb.md)): the options are the model's, then `none of these`, and `acceptsText` is true for a free-text question; answer with `choose` (no value declines) within `inquiry.timeoutSeconds` when one is set, else whenever; `wisp-tui` shows it as a picker titled "the model asks", Esc or Ctrl-C declining. With `source` `mcp` it waits in another process, sent because the `hello` declared `answer-questions`: the id is `mcp-<request>` and the answer is written to the pending channel. A choice with toggles is a table whose rows the person turns on and off and saves together: `/models` asks one, a row per model, `on` when it is enabled, `cells` one per column, and `drop` the rank in which a narrow front end drops a column (0 never, 1 first; `wisp models` drops by the same ranks). Answer it with `values`, the options left on ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). An option with `action` true and no `on` is an action, not a toggle: `/models`' last row, "pull a model…", whose choosing is answered with `value`, its value, leaving the toggles unsaved; wisp then asks a choice that takes text, the repository ([ADR 0059](decisions/0059-one-set-of-model-actions.md)). |
@@ -1091,7 +1096,7 @@ wisp config unset approval.timeoutSeconds
 | `approval.coremlModel` | A classifier version, `risk@<version>` (`wisp classifier list`); a Core ML model under `~/.wisp/models/coreml`; or an absolute or `~` path. Unset, the default this release ships. |
 | `approval.coremlMinimumConfidence` | A number from 0 to 1. |
 | `approval.timeoutSeconds` | Seconds, 0 to 86,400; 0 waits forever. |
-| `approval.persistDays` | Days, 1 to 365. |
+| `approval.persistDays` | Days, 1 to 365: how long a `project` approval lasts. |
 | `approval.outOfBand` | `true` or `false`: whether `wisp mcp` also files a waiting command for `wisp approvals` and `wisp-tui`, with a notification. |
 | `approval.bannerDelaySeconds` | Seconds, 0 to 3,600, and shorter than `approval.timeoutSeconds` when that is not 0: how long a command the client's dialog also asks may wait before its notification is posted; answered sooner, none is. 0 posts at once. |
 | `routing.ladder` | Models, least capable first. |
@@ -1325,23 +1330,26 @@ Three hidden subcommands serve the repository rather than users:
 
 ### `wisp approvals`
 
-`wisp approvals` (or `approvals list`) prints standing approvals: id, scope, expiry, directory, pattern
-(such as `head *`). On a terminal they are aligned columns under a header, the pattern last and wrapped
-to the terminal's width; piped, each is one tab-separated line, for scripts.
+`wisp approvals` (or `approvals list`) prints standing approvals: id, scope, expiry, project, pattern
+(such as `head *`). The project is where the approval applies: a git repository's working tree, which covers
+its subdirectories and every worktree, or the directory it was given in outside a repository
+([approval.md](approval.md)). An `always` approval never expires, so its expiry is `never`. On a terminal they
+are aligned columns under a header, the pattern last and wrapped to the terminal's width; piped, each is one
+tab-separated line, for scripts, its expiry `expires <date>` or `never`.
 
 ```
 ID        SCOPE    EXPIRES      WHERE               PATTERN
 a1b2c3d4  project  31 Oct 2026  /Users/me/src/wisp  git push *
-e5f6a7b8  always   29 Oct 2026  any directory       head *
+e5f6a7b8  always   never        /Users/me/src/wisp  head *
 ```
 
-A `project` approval whose folder no longer exists (an agent's worktree removed since, say) can never match
-again; it is marked gone: `(gone)` after its folder on a terminal, with a note under the table, and a sixth
+An approval whose project no longer exists (a folder outside any repository removed since, say, or the
+repository itself) can never match again; it is marked gone: `(gone)` after its folder on a terminal, with a note under the table, and a sixth
 field, `gone`, at the end of its line when piped.
 
 ```
-ID        SCOPE    EXPIRES      WHERE                           PATTERN
-b12873de  project  3 Nov 2026   /Users/me/src/wisp-wt-a (gone)  git commit *
+ID        SCOPE    EXPIRES      WHERE                       PATTERN
+b12873de  project  3 Nov 2026   /Users/me/scratch/a (gone)  git commit *
 
 1 approval is for a folder that is gone and can never match again; 'wisp approvals clear --gone' removes them.
 ```
@@ -1362,8 +1370,11 @@ ID        LEVEL     WAITING  FROM             IN       COMMAND
 a1b2c3d4  moderate  12 s     claude-code/git  ~/src/x  git push origin main
 ```
 
-`wisp approvals approve <id> [--scope once|session|project|always]` approves one (`once`, the rest of
-the turn, by default; scopes as in chat, and a dangerous command is never remembered beyond the session);
+`wisp approvals approve <id> [--scope once|session|project|always]` approves one. The scope is how long: `once`,
+the rest of the turn (the default); `session`, until the server's process exits; `project`, `approval.persistDays`
+days (30 by default); `always`, until you revoke it. Remembered approvals apply in the command's project, its git
+repository with every worktree or its directory outside one, and a dangerous command is never remembered beyond
+the session;
 `wisp approvals deny <id>` refuses it. Both run only from a terminal, so an agent's shell cannot answer for
 you, and wait up to three seconds for the server to take the answer:
 

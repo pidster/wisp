@@ -28,12 +28,13 @@ import Testing
             pattern: "git commit *", directory: removed.path, scope: .project, level: .moderate, source: "t")
         let notAFolder = try await store.grant(
             pattern: "ls *", directory: file.path, scope: .project, level: .moderate, source: "t")
-        let anywhere = try await store.grant(
+        // Always belongs to its project too (ADR 0085), so it goes with it.
+        let always = try await store.grant(
             pattern: "head *", directory: removed.path, scope: .always, level: .moderate, source: "t")
         try FileManager.default.removeItem(at: removed)
 
         let marks = Dictionary(uniqueKeysWithValues: await store.listing.map { ($0.entry.id, $0.isGone) })
-        #expect(marks == [live.id: false, gone.id: true, notAFolder.id: true, anywhere.id: false])
+        #expect(marks == [live.id: false, gone.id: true, notAFolder.id: true, always.id: true])
     }
 
     @Test func clearingGoneApprovalsRemovesOnlyThoseStillGone() async throws {

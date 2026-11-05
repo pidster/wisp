@@ -25,7 +25,7 @@ Where you are asked depends on the face:
 
 | Face | How you are asked |
 | --- | --- |
-| `wisp chat`, plain | A dialog on the terminal: `[y]once [s]ession [p]roject 30d [a]lways 30d [n]o` |
+| `wisp chat`, plain | A dialog on the terminal: `[y] this turn  [s] this session  [p] 30 days  [a]lways  [n]o` |
 | `wisp chat` in `wisp-tui` | The same choices as a dialog in the pinned band |
 | `wisp "…"` (one-shot `respond`) | Never: it cannot ask, so it refuses, unless you passed `--yes` |
 | `wisp mcp` | Your MCP client's dialog, and a notification naming `wisp approvals approve <id>`; the first answer wins ([Delegating](delegating.md#approvals-reach-you-never-the-agent)) |
@@ -36,15 +36,18 @@ No answer is a refusal: a dialog left for `approval.timeoutSeconds` (600 s by de
 
 An answer is remembered by the program and, for programs like `git`, `cargo`, `swift`, `npm`, and `brew`, its
 verb: approving `git commit` never approves `git push`, and arguments never matter
-([ADR 0027](../decisions/0027-verb-patterns.md)).
+([ADR 0027](../decisions/0027-verb-patterns.md)). Your answer chooses how long it lasts, and only that; every
+answer covers the pattern in the command's project alone: inside a git repository, the whole repository, with
+every subdirectory and every worktree of it; anywhere else, exactly that directory
+([ADR 0085](../decisions/0085-an-approval-lasts-a-time-in-its-project.md)). The dialog names the project.
 
-| Answer | Covers | Lasts |
-| --- | --- | --- |
-| `y`, once | this pattern in this directory | the rest of the current turn |
-| `s`, session | this pattern in this directory | until the process exits; under `wisp mcp`, every thread of the server |
-| `p`, project | this pattern in this directory | 30 days (`approval.persistDays`), in `~/.wisp/approvals.json` |
-| `a`, always | this pattern anywhere | 30 days, in `~/.wisp/approvals.json` |
-| `n`, or nothing | nothing: the command is refused and the model told | |
+| Answer | Lasts |
+| --- | --- |
+| `y`, this turn (`once`) | the rest of the current turn |
+| `s`, this session (`session`) | until wisp's process exits; under `wisp mcp`, every thread of the server |
+| `p`, 30 days (`project`) | `approval.persistDays` days, 30 by default, in `~/.wisp/approvals.json` |
+| `a`, always (`always`) | until you revoke it, in `~/.wisp/approvals.json`; it never expires |
+| `n`, or nothing | nothing: the command is refused and the model told |
 
 Two limits keep a remembered answer from covering more than you meant. An approval covers only commands judged
 at its level or below, so a moderate `rm` never covers `rm -rf`. And a `dangerous` command is never remembered
@@ -54,7 +57,7 @@ variable is always remembered by its exact text, since a pattern for it would co
 ```bash
 wisp approvals                 # what is remembered: id, scope, expiry, directory, pattern
 wisp approvals revoke a1b2c3d4
-wisp approvals clear           # all of them; --gone only those for folders that no longer exist
+wisp approvals clear           # all of them; --gone only those whose project no longer exists
 ```
 
 ## Answering for an MCP session

@@ -453,8 +453,8 @@ import WispTestSupport
                   in ~/src/x
                   - changes repository state
                   - \(String(repeating: "r", count: 110))…
-                  remembered as: git push *
-                  [y]once  [s]ession  [p]roject 30d  [a]lways 30d  [n]o › \u{20}
+                  remembered as: git push *, in ~/src/x
+                  [y] this turn  [s] this session  [p] 30 days  [a]lways  [n]o › \u{20}
                 """.replacingOccurrences(of: "› \u{20}", with: "› "))
         let same = ApprovalRequest(
             command: "ls", line: "ls", pattern: "ls *", workingDirectory: "/tmp",

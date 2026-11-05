@@ -29,11 +29,11 @@ public enum ListingLayout {
     ///   remove them when there are any.
     public static func approvals(_ entries: [ApprovalStore.Entry], gone: Set<String> = [], width: Int?) -> [String] {
         let rows = entries.map { entry in
-            let date = entry.expiresAt.formatted(date: .abbreviated, time: .omitted)
+            let date = entry.expiresAt?.formatted(date: .abbreviated, time: .omitted)
             let isGone = gone.contains(entry.id)
-            let directory = entry.workingDirectory ?? "any directory"
+            let directory = entry.appliesIn.map(ApprovalProject.shown) ?? "any directory"
             return [
-                entry.id, entry.scope.rawValue, width == nil ? "expires \(date)" : date,
+                entry.id, entry.scope.rawValue, date.map { width == nil ? "expires \($0)" : $0 } ?? "never",
                 width != nil && isGone ? "\(directory) (gone)" : directory, entry.pattern,
             ] + (width == nil && isGone ? ["gone"] : [])
         }

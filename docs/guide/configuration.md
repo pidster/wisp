@@ -48,7 +48,7 @@ could, which is why you are asked about each one ([ADR 0064](../decisions/0064-a
 | Be asked less, or more | `approval.threshold`: `safe`, `moderate`, `dangerous`, or `never` | `moderate` |
 | Choose what judges each command | `approval.classifier`: `coreml`, `system-model`, or `rules` | `coreml` |
 | Wait longer, or forever, for your answer | `approval.timeoutSeconds` (0 waits forever) | 600 |
-| Remember project and always approvals for longer | `approval.persistDays` | 30 |
+| Keep a "30 days" (`project`) approval for more or fewer days | `approval.persistDays` | 30 |
 | Give commands more time | `commandTimeoutSeconds` (0 is no limit), and the cap a call or thread may ask for, `commandMaxTimeoutSeconds` | 120, 1,800 |
 | Stop the model asking to run a command outside the sandbox | `commandPolicy.sandbox.allowOutsideSandbox` | `true` |
 | Give the model its `memory`, `models`, `ask`, or `plan` tool | `context.memory`, `tools.models`, `tools.ask`, `tools.plan` | `false` |

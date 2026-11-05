@@ -146,16 +146,20 @@ exception, above), `edit_file` refuses it, and the default policy refuses
 is a hurdle, not a wall, so keep your agent's own approval for shell commands on
 ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)).
 
-Your answer has a scope. "This turn" covers the rest of the current prompt. "This session" covers the
-process. "This project" and "Always" are written to `~/.wisp/approvals.json` for 30 days, keyed by the
-program (`head *`), never by exact arguments and never for a dangerous verdict. An approval covers only
+Your answer says how long it lasts. "This turn" covers the rest of the current prompt. "This session" covers the
+process. "30 days" (`approval.persistDays`) and "Always", which never expires, are written to
+`~/.wisp/approvals.json`, keyed by the program (`head *`), never by exact arguments and never for a dangerous
+verdict. Every answer applies only in the command's project: its git repository, with every subdirectory and
+worktree, or its directory outside one. Only a real `.git` directory, or a worktree's `.git` file that git itself
+would accept, joins a repository, so a `.git` file the model plants in a folder it may write cannot borrow a
+repository's approvals ([ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)). An approval covers only
 commands judged at its level or below: approving a moderate `rm` never approves `rm -rf`, and a dangerous
 command is remembered for the turn or session by its exact text alone. An interpreter (`sh`, `python3`, …), or a
 program named by a variable (`$X args`), is always remembered by its exact text. A loop or conditional is
 judged and remembered by the commands inside it (`for f in *; do git add "$f"; done` is `git add *`), never by
 its keyword, so an approval of one loop's body covers that command in the next loop and nothing else. When only
 the whole line shows the risk (`curl … | python3`) you are asked once, about the line, and your answer covers
-its parts for that line alone. `wisp approvals` lists them, marking a project approval whose folder is gone,
+its parts for that line alone. `wisp approvals` lists them, marking an approval whose project is gone,
 which can never match again; `wisp approvals revoke <id>`, `clear`, and `clear --gone` remove them. A request to
 run a command outside the sandbox has no scope: whatever you choose it is approved once, and nothing held covers it
 (above). A dialog nobody answers within ten minutes counts as a refusal.

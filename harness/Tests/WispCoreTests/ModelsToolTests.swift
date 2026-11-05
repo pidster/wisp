@@ -280,10 +280,12 @@ import WispTestSupport
         var enable = pull
         enable.kind = .modelAction(pull: false)
         let offered = TerminalApprover.render(enable, style: .plain)
-        #expect(offered.contains("  [y]once  [s]ession  [n]o ›") && offered.contains("remembered as: models pull *"))
+        #expect(
+            offered.contains("  [y] this turn  [s] this session  [n]o ›")
+                && offered.contains("remembered as: models pull *"))
         var command = pull
         command.kind = .command
-        #expect(TerminalApprover.render(command, style: .plain).contains("[p]roject 30d  [a]lways 30d  [n]o"))
+        #expect(TerminalApprover.render(command, style: .plain).contains("[p] 30 days  [a]lways  [n]o"))
     }
 
     @Test func aNoteReachesTheModelWithTheNextTurnAndIsNoTurnOfItsOwn() async throws {

@@ -630,7 +630,8 @@ struct Chat: AsyncParsableCommand {
             guard !kinds.isEmpty else { return }
             await PendingRelay(
                 channel: PendingApprovals(home: Wisp.home), router: router, audit: audit, kinds: kinds,
-                facts: session.permanentFacts, send: send
+                facts: session.permanentFacts,
+                days: Int(session.config.approvalLifetime.components.seconds / 86_400), send: send
             )
             .run()
         }
@@ -1898,9 +1899,11 @@ struct Approvals: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Approve a command waiting for approval, from a terminal.",
             discussion:
-                "The scope is how long the approval lasts, as in chat: once (the rest of the turn), session (the "
-                + "server's process), project (30 days, this command in this directory), or always (30 days). "
-                + "A dangerous command is never remembered beyond the session.")
+                "The scope is how long the approval lasts, as in chat: once (the rest of the turn), session (until "
+                + "the server's process exits), project (approval.persistDays, 30 days by default), or always (until "
+                + "you revoke it). Remembered approvals apply in the command's project: its git repository, with "
+                + "every worktree, or its directory outside one. A dangerous command is never remembered beyond the "
+                + "session.")
 
         @Argument(
             help: "The id shown by 'wisp approvals pending' and in the notification.",

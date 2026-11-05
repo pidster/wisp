@@ -72,8 +72,8 @@ wisp chat                              # a conversation; /help lists the command
 ```
 
 Running tests changes state, so it counts as a `moderate` action: `chat` asks you before doing it, and
-plain `wisp "…"` cannot ask, so it refuses unless you pass `--yes`. In `chat` you answer each request
-once, for the session, for this project, or always, and `/model` switches models mid-conversation. A
+plain `wisp "…"` cannot ask, so it refuses unless you pass `--yes`. In `chat` you approve each request
+for this turn, this session, 30 days, or always, and `/model` switches models mid-conversation. A
 long conversation keeps short facts (a codename, the task, whether the tests pass) and a summary of the
 turns it had to drop; `/inspect facts` and `/inspect summary` show them and `/fact` corrects one. A line
 that starts with `!` (`! git status`) runs the command yourself, in the sandbox and without asking, and the
@@ -174,8 +174,9 @@ language model at 2.5 seconds a verdict ([approval.md](docs/approval.md)). A com
 to be read-only, such as `git status`, never reaches a classifier at all. You can train a version on
 your own history with `wisp classifier train --from-audit`.
 
-**You decide, at the level you choose.** At `moderate` and above wisp asks. Your answer has a scope,
-this turn, this session, this project for 30 days, or always for 30 days, and is remembered by the
+**You decide, at the level you choose.** At `moderate` and above wisp asks. Your answer says how long
+it lasts, this turn, this session, 30 days, or always, applies only in the command's project (its git
+repository, worktrees included, or its directory), and is remembered by the
 program and its verb, so approving `git commit` never approves `git push`. A `dangerous` verdict is
 never remembered beyond the session, so a stored `rm` approval never covers `rm -rf build`. A dialog
 nobody answers is a refusal. `wisp approvals` shows what is remembered; `revoke` and `clear` forget it;

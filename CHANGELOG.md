@@ -6,6 +6,17 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Changed:
+
+- An approval's choices say how long, and only that: this turn, this session, 30 days (`approval.persistDays`), or
+  always, which now never expires; "Always (30 days, any directory)" is gone, in the MCP dialog, plain chat, `wisp-tui`,
+  and `wisp approvals approve --scope`. A remembered approval applies in the command's project: its git repository,
+  with every subdirectory and worktree, or its directory outside one, so a grant in one worktree covers the others,
+  where it covered one exact directory. An `always` granted before, for any directory, is asked again once in each
+  project (ADR 0085).
+
 ## 0.35.0
 
 Changed:

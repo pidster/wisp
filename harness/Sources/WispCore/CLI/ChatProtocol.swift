@@ -363,7 +363,8 @@ public enum ChatProtocol {
     }
 
     /// The `approval` line's fields; `outsideSandbox` (true) for a line the model asked to run outside the sandbox,
-    /// which is approved once or not at all (ADR 0064).
+    /// which is approved once or not at all (ADR 0064); otherwise `days`, how long a `project` answer keeps it, and
+    /// `project`, where a remembered answer applies (ADR 0085).
     public static func approval(id: String, _ request: ApprovalRequest) -> [String: JSONValue] {
         var fields: [String: JSONValue] = [
             "id": .string(id), "command": .string(request.command), "line": .string(request.line),
@@ -371,7 +372,12 @@ public enum ChatProtocol {
             "level": .string(request.assessment.level.rawValue),
             "reasons": .array(request.assessment.reasons.map { .string($0) }),
         ]
-        if request.outsideSandbox { fields["outsideSandbox"] = true }
+        if request.outsideSandbox {
+            fields["outsideSandbox"] = true
+        } else {
+            fields["days"] = .int(request.days)
+            fields["project"] = .string(request.project)
+        }
         return fields
     }
 
@@ -379,8 +385,16 @@ public enum ChatProtocol {
     /// `mcp`, the `thread` and `client` it came from, and the pending request's id. A fact to keep (ADR 0048)
     /// has `kind` `fact` and the `fact` (`id`, `subject`, `name`, `value`, `source`); its `command` and `line`
     /// are the fact as one line, so a front end that shows only those still names it, and it is answered
-    /// `keep` or `drop`.
-    public static func approval(id: String, pending request: PendingApprovals.Request) -> [String: JSONValue] {
+    /// `keep` or `drop`. A command's line has `days` and `project`, as above.
+    ///
+    /// - Parameters:
+    ///   - id: The protocol's id for it.
+    ///   - request: The pending request.
+    ///   - days: How long a `project` answer keeps it (`approval.persistDays`).
+    /// - Returns: The line's fields.
+    public static func approval(
+        id: String, pending request: PendingApprovals.Request, days: Int = 30
+    ) -> [String: JSONValue] {
         var fields: [String: JSONValue] = [
             "id": .string(id), "command": .string(request.subject),
             "line": .string(request.kind == .fact ? request.subject : request.line),
@@ -389,7 +403,12 @@ public enum ChatProtocol {
             "source": .string("mcp"), "thread": request.thread.map { .string($0) } ?? .null,
             "client": request.client.map { .string($0) } ?? .null, "request": .string(request.id),
         ]
-        if request.outsideSandbox == true { fields["outsideSandbox"] = true }
+        if request.outsideSandbox == true {
+            fields["outsideSandbox"] = true
+        } else if request.kind == .command {
+            fields["days"] = .int(days)
+            fields["project"] = .string(ApprovalProject.shown(ApprovalProject.of(request.directory)))
+        }
         if request.kind == .fact, let fact = request.fact {
             fields["kind"] = .string(request.kind.rawValue)
             fields["fact"] = .object([

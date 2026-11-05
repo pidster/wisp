@@ -416,6 +416,19 @@ asking conversation's log, and puts the conversation's id on the request (`Appro
 approver that does work of its own (filing a request, posting a banner) audits it where the question was
 asked.
 
+**Where an approval applies** ([ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)). A scope
+(`ApprovalScope`) is how long only: `once` the turn, `session` the process, `project` `approval.persistDays` days,
+`always` with no expiry; `ApprovalScope.label(days:)` names each for every face. Every approval of a pattern is
+keyed on the command's project, `ApprovalProject.of(directory)`: the common git directory read from the nearest
+`.git` entry above the directory without running git, trusted only when it is a real directory or a worktree's
+`.git` file whose `gitdir`, `commondir`, and back-pointing `gitdir` agree as git requires; any other `.git` entry
+makes its folder the project, and with none above, the directory is. The gate's session and turn keys use it, and
+`ApprovalStore` records it on each entry (`Entry.project`, beside the `workingDirectory` it was granted in) and
+matches on it (`Entry.appliesIn`, read from the directory for an entry written before 0.35.1). An entry with neither,
+an `always` written before for any directory, is not live and is dropped at the store's next change. An approval of
+a dangerous command's exact text stays keyed on the exact directory. `ApprovalProject.shown` gives the folder a
+person reads: a repository's working tree, else the path.
+
 **A run outside the sandbox** ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md)). `run_command`'s
 `outsideSandbox` reaches `CommandRunner.run(_:in:origin:stop:requested:outsideSandbox:)`, which resolves it once into
 `CommandRunner.OutsideSandbox` from the policy's sandbox settings and `isNestedSandbox`: `notAsked`, `asked`,
@@ -558,7 +571,7 @@ and the setting (`NotificationRoutes.steps`), which the tests and `wisp doctor` 
 `osascript` runner, and the helper are injected.
 
 Every conversation of a session shares its config, `ApprovalStore`, and `SessionApprovals`, so a
-"this project" answer on one MCP thread is written once and a "this session" answer covers every thread.
+"30 days" or "Always" answer on one MCP thread is written once and a "this session" answer covers every thread.
 The MCP tests build real sessions over a scratch home and check that two threads share one store.
 
 ### `PackageLayout`

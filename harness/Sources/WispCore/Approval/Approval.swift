@@ -53,6 +53,12 @@ public struct ApprovalRequest: Equatable, Sendable {
     public var thread: String?
     /// What is being approved, which sets the scopes an answer may give.
     public var kind: Kind
+    /// How many days a `project` answer keeps it (`approval.persistDays`), for the faces' labels.
+    public var days: Int
+
+    /// The project a remembered answer applies in, as a person reads it: the repository's working tree, or the
+    /// directory outside one (ADR 0085).
+    public var project: String { ApprovalProject.shown(ApprovalProject.of(workingDirectory)) }
 
     /// Creates a request.
     ///
@@ -64,9 +70,10 @@ public struct ApprovalRequest: Equatable, Sendable {
     ///   - assessment: The verdict and its reasons.
     ///   - thread: The asking conversation's id, when known.
     ///   - kind: What is being approved.
+    ///   - days: How many days a `project` answer keeps it.
     public init(
         command: String, line: String? = nil, pattern: String, workingDirectory: String, assessment: RiskAssessment,
-        thread: String? = nil, kind: Kind = .command
+        thread: String? = nil, kind: Kind = .command, days: Int = 30
     ) {
         self.command = command
         self.line = line ?? command
@@ -75,6 +82,7 @@ public struct ApprovalRequest: Equatable, Sendable {
         self.assessment = assessment
         self.thread = thread
         self.kind = kind
+        self.days = days
     }
 
     /// `text` as it is safe to show a person: every C0 and C1 control character and DEL (ESC, CR,
@@ -231,9 +239,17 @@ public struct TerminalApprover: Approver {
         }
         let scopes = request.kind.scopes
         lines.append(
-            style.muted(scopes == [.once] ? "  never remembered" : "  remembered as: \(visible(request.pattern))"))
+            style.muted(
+                scopes == [.once]
+                    ? "  never remembered"
+                    : "  remembered as: \(visible(request.pattern))"
+                        + (scopes.contains(.project)
+                            ? ", in \(visible(ChatStatus.abbreviated(request.project)))" : "")))
+        // A request approved for its one run alone says once; one that may be remembered says how long each key keeps
+        // it (ADR 0085).
         let keys: [(ApprovalScope, String)] = [
-            (.once, "[y]once"), (.session, "[s]ession"), (.project, "[p]roject 30d"), (.always, "[a]lways 30d"),
+            (.once, scopes == [.once] ? "[y]once" : "[y] this turn"), (.session, "[s] this session"),
+            (.project, "[p] \(ApprovalScope.project.label(days: request.days))"), (.always, "[a]lways"),
         ]
         let offered = keys.filter { scopes.contains($0.0) }.map(\.1) + ["[n]o"]
         lines.append("  " + offered.joined(separator: "  ") + " " + style.prompt("›") + " ")
@@ -390,14 +406,15 @@ public actor ApprovalGate {
         return await store?.find(pattern: legacy, directory: directory, level: level)
     }
 
-    /// Session and turn approvals are keyed on the pattern (`head *`) in the exact directory.
+    /// Session and turn approvals are keyed on the pattern (`head *`) in the directory's project, as remembered ones
+    /// are (`ApprovalProject`, ADR 0085).
     ///
     /// - Parameters:
     ///   - pattern: The approval pattern.
     ///   - workingDirectory: The directory.
     /// - Returns: The key, the two joined by a NUL, which neither can contain.
     private static func key(_ pattern: String, _ workingDirectory: String) -> String {
-        "\(workingDirectory)\u{0}\(pattern)"
+        "\(ApprovalProject.of(workingDirectory))\u{0}\(pattern)"
     }
 
     /// The key of an approval of exactly `text` in the directory: what a dangerous verdict is remembered
@@ -755,7 +772,7 @@ public actor ApprovalGate {
         let decision = await approver.decide(
             ApprovalRequest(
                 command: segment.text, line: line, pattern: remembered, workingDirectory: workingDirectory,
-                assessment: assessment, thread: audit?.session),
+                assessment: assessment, thread: audit?.session, days: store?.days ?? 30),
             audit: audit)
         switch decision {
         case .approved(let requested):

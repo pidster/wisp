@@ -206,12 +206,6 @@ struct ElicitationApprover: Approver {
         }
     }
 
-    /// The scope picker's label for each scope.
-    static let scopeNames: [ApprovalScope: String] = [
-        .once: "This turn", .session: "This session", .project: "This project (30 days, this directory)",
-        .always: "Always (30 days, any directory)",
-    ]
-
     /// Sends the dialog, tagged with `key` so it can be withdrawn, and waits for the answer within `timeout`.
     /// A request to run outside the sandbox (ADR 0064) says so in the title and first line and offers no scope to
     /// remember, since it is approved for that one run alone.
@@ -225,7 +219,10 @@ struct ElicitationApprover: Approver {
         let context = request.line == request.command ? "" : "\nPart of: \(shown(request.line))"
         let outside = request.outsideSandbox
         let heading = outside ? "Command to run OUTSIDE the sandbox, this once:" : "Command:"
-        let remembered = outside ? "Never remembered: this run only." : "Remembered as: \(shown(request.pattern))"
+        let remembered =
+            outside
+            ? "Never remembered: this run only."
+            : "Remembered as: \(shown(request.pattern)), in this project, \(shown(request.project))"
         let text = """
             \(heading)
             \(shown(request.command))\(context)
@@ -247,10 +244,11 @@ struct ElicitationApprover: Approver {
                 : [
                     "scope": .object([
                         "type": .string("string"),
-                        "title": .string("Remember this approval"),
-                        "description": .string("How long to keep approving \(shown(request.pattern))"),
+                        "title": .string("Remember this approval for"),
+                        "description": .string(
+                            "How long to keep approving \(shown(request.pattern)) in \(shown(request.project))"),
                         "enum": .array(scopes.map { .string($0.rawValue) }),
-                        "enumNames": .array(scopes.map { .string(Self.scopeNames[$0] ?? $0.rawValue) }),
+                        "enumNames": .array(scopes.map { .string($0.label(days: request.days)) }),
                         "default": .string("once"),
                     ])
                 ],
@@ -280,12 +278,16 @@ struct ElicitationApprover: Approver {
         }
     }
 
-    /// Reads the optional `scope` field leniently: raw values, labels, or nothing (which means once).
+    /// Reads the optional `scope` field leniently: raw values, labels (`ApprovalScope.label(days:)`, and the
+    /// ones before ADR 0085), or nothing, which means once.
+    ///
+    /// - Parameter value: The field.
+    /// - Returns: The scope.
     static func scope(from value: Value?) -> ApprovalScope {
         guard let text = value?.stringValue?.lowercased() else { return .once }
         if let scope = ApprovalScope(rawValue: text) { return scope }
         if text.hasPrefix("this session") { return .session }
-        if text.hasPrefix("this project") { return .project }
+        if text.hasPrefix("this project") || text.hasSuffix(" days") || text.hasSuffix(" day") { return .project }
         if text.hasPrefix("always") { return .always }
         return .once
     }

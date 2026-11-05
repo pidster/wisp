@@ -21,8 +21,9 @@ resources and `wisp config`; see [ADR 0018](../decisions/0018-introspection.md).
   pass the 4 KiB cap, as it does with every backend's settings, so no setting is cut.
 - `status`: pretty JSON with `session`, `entryPoint`, `turn`, `model`, `tools`, `sessionApprovals` (how
   many patterns are approved for this session), `auditFile`, `version`.
-- `approvals`: pretty JSON array of standing approvals: `id`, `pattern`, `workingDirectory` (null for
-  `always`), `scope`, `level`, `grantedAt`, `expiresAt`, `source`.
+- `approvals`: pretty JSON array of standing approvals: `id`, `pattern`, `workingDirectory` (where it was
+  granted), `scope`, `level`, `grantedAt`, `expiresAt` (null for `always`, which never expires), `project` (where
+  it applies: the repository's working tree, or the directory outside one), `source`, `gone`.
 - `audit`: one summary line per event, oldest first, the same lines `wisp logs` prints. `no matching
   audit events` when nothing matches.
 - `calls`: one line per tool call of a turn, numbered, with the tool, its arguments (shortened), and its outcome:

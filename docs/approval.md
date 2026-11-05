@@ -170,15 +170,33 @@ git verb until it expires. A command whose program says nothing of what runs is 
 never by a pattern: a keyword left after the reading above (`done > out.txt`, `[[`, `coproc`), `.` and
 `source`, `eval`, an interpreter (`sh`, `bash`, `zsh`, `python3`, `node`, `ruby`, `perl`, `osascript`, …),
 anything run through `exec` or `xargs`, a program named by a variable or a substitution (`$X args`), and a
-segment that could not be read, since `sh *` or `$X *` would cover any command at all. An approval has a scope
-([ADR 0014](decisions/0014-persisted-approvals.md)):
+segment that could not be read, since `sh *` or `$X *` would cover any command at all. An approval has a scope,
+which says how long it lasts and nothing else ([ADR 0014](decisions/0014-persisted-approvals.md),
+[ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)):
 
-| Scope | Covers | Lives |
+| Scope | Shown as | Lives |
 | --- | --- | --- |
-| `once` | this pattern in this directory | the rest of the current turn: the prompt's whole tool loop, however many calls it makes |
-| `session` | this pattern in this directory | until the process exits |
-| `project` | this pattern in this directory | `approval.persistDays` (30), in `~/.wisp/approvals.json` |
-| `always` | this pattern in any directory | `approval.persistDays` (30), in `~/.wisp/approvals.json` |
+| `once` | "This turn" | the rest of the current turn: the prompt's whole tool loop, however many calls it makes |
+| `session` | "This session" | until wisp's process exits |
+| `project` | "30 days" (the configured number) | `approval.persistDays` (30) days, in `~/.wisp/approvals.json` |
+| `always` | "Always" | until you revoke it (`wisp approvals revoke` or `clear`) or its project is gone, in `~/.wisp/approvals.json`; it never expires |
+
+Every scope covers this pattern in the command's project, and nowhere else:
+
+| Where the command runs | Its project |
+| --- | --- |
+| Inside a git repository | the repository: its working tree, every subdirectory, and every worktree of it, which share one common git directory |
+| Anywhere else | exactly that directory |
+
+wisp reads the project from the `.git` entry nearest above the directory, without running git
+([ApprovalProject.swift](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Approval/ApprovalProject.swift)),
+and trusts only what git itself would accept: a real `.git` directory (not a link), or a worktree's `.git` file
+whose `gitdir:` is `<common>/worktrees/<name>`, whose `commondir` names that common directory, and whose
+`<name>/gitdir` points back at the same file. Any other `.git` entry, a link, a submodule's file, or a file the
+model planted in a folder it may write, makes its own folder a project of its own, so it cannot borrow a
+repository's approvals. A grant made in one worktree therefore covers the repository and its other worktrees.
+Each stored entry records the project it was granted in. An `always` written before 0.35.1, which named no
+directory and applied in any, is no longer used and is dropped from `approvals.json` at its next change.
 
 ### The order of checks
 
@@ -189,11 +207,11 @@ for each simple command in turn, it does the following, stopping at the first st
 
 1. Take its verdict.
 2. If the verdict is below the threshold, run it. Nothing else is consulted.
-3. Check the session cache for an approval in this directory of this pattern at this level or above, or of
-   this exact text; **a dangerous verdict is covered only by an approval of the exact text**.
+3. Check the session cache for an approval of this pattern in this project at this level or above, or of
+   this exact text in this directory; **a dangerous verdict is covered only by an approval of the exact text**.
 4. Check the turn cache the same way for a once-approval given earlier in this turn.
-5. Check the persistent file for a `project` entry in this directory or an `always` entry granted at this
-   level or above, **but only if the verdict is not dangerous**.
+5. Check the persistent file for a live `project` or `always` entry of this pattern in this project, granted at
+   this level or above, **but only if the verdict is not dangerous**.
 6. Ask the approver.
 
 The life of one command line through the policy and the gate is this; every verdict and decision along the way
@@ -222,7 +240,7 @@ flowchart TD
 
 Every cached approval remembers the level it was given at and covers only verdicts at that level or below, so a
 moderate `rm *` approved for the session never covers `rm -rf ~`. A dangerous verdict is remembered by its exact
-text (the dialog's "remembered as" shows it), and only an approval of that same text in that directory, this
+text (the dialog's "remembered as" shows it), and only an approval of that same text in that exact directory, this
 session or this turn, covers it again: the person saw that command, not its pattern. Step 5 goes further: a
 dangerous verdict skips the persistent file and always asks, so a stored `rm *` never covers `rm -rf build` and a
 stored `git push *` never covers `git push --force`; the persistent file may be weeks old. Before 0.21.1 the
@@ -234,13 +252,17 @@ A dangerous verdict is never persisted: `project` or `always` is downgraded to `
 says so. Remembered approvals only decide whether to ask; deny patterns, the sandbox, and the classifier
 run on every part every time, so `rm *` never covers `rm -rf build`, and each use is audited with the
 approval id.
-`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. A `project` approval belongs to
-the directory it was given in and outlives it: one given in an agent's worktree removed since can never match
-again. `wisp approvals`, chat's `/approvals`, and `wisp://approvals` mark such an approval gone (checked when
-listed: nothing is at the path, or it is not a directory; a directory that cannot be looked at is not gone), and
+`wisp approvals` lists them, `wisp approvals revoke <id>` and `clear` remove them. A remembered approval belongs to
+the project it was given in and outlives it: once that project is removed (the repository's common git directory,
+or the directory outside a repository) it can never match again. Removing one worktree does not, since the approval
+belongs to the repository; an entry written before 0.35.1 records only its directory, so for it the directory is
+what must still exist. `wisp approvals`, chat's `/approvals`, and `wisp://approvals` mark such an approval gone
+(checked when listed: nothing is at the path, or it is not a directory; a directory that cannot be looked at is not
+gone), and
 `wisp approvals clear --gone` removes them, deciding again under the file's lock so a directory recreated since
 the listing keeps its approvals. Gone approvals are marked, not swept: a volume not mounted, or a worktree made
-again at the same path, looks gone for a while, and every approval expires after `approval.persistDays` anyway.
+again at the same path, looks gone for a while, and a `project` approval expires after `approval.persistDays`
+anyway.
 Every process that uses the
 file (a running `wisp mcp`, `wisp approvals` in a terminal) reads it afresh for each check and changes it under an
 advisory `flock` on `approvals.json.lock` beside it, writing it whole by rename with mode 0600, so a revocation made
@@ -336,7 +358,7 @@ not an audit log is attached, and the refusals `respond` reports are those of th
 | `coremlModel` | the shipped default, `risk@X.Y.Z-default` | For `coreml`: a version, `risk@<version>`, from `~/.wisp/classifiers/risk`, or the `.mlmodel` or `.mlmodelc`, absolute, `~`, or under `<home>/models/coreml`. |
 | `coremlMinimumConfidence` | `0.6` | For `coreml`: below this top-label probability the verdict is raised to at least `moderate`. |
 | `timeoutSeconds` | `600` | How long an approval may go unanswered before it counts as declined; `0` waits forever. |
-| `persistDays` | `30` | Lifetime of `project` and `always` approvals. |
+| `persistDays` | `30` | Lifetime of a `project` approval, in days; offered as "30 days" (the configured number). `always` never expires. |
 | `outOfBand` | `true` | Under `wisp mcp`, also file each waiting command for `wisp approvals` and `wisp-tui`, with a notification; the first answer, there or in the client's dialog, wins. `false` asks through elicitation only. |
 
 Whether the model may ask to run a command outside the sandbox at all is the command policy's

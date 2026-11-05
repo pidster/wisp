@@ -72,26 +72,27 @@ import WispTestSupport
         #expect(!lines.contains { $0.contains("\t") })
     }
 
-    private func entry(_ id: String, scope: ApprovalScope, directory: String?, pattern: String) -> ApprovalStore.Entry {
+    private func entry(_ id: String, scope: ApprovalScope, directory: String, pattern: String) -> ApprovalStore.Entry {
         ApprovalStore.Entry(
-            id: id, pattern: pattern, workingDirectory: directory, scope: scope, level: .moderate,
-            grantedAt: Date(timeIntervalSince1970: 0), expiresAt: Date(timeIntervalSince1970: 86400 * 30),
-            source: "test")
+            id: id, pattern: pattern, workingDirectory: directory, project: directory, scope: scope, level: .moderate,
+            grantedAt: Date(timeIntervalSince1970: 0),
+            expiresAt: scope == .always ? nil : Date(timeIntervalSince1970: 86400 * 30), source: "test")
     }
 
     @Test func approvalsPipedStayTabSeparated() {
         let entries = [entry("ab12", scope: .project, directory: "/tmp/x", pattern: "git push *")]
-        let expires = entries[0].expiresAt.formatted(date: .abbreviated, time: .omitted)
+        let expires = entries[0].expiresAt?.formatted(date: .abbreviated, time: .omitted) ?? ""
         #expect(
             ListingLayout.approvals(entries, width: nil) == ["ab12\tproject\texpires \(expires)\t/tmp/x\tgit push *"])
-        let always = [entry("cd34", scope: .always, directory: nil, pattern: "head *")]
-        #expect(ListingLayout.approvals(always, width: nil).first?.contains("\tany directory\thead *") == true)
+        // Always never expires, and like every remembered approval it names its project.
+        let always = [entry("cd34", scope: .always, directory: "/tmp/y", pattern: "head *")]
+        #expect(ListingLayout.approvals(always, width: nil) == ["cd34\talways\tnever\t/tmp/y\thead *"])
     }
 
     @Test func approvalsOnATerminalAlignUnderAHeader() {
         let entries = [
             entry("ab12", scope: .project, directory: "/tmp/a/very/long/working/directory", pattern: "git push *"),
-            entry("cd34", scope: .always, directory: nil, pattern: "head *"),
+            entry("cd34", scope: .always, directory: "/tmp/b", pattern: "head *"),
         ]
         let lines = ListingLayout.approvals(entries, width: 100)
         #expect(lines.count == 3 && lines[0].hasPrefix("ID    SCOPE    EXPIRES"))

@@ -16,6 +16,8 @@ import Synchronization
 public final class PendingRelay: Sendable {
     /// The channel.
     private let channel: PendingApprovals
+    /// How long a `project` answer keeps a command (`approval.persistDays`), for the approval line's `days`.
+    private let days: Int
     /// The kinds of request the front end declared it answers.
     private let kinds: Set<PendingApprovals.Kind>
     /// Where answers arrive.
@@ -37,12 +39,14 @@ public final class PendingRelay: Sendable {
     ///   - audit: The chat's log.
     ///   - kinds: The kinds of request to show: commands for `approve-mcp`, facts for `keep-facts`.
     ///   - facts: The shared store, where a fact is kept when the server that asked has stopped.
+    ///   - days: How long a `project` answer keeps a command (`approval.persistDays`).
     ///   - send: Writes one protocol line.
     public init(
         channel: PendingApprovals, router: LineRouter, audit: AuditLog?,
-        kinds: Set<PendingApprovals.Kind> = [.command], facts: SharedFacts? = nil,
+        kinds: Set<PendingApprovals.Kind> = [.command], facts: SharedFacts? = nil, days: Int = 30,
         send: @escaping @Sendable (String) -> Void
     ) {
+        self.days = days
         self.channel = channel
         self.facts = facts
         self.kinds = kinds
@@ -94,7 +98,8 @@ public final class PendingRelay: Sendable {
             } else {
                 send(
                     ChatProtocol.encode(
-                        "approval", ChatProtocol.approval(id: Self.protocolID(request.id), pending: request)))
+                        "approval", ChatProtocol.approval(id: Self.protocolID(request.id), pending: request, days: days)
+                    ))
             }
             Task { await self.awaitAnswer(request) }
         }

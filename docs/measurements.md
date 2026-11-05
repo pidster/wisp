@@ -991,6 +991,13 @@ five under a second were refusals from 0.19.0, the client declining without the 
 fastest approvals took 1.1 to 1.3 s. The 212 s for `git reset -q docs/release.md` that morning was the person's,
 answered through the dialog, "This session".
 
+Remembered approvals, from the same log: eight `project` grants since 0.16.0 (seven live in `approvals.json`, none
+`always`, which no one chose). Each covered every later run of its pattern in the directory it was given in (the
+decisions `cached-project`, 263 of them); each time one was asked again within its 30 days, 21 times, the command ran
+in another directory: a worktree of the same repository under `.claude/worktrees/`, or the repository after a grant
+made in a worktree. `project` then matched one exact directory, so this was the approvals "not sticking" the operator
+saw; [ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md) binds them to the repository instead.
+
 ## Reading a measurement
 
 ```json

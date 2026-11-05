@@ -194,6 +194,58 @@ import WispCore
         await server.stop()
     }
 
+    @Test func theChoiceSaysHowLongOnlyAndTheTextNamesTheProject() async throws {
+        let transports = await InMemoryTransport.createConnectedPair()
+        let server = Server(name: "t", version: "0", capabilities: .init(tools: .init(listChanged: false)))
+        let flags = ClientCapabilityFlags()
+        try await server.start(transport: transports.server) { _, capabilities in
+            flags.elicitation.withLock { $0 = capabilities.elicitation != nil }
+        }
+        let seen = SeenMessages()
+        let client = Client(
+            name: "test-client", version: "0", capabilities: .init(elicitation: .init(form: .init())))
+        _ = await client.withElicitationHandler { parameters in
+            if case .form(let form) = parameters {
+                seen.messages.withLock { $0.append(form.message) }
+                seen.schemas.withLock { $0.append(form.requestedSchema) }
+            }
+            return CreateElicitation.Result(action: .accept, content: ["scope": "project"])
+        }
+        _ = try await client.connect(transport: transports.client)
+        let repo = FileManager.default.temporaryDirectory.appending(path: "wisp-dialog-\(UUID().uuidString)")
+            .resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: repo.appending(path: ".git"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let asked = ApprovalRequest(
+            command: "git push origin main", pattern: "git push *", workingDirectory: repo.appending(path: "docs").path,
+            assessment: RiskAssessment(level: .moderate, reasons: ["reaches the network"], sources: ["rules"]),
+            days: 7)
+        let approver = ElicitationApprover(server: server, client: flags, timeout: .seconds(5))
+        #expect(await approver.decide(asked) == .approved(.project))
+        let message = try #require(seen.messages.withLock { $0.first })
+        let schema = try #require(seen.schemas.withLock { $0.first })
+        #expect(message.contains("Remembered as: git push *, in this project, \(repo.path)"), "\(message)")
+        guard case .object(let scope) = try #require(schema.properties["scope"]) else {
+            Issue.record("no scope field")
+            return
+        }
+        #expect(scope["title"] == .string("Remember this approval for"))
+        #expect(scope["enumNames"] == .array(["This turn", "This session", "7 days", "Always"]))
+        #expect(scope["enum"] == .array(["once", "session", "project", "always"]))
+        await client.disconnect()
+        await server.stop()
+    }
+
+    @Test func aLabelSentBackIsReadAsItsScope() {
+        let read = { (text: String) in ElicitationApprover.scope(from: .string(text)) }
+        #expect(read("This turn") == .once && read("This session") == .session && read("7 days") == .project)
+        #expect(read("1 day") == .project && read("Always") == .always && read("project") == .project)
+        // The labels before ADR 0085 still read as they did.
+        #expect(read("This project (30 days, this directory)") == .project)
+        #expect(read("Always (30 days, any directory)") == .always)
+        #expect(ElicitationApprover.scope(from: nil) == .once)
+    }
+
     @Test func aClientWithoutElicitationIsToldARunOutsideTheSandboxIsThePersons() async {
         let approver = ElicitationApprover(
             server: Server(name: "t", version: "0"), client: ClientCapabilityFlags(), timeout: .seconds(1))

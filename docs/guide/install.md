@@ -158,7 +158,7 @@ What to try first:
 | `/quit` | Leaves; the thread stays saved |
 
 When the model asks to run a risky command, chat shows the level, the command, the directory, and the reasons,
-and asks once: `[y]once [s]ession [p]roject 30d [a]lways 30d [n]o`. What each answer covers is in
+and asks once: `[y] this turn  [s] this session  [p] 30 days  [a]lways  [n]o`. What each answer covers is in
 [Approvals and the sandbox](approvals-and-sandbox.md).
 
 ## Where wisp keeps things

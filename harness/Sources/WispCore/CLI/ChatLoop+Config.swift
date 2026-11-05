@@ -78,7 +78,9 @@ extension ChatLoop {
             if chosen == nil {
                 let options = entries.map { listed in
                     let entry = listed.entry
-                    let place = (entry.workingDirectory ?? "any directory") + (listed.isGone ? " (gone)" : "")
+                    let place =
+                        (entry.appliesIn.map(ApprovalProject.shown) ?? "any directory")
+                        + (listed.isGone ? " (gone)" : "")
                     return ChatChoice.Option(
                         value: entry.id, label: entry.pattern, detail: "\(entry.scope.rawValue), \(place)")
                 }

@@ -1632,7 +1632,7 @@ impl App {
             let note = if approval.outside_sandbox && decision == "once" {
                 format!("⚠ approved once, outside the sandbox: {}", approval.command)
             } else {
-                answered(&approval.command, decision)
+                answered(&approval.command, decision, approval.days.unwrap_or(30))
             };
             self.push(&note, LineKind::Note);
             self.approval = None;
@@ -2081,7 +2081,10 @@ impl App {
         if let Some(approval) = self.approval.take() {
             // Refusing is the default answer: a command is not run, a fact is not kept.
             let decision = if approval.is_fact() { "drop" } else { "no" };
-            self.push(&answered(&approval.command, decision), LineKind::Note);
+            self.push(
+                &answered(&approval.command, decision, approval.days.unwrap_or(30)),
+                LineKind::Note,
+            );
             self.show_next();
             return Action::Send(Inbound::Answer {
                 id: approval.id,
@@ -2867,18 +2870,24 @@ fn dialog_lines(approval: &Approval, width: usize) -> Vec<Line<'static>> {
     let (remembered, keys) = if approval.outside_sandbox {
         (
             String::from("never remembered: this run only"),
-            "[y]once [n]o",
+            String::from("[y]once [n]o"),
         )
     } else {
         (
-            format!("remembered as {}", approval.pattern),
-            "[y]once [s]ession [p]roject 30d [a]lways 30d [n]o",
+            match &approval.project {
+                Some(project) => format!("remembered as {}, in {project}", approval.pattern),
+                None => format!("remembered as {}", approval.pattern),
+            },
+            format!(
+                "[y] this turn [s]ession [p] {} [a]lways [n]o",
+                days(approval.days.unwrap_or(30))
+            ),
         )
     };
     lines.push(muted(remembered));
     // One empty row sets the keys apart from what they answer.
     lines.push(Line::default());
-    lines.push(Line::from(Span::styled(fit(keys, width), palette::body())));
+    lines.push(Line::from(Span::styled(fit(&keys, width), palette::body())));
     lines
 }
 
@@ -2938,17 +2947,26 @@ fn fit(text: &str, width: usize) -> String {
     out
 }
 
+/// A number of days as a person reads it: `1 day`, `30 days`.
+fn days(count: u32) -> String {
+    if count == 1 {
+        String::from("1 day")
+    } else {
+        format!("{count} days")
+    }
+}
+
 /// The scrollback's record of an answered dialog: `✓` for what was approved or kept, `⚠` for what was refused or
-/// dropped.
-fn answered(command: &str, decision: &str) -> String {
+/// dropped. `days` is how long a `project` answer keeps it.
+fn answered(command: &str, decision: &str, days: u32) -> String {
     let what = match decision {
-        "once" => "approved for this turn",
-        "session" => "approved for this session",
-        "project" => "approved in this project for 30 days",
-        "always" => "approved everywhere for 30 days",
-        "keep" => "kept as a permanent fact",
-        "drop" => "dropped, left in its thread",
-        _ => "refused",
+        "once" => String::from("approved for this turn"),
+        "session" => String::from("approved for this session"),
+        "project" => format!("approved in this project for {}", self::days(days)),
+        "always" => String::from("approved in this project until revoked"),
+        "keep" => String::from("kept as a permanent fact"),
+        "drop" => String::from("dropped, left in its thread"),
+        _ => String::from("refused"),
     };
     let mark = if matches!(decision, "once" | "session" | "project" | "always" | "keep") {
         '✓'
@@ -3014,16 +3032,28 @@ mod tests {
     #[test]
     fn an_answer_is_marked_by_whether_it_went_through() {
         assert_eq!(
-            answered("git push", "once"),
+            answered("git push", "once", 30),
             "✓ approved for this turn: git push"
         );
         assert_eq!(
-            answered("codename", "keep"),
+            answered("git push", "project", 7),
+            "✓ approved in this project for 7 days: git push"
+        );
+        assert_eq!(
+            answered("git push", "project", 1),
+            "✓ approved in this project for 1 day: git push"
+        );
+        assert_eq!(
+            answered("git push", "always", 30),
+            "✓ approved in this project until revoked: git push"
+        );
+        assert_eq!(
+            answered("codename", "keep", 30),
             "✓ kept as a permanent fact: codename"
         );
-        assert_eq!(answered("git push", "no"), "⚠ refused: git push");
+        assert_eq!(answered("git push", "no", 30), "⚠ refused: git push");
         assert_eq!(
-            answered("codename", "drop"),
+            answered("codename", "drop", 30),
             "⚠ dropped, left in its thread: codename"
         );
     }
@@ -4679,7 +4709,10 @@ mod tests {
         // The keys stand one empty row below the pattern, inside the border.
         assert!(rows[8].starts_with(" │"), "{rows:?}");
         assert!(rows[8].trim_matches([' ', '│']).is_empty(), "{rows:?}");
-        assert!(rows[9].contains("[y]once [s]ession [p]roject 30d [a]lways 30d [n]o"));
+        assert!(
+            rows[9].contains("[y] this turn [s]ession [p] 30 days [a]lways [n]o"),
+            "{rows:?}"
+        );
         assert!(rows[10].starts_with(" ╰"));
         // A blank row sets the dialog off from the status, as the reply row does above it.
         assert!(rows[11].trim().is_empty(), "{rows:?}");

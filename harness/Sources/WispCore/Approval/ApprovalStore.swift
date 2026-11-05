@@ -11,23 +11,38 @@ public enum ApprovalScope: String, Codable, Equatable, Sendable, CaseIterable {
     case once
     /// Until the process exits.
     case session
-    /// Until it expires, for this command's pattern (`head *`) in this exact directory; persisted.
+    /// For `approval.persistDays`, for this command's pattern (`head *`) in this project; persisted. The name is kept
+    /// from before ADR 0085, when it was the one scope bound to a place.
     case project
-    /// Until it expires, for this command's pattern in any directory; persisted.
+    /// With no end but the person's, for this command's pattern in this project; persisted (ADR 0085).
     case always
 
     /// Whether the scope outlives the process.
     public var isPersistent: Bool {
         self == .project || self == .always
     }
+
+    /// The choice as every face names it: how long, and only that (ADR 0085, decision 5).
+    ///
+    /// - Parameter days: `approval.persistDays`, how long `project` lasts.
+    /// - Returns: "This turn", "This session", "30 days", or "Always".
+    public func label(days: Int) -> String {
+        switch self {
+        case .once: "This turn"
+        case .session: "This session"
+        case .project: days == 1 ? "1 day" : "\(days) days"
+        case .always: "Always"
+        }
+    }
 }
 
 /// Approvals that outlive the process, kept in `~/.wisp/approvals.json`.
 ///
 /// A persisted approval is a standing permission, so it is bound to a pattern
-/// (`head *`: the program, any arguments; and the directory for `project`),
-/// expires, covers verdicts only up to the level it was granted at, is never used
-/// for a dangerous verdict, and can be listed and revoked with `wisp approvals`.
+/// (`head *`: the program, any arguments) and to its project (`ApprovalProject`: the git repository, or the directory
+/// outside one), expires unless it is `always`, covers verdicts only up to the level it was granted at, is never used
+/// for a dangerous verdict, and can be listed and revoked with `wisp approvals`
+/// ([ADR 0085](../../../../docs/decisions/0085-an-approval-lasts-a-time-in-its-project.md)).
 /// Deny patterns and the sandbox still apply to every use.
 ///
 /// Several processes share the file (a `wisp mcp` server and `wisp approvals revoke` in a terminal),
@@ -46,46 +61,65 @@ public actor ApprovalStore {
         public var id: String
         /// The approval key, such as `head *`.
         public var pattern: String
-        /// The directory, for `project` scope; nil for `always`.
+        /// The directory it was granted in; nil only for an `always` written before ADR 0085, which applied in any
+        /// directory and is no longer used.
         public var workingDirectory: String?
+        /// The project it applies in (`ApprovalProject`), recorded at grant; nil for one written before ADR 0085,
+        /// whose project is read from its directory.
+        public var project: String?
         /// `project` or `always`.
         public var scope: ApprovalScope
         /// The classifier level when granted; the entry covers verdicts at this level or below.
         public var level: RiskLevel
         /// When it was granted.
         public var grantedAt: Date
-        /// When it stops applying.
-        public var expiresAt: Date
+        /// When it stops applying; nil for `always`, which never does.
+        public var expiresAt: Date?
         /// Which entry point granted it.
         public var source: String
 
-        /// Whether `pattern` in `directory` is covered at `now`: unexpired, the same pattern, and for `project` the
-        /// same directory. The level is checked by the caller.
+        /// Whether the entry applies at `now`: unexpired, and bound to a project, so not an `always` written before
+        /// ADR 0085 for any directory.
+        ///
+        /// - Parameter now: The time to judge expiry at.
+        /// - Returns: True while it applies.
+        func isLive(at now: Date) -> Bool {
+            guard workingDirectory != nil || project != nil else { return false }
+            return expiresAt.map { now < $0 } ?? true
+        }
+
+        /// The project it applies in: the one recorded, else its directory's.
+        var appliesIn: String? { project ?? workingDirectory.map(ApprovalProject.of) }
+
+        /// Whether `pattern` in `project` is covered at `now`: live, the same pattern, and the same project. The level
+        /// is checked by the caller.
         ///
         /// - Parameters:
         ///   - pattern: The approval key.
-        ///   - directory: Where the command would run.
+        ///   - project: The project the command would run in (`ApprovalProject.of`).
         ///   - now: The time to judge expiry at.
         /// - Returns: True when this entry covers it.
-        func covers(pattern: String, directory: String, now: Date) -> Bool {
-            guard now < expiresAt, self.pattern == pattern else { return false }
-            return scope == .always || workingDirectory == directory
+        func covers(pattern: String, project: String, now: Date) -> Bool {
+            guard isLive(at: now), self.pattern == pattern else { return false }
+            return appliesIn == project
         }
     }
 
     /// Where entries are written; nil keeps them in memory only (tests).
     public let url: URL?
-    /// How long a new grant lasts (`approval.persistDays`).
+    /// How long a new `project` grant lasts (`approval.persistDays`); `always` has no end.
     private let lifetime: Duration
+    /// The lifetime in whole days, as the faces offer it.
+    public nonisolated var days: Int { Int(lifetime.components.seconds / 86_400) }
     /// The entries of an in-memory store; a store with a file reads the file instead.
     private var memory: [Entry] = []
 
-    /// A store over `url` (missing or unreadable means empty); expired entries are ignored and dropped
+    /// A store over `url` (missing or unreadable means empty); entries no longer live are ignored and dropped
     /// at the next change.
     ///
     /// - Parameters:
     ///   - url: The JSON file, or nil for an in-memory store.
-    ///   - lifetime: How long a new grant lasts.
+    ///   - lifetime: How long a new `project` grant lasts.
     public init(url: URL?, lifetime: Duration = .seconds(30 * 24 * 3600)) {
         self.url = url
         self.lifetime = lifetime
@@ -93,15 +127,16 @@ public actor ApprovalStore {
 
     /// Live entries, newest first.
     public var all: [Entry] {
-        load().filter { $0.expiresAt > Date() }.sorted { $0.grantedAt > $1.grantedAt }
+        let now = Date()
+        return load().filter { $0.isLive(at: now) }.sorted { $0.grantedAt > $1.grantedAt }
     }
 
     /// A standing approval as listed: the entry, and whether the directory it was given in is gone.
     public struct Listing: Equatable, Sendable {
         /// The approval.
         public var entry: Entry
-        /// Whether it is a `project` approval whose directory no longer exists (`ApprovalStore.isGone`), so it
-        /// can never match again; checked when listed.
+        /// Whether its project no longer exists (`ApprovalStore.isGone`), so it can never match again; checked when
+        /// listed.
         public var isGone: Bool
     }
 
@@ -111,21 +146,21 @@ public actor ApprovalStore {
         all.map { Listing(entry: $0, isGone: Self.isGone($0)) }
     }
 
-    /// Whether `entry` is a `project` approval whose directory no longer exists: nothing is at its path, or
-    /// what is there is not a directory. A directory that cannot be looked at (permission denied) is not gone,
-    /// and an `always` approval belongs to no directory.
+    /// Whether `entry`'s project no longer exists: nothing is at the path it recorded (the repository's common git
+    /// directory, or the directory outside one; for an entry written before ADR 0085, its directory), or what is
+    /// there is not a directory. A directory that cannot be looked at (permission denied) is not gone.
     ///
     /// - Parameter entry: The approval.
-    /// - Returns: True when its directory is gone.
+    /// - Returns: True when its project is gone.
     public static func isGone(_ entry: Entry) -> Bool {
-        guard entry.scope == .project, let directory = entry.workingDirectory else { return false }
+        guard let directory = entry.project ?? entry.workingDirectory else { return false }
         var status = stat()
         guard stat(directory, &status) == 0 else { return errno == ENOENT || errno == ENOTDIR }
         return status.st_mode & S_IFMT != S_IFDIR
     }
 
-    /// Removes every `project` approval whose directory is gone, deciding under the lock, so a directory
-    /// recreated since it was listed keeps its approvals.
+    /// Removes every approval whose project is gone, deciding under the lock, so a directory recreated since it was
+    /// listed keeps its approvals.
     ///
     /// - Returns: The entries removed, newest first.
     /// - Throws: File-system errors from writing.
@@ -133,13 +168,15 @@ public actor ApprovalStore {
     public func clearGone() throws -> [Entry] {
         var removed: [Entry] = []
         try change { entries in
-            removed = entries.filter { $0.expiresAt > Date() && Self.isGone($0) }
+            let now = Date()
+            removed = entries.filter { $0.isLive(at: now) && Self.isGone($0) }
             entries.removeAll { Self.isGone($0) }
         }
         return removed.sorted { $0.grantedAt > $1.grantedAt }
     }
 
-    /// The entry covering `pattern` in `directory`, if any, granted at `level` or above when a level is given.
+    /// The entry covering `pattern` in `directory`'s project, if any, granted at `level` or above when a level is
+    /// given.
     ///
     /// - Parameters:
     ///   - pattern: The approval key.
@@ -148,8 +185,9 @@ public actor ApprovalStore {
     /// - Returns: The first entry that covers it.
     public func find(pattern: String, directory: String, level: RiskLevel? = nil) -> Entry? {
         let now = Date()
+        let project = ApprovalProject.of(directory)
         return load().first { entry in
-            entry.covers(pattern: pattern, directory: directory, now: now) && level.map { entry.level >= $0 } ?? true
+            entry.covers(pattern: pattern, project: project, now: now) && level.map { entry.level >= $0 } ?? true
         }
     }
 
@@ -159,7 +197,7 @@ public actor ApprovalStore {
     ///
     /// - Parameters:
     ///   - pattern: The approval key.
-    ///   - directory: Where it was approved; kept for `project`, dropped for `always`.
+    ///   - directory: Where it was approved; its project is what the entry applies in.
     ///   - scope: `project` or `always`.
     ///   - level: The verdict's level, the most the entry will cover.
     ///   - source: The face that granted it, recorded for `wisp approvals`.
@@ -172,9 +210,10 @@ public actor ApprovalStore {
         precondition(scope.isPersistent, "only project and always are persisted")
         let now = Date()
         let entry = Entry(
-            id: ShortID.make(), pattern: pattern,
-            workingDirectory: scope == .project ? directory : nil, scope: scope, level: level, grantedAt: now,
-            expiresAt: now.addingTimeInterval(TimeInterval(lifetime.components.seconds)), source: source)
+            id: ShortID.make(), pattern: pattern, workingDirectory: directory, project: ApprovalProject.of(directory),
+            scope: scope, level: level, grantedAt: now,
+            expiresAt: scope == .always ? nil : now.addingTimeInterval(TimeInterval(lifetime.components.seconds)),
+            source: source)
         try change { $0.append(entry) }
         return entry
     }
@@ -222,8 +261,8 @@ public actor ApprovalStore {
         return decoded
     }
 
-    /// Applies `edit` to the entries as they stand on disk, under the lock, and writes them back without the
-    /// expired ones.
+    /// Applies `edit` to the entries as they stand on disk, under the lock, and writes them back without the ones
+    /// no longer live.
     ///
     /// - Parameter edit: The change to make.
     /// - Throws: File-system errors from locking or writing.
@@ -241,7 +280,7 @@ public actor ApprovalStore {
         var entries = Self.read(url)
         edit(&entries)
         let now = Date()
-        try Self.write(entries.filter { $0.expiresAt > now }, to: url)
+        try Self.write(entries.filter { $0.isLive(at: now) }, to: url)
     }
 
     /// Opens (creating, mode 0600) and exclusively locks the lock file, waiting for another process to release it.
