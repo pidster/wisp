@@ -919,6 +919,27 @@ all six with 1 or 2; every default cell condensed at least once. Single on-devic
 same cell, so read differences of an answer as noise unless three runs agree. ADR 0057 has the per-cell
 condensations, floors, and times.
 
+## Homebrew's move from the formula to the cask, 2026-11-04
+
+A probe of [ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)'s move on the operator's Mac, Homebrew
+7.0.12, before 0.35.0. A scratch tap, `wisptest/tap`, tapped from a local git repository, held 0.34.1's formula as
+released; `brew install wisptest/tap/wisp` installed it, which trusted that formula only. A commit then added the
+cask `scripts/release` writes, for 0.34.1's disk image, deleted the formula, and added `tap_migrations.json`
+(`{"wisp": "wisptest/tap/wisp"}`), and `brew update` pulled it, with `HOMEBREW_CASK_OPTS=--appdir=` a scratch folder
+so `/Applications` was not touched. Everything was uninstalled, untrusted, and untapped afterwards.
+
+| Case | What Homebrew did | After it |
+| --- | --- | --- |
+| Formula trusted, cask not (as every `brew install pidster/tap/wisp` leaves it) | Warned "Not automatically installing … because the migration target is not trusted", naming `brew trust --cask` and `brew install --cask`; installed nothing | The formula's 0.34.1, still linked |
+| Those two commands, run as given, the formula still linked | "successfully installed" the cask, but skipped both `binary` links ("already a Binary at '/opt/homebrew/bin/wisp' from formula wisp") and all three completions ("Will not overwrite") | `PATH` still runs the formula's wisp; uninstalling the formula afterwards leaves no `wisp` link at all |
+| Cask trusted before the update | "has been migrated from a formula to a cask": unlinked the formula (2 links), installed the cask, linked `wisp` and `wisp-tui` to the app, generated the completions, and said to run `brew uninstall --formula --force wisp` | The cask's wisp on `PATH`; the formula's keg kept, unlinked, with its `opt` link, until that uninstall, which worked with the formula gone from the tap |
+
+So the move is automatic only for a person who trusted the cask or the tap beforehand; anyone else moves by hand,
+and in this order: trust the cask (`brew trust --cask pidster/tap/wisp`, as probed, or the tap, `brew trust
+pidster/tap`, which wisp names: Homebrew's `trust.rb` accepts any item of a trusted tap), `brew uninstall --formula wisp`, then
+`brew install --cask pidster/tap/wisp`. Homebrew's own two commands, run while the formula is linked, leave a cask
+that is installed but not on `PATH`.
+
 ## Reading a measurement
 
 ```json

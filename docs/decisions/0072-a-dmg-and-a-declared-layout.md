@@ -3,7 +3,9 @@
 Date: 2026-10-23. Status: accepted by the operator on 2026-10-23 (the declared layout and `Wisp.app`'s layout; the
 home's location left open, below); the declared layout, and `Wisp.app` and the DMG in the release (`scripts/wisp-app`,
 `scripts/wisp-dmg`), built 2026-10-23 for 0.31.0. Amends [ADR 0012](0012-homebrew-release.md) (a second package beside the formula) and
-[ADR 0047](0047-mlx-in-the-release.md) (where `Wisp.app` keeps the Metal library).
+[ADR 0047](0047-mlx-in-the-release.md) (where `Wisp.app` keeps the Metal library). Amended by
+[ADR 0084](0084-homebrew-installs-the-app-from-a-cask.md): Homebrew installs `Wisp.app` from a cask, so the app is the
+one package Homebrew and a download share; the formula's layout stays readable for installs not yet moved.
 
 ## Context
 

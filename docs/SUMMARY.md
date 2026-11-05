@@ -136,6 +136,7 @@
   - [0081: The plan tool, a recorded and tracked tree of tasks](decisions/0081-the-plan-tool.md)
   - [0082: A llama.cpp server wisp starts for the models it knows](decisions/0082-a-llama-cpp-server-wisp-starts.md)
   - [0083: An empty response is asked once more, from the turn's record](decisions/0083-an-empty-response-is-asked-once-more.md)
+  - [0084: Homebrew installs Wisp.app from a cask, and the formula migrates to it](decisions/0084-homebrew-installs-the-app-from-a-cask.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

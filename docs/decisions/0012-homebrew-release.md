@@ -2,7 +2,9 @@
 
 Date: 2026-09-17. Status: accepted. Amended by [ADR 0047](0047-mlx-in-the-release.md): the release also carries
 MLX's Metal library, `mlx.metallib`, beside the binary. Amended by [ADR 0069](0069-signed-and-notarised-releases.md):
-the release can be signed with a Developer ID and notarised, unsigned by default.
+the release can be signed with a Developer ID and notarised, unsigned by default. Amended by
+[ADR 0084](0084-homebrew-installs-the-app-from-a-cask.md): the tap installs `Wisp.app` from a cask; the formula's
+last version is 0.34.2, and 0.35.0 deletes it.
 
 ## Context
 

@@ -1,7 +1,9 @@
 # ADR 0082: A llama.cpp server wisp starts for the models it knows
 
 Date: 2026-10-27. Status: accepted by the operator on 2026-10-29, after the probe below; built for 0.33.0 (decisions 1 to 8; of
-decision 2, adding a path, not a download).
+decision 2, adding a path, not a download). Amended by [ADR 0084](0084-homebrew-installs-the-app-from-a-cask.md),
+decision 8: from `Wisp.app`, a job left by the formula's LaunchAgent file whose `wisp` is gone is replaced by the
+app's Login Item.
 Agreed by the operator on 2026-10-27: wisp should be able to start llama.cpp's `llama-server` for the models it knows
 about, as a release of its own after 0.32.0. Builds on [ADR 0058](0058-a-shared-http-executor.md), which talks to a
 server someone else started.
