@@ -25,10 +25,9 @@ That is Homebrew's cask `wisp` ([ADR 0084](../decisions/0084-homebrew-installs-t
 completions for zsh, bash, and fish from `wisp completions`. `Wisp.app` holds two more parts wisp uses: MLX's Metal
 library, `mlx.metallib`, which wisp needs to run MLX models ([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and
 `Wisp Notifier.app`, which posts wisp's notifications as "Wisp" once you allow them: the first notification asks
-([ADR 0070](../decisions/0070-a-notification-helper.md)). `wisp doctor`'s `signature` line names the signer. Say
-`--cask`: while the old formula is still in the tap, `brew install pidster/tap/wisp` without it installs the formula.
-Installing the cask by its full name trusts it (Homebrew's tap trust); if Homebrew
-refuses it as untrusted all the same, run `brew trust pidster/tap` first.
+([ADR 0070](../decisions/0070-a-notification-helper.md)). `wisp doctor`'s `signature` line names the signer. The
+formula it replaced left the tap in 0.35.0 (below). Installing the cask by its full name trusts it (Homebrew's tap trust); if Homebrew refuses it as untrusted all the
+same, run `brew trust pidster/tap` first.
 
 The cask updates itself: run `wisp update`, as for the disk image ([wisp.md](../wisp.md#wisp-update)). `brew upgrade`
 leaves it alone unless you pass `--greedy`. `brew uninstall --cask pidster/tap/wisp` removes the app and its links;
@@ -40,8 +39,8 @@ uninstalling, and delete `~/Library/Application Support/Wisp` and `~/Library/Log
 ### Moving from the Homebrew formula
 
 Until 0.34.2 Homebrew installed wisp from a formula, `pidster/tap/wisp`, into its Cellar. 0.34.2 is the formula's
-last version; from 0.35.0 it leaves the tap, and `brew update` moves a formula install to the cask only if you trust
-the cask or the whole tap, which installing the formula by name did not do. `wisp doctor` fails from the formula and
+last version, and 0.35.0 removed it from the tap: the `brew update` that sees it go moves a formula install to the
+cask, but only if you trust the cask or the whole tap, which installing the formula by name did not do. `wisp doctor` fails from the formula and
 `wisp update` refuses there, both naming these three commands. Run them in this order (the first trusts the whole
 tap, the cask with it; `brew trust --cask pidster/tap/wisp` trusts the cask alone, if you prefer):
 

@@ -6,6 +6,15 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Changed:
+
+- Homebrew's formula is gone from `pidster/tap`: wisp is the cask only, `brew install --cask pidster/tap/wisp`,
+  which installs `Wisp.app`. The tap's `tap_migrations.json` moves a formula install to the cask on its next `brew update`, if you
+  trust the tap or the cask; otherwise run, in this order, `brew trust pidster/tap`, `brew uninstall --formula wisp`,
+  `brew install --cask pidster/tap/wisp`. `wisp doctor` names any step left undone (ADR 0084).
+
 ## 0.34.2
 
 Changed:
