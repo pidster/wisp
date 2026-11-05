@@ -17,11 +17,15 @@ Next: 0.35.1 (the operator,
 2026-11-05): evaluate whether the MCP approval dialog works as intended, through the client's elicitation beside
 `wisp approvals` and the notification ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Seen on
 the git thread on 2026-11-05: a `git reset` that needed approval waited 212 s, and `respond` turns whose commands
-were already approved for the project took 97 to 260 s around commands that ran in under a second to 62 s. Then
-two turns timed out (Ollama sending nothing for 120 s) while `granite4.2:8b` answered a short prompt in 2.5 s: the
-thread's requests had reached about 48,000 input tokens against the 32,768 Ollama had loaded the model with. A new
-thread with the same settings ran the same push in 8.8 s. So the evaluation should also cover how a long thread's
-requests are sized against the window Ollama actually loaded, not only the dialog. Later,
+were already approved for the project took 97 to 260 s around commands that ran in under a second to 62 s; then
+two turns timed out, and a new thread with the same settings ran the same push in 8.8 s. Read from the audit log the
+same day ([measurements.md](measurements.md), "The git thread's slow turns and its approvals"): every one of 82
+approvals over MCP was answered through the client's dialog, by the person, the 212 s being the person's; the slow
+turns were Ollama evaluating the thread's whole prompt, about 24,000 tokens a request, at the start of nearly every
+turn and after every commit, with the Mac 14 GB into swap, not a request outgrowing its window. Open for 0.35.1:
+what the operator saw of the dialog, beyond what the audit shows; recording each Ollama request's evaluation and
+load times, so a request that missed the server's prompt cache can be told from one that hit it; and finding what
+changes at the front of a long thread's prompt between turns. Later,
 with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents

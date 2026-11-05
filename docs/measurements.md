@@ -962,6 +962,35 @@ and the install went ahead. Untapping `pidster/tap` for the probe, as a person m
 the result above. Neither homebrew/core nor homebrew/cask has a `wisp` (formulae.brew.sh, 2026-11-05), so a person
 meets this only with a second tap holding one; `wisp doctor`'s `install` names the repair then.
 
+## The git thread's slow turns and its approvals, 2026-11-05
+
+Read from the audit log on the operator's Mac (48 GB, 14.2 of 15 GB of swap in use that afternoon), for the git
+threads `git6` (116 turns in all) and `git7` (opened that day), both `ollama:granite4.2:8b` not thinking,
+whose window wisp sized at 32,768 of 131,072 tokens ("10.5 GiB of a 10.6 GiB budget").
+
+`respond`'s `usage.input` is the sum over the turn's requests, at least two for a git command (one to call
+`run_command`, one to report), so `git6`'s 48,704 was about 24,000 tokens a request, inside the window. Per turn:
+
+| Thread | Prompt to the first tool call | After the command, to the reply | Input, the turn's requests together |
+| --- | --- | --- | --- |
+| `git6`, 16 turns | 57 to 119 s (9 s twice) | 1 to 2 s after a 2 s push; 56 to 120 s after a commit, whose hook builds and tests for 40 to 96 s | about 48,000 |
+| `git7`, 10 turns | 3 to 11 s, growing with the thread | 1 to 9 s | 3,400 to 10,400 |
+
+Ollama's `prompt_eval_count` is the whole prompt whether or not the server reused a cached prefix, so wisp's
+condensing ahead of the window counts right: the same 8,418-token prompt, sent twice, reported 8,418 both times,
+evaluated in 14.45 s and then 0.02 s, and 8,422 for it with a few words more, in 0.06 s. The slow turns are the
+first case, about 580 tokens a second: the prompt evaluated whole at a turn's start, which a change near its front
+causes, and after a commit, whose build presses the model's memory. The audit does not record the evaluation time,
+so which requests missed the cache is inferred, not read.
+
+Approvals over MCP, every one in the log (82, from 0.19.0 to 0.34.1, all from Claude Code): each was filed for
+`wisp approvals` alongside the client's elicitation, and each was answered through the elicitation; none by
+`wisp approvals`, `wisp-tui`, or `/approvals`. The banner was posted for 55, skipped for 21 answered inside the
+10-second delay, and not recorded for 6 from before it existed. Answers took 0 to 47,488 s, the median 20 s; the
+five under a second were refusals from 0.19.0, the client declining without the person, which fails safe, and the
+fastest approvals took 1.1 to 1.3 s. The 212 s for `git reset -q docs/release.md` that morning was the person's,
+answered through the dialog, "This session".
+
 ## Reading a measurement
 
 ```json
