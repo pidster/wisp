@@ -1,5 +1,5 @@
 #!/bin/sh
-# Cut a release: preflight, build, package, tag, GitHub release, Homebrew tap formula.
+# Cut a release: preflight, build, package, tag, GitHub release, Homebrew tap cask.
 # Usage: scripts/release X.Y.Z [--dry-run] [--skip-eval] [--unsigned]
 # See docs/release.md. Remote steps (tag push, release, tap push) are printed, not run, with --dry-run.
 # --skip-eval leaves out the model eval, for a release whose eval already passed on the same code (a dry
@@ -35,6 +35,9 @@ TAG="v$VERSION"
 TARBALL="wisp-$VERSION-arm64.tar.gz"
 DMG="Wisp-$VERSION.dmg"
 TAP_REPO="pidster/homebrew-tap"
+# Releases before 0.35.0 publish the Homebrew formula beside the cask; 0.35.0 deletes it (ADR 0084, decision 10).
+KEEP_FORMULA=""
+[ "$(printf '%s\n0.35.0\n' "$VERSION" | sort -V | head -1)" = 0.35.0 ] || KEEP_FORMULA=1
 OUT="$ROOT/harness/.build/release-artifacts"
 SIGN_IDENTITY="${WISP_SIGN_IDENTITY:-Developer ID Application}"
 [ -z "$UNSIGNED" ] || SIGN_IDENTITY=""
@@ -198,7 +201,7 @@ STAGE_REAL="$(cd "$OUT/stage" && pwd -P)"
 # And find the staged helper beside it (the notifier finding names it with its permission on this Mac).
 "$OUT/stage/wisp" doctor | grep -qF "ok   notifier: $STAGE_REAL/Wisp Notifier.app" \
     || { echo "the staged wisp does not find the staged Wisp Notifier.app (wisp doctor's notifier finding)" >&2; exit 1; }
-# The formula installs the completions from 'wisp completions <shell>'; the staged binary must print the committed ones.
+# The cask installs the completions from 'wisp completions <shell>'; the staged binary must print the committed ones.
 for entry in zsh:_wisp bash:wisp.bash fish:wisp.fish; do
     "$OUT/stage/wisp" completions "${entry%%:*}" | cmp -s - "harness/Sources/WispCore/Resources/completions/${entry#*:}" \
         || { echo "the staged wisp's ${entry%%:*} completions differ from the committed ${entry#*:}" >&2; exit 1; }
@@ -266,9 +269,14 @@ echo "==> package"
 {
     printf '%s\n\n' "$NOTES"
     if [ -n "$SIGN_IDENTITY" ]; then
-        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`, or download `%s` and drag Wisp.app to Applications. Everything is signed with a Developer ID and notarised by Apple, so the tarball runs when downloaded directly too.\n' "$DMG"
+        printf 'Install with Homebrew: `brew install --cask pidster/tap/wisp`, or download `%s` and drag Wisp.app to Applications; update either with `wisp update`. Everything is signed with a Developer ID and notarised by Apple, so the tarball runs when downloaded directly too.\n\n' "$DMG"
+        if [ -n "$KEEP_FORMULA" ]; then
+            printf 'The Homebrew formula ends with this release; from 0.35.0 wisp is the cask. Move a formula install to it, in this order: `brew trust pidster/tap`, `brew uninstall --formula wisp`, `brew install --cask pidster/tap/wisp`.\n'
+        else
+            printf 'A Homebrew formula install moves to the cask on its next `brew update` when you trust the tap or the cask; otherwise, in this order: `brew trust pidster/tap`, `brew uninstall --formula wisp`, `brew install --cask pidster/tap/wisp`.\n'
+        fi
     else
-        printf 'Install or upgrade with Homebrew: `brew install pidster/tap/wisp`. Downloading the tarball directly leaves it quarantined; use Homebrew.\n'
+        printf 'An unsigned build: no disk image and no Homebrew cask. Downloading the tarball directly leaves it quarantined.\n'
     fi
 } > "$OUT/notes.md"
 (cd "$OUT/stage" && tar -czf "../$TARBALL" wisp wisp-tui mlx.metallib "Wisp Notifier.app" LICENSE)
@@ -283,11 +291,55 @@ fi
 SHA="$(cut -d' ' -f1 "$OUT/$TARBALL.sha256")"
 ls -la "$OUT/$TARBALL"; echo "sha256 $SHA"
 
-# The formula is written before anything is published, so a publish that fails part way has it to finish with.
-# No `version` line: Homebrew scans the version from the URL's releases/download/vX.Y.Z/, and `brew audit` calls a
-# `version` equal to the scanned one redundant (resource_auditor.rb, audit_version).
+# What goes to the tap is written before anything is published, so a publish that fails part way has it to finish
+# with (ADR 0084). The cask installs Wisp.app from the disk image, so only a signed release has one. Before 0.35.0
+# the formula is published beside it, its last version saying how to move (decision 10); from 0.35.0 the tap's
+# commit deletes the formula and lists it in tap_migrations.json, from which a person's next brew update moves a
+# formula install to the cask when they trust the tap or the cask (Homebrew's update_report, migrate_tap_migration).
+CASK="$OUT/wisp-cask.rb"
 FORMULA="$OUT/wisp.rb"
-cat > "$FORMULA" <<RUBY
+MIGRATIONS="$OUT/tap_migrations.json"
+TAP_DIR="$OUT/tap"
+TAP_PUBLISH=""
+if [ -n "$SIGN_IDENTITY" ]; then
+    DMG_SHA="$(cut -d' ' -f1 "$OUT/$DMG.sha256")"
+    cat > "$CASK" <<RUBY
+cask "wisp" do
+  version "$VERSION"
+  sha256 "$DMG_SHA"
+
+  url "https://github.com/pidster/wisp/releases/download/v#{version}/Wisp-#{version}.dmg"
+  name "Wisp"
+  desc "On-device, tool-using AI microharness"
+  homepage "https://github.com/pidster/wisp"
+
+  # wisp update replaces the app in place (ADR 0074); brew upgrade --greedy brings it to this version.
+  auto_updates true
+  depends_on arch: :arm64
+  depends_on macos: :golden_gate
+
+  app "Wisp.app"
+  # wisp started through these links resolves them and finds the app's parts (ADR 0072).
+  binary "#{appdir}/Wisp.app/Contents/MacOS/wisp"
+  binary "#{appdir}/Wisp.app/Contents/MacOS/wisp-tui"
+  # The completion scripts are embedded in the binary: 'wisp completions bash|zsh|fish'.
+  generate_completions_from_executable "#{appdir}/Wisp.app/Contents/MacOS/wisp", "completions",
+                                       shells: [:bash, :zsh, :fish]
+
+  # --zap removes wisp's data as well as the app (ADR 0084, decision 9); WISP_HOME elsewhere is not known here.
+  zap trash: [
+    "~/.wisp",
+    "~/Library/LaunchAgents/com.pidster.wisp.llamacpp.plist",
+    "~/Library/Preferences/com.pidster.wisp.notifier.plist",
+    "~/Library/Preferences/com.pidster.wisp.plist",
+  ]
+end
+RUBY
+    echo "cask written to $CASK"
+    if [ -n "$KEEP_FORMULA" ]; then
+        # No `version` line: Homebrew scans the version from the URL's releases/download/vX.Y.Z/, and `brew audit`
+        # calls a `version` equal to the scanned one redundant (resource_auditor.rb, audit_version).
+        cat > "$FORMULA" <<RUBY
 class Wisp < Formula
   desc "On-device, tool-using AI microharness for macOS"
   homepage "https://github.com/pidster/wisp"
@@ -295,13 +347,17 @@ class Wisp < Formula
   sha256 "$SHA"
   license "MIT"
 
+  # The formula's last versions: from 0.35.0 wisp is the cask pidster/tap/wisp (ADR 0084).
+  deprecate! date: "2026-11-04", because: "is replaced by the cask pidster/tap/wisp, which installs Wisp.app",
+             replacement_cask: "pidster/tap/wisp"
+
   depends_on arch: :arm64
   depends_on macos: :golden_gate
 
   def install
     # MLX finds mlx.metallib beside the binary's real path (dladdr resolves Homebrew's links), so both
     # live in libexec and bin links to the binary (ADR 0047).
-    # Wisp Notifier.app beside wisp, where wisp looks for it (ADR 0070); not in /Applications, and not a cask.
+    # Wisp Notifier.app beside wisp, where wisp looks for it (ADR 0070); not in /Applications.
     libexec.install "wisp", "mlx.metallib", "Wisp Notifier.app"
     bin.install_symlink libexec/"wisp"
     bin.install "wisp-tui"
@@ -312,6 +368,17 @@ class Wisp < Formula
     # The completion scripts are embedded in the binary; this runs 'wisp completions bash|zsh|fish' into
     # bash_completion, zsh_completion, and fish_completion.
     generate_completions_from_executable(bin/"wisp", "completions")
+  end
+
+  def caveats
+    <<~EOS
+      This formula ends at $VERSION: from 0.35.0 wisp is a Homebrew cask, installing Wisp.app,
+      which wisp update keeps current. Move to it now, in this order:
+        brew trust pidster/tap
+        brew uninstall --formula wisp
+        brew install --cask pidster/tap/wisp
+      Your threads, approvals, and facts in ~/.wisp are kept.
+    EOS
   end
 
   test do
@@ -327,15 +394,22 @@ class Wisp < Formula
   end
 end
 RUBY
-echo "formula written to $FORMULA"
-TAP_DIR="$OUT/tap"
-TAP_PUBLISH="rm -rf '$TAP_DIR' && gh repo clone $TAP_REPO '$TAP_DIR' && mkdir -p '$TAP_DIR/Formula' && cp '$FORMULA' '$TAP_DIR/Formula/wisp.rb' && cd '$TAP_DIR' && git add Formula/wisp.rb && git commit -m 'wisp $VERSION' && git push"
+        echo "formula written to $FORMULA, beside the cask, its last versions"
+        TAP_CHANGE="cp '$FORMULA' '$TAP_DIR/Formula/wisp.rb' && git add Formula/wisp.rb Casks/wisp.rb"
+    else
+        printf '{\n  "wisp": "pidster/tap/wisp"\n}\n' > "$MIGRATIONS"
+        TAP_CHANGE="cp '$MIGRATIONS' '$TAP_DIR/tap_migrations.json' && git rm -q --ignore-unmatch Formula/wisp.rb && git add Casks/wisp.rb tap_migrations.json"
+    fi
+    TAP_PUBLISH="rm -rf '$TAP_DIR' && gh repo clone $TAP_REPO '$TAP_DIR' && mkdir -p '$TAP_DIR/Casks' '$TAP_DIR/Formula' && cp '$CASK' '$TAP_DIR/Casks/wisp.rb' && cd '$TAP_DIR' && $TAP_CHANGE && git commit -m 'wisp $VERSION' && git push"
+else
+    echo "unsigned: no disk image, so no cask; Homebrew stays at the last signed release"
+fi
 
 echo "==> publish"
 unchanged
 # The publish step under way. A release that fails once it has tagged cannot simply be rerun (preflight refuses an
 # existing tag), so a failure from here on prints, exactly, the steps still to do, to run by hand; the artifacts and
-# the formula stay in $OUT until the next release run.
+# the cask stay in $OUT until the next release run.
 STEP=""
 recovery() {
     status=$?
@@ -354,7 +428,7 @@ recovery() {
                 echo "    else gh release create $TAG $ASSETS --title 'wisp $VERSION' --notes-file '$OUT/notes.md'; fi"
                 ;;
         esac
-        echo "    sh -c \"$TAP_PUBLISH\""
+        [ -z "$TAP_PUBLISH" ] || echo "    sh -c \"$TAP_PUBLISH\""
         case "$STEP" in
             tag | push) echo "  or, to abandon it while nothing is pushed: git tag -d $TAG, fix, and rerun scripts/release $VERSION" ;;
         esac
@@ -369,10 +443,12 @@ STEP=release
 # shellcheck disable=SC2086 # $ASSETS is split into paths on purpose; none has a space (they are under $OUT)
 remote gh release create "$TAG" $ASSETS --title "wisp $VERSION" --notes-file "$OUT/notes.md"
 
-echo "==> tap formula"
-STEP=tap
-remote sh -c "$TAP_PUBLISH"
+if [ -n "$TAP_PUBLISH" ]; then
+    echo "==> tap cask"
+    STEP=tap
+    remote sh -c "$TAP_PUBLISH"
+fi
 STEP=""
 
 echo "==> done"
-echo "verify: brew update && brew install pidster/tap/wisp && wisp doctor (its signature line names the signer)"
+echo "verify: brew update && brew install --cask pidster/tap/wisp && wisp doctor (its signature line names the signer)"

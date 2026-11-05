@@ -1,7 +1,8 @@
 # Releasing wisp
 
-wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Homebrew tap. This page is the procedure; the decision is
-[ADR 0012](decisions/0012-homebrew-release.md).
+wisp ships as `Wisp.app` in a signed and notarised disk image, which a Homebrew cask in `pidster/tap` installs, and as
+a tarball. This page is the procedure; the decisions are [ADR 0012](decisions/0012-homebrew-release.md) and
+[ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md).
 
 ## What a release is
 
@@ -13,16 +14,21 @@ wisp ships as an arm64 binary, with MLX's Metal library beside it, through a Hom
   ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md)). `wisp update` finds the image and its checksum by
   these exact names on the latest release, and checks the app's `CFBundleShortVersionString` against the tag
   ([ADR 0074](decisions/0074-wisp-update.md)); renaming either breaks updates.
-- A formula update in `pidster/homebrew-tap` (`Formula/wisp.rb`) pointing at that tarball with its
-  checksum. Users run `brew install pidster/tap/wisp`, which installs `wisp`, `mlx.metallib`, and
-  `Wisp Notifier.app` in the Cellar's `libexec` and links `/opt/homebrew/bin/wisp` to it, already on `PATH`; MLX finds its library
-  beside the binary's real path ([ADR 0047](decisions/0047-mlx-in-the-release.md)). The formula also installs
-  the shell completions for bash, zsh, and fish into Homebrew's completion directories, so a Homebrew user has
-  them with no further step.
+- For a signed release, a cask update in `pidster/homebrew-tap` (`Casks/wisp.rb`) pointing at the disk image with
+  its checksum ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)). Users run
+  `brew install --cask pidster/tap/wisp`, which installs `Wisp.app` in the Applications folder, links its `wisp` and
+  `wisp-tui` into Homebrew's `bin`, already on `PATH`, and writes the shell completions for bash, zsh, and fish from
+  `wisp completions` into Homebrew's completion directories. `auto_updates true` leaves updating to `wisp update`.
+- Before 0.35.0, the formula too (`Formula/wisp.rb`), pointing at the tarball: it installs `wisp`, `mlx.metallib`,
+  and `Wisp Notifier.app` in the Cellar's `libexec`, where MLX finds its library beside the binary's real path
+  ([ADR 0047](decisions/0047-mlx-in-the-release.md)), and the completions. 0.34.2 is its last version, deprecated,
+  with caveats naming the move to the cask; from 0.35.0 the tap's commit deletes it and adds `tap_migrations.json`
+  (`{"wisp": "pidster/tap/wisp"}`), from which Homebrew moves a formula install to the cask on `brew update` for a
+  person who trusts the tap or the cask.
 
 The release signs the binaries and the helper bundle with a Developer ID and notarises them, so a tarball downloaded
-directly runs too; `--unsigned` leaves them with the linker's ad hoc signature, which Homebrew installs without
-complaint, since it does not quarantine what it downloads (below, "Signing";
+directly runs too; `--unsigned` leaves them with the linker's ad hoc signature and builds no disk image, so it
+publishes nothing to the tap, and Homebrew stays at the last signed release (below, "Signing";
 [ADR 0069](decisions/0069-signed-and-notarised-releases.md), [ADR 0071](decisions/0071-signed-releases-by-default.md)).
 
 ## Step 0: the docs sweep, before running the script
@@ -77,7 +83,7 @@ every local step and prints the remote ones instead of executing them.
    `tools/wisp-tui/Cargo.toml` is bumped with `WispVersion.current`) and `wisp doctor` passes on the build
    machine, with its `MLX` finding loading the staged `mlx.metallib`, away from the build's bundle, and that the
    staged `wisp completions zsh|bash|fish` prints the committed scripts in
-   `harness/Sources/WispCore/Resources/completions/`, which the formula installs. Unless `--unsigned` is given, both
+   `harness/Sources/WispCore/Resources/completions/`, which the cask (and the formula, before 0.35.0) installs. Unless `--unsigned` is given, both
    binaries are signed after `strip` and before those checks, and then notarised; the release stops unless Apple
    accepts them (`--dry-run` signs and prints the submission instead). The release build's `WispNotifier` is
    stripped and wrapped by `scripts/notifier-app` in `Wisp Notifier.app`, with its icon built from
@@ -94,15 +100,22 @@ every local step and prints the remote ones instead of executing them.
    notarised, stapled, and checked with `spctl` (`--dry-run` builds both and prints the submissions). MLX
    adds about 18 MB to the stripped binary and 3.8 MB of library (about 6 MB to the download; ADR 0047).
    A dry run, often made before the bump is pushed, reports the two remote checks and goes on.
-3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 file; and the formula,
-   `wisp.rb`, written from the template with the new URL and checksum before anything is published.
+3. Package: tarball with `wisp`, `wisp-tui`, `mlx.metallib`, and `LICENSE`; SHA-256 files; and, for a signed release,
+   the cask, `wisp-cask.rb`, with the disk image's URL and checksum, and before 0.35.0 the formula, `wisp.rb`, with
+   the tarball's, or from 0.35.0 `tap_migrations.json`, all written before anything is published. The release notes
+   end with the install line and, around the move, the three commands of
+   [ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md) in their order.
 4. Publish: `git tag -a vX.Y.Z`, push the tag, `gh release create` with the assets (the tarball and, signed, the DMG,
    each with its checksum) and generated notes.
    A release that fails from here cannot simply be rerun, since preflight refuses an existing tag, so the
    script prints, on its way out, the exact commands for the steps still to do (the tag push, the release
-   create or an upload with `--clobber` if it exists, the tap push), with the artifacts and the formula left in
+   create or an upload with `--clobber` if it exists, the tap push), with the artifacts and the tap's files left in
    `harness/.build/release-artifacts`.
-5. Tap: clone `pidster/homebrew-tap`, copy in `Formula/wisp.rb`, commit, push. The formula has no `version`
+5. Tap (signed releases only): clone `pidster/homebrew-tap`, copy in `Casks/wisp.rb`, and before 0.35.0
+   `Formula/wisp.rb`, or from 0.35.0 `tap_migrations.json`, deleting the formula; commit, push. The cask installs
+   `app "Wisp.app"`, links `#{appdir}/Wisp.app/Contents/MacOS/wisp` and `wisp-tui` with `binary`, runs
+   `generate_completions_from_executable` for bash, zsh, and fish, and its `zap` trashes `~/.wisp`, the router's
+   LaunchAgent file, and wisp's preferences (decision 9). The formula has no `version`
    line: Homebrew scans the version from the URL's `releases/download/vX.Y.Z/`, and `brew audit` reports a
    `version` equal to the scanned one as redundant (`resource_auditor.rb`, `audit_version`, read on
    2026-10-09). The formula puts `wisp`, `mlx.metallib`, and `Wisp Notifier.app` in `libexec` with a link
@@ -111,7 +124,8 @@ every local step and prints the remote ones instead of executing them.
    `wisp completions bash`, `zsh`, and `fish` (the scripts embedded in the binary) to `bash_completion/"wisp"`,
    `zsh_completion/"_wisp"`, and `fish_completion/"wisp.fish"`. Its test checks both versions, that the library,
    the layout, the helper's executable, and the three scripts are installed, and that `wisp completions zsh` prints a zsh script.
-6. Verify from a clean shell: `brew update && brew install pidster/tap/wisp && wisp doctor`. Its `signature` line names
+6. Verify from a clean shell: `brew update && brew install --cask pidster/tap/wisp && wisp doctor`. Its `install`
+   line names Homebrew's cask, and its `signature` line names
    the Developer ID for a signed release, and `signed ad hoc` for an unsigned one.
 7. Docs site: check that the site at https://wisp.pidster.com carries the release. The `Docs` workflow
    (`.github/workflows/docs.yml`, [ADR 0065](decisions/0065-documentation-site.md)) deploys it on every push to `main`
