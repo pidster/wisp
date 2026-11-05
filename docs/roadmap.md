@@ -19,7 +19,11 @@ and says how to move by hand, since installing the formula by name trusted only 
 2026-11-05): evaluate whether the MCP approval dialog works as intended, through the client's elicitation beside
 `wisp approvals` and the notification ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Seen on
 the git thread on 2026-11-05: a `git reset` that needed approval waited 212 s, and `respond` turns whose commands
-were already approved for the project took 97 to 260 s around commands that ran in under a second to 62 s. Later,
+were already approved for the project took 97 to 260 s around commands that ran in under a second to 62 s. Then
+two turns timed out (Ollama sending nothing for 120 s) while `granite4.2:8b` answered a short prompt in 2.5 s: the
+thread's requests had reached about 48,000 input tokens against the 32,768 Ollama had loaded the model with. A new
+thread with the same settings ran the same push in 8.8 s. So the evaluation should also cover how a long thread's
+requests are sized against the window Ollama actually loaded, not only the dialog. Later,
 with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
