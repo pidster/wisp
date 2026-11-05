@@ -92,5 +92,50 @@ import Testing
         #expect(AppInstall.linkedElsewhere(app: app, folder: folder, path: brew, existing: one) == nil)
         let welcome = AppInstall.welcome(source: .app(app), folder: folder, home: home, linked: found) { _ in .nothing }
         #expect(!welcome.offersInstall && welcome.text.contains("installed in /opt/homebrew/bin, as Homebrew's cask"))
+        #expect(
+            AppInstall.alreadyLinked(URL(filePath: brew), app: app, home: home)
+                == "wisp and wisp-tui are already on PATH: /opt/homebrew/bin links them to /Applications/Wisp.app, "
+                + "as Homebrew's cask does; nothing to add")
+        #expect(AppInstall.Source.app(app).app == app && AppInstall.Source.homebrew.app == nil)
+    }
+
+    @Test func theDoctorSendsACopyRunWhereItWasDownloadedToApplications() {
+        let moved = URL(filePath: "/private/var/folders/x/AppTranslocation/ABC/d/Wisp.app")
+        let found = finding(.declared(PackageLayout(declaration: .app(moved), parts: [:])))
+        #expect(!found.ok && found.detail.hasPrefix("Wisp.app at \(moved.path): "))
+        #expect(found.detail.count > "Wisp.app at \(moved.path): ".count)
+    }
+
+    @Test func aRouterJobWhoseWispIsGoneIsNamedAndReplaced() {
+        let path = "/Users/someone/Library/LaunchAgents/\(LlamaCppAgent.plistName)"
+        let abandoned = LlamaCppAgent.State.abandoned(path)
+        #expect(abandoned.text.hasPrefix("left by the LaunchAgent file \(path), whose wisp no longer exists"))
+        #expect(abandoned.text.hasSuffix("replaces it with Wisp.app's Login Item"))
+        // Turning the server on says what it replaces, then registers this wisp's job.
+        let agent = FakeAgent(state: abandoned)
+        var said: [String] = []
+        let ok = LlamaCppAgent.follow(
+            .server, server: .wisp, control: agent, audit: nil, source: "cli", say: { said.append($0) })
+        #expect(ok && agent.calls == ["register"], "\(said)")
+        #expect(said.first == "wisp's llama.cpp server was left by \(path), whose wisp no longer exists; replacing it")
+        // The doctor's line for a server that does not answer names the state.
+        let binary = Result<LlamaCppServerBinary.Approved, LlamaCppServerBinary.Refusal>.success(
+            .init(
+                executable: URL(filePath: "/b"), sha256: "ab",
+                approval: .init(path: "/b", resolved: "/b", sha256: "ab", approved: Date())))
+        let diagnosis = LlamaCppRouter.diagnosis(
+            binary: binary, agent: abandoned, keyExists: true, settings: .defaults,
+            log: URL(filePath: "/L/llamacpp.log"), detail: nil)
+        #expect(diagnosis.hasSuffix("its LaunchAgent is \(abandoned.text)"), "\(diagnosis)")
+    }
+
+    @Test func aFileThatCannotBeRemovedIsAFileFailure() {
+        struct Locked: Error {}
+        let path = "/L/\(LlamaCppAgent.plistName)"
+        let files = LlamaCppAgent.AbandonedFiles(
+            program: { _ in "/gone/wisp" }, exists: { _ in false }, remove: { _ in throw Locked() })
+        #expect(throws: LlamaCppAgent.Failure.self) {
+            try files.removeIfAbandoned("x = {\n\tpath = \(path)\n\tstate = not running\n}")
+        }
     }
 }
