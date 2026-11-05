@@ -17,7 +17,12 @@ Next: Homebrew installs `Wisp.app` from a cask, `wisp` in `pidster/tap`, in plac
 ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md), agreed with the operator on 2026-11-01 and
 2026-11-04), in two releases: 0.34.2, the formula's last, publishes the cask beside it and says how to move, since
 Homebrew's own move needs the cask or the tap trusted, which installing the formula by name did not give; then 0.35.0 deletes the
-formula and adds `tap_migrations.json`, which moves whoever trusts the tap or the cask. Later, with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
+formula and adds `tap_migrations.json`, which moves whoever trusts the tap or the cask. 0.35.1 (the operator,
+2026-11-05): evaluate whether the MCP approval dialog works as intended, through the client's elicitation beside
+`wisp approvals` and the notification ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md)). Seen on
+the git thread on 2026-11-05: a `git reset` that needed approval waited 212 s, and `respond` turns whose commands
+were already approved for the project took 97 to 260 s around commands that ran in under a second to 62 s. Later,
+with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
 
