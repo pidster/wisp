@@ -940,6 +940,28 @@ pidster/tap`, which wisp names: Homebrew's `trust.rb` accepts any item of a trus
 `brew install --cask pidster/tap/wisp`. Homebrew's own two commands, run while the formula is linked, leave a cask
 that is installed but not on `PATH`.
 
+## Homebrew's move from the published tap, 2026-11-05
+
+The same probe after 0.35.0 shipped, Homebrew 7.0.12, on the operator's Mac: a scratch tap, `wisptest/tap`, cloned
+from `pidster/homebrew-tap` at the 0.34.2 commit (the formula, deprecated, and the cask) and then moved to the 0.35.0
+commit (the cask and `tap_migrations.json`, the formula deleted), with the migration's target renamed to the scratch
+tap. Each round installed 0.34.2's formula by name from the published tarball. `HOMEBREW_CASK_OPTS=--appdir=` a scratch
+folder kept `/Applications` untouched, `wisp doctor` ran with a scratch `WISP_HOME`, and no `--zap` was run.
+
+| Case | What happened |
+| --- | --- |
+| 0.34.2's formula, installed | Its caveats name `brew trust pidster/tap`, `brew uninstall --formula wisp`, `brew install --cask pidster/tap/wisp`; `wisp doctor`'s `install` fails naming the same line; `wisp update --check` sees 0.35.0; `wisp update` refuses, naming the move |
+| The tap trusted before the update | The move ran whole: `brew unlink wisp` (5 links), the cask installed and linked, the three completions generated; `wisp doctor`'s `install` passes, naming the cask and `brew uninstall --formula --force wisp` for the kept keg |
+| Only the formula trusted | Warned that the migration target is not trusted, naming Homebrew's two commands; installed nothing |
+| Then the three commands wisp names, in order | The keg uninstalled, the cask installed with both links and the three completions; `install` passes |
+| `brew install wisptest/tap/wisp`, no `--cask`, the formula gone | Installs the cask, with the tap trusted and with it untrusted (Homebrew trusts the cask the full name names) |
+
+A first run of the trusted-tap case left the formula linked and the cask without its links: `pidster/tap` was tapped
+too and now has a `wisp` cask, so the move's bare `brew unlink wisp` refused ("Cask wisp exists in multiple taps")
+and the install went ahead. Untapping `pidster/tap` for the probe, as a person moving from it has only that tap, gave
+the result above. Neither homebrew/core nor homebrew/cask has a `wisp` (formulae.brew.sh, 2026-11-05), so a person
+meets this only with a second tap holding one; `wisp doctor`'s `install` names the repair then.
+
 ## Reading a measurement
 
 ```json

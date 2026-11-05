@@ -26,7 +26,8 @@ completions for zsh, bash, and fish from `wisp completions`. `Wisp.app` holds tw
 library, `mlx.metallib`, which wisp needs to run MLX models ([ADR 0047](../decisions/0047-mlx-in-the-release.md)), and
 `Wisp Notifier.app`, which posts wisp's notifications as "Wisp" once you allow them: the first notification asks
 ([ADR 0070](../decisions/0070-a-notification-helper.md)). `wisp doctor`'s `signature` line names the signer. The
-formula it replaced left the tap in 0.35.0 (below). Installing the cask by its full name trusts it (Homebrew's tap trust); if Homebrew refuses it as untrusted all the
+formula it replaced left the tap in 0.35.0 (below), so `brew install pidster/tap/wisp` without `--cask` installs the
+cask too (probed on 2026-11-05, [measurements.md](../measurements.md)). Installing the cask by its full name trusts it (Homebrew's tap trust); if Homebrew refuses it as untrusted all the
 same, run `brew trust pidster/tap` first.
 
 The cask updates itself: run `wisp update`, as for the disk image ([wisp.md](../wisp.md#wisp-update)). `brew upgrade`
