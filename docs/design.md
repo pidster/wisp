@@ -78,7 +78,10 @@ as `reasoning` events, counted as its reasoning tokens, and a `ThinkingStretch` 
 `ReasoningObserver` (a task local `Agent` binds around each turn's requests) when thinking begins and ends, which it
 records as `model.reasoning`; the framework keeps the thinking as a reasoning transcript entry, the store as the
 turn's `.reasoning` entry, and `ContextComposer` never composes it into a request, nor does the executor send one
-back ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). A reply's text that may be tool calls written in
+back ([ADR 0053](decisions/0053-the-models-thinking-shown.md)). The last chunk's counts and durations (load, prompt
+evaluation, generation, in nanoseconds) go to the turn's `RequestObserver`, bound beside it, with a fingerprint of
+each part of the request (its tools and options, then each message), and are recorded as `model.request`, compared
+with the conversation's last request's parts (`PreviousRequest`, kept by `Agent` across its turns). A reply's text that may be tool calls written in
 Mistral's `name[ARGS]{…}` format is held back and, when it is exactly such calls, sent as `toolCalls` events instead
 (`TextToolCalls`, whose strictness rules MLX's `ToolCallRecovery` shares). `resolve` checks the server lists the model
 (blocking briefly, because agents are created synchronously). The framework's tool loop, streaming,
@@ -976,8 +979,9 @@ gives up, and `Blocking.run` returns, all within seconds; before the change none
 
 What a turn's requests need to know reaches the executors as task locals the turn binds, since the framework runs
 each executor on the caller's task: `ReasoningObserver.current` (who records the thinking, ADR 0053),
+`RequestObserver.current` (who records each request served, `model.request`),
 `RequestThinking.current` (what thinking the request asks for; wisp's own calls bind `false` through
-`RequestThinking.sideCall`, ADR 0053 amended 2026-10-11), and `TurnStop.current` (the person's Ctrl-C, ADR 0049
+`RequestThinking.sideCall`, which unbinds both observers, ADR 0053 amended 2026-10-11), and `TurnStop.current` (the person's Ctrl-C, ADR 0049
 amended 2026-10-11). The chat's turn runs on its own task, which a signal cannot cancel from outside without an escape
 hatch, so a stop is not a task cancellation: `TurnStop` is a `final class` with a `Mutex` that what the turn has under
 way attaches to (a request's connection through the task's delegate, `RequestStop`; a `run_command`'s process group;
