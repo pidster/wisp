@@ -79,3 +79,11 @@ The operator chose the first on 2026-11-06.
 - The estimate in point 4 is rough, so a turn just over the window is still sent once, and the retry is the exact
   check, as it was for the target's plain retry.
 - The equivalence fixtures, whose overflows come before any call, are unchanged.
+
+## Probed on a real model, 2026-11-06
+
+On the on-device model, a turn of five `seq` commands overflowed after its first call. The retry continued from
+that call, so it did not run again. The next request overflowed again, and the turn ended as decision 4 says,
+with no call run twice. The probe and its audit events are in [measurements.md](../measurements.md), "A retried
+request continuing its turn". Ollama does not reach this path: it truncates an overlong prompt and reports no
+overflow.

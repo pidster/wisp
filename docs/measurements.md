@@ -998,6 +998,31 @@ in another directory: a worktree of the same repository under `.claude/worktrees
 made in a worktree. `project` then matched one exact directory, so this was the approvals "not sticking" the operator
 saw; [ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md) binds them to the repository instead.
 
+## A retried request continuing its turn, 2026-11-06
+
+A probe of [ADR 0086](decisions/0086-a-retried-request-continues-the-turn.md) on a real model, which until then had
+run only against `ScriptedModel`. The release build of `0.35.2-dev+32d8669`, on the on-device model (`system`, a window
+of 8,192 tokens, the default `.target` policy), in a scratch `WISP_HOME`, with `run_command` alone and `--yes`, given
+one prompt: run `seq 1 3000`, `seq 3001 6000`, `seq 6001 9000`, `seq 9001 12000`, and `seq 12001 15000`, one a call,
+in order, then report the last line of each. Ollama cannot be probed this way: it truncates a prompt longer than its
+window and reports no overflow, so only the on-device model, llama.cpp, LM Studio, and MLX reach the retry.
+
+Each command printed 3,002 lines (13,916 to 17,024 bytes), kept whole in the output store, and the model was given
+3,567 bytes of each, within the tool-output budget. What the audit log recorded, in order:
+
+| Step | Recorded |
+| --- | --- |
+| `seq 1 3000` ran | one `command.outcome` |
+| The next request overflowed | `context.condensation`: reason `overflow`, 8,193 tokens of 8,192, `continued` 1 |
+| The turn continued | the next call was `seq 3001 6000`; `seq 1 3000` was not run again |
+| The model went on | it ran `seq 9001 12000`, leaving out `seq 6001 9000`, a slip of its own |
+| The next request overflowed again | an `error`, the turn ended: "the instructions, the last turn, and the request still need about 11064 of 8192 tokens" |
+
+Three commands ran, once each, in 2 minutes 42 seconds. So the rebuild works on a real model: the first overflow was
+continued from the call already made, not by sending the prompt again. The second ended the turn, as decision 4 of
+the ADR says it must when the rebuilt turn does not fit; nothing ran again. A result of 3,567 bytes in this window
+leaves room for little more than one or two in a turn; how many tokens each took was not measured.
+
 ## Reading a measurement
 
 ```json
