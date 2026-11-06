@@ -1,6 +1,6 @@
 # TODO: on-device task assessment, routing and audit
 
-Date: 2026-09-19, updated 2026-10-04. Status: a living backlog. Items are ticked only where the code and a
+Date: 2026-09-19, updated 2026-11-06. Status: a living backlog. Items are ticked only where the code and a
 measurement show them done; each track's progress note links the decisions that did it.
 
 ## Goal and scope
@@ -16,7 +16,8 @@ Those checks do not establish Swift provider compatibility or workload quality.
 
 This backlog does not change the [objective](objective.md), accepted ADRs or runtime behaviour, and does not
 introduce remote generation. Explicit model selection and modular backends are implemented
-([backends.md](backends.md), [ADR 0019](decisions/0019-model-backends.md)). The current work and the wider
+([backends.md](backends.md), [ADR 0019](decisions/0019-model-backends.md)): Apple's models, and Ollama, MLX,
+Core AI, llama.cpp, and LM Studio. The current work and the wider
 backlog are listed in section 7.
 
 ## 1. Input classification and pre-processing
@@ -70,6 +71,9 @@ turns with tool output as a reference after its turn, and the task; `memory` to 
 token target with headroom; and display decoupled from context. At the default budget the design kept
 everything in view for 22 turns where dropping lost every early fact (6/7 on device and 7/7 on granite,
 against 0/7 and 1/7).
+- **Defaults from the second checkpoint.** Context checkpoint 2 (2026-10-09) set `context.target` to 0.6, left
+  `memory` off, and changed an inferred task only when a request restates one
+  ([ADR 0057](decisions/0057-context-defaults-from-checkpoint-2.md)).
 - **Condensing works on the on-device model** since 2026-09-29. It counts the transcript and recognises
   the overflow message ([ADR 0025](decisions/0025-context-estimation.md), amendment).
 - **The consequences were measured.** A planted fact was lost with the first condensation, and the model
@@ -84,8 +88,10 @@ against 0/7 and 1/7).
   evidence and uncertainty in assembled context.
 - [ ] Fit context to the selected model's actual tokenizer and budget, reserving space for tools and output.
   *Partly:* the window is known per model (framework, sized, or configured), and the on-device model's
-  transcript is counted with its own tokenizer. Tool output stays bounded at 4 KiB in its own turn and is a
-  reference after it, which answered question 9 instead of sizing it to the window (ADR 0045).
+  transcript is counted with its own tokenizer. Tool output stays bounded in its own turn and is a
+  reference after it, which answered question 9 instead of sizing it to the window (ADR 0045); since 0.22.0 the
+  bound is an eighth of the model's window (4 KiB on the on-device model, 64 KiB at most), and what does not fit
+  is kept whole in the output store for `memory` to reach ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)).
 - [ ] Record which evidence was selected, omitted or compressed, and the context assembler's version.
   *Partly:* condensations save the context before and after, name both files in the audit, and record
   their steps; cuts, references, distillations, summaries, recalls, and assessments are audited
@@ -110,8 +116,11 @@ against 0/7 and 1/7).
 - [ ] Define handling of uncertain, malformed and failed classifications. Test the resulting approval
   behaviour explicitly, including clients that cannot obtain approval. *Partly:* below 0.6 confidence, a
   verdict is raised to at least `moderate`, and a classifier that fails falls back to `moderate`, both
-  tested. Clients that cannot show an approval are the paused escalations proposal
-  ([2026-09-20-escalations.md](proposals/2026-09-20-escalations.md)).
+  tested. A client that cannot show an approval is
+  answered out of band, from `wisp approvals`, `wisp-tui`, or plain chat, and silence is a refusal after
+  `approval.timeoutSeconds`, tested over the wire ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md));
+  the model's question to the person is the inquiry verb of the
+  [escalations proposal](proposals/2026-09-20-escalations.md), built in [ADR 0062](decisions/0062-the-inquiry-verb.md).
 - [x] Measure missed required escalations, unnecessary escalations and decision latency separately.
   Set acceptance criteria that give missed escalations greater weight. (Dangerous rated safe, safe
   commands that ask, and latency per verdict are recorded separately, and the measure exits 1 when a
@@ -131,16 +140,31 @@ against 0/7 and 1/7).
   ([ADR 0016](decisions/0016-local-runtimes-through-an-executor.md)). Since 2026-09-29, a required text
   argument such as `system_info`'s `process`, when a model leaves it out, is filled empty instead of
   ending the turn.
+- **More runtimes.** MLX runs on wisp's own executor, on a par with Ollama
+  ([ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md)), beside Core AI; llama.cpp and LM Studio share one
+  executor for OpenAI-compatible servers ([ADR 0058](decisions/0058-a-shared-http-executor.md)), and wisp can start
+  its own `llama-server` router over the GGUF files the person adds ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)).
+  llama.cpp has run live since 2026-10-17; LM Studio has been tested only against a fake server
+  ([backlog.md](backlog.md), "Model backends, deferred"). The models are compared with `scripts/check eval compare`
+  ([measurements.md](measurements.md#comparing-models)).
+- **Plans.** The model's `plan` tool, off by default, keeps trees of tasks across turns, which the person and an MCP
+  caller can change ([ADR 0081](decisions/0081-the-plan-tool.md), [ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md));
+  `scripts/check eval plan` probes whether a model keeps one ([measurements.md](measurements.md)).
 - **Visibility.** Chat shows the gate's decisions, each turn's tokens, and a live working line. MCP
   callers get progress.
 
 - [ ] Evaluate bounded text generation, evidence-based answers and complete tool interactions locally.
-  *Partly:* the eval suites cover tool calls, schema output, drafting, triage, and redaction.
+  *Partly:* the eval suites cover tool calls, schema output, drafting, triage, redaction, context, and
+  keeping a plan.
 - [x] Verify model-specific chat templates, tool-call parsing, argument validation, tool results and
   conversation continuation through the intended Swift provider and packaged CLI (the on-device model
   through the framework; Ollama through wisp's executor, tested over a fake server and live).
 - [ ] Keep model proposals distinct from Wisp's validated execution. Score actual completion and
-  supporting evidence, not merely a plausible tool request or a claim of success.
+  supporting evidence, not merely a plausible tool request or a claim of success. *Partly:* a reply's reported
+  results are checked against the turn's audited calls and flagged `unsupported:` ([ADR 0060](decisions/0060-a-verification-pass.md)),
+  with what the turn called beside it ([ADR 0051](decisions/0051-the-turns-tool-calls-beside-the-reply.md)) and the entries
+  it cites checked ([ADR 0055](decisions/0055-cited-entries-checked.md)). The verification's model step flagged 6 of 14
+  honest replies on the on-device model on 2026-10-12, so it stays off; nothing scores completion.
 - [ ] Measure end-to-end latency, first-attempt success, retries, unsupported claims and peak memory.
   Report policy denials, approval waits and execution failures separately. *Partly:* turn time and tokens
   per turn, `/stats`, and Ollama's memory at a sized window (ADR 0043).
@@ -151,15 +175,19 @@ against 0/7 and 1/7).
 
 Audit events carry `id`, `session`, `turn` and an optional `call`. `Agent` records the prompt before
 invoking the model, and the conversation's store links each entry to the audit events that recorded it,
-saved with a transcript as `<name>.store` (since 2026-09-29). See [logging](logging.md),
+saved with the thread (as `<name>.store` from 2026-09-29, and since 0.27.0 in every thread's directory under
+`~/.wisp/threads/`, [ADR 0066](decisions/0066-one-thread-store.md)). See [logging](logging.md),
 [Agent](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Session/Agent.swift),
 [AuditEvent](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Audit/AuditEvent.swift) and
-[TranscriptStore](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Config/TranscriptStore.swift).
+[ThreadStore](https://github.com/pidster/wisp/blob/main/harness/Sources/WispCore/Config/ThreadStore.swift)
+(with `TranscriptStore`, which reads chats saved before 0.27.0).
 
 **Progress:**
 - **`model.resolved`** records the model, its capabilities, and its window with why.
 - **`model.routed`** records a routing choice with why.
 - **`context.condensation`** names the saved context before and after.
+- **`response.verification`** records the verification pass over a reply, and **`plan.*`** events the plan's changes,
+  by the model, the person, or a caller ([logging.md](logging.md)).
 - **`wisp logs --follow`** and `/audit sessions` let a person follow any session, MCP threads included.
 - **Every event has an `id`**, and a store entry, an MCP `calls` item, and `memory`'s recall point to the
   event that holds the prompt, reply, or output; `session.start` names the sessions a resumed one came from
@@ -194,12 +222,15 @@ The [model-controls proposal](model-controls.md) defines the draft contract for 
 native speed mode, separate performance preferences and reasoning output. These are still proposed
 controls, not implemented settings. *Partly*, since 0.19.0 ([ADR 0053](decisions/0053-the-models-thinking-shown.md)):
 Ollama's `think` is requested through `ollama.think` (`true`, `false`, or a level), and, since 0.20.0, an MLX
-model's through `mlx.think` (`true` or `false`) for a chat template that takes `enable_thinking`; a reasoning model's
+model's through `mlx.think` (`true` or `false`) for a chat template that takes `enable_thinking`, and, since 0.26.4,
+a llama.cpp model's through `llamacpp.think` (`true`, `false`, or a level within a budget, ADR 0053, amended
+2026-10-17); `/think` in chat sets it since 0.26.0; a reasoning model's
 thinking, such as `qwen3.8:27b`'s, is relayed to the person and the caller (chat, `wisp-tui`,
 `wisp://threads/{id}/reasoning`), audited as `model.reasoning`, and never sent back to the model. Since 0.22.0
 (ADR 0053, amended 2026-10-11): one model's default through `<runtime>.models.<name>.think`, a `respond` thread's
 through `think`, and `think: false` on wisp's own side calls (classifier verdicts, schema replies, the distiller,
-the summary, the assessment, `memory`'s `condense`).
+the summary, the assessment, `memory`'s `condense`). Since 0.33.2, thinking a model writes into its reply on
+Ollama, llama.cpp, and LM Studio is kept as thinking.
 
 - [ ] Describe supported controls and values per model/runtime/adapter combination, with provenance.
 - [ ] Translate common controls in each backend and reject unsupported explicit requests before use.
@@ -210,19 +241,51 @@ the summary, the assessment, `memory`'s `condense`).
 - [ ] Validate combinations with tools, schema output and streaming, rather than independent flags alone.
 - [ ] Audit requested and resolved controls against the prompt/attempt, and evaluate their actual effects.
 
-## 7. Current work and backlog (2026-10-12)
+## 7. Current work and backlog (2026-11-06)
 
-### Committed, not yet released (0.24.0)
+### Released since 0.24.0
 
-`CHANGELOG.md`, "Unreleased": the inquiry verb ([ADR 0062](decisions/0062-the-inquiry-verb.md)): the model asks the
-person one question mid-turn with its `ask` tool, off by default (`tools.ask`), answered in chat and `wisp-tui`, and
-under `wisp mcp` through `wisp questions`, plain chat's `/questions`, or `wisp-tui`, the turn parking after 60 s and
-the answer reaching the thread's next turn; the client's question form built behind `inquiry.elicitation`, off until
-the operator's hand test. Plain `wisp chat` showing and answering commands, facts, and questions waiting in `wisp
-mcp` servers. The approval banner posted only once the client's dialog has gone unanswered for
-`approval.bannerDelaySeconds` ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), amended).
-`wisp-tui`'s interactive status bar ([ADR 0029](decisions/0029-tui-front-end.md), amended). The frozen risk test set
-grown from real use to 29 dangerous commands ([ADR 0038](decisions/0038-fast-specialised-classifiers.md), amended).
+`CHANGELOG.md` has each release in full; [roadmap.md](roadmap.md) lists them by date. The larger items, from 0.24.0
+(2026-10-12) to 0.35.1 (2026-11-06):
+
+- 0.24.0: the inquiry verb ([ADR 0062](decisions/0062-the-inquiry-verb.md)): the model asks the person one question
+  mid-turn with its `ask` tool, off by default (`tools.ask`), answered in chat and `wisp-tui`, and under `wisp mcp`
+  through `wisp questions`, plain chat's `/questions`, or `wisp-tui`, the turn parking after 60 s and the answer
+  reaching the thread's next turn; the client's question form built behind `inquiry.elicitation`, off until the
+  operator's hand test. Plain `wisp chat` showing and answering commands, facts, and questions waiting in `wisp mcp`
+  servers. The approval banner posted only once the client's dialog has gone unanswered for
+  `approval.bannerDelaySeconds` ([ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md), amended).
+  `wisp-tui`'s interactive status bar ([ADR 0029](decisions/0029-tui-front-end.md), amended). The frozen risk test set
+  grown from real use to 29 dangerous commands ([ADR 0038](decisions/0038-fast-specialised-classifiers.md), amended).
+- 0.24.1 and 0.24.2: a guide to installing local models and a `wisp doctor` check of Apple's model service; command
+  time limits, `run_command`'s `timeoutSeconds` under `commandMaxTimeoutSeconds` ([ADR 0063](decisions/0063-command-time-limits.md)).
+- 0.25.0 (2026-10-15): an approved run outside the sandbox ([ADR 0064](decisions/0064-an-approved-run-outside-the-sandbox.md))
+  and the documentation site ([ADR 0065](decisions/0065-documentation-site.md)). 0.26.x: `/think` from chat, llama.cpp
+  thinking on a par with Ollama's (0.26.4), and fixes.
+- 0.27.0 to 0.28.0 (2026-10-19 to 2026-10-22): one thread store, every thread saved and resumed by any face, with
+  `wisp threads` ([ADR 0066](decisions/0066-one-thread-store.md)); a call's time limit only lengthening
+  ([ADR 0067](decisions/0067-a-call-may-only-lengthen-its-time-limit.md)).
+- 0.29.0 to 0.31.1 (2026-10-22 to 2026-10-23): `wisp-tui`'s conversation in a pane of its own
+  ([ADR 0068](decisions/0068-the-conversation-in-a-pane.md)); `Wisp Notifier.app` ([ADR 0070](decisions/0070-a-notification-helper.md));
+  releases signed and notarised ([ADR 0069](decisions/0069-signed-and-notarised-releases.md),
+  [ADR 0071](decisions/0071-signed-releases-by-default.md)); `Wisp.app` in a disk image with `wisp install` and `wisp update`
+  ([ADR 0072](decisions/0072-a-dmg-and-a-declared-layout.md), [0073](decisions/0073-wisp-install-and-the-finder.md),
+  [0074](decisions/0074-wisp-update.md)); `wisp models uninstall` ([ADR 0075](decisions/0075-wisp-models-uninstall.md)).
+- 0.32.0 (2026-10-29): the model's `plan` tool ([ADR 0081](decisions/0081-the-plan-tool.md)); the sandbox told to the
+  model ([ADR 0076](decisions/0076-the-sandbox-in-the-prompt.md)); no project folder in a privileged folder
+  ([ADR 0077](decisions/0077-no-project-folder-in-privileged-folders.md)).
+- 0.33.0 to 0.33.2 (2026-10-30 to 2026-11-01): a llama.cpp server wisp starts, `llamacpp.server`, `wisp models add`,
+  and a router kept by a LaunchAgent ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)); fixes to its Login
+  Item and to thinking written into a reply.
+- 0.34.0 and 0.34.1 (2026-11-03): the plan's next part, tool calls linked to tasks and the person and an MCP caller
+  changing the plan ([ADR 0079](decisions/0079-the-conversation-as-a-spine-with-task-trees.md), decisions 21 to 24);
+  an empty response asked once more ([ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)); a pipe into
+  any shell denied.
+- 0.34.2 and 0.35.0 (2026-11-05): Homebrew installs the app from a cask, the formula gone
+  ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)). 0.35.1 (2026-11-06): approvals that say only
+  how long they last and apply in their project ([ADR 0085](decisions/0085-an-approval-lasts-a-time-in-its-project.md)).
+
+Earlier releases:
 
 0.23.1 (2026-10-12): a patch for the secret scanner, which read prose such as "per token: every …" as a
 credential assigned to a name; a credential word inside a sentence now counts only with a value that mixes letters
@@ -310,7 +373,10 @@ and smaller fixes. 0.17.0 (2026-10-04) carried permanent facts over MCP
 
 ### Planned next
 
-The [roadmap](roadmap.md) ends with 0.24.0, the release being made; what is left is under its "Not
+The [roadmap](roadmap.md) plans 0.35.2: each Ollama request's prompt-evaluation and load times recorded, to find
+what changes at the front of a long thread's prompt between turns; overflow recovery no longer running a turn's
+commands again; and this page brought up to date with the code. Later, with no release yet: protecting wisp's state
+from other agents, tasks (a plan and its grant), and Private Cloud Compute. What is left is under the roadmap's "Not
 scheduled", among it the verification pass's model step, waiting on a more capable model, and the hand test of the
 client's question form (ADR 0062, D8).
 Still to measure from 0.20.0's list: the rest of what ADR 0052 lists under "What
@@ -338,7 +404,7 @@ MLX, from their bundles' metadata ([ADR 0052](decisions/0052-mlx-on-a-par-with-o
   - personal data in `redact`, which needs the model to name values within flagged lines;
   - the classifier's low confidence on `git push`, which is a candidate for training data.
 - **Classifiers:**
-  - growing the dangerous test set beyond 25;
+  - growing the dangerous test set beyond 29 (from 25 on 2026-10-12, ADR 0038, amended);
   - wiring in the failures classifier, which beats `KnownFailures` on test;
   - new providers, such as embeddings or an external process.
 - **From the [backlog](backlog.md):**
@@ -350,8 +416,10 @@ MLX, from their bundles' metadata ([ADR 0052](decisions/0052-mlx-on-a-par-with-o
   - offline use;
   - the notification helper app;
   - Private Cloud Compute signing.
-- **Open:** the inquiry verb of the [escalations proposal](proposals/2026-09-20-escalations.md); its
-  approval part was settled by [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md).
+- **Open:** the hand test of the client's question form, the last part of the inquiry verb of the
+  [escalations proposal](proposals/2026-09-20-escalations.md); the rest was built in
+  [ADR 0062](decisions/0062-the-inquiry-verb.md), and its approval part was settled by
+  [ADR 0046](decisions/0046-approval-and-notifications-over-mcp.md).
 
 ## Evaluation and completion criteria
 
