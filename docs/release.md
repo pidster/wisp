@@ -159,8 +159,10 @@ Once, on the Mac that releases:
 Each release then signs with the identity `WISP_SIGN_IDENTITY` names, `Developer ID Application` when it is unset or
 empty (the full name, or any part that matches one identity; `WISP_NOTARY_PROFILE` names another profile than
 `wisp-notary`). Preflight refuses an identity that is not a Developer ID Application one or matches none or several,
-and a profile that cannot sign in; on a Mac without the certificate, `scripts/release X.Y.Z --unsigned` releases
-unsigned.
+and a profile that cannot sign in. It asks the profile again once the eval has run, because a login keychain that
+locks during the eval's hour fails only at notarisation otherwise (0.35.1's first run, 2026-11-05); then it stops
+before the build and says to unlock the keychain and rerun with `--skip-eval`, since the eval has passed on that code.
+On a Mac without the certificate, `scripts/release X.Y.Z --unsigned` releases unsigned.
 
 ## Coverage gate
 

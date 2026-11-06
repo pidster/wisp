@@ -90,6 +90,15 @@ SHIPPED="$(sed -n 's/^ *"version" : "\([^"]*\)",*$/\1/p' harness/Sources/WispCor
 [ "$SHIPPED" = "$VERSION-default" ] || { echo "the shipped classifier is $SHIPPED, not $VERSION-default; run scripts/check classifier-default after the bump" >&2; exit 1; }
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "tag $TAG exists" >&2; exit 1; fi
 gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated" >&2; exit 1; }
+# Whether notarytool signs in with the profile; the release stops, saying how to go on, when it does not. Checked before
+# the slow steps and again after the eval, since a keychain that locks during the eval's hour would otherwise fail
+# only at notarisation (as 0.35.1's first run did, on 2026-11-05).
+notary_signs_in() {
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 && return 0
+    echo "notarytool cannot sign in with the keychain profile '$NOTARY_PROFILE' $1: unlock the login keychain, or store the profile again (docs/release.md, \"Signing\")" >&2
+    [ "$1" = "before the slow steps" ] || echo "the eval passed on this code; once the profile signs in, rerun with --skip-eval" >&2
+    exit 1
+}
 # Signing, before the slow steps: exactly one Developer ID identity matching the name, and a notary profile that
 # signs in to Apple (history reads the team's submissions and changes nothing).
 if [ -n "$SIGN_IDENTITY" ]; then
@@ -99,8 +108,7 @@ if [ -n "$SIGN_IDENTITY" ]; then
     esac
     matches="$(security find-identity -v -p codesigning | grep -cF "\"$SIGN_IDENTITY" || true)"
     [ "$matches" -eq 1 ] || { echo "$matches valid signing identities match '$SIGN_IDENTITY'; need exactly one: name it with WISP_SIGN_IDENTITY, or release with --unsigned (security find-identity -v -p codesigning; docs/release.md, \"Signing\")" >&2; exit 1; }
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
-        || { echo "notarytool cannot sign in with the keychain profile '$NOTARY_PROFILE' (docs/release.md, \"Signing\")" >&2; exit 1; }
+    notary_signs_in "before the slow steps"
     echo "signing as $SIGN_IDENTITY, notarising with the profile $NOTARY_PROFILE"
 else
     echo "unsigned: --unsigned was given (docs/release.md, \"Signing\")"
@@ -148,6 +156,7 @@ if [ -n "$SKIP_EVAL" ]; then
 else
     scripts/check eval
 fi
+[ -z "$SIGN_IDENTITY" ] || [ -n "$SKIP_EVAL" ] || notary_signs_in "after the eval"
 if [ -n "$(git status --porcelain harness/Sources/WispCore/Resources/measurements.json)" ]; then
     echo "the eval changed harness/Sources/WispCore/Resources/measurements.json; commit it (the binary must carry the numbers that are committed) and rerun" >&2
     exit 1
