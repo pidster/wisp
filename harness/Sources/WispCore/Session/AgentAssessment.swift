@@ -219,29 +219,40 @@ extension Agent {
         return frame.addingNow(lines)
     }
 
-    /// Runs `operation`; when the model called a tool the request had not registered, which the framework refuses
-    /// before any tool runs, registers every allowed tool and retries once on a fresh session, as the overflow
-    /// recovery does. The retry is audited as a `context.assessment` with method `retry`, so the eval counts how
-    /// often a selection missed (D4).
-    nonisolated(nonsending) func withToolRecovery<T>(_ operation: () async throws -> T) async throws -> T {
+    /// Runs `operation` with `prompt`; when the model called a tool the request had not registered, which the framework
+    /// refuses before that tool runs, registers every allowed tool and sends again once on a fresh session, as the
+    /// overflow recovery does: the prompt when the turn had made no call, and otherwise the turn continued from its
+    /// calls (`sendAgain(_:rebuilt:window:_:)`, ADR 0086), so nothing it ran runs again. The retry is audited as a
+    /// `context.assessment` with method `retry`, so the eval counts how often a selection missed (D4), and with
+    /// `continued` when it continued the turn.
+    ///
+    /// - Parameters:
+    ///   - prompt: The turn's prompt.
+    ///   - operation: The request, sending the text it is given.
+    /// - Returns: The request's result.
+    /// - Throws: `ContextFailure.doesNotFit` when a continued turn cannot fit; the request's own error.
+    nonisolated(nonsending) func withToolRecovery<T>(
+        _ prompt: String, _ operation: (String) async throws -> T
+    ) async throws -> T {
         do {
-            return try await operation()
+            return try await operation(prompt)
         } catch {
             guard let settings = assessment, let before = composer.registered, Self.unregisteredTool(in: error)
             else { throw error }
             let allowed = tools.map(\.name)
             composer.registered = nil
             if settings.tools == .task { assessed.grown = Set(allowed) }
-            audit?.record(
-                .assessment,
-                details: AuditEvent.Details.assessment(
-                    method: Assessment.Method.retry.rawValue, tools: allowed, ruleTools: before, registered: nil,
-                    intent: nil, task: nil, facts: assessed.relevant, seconds: 0, bytes: 0, model: nil,
-                    failure: "the model called a tool not registered for the request"))
+            let rebuilt = rebuiltTurn(prompt)
+            var details = AuditEvent.Details.assessment(
+                method: Assessment.Method.retry.rawValue, tools: allowed, ruleTools: before, registered: nil,
+                intent: nil, task: nil, facts: assessed.relevant, seconds: 0, bytes: 0, model: nil,
+                failure: "the model called a tool not registered for the request")
+            if let rebuilt { details["continued"] = .int(Self.calls(in: rebuilt)) }
+            audit?.record(.assessment, details: details)
             Diagnostics.agent.info("retrying with every tool: the model called one not registered")
             refreshFacts()
             materialise(fresh: true)
-            return try await operation()
+            return try await sendAgain(prompt, rebuilt: rebuilt, window: contextSize, operation)
         }
     }
 

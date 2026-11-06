@@ -11,7 +11,9 @@ record"): the store is the faithful record, and the model's context is composed 
 person admits a permanent fact an MCP caller asks for from a terminal (`wisp facts keep`) or `wisp-tui`, as well as
 from chat. Amended by [ADR 0057](0057-context-defaults-from-checkpoint-2.md), from context checkpoint 2: `memory` is
 off by default (`context.memory` turns it on), `context.target` is 0.6, and `assessment.taskChanges` is `restated`;
-the headroom, the guard, and the assessment's being off are unchanged.
+the headroom, the guard, and the assessment's being off are unchanged. Amended by
+[ADR 0086](0086-a-retried-request-continues-the-turn.md): the overflow retry and the retry with every tool, when the
+turn has made tool calls, continue the turn from them with wisp's note instead of sending the prompt again.
 
 ## Context
 

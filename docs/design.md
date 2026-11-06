@@ -212,8 +212,9 @@ obscurely. An agent can also start from a saved `Transcript`, or from another ag
   rather than an `AsyncSequence` for a concurrency reason recorded in
   [ADR 0003](decisions/0003-callback-streaming.md).
 - On context overflow the `ContextPolicy` (default: condense to a token target, `TargetCondensing`; phase 2's
-  fixed four turns remain as `.fixed`) rebuilds the session from a condensed transcript and retries once;
-  `condensations` counts recoveries. See [context-management.md](context-management.md) and
+  fixed four turns remain as `.fixed`) rebuilds the session from a condensed transcript and retries once, a turn
+  that has made tool calls continuing from them rather than sending its prompt again
+  ([ADR 0086](decisions/0086-a-retried-request-continues-the-turn.md)); `condensations` counts recoveries. See [context-management.md](context-management.md) and
   [ADR 0008](decisions/0008-context-condensation.md).
 - `transcript` (the composed view the next request carries), `store`, `contextTokens()`, and `reset()`
   support saving, budgeting, and starting over.
@@ -248,7 +249,8 @@ handling). One turn, as the agent runs it:
 4. The agent publishes its store, facts, subject kinds, and turn to the conversation's `MemorySource`, when it
    has `memory` (`Agent.memory`), then puts the session over the composition, continuing the live session when it
    already holds exactly that, and starting a new one otherwise. The framework runs the tool loop, which carries this turn's own
-   outputs whole; an overflow condenses the active view as it was before the prompt and retries once.
+   outputs whole; an overflow condenses the active view as it was before the prompt and retries once, continuing
+   the turn from its calls when it has made any.
 5. The entries the session added, whether the turn succeeded or failed, go into the store, each with
    references (`AuditReference`: session, turn, and the event's `id`) to the audit events that recorded
    it, and its time. Tool events come from the conversation's `ToolEventTrail`, an `AuditSink` every
@@ -349,7 +351,11 @@ once with every tool when the framework refuses a call to an unregistered tool, 
 asks once more when a response came back empty ([ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)):
 the framework keeps nothing of that turn, so it rebuilds the turn from the tool events (`ToolEventTrail.events(turn:)`,
 `stoppedEntries`, `answered`), opens a session on the context with it, and sends `emptyReplyNote` through the turn's
-own operation, which takes the text it sends; `remember` keeps the note as a notice. Each assessment and retry records
+own operation, which takes the text it sends; `remember` keeps the note as a notice. The overflow retry and the
+tool retry do the same when the turn has already made calls (`rebuiltTurn`, `sendAgain`, `continuationNote`,
+`AgentContinuing.swift`; [ADR 0086](decisions/0086-a-retried-request-continues-the-turn.md)), so a call made before
+the failure is not made again; `continuing(_:with:)` drops the calls a once-continued session already holds before
+a rebuild is appended. Each assessment and retry records
 `context.assessment`; the store keeps each turn's tool set (`ThreadRecord.toolSets`, in memory) so an earlier turn's
 context shows the definitions it carried.
 

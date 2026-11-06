@@ -397,7 +397,7 @@ public final class Agent {
     /// Every replacement after initialisation goes through here.
     ///
     /// - Parameter next: The session to continue with.
-    private func replaceSession(with next: LanguageModelSession) {
+    func replaceSession(with next: LanguageModelSession) {
         carried = tokensUsed
         session = next
     }
@@ -467,27 +467,39 @@ public final class Agent {
             .sessionStart, details: AuditEvent.Details.sessionRestart(tools: tools.map(\.name), model: model.selection))
     }
 
-    /// Runs `operation`; on a context overflow, records the window the error reports, then recovers by the policy:
-    /// under `.target` it condenses to the target and retries once (`retryToTarget(_:_:)`); under `.condense` it
-    /// condenses the store's active view as it was before the call to the policy's turn count and retries once on a
-    /// fresh session; under `.failFast` it rethrows. Any other error is rethrown as it is.
-    nonisolated(nonsending) private func withOverflowRecovery<T>(_ operation: () async throws -> T) async throws -> T {
+    /// Runs `operation` with `text`; on a context overflow, records the window the error reports, then recovers by the
+    /// policy: under `.target` it condenses to the target and sends again once (`retryToTarget(_:prompt:text:_:)`);
+    /// under `.condense` it condenses the store's active view as it was before the call to the policy's turn count and
+    /// sends again once on a fresh session; under `.failFast` it rethrows. Any other error is rethrown as it is. When
+    /// the turn has already made tool calls, the request sent again continues the turn from them rather than repeating
+    /// the prompt (`sendAgain(_:rebuilt:window:_:)`, ADR 0086), so nothing it ran runs again.
+    ///
+    /// - Parameters:
+    ///   - prompt: The turn's prompt, the person's or the caller's, which a rebuilt turn starts with.
+    ///   - text: What the request sends: the prompt, or wisp's note.
+    ///   - operation: The request, sending the text it is given.
+    /// - Returns: The request's result.
+    /// - Throws: `ContextFailure`, or the request's own error.
+    nonisolated(nonsending) private func withOverflowRecovery<T>(
+        _ prompt: String, sending text: String, _ operation: (String) async throws -> T
+    ) async throws -> T {
         do {
-            return try await operation()
+            return try await operation(text)
         } catch {
             guard let overflow = Self.overflow(in: error) else { throw error }
             contextSize = overflow.contextSize
             if case .target = composer.policy {
-                return try await retryToTarget(overflow, operation)
+                return try await retryToTarget(overflow, prompt: prompt, text: text, operation)
             }
             guard let condensation = composer.overflow(in: store) else { throw error }
+            let rebuilt = rebuiltTurn(prompt)
             await apply(
                 condensation, contextSize: overflow.contextSize, tokenCount: overflow.tokenCount, reason: "overflow",
-                fresh: true)
+                fresh: true, continued: rebuilt.map(Self.calls(in:)))
             Diagnostics.agent.info(
                 "condensed \(store.turnCount(of: condensation.before)) -> \(store.turnCount(of: condensation.after)) turns"
             )
-            return try await operation()
+            return try await sendAgain(text, rebuilt: rebuilt, window: overflow.contextSize, operation)
         }
     }
 
@@ -536,7 +548,9 @@ public final class Agent {
         _ prompt: String, _ operation: (String) async throws -> String
     ) async throws -> String {
         do {
-            return try await withToolRecovery { try await withOverflowRecovery { try await operation(prompt) } }
+            return try await withToolRecovery(prompt) { text in
+                try await withOverflowRecovery(prompt, sending: text, operation)
+            }
         } catch {
             guard Self.endedEmpty(error) else { throw error }
             // The framework keeps nothing of a turn it ended this way (probed with ScriptedModel, 2026-11-02): the
@@ -546,11 +560,12 @@ public final class Agent {
                 return Self.emptyReplyLine
             }
             let rebuilt = Self.answered(Self.stoppedEntries(prompt: prompt, events: trail.events(turn: turns.current)))
+            // A note sent in place of the prompt is not the context's, nor, in a turn continued once already, are the
+            // calls the rebuild holds again (`continuing(_:with:)`).
             let context = Array(session.transcript).filter { entry in
                 if case .prompt = entry { store.contains(entry) || FactFrame.isFrame(entry) } else { true }
             }
-            replaceSession(
-                with: model.session(tools: registeredTools, transcript: Transcript(entries: context + rebuilt)))
+            continueTurn(on: context, rebuilt: rebuilt)
             do {
                 let text = try await operation(Self.emptyReplyNote)
                 let replied = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -575,18 +590,19 @@ public final class Agent {
     ///   - tokenCount: The estimate or the overflowing request's size, for the event.
     ///   - reason: `budget` or `overflow`.
     ///   - fresh: Whether to start a new session even when the view is what the session holds.
+    ///   - continued: The calls an overflow's retry continues the turn from (ADR 0086), for the event; nil for none.
     nonisolated(nonsending) private func apply(
         _ condensation: ContextComposer.Condensation, contextSize: Int, tokenCount: Int, reason: String,
-        fresh: Bool = false
+        fresh: Bool = false, continued: Int? = nil
     ) async {
         condensations += 1
-        let event = audit?.record(
-            .condensation,
-            details: AuditEvent.Details.condensation(
-                turnsBefore: store.turnCount(of: condensation.before),
-                turnsAfter: store.turnCount(of: condensation.after),
-                contextSize: contextSize, tokenCount: tokenCount, reason: reason,
-                saved: saveCondensation(condensation.before, condensation.after)))
+        var details = AuditEvent.Details.condensation(
+            turnsBefore: store.turnCount(of: condensation.before),
+            turnsAfter: store.turnCount(of: condensation.after),
+            contextSize: contextSize, tokenCount: tokenCount, reason: reason,
+            saved: saveCondensation(condensation.before, condensation.after))
+        if let continued { details["continued"] = .int(continued) }
+        let event = audit?.record(.condensation, details: details)
         let kept = Set(condensation.after.map(\.id))
         let active = store.entries.filter { $0.state == .active }
         await handOn(
@@ -718,10 +734,11 @@ public final class Agent {
             {
                 time = event.time
             }
-            // wisp's note after an empty response is a notice, never the person's prompt.
+            // wisp's note after an empty response, or in a continued turn, is a notice, never the person's prompt.
+            let note = Self.isWispNote(entry)
             store.record(
-                entry, kind: Self.isEmptyReplyNote(entry) ? .notice : nil, origin: .turn, turn: turn,
-                sources: Self.isEmptyReplyNote(entry) ? [] : references, time: time)
+                entry, kind: note ? .notice : nil, origin: .turn, turn: turn, sources: note ? [] : references,
+                time: time)
         }
         extractFacts(from: events, turn: turn)
         if let plan {

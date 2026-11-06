@@ -15,6 +15,13 @@ Added:
   conversation's last request, naming the first that does not. A request whose prompt Ollama's cache held is told
   from one it evaluated whole, and a change at a long thread's front shows where it is (`docs/logging.md`).
 
+Fixed:
+
+- A request that overflowed the model's context after the turn had run tools, or that called a tool the request had
+  not registered, no longer runs those tools again when it is retried. The retry goes on from the turn's calls and
+  their outputs, rebuilt from the audit log, with a note from wisp in place of the prompt; a turn whose calls cannot
+  fit even then ends with the context error, and nothing is run twice (ADR 0086).
+
 ## 0.35.1
 
 Changed:

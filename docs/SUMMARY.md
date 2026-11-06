@@ -138,6 +138,7 @@
   - [0083: An empty response is asked once more, from the turn's record](decisions/0083-an-empty-response-is-asked-once-more.md)
   - [0084: Homebrew installs Wisp.app from a cask, and the formula migrates to it](decisions/0084-homebrew-installs-the-app-from-a-cask.md)
   - [0085: An approval lasts a time, in its project](decisions/0085-an-approval-lasts-a-time-in-its-project.md)
+  - [0086: A retried request continues the turn, so no call runs again](decisions/0086-a-retried-request-continues-the-turn.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

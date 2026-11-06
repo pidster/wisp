@@ -562,8 +562,9 @@ request once on a fresh session from the store, as the overflow recovery does; t
 `context.assessment` with method `retry`, so the eval counts how often a selection missed. The catalogue's first
 line tells the model it may call any tool listed. Chosen over the alternatives because it needs nothing from the
 model (a small model asking for a tool by `memory` or by a reply would cost a turn and might not ask) and nothing
-from the framework (a turn cannot continue in a session once a call is refused); its cost is the overflow retry's:
-tool calls made earlier in the same request run again.
+from the framework (a turn cannot continue in a session once a call is refused). When the request had already
+made tool calls, the retry continues the turn rather than sending the prompt again, as the overflow retry does
+(below, "Continuing a turn"), and the event records `continued`, the number of calls it went on from.
 
 **The task frame and the relevant facts (D6, D7).** The now block, just before the request, carries the task and
 its objective (the task fact's line), then up to four relevant facts repeated (the model's choice first, then
@@ -645,6 +646,22 @@ check. If it overflows again, the error is `ContextFailure.doesNotFit` (`the req
 model's context window: with earlier turns condensed, the instructions, the last turn, and the request still
 need about N of W tokens; shorten the request or start a new conversation`), not the framework's.
 
+**Continuing a turn** ([ADR 0086](decisions/0086-a-retried-request-continues-the-turn.md)). The framework keeps
+nothing of a request that threw, and the model runs its tool loop inside that one request, so a retry that sent the
+prompt again had the model call its tools again: a command run, and perhaps approved, before the overflow ran a second
+time. Under both condensing policies, when the turn has already made tool calls, the retry is sent on the condensed
+context followed by the turn rebuilt from its audit events (the prompt, then each call with the output it returned,
+as a stopped turn is recorded), and in place of the prompt wisp sends a note telling the model to go on from those
+calls. Nothing runs again unless the model chooses to call it again, which is a new call, approved and audited as
+one ([ADR 0050](decisions/0050-tool-output-budget-and-overflow.md)). The target's goal leaves room for the rebuilt
+turn and the note, estimated at four bytes a token, instead of the prompt alone. When the turn's own entries take the
+whole window by that estimate, nothing is sent; when the continued request overflows again, it is not retried. Both
+end the turn with `ContextFailure.doesNotFit`, and the failed turn's record keeps the rebuilt calls, so the next turn
+knows what ran. The `context.condensation` event records `continued`, the number of calls the retry went on from; the
+store keeps the note as wisp's notice, as it keeps the note after an empty reply
+([ADR 0083](decisions/0083-an-empty-response-is-asked-once-more.md)). A turn that has made no call yet is retried with
+its prompt, as before.
+
 **Why these defaults.** On the on-device model's 8,192 tokens, the instructions with every tool take about
 1,200 tokens (1,400 with `memory`) and the earlier block at its cap 15% (facts 10%, summary 5%), under a third of
 the window together. A target of 0.6 leaves about 2,500 tokens of literal turns, many turns of file reading once
@@ -704,7 +721,11 @@ flowchart TD
     send --> overflow{"contextSizeExceeded?"}
     overflow -->|no| reply["The reply"]
     overflow -->|yes| rebuild["Condense the context before the prompt to the target, reason overflow"]
-    rebuild --> retry{"Retried once: overflow again?"}
+    rebuild --> called{"Calls made this turn?"}
+    called -->|no| again["The prompt sent again"]
+    again --> retry{"Overflow again?"}
+    called -->|yes| continued["Calls rebuilt from the audit, note sent in place of the prompt"]
+    continued --> retry
     retry -->|no| reply
     retry -->|yes| error["ContextFailure.doesNotFit"]
 ```

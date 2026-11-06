@@ -3,7 +3,8 @@
 Date: 2026-09-17. Status: accepted. Amended by [ADR 0025](0025-context-estimation.md) (condensing
 ahead of the window) and [ADR 0045](0045-layered-context.md): condensing now brings the composed context
 to a token target, distilling facts and a summary from the turns it drops, rather than keeping the last
-four turns.
+four turns. Amended by [ADR 0086](0086-a-retried-request-continues-the-turn.md): a turn that has made tool calls is
+retried from them, with wisp's note in place of the prompt, so its calls are not made again.
 
 ## Context
 

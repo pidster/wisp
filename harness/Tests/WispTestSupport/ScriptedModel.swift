@@ -6,7 +6,7 @@ import WispCore
 /// A `LanguageModel` that answers from a script, so the framework's real tool loop, streaming, and
 /// transcript can be driven in tests with no model. Each executor request consumes the next step:
 /// `.call` emits a tool call, `.say` emits text (with `{tool}` replaced by the last tool output) in
-/// word-sized fragments. When the script runs out the model says "done". `overflowOnce` makes the
+/// word-sized fragments, `.overflow` throws `contextSizeExceeded`. When the script runs out the model says "done". `overflowOnce` makes the
 /// first request throw `contextSizeExceeded` after streaming `partialBeforeOverflow`, to exercise
 /// recovery.
 public struct ScriptedModel: LanguageModel {
@@ -25,6 +25,9 @@ public struct ScriptedModel: LanguageModel {
         /// End the response with neither text nor a tool call, as Bonsai 2 9B now and then does after tool calls; the
         /// framework ends the turn on it.
         case silent
+        /// Throw `contextSizeExceeded` with `overflowSize`, as a request that outgrew the window mid-turn does: after a
+        /// `.call` step, the overflow comes once the call has run.
+        case overflow
     }
 
     /// Mutable script state, behind a Mutex in a class as the concurrency rules require.
@@ -127,6 +130,12 @@ public struct ScriptedModel: LanguageModel {
             switch step {
             case .think, .silent:
                 break
+            case .overflow:
+                let size = script.overflowSize.withLock { $0 }
+                throw LanguageModelError.contextSizeExceeded(
+                    .init(
+                        contextSize: size.contextSize, tokenCount: size.tokenCount,
+                        debugDescription: "scripted overflow", metadata: [:]))
             case .hang(let text):
                 if !text.isEmpty { await channel.send(.response(action: .appendText(text, tokenCount: 1))) }
                 if let stop = TurnStop.current {

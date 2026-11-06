@@ -56,24 +56,31 @@ extension Agent: CondensingHost {
         return true
     }
 
-    /// Recovers from an overflow by condensing to the target, then retries the request once on a new session. The
+    /// Recovers from an overflow by condensing to the target, then sends the request again once on a new session. The
     /// context before the failed request is measured by the model's count, or estimated from the overflow's own
     /// count less the bytes of what the failed request added. It retries even when the estimate says the floor
     /// cannot fit, since the retry is the one exact check; when the retry overflows again, it reports how far over
-    /// it was as `ContextFailure.doesNotFit` rather than the framework's error.
+    /// it was as `ContextFailure.doesNotFit` rather than the framework's error. When the turn has already made tool
+    /// calls, the retry continues the turn from them (`sendAgain(_:rebuilt:window:_:)`, ADR 0086), and the goal leaves
+    /// room for the rebuilt turn and the note in place of the prompt.
     ///
     /// - Parameters:
     ///   - overflow: The window and the failed request's size.
-    ///   - operation: The request.
+    ///   - prompt: The turn's prompt, which a rebuilt turn starts with.
+    ///   - text: What the failed request sent: the prompt, or wisp's note.
+    ///   - operation: The request, sending the text it is given.
     /// - Returns: The retried request's result.
     /// - Throws: `ContextFailure`, or the retry's own error.
     nonisolated(nonsending) func retryToTarget<T>(
-        _ overflow: (contextSize: Int, tokenCount: Int), _ operation: () async throws -> T
+        _ overflow: (contextSize: Int, tokenCount: Int), prompt: String, text: String,
+        _ operation: (String) async throws -> T
     ) async throws -> T {
         let window = overflow.contextSize
         let failed = ContextComposer.bytes(of: Array(session.transcript))
-        let prompt = Self.lastPrompt(in: session.transcript)
-        let tokens = prompt / ContextComposer.bytesPerToken
+        let rebuilt = rebuiltTurn(prompt)
+        let tokens =
+            rebuilt.map(Self.continuationTokens) ?? Self.lastPrompt(in: session.transcript)
+            / ContextComposer.bytesPerToken
         let composed = composer.compose(store)
         var fill = await counted(composed) ?? 0
         if fill == 0 {
@@ -85,10 +92,10 @@ extension Agent: CondensingHost {
         let outcome = await TargetCondensing.run(self, fill: fill, goal: goal) { await self.counted($0) }
         record(
             outcome, window: window, tokenCount: overflow.tokenCount, headroom: headroom, prompt: tokens,
-            reason: "overflow")
+            reason: "overflow", continued: rebuilt.map(Self.calls(in:)))
         materialise(fresh: true)
         do {
-            return try await operation()
+            return try await sendAgain(text, rebuilt: rebuilt, window: window, operation)
         } catch {
             guard let again = Self.overflow(in: error) else { throw error }
             contextSize = again.contextSize
@@ -118,8 +125,10 @@ extension Agent: CondensingHost {
     ///   - headroom: The headroom kept for the next turn.
     ///   - prompt: The prompt's estimated tokens.
     ///   - reason: `budget` or `overflow`.
+    ///   - continued: The calls an overflow's retry continues the turn from (ADR 0086), for the event; nil for none.
     private func record(
-        _ outcome: TargetCondensing.Outcome, window: Int, tokenCount: Int, headroom: Int, prompt: Int, reason: String
+        _ outcome: TargetCondensing.Outcome, window: Int, tokenCount: Int, headroom: Int, prompt: Int, reason: String,
+        continued: Int? = nil
     ) {
         // An overflow counts even when no step changed anything: the retry sheds the failed attempt on a new
         // session, as phase 2's did.
@@ -135,6 +144,7 @@ extension Agent: CondensingHost {
                 goal: outcome.goal, fillBefore: outcome.before, fillAfter: outcome.after, headroom: headroom,
                 steps: outcome.steps.map(\.words), floor: outcome.floor)
         ) { _, new in new }
+        if let continued { details["continued"] = .int(continued) }
         let event = audit?.record(.condensation, details: details)
         store.attribute(outcome.dropped, to: event)
         guard outcome.floor else { return }
