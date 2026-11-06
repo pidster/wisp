@@ -110,6 +110,10 @@ public final class RequestObserver: Sendable {
 
 /// The parts of a conversation's last request, which `Agent` keeps across its turns so each request can be compared
 /// with the one before it.
+///
+/// The comparison is with the conversation's own last request, not with what the server's prompt cache holds: Ollama
+/// keeps the prompt it last evaluated, from any caller, so another caller in between can cost a request its cache
+/// though nothing at its front changed.
 final class PreviousRequest: Sendable {
     /// How a request's parts compare with the last one's.
     struct Change: Equatable {
