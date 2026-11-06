@@ -72,6 +72,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case turnStopped
         case turnEmpty
         case modelReasoning
+        case modelRequest
         case toolCall
         case toolResult
         case policyDecision
@@ -146,6 +147,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .turnStopped,
             .turnEmpty,
             .modelReasoning,
+            .modelRequest,
             .toolCall,
             .toolResult,
             .policyDecision,
@@ -220,6 +222,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .turnStopped: "turn.stopped"
             case .turnEmpty: "turn.empty"
             case .modelReasoning: "model.reasoning"
+            case .modelRequest: "model.request"
             case .toolCall: "tool.call"
             case .toolResult: "tool.result"
             case .policyDecision: "policy.decision"
@@ -383,6 +386,14 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case .modelReasoning:
             let tokens = details["tokens"]?.intValue.map { " tokens=\($0)" } ?? ""
             body = "\(details["phase"]?.stringValue ?? "?")\(tokens) \(details["text"]?.stringValue ?? "")"
+        case .modelRequest:
+            let prompt = details["promptSeconds"]?.doubleValue.map { String(format: " in %.2fs", $0) } ?? ""
+            let shared =
+                details["sharedParts"]?.intValue.map { " shared=\($0)/\(details["parts"]?.intValue ?? 0)" } ?? ""
+            let changed = details["changedPart"]?.stringValue.map { " changed=\($0)" } ?? ""
+            body =
+                "\(details["model"]?.stringValue ?? "?") prompt=\(details["promptTokens"]?.intValue ?? 0)\(prompt)"
+                + " output=\(details["outputTokens"]?.intValue ?? 0)\(shared)\(changed)"
         default:
             body = details.keys.sorted().compactMap { key in details[key]?.stringValue.map { "\(key)=\($0)" } }.joined(
                 separator: " ")

@@ -544,6 +544,35 @@ public struct OllamaModel: LanguageModel, Sendable {
             var error: String?
             var prompt_eval_count: Int?
             var eval_count: Int?
+            /// The request's whole time on the server, in nanoseconds; on the last chunk only.
+            var total_duration: Int?
+            /// Time spent loading the model, in nanoseconds.
+            var load_duration: Int?
+            /// Time spent evaluating the prompt, in nanoseconds: short when the server's prompt cache held its front.
+            var prompt_eval_duration: Int?
+            /// Time spent generating, in nanoseconds.
+            var eval_duration: Int?
+        }
+
+        /// The request served, for the turn's `RequestObserver`: the counts and times the last chunk reported, and the
+        /// request's parts (its tools and options, then each message) as fingerprints.
+        ///
+        /// - Parameters:
+        ///   - body: The request sent.
+        ///   - last: The chunk that said the reply is done; nil leaves the times out.
+        ///   - input: The prompt tokens reported.
+        ///   - output: The tokens generated.
+        /// - Returns: The record.
+        static func served(_ body: ChatRequest, last: Chunk?, input: Int, output: Int) -> ServedRequest {
+            var header = body
+            header.messages = []
+            let seconds = { (nanoseconds: Int?) in nanoseconds.map { Double($0) / 1e9 } }
+            return ServedRequest(
+                model: body.model, promptTokens: input, outputTokens: output, loadSeconds: seconds(last?.load_duration),
+                promptSeconds: seconds(last?.prompt_eval_duration), outputSeconds: seconds(last?.eval_duration),
+                totalSeconds: seconds(last?.total_duration),
+                parts: [ServedRequest.fingerprint(header)] + body.messages.map(ServedRequest.fingerprint),
+                roles: ["tools"] + body.messages.map(\.role))
         }
 
         /// Maps the framework transcript onto Ollama's chat messages, through the mapping every local
@@ -613,8 +642,8 @@ public struct OllamaModel: LanguageModel, Sendable {
             http.httpMethod = "POST"
             http.setValue("application/json", forHTTPHeaderField: "Content-Type")
             http.timeoutInterval = TimeInterval(configuration.timeoutSeconds)
-            http.httpBody = try JSONEncoder().encode(
-                Self.body(for: request, model: model.name, contextLength: model.window, think: model.think))
+            let body = Self.body(for: request, model: model.name, contextLength: model.window, think: model.think)
+            http.httpBody = try JSONEncoder().encode(body)
             let bytes: URLSession.AsyncBytes
             let response: URLResponse
             do {
@@ -639,9 +668,10 @@ public struct OllamaModel: LanguageModel, Sendable {
             var relay = ReplyRelay(
                 request: request, channel: channel, thinks: model.reported?.contains("thinking") == true)
             var done = false
+            var last: Chunk?
             do {
                 for try await line in bytes.lines {
-                    done = try await hand(line, status: status, input: &input, output: &output, to: &relay)
+                    done = try await hand(line, status: status, input: &input, output: &output, last: &last, to: &relay)
                 }
             } catch let failure as Failure {
                 throw failure
@@ -656,6 +686,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             }
             await relay.finish()
             model.usage.value.withLock { $0 = input }
+            RequestObserver.current?.requestServed(Self.served(body, last: last, input: input, output: output))
             // Ollama reports no count of its own for the thinking; it streams one token a chunk, so the chunks are
             // the count, within the output's total.
             let thought = relay.thinkingTokens
@@ -691,11 +722,13 @@ public struct OllamaModel: LanguageModel, Sendable {
         ///   - status: The HTTP status, for an error chunk.
         ///   - input: The prompt tokens Ollama reported.
         ///   - output: The tokens it generated.
+        ///   - last: Set to the chunk that says the reply is done.
         ///   - relay: The reply's relay.
         /// - Returns: Whether the chunk said the reply is done.
         /// - Throws: `Failure.badResponse` or `Failure.serverError`.
         nonisolated(nonsending) private func hand(
-            _ line: String, status: Int, input: inout Int, output: inout Int, to relay: inout ReplyRelay
+            _ line: String, status: Int, input: inout Int, output: inout Int, last: inout Chunk?,
+            to relay: inout ReplyRelay
         ) async throws -> Bool {
             let chunk: Chunk
             do {
@@ -715,6 +748,7 @@ public struct OllamaModel: LanguageModel, Sendable {
             }
             input = chunk.prompt_eval_count ?? input
             output = chunk.eval_count ?? output
+            if chunk.done == true { last = chunk }
             return chunk.done == true
         }
     }

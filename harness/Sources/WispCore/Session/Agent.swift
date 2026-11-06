@@ -356,6 +356,10 @@ public final class Agent {
     /// read right after the conversation's request and kept here (`conversationInputTokens`).
     public var lastInputTokens: Int { conversationInputTokens ?? 0 }
 
+    /// The parts of the conversation's last request to its model's server, so each `model.request` says what changed at
+    /// the front since; a side call is never compared, as it binds no observer.
+    private let previousRequest = PreviousRequest()
+
     /// The runtime's report of the conversation's last request, read as that request ended; nil before it, or for a
     /// model that does not report. Kept with the store, so an agent that takes it over (`/model`) condenses ahead of
     /// its first request from the context's size as the last request measured it.
@@ -1000,12 +1004,16 @@ public final class Agent {
         refreshFacts()
         if !(await condenseAheadIfNeeded(for: prompt, referenced: referenced)) { materialise() }
         do {
-            // The model's thinking is reported as it happens through the turn's observer (ADR 0053), and its requests
+            // The model's thinking is reported as it happens through the turn's observer (ADR 0053), each request its
+            // server serves through another (`model.request`), and its requests
             // ask for the turn's thinking (ADR 0053, amended 2026-10-11); a side call within the turn asks for none.
+            let requests = RequestObserver.recording(to: audit, previous: previousRequest)
             let text = try await ReasoningObserver.$current.withValue(ReasoningObserver.recording(to: audit)) {
-                try await RequestThinking.$current.withValue(think) {
-                    try await TurnStop.$current.withValue(stop) {
-                        try await withEmptyRecovery(prompt, operation)
+                try await RequestObserver.$current.withValue(requests) {
+                    try await RequestThinking.$current.withValue(think) {
+                        try await TurnStop.$current.withValue(stop) {
+                            try await withEmptyRecovery(prompt, operation)
+                        }
                     }
                 }
             }

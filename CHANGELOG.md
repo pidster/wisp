@@ -6,6 +6,15 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Added:
+
+- The audit log records each request an Ollama model served within a turn as `model.request`: its prompt and output
+  tokens, Ollama's load, prompt-evaluation, and generation times, and how many of its leading parts match the
+  conversation's last request, naming the first that does not. A request whose prompt Ollama's cache held is told
+  from one it evaluated whole, and a change at a long thread's front shows where it is (`docs/logging.md`).
+
 ## 0.35.1
 
 Changed:

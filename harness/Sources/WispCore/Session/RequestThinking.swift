@@ -15,15 +15,17 @@ public enum RequestThinking {
     /// A model that cannot think is sent nothing whatever is asked (`ThinkingControl.thinkSent(_:)`).
     @TaskLocal public static var current: OllamaThink?
 
-    /// Runs `operation` as one of wisp's own calls outside the conversation: no observer records its thinking as the
-    /// turn's, and its requests ask a model that can think not to.
+    /// Runs `operation` as one of wisp's own calls outside the conversation: no observer records its thinking or its
+    /// requests as the turn's, and its requests ask a model that can think not to.
     ///
     /// - Parameter operation: The call.
     /// - Returns: What it returned.
     /// - Throws: What it threw.
     nonisolated(nonsending) public static func sideCall<T>(_ operation: () async throws -> T) async rethrows -> T {
         try await ReasoningObserver.$current.withValue(nil) {
-            try await $current.withValue(.off) { try await operation() }
+            try await RequestObserver.$current.withValue(nil) {
+                try await $current.withValue(.off) { try await operation() }
+            }
         }
     }
 }

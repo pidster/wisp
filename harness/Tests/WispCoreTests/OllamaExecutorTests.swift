@@ -428,6 +428,58 @@ final class FakeOllama: URLProtocol {
         #expect(try await textOnly.openAgent().respond(to: "hi").text == "ok")
     }
 
+    @Test func eachRequestServedIsAuditedWithItsTimesAndWhatChangedAtItsFront() async throws {
+        FakeOllama.serve("/api/tags", body: Self.tags)
+        FakeOllama.serve("/api/show", body: Self.shown)
+        // Ollama's last chunk, its durations in nanoseconds.
+        FakeOllama.serve(
+            "/api/chat",
+            body:
+                #"{"message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":40,"eval_count":2,"#
+                + #""total_duration":3000000000,"load_duration":500000000,"prompt_eval_duration":2000000000,"#
+                + #""eval_duration":250000000}"# + "\n")
+        let model = try ModelSelection.ollama("q").resolve(config: Self.config)
+        let sink = MemoryAuditSink()
+        let agent = Agent(instructions: "x", tools: [], model: model, audit: AuditLog(session: "s", sink: sink))
+        _ = try await agent.respond(to: "one")
+        _ = try await agent.respond(to: "two")
+        // A request outside a turn, as a side call is, is not the conversation's and is not recorded.
+        _ = try await RequestThinking.sideCall {
+            try await model.session(tools: [], instructions: "y").respond(to: "z")
+        }
+        let served = sink.events.filter { $0.kind == .modelRequest }
+        #expect(served.count == 2)
+        let first = try #require(served.first)
+        #expect(Set(first.details.keys).isSubset(of: AuditEvent.fields(for: .modelRequest)))
+        #expect(first.details["model"] == "q" && first.details["promptTokens"] == 40)
+        #expect(first.details["outputTokens"] == 2 && first.details["promptSeconds"] == .double(2))
+        #expect(first.details["loadSeconds"] == .double(0.5) && first.details["totalSeconds"] == .double(3))
+        // The first has nothing to compare with; the second carries the first's parts at its front.
+        #expect(first.details["sharedParts"] == nil)
+        let second = try #require(served.last)
+        let shared = try #require(second.details["sharedParts"]?.intValue)
+        #expect(shared >= 1 && shared <= (first.details["parts"]?.intValue ?? 0), "\(second.details)")
+        #expect(first.summary.contains("prompt=40 in 2.00s"), "\(first.summary)")
+    }
+
+    @Test func aRequestsPartsAreComparedWithTheLastOnes() {
+        let previous = PreviousRequest()
+        #expect(previous.compare([1, 2, 3]) == .init(shared: 0, first: nil, compared: false))
+        // Grown at its end, as the tool loop grows a request: every part of the last shared.
+        #expect(previous.compare([1, 2, 3, 4]) == .init(shared: 3, first: nil, compared: true))
+        // Changed at its front, as a new summary or fact would change it.
+        #expect(previous.compare([1, 9, 3, 4, 5]) == .init(shared: 1, first: 1, compared: true))
+        // Shorter than the last: the first part missing is the change.
+        #expect(previous.compare([1, 9]) == .init(shared: 2, first: 2, compared: true))
+        let request = ServedRequest(
+            model: "m", promptTokens: 1, outputTokens: 1, parts: [1, 9], roles: ["tools", "system"])
+        let change = PreviousRequest.Change(shared: 1, first: 1, compared: true)
+        #expect(AuditEvent.Details.modelRequest(request, change: change)["changedPart"] == "system")
+        let short = PreviousRequest.Change(shared: 2, first: 2, compared: true)
+        #expect(AuditEvent.Details.modelRequest(request, change: short)["changedPart"] == "end")
+        #expect(AuditEvent.Details.modelRequest(request, change: short)["loadSeconds"] == nil)
+    }
+
     /// The shape probed on 2026-10-04 with ornith:9b: thinking chunks, then the reply's.
     static let thinkingStream =
         [

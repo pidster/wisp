@@ -13,7 +13,12 @@ edited when it does. When an item ships it leaves this page for the changelog, a
 in [backlog.md](backlog.md). Each release's preflight runs the eval's floors, as a guard against regressions, not a
 measurement.
 
-Next: no release is scheduled yet. Later,
+Next: 0.35.2 (the operator, 2026-11-06): record each Ollama request's prompt-evaluation and load times, so a
+request that missed the server's prompt cache can be told from one that hit it, and with them find what changes at
+the front of a long thread's prompt between turns (left open by 0.35.1, [measurements.md](measurements.md), "The git
+thread's slow turns and its approvals"); stop overflow recovery from running a turn's commands again (a request retried on a fresh session
+repeats the tool calls made before it overflowed); and bring
+[on-device-ai-todo.md](on-device-ai-todo.md) up to date with the code. Later,
 with no release yet: protecting wisp's state from other agents, tasks (a plan and its grant), and Private Cloud Compute, below.
 
 ## Later: protecting wisp's state from other agents
@@ -116,12 +121,6 @@ Waiting on data:
 
 Waiting on a measurement run:
 
-- why long git threads on Ollama were slow, left open by 0.35.1's evaluation: the slow turns on 2026-11-05 were
-  Ollama evaluating the thread's whole prompt, about 24,000 tokens a request, at the start of nearly every turn and
-  after every commit, with the Mac 14 GB into swap ([measurements.md](measurements.md), "The git thread's slow turns
-  and its approvals"). It needs each Ollama request's evaluation and load times recorded, so a request that missed
-  the server's prompt cache can be told from one that hit it, and finding what changes at the front of a long
-  thread's prompt between turns;
 - the rest of what [ADR 0052](decisions/0052-mlx-on-a-par-with-ollama.md) lists under "What 0.20.0 must
   measure", beyond the `Qwen3-1.7B-4bit` comparison 0.20.0 ran: prefix reuse, the cache's real cost per token,
   the windows sized for common models, the pull against the real Hub, and Core AI past its bundle's window;

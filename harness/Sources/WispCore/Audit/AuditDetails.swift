@@ -122,6 +122,28 @@ extension AuditEvent {
             ]
         }
 
+        /// `model.request`: one request a model's server served, its tokens and times, and how its parts compare with
+        /// the conversation's last request's (`sharedParts` leading parts equal; `changedAt`, the index of the first
+        /// that is not, and `changedPart`, what it is: `tools`, a message's role, or `end` when this request stops
+        /// short of it).
+        static func modelRequest(_ request: ServedRequest, change: PreviousRequest.Change) -> [String: JSONValue] {
+            var details: [String: JSONValue] = [
+                "model": .string(request.model), "promptTokens": .int(request.promptTokens),
+                "outputTokens": .int(request.outputTokens), "parts": .int(request.parts.count),
+            ]
+            let times = [
+                ("loadSeconds", request.loadSeconds), ("promptSeconds", request.promptSeconds),
+                ("outputSeconds", request.outputSeconds), ("totalSeconds", request.totalSeconds),
+            ]
+            for (key, seconds) in times { if let seconds { details[key] = .double(seconds) } }
+            if change.compared { details["sharedParts"] = .int(change.shared) }
+            if let first = change.first {
+                details["changedAt"] = .int(first)
+                details["changedPart"] = .string(first < request.roles.count ? request.roles[first] : "end")
+            }
+            return details
+        }
+
         /// `tool.call`; `arguments` is the JSON the model produced.
         public static func toolCall(tool: String, arguments: String) -> [String: JSONValue] {
             ["tool": .string(tool), "arguments": .string(arguments)]
@@ -939,6 +961,11 @@ extension AuditEvent {
         case .turnStopped: ["seconds", "killed"]
         case .turnEmpty: ["outcome"]
         case .modelReasoning: ["phase", "text", "bytes", "tokens", "seconds"]
+        case .modelRequest:
+            [
+                "model", "promptTokens", "outputTokens", "parts", "loadSeconds", "promptSeconds", "outputSeconds",
+                "totalSeconds", "sharedParts", "changedAt", "changedPart",
+            ]
         case .toolCall: ["tool", "arguments", "task"]
         case .toolResult: ["tool", "output", "bytes", "seconds", "repeat"]
         case .policyDecision:
