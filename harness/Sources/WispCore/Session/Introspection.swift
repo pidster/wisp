@@ -147,12 +147,13 @@ public struct Introspection: Sendable {
     /// - Returns: The settings, by scheme.
     static func configuredBackends(_ config: Config.Resolved) -> [String: JSONValue] {
         [
+            "coreai": .object(["executor": .string(config.coreaiExecutor.rawValue)]),
             "mlx": .object([
                 "contextLength": config.mlxContextLength.map { .int($0) } ?? .string("sized per model (ADR 0052)"),
                 "executor": .string(config.mlxExecutor.rawValue),
                 "think": config.mlxThink.map { .bool($0) } ?? .string("unset"),
                 "trustedPublishers": .array(config.mlxTrustedPublishers.map { .string($0) }),
-            ])
+            ]),
         ]
     }
 

@@ -3,8 +3,10 @@ import Foundation
 import FoundationModels
 import WispCore
 
-/// Models exported to Apple's Core AI format, run through the `CoreAILanguageModel` bridge from
-/// `apple/coreai-models`, selected as `coreai:<name>` ([ADR 0019](../../../docs/decisions/0019-model-backends.md)).
+/// Models exported to Apple's Core AI format, selected as `coreai:<name>`
+/// ([ADR 0019](../../../docs/decisions/0019-model-backends.md)), run by wisp's own executor over Core AI's engine
+/// (`CoreAIModel`, [ADR 0088](../../../docs/decisions/0088-core-ai-through-wisps-executor.md)) or, with
+/// `coreai.executor` `bridge`, by the `CoreAILanguageModel` bridge from `apple/coreai-models`.
 ///
 /// A name is a bundle directory: absolute, `~`-relative, or a subdirectory of the models directory
 /// (`config.json` `coreai.modelsDirectory`, default `<home>/models/coreai`). wisp never exports or
@@ -67,9 +69,10 @@ public struct CoreAIBackend: ModelBackend {
         home.cache.appending(path: "coreai-verified.json")
     }
 
-    /// Checks the bundle exists and its weights match the hash exported beside them (`BundleIntegrity`), loads its
-    /// metadata and tokenizer, and wraps it with the capabilities the bridge detected from the asset (tool-call
-    /// markers in the tokenizer, a thinking format).
+    /// Checks the bundle exists and its weights match the hash exported beside them (`BundleIntegrity`), reads its
+    /// metadata, and wraps it for the configured executor: wisp's, with the capabilities its chat template states,
+    /// or the bridge's, which loads the tokenizer here and detects them from the asset (tool-call markers in the
+    /// tokenizer, a thinking format).
     ///
     /// - Throws: `ModelSelection.Failure.unavailable` naming the path looked at and the bundles found, or the
     ///   weights file that does not match its hash.
@@ -98,13 +101,72 @@ public struct CoreAIBackend: ModelBackend {
         }
         let window = Self.contextWindow(in: real)
         do {
-            let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: real) }
+            guard config.coreaiExecutor == .wisp else {
+                let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: real) }
+                return ResolvedModel(
+                    selection: selection, custom: model, capabilitySource: .runtime, asset: real.path,
+                    contextSize: window?.window, contextNote: window?.reason)
+            }
+            let language = try LanguageBundle(at: real)
+            let model = Self.model(at: real, window: window?.window ?? language.maxContextLength)
             return ResolvedModel(
                 selection: selection, custom: model, capabilitySource: .runtime, asset: real.path,
-                contextSize: window?.window, contextNote: window?.reason)
+                contextSize: model.window, countTokens: { try await model.tokenCount(for: $0) },
+                contextNote: window?.reason ?? "declared by the bundle (metadata.json)")
         } catch {
             throw ModelSelection.Failure.unavailable(model: selection.description, reason: "\(error)")
         }
+    }
+
+    /// A bundle as a model run by wisp's executor, over the process's one engine for it, with the capabilities
+    /// its chat template states: tool calling when it renders tools, reasoning when it marks thinking or routes
+    /// messages to `self`, and guided generation, which the engine is asked for when a request needs it (ADR 0088).
+    ///
+    /// - Parameters:
+    ///   - bundle: The bundle directory, its real path.
+    ///   - window: The context window.
+    /// - Returns: The model.
+    static func model(at bundle: URL, window: Int) -> CoreAIModel {
+        let engine = CoreAIEngines.engine(for: bundle) {
+            CoreAIEngine(
+                loadTokenizer: { try await CoreAITokenizer.load(from: bundle) },
+                loadGenerator: {
+                    let tokenizer = try await CoreAITokenizer.load(from: bundle)
+                    return try await CoreAIGenerator.load(from: bundle, tokenizer: tokenizer)
+                })
+        }
+        let template = chatTemplate(in: bundle)
+        let format = ReplyFormat.read(template: template)
+        var capabilities: [LanguageModelCapabilities.Capability] = [.guidedGeneration]
+        if template?.contains("tools") == true { capabilities.append(.toolCalling) }
+        if format.reasons { capabilities.append(.reasoning) }
+        return CoreAIModel(engine: engine, window: window, capabilities: capabilities, replyFormat: format)
+    }
+
+    /// The bundle's chat template: `tokenizer/chat_template.jinja`, else `chat_template` in
+    /// `tokenizer/tokenizer_config.json`, a string or a list of named templates whose `default` (or first) is used.
+    ///
+    /// - Parameter bundle: The bundle directory.
+    /// - Returns: The template's text, or nil when the bundle has none.
+    static func chatTemplate(in bundle: URL) -> String? {
+        let directory = bundle.appending(path: "tokenizer", directoryHint: .isDirectory)
+        if let text = try? String(contentsOf: directory.appending(path: "chat_template.jinja"), encoding: .utf8) {
+            return text
+        }
+        guard let data = try? Data(contentsOf: directory.appending(path: "tokenizer_config.json")),
+            let config = try? JSONDecoder().decode(JSONValue.self, from: data).objectValue,
+            let template = config["chat_template"]
+        else { return nil }
+        if let text = template.stringValue { return text }
+        let named = template.arrayValue?.compactMap(\.objectValue) ?? []
+        let chosen = named.first { $0["name"]?.stringValue == "default" } ?? named.first
+        return chosen?["template"]?.stringValue
+    }
+
+    /// Shuts down every Core AI engine wisp's executor made, waiting for each, so none is torn down beside the
+    /// process's exit (ADR 0088). The bridge's engines are not reachable from wisp and are not shut down.
+    public func shutdown() async {
+        await CoreAIEngines.shutdown()
     }
 
     /// The window a bundle was exported for, from its `metadata.json`: `language.max_context_length` (metadata
@@ -174,8 +236,11 @@ public struct CoreAIBackend: ModelBackend {
         return total
     }
 
-    /// The models directory in force.
+    /// The models directory and the executor in force.
     public func settings(in config: Config.Resolved, home: Home) -> JSONValue {
-        ["modelsDirectory": .string(Self.modelsDirectory(config: config, home: home).path)]
+        [
+            "modelsDirectory": .string(Self.modelsDirectory(config: config, home: home).path),
+            "executor": .string(config.coreaiExecutor.rawValue),
+        ]
     }
 }

@@ -63,7 +63,9 @@ import Testing
         ]
         for setting in ConfigSettings.all {
             var path = moved[setting.path] ?? setting.path.split(separator: ".").map(String.init)
-            if ["ollama", "mlx", "llamacpp", "lmstudio"].contains(path.first) { path.insert("backends", at: 0) }
+            if ["ollama", "mlx", "llamacpp", "lmstudio", "coreai"].contains(path.first) {
+                path.insert("backends", at: 0)
+            }
             let node = path.reduce(Optional(top)) { $0?.objectValue?[$1] }
             #expect(node != nil, "\(setting.path) is not shown at \(path.joined(separator: "."))")
         }

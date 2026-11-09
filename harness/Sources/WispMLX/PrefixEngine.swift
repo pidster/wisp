@@ -31,7 +31,7 @@ struct MLXPrompt: Equatable, Sendable {
     ///   - thinking: The template's `enable_thinking`, or nil for its default.
     init(transcript: Transcript, tools: [Transcript.ToolDefinition], thinking: Bool?) {
         self.init(
-            messages: ChatMessage.messages(from: transcript), tools: tools.map(Self.specification),
+            messages: ChatMessage.messages(from: transcript), tools: tools.map(ChatTemplateValues.specification),
             thinking: thinking)
     }
 
@@ -48,20 +48,6 @@ struct MLXPrompt: Equatable, Sendable {
             return nil
         }.flatMap { $0 }
         return MLXPrompt(transcript: transcript, tools: tools, thinking: thinking)
-    }
-
-    /// A tool definition as the OpenAI-style specification chat templates take.
-    ///
-    /// - Parameter definition: The framework's definition.
-    /// - Returns: The specification.
-    static func specification(_ definition: Transcript.ToolDefinition) -> JSONValue {
-        [
-            "type": "function",
-            "function": [
-                "name": .string(definition.name), "description": .string(definition.description),
-                "parameters": ChatMessage.json(definition.parameters),
-            ],
-        ]
     }
 }
 

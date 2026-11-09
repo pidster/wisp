@@ -201,6 +201,10 @@ public enum ConfigSettings {
         } + [
             Setting(path: "lmstudio.baseURL", summary: "where LM Studio's server serves", kind: .text),
             Setting(
+                path: "coreai.executor",
+                summary: "what runs Core AI models: wisp's executor, or the bridge (its own thinking and tool calls)",
+                kind: .choice(CoreAIExecutorChoice.allCases.map(\.rawValue))),
+            Setting(
                 path: "mlx.contextLength",
                 summary: "the context window of every MLX model; unset sizes each from memory",
                 kind: .integer(windowRange)),
@@ -376,6 +380,7 @@ public enum ConfigSettings {
         case "llamacpp.think": return d.llamacpp.think.map { .string($0.text) } ?? .string("the template's default")
         case "lmstudio.baseURL": return .string(d.lmstudio.baseURL.absoluteString)
         case "mlx.contextLength": return d.mlxContextLength.map { .int($0) } ?? .string("sized per model")
+        case "coreai.executor": return .string(d.coreaiExecutor.rawValue)
         case "mlx.executor": return .string(d.mlxExecutor.rawValue)
         case "mlx.think": return d.mlxThink.map { .bool($0) } ?? .string("declared reasoning, else the template's")
         case TrustedPublishers.setting: return .array(d.mlxTrustedPublishers.map { .string($0) })

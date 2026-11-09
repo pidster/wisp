@@ -58,6 +58,8 @@ let package = Package(
             dependencies: [
                 "WispCore",
                 .product(name: "CoreAILM", package: "coreai-models"),
+                // The tokenizer protocol wisp's Core AI executor renders and decodes with; coreai-models' own.
+                .product(name: "Tokenizers", package: "swift-transformers"),
             ]
         ),
         .target(

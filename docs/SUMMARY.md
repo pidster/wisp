@@ -140,6 +140,7 @@
   - [0085: An approval lasts a time, in its project](decisions/0085-an-approval-lasts-a-time-in-its-project.md)
   - [0086: A retried request continues the turn, so no call runs again](decisions/0086-a-retried-request-continues-the-turn.md)
   - [0087: What the person decides is signed in their presence](decisions/0087-what-the-person-decides-is-signed-in-their-presence.md)
+  - [0088: Core AI through wisp's executor](decisions/0088-core-ai-through-wisps-executor.md)
 - [Proposals]()
   - [Escalations, with two verbs and a choice of channels (2026-09-20)](proposals/2026-09-20-escalations.md)
   - [Spike: a ratatui front end for wisp chat (2026-09-22)](proposals/2026-09-22-tui-spike.md)

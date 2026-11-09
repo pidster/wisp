@@ -502,9 +502,12 @@ Install [LM Studio](https://lmstudio.ai), download a model, and start the server
 
 ## Core AI
 
-Apple's Core AI framework runs models exported to `.aimodel` bundles, through the `CoreAILanguageModel`
-bridge from [apple/coreai-models](https://github.com/apple/coreai-models), which wisp pins by commit
-(`harness/Package.swift`). Requires macOS 27 and Xcode 27 to build; nothing extra to run.
+Apple's Core AI framework runs models exported to `.aimodel` bundles. wisp drives Core AI's engine from its own
+executor, with the engine, tokenizer, and constrained decoding from
+[apple/coreai-models](https://github.com/apple/coreai-models), which wisp pins by commit (`harness/Package.swift`),
+and reads the model's thinking and tool calls itself ([ADR 0088](decisions/0088-core-ai-through-wisps-executor.md),
+proposed). coreai-models' `CoreAILanguageModel` bridge is the alternative, `coreai.executor: "bridge"`. Requires
+macOS 27 and Xcode 27 to build; nothing extra to run.
 
 Preparing an asset (once, on any Mac with `uv`; downloads the source weights from Hugging Face):
 
@@ -529,19 +532,50 @@ Naming: `coreai:<bundle-directory-name>` under the models directory, or `coreai:
 that is a link, and a bundle linked into it by name, are listed and resolved through their real directories, as
 MLX's are.
 
-Capabilities come from the bundle: the bridge detects tool-call markers in the tokenizer vocabulary,
-a thinking format, and whether the loaded engine supports guided generation. What wisp has verified,
-and with which model, is in the changelog for the release that shipped it; treat any other model as
-unverified until you run it.
+### What runs the model
 
-Verified on 2026-09-20 with Qwen3 0.6B (4-bit, exported as above) on an M4 Max: the bridge declared
+| | wisp's executor (`coreai.executor: "wisp"`, the default) | The bridge (`coreai.executor: "bridge"`) |
+| --- | --- | --- |
+| Capabilities | From the chat template: tool calling when it renders tools, reasoning when it marks thinking or routes messages to `self`, guided generation | Detected by the bridge: tool-call markers in the vocabulary, a thinking format, the loaded engine |
+| Tool calls | `<tool_call>` frames holding a JSON object, a JSON array, or the XML form (`<function=NAME><parameter=KEY>`, Qwen3.5 and Nemotron); ATEM blocks after a `to=TOOL` header (Muse Glimmer). A frame that is no call stays in the reply | JSON in `<tool_call>` and ATEM; any other body is dropped silently |
+| Thinking | Split by the template's tags, primed when the prompt opens a block; routed `to=self` messages. A template that takes `enable_thinking` is sent what a request asks (off for wisp's own calls, a thread's `think`), else nothing | Tags only when the model writes the opening one, so a template that opens `<think>` in the prompt leaks the thinking and a bare `</think>` into the reply |
+| Window | Enforced: a prompt that does not fit is an overflow, which condenses and retries | Not enforced by the bridge |
+| Token counts and usage | Exact counts from the template, without loading the weights; usage reported, with Core AI's reused prefix as cached | Reported to the framework only |
+| Ctrl-C | Stops generation at the next token | Not reachable by wisp |
+| At exit | Engines shut down before the process exits | Not reachable by wisp |
+
+The template's reply format decides how a reply is read. Most templates write free text with thinking between tags
+and calls in `<tool_call>` frames. Muse Glimmer's routes each message by a header instead: `to=self` for
+thinking, `to=user` for the reply, a tool's name for an ATEM call, `<|eom|>` after each message and `<|eot|>` at
+the end of the turn; generation stops once a tool message ends. A reply that ends on the model's stop token still
+inside the thinking block the prompt opened, having said nothing else, is taken as answered there, since Nemotron
+answered after a tool result without closing the block. A template in a format wisp does not know is read as tagged
+without thinking; the bridge is the fallback. The engine, one per bundle, is shared by every thread on it and
+serves one request at a time. Through wisp's executor a reply may run to the end of the window, unless the request
+sets its own limit.
+
+Verified on 2026-10-08 on an M4 Max (48 GB) through a draft of wisp's executor, on bundles no longer on that Mac,
+each with a one-word question and the `current_date` tool loop. The executor as it now stands has not been run on
+a real bundle; its tests drive it over a scripted engine.
+
+| Bundle | Text | Tool loop |
+| --- | --- | --- |
+| Agents-A1-4B (mlboydaisuke/Agents-A1-4B-CoreAI, int8) | "Paris", 19 s | Called `current_date`, answered in one sentence, 22 s |
+| Nemotron-3-Nano-4B (mlboydaisuke/Nemotron-3-Nano-4B-CoreAI, int8) | "Paris", 7 s | Called `current_date`, answered in one sentence, 15 s |
+| Muse Glimmer 30B (mlboydaisuke/Muse-Glimmer-30B-CoreAI, int4) | "Paris", 19 s | Called `current_date`, answered in one sentence, 34 s |
+
+Through the bridge on 2026-10-05 the two 4B models made no call and showed their thinking in the reply; Muse
+Glimmer worked, at 45 to 83 s a prompt. What wisp has verified, and with which model, is in the changelog for the
+release that shipped it; treat any other model as unverified until you run it.
+
+Through the bridge, verified on 2026-09-20 with Qwen3 0.6B (4-bit, exported as above) on an M4 Max: the bridge declared
 tool calling, guided generation, and reasoning from the bundle; a text-only reply took 6 s cold and 1 s
 warm and was right every time; the `current_date` tool loop ran through the framework, with the model's
 thinking recorded as `reasoning` transcript entries, in 3 of 6 attempts. The other 3 ended with
 "Session ended without producing a response" from the same prompt, so at this model size and bridge
 revision tool calling is declared and demonstrated but not reliable. The live test
 (`WISP_COREAI_TESTS=1 WISP_COREAI_MODEL=<bundle> swift test --filter CoreAILiveTests`) asserts the
-declaration and the text reply and reports the tool-loop outcomes. Two things to know about thinking models: the bridge lets the model
+declaration and the text reply and reports the tool-loop outcomes. Two things to know about thinking models on the bridge: it lets the model
 think before it answers and budgets 2048 tokens for reasoning models, so a small model that never
 closes its thinking ends the turn with the framework error "Session ended without producing a
 response" (since 0.34.0 wisp asks the model once more from the turn's record, and ends the turn with "(the model
@@ -556,12 +590,13 @@ known window, `model.resolved` records it with the note `declared by the bundle 
 says the same, and `wisp models` shows it in `CONTEXT`, with `bundle` in `FROM`. It is not sized from
 memory: the export fixes the window and Core AI allocates its own cache within it. A bundle whose metadata
 states none leaves the window unknown, as before (wisp assumes 8,192 tokens until an overflow tells it).
-Whether Core AI refuses or truncates a prompt past the window has not been probed.
+Wisp's executor refuses a prompt of the window or more as an overflow, before Core AI sees it; whether Core AI
+itself refuses or truncates one, through the bridge, has not been probed.
 
 Errors: `no Core AI bundle at <path> (no metadata.json); bundles under <dir>: …; export one with …`
-when the name points nowhere; the bridge's own message (missing asset, malformed metadata, wrong bundle
-kind) when the bundle is incomplete. Loading reads the tokenizer synchronously at resolve time and the
-engine on first use, so the first reply after `wisp` starts is slow.
+when the name points nowhere; coreai-models' own message (missing asset, malformed metadata, wrong bundle
+kind) when the bundle is incomplete. The bridge reads the tokenizer synchronously at resolve time, wisp's executor
+when it first counts; both load the engine on first use, so the first reply after `wisp` starts is slow.
 
 Before a bundle is used, its weights are checked against the hash exported beside them: an `.aimodel` holds
 `main.mlirb` and its SHA-256, as 32 raw bytes, in `main.hash`. Core AI itself does not check them. Probed on

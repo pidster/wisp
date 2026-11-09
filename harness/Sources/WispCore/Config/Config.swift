@@ -515,10 +515,17 @@ public struct Config: Codable, Equatable, Sendable {
     public struct CoreAIConfig: Codable, Equatable, Sendable {
         /// Directory holding one exported bundle per subdirectory; default `<home>/models/coreai`.
         public var modelsDirectory: String?
+        /// What runs Core AI models: `wisp`, wisp's own executor (the default), or `bridge`, coreai-models'.
+        public var executor: CoreAIExecutorChoice?
 
         /// Creates settings; nil takes the default.
-        public init(modelsDirectory: String? = nil) {
+        ///
+        /// - Parameters:
+        ///   - modelsDirectory: The bundles' directory.
+        ///   - executor: What runs Core AI models.
+        public init(modelsDirectory: String? = nil, executor: CoreAIExecutorChoice? = nil) {
             self.modelsDirectory = modelsDirectory
+            self.executor = executor
         }
     }
 
@@ -965,7 +972,7 @@ public struct Config: Codable, Equatable, Sendable {
                 llamacpp, dialect: .llamaCpp, environment: ProcessInfo.processInfo.environment),
             lmstudio: OpenAICompatibleSettings.resolve(
                 lmstudio, dialect: .lmStudio, environment: ProcessInfo.processInfo.environment),
-            coreaiModelsDirectory: coreai?.modelsDirectory,
+            coreaiModelsDirectory: coreai?.modelsDirectory, coreaiExecutor: coreai?.executor ?? .wisp,
             mlxModelsDirectory: mlx?.modelsDirectory,
             // An entry that sets only a window or thinking declares nothing: the model stays undeclared, text only.
             mlxModels: (mlx?.models ?? [:])
@@ -1066,6 +1073,8 @@ public struct Config: Codable, Equatable, Sendable {
 
         /// Where Core AI bundles live, as configured; nil means `<home>/models/coreai`.
         public var coreaiModelsDirectory: String?
+        /// What runs Core AI models.
+        public var coreaiExecutor: CoreAIExecutorChoice = .wisp
         /// Where MLX model directories live, as configured; nil means `<home>/models/mlx`.
         public var mlxModelsDirectory: String?
         /// Declared capability names per MLX model name.
@@ -1151,6 +1160,15 @@ public struct Config: Codable, Equatable, Sendable {
         /// default.
         public var updatesCheck = false
     }
+}
+
+/// What runs `coreai:` models ([ADR 0088](../../../../docs/decisions/0088-core-ai-through-wisps-executor.md)).
+public enum CoreAIExecutorChoice: String, Codable, CaseIterable, Sendable {
+    /// wisp's own executor: the template's thinking and every `<tool_call>` form read by wisp, the window enforced,
+    /// exact token counts, usage reported, and the engine shut down before the process exits.
+    case wisp
+    /// coreai-models' `CoreAILanguageModel` bridge: its own readings of thinking and tool calls.
+    case bridge
 }
 
 /// What runs `mlx:` models ([ADR 0052](../../../../docs/decisions/0052-mlx-on-a-par-with-ollama.md)).

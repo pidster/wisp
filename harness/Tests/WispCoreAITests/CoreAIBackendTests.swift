@@ -44,7 +44,41 @@ import WispCore
         #expect(CoreAIBackend.bundleURL(for: "/opt/m", config: config, home: home).path == "/opt/m")
         let custom = Config(coreai: .init(modelsDirectory: "/opt/bundles")).resolved
         #expect(CoreAIBackend.bundleURL(for: "q", config: custom, home: home).path == "/opt/bundles/q")
-        #expect(CoreAIBackend().settings(in: custom, home: home) == ["modelsDirectory": "/opt/bundles"])
+        #expect(
+            CoreAIBackend().settings(in: custom, home: home) == ["modelsDirectory": "/opt/bundles", "executor": "wisp"])
+    }
+
+    @Test func wispsExecutorTakesItsCapabilitiesFromTheChatTemplate() throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let tokenizer = models.appending(path: "b/tokenizer")
+        try FileManager.default.createDirectory(at: tokenizer, withIntermediateDirectories: true)
+        let bundle = models.appending(path: "b")
+        #expect(CoreAIBackend.chatTemplate(in: bundle) == nil)
+        let bare = CoreAIBackend.model(at: bundle, window: 4096).capabilities
+        #expect(bare.contains(.guidedGeneration) && !bare.contains(.toolCalling) && !bare.contains(.reasoning))
+
+        // A template in tokenizer_config.json, a list of named templates: the default is used.
+        try Data(
+            #"{"chat_template": [{"name": "rag", "template": "x"}, {"name": "default", "template": "{{ tools }} <think></think>"}]}"#
+                .utf8
+        ).write(to: tokenizer.appending(path: "tokenizer_config.json"))
+        #expect(CoreAIBackend.chatTemplate(in: bundle) == "{{ tools }} <think></think>")
+        let tagged = CoreAIBackend.model(at: bundle, window: 4096)
+        #expect(tagged.capabilities.contains(.toolCalling) && tagged.capabilities.contains(.reasoning))
+        #expect(tagged.replyFormat == .tagged(ThinkingFormat(open: "<think>", close: "</think>", toggle: false)))
+
+        // chat_template.jinja wins over the configuration's.
+        try Data("{% for t in tools %}to=self ... <|eom|>{% endfor %}".utf8)
+            .write(to: tokenizer.appending(path: "chat_template.jinja"))
+        #expect(CoreAIBackend.model(at: bundle, window: 4096).replyFormat == .channels)
+    }
+
+    @Test func theExecutorIsWispsUnlessTheBridgeIsConfigured() throws {
+        #expect(Config().resolved.coreaiExecutor == .wisp)
+        let data = Data(#"{"coreai": {"executor": "bridge"}}"#.utf8)
+        #expect(try JSONDecoder().decode(Config.self, from: data).resolved.coreaiExecutor == .bridge)
+        #expect(ConfigSettings.setting("coreai.executor") != nil)
     }
 
     @Test func aMissingBundleIsUnavailableWithWhereToLookAndHowToExport() throws {

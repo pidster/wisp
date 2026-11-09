@@ -8,7 +8,20 @@ Notable changes in each release of wisp.
 
 ## Unreleased
 
+Changed:
+
+- `coreai:` models run through wisp's own executor, as Ollama and MLX models do, which reads the model's thinking
+  and tool calls itself (ADR 0088, proposed). Tool calls in the XML form Qwen3.5-based models and Nemotron 3 Nano
+  write are made, where the bridge dropped them, and thinking a template opens in the prompt no longer appears in
+  the reply with a bare `</think>`. Muse Glimmer's routed messages and ATEM calls are read as before. The window the
+  bundle was exported for is enforced, token counts are exact, usage is reported, a request's thinking switch and
+  Ctrl-C are honoured as for MLX. `coreai.executor: "bridge"` goes back to coreai-models' bridge.
+
 Fixed:
+
+- wisp could abort as it exited after a `coreai:` reply (seen once in four runs with Muse Glimmer 30B): Core AI's
+  engine was torn down by its own background task while the process was exiting. wisp now shuts its engines down
+  before it exits; the bridge's engines (`coreai.executor: "bridge"`) are out of its reach.
 
 - A `coreai:` bundle whose weights are truncated or corrupt, such as an unfinished download, is refused with the
   file and its expected and actual SHA-256, instead of aborting wisp inside Core AI's compiler with no reply and no
