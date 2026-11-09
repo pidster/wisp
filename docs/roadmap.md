@@ -37,7 +37,9 @@ starts it, so another agent could not start `wisp mcp`. What macOS offers a Deve
   person agreeing;
 - the person's presence, by Touch ID or password through LocalAuthentication, which an agent cannot supply.
 
-The plan, for a release not yet chosen, with an ADR first that says plainly what a same-user agent can still do:
+The plan, for a release not yet chosen, with an ADR first that says plainly what a same-user agent can still do, now
+proposed as [ADR 0087](decisions/0087-what-the-person-decides-is-signed-in-their-presence.md) (2026-11-08, probes
+first):
 
 1. **Answers only the person can give need the person present.** An approval, a fact kept as permanent, and an answer
    to the model's question, given anywhere but the face that asked, are confirmed with Touch ID or the password and
