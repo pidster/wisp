@@ -563,6 +563,25 @@ when the name points nowhere; the bridge's own message (missing asset, malformed
 kind) when the bundle is incomplete. Loading reads the tokenizer synchronously at resolve time and the
 engine on first use, so the first reply after `wisp` starts is slow.
 
+Before a bundle is used, its weights are checked against the hash exported beside them: an `.aimodel` holds
+`main.mlirb` and its SHA-256, as 32 raw bytes, in `main.hash`. Core AI itself does not check them. Probed on
+2026-10-08, on an M4 Max with a Nemotron-3-Nano-4B bundle (no longer on that Mac) cut short to 100 MB: a bundle Core
+AI had not compiled before aborted the whole process inside its compiler on the first request (`LLVM ERROR: cannot
+unwrap empty odiec_module_t`, exit 134, after `model.resolved`, with no reply and no error from wisp), and one it had
+compiled before answered from Core AI's cache as if whole. A mismatch makes the model unavailable, with the file and
+both hashes:
+
+```
+Error: model 'coreai:…' is unavailable: …/main.mlirb (100 MB) does not match the SHA-256 beside it (expected
+0516a03c…, found 2ca85723…); the bundle is truncated or corrupt, perhaps an unfinished download: fetch or export
+it again
+```
+
+Hashing reads the whole file, about 2 s a gigabyte on an M4 Max (2026-10-08), so the first use of a bundle takes
+that much longer. A file that matched is remembered in `~/.wisp/cache/coreai-verified.json` by its real path, size,
+and modification time, and hashed again only when one of them changes; the file is safe to delete. A bundle without
+a `.hash` beside its `.mlirb` (a compiled `.aimodelc`, or an older exporter's) is not checked.
+
 Limitations: text and tool calling only; no images or audio (the bridge supports vision models, wisp
 does not pass images). Structured output is used by wisp only where a model declares guided
 generation, and wisp has no structured-output feature yet. Memory is the model's: a 4B model wants

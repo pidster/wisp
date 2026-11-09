@@ -6,6 +6,15 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Fixed:
+
+- A `coreai:` bundle whose weights are truncated or corrupt, such as an unfinished download, is refused with the
+  file and its expected and actual SHA-256, instead of aborting wisp inside Core AI's compiler with no reply and no
+  error. The weights are checked against the `main.hash` exported beside them the first time a bundle is used,
+  about 2 s a gigabyte, and remembered in `~/.wisp/cache/coreai-verified.json` until they change.
+
 ## 0.35.2
 
 Added:

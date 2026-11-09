@@ -70,6 +70,10 @@ public struct Home: Sendable, Equatable {
     public var pending: URL { root.appending(path: "pending", directoryHint: .isDirectory) }
     /// Model assets kept under the home, one subdirectory per backend.
     public var models: URL { root.appending(path: "models", directoryHint: .isDirectory) }
+    /// What wisp keeps to avoid repeating slow work, all of it safe to delete: which Core AI weights files matched
+    /// the hashes exported beside them (`coreai-verified.json`). Under the home, so commands the model runs cannot
+    /// write it (`CommandRunner`'s protected paths).
+    public var cache: URL { root.appending(path: "cache", directoryHint: .isDirectory) }
 
     /// Where chats were saved before 0.27.0: read by `wisp chat --resume` and listed by `/threads`, never written
     /// (ADR 0066).

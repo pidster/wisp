@@ -59,10 +59,20 @@ public struct CoreAIBackend: ModelBackend {
         return modelsDirectory(config: config, home: home).appending(path: name, directoryHint: .isDirectory)
     }
 
-    /// Checks the bundle exists, loads its metadata and tokenizer, and wraps it with the capabilities
-    /// the bridge detected from the asset (tool-call markers in the tokenizer, a thinking format).
+    /// Where the weights files that matched their hashes are remembered (`BundleIntegrity`).
     ///
-    /// - Throws: `ModelSelection.Failure.unavailable` naming the path looked at and the bundles found.
+    /// - Parameter home: wisp's home.
+    /// - Returns: The records file.
+    static func integrityRecords(home: Home) -> URL {
+        home.cache.appending(path: "coreai-verified.json")
+    }
+
+    /// Checks the bundle exists and its weights match the hash exported beside them (`BundleIntegrity`), loads its
+    /// metadata and tokenizer, and wraps it with the capabilities the bridge detected from the asset (tool-call
+    /// markers in the tokenizer, a thinking format).
+    ///
+    /// - Throws: `ModelSelection.Failure.unavailable` naming the path looked at and the bundles found, or the
+    ///   weights file that does not match its hash.
     public func resolve(_ name: String, config: Config.Resolved, home: Home) throws -> ResolvedModel {
         let url = Self.bundleURL(for: name, config: config, home: home)
         let selection = ModelSelection.local(backend: scheme, name: name)
@@ -78,6 +88,14 @@ public struct CoreAIBackend: ModelBackend {
         // A linked bundle is used by its real directory, as MLX's linked models are: Foundation's listings and a
         // loader do not follow a link at the end of the path.
         let real = url.resolvingSymlinksInPath()
+        do {
+            _ = try BundleIntegrity.check(bundle: real, records: Self.integrityRecords(home: home))
+        } catch let mismatch as BundleIntegrity.Mismatch {
+            throw ModelSelection.Failure.unavailable(model: selection.description, reason: mismatch.description)
+        } catch {
+            throw ModelSelection.Failure.unavailable(
+                model: selection.description, reason: "cannot check the weights in \(real.path): \(error)")
+        }
         let window = Self.contextWindow(in: real)
         do {
             let model = try Blocking.run { try await CoreAILanguageModel(resourcesAt: real) }
