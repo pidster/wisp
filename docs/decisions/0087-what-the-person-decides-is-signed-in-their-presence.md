@@ -1,6 +1,7 @@
 # ADR 0087: What the person decides is signed in their presence
 
-Date: 2026-11-08. Status: proposed, not yet agreed by the operator; probes first (below). Would amend
+Date: 2026-11-08. Status: proposed; decision 3 settled by the operator on 2026-11-09, the rest not yet agreed;
+probes first (below). Would amend
 [ADR 0046](0046-approval-and-notifications-over-mcp.md) (the terminal-only answers),
 [ADR 0048](0048-permanent-facts-over-mcp.md), [ADR 0062](0062-the-inquiry-verb.md), and
 [ADR 0085](0085-an-approval-lasts-a-time-in-its-project.md) (a remembered approval), and settle what
@@ -76,17 +77,16 @@ Proposed; each point is the operator's to agree, change, or reject.
    answer. The waiting server refuses an answer without a valid signature and audits the refusal. Refusals (`deny`,
    `drop`, `decline`) are not signed: a forged refusal fails safe, as silence does. The terminal check stays, now beside
    a wall rather than in place of one.
-3. **The asking face's own dialog: left as it is, or confirmed too; the operator's choice.** `y` at chat's prompt,
-   `wisp-tui`'s dialog for its own conversation, and the MCP client's elicitation are the face that asked. Left as they
-   are, an MCP client that answers its own elicitation without the person is outside what wisp can tell, and `mcp.md`
-   says so. That is how the person approves today: every one of the 82 approvals over MCP in the audit log to
-   2026-11-05 was answered through Claude Code's elicitation, none through `wisp approvals`, `wisp-tui`, or
-   `/approvals` ([measurements.md](../measurements.md), "The git thread's slow turns and its approvals"). So this
-   point alone would leave the protection unused in practice. The alternative: a setting (default to be chosen) under
-   which an approval through the client's elicitation is confirmed by `wisp mcp` itself, asking for the person's
-   presence once the client says yes and before the command runs, so the only approval wisp acts on is one the person
-   was present for. It costs a second step on every approval through the client, which a remembered approval avoids.
-   Whether `wisp mcp`, started by a client, can show the prompt is probe 1.
+3. **The asking face's own dialog is left as it is.** `y` at chat's prompt, `wisp-tui`'s dialog for its own
+   conversation, and the MCP client's elicitation are the face that asked, and ask for no presence. An MCP client
+   that answers its own elicitation without the person is outside what wisp can tell, and `mcp.md` says so. That is
+   how the person approves today: every one of the 82 approvals over MCP in the audit log to 2026-11-05 was answered
+   through Claude Code's elicitation, none through `wisp approvals`, `wisp-tui`, or `/approvals`
+   ([measurements.md](../measurements.md), "The git thread's slow turns and its approvals"), so points 2 and 4 guard
+   the other routes and what is kept, not the approvals given most often. The alternative, `wisp mcp` asking for the
+   person's presence itself once the client's dialog says yes, was weighed and declined by the operator on
+   2026-11-09: a second step on every approval through the client, for a client the person already chose to trust
+   with the dialog.
 4. **What wisp acts on unattended is signed when it is written.** A remembered approval (`approvals.json`), a permanent
    fact (`facts.json`), and the policy-bearing settings (`commandPolicy` and `approval` in `config.json`) are signed
    when wisp writes them, which asks for the person's presence: choosing "This project" asks once more than today.
