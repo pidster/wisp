@@ -70,7 +70,11 @@ is spelled `<backend>:<name>` and resolves through the registry. A `ResolvedMode
 declared capabilities and their source, and `WispThread.openAgent` refuses a request that needs tool
 calling the model did not declare, then records `model.resolved`; see
 [ADR 0019](decisions/0019-model-backends.md). Any `LanguageModel` can be wrapped by
-`ResolvedModel(selection:custom:)`. `OllamaModel` is the first backend:
+`ResolvedModel(selection:custom:)`. The executable runs every command through `ModelBackends.shuttingDown(after:)`,
+which awaits each backend's `shutdown()` after the command, whether it returned or threw, before the process exits:
+a runtime in wisp's process that winds its work down on a task of its own must let go of it before `exit()` runs the
+process's static destructors, or its teardown can race them. Only a second Ctrl-C exits without it. Backends that
+hold nothing in the process do nothing. `OllamaModel` is the first backend:
 its `Executor` maps the transcript onto Ollama's chat API (system, user, assistant with tool calls, tool
 messages), sends tool definitions as JSON Schema and an output schema as `format`, and streams chunks back
 as `response` and `toolCalls` events with usage at the end. A reasoning model's `message.thinking` chunks go back

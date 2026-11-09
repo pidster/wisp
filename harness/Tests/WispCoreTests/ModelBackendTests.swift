@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 import Testing
 import WispTestSupport
 
@@ -112,5 +113,62 @@ private struct ScriptedBackend: ModelBackend {
         #expect(event?.details["tools"] == .array([]))
         #expect(event?.details["asset"] == .null)
         #expect(sink.events.last { $0.kind == .sessionStart }?.details["tools"] == .array([]))
+    }
+}
+
+/// Counts the shutdowns of the backend registered under `shutdown-probe:`.
+private final class ShutdownCount: Sendable {
+    /// The count.
+    let value = Mutex(0)
+}
+
+/// A backend that only counts its shutdowns, registered under a scheme no other test uses.
+private struct ShutdownProbe: ModelBackend {
+    /// The count every probe shares.
+    static let count = ShutdownCount()
+    let scheme = "shutdown-probe"
+
+    func resolve(_ name: String, config: Config.Resolved, home: Home) throws -> ResolvedModel {
+        throw ModelSelection.Failure.unavailable(model: "\(scheme):\(name)", reason: "a probe serves nothing")
+    }
+
+    func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] { [] }
+
+    func settings(in config: Config.Resolved, home: Home) -> JSONValue { [:] }
+
+    func shutdown() async { Self.count.value.withLock { $0 += 1 } }
+}
+
+/// The executable runs its command through `ModelBackends.shuttingDown(after:)`: every backend is shut down after the
+/// command, whether it returned or threw, before the process exits.
+@Suite(.serialized) struct ModelBackendShutdownTests {
+    init() { ModelBackends.register(ShutdownProbe()) }
+
+    /// The probe's shutdowns so far.
+    private var shutdowns: Int { ShutdownProbe.count.value.withLock { $0 } }
+
+    @Test func backendsAreShutDownAfterTheCommandReturns() async throws {
+        let before = shutdowns
+        let ran = Mutex(false)
+        let value = try await ModelBackends.shuttingDown {
+            #expect(shutdowns == before, "shut down before the command ran")
+            ran.withLock { $0 = true }
+            return 7
+        }
+        #expect(value == 7)
+        #expect(ran.withLock { $0 })
+        #expect(shutdowns == before + 1)
+    }
+
+    @Test func backendsAreShutDownAfterTheCommandThrowsAndTheErrorGoesOn() async throws {
+        let before = shutdowns
+        await #expect(throws: CancellationError.self) {
+            try await ModelBackends.shuttingDown { throw CancellationError() }
+        }
+        #expect(shutdowns == before + 1)
+    }
+
+    @Test func aBackendWithNothingToLetGoShutsDownAtOnce() async {
+        await ModelBackends.backend(for: "ollama")?.shutdown()
     }
 }

@@ -161,9 +161,16 @@ public protocol ModelBackend: Sendable {
     /// - Returns: The plan.
     /// - Throws: `ModelRemoval.Failure`: the runtime keeps its own models, or this one is not installed.
     func removal(_ name: String, config: Config.Resolved, home: Home, purgeCache: Bool) async throws -> ModelRemoval
+    /// Lets go of what the runtime holds in this process, waiting for its own work to end, before the process exits:
+    /// a runtime whose teardown races `exit()`'s static destructors can abort the process (a Core AI engine released
+    /// by its own background task as wisp exited did, on 2026-10-05).
+    func shutdown() async
 }
 
 extension ModelBackend {
+    /// Nothing to let go: the runtime holds nothing that outlives a request, or holds it in another process.
+    public func shutdown() async {}
+
     /// No finding of its own: the configured-model check covers the backend.
     public func doctorFinding() -> Doctor.Finding? { nil }
 
@@ -234,6 +241,33 @@ public enum ModelBackends {
 
     /// The registered schemes, sorted.
     public static var schemes: [String] { all.map(\.scheme) }
+
+    /// Shuts every registered backend down, one after another (`ModelBackend.shutdown()`).
+    public static func shutdown() async {
+        for backend in all { await backend.shutdown() }
+    }
+
+    /// Runs `operation`, then shuts every backend down, whether it returned or threw, before handing back what it
+    /// did: how the executable runs its command, so no runtime is torn down beside the process's exit.
+    ///
+    /// - Parameter operation: The work, such as parsing and running a command.
+    /// - Returns: What `operation` returned.
+    /// - Throws: What `operation` threw, after the shutdown.
+    nonisolated(nonsending) public static func shuttingDown<T>(
+        after operation: () async throws -> T
+    ) async throws
+        -> T
+    {
+        let result: T
+        do {
+            result = try await operation()
+        } catch {
+            await shutdown()
+            throw error
+        }
+        await shutdown()
+        return result
+    }
 
     /// `name` as a real path when it is one (absolute or `~`): `~` expanded and symbolic links resolved
     /// (`CommandPolicy.canonical`); nil for a name that is not a path.
