@@ -120,6 +120,15 @@ Run on this Mac with the release's Developer ID signature, recorded in [measurem
 4. Over SSH, with no one at the Mac: what the prompt does. If it cannot be answered, the out-of-band answers that grant
    are unavailable there, which is said.
 
+### Probe 1, 2026-11-09
+
+Run with a small program signed as wisp is released, not with `wisp` itself ([measurements.md](../measurements.md),
+"A Secure Enclave key behind the person's presence"). Making a Secure Enclave key that requires presence needs no
+entitlement and no prompt; a later process loading it is prompted to sign, with no terminal and with its input and
+output piped; the prompt names the program, shows the reason given, and offers Touch ID or the password; a cancelled
+prompt gives no signature and an error the program can tell from a failure. Point 1 stands, with no fallback. Still
+open: the case from a terminal, a real `wisp mcp` and `wisp-tui` rather than stand-ins, and probes 2 to 4.
+
 ## Consequences
 
 - A same-user agent can no longer answer for the person, grant itself a remembered approval, admit a permanent fact,

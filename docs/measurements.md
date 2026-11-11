@@ -1023,6 +1023,34 @@ continued from the call already made, not by sending the prompt again. The secon
 the ADR says it must when the rebuilt turn does not fit; nothing ran again. A result of 3,567 bytes in this window
 leaves room for little more than one or two in a turn; how many tokens each took was not measured.
 
+## A Secure Enclave key behind the person's presence, 2026-11-09
+
+Probe 1 of [ADR 0087](decisions/0087-what-the-person-decides-is-signed-in-their-presence.md): can a command-line tool
+signed as wisp is released use a Secure Enclave key whose every use needs the person's presence? Not `wisp` itself but
+a small Swift program built for the probe and signed the same way: Developer ID, the hardened runtime, a timestamp,
+and no entitlements. It made a P-256 signing key with CryptoKit's `SecureEnclave.P256.Signing.PrivateKey`, under
+access control `privateKeyUsage` and `userPresence`, accessible only when the Mac is unlocked and only on this device,
+and wrote the key's data representation and its public key to files; a later process loaded the key from the file with
+an `LAContext` giving the reason, signed a short text, and checked the signature against the saved public key. macOS
+27.0 on Apple silicon with Touch ID, Swift 6.4.
+
+| Case | Result |
+| --- | --- |
+| What LocalAuthentication reports | the Secure Enclave available; device-owner authentication possible; Touch ID |
+| Make the key | no entitlement needed and no prompt, in 0.02 s; the data representation is 427 bytes, usable only by this Mac's Secure Enclave |
+| Sign in a later process with no terminal, as `wisp mcp` runs under its client | prompted; approved with Touch ID; signed in 6.12 s, counting the person; the signature checked |
+| The same with standard input and output piped, as `wisp chat --json` runs under `wisp-tui`; cancelled | no signature: LocalAuthentication's error -2, "Canceled by user.", which the program can tell from a failure |
+| What the prompt shows | the program's own name, the reason text given, and Touch ID with the option to use the password |
+
+So point 1 of the ADR stands as written: the Secure Enclave needs no entitlement a Developer ID tool cannot have, and
+the keychain fallback is not needed. A refusal at the prompt is told apart from an error, so it can be audited as the
+person's refusal.
+
+Not covered: the program ran from Claude Code's shell, so the no-terminal and piped cases stood in for a real `wisp mcp`
+and `wisp-tui` rather than being them; the case from a terminal was not run; the key was kept in files, not in the
+keychain item point 1 describes, which is probe 2; how much of a long command the prompt shows is probe 3; and SSH is
+probe 4.
+
 ## Reading a measurement
 
 ```json
