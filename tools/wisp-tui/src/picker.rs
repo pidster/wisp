@@ -213,10 +213,7 @@ impl Picker {
             }
         };
         let heading = |index: usize| -> String {
-            let text = columns
-                .get(index)
-                .map(|c| c.heading.clone())
-                .unwrap_or_default();
+            let text = columns.get(index).map_or_default(|c| c.heading.clone());
             if index == 0 {
                 format!("  {text}")
             } else {

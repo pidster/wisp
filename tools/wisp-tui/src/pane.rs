@@ -105,7 +105,7 @@ pub fn wrap(line: &Line<'static>, width: usize) -> Vec<Line<'static>> {
     for (c, style) in cells {
         let w = c.width().unwrap_or(0);
         if used + w > width && used > 0 {
-            let row = rows.last_mut().map(std::mem::take).unwrap_or_default();
+            let row = rows.last_mut().map_or_default(std::mem::take);
             // Break after the row's last space, carrying the word begun since onto the next row.
             let (kept, carried) = match row.iter().rposition(|(c, _)| *c == ' ') {
                 Some(space) if space + 1 < row.len() => {
