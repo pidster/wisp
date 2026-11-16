@@ -295,7 +295,7 @@ confinement.
 ## Developing wisp
 
 You need macOS 27 and Xcode 27 (the Command Line Tools alone lack the `@Generable` macro plugin), and
-Rust 1.98 or later for the terminal front end in `tools/`.
+Rust 1.100 or later for the terminal front end in `tools/`.
 
 ```bash
 git clone git@github.com:pidster/wisp.git
