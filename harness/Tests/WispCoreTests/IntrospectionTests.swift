@@ -75,7 +75,12 @@ import Testing
         #expect(top.objectValue?["assessment"]?.objectValue?["taskChanges"] == "restated")
         #expect(top.objectValue?["context"]?.objectValue?["target"] == .double(0.6))
         #expect(top.objectValue?["context"]?.objectValue?["memory"] == false)
-        let rendered = Introspection.render(top).replacingOccurrences(of: root, with: "~/.wisp")
+        // Other suites register backends of their own in this process, each with a section, so the bound is the
+        // built-in backends' view.
+        var view = top.objectValue ?? [:]
+        let builtIn: Set = ["ollama", "mlx", "llamacpp", "lmstudio", "coreai"]
+        view["backends"] = view["backends"]?.objectValue.map { .object($0.filter { builtIn.contains($0.key) }) }
+        let rendered = Introspection.render(.object(view)).replacingOccurrences(of: root, with: "~/.wisp")
         #expect(rendered.utf8.count < 6_500, "the configuration view stays bounded")
     }
 
