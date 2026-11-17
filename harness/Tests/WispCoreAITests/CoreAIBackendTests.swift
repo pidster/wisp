@@ -48,6 +48,20 @@ import WispCore
             CoreAIBackend().settings(in: custom, home: home) == ["modelsDirectory": "/opt/bundles", "executor": "wisp"])
     }
 
+    /// A name under the models directory and the bundle's path are one model; without a configuration and a home,
+    /// a name stays as it is and a path is made real.
+    @Test func aNameAndItsBundlesPathAreOneModel() throws {
+        let (home, models) = try scratch()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let backend = CoreAIBackend()
+        let config = Config().resolved
+        #expect(
+            backend.canonicalName("q", config: config, home: home)
+                == backend.canonicalName(models.appending(path: "q").path, config: config, home: home))
+        #expect(backend.canonicalName("q", config: nil, home: nil) == "q")
+        #expect(backend.canonicalName("/tmp/q", config: nil, home: nil) == ModelBackends.canonicalPath("/tmp/q"))
+    }
+
     @Test func wispsExecutorTakesItsCapabilitiesFromTheChatTemplate() throws {
         let (home, models) = try scratch()
         defer { try? FileManager.default.removeItem(at: home.root) }

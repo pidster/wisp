@@ -248,8 +248,38 @@ struct ScriptGenerator: CoreAIGenerating {
         let bundle = URL(filePath: "/tmp/wisp-coreai-registry-\(UUID().uuidString)")
         let first = CoreAIEngines.engine(for: bundle) { engine }
         #expect(CoreAIEngines.engine(for: bundle) { Self.engine([]).0 } === first)
-        await CoreAIEngines.shutdown()
+        // The backend's shutdown is the registry's.
+        await CoreAIBackend().shutdown()
         #expect(CoreAIEngines.engine(for: bundle) { Self.engine([]).0 } !== first)
+    }
+
+    @Test func aSecondRequestWaitsForTheFirstToFinish() async throws {
+        let (engine, log) = Self.engine([["first", "<eos>"], ["second", "<eos>"]])
+        let prompt = CoreAIPrompt(messages: [["role": "user", "content": "hi"]])
+        let (started, start) = AsyncStream<Void>.makeStream()
+        let (released, release) = AsyncStream<Void>.makeStream()
+        let first = Task {
+            try await engine.respond(
+                prompt, window: 4096, maxTokens: nil, temperature: nil, schema: nil, format: .tagged(nil), tools: [:]
+            ) { _ in
+                start.yield()
+                for await _ in released { break }
+            }
+        }
+        for await _ in started { break }
+        let second = Task {
+            try await engine.respond(
+                prompt, window: 4096, maxTokens: nil, temperature: nil, schema: nil, format: .tagged(nil), tools: [:]
+            ) { _ in }
+        }
+        // Long enough for the second request to reach the engine and wait for it.
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(log.generated.withLock { $0 }.isEmpty, "nothing generated for the second while the first holds it")
+        release.yield()
+        _ = try await first.value
+        _ = try await second.value
+        #expect(log.generated.withLock { $0 } == [1, 1])
+        #expect(log.loads.withLock { $0 } == 1)
     }
 }
 
@@ -318,6 +348,19 @@ struct ScriptGenerator: CoreAIGenerating {
         var splitter = ChannelSplitter()
         #expect(splitter.feed("Just an answer") == [])
         #expect(splitter.finish() == [.body(target: "user", text: "Just an answer"), .end(target: "user")])
+    }
+
+    @Test func textLongerThanAHeaderWithNoneIsTheReplyAsItStreams() {
+        var splitter = ChannelSplitter()
+        let answer = String(repeating: "a", count: ChannelSplitter.headerLimit + 1)
+        #expect(splitter.feed(answer) == [.body(target: "user", text: answer)])
+    }
+
+    @Test func aMessageToAToolWithNoCallIsKeptAsText() {
+        let reader = ReplyReader(format: .channels, primed: false, tools: ["current_date": .object([:])])
+        let events = reader.feed(" to=current_date<|message|>no call here<|eom|>") + reader.finish(stopped: false)
+        #expect(events == [.text("no call here")])
+        #expect(reader.isDone)
     }
 
     @Test func thinkingCutOffByTheBudgetStaysThinking() {
