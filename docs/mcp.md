@@ -66,7 +66,7 @@ thread is under `wisp://threads/{thread_id}`; the URIs with `{…}` are listed a
 | URI | Content |
 | --- | --- |
 | `wisp://config` | JSON: every setting with defaults applied, the model, the `run_command` policy, and the paths under `~/.wisp`. |
-| `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, and the count of standing approvals. |
+| `wisp://status` | JSON: the server session id, entry point, model, tools, `threadCount` (threads open now) and `threadsURI` (`wisp://threads`, which lists them), approvals in force for the session, the count of standing approvals, and `update`: whether `updates.check` is on (`check`), the `running` version, and what the last check found, read from `~/.wisp/update.json` without asking GitHub: `checkedAt`, the `latest` version, the newer one `available` (null when none or never checked), and a `failure`. |
 | `wisp://approvals` | JSON: the standing approvals with `pattern`, `workingDirectory` (where it was granted), `project` (where it applies: the repository's working tree, or the directory outside one), `scope`, `level`, `grantedAt`, `expiresAt` (null for `always`, which never expires), `source`, and `gone` (an approval whose project no longer exists, which can never match again; checked when read). |
 | `wisp://measurements` | JSON: what the eval harness found each delegated task achieves ([measurements.md](measurements.md)); the per-tool ones also appear on `wisp://tools`. |
 | `wisp://audit` | JSON: every session's audit events as the audit file holds them, oldest first, paged (`events`, 100 a page by default; `?page=N&limit=M`, `last` names the newest page). |

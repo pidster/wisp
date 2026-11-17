@@ -306,6 +306,28 @@ public enum AppUpdate {
         return .init(name: "update", ok: true, detail: "\(current) is the latest (checked \(when))")
     }
 
+    /// What the last check found, for `wisp://status`'s `update`: whether `updates.check` is on, the running
+    /// version, and, from `~/.wisp/update.json` without asking GitHub, when it last asked, the latest version it
+    /// named, the newer one when there is one, and why the check failed.
+    ///
+    /// - Parameters:
+    ///   - enabled: `updates.check`.
+    ///   - state: The last check's state.
+    ///   - current: The running version.
+    /// - Returns: The object.
+    public static func status(enabled: Bool, state: State?, current: String = WispVersion.current) -> JSONValue {
+        var fields: [String: JSONValue] = [
+            "check": .bool(enabled), "running": .string(current),
+            "available": state?.newer(than: current).map(JSONValue.string) ?? .null,
+        ]
+        if let state {
+            fields["checkedAt"] = .string(state.checkedAt.formatted(.iso8601))
+            fields["latest"] = state.latest.map(JSONValue.string) ?? .null
+            if let failure = state.failure { fields["failure"] = .string(failure) }
+        }
+        return .object(fields)
+    }
+
     // MARK: - The download
 
     /// The hash in a `shasum -a 256` line: its first word, when it is 64 hexadecimal digits.

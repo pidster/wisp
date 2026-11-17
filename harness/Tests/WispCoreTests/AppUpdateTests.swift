@@ -111,6 +111,21 @@ import Testing
         #expect(failed.ok && failed.detail.hasSuffix("failed: cannot reach GitHub: offline"))
     }
 
+    @Test func theStatusSaysWhatTheLastCheckFound() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(
+            AppUpdate.status(enabled: false, state: nil, current: "0.31.0")
+                == ["check": false, "running": "0.31.0", "available": .null])
+        let newer = AppUpdate.status(enabled: true, state: .init(checkedAt: now, latest: "0.31.1"), current: "0.31.0")
+        #expect(newer.objectValue?["available"] == "0.31.1" && newer.objectValue?["latest"] == "0.31.1")
+        #expect(newer.objectValue?["checkedAt"]?.stringValue?.hasPrefix("2027-01-15") == true)
+        let current = AppUpdate.status(enabled: true, state: .init(checkedAt: now, latest: "0.31.0"), current: "0.31.0")
+        #expect(current.objectValue?["available"] == .null)
+        let failed = AppUpdate.status(
+            enabled: true, state: .init(checkedAt: now, latest: nil, failure: "offline"), current: "0.31.0")
+        #expect(failed.objectValue?["failure"] == "offline" && failed.objectValue?["latest"] == .null)
+    }
+
     @Test func readsAChecksumFile() throws {
         let hash = String(repeating: "ab", count: 32)
         #expect(AppUpdate.checksumValue("\(hash)  Wisp-0.31.1.dmg\n") == hash)
@@ -408,10 +423,17 @@ import Testing
         #expect(throws: AppUpdate.Failure.self) { try AppUpdate.app(of: .diskImage(app)) }
     }
 
-    @Test func theDefaultPolicyRefusesTheModelAnUpdate() {
+    @Test func theDefaultPolicyRefusesTheModelAnUpdateButNotTheCheck() {
         let policy = CommandPolicy()
         #expect(policy.check("wisp update") != .allowed)
-        #expect(policy.check("/Applications/Wisp.app/Contents/MacOS/wisp update --check") != .allowed)
+        #expect(policy.check("wisp 'update'") != .allowed)
+        #expect(policy.check("wisp update --help") != .allowed)
+        #expect(policy.check("wisp update --check --version") != .allowed)
+        #expect(policy.check("wisp update --check && wisp update") != .allowed)
+        #expect(policy.check("wisp update --check; /Applications/Wisp.app/Contents/MacOS/wisp update") != .allowed)
+        #expect(policy.check("wisp update --check") == .allowed)
+        #expect(policy.check("/Applications/Wisp.app/Contents/MacOS/wisp update --check") == .allowed)
+        #expect(policy.check("wisp update --check 2>&1 | tail -3") == .allowed)
         #expect(policy.check("wisp doctor") == .allowed)
     }
 }

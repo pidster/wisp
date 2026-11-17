@@ -107,6 +107,7 @@ func call(_ client: Client, _ name: String, _ arguments: [String: Value]? = nil)
         let status = try await pair.client.readResource(uri: "wisp://status").first?.text ?? ""
         #expect(status.contains("\"threadCount\" : 1") && status.contains("\"threadsURI\" : \"wisp://threads\""))
         #expect(status.contains("\"entryPoint\" : \"mcp\""))
+        #expect(status.contains("\"running\" : \"\(WispVersion.current)\""))
         #expect(try await pair.client.readResource(uri: "wisp://approvals").first?.text == "[\n\n]")
         let templates = try await pair.client.send(ListResourceTemplates.request(.init())).value.templates
         #expect(

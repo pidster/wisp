@@ -320,6 +320,8 @@ public struct WispServer: Sendable {
             status["threadCount"] = .int(await threads.ids.count)
             status["threadsURI"] = .string(ToolCatalog.threadsResourceURI)
             status["standingApprovals"] = .int(await session.store.all.count)
+            status["update"] = AppUpdate.status(
+                enabled: config.updatesCheck, state: AppUpdate.state(home: session.home))
             return json(.object(status))
         case ToolCatalog.approvalsResourceURI:
             return json(await views.approvals())

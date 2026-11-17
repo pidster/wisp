@@ -1,6 +1,7 @@
 # ADR 0074: `wisp update` replaces Wisp.app, and an opt-in check says when to
 
-Date: 2026-10-23. Status: accepted by the operator on 2026-10-23; built 2026-10-23 for 0.31.0. Follows
+Date: 2026-10-23. Status: accepted by the operator on 2026-10-23; built 2026-10-23 for 0.31.0. Amended 2026-11-17:
+the model may ask whether a release is out (at the end). Follows
 [ADR 0072](0072-a-dmg-and-a-declared-layout.md) (`Wisp.app` in a disk image) and
 [ADR 0073](0073-wisp-install-and-the-finder.md) (`wisp install`, and the Finder dialog).
 
@@ -91,3 +92,10 @@ Amended 2026-10-30, for 0.33.1: once the new app is in place, `wisp update` (and
 it with Launch Services again and, when the Login Item of wisp's own llama.cpp server is present, registers that again
 through the new app's own `wisp` ([ADR 0082](0082-a-llama-cpp-server-wisp-starts.md), amendment of the same date). A
 failure in these steps is a warning naming `wisp llamacpp agent repair`, and the update still succeeds.
+
+Amended 2026-11-17, at the operator's request: the model may run `wisp update --check`, on its own before the line's
+end, an operator, or a redirection; `wisp update` and any other form stay refused. The check only reports, and the
+model's commands can already reach the network inside the sandbox (`sandbox.allowNetwork`, on by default), so refusing
+it kept nothing on the Mac that `curl` would not send; it kept the model from knowing an update was out. An MCP client
+learns the same without a request: `wisp://status` gains `update`, the last check as `~/.wisp/update.json` keeps it,
+with `updates.check`'s setting and the running version ([mcp.md](../mcp.md)).

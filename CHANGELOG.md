@@ -8,7 +8,15 @@ Notable changes in each release of wisp.
 
 ## Unreleased
 
+Added:
+
+- `wisp://status` has `update`: whether `updates.check` is on, the running version, and what the last check found,
+  with a newer version when one is out, so an MCP client can tell an update is waiting.
+
 Changed:
+
+- The default policy allows the model `wisp update --check`, which only says whether a release is out (ADR 0074,
+  amended). `wisp update` itself stays the person's.
 
 - `coreai:` models run through wisp's own executor, as Ollama and MLX models do, which reads the model's thinking
   and tool calls itself (ADR 0088, proposed). Tool calls in the XML form Qwen3.5-based models and Nemotron 3 Nano

@@ -172,8 +172,10 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?config["']?\s+["']?(set|unset)["']?\s+["']?llamacpp\.server"#,
         // Nor does it put wisp on PATH or take it off (ADR 0073): what a shell runs as wisp is the person's choice.
         #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?(un)?install\b"#,
-        // Nor does it replace wisp with a newer release (ADR 0074): an update is the person's to make.
-        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?update\b"#,
+        // Nor does it replace wisp with a newer release (ADR 0074): an update is the person's to make. Asking
+        // whether one is out, `wisp update --check` alone before the line's end, an operator, or a redirection, is
+        // allowed (ADR 0074, amended 2026-11-17).
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?update\b(?!["']?\s+["']?--check["']?\s*($|[;&|)]|\d*[<>]))"#,
     ]
 
     /// The deny pattern for a nested wisp agent (ADR 0054): `wisp`, quoted or not, by any path, after any of `env`
