@@ -19,6 +19,9 @@ Changed:
 
 Fixed:
 
+- A llama.cpp model asked not to think could still think before a structured reply: Nemotron 3.5 Bolt wrote a plan
+  before each classifier verdict, about 400 tokens and 10 s a verdict. Thinking off now also sends a thinking budget
+  of 0.
 - wisp could abort as it exited after a `coreai:` reply (seen once in four runs with Muse Glimmer 30B): Core AI's
   engine was torn down by its own background task while the process was exiting. wisp now shuts its engines down
   before it exits; the bridge's engines (`coreai.executor: "bridge"`) are out of its reach.

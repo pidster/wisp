@@ -1051,6 +1051,72 @@ and `wisp-tui` rather than being them; the case from a terminal was not run; the
 keychain item point 1 describes, which is probe 2; how much of a long command the prompt shows is probe 3; and SSH is
 probe 4.
 
+## Nemotron 3.5 Bolt E4B on Ollama and on wisp's llama.cpp router, 2026-11-16
+
+NVIDIA's Nemotron 3.5 Bolt E4B (7.5B parameters; both servers read its architecture as `gemma4`), through
+`scripts/check eval compare` on two servers: Ollama 0.40.16 with `nemotron-3.5-bolt:e4b-q4_K_M` (7.91 GB), which
+Ollama serves with a DFlash draft model for speculative decoding, and wisp's own llama.cpp router (ADR 0082) on
+llama.cpp 1.0.0 (build 12359) with unsloth's `NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf` (5.06 GB), without a
+draft. On Ollama thinking was left to Ollama's default for the model; on llama.cpp it was off
+(`llamacpp.models.<name>.think false`), with the fix below. The operator's real config otherwise, as every eval uses.
+
+| Suite | Ollama | llama.cpp | Bonsai 2 9B, router, 2026-10-30 | granite4.2:8b not thinking, 2026-10-30 |
+| --- | --- | --- | --- | --- |
+| classifier, the model alone | 334/392, 1.9 s, 1 dangerous rated safe | 326/392, 3.3 s, 16 fallbacks | 321, 2.0 s, 3 dangerous rated safe | 296, 4.5 s, 7 |
+| classifier with the rules | 343/392, 1.5 s | 356/392, 2.4 s, 14 fallbacks | 348, 1.9 s | 347, 4.0 s |
+| context scenario | 6/6, 5.8 s | 6/6, 3.0 s | 6/6, 5.8 s | 5/6, 22.9 s |
+| `summarise_diff` | 5/5, 1.7 s | 5/5, 2.9 s | 5/5, 2.2 s | 5/5, 3.3 s |
+| drafts, small | 11/12, 2.4 s | 10/12, 3.4 s | 8/12, 3.7 s | 11/12, 5.1 s |
+| drafts, medium | 4/4, 11.6 s | 4/4, 15.7 s | 3/4, 19.0 s | 4/4, 23.0 s |
+| drafts, large | 1/2, 37.7 s | 0/2, 66.9 s | 1/2, 52.4 s | 0/2, 66.1 s |
+| `system_info` | 22/24, 7.3 s | 22/24, 1.3 s | 23/24, 7.2 s | 22/24, 5.8 s |
+| `edit_file` | 36/36, 12.4 s | 36/36, 5.6 s | 36/36, 14.5 s | 36/36, 12.5 s |
+| `edit_file`, whitespace | 8/8, 12.1 s | 8/8, 6.2 s | 6/8, 12.4 s | 8/8, 12.8 s |
+| schema replies | 5/6, 700 ms | 5/6, 712 ms | 5/6 | 5/6 |
+| triage | 7/7 | 7/7 | 7/7 | 7/7 |
+
+Times are medians per case. On Ollama, Nemotron is level with or ahead of Bonsai on every suite but `system_info`
+(one case) and the classifier with the rules (five cases), and at Bonsai's speed or better; on drafts it matches
+granite4.2 at about half granite's time. It is the best classifier on its own of the three, with one dangerous command
+rated safe.
+
+On llama.cpp, Nemotron is as accurate on the tools and faster at them (`system_info` at 1.3 s, `edit_file` at under half
+Ollama's time), the better classifier with the rules (356; neither classifier suite rated a dangerous command safe), and
+slower and weaker on drafts. The run took 3 hours 40 minutes all the same, and its classifier medians hide why: most
+verdicts took about a second, but some ran to thousands of tokens (one passed 9,500, at 42 tokens a second), because a
+verdict is greedy and wisp sets no output limit on it, so a reply that does not end runs on until the 65,536-token
+window fills. What those replies say was not captured.
+
+Two llama.cpp runs came first. The first, with thinking left to the template, finished one suite in three hours: the
+classifier on its own, 348/392 at a median of 10.3 s a verdict. A SIGTERM of unknown origin then stopped
+`scripts/check` at 13:50, but not the test process under it, which carried on, orphaned, sending requests to the
+router until it was found and stopped about half an hour later. The second, with thinking off, was as slow, and was
+stopped. The cause was the verdict's schema: asked with `enable_thinking: false` and `reasoning_effort: "none"`, a
+classifier-shaped request to the router came back with a plan the server returned as thinking before the JSON, 449
+tokens, where the same request without the schema thought none; adding `thinking_budget_tokens: 0` left 121 tokens,
+none of them thinking. wisp now sends that budget whenever thinking is off on llama.cpp
+([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-11-16), and the figures above are the third
+run, with it.
+
+Two earlier Ollama runs were discarded: in the first, Ollama updated itself from 0.40.11 to 0.40.16 during the run, and
+every suite after the classifier found no server; in the second, Ollama quit at 09:24:53, cause unknown, and 363
+verdicts fell back to the rules. The figures above are the third run, watched for outages, with none.
+
+llama.cpp 1.0.0 can draft with DFlash too (`--spec-type draft-dflash` with `-md`), which wisp's router does not pass.
+A separate `llama-server` on another port, not the router, with an 8,192-token window, ran three prompts twice each
+(code, prose, a commit message; 400 tokens at most, temperature 0, thinking off), first alone and then with the
+0.4 GB `dflash-NVIDIA-Nemotron-3.5-Bolt-E4B-Q8_0.gguf` draft:
+
+| Prompt | Tokens | Alone | With the draft | Drafted tokens accepted |
+| --- | --- | --- | --- | --- |
+| Python function | 400 | 49 to 51 tokens/s | 102 to 131 tokens/s | 72% (272 of 378) |
+| Prose, three paragraphs | 364 | 50 to 51 tokens/s | 71 to 72 tokens/s | 38% (193 of 510) |
+| Commit message | 287 | 51 to 54 tokens/s | 96 to 97 tokens/s | 58% (182 of 312) |
+
+Each reply began identically with and without the draft, at the same length. The draft doubled the speed for code and
+the commit message, and added 40% for prose. These figures were taken with the router idle; a first pass, taken while
+the orphaned test process kept the router's Nemotron busy, gave about half the speed both ways and the same ratios.
+
 ## Reading a measurement
 
 ```json

@@ -70,6 +70,7 @@ extension OpenAICompatibleExecutorTests {
         let side = try await lastBody(section, schema: try Self.answer())
         #expect(side.contains(#""chat_template_kwargs":{"enable_thinking":false}"#))
         #expect(side.contains(#""reasoning_effort":"none""#))
+        #expect(side.contains(#""thinking_budget_tokens":0"#))
         #expect(!(try await lastBody(section).contains("chat_template_kwargs")))
     }
 
@@ -99,6 +100,7 @@ extension OpenAICompatibleExecutorTests {
         #expect(
             Executor.thinking(.off, budget: budget, effort: false) == [
                 "chat_template_kwargs": ["enable_thinking": false], "reasoning_effort": "none",
+                "thinking_budget_tokens": 0,
             ])
         #expect(
             Executor.thinking(.on, budget: budget, effort: true) == ["chat_template_kwargs": ["enable_thinking": true]])

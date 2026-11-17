@@ -96,7 +96,7 @@ How each runtime takes it:
 | Runtime | Sent as | Values | Sent to |
 | --- | --- | --- | --- |
 | Ollama | `/api/chat`'s `think` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose `/api/show` capabilities include `thinking` |
-| llama.cpp | `chat_template_kwargs.enable_thinking`; off adds `reasoning_effort: "none"`; a level adds `thinking_budget_tokens` (`llamacpp.thinkingBudget`) and, to a template that takes one, `reasoning_effort` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose chat template thinks (`/props`) or is declared `reasoning`; a configured value to every model |
+| llama.cpp | `chat_template_kwargs.enable_thinking`; off adds `reasoning_effort: "none"` and `thinking_budget_tokens: 0`; a level adds `thinking_budget_tokens` (`llamacpp.thinkingBudget`) and, to a template that takes one, `reasoning_effort` | `true`, `false`, `low`, `medium`, `high`, `max` | a model whose chat template thinks (`/props`) or is declared `reasoning`; a configured value to every model |
 | MLX | the chat template's `enable_thinking` | `true` or `false` (a level is on) | a model whose template marks thinking and takes the flag; one that does not keeps its default |
 | LM Studio, Core AI, Apple's models | nothing | | LM Studio sets thinking per model in its app |
 
@@ -459,7 +459,8 @@ llama-server -m ~/models/Qwen3-8B-Q4_K_M.gguf -c 32768
   value is sent even to a model whose template wisp does not recognise, and unset sends nothing, leaving the
   template's default. Each is sent so it means what it means to Ollama:
   - `false`: `enable_thinking: false` and `reasoning_effort: "none"`, which the server turns into no thinking
-    whatever the template calls its switch.
+    whatever the template calls its switch, and `thinking_budget_tokens: 0`, without which llama.cpp 1.0.0 still let
+    Nemotron 3.5 Bolt think before a schema reply.
   - `true`: `enable_thinking: true`, thinking as long as the model wants.
   - A level: `enable_thinking: true` and `thinking_budget_tokens`, the most it thinks for, from
     `llamacpp.thinkingBudget.<level>`: 1,024 tokens at `low`, 4,096 at `medium`, 16,384 at `high`, and no limit at

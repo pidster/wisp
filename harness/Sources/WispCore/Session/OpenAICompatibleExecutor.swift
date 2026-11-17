@@ -152,7 +152,9 @@ extension OpenAICompatibleModel {
 
         /// The fields that ask llama.cpp for `think` (ADR 0053, amended 2026-10-17), so a choice means the same as it
         /// does to Ollama. Off sends the template's `enable_thinking: false` and `reasoning_effort: "none"`, which
-        /// the server turns into no thinking whatever the template calls its switch. On sends `enable_thinking: true`
+        /// the server turns into no thinking whatever the template calls its switch, and a thinking budget of 0:
+        /// with a schema, llama.cpp 1.0.0 still let Nemotron 3.5 Bolt write a plan as thinking before the JSON
+        /// (449 tokens for a verdict; 121 with the budget, none of them thinking; docs/measurements.md). On sends `enable_thinking: true`
         /// and leaves how long to the model. A level thinks too, within its budget, sent as `thinking_budget_tokens`
         /// (the server ends the thinking there; llama.cpp 0.7.0 takes it per request, though its README names only
         /// the server's `--reasoning-budget`), and as `reasoning_effort` to a template that takes one, where `max` is
@@ -168,6 +170,7 @@ extension OpenAICompatibleModel {
             switch think {
             case .off:
                 fields["reasoning_effort"] = "none"
+                fields["thinking_budget_tokens"] = 0
             case .on:
                 break
             case .level(let level):

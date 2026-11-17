@@ -1,6 +1,7 @@
 # ADR 0053: The model's thinking shown
 
-Date: 2026-10-04. Status: accepted. Amended on 2026-10-11: thinking chosen per model and per call (below). Amended on 2026-11-01: thinking written into the reply (at the end).
+Date: 2026-10-04. Status: accepted. Amended on 2026-10-11: thinking chosen per model and per call (below). Amended on 2026-11-01: thinking written into the reply (at the end). Amended on 2026-11-16: off on llama.cpp
+sends a budget of 0 (at the end).
 
 ## Context
 
@@ -217,3 +218,10 @@ chose holding over streaming and cleaning the record afterwards, so the screen a
 to `respond` never streamed, and in chat the cost is a reply from a thinking model with thinking off shown whole.
 Tests without a model: both shapes through Ollama's executor and LM Studio's, a reply without tags, and a model that
 cannot think left alone.
+
+Amended on 2026-11-16: off on llama.cpp sends a thinking budget of 0. Nemotron 3.5 Bolt E4B on llama.cpp 1.0.0, asked
+for a classifier's verdict with `enable_thinking: false`, `reasoning_effort: "none"`, and the verdict's schema, wrote a
+plan the server returned as thinking before the JSON: 449 tokens a verdict, where the same request without the schema
+thought none, and a verdict took 10.3 s against 1.9 s through Ollama ([measurements.md](../measurements.md), "Nemotron
+3.5 Bolt E4B on Ollama and on wisp's llama.cpp router"). Adding `thinking_budget_tokens: 0` left 121 tokens, none of
+them thinking. Off now sends all three; a level and on are unchanged.
