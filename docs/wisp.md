@@ -1696,8 +1696,8 @@ move to the cask, which the formula ends at 0.34.2 for: `brew trust pidster/tap 
 --formula wisp && brew install --cask pidster/tap/wisp` ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)); from a build or an
 unpacked tarball, that it cannot update one; from the disk image, to move the app to Applications first. `--check`
 works from any of them. The default policy refuses `wisp update` to the model, but not `wisp update --check` on its
-own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an `update.check` event
-and each update an `update.install` event ([logging.md](logging.md)).
+own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an
+`update.check` event and each update an `update.install` event ([logging.md](logging.md)).
 
 With `updates.check` on (off by default), wisp asks at most once a day, when a chat starts, `wisp doctor` runs, or
 `Wisp.app` is opened from the Finder, keeps the answer in `~/.wisp/update.json`, and shows a newer version in the

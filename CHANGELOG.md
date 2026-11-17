@@ -17,7 +17,6 @@ Changed:
 
 - The default policy allows the model `wisp update --check`, which only says whether a release is out (ADR 0074,
   amended). `wisp update` itself stays the person's.
-
 - `coreai:` models run through wisp's own executor, as Ollama and MLX models do, which reads the model's thinking
   and tool calls itself (ADR 0088, proposed). Tool calls in the XML form Qwen3.5-based models and Nemotron 3 Nano
   write are made, where the bridge dropped them, and thinking a template opens in the prompt no longer appears in
@@ -33,7 +32,6 @@ Fixed:
 - wisp could abort as it exited after a `coreai:` reply (seen once in four runs with Muse Glimmer 30B): Core AI's
   engine was torn down by its own background task while the process was exiting. wisp now shuts its engines down
   before it exits; the bridge's engines (`coreai.executor: "bridge"`) are out of its reach.
-
 - A `coreai:` bundle whose weights are truncated or corrupt, such as an unfinished download, is refused with the
   file and its expected and actual SHA-256, instead of aborting wisp inside Core AI's compiler with no reply and no
   error. The weights are checked against the `main.hash` exported beside them the first time a bundle is used,

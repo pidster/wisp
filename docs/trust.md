@@ -108,13 +108,14 @@ model reads, and command output go to that machine. A llama.cpp or LM Studio key
 `WISP_LMSTUDIO_API_KEY`, or `apiKey` in `config.json`) is sent to that server alone, as `Authorization`, and
 never logged or shown ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
 
-wisp asks whether it is current only when you ask it to ([ADR 0074](decisions/0074-wisp-update.md)): `wisp update`
-and `wisp update --check` send one HTTPS request to GitHub's API for wisp's latest release, with the user agent
-`wisp` and nothing about you or your Mac beyond what any HTTPS request carries, and an update then downloads the disk
-image and its checksum from GitHub to `~/Downloads`. `updates.check`, off by default, makes the same request at most
-once a day, when a chat starts, `wisp doctor` runs, or `Wisp.app` is opened, and never installs; each check is an
-`update.check` event in the audit log. A downloaded image is used only when its checksum matches and its app is signed
-by wisp's team and notarised by Apple.
+wisp asks whether it is current only when you or the model ask it to ([ADR 0074](decisions/0074-wisp-update.md)):
+`wisp update` and `wisp update --check` send one HTTPS request to GitHub's API for wisp's latest release, with the user
+agent `wisp` and nothing about you or your Mac beyond what any HTTPS request carries, and an update then downloads the
+disk image and its checksum from GitHub to `~/Downloads`. The default policy lets the model run `wisp update --check`
+on its own, which only reports, and refuses it `wisp update`. `updates.check`, off by default, makes the same request
+at most once a day, when a chat starts, `wisp doctor` runs, or `Wisp.app` is opened, and never installs; each check is
+an `update.check` event in the audit log. A downloaded image is used only when its checksum matches and its app is
+signed by wisp's team and notarised by Apple.
 
 If you choose `--model private-cloud`, prompts and tool output go to Apple's Private Cloud Compute under
 Apple's privacy guarantees. wisp prints a note on stderr when that model is selected and records it in
@@ -304,7 +305,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
-| `~/.wisp/update.json` | when `updates.check` last asked GitHub, and the version it named or why it failed | yours |
+| `~/.wisp/update.json` | when wisp last asked GitHub for its latest release (`wisp update`, `--check`, or `updates.check`), and the version it named or why it failed | yours |
 | `~/Downloads/Wisp-X.Y.Z.dmg` | the release `wisp update` downloaded, left for you to keep or delete (its checksum is read, not saved) | yours |
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |
@@ -324,3 +325,4 @@ not judge whether a conclusion follows from the output, and misses a result put 
 | `~/.wisp/context/` | the exact context a model saw, saved by `/inspect context` and around each condensation | user-only |
 | `~/.wisp/output/<session>/` | tool outputs too large for the model to see at once, kept whole so it can page or question them; removed 30 days after the session's last use (`context.outputDays`) | user-only |
 | `~/.wisp/classifiers/risk/` | risk classifier versions: the release's default and those `wisp classifier train` makes | models read-only |
+| `~/.wisp/cache/coreai-verified.json` | each Core AI weights file that matched the `main.hash` exported beside it: its real path, size, and modification time, so it is hashed again only when it changes; safe to delete | your default (umask) |
