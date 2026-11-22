@@ -6,6 +6,9 @@ name: CI
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     # The on-device model itself is not exercised in CI, only compiled against.
