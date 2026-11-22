@@ -1,7 +1,7 @@
 # ADR 0090: Core AI models are pulled from Apple's catalogue by preset
 
 Date: 2026-11-22. Status: proposed; the direction (pull by preset) chosen by the operator on 2026-11-22, the rest not
-yet agreed; probes first (below). Would amend [ADR 0059](0059-one-set-of-model-actions.md) (a pull is MLX's only) and
+yet agreed; probes 1 to 4 run on 2026-11-22 (below). Would amend [ADR 0059](0059-one-set-of-model-actions.md) (a pull is MLX's only) and
 extend [ADR 0088](0088-core-ai-through-wisps-executor.md).
 
 ## Context
@@ -61,11 +61,12 @@ coreai-models and no bundle in the models directory, so nothing below has been m
    reports it.
 3. **The approval says what will run, as well as what will be fetched.** A Core AI pull is asked as an MLX pull is
    (always, per pull, never remembered, the publisher question for the Hub organisation), and its plan adds the
-   preset's compression and context, that Apple's export code at the pinned commit runs on this Mac, and the
-   first-time cost of the Python environment.
+   preset's compression and context, that Apple's export code at the pinned commit runs on this Mac, the
+   first-time cost of the Python environment, the source weights' size and the memory the conversion needs (probe 2),
+   and, for a gated preset, that it needs the licence accepted and a Hugging Face token (probe 4).
 4. **The export runs under wisp's sandbox**, with the network allowed and writes limited to the checkout, the uv and
-   Hugging Face caches, and the bundle's directory, if probe 3 shows the conversion can run there; otherwise this
-   decision is revisited, not dropped quietly.
+   Hugging Face caches, the bundle's directory, `$TMPDIR`, and the per-user cache directory. Probe 3 ran the
+   conversion under such a profile; building the environment there into an empty cache is still to be shown.
 5. **A pull has two phases, shown and cancelled as one.** The status line says which phase it is in (fetching the
    source weights, converting); cancelling stops the export's process group and removes the half-written bundle,
    keeping the downloaded weights in the Hub cache for the next pull.
@@ -92,9 +93,38 @@ coreai-models and no bundle in the models directory, so nothing below has been m
    requests (set `HF_TOKEN` for higher rate limits); neither stopped it.
 2. **A larger preset** (`qwen3-4b` or `qwen3.5-4b`), for how time and memory grow, and so whether the plan must warn
    that the biggest presets (`qwen3.5-122b-a10b` at full precision) cannot be converted on a given Mac.
+
+   **Run on 2026-11-22**, `qwen3-4b`, with nothing of it in the Hub cache, on the same 48 GiB Mac:
+
+   | Step | Result |
+   | --- | --- |
+   | The export, download included | Exit 0 in 215 s (154 s of CPU); the download of five files took about 80 s of it |
+   | Peak resident memory | 19.7 GiB, against 5.8 GiB for `qwen3-0.6b` |
+   | The Hub cache | Grew by 7.5 GiB, the source weights (`models--Qwen--Qwen3-4B`), kept after the export |
+   | The bundle | 2.1 GiB, `qwen3_4b_4bit_dynamic/` |
+   | `wisp` 0.35.3, `--tool current_date` | Called the tool and gave the date and time, in 13 s including the load |
+
+   Peak memory grew from 5.8 to 19.7 GiB as the source weights grew from about 1.2 GB to 7.5 GiB. Two points do not
+   make a rule, but they suggest the conversion holds a few times the source weights in memory, so the full-precision
+   27B and larger presets would not convert on this Mac. The plan should state the source size and the memory it
+   expects, and warn when the Mac has less.
 3. **The export inside wisp's sandbox**, with the profile of decision 4.
+
+   **Run on 2026-11-22**, `qwen3-0.6b` again, under `sandbox-exec` with a profile written as
+   `CommandPolicy.seatbeltProfile` writes one: everything allowed but writes, which are limited to the checkout, uv's
+   and the Hub's caches, the output directory, `$TMPDIR`, and the per-user cache directory, with `~/.wisp` denied and
+   the network open. Exit 0 in 92 s, peak 5.7 GiB, no denial in the output, a 331 MiB bundle that answered "Paris" in
+   wisp. Two limits: the profile was written by hand from wisp's code rather than made by wisp, and the environment
+   was already built, so building it into an empty uv cache inside the sandbox is untested. The export is not
+   byte-for-byte repeatable: this bundle's `main.hash` differs from probe 1's, from the same command and weights.
 4. **A gated model** (`gemma3-4b-it`): what the export says without a Hugging Face token or the licence accepted, so
    the plan can say it first.
+
+   **Run on 2026-11-22**, with no Hugging Face token on this Mac (`HF_HUB_DISABLE_IMPLICIT_TOKEN=1` as well): exit 1
+   in 4 s, a Python traceback ending in `OSError: You are trying to access a gated repo`, with Hugging Face's 401 and
+   the model's page. Nothing was downloaded. The plan should find out first that a preset is gated (Google's Gemma
+   presets are), say that it needs the licence accepted on the model's page and a token, and refuse before running
+   the export without one, instead of passing the traceback on.
 
 ## Consequences
 
