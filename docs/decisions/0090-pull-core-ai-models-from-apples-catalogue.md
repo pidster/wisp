@@ -49,11 +49,13 @@ coreai-models and no bundle in the models directory, so nothing below has been m
 1. **`coreai:<preset>` pulls a registry preset.** `wisp models pull coreai:qwen3-4b`, `/models pull`, and the `models`
    tool take a preset's short name from the registry at wisp's pinned commit. A name not in it is refused, with
    the way to list them. The bundle is written to `<coreai.modelsDirectory>/<preset>`, so `coreai:qwen3-4b` then
-   selects it. `wisp models` lists the presets not yet exported as available, beside the exported bundles it lists today.
+   selects it; the export names its directory after the model and compression (`qwen3_0_6b_4bit_dynamic` for
+   `qwen3-0.6b`, probe 1), so wisp exports into a staging directory and moves the bundle to the preset's name.
+   `wisp models` lists the presets not yet exported as available, beside the exported bundles it lists today.
 2. **The export runs from a checkout at the commit wisp pins.** wisp keeps a checkout of apple/coreai-models at the
    `Package.swift` revision in `<home>/cache/coreai-models/<commit>` and runs
-   `uv run --frozen coreai.llm.export <hf-id> --output-dir <dir>` in it, with the preset's Hugging Face id, which the
-   registry resolves to the preset (whether the export also takes the short name is for probe 1), so the Python export and the Swift runtime
+   `uv run --frozen coreai.llm.export <preset> --output-dir <dir>` in it (the export takes a registry short name as
+   well as a Hugging Face id), so the Python export and the Swift runtime
    that runs its bundle come from one commit and the tested dependency versions (`uv.lock`) are used. Moving the pin
    moves both. wisp does not install `uv`; without it a pull is refused with how to get it, and `wisp doctor`
    reports it.
@@ -75,6 +77,19 @@ coreai-models and no bundle in the models directory, so nothing below has been m
 1. **One export by hand** at the pinned commit, `qwen3-0.6b` (the smallest): whether `uv run --frozen` builds the
    environment, how long the environment and the export take, the disk used by each (environment, Hub cache, bundle),
    and peak memory; then `coreai:qwen3-0.6b` answers in wisp.
+
+   **Run on 2026-11-22**, on this Mac (macOS 27, Xcode 27.2), from a checkout at `3f109ef`, outside any sandbox:
+
+   | Step | Result |
+   | --- | --- |
+   | `uv sync --frozen` | Exit 0 in 0.7 s; the `.venv` is 964 MiB. Not a first-time cost: uv's cache already held the packages (2.5 GiB, unchanged by the sync), so the cost of an empty cache is still unmeasured |
+   | `uv run --frozen coreai.llm.export qwen3-0.6b --output-dir …` | Exit 0 in 99 s (94 s of CPU), peak resident memory 5.8 GiB. The Hub cache already held `Qwen/Qwen3-0.6B`, so nothing was downloaded; the download's time and size are still unmeasured |
+   | The bundle | 331 MiB, `qwen3_0_6b_4bit_dynamic/`: the `.aimodel` (with `main.hash`), the tokenizer and chat template, and `metadata.json` (metadata 0.2, `max_context_length` 8192, compression `4bit`) |
+   | `wisp` 0.35.3 (release build, scratch home), `--no-tools` | "Paris", in 7 s including the load |
+   | The same, `--tool current_date` | Called the tool and gave the date, in 3 s |
+
+   The export warned that coremltools has not been tested with `torch` 2.9.0, and that it sent unauthenticated Hub
+   requests (set `HF_TOKEN` for higher rate limits); neither stopped it.
 2. **A larger preset** (`qwen3-4b` or `qwen3.5-4b`), for how time and memory grow, and so whether the plan must warn
    that the biggest presets (`qwen3.5-122b-a10b` at full precision) cannot be converted on a given Mac.
 3. **The export inside wisp's sandbox**, with the profile of decision 4.
@@ -85,7 +100,8 @@ coreai-models and no bundle in the models directory, so nothing below has been m
 
 - Every Apple-curated language model becomes one command away, chosen and checked by Apple, with the context and
   compression Apple tested.
-- A first pull costs the Python environment (`torch` and the rest, several gigabytes; probe 1 says how many) as well as
+- A first pull costs the Python environment (`torch` and the rest: a 964 MiB `.venv` over 2.5 GiB of uv's cache on
+  this Mac, probe 1, though the download into an empty cache is unmeasured) as well as
   the weights, and every pull keeps the source weights in the Hub cache as well as the bundle; the plan has to say so.
 - wisp runs third-party code for the first time as part of an action: Apple's export, fixed to the pinned commit and
   its lockfile, approved each time.
