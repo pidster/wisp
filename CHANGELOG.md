@@ -6,6 +6,16 @@ Notable changes in each release of wisp.
      notes, and refuses to release without one. Keep an `Unreleased` section at the top while working; the
      version-bump commit renames it. -->
 
+## Unreleased
+
+Fixed:
+
+- `coreai:` models whose templates write tool calls in a format other than `<tool_call>` frames now make them
+  (ADR 0088, amended). gpt-oss's harmony format is read: its thinking is thinking, its answer is the reply without
+  the channel markers, and its calls are made and stop generation, where it went on to invent the tool's result.
+  Mistral-7B-Instruct-v0.3's `[TOOL_CALLS]` array is read and ends the reply, and its template no longer fails on a
+  conversation with a tool result for want of call ids. Phi-3's replies no longer end with a literal `<|end|>`.
+
 ## 0.35.3
 
 Added:

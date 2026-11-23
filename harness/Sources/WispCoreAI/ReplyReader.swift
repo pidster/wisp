@@ -12,15 +12,26 @@ enum ReplyFormat: Equatable, Sendable {
     /// `self` for thinking, `user` for the reply, a tool's name for a call written in ATEM
     /// (`ToolCallFrames.atem`); the turn ends at `<|eot|>`. Muse Glimmer's template.
     case channels
+    /// OpenAI's harmony format, messages on channels, `<|channel|>analysis<|message|>…<|end|>` for thinking,
+    /// `<|channel|>final<|message|>…` for the reply, and a call as a message `to=functions.NAME` whose body is its
+    /// JSON arguments, ended by `<|call|>` (`ToolCallFrames.harmony`); the turn ends at `<|return|>`. gpt-oss's
+    /// template.
+    case harmony
+    /// Free text, or `[TOOL_CALLS]` and the calls: a JSON array (`TextToolCalls.mistralArray`), which ends the reply
+    /// once it closes, or `name[ARGS]{…}` (`TextToolCalls.mistral`), read when the reply ends. Mistral's templates.
+    case marked
 
     /// The format a template states: channels when it routes messages to `self` and ends them with `<|eom|>`,
+    /// harmony when it writes channels and ends calls with `<|call|>`, marked when it writes `[TOOL_CALLS]`,
     /// otherwise tagged, with its thinking tags if it has them.
     ///
     /// - Parameter template: The chat template's text, when the bundle has one.
     /// - Returns: The format.
     static func read(template: String?) -> ReplyFormat {
-        if let template, template.contains("to=self"), template.contains(ChannelSplitter.endOfMessage) {
-            return .channels
+        if let template {
+            if template.contains("to=self"), template.contains(ChannelSplitter.endOfMessage) { return .channels }
+            if template.contains("<|channel|>"), template.contains("<|call|>") { return .harmony }
+            if template.contains(TextToolCalls.mistralMarker) { return .marked }
         }
         return .tagged(ThinkingFormat.read(template: template))
     }
@@ -29,16 +40,45 @@ enum ReplyFormat: Equatable, Sendable {
     var reasons: Bool {
         switch self {
         case .tagged(let thinking): thinking != nil
-        case .channels: true
+        case .channels, .harmony: true
+        case .marked: false
+        }
+    }
+
+    /// The markers that end the model's turn in this format, for the template that writes them: a tokenizer's
+    /// configuration need not list them as stop tokens. A tagged template's are ChatML's `<|im_end|>` and Phi's
+    /// `<|end|>`, which harmony uses to end one message of several and so is not a stop there.
+    var turnEnds: [String] {
+        switch self {
+        case .tagged: ["<|im_end|>", "<|end|>"]
+        case .channels: [ChannelSplitter.endOfTurn]
+        case .harmony: ["<|return|>"]
+        case .marked: []
         }
     }
 }
 
 /// Splits a reply written as routed messages into its messages as it streams: each a header, `[<|start|>assistant]
-/// to=TARGET<|message|>`, then a body up to `<|eom|>` or `<|eot|>`. The prompt ends with `<|start|>assistant`, so the
-/// first header has only its ` to=…` part. A body's text streams as it comes, less the start of a marker the next
-/// chunk may complete; a header is held whole.
+/// to=TARGET<|message|>`, then a body up to `<|eom|>` or `<|eot|>`; or, in harmony, `[<|start|>assistant]
+/// <|channel|>CHANNEL[ to=RECIPIENT]…<|message|>`, then a body up to `<|end|>`, `<|call|>`, or `<|return|>`. The
+/// prompt ends with `<|start|>assistant`, so the first header has only what follows it. A body's text streams as it
+/// comes, less the start of a marker the next chunk may complete; a header is held whole.
 struct ChannelSplitter: Sendable {
+    /// Which layout of routed messages.
+    enum Style: Sendable {
+        /// Muse Glimmer's: targets after `to=`, `self` for thinking.
+        case routed
+        /// harmony: a recipient after `to=` for a call, else the channel, `analysis` for thinking.
+        case harmony
+
+        /// The markers that end a message.
+        var ends: [String] {
+            switch self {
+            case .routed: [ChannelSplitter.endOfMessage, ChannelSplitter.endOfTurn]
+            case .harmony: ["<|end|>", "<|call|>", "<|return|>"]
+            }
+        }
+    }
     /// Ends a message.
     static let endOfMessage = "<|eom|>"
     /// Ends the turn.
@@ -62,9 +102,15 @@ struct ChannelSplitter: Sendable {
     private(set) var target: String?
     /// Text held back: a header in progress, or the start of a marker.
     private var held = ""
+    /// The layout.
+    let style: Style
 
     /// Creates a splitter at the start of a header, as the prompt leaves it.
-    init() {}
+    ///
+    /// - Parameter style: The layout.
+    init(style: Style = .routed) {
+        self.style = style
+    }
 
     /// Routes one chunk.
     ///
@@ -77,7 +123,8 @@ struct ChannelSplitter: Sendable {
         while !rest.isEmpty {
             guard let target else {
                 if let end = rest.range(of: Self.messageStart) {
-                    self.target = Self.target(of: rest[..<end.lowerBound])
+                    let header = rest[..<end.lowerBound]
+                    self.target = style == .harmony ? Self.harmonyTarget(of: header) : Self.target(of: header)
                     rest = rest[end.upperBound...]
                     continue
                 }
@@ -89,7 +136,7 @@ struct ChannelSplitter: Sendable {
                 held = String(rest)
                 return pieces
             }
-            let markers = [Self.endOfMessage, Self.endOfTurn]
+            let markers = style.ends
             if let end = markers.compactMap({ rest.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound }) {
                 let text = String(rest[..<end.lowerBound])
                 if !text.isEmpty { pieces.append(.body(target: target, text: text)) }
@@ -98,7 +145,7 @@ struct ChannelSplitter: Sendable {
                 rest = rest[end.upperBound...]
                 continue
             }
-            var keep = min(Self.endOfMessage.count - 1, rest.count)
+            var keep = min((markers.map(\.count).max() ?? 1) - 1, rest.count)
             while keep > 0, !markers.contains(where: { $0.hasPrefix(rest.suffix(keep)) }) { keep -= 1 }
             let emit = String(rest.dropLast(keep))
             if !emit.isEmpty { pieces.append(.body(target: target, text: emit)) }
@@ -133,11 +180,70 @@ struct ChannelSplitter: Sendable {
         let name = header[to.upperBound...].prefix { !$0.isWhitespace && $0 != "<" }
         return name.isEmpty ? "user" : String(name)
     }
+
+    /// A harmony header's target: its recipient after `to=` (a call, `functions.NAME`), else `self` for the
+    /// `analysis` channel and `user` for any other (`final`, or `commentary` written to the person).
+    ///
+    /// - Parameter header: The header, without `<|message|>`.
+    /// - Returns: The target.
+    static func harmonyTarget(of header: Substring) -> String {
+        if header.contains("to=") {
+            let recipient = target(of: header)
+            if recipient != "user" { return recipient }
+        }
+        guard let channel = header.range(of: "<|channel|>") else { return "user" }
+        let name = header[channel.upperBound...].prefix { !$0.isWhitespace && $0 != "<" }
+        return name == "analysis" ? "self" : "user"
+    }
+}
+
+/// Splits a reply in Mistral's marked format as it streams: text up to `[TOOL_CALLS]` goes out as it comes, less the
+/// start of the marker the next chunk may complete; everything after the marker is held to the end of the reply,
+/// where it is read as calls.
+struct MarkedCallsSplitter: Sendable {
+    /// Text held back: the start of the marker.
+    private var held = ""
+    /// What followed the marker, once it has come.
+    private(set) var calls: String?
+
+    /// Routes one chunk.
+    ///
+    /// - Parameter chunk: The text as it streamed.
+    /// - Returns: The reply's text it resolves to.
+    mutating func feed(_ chunk: String) -> String {
+        if let calls {
+            self.calls = calls + chunk
+            return ""
+        }
+        let marker = TextToolCalls.mistralMarker
+        let rest = held + chunk
+        held = ""
+        if let start = rest.range(of: marker) {
+            calls = String(rest[start.upperBound...])
+            return String(rest[..<start.lowerBound])
+        }
+        var keep = min(marker.count - 1, rest.count)
+        while keep > 0, !marker.hasPrefix(rest.suffix(keep)) { keep -= 1 }
+        held = String(rest.suffix(keep))
+        return String(rest.dropLast(keep))
+    }
+
+    /// Ends the stream.
+    ///
+    /// - Returns: What was held back, and what followed the marker if it came.
+    mutating func finish() -> (text: String, calls: String?) {
+        defer {
+            held = ""
+            calls = nil
+        }
+        return (held, calls)
+    }
 }
 
 /// The reply's text routed as it streams, by the bundle's `ReplyFormat`: through the thinking splitter and then the
-/// tool-call frame splitter, or through the channel splitter, whose tool messages are read as ATEM. Shared by the
-/// engine's token callback, which is `@Sendable` and may not capture mutable state.
+/// tool-call frame splitter; through the channel splitter, whose tool messages are read as ATEM or, in harmony, as
+/// JSON arguments; or through the marker splitter, whose calls are read at the end. Shared by the engine's token
+/// callback, which is `@Sendable` and may not capture mutable state.
 final class ReplyReader: Sendable {
     /// The splitters, and what the reply has said so far.
     private struct State {
@@ -145,9 +251,11 @@ final class ReplyReader: Sendable {
         var thinking: ThinkingSplitter?
         /// The frame splitter, for a tagged format.
         var frames = ToolCallFrames.Splitter()
-        /// The channel splitter, for a channels format.
+        /// The channel splitter, for a channels or harmony format.
         var channels: ChannelSplitter?
-        /// The body of the tool message under way, for a channels format.
+        /// The marker splitter, for a marked format.
+        var marked: MarkedCallsSplitter?
+        /// The body of the tool message under way, for a channels or harmony format.
         var call = ""
         /// The thinking of the block under way, since it opened.
         var thought = ""
@@ -173,10 +281,16 @@ final class ReplyReader: Sendable {
         switch format {
         case .tagged(let thinking): initial.thinking = thinking.map { ThinkingSplitter(format: $0, primed: primed) }
         case .channels: initial.channels = ChannelSplitter()
+        case .harmony: initial.channels = ChannelSplitter(style: .harmony)
+        case .marked: initial.marked = MarkedCallsSplitter()
         }
         state = Mutex(initial)
         self.tools = tools
+        self.format = format
     }
+
+    /// How the template lays out a reply.
+    private let format: ReplyFormat
 
     /// Whether the reply is over: a tool message has ended, and the framework is to run the call.
     var isDone: Bool { state.withLock { $0.done } }
@@ -190,6 +304,20 @@ final class ReplyReader: Sendable {
             if state.channels != nil {
                 let pieces = state.channels?.feed(chunk) ?? []
                 return pieces.flatMap { route($0, state: &state) }
+            }
+            if state.marked != nil {
+                guard !state.done else { return [] }
+                let text = state.marked?.feed(chunk) ?? ""
+                var events: [CoreAIEvent] = text.isEmpty ? [] : [.text(text)]
+                // Mistral goes on writing after its calls, a result of its own among it (probed 2026-11-23): once
+                // the array closes and holds calls, the reply is over.
+                if let body = state.marked?.calls, let end = TextToolCalls.arrayEnd(Substring(body)),
+                    let calls = TextToolCalls.mistralArray(String(body[..<end]), offered: Set(tools.keys))
+                {
+                    state.done = true
+                    events += calls.map { .toolCall(name: $0.name, arguments: $0.arguments) }
+                }
+                return events
             }
             let pieces = state.thinking?.feed(chunk) ?? [.reply(chunk)]
             return route(pieces, state: &state)
@@ -209,6 +337,12 @@ final class ReplyReader: Sendable {
             if state.channels != nil {
                 let pieces = state.channels?.finish() ?? []
                 return pieces.flatMap { route($0, state: &state) }
+            }
+            if let held = state.marked?.finish() {
+                guard !state.done else { return [] }
+                var events: [CoreAIEvent] = held.text.isEmpty ? [] : [.text(held.text)]
+                if let body = held.calls { events += marked(body) }
+                return events
             }
             let inside = state.thinking?.inside == true
             var events = route(state.thinking?.finish() ?? [], state: &state)
@@ -265,13 +399,34 @@ final class ReplyReader: Sendable {
             let body = state.call
             state.call = ""
             state.done = true
-            guard let calls = ToolCallFrames.atem(body, schemas: tools) else {
-                Diagnostics.agent.info(
-                    "Core AI: a message to \(target) held no ATEM call to an offered tool; kept as text")
+            let calls =
+                format == .harmony
+                ? ToolCallFrames.harmony(recipient: target, body: body, schemas: tools)
+                : ToolCallFrames.atem(body, schemas: tools)
+            guard let calls else {
+                Diagnostics.agent.info("Core AI: a message to \(target) held no call to an offered tool; kept as text")
                 return [.text(body)]
             }
             return calls.map { .toolCall(name: $0.name, arguments: $0.arguments) }
         }
+    }
+
+    /// A marked format's calls, read from what followed `[TOOL_CALLS]`, or the marker and that text as reply text
+    /// when it holds no call to an offered tool.
+    ///
+    /// - Parameter body: What followed the marker.
+    /// - Returns: The events.
+    private func marked(_ body: String) -> [CoreAIEvent] {
+        let offered = Set(tools.keys)
+        let marker = TextToolCalls.mistralMarker
+        guard
+            let calls = TextToolCalls.mistralArray(body, offered: offered)
+                ?? TextToolCalls.mistral(marker + body, offered: offered)
+        else {
+            Diagnostics.agent.info("Core AI: \(marker) held no call to an offered tool; kept as text")
+            return [.text(marker + body)]
+        }
+        return calls.map { .toolCall(name: $0.name, arguments: $0.arguments) }
     }
 
     /// A frame's calls, or the frame as text when it holds none the request offers; text as it is.

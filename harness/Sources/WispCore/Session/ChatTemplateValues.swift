@@ -33,6 +33,42 @@ public enum ChatTemplateValues {
         return dictionary
     }
 
+    /// The messages as the chat template takes them, each call given an id and each tool message the id of the call
+    /// it answers, in order. The transcript keeps no ids, and some templates need them: Mistral-7B-Instruct-v0.3's
+    /// stops rendering unless every call and tool message has one of nine letters and digits.
+    ///
+    /// - Parameter messages: The messages.
+    /// - Returns: Their dictionaries.
+    public static func messages(_ messages: [ChatMessage]) -> [[String: any Sendable]] {
+        var issued = 0
+        var unanswered: [String] = []
+        return messages.map { message in
+            var dictionary = self.message(message)
+            if var calls = dictionary["tool_calls"] as? [[String: any Sendable]] {
+                for index in calls.indices {
+                    issued += 1
+                    let id = callID(issued)
+                    calls[index]["id"] = id
+                    unanswered.append(id)
+                }
+                dictionary["tool_calls"] = calls
+            }
+            if message.role == "tool" {
+                dictionary["tool_call_id"] = unanswered.isEmpty ? callID(0) : unanswered.removeFirst()
+            }
+            return dictionary
+        }
+    }
+
+    /// A call's id: `call` and its number in five digits, nine characters.
+    ///
+    /// - Parameter number: The call's number in the conversation.
+    /// - Returns: The id.
+    static func callID(_ number: Int) -> String {
+        let digits = String(number)
+        return "call" + String(repeating: "0", count: max(0, 5 - digits.count)) + digits
+    }
+
     /// A tool definition as the OpenAI-style specification chat templates take.
     ///
     /// - Parameter definition: The framework's definition.

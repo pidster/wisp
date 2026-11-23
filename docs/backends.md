@@ -538,7 +538,7 @@ MLX's are.
 | | wisp's executor (`coreai.executor: "wisp"`, the default) | The bridge (`coreai.executor: "bridge"`) |
 | --- | --- | --- |
 | Capabilities | From the chat template: tool calling when it renders tools, reasoning when it marks thinking or routes messages to `self`, guided generation | Detected by the bridge: tool-call markers in the vocabulary, a thinking format, the loaded engine |
-| Tool calls | `<tool_call>` frames holding a JSON object, a JSON array, or the XML form (`<function=NAME><parameter=KEY>`, Qwen3.5 and Nemotron); ATEM blocks after a `to=TOOL` header (Muse Glimmer). A frame that is no call stays in the reply | JSON in `<tool_call>` and ATEM; any other body is dropped silently |
+| Tool calls | `<tool_call>` frames holding a JSON object, a JSON array, or the XML form (`<function=NAME><parameter=KEY>`, Qwen3.5 and Nemotron); ATEM blocks after a `to=TOOL` header (Muse Glimmer); harmony messages `to=functions.NAME` (gpt-oss); `[TOOL_CALLS]` and a JSON array or `name[ARGS]{…}` (Mistral). A frame that is no call stays in the reply | JSON in `<tool_call>` and ATEM; any other body is dropped silently |
 | Thinking | Split by the template's tags, primed when the prompt opens a block; routed `to=self` messages. A template that takes `enable_thinking` is sent what a request asks (off for wisp's own calls, a thread's `think`), else nothing | Tags only when the model writes the opening one, so a template that opens `<think>` in the prompt leaks the thinking and a bare `</think>` into the reply |
 | Window | Enforced: a prompt that does not fit is an overflow, which condenses and retries | Not enforced by the bridge |
 | Token counts and usage | Exact counts from the template, without loading the weights; usage reported, with Core AI's reused prefix as cached | Reported to the framework only |
@@ -548,7 +548,10 @@ MLX's are.
 The template's reply format decides how a reply is read. Most templates write free text with thinking between tags
 and calls in `<tool_call>` frames. Muse Glimmer's routes each message by a header instead: `to=self` for
 thinking, `to=user` for the reply, a tool's name for an ATEM call, `<|eom|>` after each message and `<|eot|>` at
-the end of the turn; generation stops once a tool message ends. A reply that ends on the model's stop token still
+the end of the turn; generation stops once a tool message ends. gpt-oss's harmony format puts each message on a
+channel: `analysis` is thinking, `final` the reply, and a message `to=functions.NAME` a call whose body is its JSON
+arguments, ended by `<|call|>`, where generation stops. Mistral's templates write `[TOOL_CALLS]` before their calls;
+the reply ends as soon as the JSON array after it closes, since Mistral goes on to write a result of its own. A reply that ends on the model's stop token still
 inside the thinking block the prompt opened, having said nothing else, is taken as answered there, since Nemotron
 answered after a tool result without closing the block. A template in a format wisp does not know is read as tagged
 without thinking; the bridge is the fallback. The engine, one per bundle, is shared by every thread on it and

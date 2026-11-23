@@ -207,6 +207,25 @@ struct ScriptGenerator: CoreAIGenerating {
         #expect(log.generated.withLock { $0 } == [6, 5])
     }
 
+    @Test func aHarmonyCallRunsTheToolAndGenerationStopsAtIt() async throws {
+        // gpt-oss-20b on 2026-11-23 wrote a well-formed call, then a result of its own: the call must run, and what
+        // it made up must never be generated.
+        let (engine, log) = Self.engine([
+            [
+                "<|channel|>analysis<|message|>", "Need it.", "<|end|>",
+                "<|start|>assistant<|channel|>commentary to=functions.current_date <|constrain|>json<|message|>", "{}",
+                "<|call|>", "<|start|>functions.current_date<|message|>made up", "<eos>",
+            ],
+            ["<|channel|>final<|message|>", "It is today.", "<eos>"],
+        ])
+        let agent = Agent(
+            instructions: "Use the tool.", tools: [CurrentDateTool()], model: Self.resolved(engine, format: .harmony))
+        let reply = try await agent.respond(to: "What is the date?")
+        #expect(reply.text == "It is today.")
+        #expect(agent.transcript.contains { if case .toolOutput = $0 { true } else { false } })
+        #expect(log.generated.withLock { $0 } == [6, 2])
+    }
+
     @Test func aPromptThatDoesNotFitIsAnOverflow() async throws {
         let (engine, log) = Self.engine([])
         let session = LanguageModelSession(
@@ -377,6 +396,61 @@ struct ScriptGenerator: CoreAIGenerating {
         #expect(ReplyFormat.read(template: nil) == .tagged(nil))
         #expect(ReplyFormat.read(template: "{{ '<think>' }}{{ '</think>' }}") == .tagged(CoreAIExecutorTests.think))
         #expect(ReplyFormat.read(template: "'<|start|>assistant to=self<|message|>' ~ x ~ '<|eom|>'") == .channels)
+        #expect(ReplyFormat.read(template: "'<|channel|>analysis<|message|>' ~ x ~ '<|end|>' ~ '<|call|>'") == .harmony)
+        #expect(ReplyFormat.read(template: "{{- \"[TOOL_CALLS] [\" }}") == .marked)
+        // harmony ends each message with `<|end|>`, so only Phi's tagged templates stop there.
+        #expect(ReplyFormat.tagged(nil).turnEnds.contains("<|end|>"))
+        #expect(!ReplyFormat.harmony.turnEnds.contains("<|end|>"))
+        #expect(ReplyFormat.harmony.reasons && !ReplyFormat.marked.reasons)
+    }
+
+    @Test func harmonyChannelsAreThinkingCallsAndTheReply() {
+        // gpt-oss-20b on 2026-11-23, in pieces split across its markers.
+        let reader = ReplyReader(format: .harmony, primed: false, tools: ["current_date": .object([:])])
+        var events: [CoreAIEvent] = []
+        for chunk in [
+            "<|channel|>analysis<|mess", "age|>Need the tool.<|e", "nd|><|start|>assistant<|channel|>commentary",
+            " to=functions.current_date <|constrain|>json<|message|>", #"{"timeZone":"UTC"}"#, "<|call|>",
+            "<|channel|>commentary<|message|>made up",
+        ] {
+            events += reader.feed(chunk)
+        }
+        events += reader.finish(stopped: true)
+        #expect(
+            events == [
+                .reasoning("Need the tool."), .toolCall(name: "current_date", arguments: ["timeZone": "UTC"]),
+            ])
+        #expect(reader.isDone)
+        let answer = ReplyReader(format: .harmony, primed: false, tools: [:])
+        let reply =
+            answer.feed("<|channel|>analysis<|message|>Easy.<|end|><|start|>assistant<|channel|>final<|message|>Paris")
+            + answer.finish(stopped: true)
+        #expect(reply == [.reasoning("Easy."), .text("Paris")])
+    }
+
+    @Test func mistralsMarkedCallsAreReadAtTheEnd() {
+        let tools: [String: JSONValue] = ["current_date": .object([:])]
+        let reader = ReplyReader(format: .marked, primed: false, tools: tools)
+        var events = reader.feed("[TOOL_") + reader.feed("CALLS] [{\"name\": \"current_date\", ")
+        events += reader.feed("\"arguments\": {\"timeZone\": \"UTC\"}}]")
+        #expect(events == [.toolCall(name: "current_date", arguments: ["timeZone": "UTC"])])
+        #expect(reader.isDone)
+        // What Mistral wrote after its call on 2026-11-23, a made-up result, is never read.
+        #expect(reader.feed("\nThe current date is: [result]") == [])
+        #expect(reader.finish(stopped: true) == [])
+        // The `name[ARGS]{…}` form has no end of its own and is read when the reply ends.
+        let args = ReplyReader(format: .marked, primed: false, tools: tools)
+        #expect(args.feed("[TOOL_CALLS]current_date[ARGS]{}") == [])
+        #expect(args.finish(stopped: true) == [.toolCall(name: "current_date", arguments: [:])])
+        // Text streams as it comes; a bracket that is not the marker is let go once it cannot be.
+        let text = ReplyReader(format: .marked, primed: false, tools: tools)
+        #expect(text.feed("Paris [") == [.text("Paris ")])
+        #expect(text.feed("1]") == [.text("[1]")])
+        #expect(text.finish(stopped: true) == [])
+        // A marker that holds no call to an offered tool stays in the reply as the model wrote it.
+        let none = ReplyReader(format: .marked, primed: false, tools: tools)
+        let kept = none.feed("[TOOL_CALLS] [current_date timeZone]") + none.finish(stopped: true)
+        #expect(kept == [.text("[TOOL_CALLS] [current_date timeZone]")])
     }
 
     @Test func theIncrementalDecoderHoldsBackIncompleteCharacters() {

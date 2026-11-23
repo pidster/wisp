@@ -29,7 +29,7 @@ public enum TextToolCalls {
     }
 
     /// The marker Mistral's chat template puts before its calls.
-    static let mistralMarker = "[TOOL_CALLS]"
+    public static let mistralMarker = "[TOOL_CALLS]"
     /// What follows the tool's name in a Mistral call.
     static let mistralArguments = "[ARGS]"
 
@@ -60,6 +60,29 @@ public enum TextToolCalls {
         }
     }
 
+    /// The calls in what follows `[TOOL_CALLS]` in Mistral-7B-Instruct-v0.3's format: a JSON array of
+    /// `{"name": "…", "arguments": {…}}`, each optionally with the `id` that template gives the calls it renders.
+    ///
+    /// - Parameters:
+    ///   - text: The text after the marker.
+    ///   - offered: The names of the tools the request offers.
+    /// - Returns: The calls, in order, or nil when the text is anything else.
+    public static func mistralArray(_ text: String, offered: Set<String>) -> [Call]? {
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard body.hasPrefix("["), let value = try? JSONDecoder().decode(JSONValue.self, from: Data(body.utf8)),
+            let elements = value.arrayValue, !elements.isEmpty
+        else { return nil }
+        var calls: [Call] = []
+        for element in elements {
+            guard let object = element.objectValue, Set(object.keys).isSubset(of: ["name", "arguments", "id"]),
+                let name = object["name"]?.stringValue, let arguments = object["arguments"],
+                let call = Call(name: name, arguments: arguments, offered: offered)
+            else { return nil }
+            calls.append(call)
+        }
+        return calls
+    }
+
     /// Whether a reply's text so far may yet turn out to be calls in Mistral's format, so an executor holds it back
     /// rather than streaming it as the reply: it is empty or whitespace, the start of the marker, or the start of an
     /// offered tool's name and `[ARGS]`, or it has a whole one of those at its start, after which only the reply's end
@@ -77,6 +100,41 @@ public enum TextToolCalls {
             let head = name + mistralArguments
             return head.hasPrefix(rest) || rest.hasPrefix(head)
         }
+    }
+
+    /// The index just past the JSON array `text` begins with, after any whitespace, found by matching brackets and
+    /// braces outside strings; nil when it does not begin with `[` or the array has not closed yet.
+    ///
+    /// - Parameter text: The text.
+    /// - Returns: The end of the array.
+    public static func arrayEnd(_ text: Substring) -> Substring.Index? {
+        let start = text.drop { $0.isWhitespace }
+        guard start.first == "[" else { return nil }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start.startIndex
+        while index < start.endIndex {
+            let character = start[index]
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if character == "\\" {
+                    escaped = true
+                } else if character == "\"" {
+                    inString = false
+                }
+            } else if character == "\"" {
+                inString = true
+            } else if character == "[" || character == "{" {
+                depth += 1
+            } else if character == "]" || character == "}" {
+                depth -= 1
+                if depth == 0 { return start.index(after: index) }
+            }
+            index = start.index(after: index)
+        }
+        return nil
     }
 
     /// The index just past the JSON object `text` begins with, found by matching braces outside strings; nil when it

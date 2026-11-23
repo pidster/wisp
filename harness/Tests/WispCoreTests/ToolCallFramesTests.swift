@@ -82,6 +82,19 @@ import Testing
         }
     }
 
+    @Test func aHarmonyMessageToAFunctionIsOneCall() {
+        // gpt-oss-20b on 2026-11-23: `to=functions.current_date <|constrain|>json<|message|>{…}<|call|>`.
+        let calls = ToolCallFrames.harmony(
+            recipient: "functions.current_date", body: #"{"timeZone":"America/New_York"}"#, schemas: schemas)
+        #expect(calls?.map(\.name) == ["current_date"])
+        #expect(calls?.first?.arguments == ["timeZone": "America/New_York"])
+        #expect(ToolCallFrames.harmony(recipient: "functions.read_file", body: " {} ", schemas: schemas) != nil)
+        #expect(ToolCallFrames.harmony(recipient: "functions.nope", body: "{}", schemas: schemas) == nil)
+        #expect(ToolCallFrames.harmony(recipient: "current_date", body: "{}", schemas: schemas) == nil)
+        #expect(ToolCallFrames.harmony(recipient: "functions.current_date", body: "now", schemas: schemas) == nil)
+        #expect(ToolCallFrames.harmony(recipient: "functions.current_date", body: "[]", schemas: schemas) == nil)
+    }
+
     @Test func anATEMBlockIsReadWithItsParametersTypedByTheSchema() {
         // The form Muse Glimmer's template writes after a `to=TOOL` header (its chat_template.jinja, 2026-10-08).
         let block = """

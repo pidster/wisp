@@ -179,6 +179,6 @@ coreai-models and no bundle in the models directory, so nothing below has been m
   with such a bump, which changes the Swift runtime every Core AI model runs on; it is its own decision, not this
   one's.
 - Making `gpt-oss`'s harmony output and Phi's end token readable, and letting Mistral and `gpt-oss` call tools,
-  is work in wisp's Core AI executor (ADR 0088), separate from pulling; until then the plan says those presets
-  answer without tools at best.
+  is work in wisp's Core AI executor, separate from pulling; it was done on 2026-11-23 (ADR 0088's amendment of that
+  date), after which `gpt-oss-20b` and `mistral-7b-instruct-v0.3` made calls through the tool loop.
 - Diffusion, vision, audio, and embedding models in the catalogue stay out of scope: wisp runs language models only.

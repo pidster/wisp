@@ -211,6 +211,25 @@ public enum ToolCallFrames {
         }
     }
 
+    /// The call in a harmony message, the form gpt-oss's template writes: the header names the recipient,
+    /// `to=functions.NAME`, and the body is the arguments as JSON, ended by `<|call|>`.
+    ///
+    /// - Parameters:
+    ///   - recipient: The header's recipient, `functions.NAME`.
+    ///   - body: The message's body.
+    ///   - schemas: The offered tools' parameter schemas by name.
+    /// - Returns: The call, or nil when the recipient is not an offered function or the body is not an object.
+    public static func harmony(recipient: String, body: String, schemas: [String: JSONValue]) -> [TextToolCalls.Call]? {
+        let prefix = "functions."
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard recipient.hasPrefix(prefix),
+            let arguments = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+            let call = TextToolCalls.Call(
+                name: String(recipient.dropFirst(prefix.count)), arguments: arguments, offered: Set(schemas.keys))
+        else { return nil }
+        return [call]
+    }
+
     /// The element `text` begins with: `<TAG name="NAME">CONTENT</TAG>`.
     ///
     /// - Parameters:

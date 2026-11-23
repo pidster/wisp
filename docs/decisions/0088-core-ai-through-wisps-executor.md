@@ -124,3 +124,31 @@ Feedback Assistant. wisp does not wait for them.
   other, now that an overflow is reported as one. `model.request` stays Ollama's.
 - Not measured: guided generation through wisp's executor on a real bundle, the static-shape (Neural Engine)
   engine, a request's thinking switch on a real template, and long multi-turn threads.
+
+## Amendment, 2026-11-23: harmony and Mistral's marker
+
+ADR 0090's probe 5 exported one preset of each family in Apple's catalogue at the pinned commit and ran it through
+this executor. Two templates that write tool calls were read as tagged, so their calls were never made: gpt-oss-20b
+wrote a well-formed call in OpenAI's harmony format, did not stop, and went on to invent the tool's result, all shown
+as the reply; Mistral-7B-Instruct-v0.3 wrote `[TOOL_CALLS]` and a JSON array, then a made-up result. Phi-3-mini's
+replies ended with a literal `<|end|>`, its template's end of turn, which was no stop token. Two formats join the two
+above, read from the template in the same way:
+
+- *Harmony* (`ReplyFormat.harmony`), when the template writes `<|channel|>` and `<|call|>`: the channel splitter in a
+  second style, a header `<|channel|>CHANNEL[ to=RECIPIENT]…<|message|>`, the `analysis` channel as thinking, any
+  other channel as the reply, and a message `to=functions.NAME` as a call whose body is its JSON arguments
+  (`ToolCallFrames.harmony`). Messages end at `<|end|>` or `<|call|>`; generation stops once a call's message ends,
+  as for a channels tool message, and the turn ends at `<|return|>`.
+- *Marked* (`ReplyFormat.marked`), when the template writes `[TOOL_CALLS]`: text streams until the marker; after it,
+  a JSON array of calls (`TextToolCalls.mistralArray`, each `{"name", "arguments"}` with the template's optional
+  `id`) ends the reply as soon as it closes, and the `name[ARGS]{…}` form Ollama's Mistral templates use is read when
+  the reply ends. A marker followed by no call to an offered tool stays in the reply.
+
+The template's end of turn is now the format's: `<|im_end|>` and Phi's `<|end|>` for tagged templates, `<|eot|>` for
+channels, `<|return|>` for harmony, where `<|end|>` ends one message of several and must not stop generation.
+
+Mistral-7B-Instruct-v0.3's template also stops rendering unless every call carries an `id` of nine letters and
+digits and every tool message the `tool_call_id` it answers. The transcript keeps no ids, so the Core AI prompt numbers
+the calls (`call00001`, …) and gives each tool message the oldest unanswered call's (`ChatTemplateValues.messages`).
+MLX's executor still maps messages one by one: its runtime is built only with the `MLX` trait, which the gate does not
+build, so it is left for a change that can run `scripts/check mcp-build`.

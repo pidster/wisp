@@ -25,10 +25,9 @@ struct CoreAITokenizer: CoreAITokenizing {
         if let directory = language.tokenizerPath {
             stops.formUnion(LanguageConfig.additionalStopTokenIds(from: directory, tokenizer: tokenizer))
         }
-        // The end of turn a template writes, which a tokenizer configuration need not list: ChatML's, and the
-        // routed-message templates' (`ReplyFormat.channels`).
-        let template = CoreAIBackend.chatTemplate(in: bundle) ?? ""
-        for marker in ["<|im_end|>", ChannelSplitter.endOfTurn] where template.contains(marker) {
+        // The end of turn a template writes, which a tokenizer configuration need not list (`ReplyFormat.turnEnds`).
+        let template = CoreAIBackend.chatTemplate(in: bundle)
+        for marker in ReplyFormat.read(template: template).turnEnds where template?.contains(marker) == true {
             if let end = tokenizer.convertTokenToId(marker) { stops.insert(Int32(end)) }
         }
         return CoreAITokenizer(tokenizer: tokenizer, stopTokens: stops)

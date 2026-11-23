@@ -74,7 +74,7 @@ struct CoreAIPrompt: Sendable {
     ///   - tools: The tools the request offers.
     ///   - thinking: `enable_thinking`, or nil for the template's default.
     init(transcript: Transcript, tools: [Transcript.ToolDefinition], thinking: Bool? = nil) {
-        messages = ChatMessage.messages(from: transcript).map(ChatTemplateValues.message)
+        messages = ChatTemplateValues.messages(ChatMessage.messages(from: transcript))
         self.tools = ChatTemplateValues.tools(tools.map(ChatTemplateValues.specification))
         context = ChatTemplateValues.context(thinking: thinking)
     }
