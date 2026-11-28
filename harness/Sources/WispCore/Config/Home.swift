@@ -66,6 +66,8 @@ public struct Home: Sendable, Equatable {
     public var approvalsFile: URL { root.appending(path: "approvals.json") }
     /// The shared store of permanent facts, which only the person admits facts to.
     public var factsFile: URL { root.appending(path: "facts.json") }
+    /// Every model wisp has seen or set up, kept when its runtime is not running (`ModelRegistry`, ADR 0092).
+    public var modelRegistryFile: URL { root.appending(path: "models.json") }
     /// Commands waiting for approval under `wisp mcp`, answered from another face (`PendingApprovals`).
     public var pending: URL { root.appending(path: "pending", directoryHint: .isDirectory) }
     /// Model assets kept under the home, one subdirectory per backend.

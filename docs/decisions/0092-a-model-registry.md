@@ -1,7 +1,7 @@
 # ADR 0092: A model registry: what is known, what is available, what is enabled
 
 Date: 2026-11-28. Status: proposed 2026-11-28, at the operator's request; the operator answered its open questions
-the same day (below); not built. Follows
+the same day (below). Stage 1 built 2026-11-28: `ModelRegistry` and its file, not yet used by any listing. Follows
 [ADR 0056](0056-models-enabled-and-disabled.md) (enabling and checking models),
 [ADR 0059](0059-one-set-of-model-actions.md) (`ModelActions`), and [ADR 0091](0091-wisp-app-window.md) (the window's Models
 tab).
@@ -95,7 +95,7 @@ of what is known even if it is not available or enabled, helping them remember w
 
 Each stage is a commit, with tests that need no model and docs in the same commit.
 
-1. **The registry.** `ModelRegistry` in `WispCore/Session`:
+1. **The registry** (built 2026-11-28). `ModelRegistry` in `WispCore/Session`:
    - Reads and writes `models.json` atomically, holding the file lock wisp's other state files use.
    - Merges a listing into the registry, and marks a runtime's entries unavailable when it did not answer.
    - Pure functions over values, tested against fixtures.
