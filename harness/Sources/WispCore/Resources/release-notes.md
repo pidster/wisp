@@ -1,30 +1,36 @@
-## 0.35.3
+## 0.36.0
 
 Added:
 
-- `wisp://status` has `update`: whether `updates.check` is on, the running version, and what the last check found,
-  with a newer version when one is out, so an MCP client can tell an update is waiting.
+- Opening `Wisp.app` from the Finder opens a window in place of the install dialog (ADR 0091). It has three tabs:
+  **Install**, as before; **Updates**, which lists the recent releases with their notes and installs the newest; and
+  **Models**, which can enable, disable, check, uninstall, pull, and add models, as `wisp models` does, and names a
+  runtime it could not ask, such as Ollama when it is not running.
+- The Updates tab shows this version's release notes in a few lines, with links to its release page and to all
+  releases on GitHub. The notes are built into the app, so nothing is asked of GitHub to show them.
+  `wisp update --notes` prints the same in a terminal.
+- `wisp models forget NAME`, and `/models forget NAME` in chat, stop wisp listing a model it remembers that no
+  runtime serves now; nothing on disk changes, and a served model is refused (ADR 0092). The default policy refuses it to the model.
+- `wisp update --releases` lists the recent releases in a terminal, with their days, a few lines of notes, and the
+  one running marked. The model may run it, and `--notes`, as it may run `wisp update --check`.
 
 Changed:
 
-- The default policy allows the model `wisp update --check`, which only says whether a release is out (ADR 0074,
-  amended). `wisp update` itself stays the person's.
-- `coreai:` models run through wisp's own executor, as Ollama and MLX models do, which reads the model's thinking
-  and tool calls itself (ADR 0088, proposed). Tool calls in the XML form Qwen3.5-based models and Nemotron 3 Nano
-  write are made, where the bridge dropped them, and thinking a template opens in the prompt no longer appears in
-  the reply with a bare `</think>`. Muse Glimmer's routed messages and ATEM calls are read as before. The window the
-  bundle was exported for is enforced, token counts are exact, usage is reported, a request's thinking switch and
-  Ctrl-C are honoured as for MLX. `coreai.executor: "bridge"` goes back to coreai-models' bridge.
+- A model whose runtime is not running is still listed, with what to do: `wisp models list`, chat's `/models`, and
+  `Wisp.app`'s Models tab show a model wisp has seen before, such as an Ollama model while Ollama is stopped, with
+  its last known size and `not usable: Ollama is not running at …; open Ollama, or run ollama serve`. wisp keeps
+  what it has seen in `~/.wisp/models.json`; uninstalling a model removes it (ADR 0092). Such a model has `no` in a
+  new `AVAILABLE` column and `not available:` before its reason; `--json` gains `available`. Piped, every line has the
+  `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh. The model's
+  `models` tool lists such a model too, with why, so it can tell you what to do; asked to enable or check one, it is
+  told the model is not available rather than asking you. `wisp threads` and `wisp://threads` mark a saved thread
+  whose model was not available at the last listing, with why. `Wisp.app`'s Models tab greys such a model, with why,
+  and offers **Forget…**.
 
 Fixed:
 
-- A llama.cpp model asked not to think could still think before a structured reply: Nemotron 3.5 Bolt wrote a plan
-  before each classifier verdict, about 400 tokens and 10 s a verdict. Thinking off now also sends a thinking budget
-  of 0.
-- wisp could abort as it exited after a `coreai:` reply (seen once in four runs with Muse Glimmer 30B): Core AI's
-  engine was torn down by its own background task while the process was exiting. wisp now shuts its engines down
-  before it exits; the bridge's engines (`coreai.executor: "bridge"`) are out of its reach.
-- A `coreai:` bundle whose weights are truncated or corrupt, such as an unfinished download, is refused with the
-  file and its expected and actual SHA-256, instead of aborting wisp inside Core AI's compiler with no reply and no
-  error. The weights are checked against the `main.hash` exported beside them the first time a bundle is used,
-  about 2 s a gigabyte, and remembered in `~/.wisp/cache/coreai-verified.json` until they change.
+- `coreai:` models whose templates write tool calls in a format other than `<tool_call>` frames now make them
+  (ADR 0088, amended). gpt-oss's harmony format is read: its thinking is thinking, its answer is the reply without
+  the channel markers, and its calls are made and stop generation, where it went on to invent the tool's result.
+  Mistral-7B-Instruct-v0.3's `[TOOL_CALLS]` array is read and ends the reply, and its template no longer fails on a
+  conversation with a tool result for want of call ids, through Core AI or MLX. Phi-3's replies no longer end with a literal `<|end|>`.
