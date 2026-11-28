@@ -1,7 +1,7 @@
 # ADR 0090: Core AI models are pulled from Apple's catalogue by preset
 
 Date: 2026-11-22. Status: proposed; the direction (pull by preset) chosen by the operator on 2026-11-22, the rest not
-yet agreed; probes 1 to 4 run on 2026-11-22 and probe 5 on 2026-11-23 (below). Would amend [ADR 0059](0059-one-set-of-model-actions.md) (a pull is MLX's only) and
+yet agreed; probes 1 to 4 run on 2026-11-22 and probes 5 to 7 on 2026-11-23 (below). Would amend [ADR 0059](0059-one-set-of-model-actions.md) (a pull is MLX's only) and
 extend [ADR 0088](0088-core-ai-through-wisps-executor.md).
 
 ## Context
@@ -70,7 +70,7 @@ coreai-models and no bundle in the models directory, so nothing below has been m
    for a gated preset, that it needs the licence accepted and a Hugging Face token (probe 4).
 4. **The export runs under wisp's sandbox**, with the network allowed and writes limited to the checkout, the uv and
    Hugging Face caches, the bundle's directory, `$TMPDIR`, and the per-user cache directory. Probe 3 ran the
-   conversion under such a profile; building the environment there into an empty cache is still to be shown.
+   conversion under such a profile, and probe 6 built the environment there from empty caches.
 5. **A pull has two phases, shown and cancelled as one.** The status line says which phase it is in (fetching the
    source weights, converting); cancelling stops the export's process group and removes the half-written bundle,
    keeping the downloaded weights in the Hub cache for the next pull.
@@ -164,13 +164,32 @@ coreai-models and no bundle in the models directory, so nothing below has been m
      parameter count.
    - **Exports take minutes to tens of minutes**, mostly downloading (the drafter's 18 minutes), so decision 5's
      status line and cancel matter.
+6. **A first pull from nothing, in the sandbox**: `qwen3-0.6b` with uv's cache, the Python install, the environment,
+   and the Hub cache all empty, in directories of their own (`UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR`,
+   `UV_PROJECT_ENVIRONMENT`, `HF_HOME`), under a profile allowing writes only to those, `$TMPDIR`, and the per-user
+   cache directory.
+
+   **Run on 2026-11-23**: `uv sync --frozen` fetched Python (58 MiB) and 89 packages in 7 s, leaving 963 MiB in uv's
+   cache and a 954 MiB environment; the export then fetched the weights (1.4 GiB) and converted in 122 s at a peak of
+   6.1 GiB; no write was refused, and the bundle called `current_date` in wisp. On this Mac's connection a first pull
+   of the smallest preset costs about two minutes and 3.4 GiB of disk beyond the bundle, most of it the environment
+   and weights that later pulls reuse. A profile limited to wisp's own directories is enough, so uv's and the Hub's
+   caches can live under wisp's home rather than the person's.
+7. **`phi-4-mini-instruct`**, the catalogue's Phi trained to call tools, since probe 5's Phi-3 was not.
+
+   **Run on 2026-11-23**: exported in 235 s at a peak of 16.4 GiB, a 3.2 GiB bundle that answered "Paris". With
+   `current_date` offered it said the tool was not available to it. Its template renders tools only from a `tools`
+   string on the system message, never from the `tools` variable every other template reads, so wisp's prompt
+   carried none, though wisp's capability check (the word `tools` in the template) declared it tool-capable. Phi-4
+   is not usable with tools until wisp puts the tools where that template reads them and reads the
+   `<|tool_call|>` frames Phi-4 writes; until then the family table says no tools.
 
 ## Consequences
 
 - Every Apple-curated language model becomes one command away, chosen and checked by Apple, with the context and
   compression Apple tested.
 - A first pull costs the Python environment (`torch` and the rest: a 964 MiB `.venv` over 2.5 GiB of uv's cache on
-  this Mac, probe 1, though the download into an empty cache is unmeasured) as well as
+  this Mac, probe 1; from empty caches, 7 s and about 1 GiB, probe 6) as well as
   the weights, and every pull keeps the source weights in the Hub cache as well as the bundle; the plan has to say so.
 - wisp runs third-party code for the first time as part of an action: Apple's export, fixed to the pinned commit and
   its lockfile, approved each time.
