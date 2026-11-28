@@ -1,8 +1,7 @@
 # ADR 0092: A model registry: what is known, what is available, what is enabled
 
 Date: 2026-11-28. Status: proposed 2026-11-28, at the operator's request; the operator answered its open questions
-the same day (below). Stages 1 to 4 built 2026-11-28: the registry, the listing, the terminal, the model's tool, saved threads, and
-the window. Follows
+the same day (below). All five stages built 2026-11-28; the probe is recorded below. Awaiting the operator's acceptance. Follows
 [ADR 0056](0056-models-enabled-and-disabled.md) (enabling and checking models),
 [ADR 0059](0059-one-set-of-model-actions.md) (`ModelActions`), and [ADR 0091](0091-wisp-app-window.md) (the window's Models
 tab).
@@ -116,7 +115,7 @@ Each stage is a commit, with tests that need no model and docs in the same commi
    - Pulls, adds, checks, and uninstalls keep the registry current.
 4. **The window** (built 2026-11-28). Unavailable models are greyed in the Models tab, with the reason, the step, and **Forget**. ADR 0091's
    footnote stays for a runtime with nothing registered.
-5. **Docs and acceptance.**
+5. **Docs and acceptance** (docs and the probe done 2026-11-28; acceptance is the operator's).
    - `wisp.md` (`models list`, `forget`), `logging.md` (`model.forget`), `trust.md` (the new file in the table of what
      wisp keeps), and `design.md`.
    - A probe with Ollama stopped and started again, recorded here before the operator accepts.
@@ -128,6 +127,23 @@ Each stage is a commit, with tests that need no model and docs in the same commi
 3. **How long an unseen model stays:** for ever, until the person says to forget it (decision 4).
 4. **Threads:** a saved thread says when its model is unavailable (decision 8). What to do about it is decided after
    this is built.
+
+## Probe, 2026-11-28
+
+On this Mac, with the debug build, a scratch `WISP_HOME`, and Ollama 0.40.17's `ollama serve` started and stopped for
+the probe:
+
+| Step | `wisp models list` showed |
+| --- | --- |
+| Ollama stopped, nothing registered | Only `(ollama: no Ollama server at http://127.0.0.1:11434: …)`; `models.json` not written |
+| `ollama serve` running | Its seven models, available; each recorded in `models.json` with `lastSeen` 2026-11-28 and no reason |
+| Ollama stopped again | The same seven, with their sizes and formats, `AVAILABLE` `no`, and `not available: Ollama is not running at http://127.0.0.1:11434; open Ollama, or run ollama serve` |
+| `wisp models forget ollama:qwen3:1.7b` | `forgot ollama:qwen3:1.7b: …`; six listed after; a `model.forget` event with `source` `cli` |
+| `wisp models forget system`, and a name not listed | Refused: served now; not listed |
+
+`Wisp.app`'s Models tab, opened from a scratch copy of the app with a registry holding `ollama:granite4.2:8b` while
+Ollama was stopped, showed it greyed, with its size and the reason, and the runtimes that did not answer under the
+list.
 
 ## Consequences
 

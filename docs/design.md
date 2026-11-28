@@ -169,6 +169,14 @@ candidate (each backend's installed models, the disabled ones, and the unlinked)
 fact, and `ModelTable` lays them out for each face: the terminal, fitted by `TerminalTable.fitting`; chat's
 `TextTable`; tab-separated fields; `--json`; and the `ChatChoice` with toggles that `wisp-tui`'s picker draws.
 
+`ModelRegistry` ([ADR 0092](decisions/0092-a-model-registry.md)) keeps apart what wisp knows from what is available
+and what is enabled. Its `Store`, `~/.wisp/models.json` under an advisory `flock`, is a cache of what listings saw: given
+one, `ModelListing.entries` merges what each backend that answered served (with the day and the facts it reported),
+lists each registered model no backend listed as unavailable with its backend's `unavailable` reason, and remembers
+that reason, all in one locked change. Pulls and adds register their models with that origin, an uninstall or
+`ModelActions.forget` removes one, and the thread views read the remembered reason (`ModelRegistry.unavailable(for:)`)
+without asking a runtime.
+
 After enabling, where `Session.setModels(checking: true)` links such a model but leaves its enabling to the check,
 and for `wisp models check`, `Session.checkModels` checks what a model can do when its backend leaves
 that to `config.json` (`ModelBackend.declarationKeys`, MLX's `mlx.models.<name>`): `ModelVerification` resolves the
