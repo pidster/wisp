@@ -143,7 +143,7 @@ public struct ModelsTool: WispTool {
             }
             let mark = entry.selection == current ? "* " : ""
             lines.append(([mark + entry.selection.description] + cells).joined(separator: " | "))
-            if let problem = entry.problem, entry.linked { lines.append("  not usable: \(problem)") }
+            if let note = ModelTable.note(entry) { lines.append("  \(note)") }
         }
         lines += listing.unreachable.map { "(\($0))" }
         if pages > 1 {
@@ -167,6 +167,9 @@ public struct ModelsTool: WispTool {
         }
         if let from = entry.capabilitiesFrom { lines.append("capabilities from: \(from)") }
         if let note = entry.contextNote { lines.append("context note: \(note)") }
+        if !entry.available {
+            lines.append("available: no, \(entry.problem ?? "its runtime does not serve it")")
+        }
         lines.append("usable: " + (entry.usable ? "yes" : "no" + (entry.problem.map { ", \($0)" } ?? "")))
         return ToolOutput.bounded(lines.joined(separator: "\n"), maxBytes: maxBytes)
     }

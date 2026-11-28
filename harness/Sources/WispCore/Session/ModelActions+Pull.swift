@@ -341,6 +341,11 @@ extension ModelActions {
         }
         do {
             _ = try ModelSelection(parsing: name)
+            // A model wisp remembers that no runtime serves cannot be turned on or checked; the reason says what
+            // brings it back, which only the person can do (ADR 0092, decision 7).
+            if action != .disable, let entry = try? await show(name, tools: []), !entry.available {
+                return "error: \(entry.selection) is not available: \(entry.problem ?? "its runtime does not serve it")"
+            }
             let reason =
                 switch action {
                 case .enable: "turns \(name) on in config.json (models.disabled), checking what it can do if undeclared"

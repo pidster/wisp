@@ -38,11 +38,11 @@ So the MCP git thread of `AGENTS.md` (`tools: ["run_command"]`) never sees it.
 
 | Action | Answers | Asks the person |
 | --- | --- | --- |
-| `list` | A line per model, 20 a page: the name (`*` for this conversation's), runtime, parameters, size, context, enabled or disabled, capabilities; a model that cannot be used followed by why; a backend that did not answer in parentheses; `page 1 of 3; list with page 2 for more` | No |
-| `show NAME` | Every fact the listing has for the model, a line each, and whether it is usable | No |
+| `list` | A line per model, 20 a page: the name (`*` for this conversation's), runtime, parameters, size, context, enabled or disabled, capabilities; a model that cannot be used followed by why (`not usable: …`), and a model wisp remembers that no runtime serves now followed by why and what brings it back (`not available: Ollama is not running at …; open Ollama, or run ollama serve`, [ADR 0092](../decisions/0092-a-model-registry.md)), so the model can tell the person; a backend that did not answer in parentheses; `page 1 of 3; list with page 2 for more` | No |
+| `show NAME` | Every fact the listing has for the model, a line each, whether it is available (`available: no, <why>`) and whether it is usable | No |
 | `pull REPO` | At once, once approved: `pulling REPO in the background (approval ID): about 2.3 GB in 4 of 7 files. Its end will arrive as a note in this conversation; do not call models to check on it.` | Always, every pull |
-| `enable NAME`, `disable NAME`, `check NAME` | The lines `/models enable\|disable\|check` would note, once done | Yes; an answer of "this session" covers the same action for the session, never longer |
-| `trust`, `switch`, `uninstall`, `add` | `error: trusting a publisher is the person's alone: …`, `error: switch is not offered to the model` (and so for `uninstall` and `add`) | Never asked |
+| `enable NAME`, `disable NAME`, `check NAME` | The lines `/models enable\|disable\|check` would note, once done; for a model no runtime serves now, `enable` and `check` answer at once with `error: NAME is not available: <why>`, since only the person can bring it back | Yes, but not for a model that is not available; an answer of "this session" covers the same action for the session, never longer |
+| `trust`, `switch`, `uninstall`, `add`, `forget` | `error: trusting a publisher is the person's alone: …`, `error: switch is not offered to the model` (and so for `uninstall`, `add`, and `forget`) | Never asked |
 
 Every reply is at most 4 KiB. A refusal is `error: not approved: <reason>`; a name that is not a model or a
 repository is `error: …` naming what a name must be.

@@ -29,7 +29,9 @@ Changed:
   its last known size and `not usable: Ollama is not running at …; open Ollama, or run ollama serve`. wisp keeps
   what it has seen in `~/.wisp/models.json`; uninstalling a model removes it (ADR 0092). Such a model has `no` in a
   new `AVAILABLE` column and `not available:` before its reason; `--json` gains `available`. Piped, every line has the
-  `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh.
+  `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh. The model's
+  `models` tool lists such a model too, with why, so it can tell you what to do; asked to enable or check one, it is
+  told the model is not available rather than asking you.
 
 Fixed:
 

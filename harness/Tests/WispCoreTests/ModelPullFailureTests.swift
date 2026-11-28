@@ -66,4 +66,29 @@ import WispTestSupport
         let trust = await actions.requestChange(.trust, "ornith-ai", gate: place.gate, workingDirectory: "/tmp")
         #expect(trust.hasPrefix("error: "))
     }
+
+    /// A model wisp remembers that no runtime serves is listed to the model with why, shown as not available, and a
+    /// request to turn it on or check it is refused with the reason, asking nobody; disabling it is not (ADR 0092).
+    @Test func theModelSeesAnUnavailableModelAndCannotTurnItOn() async throws {
+        var unavailable = ModelListing.Entry(
+            selection: .ollama("granite4.2:8b"), detail: "8B", problem: "Ollama is not running; open Ollama")
+        unavailable.available = false
+        let listing = ModelListing.Listing(entries: [ModelListing.Entry(selection: .system), unavailable])
+        let page = ModelsTool.page(listing, page: 1, current: .system)
+        #expect(page.contains("ollama:granite4.2:8b") && page.contains("  not available: Ollama is not running"))
+        let facts = ModelsTool.facts(unavailable, current: .system)
+        #expect(facts.contains("available: no, Ollama is not running; open Ollama"))
+
+        let place = try ModelsToolTests.Place(approver: ModelsToolTests.Answering([]))
+        defer { place.remove() }
+        var actions = ModelActions(session: place.session, face: .tool, audit: place.log)
+        actions.listing = { _ in listing }
+        for action in [ModelActions.Action.enable, .check] {
+            let refused = await actions.requestChange(
+                action, "ollama:granite4.2:8b", gate: place.gate, workingDirectory: "/tmp")
+            #expect(
+                refused == "error: ollama:granite4.2:8b is not available: Ollama is not running; open Ollama",
+                "\(action)")
+        }
+    }
 }
