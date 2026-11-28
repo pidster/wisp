@@ -224,6 +224,7 @@ import WispTestSupport
         let actions = ModelActions(session: session, face: .chat)
         let lines = try actions.add("files/q.gguf", workingDirectory: root)
         #expect(lines.first?.hasPrefix("added llamacpp:q: ") == true)
+        #expect(ModelRegistry.Store(home: home).load().record("llamacpp:q")?.origin == .added, "remembered as added")
         let added = try #require(sink.events.last { $0.kind == .modelAdd })
         #expect(
             added.details["outcome"] == "added" && added.details["model"] == "llamacpp:q"

@@ -183,6 +183,7 @@ final class FakePuller: ModelPuller {
         let once = Script(answer: .once)
         let fetched = try await actions.pull("ornith-ai/q", dialog: once.dialog())
         #expect(fetched.outcome == .fetched && fetched.fetched == 2_000_000_000 && fetched.selection == "mlx:q")
+        #expect(ModelRegistry.Store(home: place.home).load().record("mlx:q")?.origin == .pulled, "remembered as pulled")
         #expect(once.asked.withLock { $0 } == ["publisher ornith-ai"])
         #expect(once.steps.withLock { $0 }.map(\.fetched) == [500_000_000, 2_000_000_000])
         #expect(once.steps.withLock { $0 }.first?.line == "pulling ornith-ai/q: 500 MB of 2 GB, file 1 of 2")

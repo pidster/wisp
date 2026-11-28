@@ -151,8 +151,17 @@ extension ModelActions {
         let summary = prepared.summary
         let last = Guarded(0)
         let progress = dialog.progress
+        let home = session.home
         func ended(_ outcome: PullResult.Outcome, fetched: Int, closing: String?) -> PullResult {
-            PullResult(
+            // A pulled model is remembered as pulled (ADR 0092); the registry is a cache, so a failure is not the pull's.
+            if outcome == .fetched || outcome == .linked,
+                let selection = try? ModelSelection(parsing: summary.selection)
+            {
+                _ = try? ModelRegistry.Store(home: home).update {
+                    $0.register(selection, origin: .pulled, day: ModelRegistry.day(Date()))
+                }
+            }
+            return PullResult(
                 outcome: outcome, repository: summary.repository, selection: summary.selection, fetched: fetched,
                 closing: closing)
         }

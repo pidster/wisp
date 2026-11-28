@@ -762,7 +762,7 @@ each is listed whether or not it can be used, a link whose file is missing as `b
 `llama-app` they are what the server lists, as before. A
 backend that does not answer gets one line in parentheses.
 
-wisp also remembers every model it has listed, in `~/.wisp/models.json`
+wisp also remembers every model it has listed, pulled, or added, in `~/.wisp/models.json`
 ([ADR 0092](decisions/0092-a-model-registry.md)). A model it remembers that no runtime lists now, because the runtime
 is not running or no longer has it, is still listed, with what wisp last knew of it and, as `not usable:`, why and
 what brings it back: `Ollama is not running at http://127.0.0.1:11434; open Ollama, or run ollama serve`, or

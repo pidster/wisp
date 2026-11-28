@@ -38,6 +38,10 @@ extension ModelActions {
         let link = added.link
         record(added.unchanged ? "unchanged" : "added", link: link, reason: nil)
         let model = "llamacpp:\(link.name)"
+        // An added model is remembered as added (ADR 0092); the registry is a cache, so a failure is not the add's.
+        _ = try? ModelRegistry.Store(home: session.home).update {
+            $0.register(.local(backend: "llamacpp", name: link.name), origin: .added, day: ModelRegistry.day(Date()))
+        }
         if added.unchanged {
             return ["\(model) is linked already, to \(link.target.path); nothing changed"]
         }
