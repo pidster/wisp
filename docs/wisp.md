@@ -1630,7 +1630,7 @@ prompt; the gate fails when they no longer match the commands, and `scripts/chec
 Put `Wisp.app`, from the disk image, on your `PATH`, and take it off again
 ([ADR 0073](decisions/0073-wisp-install-and-the-finder.md)). A Homebrew install does this itself: the cask links
 `wisp` and `wisp-tui` into Homebrew's `bin`, and `wisp install` with no folder named then says they are already on
-`PATH` and adds nothing, as the Finder's dialog does ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)).
+`PATH` and adds nothing, as the window's Install tab does ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)).
 
 ```
 /Applications/Wisp.app/Contents/MacOS/wisp install    # link wisp and wisp-tui into ~/.local/bin
@@ -1814,6 +1814,7 @@ State lives in `~/.wisp`, or `$WISP_HOME` when set. Any command that writes ther
 | `threads/<id>/` | Every thread, chat's and MCP `respond`'s, saved as it goes so a later chat or server resumes it ([ADR 0066](decisions/0066-one-thread-store.md); [mcp.md](mcp.md), "Saved and resumed threads"; "Saved threads" above): `thread.json` (its owner, `chat` or the MCP client's name; start settings, turns, audit sessions, and the facts the person dropped), `record.json` and `record.store` (its record, in the format `transcripts/` uses), and `lock`, held by the process that has the thread open. User-only. Deleted by `close_thread`, `wisp threads delete`, or `threads.keepDays` days after its last use (30 by default). |
 | `context/<session>-<label>.md` and `.json` | The exact context a model saw: saved by `/inspect context`, and before and after each condensation. User-only. |
 | `facts.json` | Permanent facts: the ones you stated with `/fact` under a permanent kind, moved there with `/fact ID permanent`, or kept with `wisp facts keep` (or in `wisp-tui`) when an MCP caller asked. Every conversation, chat or MCP thread, sees them. User-only; written only when you change one, by every `wisp` process in turn under a lock, each change made to the file as it then is, so two processes never lose each other's changes. One wisp cannot read is moved aside as `facts.json.unreadable-<time>`, never overwritten, and wisp says so when it starts. Delete a fact with `/fact delete`, or the file to forget them all. |
+| `models.json` | Every model wisp has listed, pulled, or added, with what its runtime last said of it, so a model whose runtime is not running is still listed with why; `wisp models forget` removes one ([ADR 0092](decisions/0092-a-model-registry.md)). |
 | `approvals.json` | Standing command approvals (`project` and `always` scopes), user-only. |
 | `pending/` | Questions waiting under `wisp mcp`: commands waiting for approval (`<id>.request.json`), facts a caller asked to keep (`<id>.fact.json`), and the model's questions to you (`<id>.question.json`) from the server, `<id>.answer.json` from `wisp approvals`, `wisp facts`, `wisp questions`, or `wisp-tui`; and `plan/<thread>/`, a change `wisp threads plan` made to the plan of a thread another process holds, one file a change, taken when that process begins the thread's next turn (ADR 0079, decision 23). Directory 0700, files 0600; removed when answered, withdrawn, or swept as stale, and a plan change when taken. |
 | `logs/audit.jsonl` | The audit log, user-only, rotated by size. See [logging.md](logging.md). |

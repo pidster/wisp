@@ -65,7 +65,7 @@ From 0.31.0 each release also has `Wisp-X.Y.Z.dmg` on its
 onto Applications. `Wisp.app` holds the same four parts as the cask's: `wisp` and `wisp-tui` in `Contents/MacOS`,
 `Wisp Notifier.app` in `Contents/Helpers`, and the Metal library in `Contents/Resources`, with the LaunchAgent of
 wisp's own llama.cpp server in `Contents/Library/LaunchAgents`, registered only if you turn that server on. Then put `wisp` on your
-`PATH`: open `Wisp.app` and choose **Install**, or run
+`PATH`: open `Wisp.app` and choose **Install** in its window's Install tab, or run
 
 ```bash
 /Applications/Wisp.app/Contents/MacOS/wisp install
@@ -73,7 +73,7 @@ wisp's own llama.cpp server in `Contents/Library/LaunchAgents`, registered only 
 
 Either links `wisp` and `wisp-tui` into `~/.local/bin`, with no administrator's password, and says what to add to your
 shell's start-up file if that folder is not on `PATH`. `wisp uninstall` removes the links
-([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). To update the app later, run `wisp update`, or turn on
+([wisp.md](../wisp.md#wisp-install-and-wisp-uninstall)). To update the app later, run `wisp update` or use the window's Updates tab, or turn on
 `wisp config set updates.check true` to hear when a newer release is out
 ([wisp.md](../wisp.md#wisp-update)). The app is the same whether Homebrew's cask installed it or you dragged it; both keep their
 state in `~/.wisp`. `wisp install` says the commands are already on `PATH` when Homebrew's `bin` links them to the

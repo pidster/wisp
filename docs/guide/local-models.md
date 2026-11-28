@@ -117,3 +117,7 @@ wisp models uninstall ollama:llama3.2:3b   # removes it, after showing what goes
 The default model cannot be disabled until another is the default. Enabling an MLX or llama.cpp model whose
 capabilities are not declared checks them on the model first, and records what passes
 ([ADR 0056](../decisions/0056-models-enabled-and-disabled.md)).
+
+A model wisp has seen before stays listed while its runtime is not running, such as an Ollama model while Ollama is
+stopped: `AVAILABLE` says `no`, with the reason and what brings it back. `wisp models forget NAME` stops listing one
+that no runtime will serve again; nothing on disk changes ([ADR 0092](../decisions/0092-a-model-registry.md)).
