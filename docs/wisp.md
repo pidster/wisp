@@ -1515,7 +1515,11 @@ as you, so they run only from a terminal, and the default policy refuses `wisp t
 
 `wisp threads` (or `list`) prints the threads as `/threads` does, most recently used first; `--json` gives
 `{"threads": [...]}`, each with `id`, `owner`, `model`, `turns`, `lastUsed`, `state` (`saved` or `open elsewhere`),
-and `holder` (`pid` and `owner`) while a process holds it.
+`holder` (`pid` and `owner`) while a process holds it, and `modelUnavailable` when its model was not available.
+
+A thread whose model was not available when wisp last listed models, such as an Ollama model while Ollama was stopped,
+has `(unavailable)` after its model and a line below the table saying why and what brings it back
+([ADR 0092](decisions/0092-a-model-registry.md)); the list reads what the last listing remembered and asks no runtime.
 
 `wisp threads show ID` gives one in full:
 

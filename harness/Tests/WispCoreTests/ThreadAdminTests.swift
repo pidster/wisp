@@ -37,6 +37,25 @@ import Testing
         try Data(repeating: 0x61, count: bytes).write(to: directory.appending(path: "out-1.txt"))
     }
 
+    @Test func aThreadWhoseModelWasUnavailableAtTheLastListingSaysWhy() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        try save("git", in: home)
+        let admin = ThreadAdmin(home: home)
+        #expect(admin.list.first?.modelUnavailable == nil, "wisp does not know the model yet")
+        let reason = "Ollama is not running at http://127.0.0.1:11434; open Ollama, or run ollama serve"
+        try admin.store.modelRegistry.update { registry in
+            registry.merge(served: [InstalledModel(selection: .ollama("granite4.1:8b"), detail: "8B")], day: "d")
+            return registry.markUnavailable("ollama:granite4.1:8b", reason: reason)
+        }
+        #expect(admin.list.first?.modelUnavailable == reason)
+        let lines = ChatThread.listing(store: admin.store, transcripts: nil, current: nil)
+        #expect(lines.contains { $0.contains("ollama:granite4.1:8b (unavailable)") })
+        #expect(lines.contains("git: ollama:granite4.1:8b is not available: \(reason)"))
+        #expect(ModelRegistry().unavailable(for: "system") == nil)
+        #expect(ModelRegistry().unavailable(for: "not a model") == nil)
+    }
+
     @Test func listAndShowReadTheStoreAndNameWhoHoldsAThread() throws {
         let home = try home()
         defer { try? FileManager.default.removeItem(at: home.root) }

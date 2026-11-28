@@ -84,6 +84,20 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
         models.first { $0.model == model }
     }
 
+    /// Why a model, as a thread or `config.json` spells it, was not available at the last listing; nil when it was
+    /// served, wisp does not know it, or it is one of Apple's (ADR 0092, decision 8). The name is put in the one
+    /// spelling its backend gives it (`ModelBackend.canonicalName`), without asking a runtime.
+    ///
+    /// - Parameter model: The model, as `--model` spells it.
+    /// - Returns: The reason, with what brings it back.
+    public func unavailable(for model: String) -> String? {
+        guard let selection = try? ModelSelection(parsing: model), case .local(let scheme, let name) = selection else {
+            return nil
+        }
+        let canonical = ModelBackends.backend(for: scheme)?.canonicalName(name, config: nil, home: nil) ?? name
+        return (record("\(scheme):\(canonical)") ?? record(selection.description))?.unavailable
+    }
+
     /// The records of one runtime's models.
     ///
     /// - Parameter scheme: The runtime's scheme, `ollama`.

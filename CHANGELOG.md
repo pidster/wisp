@@ -31,7 +31,8 @@ Changed:
   new `AVAILABLE` column and `not available:` before its reason; `--json` gains `available`. Piped, every line has the
   `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh. The model's
   `models` tool lists such a model too, with why, so it can tell you what to do; asked to enable or check one, it is
-  told the model is not available rather than asking you.
+  told the model is not available rather than asking you. `wisp threads` and `wisp://threads` mark a saved thread
+  whose model was not available at the last listing, with why.
 
 Fixed:
 

@@ -464,6 +464,7 @@ public final class ChatThread: Sendable {
     /// - Returns: The lines.
     public static func listing(store: ThreadStore, transcripts: TranscriptStore?, current: String?) -> [String] {
         let threads = store.all
+        let registry = store.modelRegistry.load()
         var lines: [String]
         if threads.isEmpty {
             lines = ["no saved threads"]
@@ -474,11 +475,18 @@ public final class ChatThread: Sendable {
                     let state =
                         settings.id == current
                         ? "open" : store.holder(of: settings.id) == nil ? "saved" : "open elsewhere"
+                    let unavailable = registry.unavailable(for: settings.model) != nil
                     return [
-                        settings.id, settings.owner, settings.model, String(settings.turns),
-                        shortTime(settings.lastUsed), state,
+                        settings.id, settings.owner, settings.model + (unavailable ? " (unavailable)" : ""),
+                        String(settings.turns), shortTime(settings.lastUsed), state,
                     ]
                 }, rightAligned: [3])
+            // A thread whose model was not available at the last listing says why (ADR 0092, decision 8).
+            for settings in threads {
+                if let reason = registry.unavailable(for: settings.model) {
+                    lines.append("\(settings.id): \(settings.model) is not available: \(reason)")
+                }
+            }
         }
         let unreadable = store.unreadable
         if !unreadable.isEmpty {

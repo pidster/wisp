@@ -143,6 +143,7 @@ extension WispServer {
         let owner = clientName
         var rows: [(lastActive: Date, id: String, row: JSONValue)] = []
         var listed: Set<String> = []
+        let registry = threadStore.modelRegistry.load()
         for record in directory.all {
             listed.insert(record.id)
             let saved = live.contains(record.id) ? nil : try? threadStore.settings(record.id)
@@ -153,7 +154,8 @@ extension WispServer {
                     threadRow(
                         id: record.id, auditSession: record.auditSession, model: record.model, think: record.think,
                         turns: record.turns, created: record.created, lastActive: record.lastActive, state: state,
-                        owner: record.owner ?? owner)
+                        owner: record.owner ?? owner,
+                        unavailable: record.model.flatMap { registry.unavailable(for: $0) })
                 ))
         }
         for settings in threadStore.all where settings.owner == owner && !listed.contains(settings.id) {
@@ -163,7 +165,8 @@ extension WispServer {
                     threadRow(
                         id: settings.id, auditSession: settings.sessions.last ?? settings.id, model: settings.model,
                         think: settings.think, turns: settings.turns, created: settings.created,
-                        lastActive: settings.lastUsed, state: savedState(settings), owner: settings.owner)
+                        lastActive: settings.lastUsed, state: savedState(settings), owner: settings.owner,
+                        unavailable: registry.unavailable(for: settings.model))
                 ))
         }
         let sorted = rows.sorted { ($0.lastActive, $0.id) > ($1.lastActive, $1.id) }.map(\.row)
@@ -187,10 +190,11 @@ extension WispServer {
     ///   - lastActive: When it was last used.
     ///   - state: Its state.
     ///   - owner: Its owner.
+    ///   - unavailable: Why its model was not available at the last listing, or nil (ADR 0092).
     /// - Returns: The row.
     private func threadRow(
         id: String, auditSession: String, model: String?, think: String?, turns: Int, created: Date, lastActive: Date,
-        state: String, owner: String
+        state: String, owner: String, unavailable: String?
     ) -> JSONValue {
         .object([
             "thread_id": .string(id), "auditSession": .string(auditSession),
@@ -198,6 +202,7 @@ extension WispServer {
             "turns": .int(turns), "created": .string(created.ISO8601Format()),
             "lastActive": .string(lastActive.ISO8601Format()), "state": .string(state), "owner": .string(owner),
             "uri": .string(ToolCatalog.threadURI(id)),
+            "modelUnavailable": unavailable.map { .string($0) } ?? .null,
         ])
     }
 

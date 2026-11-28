@@ -219,6 +219,12 @@ public struct ThreadStore: Sendable {
         root = home.threads
     }
 
+    /// The model registry beside the store, `models.json` under wisp's home, which says when a thread's model was not
+    /// available at the last listing (ADR 0092, decision 8).
+    public var modelRegistry: ModelRegistry.Store {
+        ModelRegistry.Store(url: root.deletingLastPathComponent().appending(path: "models.json"))
+    }
+
     /// Whether `id` can name a thread: a `SafeName` of at most 48 characters that does not start with a dot, so it is
     /// never `.`, `..`, or a staged file's name.
     ///

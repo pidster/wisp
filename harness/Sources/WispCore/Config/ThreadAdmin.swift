@@ -43,6 +43,9 @@ public struct ThreadAdmin: Sendable {
         public var state: String
         /// The process holding it, when one does.
         public var holder: ThreadLock.Holder?
+        /// Why its model was not available at the last listing, with what brings it back; nil when it was, or wisp
+        /// does not know (ADR 0092, decision 8).
+        public var modelUnavailable: String?
     }
 
     /// One thread in full, as `wisp threads show` gives it.
@@ -116,11 +119,13 @@ public struct ThreadAdmin: Sendable {
 
     /// Every saved thread whose settings read, most recently used first, with who holds it.
     public var list: [Entry] {
-        store.all.map { settings in
+        let registry = store.modelRegistry.load()
+        return store.all.map { settings in
             let holder = store.holder(of: settings.id)
             return Entry(
                 id: settings.id, owner: settings.owner, model: settings.model, turns: settings.turns,
-                lastUsed: settings.lastUsed, state: holder == nil ? "saved" : "open elsewhere", holder: holder)
+                lastUsed: settings.lastUsed, state: holder == nil ? "saved" : "open elsewhere", holder: holder,
+                modelUnavailable: registry.unavailable(for: settings.model))
         }
     }
 
