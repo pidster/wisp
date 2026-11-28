@@ -156,7 +156,7 @@ public struct ModelActions: Sendable {
         listing = { tools in
             await ModelListing.entries(
                 config: session.declaredModels.applied(to: session.config), home: session.home, tools: tools,
-                disabled: session.disabledModels.all)
+                disabled: session.disabledModels.all, registry: ModelRegistry.Store(home: session.home))
         }
     }
 

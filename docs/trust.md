@@ -308,6 +308,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
+| `~/.wisp/models.json` | every model a listing has seen, with the days and what its runtime last said of it (size, parameters, format), so a model whose runtime is not running is still listed with what to do ([ADR 0092](decisions/0092-a-model-registry.md)); names models, not conversations | yours |
 | `~/.wisp/update.json` | when wisp last asked GitHub for its latest release (`wisp update`, `--check`, `--releases`, the window's check, or `updates.check`), and the version it named or why it failed | yours |
 | `~/Downloads/Wisp-X.Y.Z.dmg` | the release `wisp update` downloaded, left for you to keep or delete (its checksum is read, not saved) | yours |
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |

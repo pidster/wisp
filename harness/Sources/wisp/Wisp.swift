@@ -830,7 +830,8 @@ struct Chat: AsyncParsableCommand {
             case .model, .models:
                 // A disabled model is not offered (ADR 0056); a cached one not linked cannot be chosen until enabled.
                 return await ModelListing.entries(
-                    config: declared.applied(to: config), home: Wisp.home, tools: [], disabled: disabled.all
+                    config: declared.applied(to: config), home: Wisp.home, tools: [], disabled: disabled.all,
+                    registry: ModelRegistry.Store(home: Wisp.home)
                 )
                 .entries.filter(\.offered)
                 .map { ChatChoice.Option(value: $0.selection.description, detail: $0.detail) }
@@ -1224,7 +1225,8 @@ struct Models: AsyncParsableCommand {
                 ? []
                 : ToolRegistry(runner: config.runner, disabled: config.disabledTools, custom: config.customTools).all
             if json {
-                let listing = await ModelListing.entries(config: config, home: Wisp.home, tools: tools)
+                let listing = await ModelListing.entries(
+                    config: config, home: Wisp.home, tools: tools, registry: ModelRegistry.Store(home: Wisp.home))
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 let document = ModelTable.json(listing, current: config.model, all: all)
@@ -1233,7 +1235,7 @@ struct Models: AsyncParsableCommand {
             }
             let lines = await ModelListing.lines(
                 config: config, home: Wisp.home, current: config.model, tools: tools, all: all,
-                width: TerminalTable.detectWidth())
+                width: TerminalTable.detectWidth(), registry: ModelRegistry.Store(home: Wisp.home))
             for line in lines { print(line) }
         }
     }

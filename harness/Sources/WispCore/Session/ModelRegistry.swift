@@ -92,7 +92,7 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
     ///
     /// - Parameter date: The time.
     /// - Returns: `YYYY-MM-DD`.
-    static func day(_ date: Date) -> String {
+    public static func day(_ date: Date) -> String {
         date.formatted(.iso8601.year().month().day())
     }
 

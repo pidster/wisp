@@ -161,6 +161,15 @@ public protocol ModelBackend: Sendable {
     /// - Returns: The plan.
     /// - Throws: `ModelRemoval.Failure`: the runtime keeps its own models, or this one is not installed.
     func removal(_ name: String, config: Config.Resolved, home: Home, purgeCache: Bool) async throws -> ModelRemoval
+    /// Why a model wisp has registered is not available now, and the one step that brings it back
+    /// ([ADR 0092](../../../../docs/decisions/0092-a-model-registry.md), decision 5): said where the model is listed.
+    ///
+    /// - Parameters:
+    ///   - name: The part after the scheme.
+    ///   - answered: Whether the runtime answered this listing; false when it could not be asked at all.
+    ///   - config: The effective configuration, for where the runtime is.
+    /// - Returns: The reason and the step, in a sentence.
+    func unavailable(_ name: String, answered: Bool, config: Config.Resolved) -> String
     /// Lets go of what the runtime holds in this process, waiting for its own work to end, before the process exits:
     /// a runtime whose teardown races `exit()`'s static destructors can abort the process (a Core AI engine released
     /// by its own background task as wisp exited did, on 2026-10-05).
@@ -173,6 +182,13 @@ extension ModelBackend {
 
     /// No finding of its own: the configured-model check covers the backend.
     public func doctorFinding() -> Doctor.Finding? { nil }
+
+    /// The runtime could not be asked, or no longer lists the model.
+    public func unavailable(_ name: String, answered: Bool, config: Config.Resolved) -> String {
+        answered
+            ? "\(scheme) no longer lists it; it may have been removed outside wisp"
+            : "\(scheme) could not be asked, so whether it is there is not known"
+    }
 
     /// Nothing to link: the runtime keeps its own models.
     public func unlinked(config: Config.Resolved, home: Home) -> [InstalledModel] { [] }

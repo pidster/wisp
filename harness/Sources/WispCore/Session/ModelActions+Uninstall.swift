@@ -123,6 +123,11 @@ extension ModelActions {
                 try session.setDisabled(selection, false, source: face.rawValue, log: audit)
                 dialog.show("cleared \(plan.model) from models.disabled")
             }
+            // Removed, so not listed as unavailable afterwards (ADR 0092, decision 3); the registry is a cache, so a
+            // failure to write it is not the uninstall's.
+            let canonical = ModelSelection.local(
+                backend: scheme, name: backend.canonicalName(local, config: config, home: home))
+            _ = try? ModelRegistry.Store(home: home).update { $0.forget(canonical) || $0.forget(selection) }
         } catch {
             record("failed", reason: "\(error)")
             throw error

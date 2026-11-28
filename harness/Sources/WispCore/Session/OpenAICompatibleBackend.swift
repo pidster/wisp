@@ -119,6 +119,22 @@ public struct OpenAICompatibleBackend: ModelBackend {
             + "removes the link"
     }
 
+    /// The server is not running, or does not serve the model any more; under `llamacpp.server wisp`, the model's link
+    /// is gone from wisp's models folder (ADR 0092, decision 5).
+    public func unavailable(_ name: String, answered: Bool, config: Config.Resolved) -> String {
+        let settings = config[server: dialect]
+        if dialect == .llamaCpp, settings.server == .wisp {
+            return
+                "its link is gone from wisp's llama.cpp models folder; wisp models add FILE links the GGUF file again"
+        }
+        guard !answered else { return "the server at \(settings.baseURL.absoluteString) does not serve it now" }
+        let start =
+            dialect == .lmStudio
+            ? "start it from LM Studio's Developer tab, or run lms server start"
+            : "start llama-server with the model, or set llamacpp.server wisp for wisp's own"
+        return "no server answers at \(settings.baseURL.absoluteString); \(start)"
+    }
+
     /// The models the server lists; under `llamacpp.server wisp`, the links in wisp's llama.cpp models folder, read
     /// from the folder rather than a server (ADR 0082), a broken one marked so.
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {

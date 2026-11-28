@@ -20,6 +20,13 @@ Added:
 - `wisp update --releases` lists the recent releases in a terminal, with their days, a few lines of notes, and the
   one running marked. The model may run it, and `--notes`, as it may run `wisp update --check`.
 
+Changed:
+
+- A model whose runtime is not running is still listed, with what to do: `wisp models list`, chat's `/models`, and
+  `Wisp.app`'s Models tab show a model wisp has seen before, such as an Ollama model while Ollama is stopped, with
+  its last known size and `not usable: Ollama is not running at …; open Ollama, or run ollama serve`. wisp keeps
+  what it has seen in `~/.wisp/models.json`; uninstalling a model removes it (ADR 0092).
+
 Fixed:
 
 - `coreai:` models whose templates write tool calls in a format other than `<tool_call>` frames now make them

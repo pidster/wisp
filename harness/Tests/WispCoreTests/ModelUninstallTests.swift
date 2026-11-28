@@ -250,6 +250,8 @@ private final class GoneOllama: URLProtocol {
         }
         let link = root.appending(path: "models/q")
         let actions = ModelActions(session: session, face: .cli)
+        let registry = ModelRegistry.Store(home: home)
+        try registry.update { $0.register(.local(backend: "gone", name: "q"), origin: .pulled, day: "2026-11-01") }
 
         let declined = try await actions.uninstall(
             "gone:q", purgeCache: false, yes: false, dialog: dialog(typing: "no"))
@@ -277,6 +279,7 @@ private final class GoneOllama: URLProtocol {
         let removedIt = try await actions.uninstall(
             "gone:q", purgeCache: true, yes: false, dialog: dialog(typing: " gone:q "))
         #expect(removedIt)
+        #expect(registry.load().record("gone:q") == nil, "an uninstalled model is forgotten, not listed unavailable")
         #expect(!FileManager.default.fileExists(atPath: link.path))
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "hub/models--org--q").path))
         #expect(!String(decoding: try Data(contentsOf: home.configFile), as: UTF8.self).contains(#""q""#))

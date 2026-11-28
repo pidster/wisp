@@ -759,7 +759,14 @@ every complete `mlx-community` model in the Hugging Face cache that the MLX mode
 [`wisp models add`](#wisp-models-add-path), read from wisp's llama.cpp models folder rather than from a server, and
 each is listed whether or not it can be used, a link whose file is missing as `broken link`; under `off` and
 `llama-app` they are what the server lists, as before. A
-backend that does not answer gets one line in parentheses. The configured default is marked `*`
+backend that does not answer gets one line in parentheses.
+
+wisp also remembers every model it has listed, in `~/.wisp/models.json`
+([ADR 0092](decisions/0092-a-model-registry.md)). A model it remembers that no runtime lists now, because the runtime
+is not running or no longer has it, is still listed, with what wisp last knew of it and, as `not usable:`, why and
+what brings it back: `Ollama is not running at http://127.0.0.1:11434; open Ollama, or run ollama serve`, or
+`Ollama does not serve it now; ollama pull NAME fetches it again`. Uninstalling a model with
+[`wisp models uninstall`](#wisp-models-uninstall-name---purge-cache---yes) removes it from the list. The configured default is marked `*`
 ([ADR 0056](decisions/0056-models-enabled-and-disabled.md)). Apple's two come first, then each backend in the
 alphabetical order of its scheme (`coreai`, `llamacpp`, `lmstudio`, `mlx`, `ollama`), its models by name with numbers
 compared as numbers (`granite4.1` before `granite4.2`, `9b` before `27b`), not in the order its server reports them;

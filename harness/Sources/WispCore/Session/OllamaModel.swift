@@ -830,6 +830,13 @@ public struct OllamaBackend: ModelBackend {
         }
     }
 
+    /// Ollama is not running, or does not serve the model any more (ADR 0092, decision 5).
+    public func unavailable(_ name: String, answered: Bool, config: Config.Resolved) -> String {
+        answered
+            ? "Ollama does not serve it now; ollama pull \(name) fetches it again"
+            : "Ollama is not running at \(config.ollama.baseURL.absoluteString); open Ollama, or run ollama serve"
+    }
+
     /// The server's tag list.
     public func installed(config: Config.Resolved, home: Home) async throws -> [InstalledModel] {
         try await OllamaModel.installed(at: config.ollama).map { model in

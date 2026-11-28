@@ -40,6 +40,9 @@ public enum ModelListing {
         /// level), from `<runtime>.models.<name>.think` or `<runtime>.think`; nil when nothing is sent, which leaves the
         /// runtime's own default (ADR 0053, amended 2026-10-11).
         public var think: String?
+        /// Whether its runtime serves it now. False for a model wisp has registered whose runtime could not be asked or
+        /// no longer lists it; its `problem` then says why and what brings it back (ADR 0092).
+        public var available = true
 
         /// Creates an entry.
         public init(
@@ -158,14 +161,16 @@ public enum ModelListing {
         /// wisp's llama.cpp server.
         public func shown(all: Bool) -> [Entry] {
             entries.filter {
-                all || $0.usable || !$0.enabled || $0.added || ($0.verified != nil && $0.capabilitySource != nil)
+                all || $0.usable || !$0.enabled || $0.added || !$0.available
+                    || ($0.verified != nil && $0.capabilitySource != nil)
             }
         }
     }
 
-    /// Every candidate: Apple's two, each backend's installed models, every disabled model none of them listed,
-    /// and each backend's cached models not linked yet, each judged; and a line of text for each backend that did
-    /// not answer. Backends come in the order of their schemes, and within each group the models by name, numbers
+    /// Every candidate: Apple's two, each backend's installed models, every model the registry holds that none of them
+    /// listed (unavailable, with its runtime's reason, ADR 0092), every disabled model none of them listed, and each
+    /// backend's cached models not linked yet, each judged; and a line of text for each backend that did not answer.
+    /// With a registry, what each backend that answered served is merged into it first. Backends come in the order of their schemes, and within each group the models by name, numbers
     /// compared as numbers (`granite4.1` before `granite4.2`, `9B` before `12B`), whatever order a server
     /// reported them in.
     ///
@@ -174,17 +179,25 @@ public enum ModelListing {
     ///   - home: wisp's home.
     ///   - tools: The tools the conversation would have; empty needs nothing.
     ///   - disabled: The disabled models; nil takes the configuration's.
+    ///   - registry: The model registry to keep and read; nil lists only what the runtimes serve now.
+    ///   - day: The day the registry records, `YYYY-MM-DD`.
     /// - Returns: The listing.
     public static func entries(
-        config: Config.Resolved, home: Home, tools: [any Tool], disabled: [ModelSelection]? = nil
+        config: Config.Resolved, home: Home, tools: [any Tool], disabled: [ModelSelection]? = nil,
+        registry: ModelRegistry.Store? = nil, day: String = ModelRegistry.day(Date())
     ) async -> Listing {
         let disabled = disabled ?? config.disabledModels
         var candidates = [InstalledModel(selection: .system, detail: ""), .init(selection: .privateCloud, detail: "")]
         var unreachable: [String] = []
         var cached: [InstalledModel] = []
+        var served: [InstalledModel] = []
+        var answered: Set<String> = []
         for backend in ModelBackends.all {
             do {
-                candidates += byName(try await backend.installed(config: config, home: home))
+                let installed = try await backend.installed(config: config, home: home)
+                candidates += byName(installed)
+                served += installed
+                answered.insert(backend.scheme)
             } catch {
                 unreachable.append("\(backend.scheme): \(error)")
             }
@@ -192,7 +205,16 @@ public enum ModelListing {
         }
         // Compared by canonical form: a model disabled under another spelling is the listed one (ADR 0056).
         let named = { (one: ModelSelection, other: ModelSelection) in one.names(other, config: config, home: home) }
-        let unlisted = disabled.filter { selection in !candidates.contains { named($0.selection, selection) } }
+        let missing =
+            registry.map { store in
+                unavailable(
+                    in: (try? store.update { $0.merge(served: served, day: day) }) ?? store.load(),
+                    listed: candidates + cached, answered: answered, config: config, home: home)
+            } ?? []
+        let unlisted = disabled.filter { selection in
+            !candidates.contains { named($0.selection, selection) }
+                && !missing.contains { named($0.selection, selection) }
+        }
         candidates += byName(unlisted.map { InstalledModel(selection: $0, detail: "") })
         var entries = candidates.map { installed in
             var entry = Entry(
@@ -222,12 +244,66 @@ public enum ModelListing {
             }
             return entry
         }
+        entries += missing.map { installed in
+            var entry = Entry(
+                selection: installed.selection, detail: installed.detail, parameters: installed.parameters,
+                bytes: installed.bytes, format: installed.format,
+                problem: installed.problem,
+                enabled: !installed.selection.isAmong(disabled, config: config, home: home))
+            entry.available = false
+            return entry
+        }
         entries += cached.filter { model in !entries.contains { $0.selection == model.selection } }.map { model in
             Entry(
                 selection: model.selection, detail: model.detail, parameters: model.parameters, bytes: model.bytes,
                 format: model.format, location: model.location, enabled: false)
         }
         return Listing(entries: entries, unreachable: unreachable)
+    }
+
+    /// A registered model no runtime listed: what the registry last knew of it, and why it is not available.
+    struct Missing {
+        /// The model.
+        var selection: ModelSelection
+        /// Its detail as last listed.
+        var detail: String
+        /// Its parameter count as last reported.
+        var parameters: String?
+        /// Its size as last reported.
+        var bytes: Int?
+        /// Its format as last reported.
+        var format: String?
+        /// Why it is not available, and what brings it back.
+        var problem: String
+    }
+
+    /// The registry's models that no runtime listed and no cache holds, ordered by name, each with its runtime's reason
+    /// (`ModelBackend.unavailable`), or a line saying this build has no such runtime.
+    ///
+    /// - Parameters:
+    ///   - registry: The registry, after this listing's merge.
+    ///   - listed: What the runtimes listed and the caches hold.
+    ///   - answered: The schemes of the runtimes that answered.
+    ///   - config: The effective configuration.
+    ///   - home: wisp's home.
+    /// - Returns: The missing models.
+    static func unavailable(
+        in registry: ModelRegistry, listed: [InstalledModel], answered: Set<String>, config: Config.Resolved,
+        home: Home
+    ) -> [Missing] {
+        registry.models.compactMap { record in
+            guard let selection = try? ModelSelection(parsing: record.model),
+                case .local(let scheme, let name) = selection,
+                !listed.contains(where: { $0.selection.names(selection, config: config, home: home) })
+            else { return nil }
+            let problem =
+                ModelBackends.backend(for: scheme)?.unavailable(
+                    name, answered: answered.contains(scheme), config: config)
+                ?? "this build of wisp has no \(scheme) runtime"
+            return Missing(
+                selection: selection, detail: record.detail ?? "", parameters: record.parameters, bytes: record.bytes,
+                format: record.format, problem: problem)
+        }
     }
 
     /// `models` ordered by name, numbers compared as numbers, so the listing does not follow a server's own order.
@@ -247,12 +323,13 @@ public enum ModelListing {
     ///   - tools: The tools a conversation would have.
     ///   - all: Whether to list the models that cannot be used, with the reason.
     ///   - width: The terminal's width, or nil when piped.
+    ///   - registry: The model registry to keep and read; nil lists only what the runtimes serve now.
     /// - Returns: The lines.
     public static func lines(
         config: Config.Resolved, home: Home, current: ModelSelection, tools: [any Tool], all: Bool = false,
-        width: Int? = nil
+        width: Int? = nil, registry: ModelRegistry.Store? = nil
     ) async -> [String] {
-        let listing = await entries(config: config, home: home, tools: tools)
+        let listing = await entries(config: config, home: home, tools: tools, registry: registry)
         guard let width else { return ModelTable.tabSeparated(listing, current: current, all: all) }
         return ModelTable.terminal(listing, current: current, all: all, width: width)
     }

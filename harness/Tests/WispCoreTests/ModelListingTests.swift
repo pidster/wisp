@@ -56,6 +56,60 @@ private struct ListingBackend: ModelBackend {
         root: FileManager.default.temporaryDirectory.appending(path: "wisp-listing-\(UUID().uuidString)"))
     private let tools = ModelSelection.local(backend: "listing", name: "tools")
 
+    /// A registry holding Ollama's model (whose server is offline), a model the listing backend no longer lists, one of
+    /// a runtime this build lacks, and one the listing backend serves; in a scratch file the test removes.
+    private func registry() throws -> ModelRegistry.Store {
+        let root = FileManager.default.temporaryDirectory.appending(path: "wisp-listing-registry-\(UUID().uuidString)")
+        let store = ModelRegistry.Store(url: root.appending(path: "models.json"))
+        try store.update { registry in
+            registry.merge(
+                served: [
+                    InstalledModel(
+                        selection: .ollama("granite4.2:8b"), detail: "8B 5.35 GB", parameters: "8B",
+                        bytes: 5_350_000_000),
+                    InstalledModel(selection: .local(backend: "listing", name: "gone"), detail: "gone detail"),
+                    InstalledModel(selection: .local(backend: "listing", name: "tools"), detail: "old detail"),
+                ], day: "2026-11-01")
+            registry.register(.local(backend: "nobackend", name: "x"), origin: .pulled, day: "2026-11-01")
+            return true
+        }
+        return store
+    }
+
+    @Test func aRegisteredModelARuntimeDoesNotServeIsListedUnavailableWithWhatToDo() async throws {
+        let store = try registry()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let listing = await ModelListing.entries(
+            config: config, home: home, tools: [], registry: store, day: "2026-11-28")
+        let byName = Dictionary(listing.entries.map { ($0.selection.description, $0) }, uniquingKeysWith: { a, _ in a })
+        let granite = try #require(byName["ollama:granite4.2:8b"])
+        #expect(!granite.available && !granite.usable && granite.enabled && granite.detail == "8B 5.35 GB")
+        #expect(
+            granite.problem == "Ollama is not running at \(OfflineBackends.baseURL); open Ollama, or run ollama serve")
+        let gone = try #require(byName["listing:gone"])
+        #expect(!gone.available && gone.problem == "listing no longer lists it; it may have been removed outside wisp")
+        #expect(byName["nobackend:x"]?.problem == "this build of wisp has no nobackend runtime")
+        #expect(byName["listing:tools"]?.available == true && byName["listing:tools"]?.detail == "tools detail")
+        let shown = listing.shown(all: false).map(\.selection.description)
+        #expect(shown.contains("ollama:granite4.2:8b") && shown.contains("listing:gone"), "unavailable ones are shown")
+        let kept = store.load()
+        #expect(kept.record("listing:tools")?.lastSeen == "2026-11-28", "what answered is merged")
+        #expect(kept.record("ollama:granite4.2:8b")?.lastSeen == "2026-11-01", "what did not answer is left as it was")
+        #expect(kept.record("listing:text")?.origin == .seen)
+    }
+
+    @Test func aDisabledRegisteredModelIsListedOnceAndWithoutARegistryNothingIsRemembered() async throws {
+        let store = try registry()
+        defer { try? FileManager.default.removeItem(at: store.url.deletingLastPathComponent()) }
+        let disabled = [ModelSelection.ollama("granite4.2:8b")]
+        let listing = await ModelListing.entries(
+            config: config, home: home, tools: [], disabled: disabled, registry: store, day: "2026-11-28")
+        let granite = listing.entries.filter { $0.selection == .ollama("granite4.2:8b") }
+        #expect(granite.count == 1 && granite.first?.enabled == false && granite.first?.available == false)
+        let plain = await ModelListing.entries(config: config, home: home, tools: [])
+        #expect(!plain.entries.contains { $0.selection == .local(backend: "listing", name: "gone") })
+    }
+
     @Test func listsWhatCanServeTheConversationAndWhatCanBeTurnedOn() async {
         let lines = await ModelListing.lines(config: config, home: home, current: tools, tools: [CurrentDateTool()])
         // Piped: every column, tab-separated, in the table's order, empty where nothing is known.
