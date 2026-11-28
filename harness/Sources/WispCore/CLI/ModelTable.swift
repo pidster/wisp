@@ -28,6 +28,7 @@ public enum ModelTable {
         Column(key: "contextFrom", heading: "FROM", drop: 3),
         Column(key: "location", heading: "WHERE", drop: 4),
         Column(key: "enabled", heading: "ENABLED", drop: 0),
+        Column(key: "available", heading: "AVAILABLE", drop: 0),
         Column(key: "capabilities", heading: "CAPABILITIES", drop: 0),
     ]
 
@@ -43,6 +44,7 @@ public enum ModelTable {
         case "contextFrom": entry.contextFrom ?? ""
         case "location": entry.location?.label ?? ""
         case "enabled": entry.enabled ? "yes" : "no"
+        case "available": entry.available ? "yes" : "no"
         case "capabilities":
             entry.plainCapabilities.joined(separator: ", ")
                 + (entry.verified != nil && !entry.plainCapabilities.isEmpty ? " (verified)" : "")
@@ -50,9 +52,22 @@ public enum ModelTable {
         }
     }
 
-    /// The columns with a value in at least one of `entries`; the name, enabled, and capabilities always.
+    /// The columns with a value in at least one of `entries`; the name, enabled, and capabilities always, and
+    /// `AVAILABLE` when a model wisp remembers is not available now (ADR 0092).
     static func present(_ entries: [ModelListing.Entry]) -> [Column] {
-        columns.filter { column in column.drop == 0 || entries.contains { !cell(column, $0).isEmpty } }
+        columns.filter { column in
+            if column.key == "available" { return entries.contains { !$0.available } }
+            return column.drop == 0 || entries.contains { !cell(column, $0).isEmpty }
+        }
+    }
+
+    /// The note under a model that cannot be used: why it is not available, or why it is not usable.
+    ///
+    /// - Parameter entry: The model.
+    /// - Returns: The note, or nil when it can be used.
+    static func note(_ entry: ModelListing.Entry) -> String? {
+        guard let problem = entry.problem, entry.linked else { return nil }
+        return entry.available ? "not usable: \(problem)" : "not available: \(problem)"
     }
 
     /// The cells of `entries` under `columns`, the name marked `*` for `current`.
@@ -90,9 +105,7 @@ public enum ModelTable {
             lines = groups[0]
             for (group, entry) in zip(groups.dropFirst(), shown) {
                 lines += group
-                if let problem = entry.problem, entry.linked {
-                    lines += TerminalTable.note("not usable: \(problem)", indent: 4, width: width)
-                }
+                if let note = note(entry) { lines += TerminalTable.note(note, indent: 4, width: width) }
             }
         }
         for note in listing.unreachable { lines += TerminalTable.note("(\(note))", indent: 2, width: width) }
@@ -117,7 +130,7 @@ public enum ModelTable {
             lines = [rendered[0]]
             for (line, entry) in zip(rendered.dropFirst(), shown) {
                 lines.append(line)
-                if let problem = entry.problem, entry.linked { lines.append("    not usable: \(problem)") }
+                if let note = note(entry) { lines.append("    \(note)") }
             }
         }
         return lines + listing.unreachable.map { "  (\($0))" }
@@ -126,7 +139,7 @@ public enum ModelTable {
     /// `wisp models` piped: one tab-separated line per model, every column in `columns`' order whether or not it has
     /// a value, so a script finds a field at the same position on every line; the first field is the name after
     /// `* ` for the default or two spaces, and a model that cannot be used has its reason as one more field,
-    /// `not usable: …`. A backend that did not answer gets a line in parentheses.
+    /// `not usable: …`, or `not available: …` for a model wisp remembers that no runtime serves now. A backend that did not answer gets a line in parentheses.
     ///
     /// - Parameters:
     ///   - listing: The models.
@@ -136,7 +149,7 @@ public enum ModelTable {
     public static func tabSeparated(_ listing: ModelListing.Listing, current: ModelSelection, all: Bool) -> [String] {
         let shown = listing.shown(all: all)
         var lines = zip(shown, rows(shown, columns: columns, current: current)).map { entry, cells in
-            (cells + (entry.linked ? entry.problem.map { ["not usable: \($0)"] } ?? [] : []))
+            (cells + (note(entry).map { [$0] } ?? []))
                 .joined(separator: "\t")
         }
         lines += listing.unreachable.map { "  (\($0))" }
@@ -146,7 +159,8 @@ public enum ModelTable {
     /// `wisp models --json`: `models`, one object per model with a field per column (`model`, `runtime`,
     /// `parameters`, `size` as text and `bytes`, `format`, `context` as tokens, `contextFrom`, and `contextNote`,
     /// `location` as `modelsFolder`, `hubCache`, or `hubCacheNotLinked`, `enabled`, `capabilities` in plain words
-    /// and `capabilitiesFrom`, such as `verified 2026-10-04`, absent facts null), and `default`, `usable`, and `problem`; and `unreachable`, the backends that did not
+    /// and `capabilitiesFrom`, such as `verified 2026-10-04`, absent facts null), and `default`, `usable`, `available` (false for a model wisp remembers that no
+    /// runtime serves now, ADR 0092), and `problem`; and `unreachable`, the backends that did not
     /// answer.
     ///
     /// - Parameters:
@@ -167,7 +181,8 @@ public enum ModelTable {
                 "contextNote": text(entry.contextNote), "location": text(entry.location?.rawValue),
                 "enabled": .bool(entry.enabled), "capabilities": .array(entry.plainCapabilities.map { .string($0) }),
                 "capabilitiesFrom": text(entry.capabilitiesFrom),
-                "usable": .bool(entry.usable), "problem": text(entry.linked ? entry.problem : nil),
+                "usable": .bool(entry.usable), "available": .bool(entry.available),
+                "problem": text(entry.linked ? entry.problem : nil),
             ])
         }
         return .object(["models": .array(models), "unreachable": .array(listing.unreachable.map { .string($0) })])

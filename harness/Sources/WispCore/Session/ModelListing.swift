@@ -205,12 +205,24 @@ public enum ModelListing {
         }
         // Compared by canonical form: a model disabled under another spelling is the listed one (ADR 0056).
         let named = { (one: ModelSelection, other: ModelSelection) in one.names(other, config: config, home: home) }
-        let missing =
-            registry.map { store in
-                unavailable(
-                    in: (try? store.update { $0.merge(served: served, day: day) }) ?? store.load(),
-                    listed: candidates + cached, answered: answered, config: config, home: home)
-            } ?? []
+        // One change under the registry's lock: what answered is merged, and why each other model is not available is
+        // remembered for the faces that do not list (ADR 0092, decision 8).
+        var missing: [Missing] = []
+        if let registry {
+            let listed = candidates + cached
+            let change = { (kept: inout ModelRegistry) -> Bool in
+                var changed = kept.merge(served: served, day: day)
+                missing = unavailable(in: kept, listed: listed, answered: answered, config: config, home: home)
+                for model in missing {
+                    changed = kept.markUnavailable(model.selection.description, reason: model.problem) || changed
+                }
+                return changed
+            }
+            if (try? registry.update(change)) == nil {
+                var kept = registry.load()
+                _ = change(&kept)
+            }
+        }
         let unlisted = disabled.filter { selection in
             !candidates.contains { named($0.selection, selection) }
                 && !missing.contains { named($0.selection, selection) }

@@ -37,11 +37,14 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
         public var bytes: Int?
         /// Its architecture and quantisation, as last reported.
         public var format: String?
+        /// Why it was not available at the last listing, with what brings it back; nil when it was served. What a
+        /// saved thread shows of its model without asking every runtime (ADR 0092, decision 8).
+        public var unavailable: String?
 
         /// Creates a record.
         public init(
             model: String, origin: Origin, firstSeen: String, lastSeen: String? = nil, detail: String? = nil,
-            parameters: String? = nil, bytes: Int? = nil, format: String? = nil
+            parameters: String? = nil, bytes: Int? = nil, format: String? = nil, unavailable: String? = nil
         ) {
             self.model = model
             self.origin = origin
@@ -51,6 +54,7 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
             self.parameters = parameters
             self.bytes = bytes
             self.format = format
+            self.unavailable = unavailable
         }
 
         /// The runtime's scheme, `ollama` in `ollama:granite4.2:8b`.
@@ -127,6 +131,7 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
             record.parameters = installed.parameters
             record.bytes = installed.bytes
             record.format = installed.format
+            record.unavailable = nil
             changed = put(record) || changed
         }
         return changed
@@ -148,6 +153,20 @@ public struct ModelRegistry: Codable, Equatable, Sendable {
             return put(Record(model: model, origin: origin, firstSeen: day))
         }
         if record.origin == .seen, origin == .pulled || origin == .added { record.origin = origin }
+        return put(record)
+    }
+
+    /// Records why a registered model was not available at this listing, so a face that does not list (a saved
+    /// thread) can say so. A model the registry does not hold is left alone.
+    ///
+    /// - Parameters:
+    ///   - model: The model, in canonical form.
+    ///   - reason: Why, with what brings it back.
+    /// - Returns: Whether anything changed.
+    @discardableResult
+    public mutating func markUnavailable(_ model: String, reason: String) -> Bool {
+        guard var record = self.record(model), record.unavailable != reason else { return false }
+        record.unavailable = reason
         return put(record)
     }
 

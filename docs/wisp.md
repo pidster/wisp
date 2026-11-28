@@ -784,6 +784,7 @@ same order.
 | `FROM` | How the window is known: `memory` (sized from the weights and this Mac's memory, [Context window](#context-window)), `model config` (the model's own `ollama.models.<name>.contextLength` or `mlx.models.<name>.contextLength`), `config` (`ollama.contextLength` or `mlx.contextLength`), `bundle` (declared by a Core AI bundle), `server` (reported by the llama.cpp or LM Studio server that holds the model, [ADR 0058](decisions/0058-a-shared-http-executor.md)), `default` (8,192, with no shape to size from, or an LM Studio model not loaded), `model` (the model's own, Apple's) |
 | `WHERE` | MLX: `models folder` (a directory of its own), `HF cache` (linked to the Hugging Face cache), `HF cache, not linked` (enabling it links it). llama.cpp under `llamacpp.server wisp`: `linked file` (a GGUF file you added), `broken link` (its file is missing) |
 | `ENABLED` | `yes`, or `no` for a model you disabled or a cached one not linked |
+| `AVAILABLE` | `no` for a model wisp remembers that no runtime serves now ([ADR 0092](decisions/0092-a-model-registry.md)), with `not available:` and the reason under it; shown on a terminal only when such a model is listed |
 | `CAPABILITIES` | `tools`, `structured replies`, `thinking`, `vision`, or `text only`; `thinking` with the default a model is sent in brackets when one is configured, `thinking (false)` for `ollama.models.<name>.think false` ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-11); `(verified)` after them when wisp checked them on the model ([`wisp models check`](#wisp-models-check-name)), led by `text only` when the check found it calls no tools (such a model is listed, with the reason, though it cannot serve a conversation with tools) |
 
 A column no listed model has a value for is left out, and an empty cell stays empty. On a terminal the table is
@@ -817,13 +818,15 @@ At 80:
 ```
 
 Piped, each model is one tab-separated line with every column, in the order above, whether or not it has a value,
-so a field is at the same position on every line; the name comes after `* ` or two spaces, and a model that cannot
-be used has its reason as one more field. `--json` is the form for scripts: `models`, one object per model with a
+so a field is at the same position on every line (`AVAILABLE` too, always, so `CAPABILITIES` is the eleventh
+field); the name comes after `* ` or two spaces, and a model that cannot be used has its reason as one more field,
+`not usable: …` or `not available: …`. `--json` is the form for scripts: `models`, one object per model with a
 field per column (`model`, `runtime`, `parameters`, `size` and `bytes`, `format`, `context` as a number,
 `contextFrom` and `contextNote`, `location` as `modelsFolder`, `hubCache`, `hubCacheNotLinked`, `linkedFile`, or
 `brokenLink`, `enabled`,
 `capabilities`, and `capabilitiesFrom`, how they are known: `verified 2026-10-04`, `config`, `runtime`, or
-`framework`), `default`, `usable`, and `problem`, absent facts null; and `unreachable`, the backends that did not
+`framework`), `default`, `usable`, `available` (false for a model wisp remembers that no runtime serves now),
+and `problem`, absent facts null; and `unreachable`, the backends that did not
 answer.
 
 | Flag | Effect |

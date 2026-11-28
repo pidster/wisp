@@ -71,6 +71,18 @@ import Testing
         #expect(registry.models.map(\.model) == ["mlx:Qwen3-4B-4bit", "ollama:granite4.2:8b"], "ordered by name")
     }
 
+    @Test func whyAModelWasUnavailableIsRememberedUntilItIsServedAgain() {
+        var registry = ModelRegistry()
+        registry.merge(served: [Self.granite()], day: "2026-11-28")
+        let marked = registry.markUnavailable("ollama:granite4.2:8b", reason: "Ollama is not running")
+        let again = registry.markUnavailable("ollama:granite4.2:8b", reason: "Ollama is not running")
+        let unknown = registry.markUnavailable("ollama:none", reason: "x")
+        #expect(marked && !again && !unknown)
+        #expect(registry.record("ollama:granite4.2:8b")?.unavailable == "Ollama is not running")
+        registry.merge(served: [Self.granite()], day: "2026-11-29")
+        #expect(registry.record("ollama:granite4.2:8b")?.unavailable == nil)
+    }
+
     @Test func theFileIsWrittenOnlyWhenSomethingChangesAndReadBack() throws {
         let url = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

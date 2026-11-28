@@ -25,7 +25,9 @@ Changed:
 - A model whose runtime is not running is still listed, with what to do: `wisp models list`, chat's `/models`, and
   `Wisp.app`'s Models tab show a model wisp has seen before, such as an Ollama model while Ollama is stopped, with
   its last known size and `not usable: Ollama is not running at …; open Ollama, or run ollama serve`. wisp keeps
-  what it has seen in `~/.wisp/models.json`; uninstalling a model removes it (ADR 0092).
+  what it has seen in `~/.wisp/models.json`; uninstalling a model removes it (ADR 0092). Such a model has `no` in a
+  new `AVAILABLE` column and `not available:` before its reason; `--json` gains `available`. Piped, every line has the
+  `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh.
 
 Fixed:
 

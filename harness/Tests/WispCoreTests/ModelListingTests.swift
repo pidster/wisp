@@ -96,6 +96,33 @@ private struct ListingBackend: ModelBackend {
         #expect(kept.record("listing:tools")?.lastSeen == "2026-11-28", "what answered is merged")
         #expect(kept.record("ollama:granite4.2:8b")?.lastSeen == "2026-11-01", "what did not answer is left as it was")
         #expect(kept.record("listing:text")?.origin == .seen)
+        #expect(kept.record("ollama:granite4.2:8b")?.unavailable == granite.problem, "the reason is remembered")
+        #expect(kept.record("listing:tools")?.unavailable == nil)
+
+        let text = ModelTable.text(listing, current: .system)
+        #expect(text.first?.contains("AVAILABLE") == true)
+        #expect(text.contains("    not available: \(granite.problem ?? "")"))
+        let json = ModelTable.json(listing, current: .system, all: false)
+        guard case .object(let document) = json, case .array(let models)? = document["models"] else {
+            Issue.record("not a listing document")
+            return
+        }
+        let fields = models.compactMap { model -> [String: JSONValue]? in
+            guard case .object(let fields) = model, fields["model"] == "ollama:granite4.2:8b" else { return nil }
+            return fields
+        }.first
+        #expect(fields?["available"] == false && fields?["usable"] == false)
+    }
+
+    @Test func theAvailableColumnShowsOnlyWhenSomethingIsUnavailable() {
+        var unavailable = ModelListing.Entry(selection: .ollama("x"), problem: "Ollama is not running")
+        unavailable.available = false
+        let present = { (entries: [ModelListing.Entry]) in ModelTable.present(entries).map(\.key) }
+        #expect(!present([ModelListing.Entry(selection: .system)]).contains("available"))
+        #expect(present([ModelListing.Entry(selection: .system), unavailable]).contains("available"))
+        #expect(ModelTable.note(unavailable) == "not available: Ollama is not running")
+        #expect(ModelTable.note(ModelListing.Entry(selection: .ollama("y"), problem: "p")) == "not usable: p")
+        #expect(ModelTable.note(ModelListing.Entry(selection: .system)) == nil)
     }
 
     @Test func aDisabledRegisteredModelIsListedOnceAndWithoutARegistryNothingIsRemembered() async throws {
@@ -115,16 +142,17 @@ private struct ListingBackend: ModelBackend {
         // Piped: every column, tab-separated, in the table's order, empty where nothing is known.
         #expect(
             lines.contains(
-                "* listing:tools\tlisting\t3B\t2 GB\tfake Q4_K_M\t32,768\tmemory\t\tyes\ttools, structured replies"))
+                "* listing:tools\tlisting\t3B\t2 GB\tfake Q4_K_M\t32,768\tmemory\t\tyes\tyes\ttools, structured replies"
+            ))
         // A text-only model is not offered to a conversation with tools; a non-conversational one never is.
         #expect(!lines.contains { $0.contains("listing:text") } && !lines.contains { $0.contains("listing:embed") })
         #expect(!lines.contains { $0.contains("private-cloud") })  // no entitlement in a test binary
         #expect(lines.contains { $0.hasPrefix("  (ollama: ") })
         // The cached model enabling would link is listed, off, wherever it can be turned on.
-        #expect(lines.contains("  listing:cached\tlisting\t\t1 GB\tqwen3 4-bit\t\t\tHF cache, not linked\tno\t"))
+        #expect(lines.contains("  listing:cached\tlisting\t\t1 GB\tqwen3 4-bit\t\t\tHF cache, not linked\tno\tyes\t"))
         // With no tools the text-only model is usable too, and says it is text only.
         let plain = await ModelListing.lines(config: config, home: home, current: .system, tools: [])
-        #expect(plain.contains("  listing:text\tlisting\t\t\t\t\t\t\tyes\ttext only"))
+        #expect(plain.contains("  listing:text\tlisting\t\t\t\t\t\t\tyes\tyes\ttext only"))
         #expect(!plain.contains { $0.contains("listing:embed") })
     }
 

@@ -199,7 +199,7 @@ private struct VerifyingBackend: ModelBackend {
             tools: [CurrentDateTool()])
         let entry = try #require(listing.entries.first { $0.selection == model })
         #expect(entry.usable && entry.capabilitiesFrom == "verified 2026-10-04")
-        #expect(ModelTable.cell(ModelTable.columns[9], entry) == "tools, structured replies (verified)")
+        #expect(ModelTable.cell(ModelTable.columns[10], entry) == "tools, structured replies (verified)")
         let json = ModelTable.json(listing, current: .system, all: false)
         let row = json.objectValue?["models"]?.arrayValue?.first { $0.objectValue?["model"] == "verifying:m" }
         #expect(row?.objectValue?["capabilitiesFrom"] == "verified 2026-10-04")
@@ -427,7 +427,7 @@ private struct VerifyingBackend: ModelBackend {
         // The table and the picker show what the check found: text only, verified; /model does not offer it.
         let found = try await entry(session, home: home)
         #expect(found.plainCapabilities == ["text only", "structured replies"] && !found.offered && found.enabled)
-        #expect(ModelTable.cell(ModelTable.columns[9], found) == "text only, structured replies (verified)")
+        #expect(ModelTable.cell(ModelTable.columns[10], found) == "text only, structured replies (verified)")
         #expect(
             found.problem?.hasPrefix("wisp's check on 2026-10-04 found it holds a conversation but calls no tools")
                 == true)
@@ -438,7 +438,7 @@ private struct VerifyingBackend: ModelBackend {
         // A model that passes nothing past the reply reads `text only`.
         let bare = ModelListing.Entry(
             selection: model, capabilities: [], problem: "x", capabilitySource: .configuration, verified: "2026-10-04")
-        #expect(ModelTable.cell(ModelTable.columns[9], bare) == "text only (verified)")
+        #expect(ModelTable.cell(ModelTable.columns[10], bare) == "text only (verified)")
     }
 
     @Test func aModelThatHoldsAConversationAndCallsToolsIsEnabledAndUsable() async throws {
@@ -456,7 +456,7 @@ private struct VerifyingBackend: ModelBackend {
         #expect(sink.events.first { $0.kind == .modelVerified }?.details["outcome"] == "usable")
         let found = try await entry(session, home: home)
         #expect(
-            found.offered && ModelTable.cell(ModelTable.columns[9], found) == "tools, structured replies (verified)")
+            found.offered && ModelTable.cell(ModelTable.columns[10], found) == "tools, structured replies (verified)")
         _ = try session.openAgent(approver: DenyingApprover(reason: "x"), model: model)
     }
 }
