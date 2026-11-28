@@ -113,7 +113,8 @@ wisp asks whether it is current only when you or the model ask it to ([ADR 0074]
 agent `wisp` and nothing about you or your Mac beyond what any HTTPS request carries, and an update then downloads the
 disk image and its checksum from GitHub to `~/Downloads`. `wisp update --releases`, and **Check for Updates** in
 `Wisp.app`'s window, send one such request for the recent releases instead ([ADR 0091](decisions/0091-wisp-app-window.md)).
-The default policy lets the model run `wisp update --check` or `wisp update --releases` on its own, which only report,
+`wisp update --notes`, and the window's What's New, read notes built into wisp and send nothing. The default policy
+lets the model run `wisp update --check`, `--releases`, or `--notes` on its own, which only report,
 and refuses it `wisp update`. `updates.check`, off by default, makes the same request
 at most once a day, when a chat starts, `wisp doctor` runs, or `Wisp.app` is opened, and never installs; each check is
 an `update.check` event in the audit log. A downloaded image is used only when its checksum matches and its app is

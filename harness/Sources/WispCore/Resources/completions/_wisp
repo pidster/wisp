@@ -1008,6 +1008,7 @@ _wisp_update() {
     local -ar arg_specs=(
         '--check[Only say whether a newer release is out; download nothing.]'
         '--releases[List the recent releases with their notes; download nothing.]'
+        '--notes[Show this version'\''s release notes, which it carries; asks nothing of GitHub.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

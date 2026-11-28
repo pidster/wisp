@@ -25,8 +25,8 @@ import Observation
         public var update: @MainActor (AppUpdate.Release) async -> (title: String, text: String)
         /// The install the running `wisp` came from, which decides what can be updated.
         public var source: AppInstall.Source
-        /// The models, as `wisp models list` lists them.
-        public var models: @MainActor () async -> [ModelListing.Entry]
+        /// The models every backend lists, and the backends that could not be asked, as `wisp models list` has them.
+        public var models: @MainActor () async -> ModelListing.Listing
         /// Turns a model on or off, telling each line.
         public var setEnabled: @MainActor (String, Bool, @escaping @Sendable (String) -> Void) async throws -> Void
         /// Checks what a model can do, telling each line.
@@ -44,7 +44,7 @@ import Observation
             releases: @escaping @MainActor () async -> (releases: [AppUpdate.Published], failure: String?),
             lastCheck: @escaping @MainActor () -> AppUpdate.State?, checkIsDue: @escaping @MainActor () -> Bool,
             update: @escaping @MainActor (AppUpdate.Release) async -> (title: String, text: String),
-            source: AppInstall.Source, models: @escaping @MainActor () async -> [ModelListing.Entry],
+            source: AppInstall.Source, models: @escaping @MainActor () async -> ModelListing.Listing,
             setEnabled: @escaping @MainActor (String, Bool, @escaping @Sendable (String) -> Void) async throws -> Void,
             check: @escaping @MainActor (String, @escaping @Sendable (String) -> Void) async throws -> Void,
             uninstall: @escaping @MainActor (String, ModelActions.UninstallDialog) async throws -> Bool,
@@ -147,6 +147,8 @@ import Observation
 
     /// The running version.
     public let version: String
+    /// The notes this build shipped with, shown on the Updates tab without a request.
+    public let notes: AppUpdate.Notes?
     /// The install section.
     public private(set) var welcome: AppInstall.Welcome
     /// What the last install said, if one ran.
@@ -155,6 +157,8 @@ import Observation
     public private(set) var update: UpdateState
     /// The models, as last listed.
     public private(set) var models: [ModelRow] = []
+    /// One line per backend that could not be asked, so a model missing from the list has a reason beside it.
+    public private(set) var unreachable: [String] = []
     /// Whether the models are being listed.
     public private(set) var listing = false
     /// What a model action is doing, while one runs; the model buttons wait for it.
@@ -179,10 +183,15 @@ import Observation
     ///   - services: What it does.
     ///   - prompts: How it asks.
     ///   - version: The running version.
-    public init(services: Services, prompts: Prompts, version: String = WispVersion.current) {
+    ///   - notes: The notes this build shipped with.
+    public init(
+        services: Services, prompts: Prompts, version: String = WispVersion.current,
+        notes: AppUpdate.Notes? = AppUpdate.shipped
+    ) {
         self.services = services
         self.prompts = prompts
         self.version = version
+        self.notes = notes
         welcome = services.welcome()
         update = .idle(Self.idleText(services.lastCheck(), current: version))
     }
@@ -198,6 +207,19 @@ import Observation
         let day = state.checkedAt.formatted(.iso8601.year().month().day())
         if let newer = state.newer(than: current) { return "Last checked \(day): Wisp \(newer) is available." }
         return "Last checked \(day): up to date."
+    }
+
+    /// A backend that could not be asked, as the window says it: without the scheme the listing puts first, which the
+    /// text names again, and starting with a capital, such as `No Ollama server at http://127.0.0.1:11434: …`.
+    ///
+    /// - Parameter line: The listing's line, `ollama: no Ollama server at …`.
+    /// - Returns: The note.
+    static func unreachableNote(_ line: String) -> String {
+        var text = Substring(line)
+        if let colon = text.firstIndex(of: ":"), !text[..<colon].contains(" ") {
+            text = text[text.index(after: colon)...].drop { $0 == " " }
+        }
+        return text.prefix(1).uppercased() + text.dropFirst()
     }
 
     /// What Update installs: the newest release, when it is newer than `current`, has a disk image, and this install
@@ -282,7 +304,9 @@ import Observation
     public func refreshModels() async {
         listing = true
         defer { listing = false }
-        models = await services.models().map(ModelRow.init)
+        let listing = await services.models()
+        models = listing.shown(all: false).map(ModelRow.init)
+        unreachable = listing.unreachable.map(Self.unreachableNote)
     }
 
     /// Turns a model on or off; turning one on checks what it can do when that is undeclared.

@@ -154,7 +154,7 @@ function __wisp_parse_tokens -S
         case 'uninstall'
             __wisp_parse_subcommand 1 'version' 'h/help'
         case 'update'
-            __wisp_parse_subcommand 0 'check' 'releases' 'version' 'h/help'
+            __wisp_parse_subcommand 0 'check' 'releases' 'notes' 'version' 'h/help'
         case 'help'
             __wisp_parse_subcommand -r 1 'version'
         end
@@ -490,6 +490,7 @@ complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wis
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp uninstall" h help' -s 'h' -l 'help' -d 'Show help information.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp update" check' -l 'check' -d 'Only say whether a newer release is out; download nothing.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp update" releases' -l 'releases' -d 'List the recent releases with their notes; download nothing.'
+complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp update" notes' -l 'notes' -d 'Show this version\'s release notes, which it carries; asks nothing of GitHub.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp update" version' -l 'version' -d 'Show the version.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp update" h help' -s 'h' -l 'help' -d 'Show help information.'
 complete -c 'wisp' -n '__wisp_should_offer_completions_for_flags_or_options "wisp help" version' -l 'version' -d 'Show the version.'

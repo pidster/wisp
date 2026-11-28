@@ -26,6 +26,54 @@ extension AppUpdate {
         public var day: String { date?.formatted(.iso8601.year().month().day()) ?? "" }
     }
 
+    /// The page listing every release of wisp on GitHub.
+    public static let allReleases = URL(string: "https://github.com/pidster/wisp/releases")
+
+    /// A release's page on GitHub, from its version alone, so it is linked without a request.
+    ///
+    /// - Parameter version: The version, `0.35.3` or `0.35.3-dev+abc1234`.
+    /// - Returns: The page, or nil for a version that is not three numbers.
+    public static func page(for version: String) -> URL? {
+        Version(version).flatMap { URL(string: "https://github.com/pidster/wisp/releases/tag/v\($0)") }
+    }
+
+    /// The notes a release ships with: its changelog section, embedded at build time, so the window and
+    /// `wisp update --notes` show them without asking GitHub (ADR 0091).
+    public struct Notes: Equatable, Sendable {
+        /// The version the notes are for.
+        public var version: String
+        /// The section, in Markdown, without its heading.
+        public var text: String
+    }
+
+    /// The notes embedded in this build, written by `scripts/check release-notes`; nil when the resource is empty.
+    public static var shipped: Notes? { notes(fromResource: ReleaseNotesText.text) }
+
+    /// Reads the resource: `## X.Y.Z`, then the section.
+    ///
+    /// - Parameter text: The resource.
+    /// - Returns: The notes, or nil when the first line is not a version's heading.
+    static func notes(fromResource text: String) -> Notes? {
+        let lines = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let heading = lines.first, heading.hasPrefix("## "), let version = Version(String(heading.dropFirst(3)))
+        else { return nil }
+        let body = lines.count > 1 ? String(lines[1]) : ""
+        return Notes(version: "\(version)", text: body.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The terminal's notes (`wisp update --notes`): the version, its notes in a few lines, and where to read the rest.
+    ///
+    /// - Parameter notes: The shipped notes.
+    /// - Returns: The lines.
+    public static func notesLines(_ notes: Notes?) -> [String] {
+        guard let notes else { return ["This build carries no release notes."] }
+        var lines = ["What's new in Wisp \(notes.version):"]
+        lines += summary(of: notes.text, limit: 12).map { "    \($0)" }
+        if let page = page(for: notes.version) { lines.append("Release notes: \(page.absoluteString)") }
+        if let allReleases { lines.append("All releases: \(allReleases.absoluteString)") }
+        return lines
+    }
+
     /// Reads GitHub's list of releases: drafts and pre-releases left out, newest version first, at most `count`.
     ///
     /// - Parameters:

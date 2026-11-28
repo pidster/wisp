@@ -12,9 +12,13 @@ Added:
 
 - Opening `Wisp.app` from the Finder opens a window in place of the install dialog (ADR 0091). It has three tabs:
   **Install**, as before; **Updates**, which lists the recent releases with their notes and installs the newest; and
-  **Models**, which can enable, disable, check, uninstall, pull, and add models, as `wisp models` does.
+  **Models**, which can enable, disable, check, uninstall, pull, and add models, as `wisp models` does, and names a
+  runtime it could not ask, such as Ollama when it is not running.
+- The Updates tab shows this version's release notes in a few lines, with links to its release page and to all
+  releases on GitHub. The notes are built into the app, so nothing is asked of GitHub to show them.
+  `wisp update --notes` prints the same in a terminal.
 - `wisp update --releases` lists the recent releases in a terminal, with their days, a few lines of notes, and the
-  one running marked. The model may run it, as it may run `wisp update --check`.
+  one running marked. The model may run it, and `--notes`, as it may run `wisp update --check`.
 
 Fixed:
 

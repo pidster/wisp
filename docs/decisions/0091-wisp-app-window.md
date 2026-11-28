@@ -34,7 +34,8 @@ They also asked that the terminal can do whatever the window does, in a form peo
      - A switch for a model's on or off state, and a menu for its other actions.
      - Title-case buttons, with an ellipsis where more input follows.
      - The system's warning symbol.
-     - The standard menu bar: the app menu (About, Services, Hide, Hide Others, Show All, Quit), File (Close), Edit,
+     - The standard menu bar: the app menu (About, Check for Updates…, which opens the Updates tab and checks, Services,
+       Hide, Hide Others, Show All, Quit), File (Close), Edit,
        Window (Minimize, Zoom, Bring All to Front), and Help, which opens the guide.
    - **Alerts:**
      - The action the person started is the default, and Cancel answers Escape.
@@ -55,9 +56,14 @@ They also asked that the terminal can do whatever the window does, in a form peo
      replace itself. It asks first, then does what `wisp update` does (ADR 0074, decisions 1 to 4). Older releases are
      not installed: an older wisp may not read what a newer one wrote.
    - With `updates.check` on and a check due, opening the window checks, as the dialog did.
+   - **What's New** shows this version's own notes in a few lines, with links to its release page and to all
+     releases. The notes are its section of the changelog, written into the app at the version bump by
+     `scripts/check release-notes` and embedded at build time, so showing them asks GitHub nothing. A test fails
+     while the resource and the changelog's section differ. The operator asked for this on 2026-11-28.
 4. **Models, as `wisp models` does them** (`ModelActions`, with a new face, `finder`, which the audit records as
    `source`). Each action asks what the terminal asks, as a sheet:
-   - **The listing:** the models `wisp models list` shows.
+   - **The listing:** the models `wisp models list` shows. Each runtime that could not be asked is named under it, as
+     the terminal names it.
    - **Enable and disable:** turning an MLX model on checks it when its capabilities are undeclared (ADR 0056).
    - **Check:** the model is loaded and asked its three questions.
    - **Uninstall:** offered for a local runtime's model only. The plan is shown, and the person types the name
@@ -67,12 +73,13 @@ They also asked that the terminal can do whatever the window does, in a form peo
    - **Add:** a GGUF file is chosen in an open panel (ADR 0082, decision 2).
    - One action runs at a time, and what each says is shown below the list.
 5. **The terminal can do the same.** Install, update, and every model action were already in the terminal. The
-   listing of releases is added: `wisp update --releases` prints the same releases with their days, the running one
+   listing of releases is added, and the notes: `wisp update --notes` prints the shipped notes and links, and
+   `wisp update --releases` prints the same releases with their days, the running one
    marked, a few lines of each release's notes, and what can be done about the newest, then records it as the
    window's check does.
 6. **The model may list the releases.** The default policy refuses `wisp update` to the model, and allowed only
-   `wisp update --check` on its own (ADR 0074, amended 2026-11-17). It now allows `wisp update --releases` on its
-   own too. The listing only reports, as the check does.
+   `wisp update --check` on its own (ADR 0074, amended 2026-11-17). It now allows `wisp update --releases` and
+   `wisp update --notes` on their own too. They only report, as the check does.
 
 ## Consequences
 

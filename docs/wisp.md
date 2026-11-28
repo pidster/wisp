@@ -1658,9 +1658,14 @@ does:
 - **Install** says whether wisp is on `PATH` and where, and offers **Install**, which does what `wisp install` does.
   With something in the way, or from the disk image, it says what to do.
 - **Updates** shows the version, and **Check for Updates** lists the recent releases with their notes, as
-  `wisp update --releases` does. **Update to X.Y.Z…** installs the newest, as `wisp update` does, after asking.
+  `wisp update --releases` does. **Update to X.Y.Z…** installs the newest, as `wisp update` does, after asking. **Check
+  for Updates…** in the Wisp menu opens this tab and checks. Below, **What's New in Wisp X.Y.Z** shows this version's
+  notes in a few lines, with links to its release notes and to all releases on GitHub; the notes are built into the
+  app, so showing them asks GitHub nothing.
 - **Models** lists what `wisp models list` lists. Each model has a switch that turns it on or off, and a menu with
-  **Check Capabilities** and, for a local runtime's model, **Uninstall…**, which asks you to type the name.
+  **Check Capabilities** and, for a local runtime's model, **Uninstall…**, which asks you to type the name. A
+  runtime that could not be asked, such as Ollama when it is not running, is named under the list, as
+  `wisp models list` names it, so a missing model has its reason beside it.
   Under the list, **Pull…** fetches a Hugging Face repository after the same questions `wisp models pull` asks, and
   **Add GGUF File…** links a file as `wisp models add` does.
 
@@ -1677,12 +1682,16 @@ Update `Wisp.app` to the latest release ([ADR 0074](decisions/0074-wisp-update.m
 wisp update             # download, check, and replace Wisp.app when a newer release is out
 wisp update --check     # only say whether one is out
 wisp update --releases  # list the recent releases with their notes
+wisp update --notes     # this version's own notes, carried in wisp; asks GitHub nothing
 ```
 
 `--releases` lists the five newest releases, each with its day and a few lines of its notes. It marks the newest and
 the one running, then says what can be done about the newest: `wisp update` installs it, or why it cannot here. Only
 the newest is installed. An older release is for reading, since an older wisp may not read what a newer one wrote.
 Like `--check`, it records an `update.check` event and keeps the newest in `~/.wisp/update.json`.
+
+`--notes` prints this version's section of the changelog in a few lines, then links to its release page and to every
+release. The notes are built into wisp, so it makes no request and works offline.
 
 ```
 $ wisp update --releases
@@ -1730,7 +1739,7 @@ move to the cask, which the formula ends at 0.34.2 for: `brew trust pidster/tap 
 --formula wisp && brew install --cask pidster/tap/wisp` ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)); from a build or an
 unpacked tarball, that it cannot update one; from the disk image, to move the app to Applications first. `--check`
 and `--releases` work from any of them. The default policy refuses `wisp update` to the model, but not
-`wisp update --check` or `wisp update --releases` on its own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an
+`wisp update --check`, `--releases`, or `--notes` on its own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an
 `update.check` event and each update an `update.install` event ([logging.md](logging.md)).
 
 With `updates.check` on (off by default), wisp asks at most once a day, when a chat starts, `wisp doctor` runs, or

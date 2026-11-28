@@ -10,7 +10,8 @@ import PackagePlugin
 /// personal-data classifier, likewise) as `PersonalDefaultText.text`, and `Resources/subject-kinds.json` (the default
 /// subject kinds of facts) as `SubjectKindsText.text`, and the shell completion scripts in `Resources/completions/`
 /// (`_wisp`, `wisp.bash`, `wisp.fish`) as `ZshCompletionText.text`, `BashCompletionText.text`, and
-/// `FishCompletionText.text`. The text goes into a raw multi-line literal, so it needs no escaping; its delimiter
+/// `FishCompletionText.text`, and `Resources/release-notes.md` (this version's section of the changelog, written by
+/// `scripts/check release-notes`) as `ReleaseNotesText.text`. The text goes into a raw multi-line literal, so it needs no escaping; its delimiter
 /// has more `#`s than any `"""#…` or `\#…` in the text, so nothing in it can end the literal early or interpolate.
 ///
 /// It also writes `BuildInfo` before every build (a prebuild command, since the commit changes without any
@@ -65,6 +66,7 @@ struct EmbedSystemPrompt: BuildToolPlugin {
         ("risk-default.json", "RiskDefaultText"), ("personal-default.json", "PersonalDefaultText"),
         ("subject-kinds.json", "SubjectKindsText"), ("completions/_wisp", "ZshCompletionText"),
         ("completions/wisp.bash", "BashCompletionText"), ("completions/wisp.fish", "FishCompletionText"),
+        ("release-notes.md", "ReleaseNotesText"),
     ]
 
     func createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {

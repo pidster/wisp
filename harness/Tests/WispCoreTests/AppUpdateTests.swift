@@ -436,6 +436,7 @@ import Testing
         #expect(policy.check("wisp update --check 2>&1 | tail -3") == .allowed)
         #expect(policy.check("wisp update --releases") == .allowed)
         #expect(policy.check("wisp update --releases && wisp update") != .allowed)
+        #expect(policy.check("wisp update --notes") == .allowed)
         #expect(policy.check("wisp doctor") == .allowed)
     }
 
@@ -497,6 +498,44 @@ import Testing
         #expect(
             AppUpdate.advice([], current: "0.35.2", source: .app(app), command: "x")
                 == "GitHub lists no releases of wisp")
+    }
+
+    @Test func theShippedNotesAreThisVersionsSectionOfTheChangelog() throws {
+        // Tests/WispCoreTests/AppUpdateTests.swift → the repository's root.
+        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let changelog = try String(contentsOf: root.appending(path: "CHANGELOG.md"), encoding: .utf8)
+        let version = try #require(AppUpdate.Version(WispVersion.current)).description
+        var section: [Substring] = []
+        var inside = false
+        for line in changelog.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("## ") {
+                inside = line == "## \(version)"
+                continue
+            }
+            if inside { section.append(line) }
+        }
+        let expected = section.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let shipped = try #require(AppUpdate.shipped, "the resource has no heading: run scripts/check release-notes")
+        #expect(shipped.version == version, "run scripts/check release-notes after the version bump")
+        #expect(shipped.text == expected, "CHANGELOG.md's section changed: run scripts/check release-notes")
+    }
+
+    @Test func notesAreReadAndLinkedWithoutARequest() throws {
+        let notes = try #require(AppUpdate.notes(fromResource: "## 0.35.4\n\nAdded:\n\n- One.\n"))
+        #expect(notes == AppUpdate.Notes(version: "0.35.4", text: "Added:\n\n- One."))
+        #expect(AppUpdate.notes(fromResource: "") == nil && AppUpdate.notes(fromResource: "# x\n") == nil)
+        #expect(
+            AppUpdate.page(for: "0.35.3-dev+abc1234")?.absoluteString
+                == "https://github.com/pidster/wisp/releases/tag/v0.35.3")
+        #expect(AppUpdate.page(for: "nightly") == nil)
+        #expect(
+            AppUpdate.notesLines(notes) == [
+                "What's new in Wisp 0.35.4:", "    Added:", "    • One.",
+                "Release notes: https://github.com/pidster/wisp/releases/tag/v0.35.4",
+                "All releases: https://github.com/pidster/wisp/releases",
+            ])
+        #expect(AppUpdate.notesLines(nil) == ["This build carries no release notes."])
     }
 
     @Test func aListingIsKeptAndRecordedAsACheck() async throws {

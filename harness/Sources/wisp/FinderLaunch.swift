@@ -62,6 +62,8 @@ enum FinderLaunch {
         window.center()
         window.delegate = controller
         controller.window = window
+        controller.tabs = tabs
+        controller.panel = panel
         window.makeKeyAndOrderFront(nil)
         application.activate()
         Task { await panel.start() }
@@ -81,6 +83,11 @@ enum FinderLaunch {
         app.addItem(
             withTitle: "About Wisp", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: "")
+        // Where Mac apps put it: below About, opening the Updates tab and checking (ADR 0091).
+        app.addItem(
+            withTitle: "Check for Updates…", action: #selector(Controller.checkForUpdates(_:)), keyEquivalent: ""
+        )
+        .target = controller
         app.addItem(.separator())
         let services = NSMenu(title: "Services")
         app.addItem(withTitle: "Services", action: nil, keyEquivalent: "").submenu = services
@@ -134,9 +141,13 @@ enum FinderLaunch {
 
     /// The application's and the window's delegate: closing the window ends the loop, Quit closes the window rather than
     /// exiting at once, so the session ends and the backends shut down, and Help opens the guide.
-    @MainActor private final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    @MainActor private final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
         /// The window, closed by Quit.
         weak var window: NSWindow?
+        /// The window's tabs, which Check for Updates switches to Updates.
+        weak var tabs: NSTabViewController?
+        /// What the window shows and does.
+        var panel: AppPanel?
 
         /// The page of the guide that describes the window.
         static let guide = URL(string: "https://wisp.pidster.com/docs/wisp.html")
@@ -158,6 +169,22 @@ enum FinderLaunch {
             {
                 application.postEvent(event, atStart: false)
             }
+        }
+
+        /// Check for Updates…: shows the Updates tab and asks GitHub, as its button does.
+        @objc func checkForUpdates(_ sender: Any?) {
+            if let tabs, let index = AppPanelView.Pane.allCases.firstIndex(of: .updates) {
+                tabs.selectedTabViewItemIndex = index
+            }
+            window?.makeKeyAndOrderFront(nil)
+            guard let panel else { return }
+            Task { await panel.checkForUpdates() }
+        }
+
+        /// Disables Check for Updates while a check or an update runs.
+        func validateMenuItem(_ item: NSMenuItem) -> Bool {
+            guard item.action == #selector(checkForUpdates(_:)), let panel else { return true }
+            return panel.update != .checking && !panel.isUpdating
         }
 
         /// Opens the guide in the person's browser.
@@ -210,7 +237,7 @@ enum FinderLaunch {
             checkIsDue: { checking && AppUpdate.isDue(AppUpdate.state(home: Wisp.home), now: Date()) },
             update: { release in await update(to: release, source: source, session: session) },
             source: source,
-            models: { await actions.list(tools: tools).shown(all: false) },
+            models: { await actions.list(tools: tools) },
             setEnabled: { name, on, say in
                 try await actions.set(enable: on ? [name] : [], disable: on ? [] : [name], report: say)
             },

@@ -520,6 +520,23 @@ classifier_default() {
         --resource Sources/WispCore/Resources/risk-default.json)
 }
 
+# release-notes: write this version's section of CHANGELOG.md, under its heading, into the resource Wisp.app's
+# Updates tab and `wisp update --notes` show without asking GitHub (ADR 0091); run with the version bump, after the
+# section is renamed. ReleaseNotesTests fails when the resource is not the section for WispVersion.current.
+release_notes() {
+    echo "==> release notes"
+    version="$(sed -n 's/.*public static let current = "\(.*\)".*/\1/p' harness/Sources/WispCore/Audit/AuditEvent.swift)"
+    [ -n "$version" ] || { echo "WispVersion.current not found" >&2; exit 1; }
+    section="$(awk -v v="$version" '
+        $0 == "## " v { on = 1; next }
+        /^## / { on = 0 }
+        on { print }
+    ' CHANGELOG.md | sed -e '/./,$!d')"
+    [ -n "$section" ] || { echo "CHANGELOG.md has no section '## $version'" >&2; exit 1; }
+    printf '## %s\n\n%s\n' "$version" "$section" > harness/Sources/WispCore/Resources/release-notes.md
+    echo "wrote harness/Sources/WispCore/Resources/release-notes.md for $version"
+}
+
 # The bundled risk examples are a copy of training/risk/train.tsv under a header; TrainingSetsTests fails
 # if they differ, so the train set is the one place to edit.
 bundle_risk_examples() {
@@ -893,6 +910,7 @@ case "${1:-all}" in
     coverage-gate) coverage_gate ;;
     coverage-baseline) coverage_baseline ;;
     classifier-default) classifier_default ;;
+    release-notes) release_notes ;;
     eval) shift; eval_ "$@" ;;
     eval-stream-probe) eval_stream_probe ;;
     mlx-live) shift; mlx_live "$@" ;;

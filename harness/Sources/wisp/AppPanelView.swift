@@ -40,6 +40,7 @@ struct AppPanelView: View {
                 install
             case .updates:
                 updates
+                whatsNew
             case .models:
                 models
                 addModel
@@ -97,6 +98,28 @@ struct AppPanelView: View {
                     + "can be installed."
             )
             .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The notes this build shipped with, abbreviated, and links to the release's page and to every release on GitHub.
+    /// They are embedded in the app, so nothing is asked of GitHub to show them.
+    @ViewBuilder private var whatsNew: some View {
+        if let notes = panel.notes {
+            Section {
+                ForEach(Array(AppUpdate.summary(of: notes.text, limit: 8).enumerated()), id: \.offset) { line in
+                    Text(line.element).font(.callout).textSelection(.enabled)
+                }
+            } header: {
+                Text("What’s New in Wisp \(notes.version)")
+            } footer: {
+                HStack(spacing: 16) {
+                    if let page = AppUpdate.page(for: notes.version) {
+                        Link("Release Notes for \(notes.version)", destination: page)
+                    }
+                    if let all = AppUpdate.allReleases { Link("All Releases", destination: all) }
+                }
+                .font(.footnote)
+            }
         }
     }
 
@@ -170,10 +193,16 @@ struct AppPanelView: View {
                     .help("List the models again")
             }
         } footer: {
-            Text(
-                "These are the models wisp models list shows. Turning a model on checks what it can do when that is "
-                    + "not yet known."
-            )
+            VStack(alignment: .leading, spacing: 4) {
+                // A backend that could not be asked lists nothing, so its absence is explained here.
+                ForEach(panel.unreachable, id: \.self) { note in
+                    Label(note, systemImage: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
+                        .textSelection(.enabled)
+                }
+                Text(
+                    "These are the models wisp models list shows. Turning a model on checks what it can do when that "
+                        + "is not yet known.")
+            }
             .font(.footnote).foregroundStyle(.secondary)
         }
     }

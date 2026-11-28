@@ -19,7 +19,8 @@ struct UpdateCommand: AsyncParsableCommand {
             + "it replace the app, it leaves the app as it was and opens the disk image for you to drag the new one. "
             + "A Homebrew install is told to run brew upgrade pidster/tap/wisp. updates.check (off by default) checks "
             + "once a day and shows a newer version in wisp doctor and the chat's status line. --releases lists the "
-            + "last five releases with their day and notes, as Wisp.app's window does; only the newest is installed.")
+            + "last five releases with their day and notes, as Wisp.app's window does; only the newest is installed. --notes shows this version's own notes, "
+            + "carried in wisp, without asking GitHub.")
 
     @Flag(help: "Only say whether a newer release is out; download nothing.")
     var check = false
@@ -27,11 +28,20 @@ struct UpdateCommand: AsyncParsableCommand {
     @Flag(help: "List the recent releases with their notes; download nothing.")
     var releases = false
 
+    @Flag(help: "Show this version's release notes, which it carries; asks nothing of GitHub.")
+    var notes = false
+
     func validate() throws {
-        if check && releases { throw ValidationError("--check and --releases are two ways to ask; give one") }
+        if [check, releases, notes].filter({ $0 }).count > 1 {
+            throw ValidationError("--check, --releases, and --notes are three ways to ask; give one")
+        }
     }
 
     func run() async throws {
+        if notes {
+            for line in AppUpdate.notesLines(AppUpdate.shipped) { print(line) }
+            return
+        }
         if releases { return try await list() }
         let source = AppInstall.source(of: PackageLayout.current)
         var app: URL?

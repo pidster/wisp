@@ -48,7 +48,7 @@ let package = Package(
             exclude: [
                 "Resources/system-prompt.md", "Resources/measurements.json", "Resources/multiplexers.txt",
                 "Resources/risk-examples.tsv", "Resources/risk-default.json", "Resources/personal-default.json",
-                "Resources/subject-kinds.json", "Resources/completions",
+                "Resources/subject-kinds.json", "Resources/completions", "Resources/release-notes.md",
             ],
             linkerSettings: [.linkedFramework("FoundationModels")],
             plugins: ["EmbedSystemPrompt"]

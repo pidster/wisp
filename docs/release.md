@@ -187,7 +187,9 @@ the whole section as it stands, so the list needs no other handling.
 
 `WispVersion.current` in `harness/Sources/WispCore/Audit/AuditEvent.swift` is the single source. Bump
 it in its own commit ("Bump version to X.Y.Z") that also renames `## Unreleased` in `CHANGELOG.md`, the
-crate version in `tools/wisp-tui/Cargo.toml` and `tools/Cargo.lock`, and retrains the risk classifier the
+crate version in `tools/wisp-tui/Cargo.toml` and `tools/Cargo.lock`, writes the version's notes into the app with
+`scripts/check release-notes` (`harness/Sources/WispCore/Resources/release-notes.md`, which the Updates tab and
+`wisp update --notes` show; a test fails until it matches the section), and retrains the risk classifier the
 release ships with `scripts/check classifier-default`, which writes `risk@X.Y.Z-default` into
 `harness/Sources/WispCore/Resources/risk-default.json`; then run the release. The committed file is the shipped model, and the eval measures it. The tag check and
 the shipped classifier's version in preflight make a mismatch impossible to ship.

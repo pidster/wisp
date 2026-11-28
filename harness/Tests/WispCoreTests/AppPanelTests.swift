@@ -25,6 +25,8 @@ import Testing
             .init(
                 selection: .local(backend: "mlx", name: "Qwen3-4B-4bit"), problem: "no chat template", enabled: false),
         ]
+        /// The backends that could not be asked.
+        var unreachable: [String] = []
         /// What `confirm` answers.
         var confirms = true
         /// What `typed` answers.
@@ -57,7 +59,7 @@ import Testing
                 source: source,
                 models: {
                     self.calls.append("models")
-                    return self.entries
+                    return ModelListing.Listing(entries: self.entries, unreachable: self.unreachable)
                 },
                 setEnabled: { name, on, say in
                     self.calls.append("\(on ? "enable" : "disable") \(name)")
@@ -255,4 +257,14 @@ import Testing
         #expect(AppPanel.idleText(nil, current: "0.35.3") == "Not checked yet.")
     }
 
+    @Test func aBackendThatCouldNotBeAskedIsSaidUnderTheList() async {
+        let script = Script()
+        script.unreachable = [
+            "ollama: no Ollama server at http://127.0.0.1:11434: Could not connect to the server."
+        ]
+        let panel = AppPanel(services: script.services(), prompts: script.prompts)
+        await panel.refreshModels()
+        #expect(panel.unreachable == ["No Ollama server at http://127.0.0.1:11434: Could not connect to the server."])
+        #expect(AppPanel.unreachableNote("odd line with no scheme") == "Odd line with no scheme")
+    }
 }
