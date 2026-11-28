@@ -194,7 +194,7 @@ public struct ModelRemoval: Equatable, Sendable {
     ///   - trash: Moves a folder to the Bin; tests replace it.
     ///   - delete: Asks Ollama to delete a model; tests replace it.
     /// - Throws: The failing step's error; the steps before it were reported.
-    public func perform(
+    nonisolated(nonsending) public func perform(
         ollama: OllamaSettings, report: (String) -> Void,
         trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) },
         delete: (String, OllamaSettings) async throws -> Void = { try await OllamaModel.delete($0, at: $1) }

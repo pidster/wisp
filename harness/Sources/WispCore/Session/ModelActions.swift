@@ -86,6 +86,8 @@ public struct ModelActions: Sendable {
         case cli
         /// `/models`, `/model`, and `wisp-tui`'s picker.
         case chat
+        /// `Wisp.app`'s window, opened from the Finder (ADR 0091).
+        case finder
         /// The model's `models` tool.
         case tool
     }

@@ -26,20 +26,21 @@ struct Wisp: AsyncParsableCommand {
         defaultSubcommand: Respond.self
     )
 
-    /// Opens the app bundle wisp runs from, if it does, so MLX finds its library there (ADR 0072); shows the install
-    /// dialog instead when `Wisp.app` was opened from the Finder (ADR 0073); registers the model backends this build
-    /// carries, and what pulls models (ADR 0059), then parses and runs as `AsyncParsableCommand.main` does, except that
+    /// Opens the app bundle wisp runs from, if it does, so MLX finds its library there (ADR 0072); registers the model
+    /// backends this build carries, and what pulls models (ADR 0059); opens the app's window instead when `Wisp.app`
+    /// was opened from the Finder (ADR 0073, ADR 0091); otherwise parses and runs as `AsyncParsableCommand.main` does, except that
     /// the backends are shut down before the process exits, on success and on error alike, so no runtime is torn down
     /// beside `exit()` (`ModelBackend.shutdown()`). Only a second Ctrl-C (`stopOnInterrupt`) exits without it.
     static func main() async {
         PackageLayout.openAppBundle()
-        if FinderLaunch.isCurrent {
-            await FinderLaunch.run()
-            return
-        }
         ModelBackends.register(CoreAIBackend())
         ModelBackends.register(MLXBackend())
         ModelPullers.register(MLXPuller())
+        if FinderLaunch.isCurrent {
+            // The window lists, checks, and pulls models (ADR 0091), so the backends are shut down after it too.
+            try? await ModelBackends.shuttingDown { await FinderLaunch.run() }
+            return
+        }
         do {
             try await ModelBackends.shuttingDown {
                 var command = try await asyncParseAsRoot()

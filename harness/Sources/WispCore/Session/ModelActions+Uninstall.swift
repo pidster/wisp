@@ -53,7 +53,9 @@ extension ModelActions {
     /// - Throws: `Failure.notForTheModel` from the tool; `ModelSelection.Failure` for a name that does not parse;
     ///   `ModelRemoval.Failure` for a model wisp does not keep or that is not installed; `UninstallFailure` with no one
     ///   to confirm; a step's or the configuration's failure.
-    public func uninstall(_ name: String, purgeCache: Bool, yes: Bool, dialog: UninstallDialog) async throws -> Bool {
+    nonisolated(nonsending) public func uninstall(
+        _ name: String, purgeCache: Bool, yes: Bool, dialog: UninstallDialog
+    ) async throws -> Bool {
         guard face != .tool else { throw Failure.notForTheModel("uninstall") }
         let selection = try ModelSelection(parsing: name)
         guard case .local(let scheme, let local) = selection else {

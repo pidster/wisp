@@ -1102,7 +1102,7 @@ _wisp_uninstall() {
 
 _wisp_update() {
     repeating_flags=()
-    non_repeating_flags=(--check --version -h --help)
+    non_repeating_flags=(--check --releases --version -h --help)
     repeating_options=()
     non_repeating_options=()
     __wisp_offer_flags_options 0

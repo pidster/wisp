@@ -99,3 +99,5 @@ model's commands can already reach the network inside the sandbox (`sandbox.allo
 it kept nothing on the Mac that `curl` would not send; it kept the model from knowing an update was out. An MCP client
 learns the same without a request: `wisp://status` gains `update`, the last check as `~/.wisp/update.json` keeps it,
 with `updates.check`'s setting and the running version ([mcp.md](../mcp.md)).
+
+Extended 2026-11-28 by [ADR 0091](0091-wisp-app-window.md): the recent releases are listed in `Wisp.app`'s window and by `wisp update --releases`, which the model may run (proposed).

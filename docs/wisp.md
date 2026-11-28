@@ -1651,17 +1651,51 @@ each step and recording each as `llamacpp.agent` with `trigger` `repair`; exit 1
 nothing that is not registered. `wisp doctor` names it when launchd refused to start the agent or holds a job Login
 Items does not list ([backends.md](backends.md), "Mending it").
 
-Opening `Wisp.app` from the Finder shows a dialog instead of starting a conversation: it offers **Install**, which
-does what `wisp install` does and shows the result; once installed, it says where; with something in the way, or
-from the disk image, it says what to do.
+Opening `Wisp.app` from the Finder opens a window instead of starting a conversation
+([ADR 0091](decisions/0091-wisp-app-window.md)). It has three tabs in its toolbar, and each does what the terminal
+does:
+
+- **Install** says whether wisp is on `PATH` and where, and offers **Install**, which does what `wisp install` does.
+  With something in the way, or from the disk image, it says what to do.
+- **Updates** shows the version, and **Check for Updates** lists the recent releases with their notes, as
+  `wisp update --releases` does. **Update to X.Y.Z…** installs the newest, as `wisp update` does, after asking.
+- **Models** lists what `wisp models list` lists. Each model has a switch that turns it on or off, and a menu with
+  **Check Capabilities** and, for a local runtime's model, **Uninstall…**, which asks you to type the name.
+  Under the list, **Pull…** fetches a Hugging Face repository after the same questions `wisp models pull` asks, and
+  **Add GGUF File…** links a file as `wisp models add` does.
+
+The window opens at Install while wisp is not on `PATH`, and at Models otherwise. It follows Apple's Human Interface
+Guidelines for a settings window, with the standard menu bar. What each
+model action says is kept under **Activity**, and the audit records them with `source` `finder`. Closing the window,
+or Quit, ends it.
 
 ### `wisp update`
 
 Update `Wisp.app` to the latest release ([ADR 0074](decisions/0074-wisp-update.md)).
 
 ```
-wisp update            # download, check, and replace Wisp.app when a newer release is out
-wisp update --check    # only say whether one is out
+wisp update             # download, check, and replace Wisp.app when a newer release is out
+wisp update --check     # only say whether one is out
+wisp update --releases  # list the recent releases with their notes
+```
+
+`--releases` lists the five newest releases, each with its day and a few lines of its notes. It marks the newest and
+the one running, then says what can be done about the newest: `wisp update` installs it, or why it cannot here. Only
+the newest is installed. An older release is for reading, since an older wisp may not read what a newer one wrote.
+Like `--check`, it records an `update.check` event and keeps the newest in `~/.wisp/update.json`.
+
+```
+$ wisp update --releases
+Wisp 0.35.4  2026-11-28  (newest)
+    0.35.4
+    Added
+    • wisp update --releases …
+    https://github.com/pidster/wisp/releases/tag/v0.35.4
+
+Wisp 0.35.3  2026-11-21  (this one)
+    …
+
+Wisp 0.35.4 is newer than this one, 0.35.3. wisp update installs it; only the newest can be installed, and older ones are for reading.
 ```
 
 It asks GitHub's API for wisp's latest release; when that is newer than the running `wisp`, it downloads
@@ -1678,7 +1712,7 @@ Once the new app is in place it registers it with Launch Services again (`lsregi
 wisp's own llama.cpp server is registered (or launchd holds its job), unregisters and registers it again through the
 new app's own `wisp`, so launchd runs the new app; the server stops and starts again ([backends.md](backends.md),
 "After an update"). Each step is said and recorded as `llamacpp.agent` with `trigger` `update`. A failure here does
-not fail the update: it is a warning naming `wisp llamacpp agent repair`. The Finder dialog's update does the same and
+not fail the update: it is a warning naming `wisp llamacpp agent repair`. The window's update does the same and
 shows any warning.
 
 ```
@@ -1695,15 +1729,15 @@ From Homebrew's cask it updates the app as for a download: the cask's `auto_upda
 move to the cask, which the formula ends at 0.34.2 for: `brew trust pidster/tap && brew uninstall
 --formula wisp && brew install --cask pidster/tap/wisp` ([ADR 0084](decisions/0084-homebrew-installs-the-app-from-a-cask.md)); from a build or an
 unpacked tarball, that it cannot update one; from the disk image, to move the app to Applications first. `--check`
-works from any of them. The default policy refuses `wisp update` to the model, but not `wisp update --check` on its
-own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an
+and `--releases` work from any of them. The default policy refuses `wisp update` to the model, but not
+`wisp update --check` or `wisp update --releases` on its own. An MCP client reads the last check in `wisp://status`'s `update` ([mcp.md](mcp.md)). Each check is an
 `update.check` event and each update an `update.install` event ([logging.md](logging.md)).
 
 With `updates.check` on (off by default), wisp asks at most once a day, when a chat starts, `wisp doctor` runs, or
 `Wisp.app` is opened from the Finder, keeps the answer in `~/.wisp/update.json`, and shows a newer version in the
 doctor's `update` line and the chat's status line (`0.31.1 available`, in plain chat and `wisp-tui`); it never
-installs. With it on, the Finder dialog offers **Update** when a newer release is out, and does what `wisp update`
-does. A release with no disk image (one made before 0.31.0, or with `--unsigned`) is reported by `--check`, and
+installs. With it on, opening `Wisp.app` from the Finder checks when a check is due and lists the releases; with it
+off, the window asks GitHub only when you click **Check for Updates**. A release with no disk image (one made before 0.31.0, or with `--unsigned`) is reported by `--check`, and
 `wisp update` says it has none.
 
 ### `wisp mcp`

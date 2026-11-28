@@ -8,7 +8,9 @@ import WispCore
 struct UpdateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
-        abstract: "Update Wisp.app to the latest release, or (--check) say whether there is one.",
+        abstract:
+            "Update Wisp.app to the latest release, (--check) say whether there is one, or (--releases) list the "
+            + "recent ones.",
         discussion:
             "Asks GitHub for the latest release. When it is newer, downloads Wisp-X.Y.Z.dmg and its sha256 to "
             + "~/Downloads, checks the checksum, that the app inside is signed by wisp's team and notarised, and "
@@ -16,12 +18,21 @@ struct UpdateCommand: AsyncParsableCommand {
             + "Services and, when wisp's llama.cpp server's Login Item is registered, registers it again. When macOS will not let "
             + "it replace the app, it leaves the app as it was and opens the disk image for you to drag the new one. "
             + "A Homebrew install is told to run brew upgrade pidster/tap/wisp. updates.check (off by default) checks "
-            + "once a day and shows a newer version in wisp doctor and the chat's status line.")
+            + "once a day and shows a newer version in wisp doctor and the chat's status line. --releases lists the "
+            + "last five releases with their day and notes, as Wisp.app's window does; only the newest is installed.")
 
     @Flag(help: "Only say whether a newer release is out; download nothing.")
     var check = false
 
+    @Flag(help: "List the recent releases with their notes; download nothing.")
+    var releases = false
+
+    func validate() throws {
+        if check && releases { throw ValidationError("--check and --releases are two ways to ask; give one") }
+    }
+
     func run() async throws {
+        if releases { return try await list() }
         let source = AppInstall.source(of: PackageLayout.current)
         var app: URL?
         if !check {
@@ -72,6 +83,16 @@ struct UpdateCommand: AsyncParsableCommand {
             print("opened \(image.path); drag Wisp.app onto Applications there to replace the old one")
             throw ExitCode.failure
         }
+    }
+
+    /// Lists the recent releases, the running one marked, and says what can be done about the newest.
+    private func list() async throws {
+        let session = try Wisp.begin(.init(entryPoint: .update))
+        defer { session.end() }
+        let result = await AppUpdate.checkListing(home: Wisp.home, source: "cli", audit: session.audit)
+        if let failure = result.failure { throw Self.failure("\(failure)") }
+        let source = AppInstall.source(of: PackageLayout.current)
+        for line in AppUpdate.listing(result.releases, current: WispVersion.current, source: source) { print(line) }
     }
 
     /// Says why on standard error, and returns the exit status 1 to throw.

@@ -434,7 +434,82 @@ import Testing
         #expect(policy.check("wisp update --check") == .allowed)
         #expect(policy.check("/Applications/Wisp.app/Contents/MacOS/wisp update --check") == .allowed)
         #expect(policy.check("wisp update --check 2>&1 | tail -3") == .allowed)
+        #expect(policy.check("wisp update --releases") == .allowed)
+        #expect(policy.check("wisp update --releases && wisp update") != .allowed)
         #expect(policy.check("wisp doctor") == .allowed)
+    }
+
+    /// GitHub's list of releases, out of order, with a draft, a pre-release, and a tag that is not a version.
+    private static let recent = Data(
+        #"""
+        [
+         {"tag_name": "v0.35.2", "html_url": "https://github.com/pidster/wisp/releases/tag/v0.35.2", "assets": [],
+          "body": "## 0.35.2\n\n### Fixed\n\n- **One** thing", "published_at": "2026-11-06T10:00:00Z"},
+         {"tag_name": "v0.36.0", "assets": [], "draft": true},
+         {"tag_name": "v0.35.4", "html_url": "https://github.com/pidster/wisp/releases/tag/v0.35.4",
+          "assets": [
+            {"name": "Wisp-0.35.4.dmg", "browser_download_url": "https://example.com/Wisp-0.35.4.dmg"},
+            {"name": "Wisp-0.35.4.dmg.sha256", "browser_download_url": "https://example.com/Wisp-0.35.4.dmg.sha256"}
+          ],
+          "body": "## 0.35.4\n\n- `wisp update --releases`", "published_at": "2026-11-28T09:30:00Z"},
+         {"tag_name": "v0.35.5-rc1", "assets": [], "prerelease": true},
+         {"tag_name": "nightly", "assets": []},
+         {"tag_name": "v0.35.3", "assets": []}
+        ]
+        """#.utf8)
+
+    @Test func readsTheRecentReleasesNewestFirst() throws {
+        let releases = try AppUpdate.releases(fromJSON: Self.recent)
+        #expect(releases.map(\.release.version) == ["0.35.4", "0.35.3", "0.35.2"])
+        #expect(releases[0].release.image != nil && releases[0].day == "2026-11-28")
+        #expect(releases[1].notes.isEmpty && releases[1].day.isEmpty)
+        #expect(try AppUpdate.releases(fromJSON: Self.recent, count: 1).count == 1)
+        #expect(throws: AppUpdate.Failure.unreadable("not a list of releases")) {
+            try AppUpdate.releases(fromJSON: Data("{}".utf8))
+        }
+    }
+
+    @Test func notesAreSummarisedAsPlainLines() {
+        #expect(
+            AppUpdate.summary(of: "## 0.35.2\n\n### Fixed\n\n- **One** `thing`") == ["0.35.2", "Fixed", "• One thing"])
+        let long = (1...9).map { "- item \($0)" }.joined(separator: "\n")
+        let summary = AppUpdate.summary(of: long, limit: 3)
+        #expect(summary == ["• item 1", "• item 2", "• item 3", "…"])
+        #expect(AppUpdate.summary(of: "").isEmpty)
+        let wrapped = "Added:\n\n- One thing,\n  wrapped\n  twice.\n- Two.\nA line\nwrapped."
+        #expect(AppUpdate.summary(of: wrapped) == ["Added:", "• One thing, wrapped twice.", "• Two. A line wrapped."])
+    }
+
+    @Test func theListingMarksTheNewestAndThisOneAndSaysWhatCanBeDone() throws {
+        let releases = try AppUpdate.releases(fromJSON: Self.recent)
+        let app = URL(filePath: "/Applications/Wisp.app")
+        let lines = AppUpdate.listing(releases, current: "0.35.3", source: .app(app))
+        #expect(lines.first == "Wisp 0.35.4  2026-11-28  (newest)")
+        #expect(lines.contains("Wisp 0.35.3  (this one)"))
+        #expect(lines.contains("    https://github.com/pidster/wisp/releases/tag/v0.35.2"))
+        #expect(lines.last?.hasPrefix("Wisp 0.35.4 is newer than this one, 0.35.3. wisp update installs it") == true)
+        let latest = AppUpdate.advice(releases, current: "0.35.4", source: .app(app), command: "Update")
+        #expect(latest == "This is the latest release, 0.35.4.")
+        let elsewhere = AppUpdate.advice(releases, current: "0.35.3", source: .elsewhere, command: "Update")
+        #expect(elsewhere.contains("cannot update itself"))
+        let noImage = AppUpdate.advice(Array(releases.dropFirst()), current: "0.35.2", source: .app(app), command: "x")
+        #expect(noImage.hasSuffix("It has no disk image, so it cannot be installed."))
+        #expect(
+            AppUpdate.advice([], current: "0.35.2", source: .app(app), command: "x")
+                == "GitHub lists no releases of wisp")
+    }
+
+    @Test func aListingIsKeptAndRecordedAsACheck() async throws {
+        let home = Home(root: try Self.scratch())
+        defer { try? FileManager.default.removeItem(at: home.root) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let releases = try AppUpdate.releases(fromJSON: Self.recent)
+        let found = await AppUpdate.checkListing(home: home, source: "finder", audit: nil, now: now) { releases }
+        #expect(found.failure == nil && found.releases.count == 3)
+        #expect(AppUpdate.state(home: home)?.latest == "0.35.4")
+        let none = await AppUpdate.checkListing(home: home, source: "finder", audit: nil, now: now) { [] }
+        #expect(none.failure == .unreadable("no releases") && none.releases.isEmpty)
+        #expect(AppUpdate.state(home: home)?.latest == nil)
     }
 }
 

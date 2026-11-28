@@ -61,3 +61,5 @@ the person's terminal or at their click, and change only links outside the home 
   the other. Both share `~/.wisp`.
 - `wisp install` and `wisp uninstall` are subcommands, so a prompt that is exactly the word `install` must now be
   given as `wisp respond install`.
+
+Extended 2026-11-28 by [ADR 0091](0091-wisp-app-window.md): the Finder dialog is now a window with install, update, and models (proposed).

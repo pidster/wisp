@@ -8,6 +8,14 @@ Notable changes in each release of wisp.
 
 ## Unreleased
 
+Added:
+
+- Opening `Wisp.app` from the Finder opens a window in place of the install dialog (ADR 0091). It has three tabs:
+  **Install**, as before; **Updates**, which lists the recent releases with their notes and installs the newest; and
+  **Models**, which can enable, disable, check, uninstall, pull, and add models, as `wisp models` does.
+- `wisp update --releases` lists the recent releases in a terminal, with their days, a few lines of notes, and the
+  one running marked. The model may run it, as it may run `wisp update --check`.
+
 Fixed:
 
 - `coreai:` models whose templates write tool calls in a format other than `<tool_call>` frames now make them

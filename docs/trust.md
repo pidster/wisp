@@ -111,8 +111,10 @@ never logged or shown ([ADR 0058](decisions/0058-a-shared-http-executor.md)).
 wisp asks whether it is current only when you or the model ask it to ([ADR 0074](decisions/0074-wisp-update.md)):
 `wisp update` and `wisp update --check` send one HTTPS request to GitHub's API for wisp's latest release, with the user
 agent `wisp` and nothing about you or your Mac beyond what any HTTPS request carries, and an update then downloads the
-disk image and its checksum from GitHub to `~/Downloads`. The default policy lets the model run `wisp update --check`
-on its own, which only reports, and refuses it `wisp update`. `updates.check`, off by default, makes the same request
+disk image and its checksum from GitHub to `~/Downloads`. `wisp update --releases`, and **Check for Updates** in
+`Wisp.app`'s window, send one such request for the recent releases instead ([ADR 0091](decisions/0091-wisp-app-window.md)).
+The default policy lets the model run `wisp update --check` or `wisp update --releases` on its own, which only report,
+and refuses it `wisp update`. `updates.check`, off by default, makes the same request
 at most once a day, when a chat starts, `wisp doctor` runs, or `Wisp.app` is opened, and never installs; each check is
 an `update.check` event in the audit log. A downloaded image is used only when its checksum matches and its app is
 signed by wisp's team and notarised by Apple.
@@ -305,7 +307,7 @@ not judge whether a conclusion follows from the output, and misses a result put 
 
 | Path | Contents | Permissions |
 | --- | --- | --- |
-| `~/.wisp/update.json` | when wisp last asked GitHub for its latest release (`wisp update`, `--check`, or `updates.check`), and the version it named or why it failed | yours |
+| `~/.wisp/update.json` | when wisp last asked GitHub for its latest release (`wisp update`, `--check`, `--releases`, the window's check, or `updates.check`), and the version it named or why it failed | yours |
 | `~/Downloads/Wisp-X.Y.Z.dmg` | the release `wisp update` downloaded, left for you to keep or delete (its checksum is read, not saved) | yours |
 | `~/.wisp/config.json` | your settings, written by you, by `wisp config set` and chat's `/config set`, and by `wisp models enable`, `disable`, and `check` and chat's `/models` (`models.disabled`, and the capabilities a check passed), and by `wisp models pull` when you trust a publisher (`mlx.trustedPublishers`) | yours; user-only once wisp writes it |
 | `~/.wisp/models/mlx/<name>` | links to the Hugging Face cache's snapshots, made by `wisp models pull` and by enabling a cached model | links |

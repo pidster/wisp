@@ -130,13 +130,26 @@ public enum AppUpdate {
         } catch {
             throw Failure.unreadable("not a release")
         }
-        guard let version = Version(body.tagName) else { throw Failure.unreadable("the tag \(body.tagName)") }
+        return try release(
+            tag: body.tagName, page: body.htmlURL, assets: body.assets.map { ($0.name, $0.browserDownloadURL) })
+    }
+
+    /// A release from its tag, page, and assets: the disk image and its `sha256` only when both are there.
+    ///
+    /// - Parameters:
+    ///   - tag: The tag, `v0.31.0`.
+    ///   - page: The release's page.
+    ///   - assets: Each asset's file name and download.
+    /// - Returns: The release.
+    /// - Throws: `Failure.unreadable` for a tag that is not a version.
+    static func release(tag: String, page: URL?, assets: [(name: String, url: URL)]) throws -> Release {
+        guard let version = Version(tag) else { throw Failure.unreadable("the tag \(tag)") }
         let name = "Wisp-\(version).dmg"
-        let image = body.assets.first { $0.name == name }?.browserDownloadURL
-        let checksum = body.assets.first { $0.name == name + ".sha256" }?.browserDownloadURL
+        let image = assets.first { $0.name == name }?.url
+        let checksum = assets.first { $0.name == name + ".sha256" }?.url
         return Release(
             version: "\(version)", image: checksum == nil ? nil : image, checksum: image == nil ? nil : checksum,
-            page: body.htmlURL)
+            page: page)
     }
 
     /// Asks GitHub for the latest release: one request, with the user agent `wisp` and nothing about the person.

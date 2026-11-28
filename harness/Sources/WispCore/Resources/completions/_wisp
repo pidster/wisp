@@ -72,7 +72,7 @@ _wisp() {
             'completions:Print or install wisp'\''s shell completions for zsh, bash, or fish.'
             'install:Link Wisp.app'\''s wisp and wisp-tui into ~/.local/bin, or a folder you name.'
             'uninstall:Remove the links to Wisp.app'\''s wisp and wisp-tui from ~/.local/bin, or a folder you name.'
-            'update:Update Wisp.app to the latest release, or (--check) say whether there is one.'
+            'update:Update Wisp.app to the latest release, (--check) say whether there is one, or (--releases) list the recent ones.'
             'help:Show subcommand help information.'
         )
         _describe -V subcommand subcommands && ret=0
@@ -1007,6 +1007,7 @@ _wisp_update() {
     local -i ret=1
     local -ar arg_specs=(
         '--check[Only say whether a newer release is out; download nothing.]'
+        '--releases[List the recent releases with their notes; download nothing.]'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )
