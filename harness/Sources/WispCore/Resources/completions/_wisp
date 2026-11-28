@@ -164,12 +164,13 @@ _wisp_models() {
             'pull:Fetch an MLX model from Hugging Face into its cache and link it, after asking.'
             'add:Add a GGUF file for wisp'\''s own llama.cpp server (llamacpp.server wisp), by linking it.'
             'uninstall:Remove a model and its settings, after you type its name.'
+            'forget:Forget a model wisp remembers that no runtime serves now, so it is no longer listed.'
         )
         _describe -V subcommand subcommands && ret=0
         ;;
     arg)
         case "${words[1]}" in
-        list|enable|disable|check|pull|add|uninstall)
+        list|enable|disable|check|pull|add|uninstall|forget)
             "_wisp_models_${words[1]}" && ret=0
             ;;
         esac
@@ -260,6 +261,18 @@ _wisp_models_uninstall() {
         ':model:{__wisp_custom_complete ---completion models uninstall -- positional@0 "${current_word_index}" "$(__wisp_cursor_index_in_current_word)"}'
         '--purge-cache[Also remove an MLX model'\''s repository from the Hugging Face cache, every revision.]'
         '(-y --yes)'{-y,--yes}'[Remove without asking you to type the name.]'
+        '--version[Show the version.]'
+        '(-h --help)'{-h,--help}'[Show help information.]'
+    )
+    _arguments -w -s -S : "${arg_specs[@]}" && ret=0
+
+    return "${ret}"
+}
+
+_wisp_models_forget() {
+    local -i ret=1
+    local -ar arg_specs=(
+        ':name:'
         '--version[Show the version.]'
         '(-h --help)'{-h,--help}'[Show help information.]'
     )

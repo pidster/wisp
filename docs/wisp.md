@@ -522,6 +522,7 @@ What a session shows, and where it goes:
 | `/models trust PUBLISHER` | Trust a Hugging Face organisation from now on: added to `mlx.trustedPublishers` in `config.json`, recorded as `config.change`, so its pulls ask only about the download. The person's alone: the model's `models` tool cannot. |
 | `/models cancel [REPOSITORY]` | Stop a pull the model asked for, running in the background (all of them without a name); what arrived is kept, and the conversation gets a note saying so. |
 | `/models add PATH` | Add a GGUF file for wisp's own llama.cpp server, as `wisp models add` does (below): linked into wisp's llama.cpp models folder, the file left where it is, under `llamacpp.server wisp` only; the rest of the line is the path, spaces and all. Audited with `source` `chat` ([ADR 0082](decisions/0082-a-llama-cpp-server-wisp-starts.md)). |
+| `/models forget NAME` | Forget a model wisp remembers that no runtime serves now, as `wisp models forget` does (below) ([ADR 0092](decisions/0092-a-model-registry.md)). |
 | `/models uninstall NAME [--purge-cache]` | Remove a model and its settings, as `wisp models uninstall` does (below): the plan as notes, then the model's name typed at the prompt, or in `wisp-tui`'s text box, to go ahead; anything else leaves it ([ADR 0075](decisions/0075-wisp-models-uninstall.md)). |
 | `/model [name]` | Switch the conversation to `name` (`system`, `private-cloud`, `ollama:<name>`, `<backend>:<name>`), resuming the transcript on it; the status line shows the change. No name shows the current model and its capabilities; in `wisp-tui` (and any front end that answers a `choice`) it then offers, as a picker titled "Switch to which model?", the models it can switch to, the enabled ones that can serve the conversation's tools, the one in use marked: choosing one switches, and no answer or the one in use says `model unchanged`. The status bar's model item sends it. A model that cannot serve the conversation's tools is refused with the usual hint, and a disabled one with how to enable it; nothing changes. Tab offers the enabled models only. |
 | `/think [on\|off\|LEVEL]` | Whether the conversation's model thinks: `on`, `off`, or for Ollama and llama.cpp a level (`low`, `medium`, `high`, `max`). Saved as the model's default, `<runtime>.models.<name>.think`, as `/config set` saves it (audited as a `config.change`), and applied to the conversation at once, as `respond`'s `think` is, where a setting changed with `/config` is read only as a session starts; switching back to the model later in the session keeps it. No argument shows it (`thinking: off (ollama.models.granite4.2:8b.think)`) and, in `wisp-tui`, offers the choices in a picker. A model that cannot think, or whose runtime has no such setting (Apple's, LM Studio's), is refused: `system has no thinking to turn on or off`. The status line shows the choice ([ADR 0053](decisions/0053-the-models-thinking-shown.md), amended 2026-10-15). |
@@ -1073,6 +1074,21 @@ left for you to change. The model's name, as typed or as the plan spells it, goe
 1). Each removal is a `model.uninstall` event and each setting cleared a `config.change`. The model's `models` tool
 does not offer it, and the default policy refuses `wisp models uninstall` to the model. Chat has the same as
 `/models uninstall NAME [--purge-cache]`, asking for the name at the prompt or in `wisp-tui`'s text box.
+Uninstalling a model also removes it from the models wisp remembers, so it is not listed as unavailable afterwards.
+
+#### `wisp models forget <name>`
+
+Removes a model from the models wisp remembers ([ADR 0092](decisions/0092-a-model-registry.md)), so a model whose
+runtime no longer has it, or that you no longer want reminding of, stops being listed as `not available`. Nothing on
+disk or in `config.json` changes. A model a runtime serves now is refused, since the next listing would list it
+again; [`wisp models uninstall`](#wisp-models-uninstall-name---purge-cache---yes) removes one. Each is a
+`model.forget` event. The model's `models` tool does not offer it, and the default policy refuses
+`wisp models forget` to the model. Chat has the same as `/models forget NAME`.
+
+```
+$ wisp models forget ollama:qwen3.8:27b
+forgot ollama:qwen3.8:27b: it is no longer listed; nothing on disk or in config.json changed
+```
 
 ### `wisp config`
 

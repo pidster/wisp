@@ -163,9 +163,9 @@ public struct CommandPolicy: Codable, Equatable, Sendable {
         nestedWisp,
         // Nor does it fetch a model: the download is the person's to approve (ADR 0052).
         #"(^|[\s;&|(/])wisp\s+models\s+pull\b"#,
-        // Nor does it remove one (ADR 0075), or add a GGUF file for wisp's llama.cpp server (ADR 0082): both are the
-        // person's alone.
-        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?models["']?\s+["']?(uninstall|add)\b"#,
+        // Nor does it remove one (ADR 0075), add a GGUF file for wisp's llama.cpp server (ADR 0082), or forget one wisp
+        // remembers (ADR 0092): each is the person's alone.
+        #"(^|[\s;&|(/"'\\{`])wisp["']?\s+["']?models["']?\s+["']?(uninstall|add|forget)\b"#,
         // Nor does it approve the llama-server wisp's own server runs, or take the approval away, or turn that server on
         // or off or change what it runs with (ADR 0082): what wisp runs outside its sandbox, kept running by a
         // LaunchAgent, is the person's to name. Every `llamacpp.server…` setting.

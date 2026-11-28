@@ -90,6 +90,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
         case modelVerified
         case modelUninstall
         case modelAdd
+        case modelForget
         case llamaCppServerApprove
         case llamaCppServerRefused
         case llamaCppServerStart
@@ -165,6 +166,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             .modelVerified,
             .modelUninstall,
             .modelAdd,
+            .modelForget,
             .llamaCppServerApprove,
             .llamaCppServerRefused,
             .llamaCppServerStart,
@@ -240,6 +242,7 @@ public struct AuditEvent: Codable, Equatable, Sendable {
             case .modelVerified: "model.verified"
             case .modelUninstall: "model.uninstall"
             case .modelAdd: "model.add"
+            case .modelForget: "model.forget"
             case .llamaCppServerApprove: "llamacpp.server.approve"
             case .llamaCppServerRefused: "llamacpp.server.refused"
             case .llamaCppServerStart: "llamacpp.server.start"

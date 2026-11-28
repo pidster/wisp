@@ -32,6 +32,8 @@ public struct ModelActions: Sendable {
         case uninstall
         /// Link a GGUF file into wisp's llama.cpp models folder (ADR 0082).
         case add
+        /// Forget a model wisp remembers that no runtime serves now (ADR 0092).
+        case forget
 
         /// What it reads.
         public var reads: String {
@@ -44,6 +46,7 @@ public struct ModelActions: Sendable {
             case .switchModel: "the model's backend"
             case .uninstall: "the model's runtime or folder, the Hugging Face cache, config.json"
             case .add: "the GGUF file's first bytes, wisp's llama.cpp models folder"
+            case .forget: "every backend's models, ~/.wisp/models.json"
             }
         }
 
@@ -58,12 +61,13 @@ public struct ModelActions: Sendable {
             case .switchModel: "the conversation's model"
             case .uninstall: "removes the model's files (Ollama's copy, a link, a folder to the Bin) and its settings"
             case .add: "a link in wisp's llama.cpp models folder to the GGUF file, which stays where it is"
+            case .forget: "removes the model from ~/.wisp/models.json; nothing on disk"
             }
         }
 
         /// Whether the model's `models` tool offers it: `trust`, `uninstall`, and `add` are the person's alone, and a
         /// model choosing its own successor (`switch`) is a decision not taken.
-        public var forModel: Bool { ![.trust, .switchModel, .uninstall, .add].contains(self) }
+        public var forModel: Bool { ![.trust, .switchModel, .uninstall, .add, .forget].contains(self) }
 
         /// Whether the model's request for it asks the person: every action that changes something.
         public var asksPerson: Bool { forModel && changes != nil }
@@ -75,7 +79,7 @@ public struct ModelActions: Sendable {
             switch self {
             case .pull: .once
             case .enable, .disable, .check: .session
-            case .list, .show, .trust, .switchModel, .uninstall, .add: nil
+            case .list, .show, .trust, .switchModel, .uninstall, .add, .forget: nil
             }
         }
     }
@@ -106,6 +110,8 @@ public struct ModelActions: Sendable {
         case alreadyPulling(String)
         /// A pull asks the person before it fetches, and there is no one to ask here.
         case notInteractive
+        /// The model to forget is served now, so the next listing would list it again.
+        case stillServed(String)
 
         /// Human-readable explanation.
         public var description: String {
@@ -123,6 +129,9 @@ public struct ModelActions: Sendable {
             case .alreadyPulling(let repository):
                 "\(repository) is being pulled already; its end will arrive as a note"
             case .notInteractive: "a pull asks the person before it fetches, so it runs only where they can answer"
+            case .stillServed(let model):
+                "\(model) is served now, so it would be listed again; forget is for a model no runtime serves, and "
+                    + "wisp models uninstall removes one that is"
             }
         }
     }

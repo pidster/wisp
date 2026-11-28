@@ -529,6 +529,8 @@ public enum ModelsRequest: Equatable, Sendable {
     case uninstall(String, purgeCache: Bool)
     /// Link a GGUF file into wisp's llama.cpp models folder, the path as typed, spaces kept (ADR 0082).
     case add(String)
+    /// Forget a model wisp remembers that no runtime serves now (ADR 0092).
+    case forget(String)
     /// Anything else, with the word that was not understood, or `enable`, `disable`, `check`, `pull`, or `trust`
     /// with no name.
     case unknown(String)
@@ -536,7 +538,7 @@ public enum ModelsRequest: Equatable, Sendable {
     /// How to use `/models`, as an unknown argument is answered.
     public static let usage =
         "/models, or /models enable|disable|check NAME…, pull REPOSITORY, trust PUBLISHER, cancel [REPOSITORY], "
-        + "add PATH, uninstall NAME [--purge-cache]"
+        + "add PATH, uninstall NAME [--purge-cache], forget NAME"
 
     /// Parses what follows `/models`.
     public init(_ argument: String?) {
@@ -553,6 +555,7 @@ public enum ModelsRequest: Equatable, Sendable {
             // The rest of the line, so a path with spaces in it arrives whole.
             let rest = (argument ?? "").drop { $0.isWhitespace }.dropFirst("add".count)
             self = .add(rest.trimmingCharacters(in: .whitespaces))
+        case "forget" where parts.count == 2: self = .forget(parts[1])
         case "uninstall" where parts.count == 2 && parts[1] != "--purge-cache":
             self = .uninstall(parts[1], purgeCache: false)
         case "uninstall" where parts.count == 3 && parts.filter({ $0 == "--purge-cache" }).count == 1:

@@ -339,7 +339,7 @@ private final class GoneOllama: URLProtocol {
         #expect(ModelsRequest("uninstall mlx:q --purge-cache") == .uninstall("mlx:q", purgeCache: true))
         #expect(ModelsRequest("uninstall") == .unknown("uninstall"))
         #expect(ModelsRequest("uninstall --purge-cache") == .unknown("uninstall"))
-        #expect(ModelsRequest.usage.hasSuffix("uninstall NAME [--purge-cache]"))
+        #expect(ModelsRequest.usage.hasSuffix("uninstall NAME [--purge-cache], forget NAME"))
         let policy = CommandPolicy()
         #expect(policy.check("wisp models uninstall ollama:x --yes") != .allowed)
         #expect(policy.check("/opt/homebrew/bin/wisp 'models' uninstall x") != .allowed)
@@ -350,5 +350,45 @@ private final class GoneOllama: URLProtocol {
                 && !ModelActions.Action.uninstall.reads.isEmpty)
         #expect("\(ModelActions.UninstallFailure.notInteractive("m"))".hasSuffix("or pass --yes"))
         #expect(ModelRemoval.formatted(2_020_000_000) == "2.02 GB")
+    }
+
+    /// A model wisp remembers that no runtime serves is forgotten on the person's word and recorded; one a runtime
+    /// serves, one not listed, and the model's tool are refused; chat parses it and the policy refuses it to the model.
+    @Test func aModelNoRuntimeServesIsForgottenOnThePersonsWord() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = try home("{}")
+        let registry = ModelRegistry.Store(home: home)
+        try registry.update { registry in
+            registry.merge(
+                served: [InstalledModel(selection: .ollama("granite4.2:8b"), detail: "8B")], day: "2026-11-01")
+        }
+        let sink = MemoryAuditSink()
+        let session = try Session.begin(
+            .init(entryPoint: .models, model: .system), home: home, dependencies: .testing(sink: sink))
+        defer { session.end() }
+        let actions = ModelActions(session: session, face: .cli)
+
+        await #expect(throws: ModelActions.Failure.notForTheModel("forget")) {
+            try await ModelActions(session: session, face: .tool).forget("ollama:granite4.2:8b")
+        }
+        let line = try await actions.forget("ollama:granite4.2:8b")
+        #expect(
+            line == "forgot ollama:granite4.2:8b: it is no longer listed; nothing on disk or in config.json changed")
+        #expect(registry.load().record("ollama:granite4.2:8b") == nil)
+        let event = try #require(sink.events.last)
+        #expect(event.kind == .modelForget && event.details["model"] == "ollama:granite4.2:8b")
+        #expect(event.details["source"] == "cli")
+        await #expect(throws: ModelActions.Failure.unknownModel("ollama:granite4.2:8b")) {
+            try await actions.forget("ollama:granite4.2:8b")
+        }
+
+        var served = actions
+        served.listing = { _ in .init(entries: [.init(selection: .ollama("q"), capabilities: ["toolCalling"])]) }
+        await #expect(throws: ModelActions.Failure.stillServed("ollama:q")) { try await served.forget("ollama:q") }
+
+        #expect(ModelsRequest("forget ollama:x") == .forget("ollama:x"))
+        #expect(ModelsRequest("forget") == .unknown("forget"))
+        #expect(CommandPolicy().check("wisp models forget ollama:x") != .allowed)
+        #expect(!ModelActions.Action.forget.forModel && ModelActions.Action.forget.remembered == nil)
     }
 }

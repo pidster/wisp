@@ -1002,6 +1002,7 @@ extension AuditEvent {
         case .modelUninstall:
             ["model", "steps", "bytes", "purgeCache", "settings", "default", "outcome", "reason", "source"]
         case .modelAdd: ["model", "path", "file", "link", "bytes", "outcome", "reason", "source"]
+        case .modelForget: ["model", "source"]
         case .llamaCppServerApprove:
             [
                 "path", "resolved", "sha256", "previousPath", "previousResolved", "previousSha256", "outcome",

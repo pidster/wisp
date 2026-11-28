@@ -17,6 +17,8 @@ Added:
 - The Updates tab shows this version's release notes in a few lines, with links to its release page and to all
   releases on GitHub. The notes are built into the app, so nothing is asked of GitHub to show them.
   `wisp update --notes` prints the same in a terminal.
+- `wisp models forget NAME`, and `/models forget NAME` in chat, stop wisp listing a model it remembers that no
+  runtime serves now; nothing on disk changes, and a served model is refused (ADR 0092).
 - `wisp update --releases` lists the recent releases in a terminal, with their days, a few lines of notes, and the
   one running marked. The model may run it, and `--notes`, as it may run `wisp update --check`.
 

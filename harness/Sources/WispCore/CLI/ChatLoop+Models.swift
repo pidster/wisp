@@ -41,6 +41,12 @@ extension ChatLoop {
             } catch {
                 io.note(style.ember("error: \(error)"))
             }
+        case .forget(let name):
+            do {
+                io.note(try await actions.forget(name))
+            } catch {
+                io.note(style.ember("error: \(error)"))
+            }
         case .unknown(let word):
             io.note("unknown /models argument '\(word)'; \(ModelsRequest.usage)")
         case .list:

@@ -1113,7 +1113,9 @@ struct Models: AsyncParsableCommand {
         abstract:
             "List, enable, or disable the models usable with --model and config.json, fetch an MLX model, or remove "
             + "one.",
-        subcommands: [List.self, Enable.self, Disable.self, Check.self, Pull.self, Add.self, Uninstall.self],
+        subcommands: [
+            List.self, Enable.self, Disable.self, Check.self, Pull.self, Add.self, Uninstall.self, Forget.self,
+        ],
         defaultSubcommand: List.self)
 
     /// Links a GGUF file into wisp's llama.cpp models folder, for wisp's own llama.cpp server (ADR 0082).
@@ -1282,6 +1284,31 @@ struct Models: AsyncParsableCommand {
             let session = try Wisp.begin(.init(entryPoint: .models))
             defer { session.end() }
             try await Models.check(names, force: true, session: session)
+        }
+    }
+
+    /// Forgets a model wisp remembers that no runtime serves now (ADR 0092).
+    struct Forget: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Forget a model wisp remembers that no runtime serves now, so it is no longer listed.",
+            discussion:
+                "wisp remembers every model it has listed, in ~/.wisp/models.json, so a model whose runtime is not "
+                + "running is still listed with what brings it back. forget removes one from that list; nothing on "
+                + "disk or in config.json changes. A model a runtime serves now is refused, since it would be listed "
+                + "again; wisp models uninstall removes one.")
+
+        @Argument(help: "The model, as --model names it.")
+        var name: String
+
+        func run() async throws {
+            let session = try Wisp.begin(.init(entryPoint: .models))
+            defer { session.end() }
+            do {
+                print(try await ModelActions(session: session, face: .cli).forget(name))
+            } catch {
+                FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+                throw ExitCode.failure
+            }
         }
     }
 
