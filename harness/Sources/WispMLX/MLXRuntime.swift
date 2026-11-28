@@ -28,7 +28,7 @@
         /// - Throws: When the template cannot render the prompt.
         func tokens(for prompt: MLXPrompt) throws -> [Int] {
             try tokenizer.applyChatTemplate(
-                messages: prompt.messages.map(ChatTemplateValues.message),
+                messages: ChatTemplateValues.messages(prompt.messages),
                 tools: ChatTemplateValues.tools(prompt.tools),
                 additionalContext: ChatTemplateValues.context(thinking: prompt.thinking))
         }

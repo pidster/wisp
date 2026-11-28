@@ -150,5 +150,6 @@ channels, `<|return|>` for harmony, where `<|end|>` ends one message of several 
 Mistral-7B-Instruct-v0.3's template also stops rendering unless every call carries an `id` of nine letters and
 digits and every tool message the `tool_call_id` it answers. The transcript keeps no ids, so the Core AI prompt numbers
 the calls (`call00001`, …) and gives each tool message the oldest unanswered call's (`ChatTemplateValues.messages`).
-MLX's executor still maps messages one by one: its runtime is built only with the `MLX` trait, which the gate does not
-build, so it is left for a change that can run `scripts/check mcp-build`.
+MLX's executor renders the same templates, so it takes the same numbered messages; its runtime is built only with
+the `MLX` trait, which the gate does not build, so that change is checked by `scripts/check mcp-build`. Reading
+Mistral's calls on MLX is still mlx-swift-lm's.
