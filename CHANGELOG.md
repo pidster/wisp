@@ -32,7 +32,8 @@ Changed:
   `AVAILABLE` field after `ENABLED`, so `CAPABILITIES` moves from the tenth field to the eleventh. The model's
   `models` tool lists such a model too, with why, so it can tell you what to do; asked to enable or check one, it is
   told the model is not available rather than asking you. `wisp threads` and `wisp://threads` mark a saved thread
-  whose model was not available at the last listing, with why.
+  whose model was not available at the last listing, with why. `Wisp.app`'s Models tab greys such a model, with why,
+  and offers **Forget…**.
 
 Fixed:
 

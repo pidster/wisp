@@ -92,6 +92,10 @@ import Testing
                 add: { file in
                     self.calls.append("add \(file.lastPathComponent)")
                     return ["linked \(file.lastPathComponent)"]
+                },
+                forget: { name in
+                    self.calls.append("forget \(name)")
+                    return "forgot \(name)"
                 })
         }
 
@@ -266,5 +270,28 @@ import Testing
         await panel.refreshModels()
         #expect(panel.unreachable == ["No Ollama server at http://127.0.0.1:11434: Could not connect to the server."])
         #expect(AppPanel.unreachableNote("odd line with no scheme") == "Odd line with no scheme")
+    }
+
+    @Test func anUnavailableModelIsShownSoAndCanBeForgottenOnceConfirmed() async throws {
+        let script = Script()
+        var gone = ModelListing.Entry(
+            selection: .ollama("qwen3.8:27b"), detail: "27B", problem: "Ollama is not running; open Ollama")
+        gone.available = false
+        script.entries.append(gone)
+        let panel = AppPanel(services: script.services(), prompts: script.prompts)
+        await panel.refreshModels()
+        let row = try #require(panel.models.first { $0.name == "ollama:qwen3.8:27b" })
+        #expect(!row.available && row.problem == "Ollama is not running; open Ollama")
+        #expect(panel.models.first { $0.name == "system" }?.available == true)
+        script.confirms = false
+        await panel.forget(row)
+        #expect(!script.calls.contains("forget ollama:qwen3.8:27b"))
+        script.confirms = true
+        await panel.forget(row)
+        #expect(script.calls.contains("forget ollama:qwen3.8:27b") && panel.log.contains("forgot ollama:qwen3.8:27b"))
+        #expect(script.asked.contains { $0.hasPrefix("Forget ollama:qwen3.8:27b? | Wisp stops listing it.") })
+        let served = try #require(panel.models.first { $0.name == "system" })
+        await panel.forget(served)
+        #expect(!script.calls.contains("forget system"), "a served model is not forgotten")
     }
 }

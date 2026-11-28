@@ -248,7 +248,8 @@ enum FinderLaunch {
             pull: { text, dialog in try await actions.pull(text, dialog: dialog) },
             add: { file in
                 try actions.add(file.path, workingDirectory: FileManager.default.homeDirectoryForCurrentUser)
-            })
+            },
+            forget: { name in try await actions.forget(name) })
     }
 
     /// Replaces the app with `release`, as `wisp update` does, and says what came of it.

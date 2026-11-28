@@ -1,7 +1,8 @@
 # ADR 0092: A model registry: what is known, what is available, what is enabled
 
 Date: 2026-11-28. Status: proposed 2026-11-28, at the operator's request; the operator answered its open questions
-the same day (below). Stages 1 and 2 built 2026-11-28: the registry and its file, and the listing that keeps and reads it. Follows
+the same day (below). Stages 1 to 4 built 2026-11-28: the registry, the listing, the terminal, the model's tool, saved threads, and
+the window. Follows
 [ADR 0056](0056-models-enabled-and-disabled.md) (enabling and checking models),
 [ADR 0059](0059-one-set-of-model-actions.md) (`ModelActions`), and [ADR 0091](0091-wisp-app-window.md) (the window's Models
 tab).
@@ -107,13 +108,13 @@ Each stage is a commit, with tests that need no model and docs in the same commi
    - The per-runtime reasons (decision 5) come from each backend, through a new `ModelBackend.unavailable(...)` with a
      default.
    - The existing listing tests are extended for a runtime that does not answer.
-3. **The terminal.**
+3. **The terminal** (built 2026-11-28).
    - `wisp models list`, its `--json`, and chat's `/models` show the three states.
    - `wisp models forget` is added, with `/models forget`.
    - The `models` tool lists unavailable models with their reasons (decision 7).
    - `wisp threads` and `wisp://threads` mark a thread whose model is unavailable (decision 8).
    - Pulls, adds, checks, and uninstalls keep the registry current.
-4. **The window.** Unavailable models are greyed in the Models tab, with the reason, the step, and **Forget**. ADR 0091's
+4. **The window** (built 2026-11-28). Unavailable models are greyed in the Models tab, with the reason, the step, and **Forget**. ADR 0091's
    footnote stays for a runtime with nothing registered.
 5. **Docs and acceptance.**
    - `wisp.md` (`models list`, `forget`), `logging.md` (`model.forget`), `trust.md` (the new file in the table of what

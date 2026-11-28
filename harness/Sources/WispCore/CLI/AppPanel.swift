@@ -37,6 +37,8 @@ import Observation
         public var pull: @MainActor (String, PullDialog) async throws -> PullResult
         /// Links a GGUF file for wisp's llama.cpp server, returning the lines to show.
         public var add: @MainActor (URL) throws -> [String]
+        /// Forgets a model wisp remembers that no runtime serves, returning the line to show (ADR 0092).
+        public var forget: @MainActor (String) async throws -> String
 
         /// Creates the services.
         public init(
@@ -49,7 +51,8 @@ import Observation
             check: @escaping @MainActor (String, @escaping @Sendable (String) -> Void) async throws -> Void,
             uninstall: @escaping @MainActor (String, ModelActions.UninstallDialog) async throws -> Bool,
             pull: @escaping @MainActor (String, PullDialog) async throws -> PullResult,
-            add: @escaping @MainActor (URL) throws -> [String]
+            add: @escaping @MainActor (URL) throws -> [String],
+            forget: @escaping @MainActor (String) async throws -> String
         ) {
             self.welcome = welcome
             self.install = install
@@ -64,6 +67,7 @@ import Observation
             self.uninstall = uninstall
             self.pull = pull
             self.add = add
+            self.forget = forget
         }
     }
 
@@ -121,6 +125,9 @@ import Observation
         public var problem: String?
         /// Whether wisp can remove it: a local runtime's model, not one of Apple's.
         public var removable: Bool
+        /// Whether its runtime serves it now; false for a model wisp remembers whose runtime does not, which `problem`
+        /// then explains, and which can be forgotten (ADR 0092).
+        public var available: Bool
 
         /// The row's identity: its name.
         public var id: String { name }
@@ -142,6 +149,7 @@ import Observation
             enabled = entry.enabled
             problem = entry.problem
             if case .local = entry.selection { removable = true } else { removable = false }
+            available = entry.available
         }
     }
 
@@ -343,6 +351,19 @@ import Observation
                 })
             _ = try await self.services.uninstall(row.name, dialog)
         }
+    }
+
+    /// Forgets a model wisp remembers that no runtime serves, after the person confirms, as `wisp models forget` does.
+    ///
+    /// - Parameter row: The model.
+    public func forget(_ row: ModelRow) async {
+        guard !row.available else { return }
+        let yes = await prompts.confirm(
+            "Forget \(row.name)?",
+            "Wisp stops listing it. Nothing on disk or in config.json changes, and it is listed again if its runtime "
+                + "serves it later.", "Forget")
+        guard yes else { return }
+        await run("Forgetting \(row.name)…") { say in say(try await self.services.forget(row.name)) }
     }
 
     /// Pulls a model from Hugging Face, after the questions `wisp models pull` asks (ADR 0052).

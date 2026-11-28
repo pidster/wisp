@@ -62,7 +62,8 @@ They also asked that the terminal can do whatever the window does, in a form peo
      while the resource and the changelog's section differ. The operator asked for this on 2026-11-28.
 4. **Models, as `wisp models` does them** (`ModelActions`, with a new face, `finder`, which the audit records as
    `source`). Each action asks what the terminal asks, as a sheet:
-   - **The listing:** the models `wisp models list` shows. Each runtime that could not be asked is named under it, as
+   - **The listing:** the models `wisp models list` shows, a model wisp remembers that no runtime serves greyed with
+     its reason and **Forget…** in its menu (ADR 0092). Each runtime that could not be asked is named under it, as
      the terminal names it.
    - **Enable and disable:** turning an MLX model on checks it when its capabilities are undeclared (ADR 0056).
    - **Check:** the model is loaded and asked its three questions.

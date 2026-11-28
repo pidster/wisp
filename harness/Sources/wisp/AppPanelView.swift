@@ -185,7 +185,7 @@ struct AppPanelView: View {
             ForEach(panel.models) { row in model(row) }
         } header: {
             HStack {
-                Text("Available Models")
+                Text("Models")
                 Spacer()
                 if panel.listing { ProgressView().controlSize(.small) }
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await panel.refreshModels() } }
@@ -214,19 +214,27 @@ struct AppPanelView: View {
     private func model(_ row: AppPanel.ModelRow) -> some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.name).font(.body.monospaced())
+                // A model wisp remembers that no runtime serves is greyed, with why and what brings it back (ADR 0092).
+                Text(row.name).font(.body.monospaced()).foregroundStyle(row.available ? .primary : .secondary)
                 if !row.detail.isEmpty { Text(row.detail).font(.caption).foregroundStyle(.secondary) }
                 if let problem = row.problem {
-                    Label(problem, systemImage: "exclamationmark.triangle.fill").symbolRenderingMode(.multicolor)
-                        .font(.caption)
+                    Label(
+                        row.available ? problem : "Not available: \(problem)",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .symbolRenderingMode(.multicolor).font(.caption)
                 }
             }
             Spacer()
             Menu {
-                Button("Check Capabilities") { Task { await panel.check(row) } }
-                if row.removable {
-                    Divider()
-                    Button("Uninstall…", role: .destructive) { Task { await panel.uninstall(row) } }
+                if row.available {
+                    Button("Check Capabilities") { Task { await panel.check(row) } }
+                    if row.removable {
+                        Divider()
+                        Button("Uninstall…", role: .destructive) { Task { await panel.uninstall(row) } }
+                    }
+                } else {
+                    Button("Forget…") { Task { await panel.forget(row) } }
                 }
             } label: {
                 Label("Actions for \(row.name)", systemImage: "ellipsis.circle").labelStyle(.iconOnly)

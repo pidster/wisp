@@ -1083,7 +1083,7 @@ runtime no longer has it, or that you no longer want reminding of, stops being l
 disk or in `config.json` changes. A model a runtime serves now is refused, since the next listing would list it
 again; [`wisp models uninstall`](#wisp-models-uninstall-name---purge-cache---yes) removes one. Each is a
 `model.forget` event. The model's `models` tool does not offer it, and the default policy refuses
-`wisp models forget` to the model. Chat has the same as `/models forget NAME`.
+`wisp models forget` to the model. Chat has the same as `/models forget NAME`, and `Wisp.app`'s Models tab as **Forget…**.
 
 ```
 $ wisp models forget ollama:qwen3.8:27b
@@ -1695,7 +1695,9 @@ does:
 - **Models** lists what `wisp models list` lists. Each model has a switch that turns it on or off, and a menu with
   **Check Capabilities** and, for a local runtime's model, **Uninstall…**, which asks you to type the name. A
   runtime that could not be asked, such as Ollama when it is not running, is named under the list, as
-  `wisp models list` names it, so a missing model has its reason beside it.
+  `wisp models list` names it, so a missing model has its reason beside it. A model wisp remembers that no runtime
+  serves now is greyed, with `Not available:` and what brings it back, and its menu offers **Forget…**
+  ([ADR 0092](decisions/0092-a-model-registry.md)).
   Under the list, **Pull…** fetches a Hugging Face repository after the same questions `wisp models pull` asks, and
   **Add GGUF File…** links a file as `wisp models add` does.
 
